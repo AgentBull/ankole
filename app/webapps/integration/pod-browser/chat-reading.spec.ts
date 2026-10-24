@@ -67,7 +67,7 @@ test('a labeled network growth fixture preserves reading, then follows after Jum
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   const id = state.history_conversation_id
-  const detailPath = `/.internal-apis/pod/conversations/${id}`
+  const detailPath = `/api/v2/pod/conversations/${id}`
   const eventsPath = `${detailPath}/events`
   const fixtureIDs = [crypto.randomUUID(), crypto.randomUUID()]
   let growth = 0

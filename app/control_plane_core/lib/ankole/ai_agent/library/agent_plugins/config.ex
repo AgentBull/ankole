@@ -10,7 +10,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
-  alias Ankole.Repo
 
   @agent_plugin_defaults_key "ai_agent.library.agent_plugin_defaults"
   @skill_defaults_key "ai_agent.library.skill_defaults"
@@ -28,7 +27,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   @doc "Reads current defaults from PostgreSQL without the configuration cache."
   @spec defaults_in_tx() ::
           {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
-  def defaults_in_tx, do: defaults(&AppConfigure.get_in_tx(Repo, &1))
+  def defaults_in_tx, do: defaults(&AppConfigure.get_in_tx(&1))
 
   defp defaults(read) do
     with {:ok, agent_plugins} <- read.(agent_plugin_defaults_definition()),

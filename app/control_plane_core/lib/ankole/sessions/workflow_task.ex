@@ -34,17 +34,18 @@ defmodule Ankole.Sessions.WorkflowTask do
   end
 
   defp complete_workflow_input(event, now) do
-    case event |> Ankole.Sessions.close_workflow_input(now) |> Ankole.Errors.reason() do
+    case Ankole.Repo.transact_top_level(fn -> complete_input_in_tx(event, now) end)
+         |> Ankole.Errors.reason() do
       {:ok, value} -> {:closed, value}
       error -> error
     end
   end
 
   @doc false
-  def complete_input_in_tx(repo, event, now) do
-    with {:ok, :not_committed} <- Run.finalize_committed_workflow_input_in_tx(repo, event),
-         %Signal{} = current <- Ankole.Signals.lock_signal_in_tx(repo, event.id),
-         {:ok, completed} <- Queue.mark_event_completed_in_tx(repo, current, now) do
+  def complete_input_in_tx(event, now) do
+    with {:ok, :not_committed} <- Run.finalize_committed_workflow_input_in_tx(event),
+         %Signal{} = current <- Ankole.Signals.lock_signal_in_tx(event.id),
+         {:ok, completed} <- Queue.mark_event_completed_in_tx(current, now) do
       {:ok, %{status: :completed, signal: completed}}
     else
       {:ok, %{status: :completed} = result} -> {:ok, result}
@@ -53,15 +54,14 @@ defmodule Ankole.Sessions.WorkflowTask do
   end
 
   def finalize_input_in_tx(
-        repo,
         %Signal{last_attempt_at: %DateTime{}} = event,
         %{kind: :workflow_task}
       ),
-      do: Run.finalize_committed_workflow_input_in_tx(repo, event)
+      do: Run.finalize_committed_workflow_input_in_tx(event)
 
-  def finalize_input_in_tx(_repo, _event, _plan), do: {:ok, :not_committed}
+  def finalize_input_in_tx(_event, _plan), do: {:ok, :not_committed}
 
-  def fail_exhausted_in_tx(repo, event, %{kind: :workflow_task, call_id: id}, reason) do
+  def fail_exhausted_in_tx(event, %{kind: :workflow_task, call_id: id}, reason) do
     failure =
       Map.merge(reason, %{
         "ok" => false,
@@ -70,7 +70,6 @@ defmodule Ankole.Sessions.WorkflowTask do
       })
 
     Workflow.TaskLifecycle.submit_result_in_tx(
-      repo,
       id,
       event.agent_uid,
       event.session_id,
@@ -105,17 +104,16 @@ defmodule Ankole.Sessions.WorkflowTask do
     end
   end
 
-  def admit_in_tx(repo, event, %{kind: :workflow_task} = plan) do
+  def admit_in_tx(event, %{kind: :workflow_task} = plan) do
     with {:ok, %{call: call, run: run}} <-
            Workflow.TaskLifecycle.claim_task_in_tx(
-             repo,
              plan.call_id,
              event.agent_uid,
              Ankole.Workflow.WorkerConfig.max_running_per_agent(),
              adopt_running: true
            ),
          :ok <-
-           Queue.lock_sessions_in_tx(repo, [
+           Queue.lock_sessions_in_tx([
              {event.agent_uid, event.session_id},
              {event.agent_uid, run.owner_session_id}
            ]) do
@@ -177,11 +175,10 @@ defmodule Ankole.Sessions.WorkflowTask do
     {tools, hosted}
   end
 
-  def lock_progress_in_tx(repo, run) do
+  def lock_progress_in_tx(run) do
     with {:ok, call_id} <- Workflow.parse_task_session_id(run.session_id),
          do:
            Workflow.TaskLifecycle.lock_task_progress_in_tx(
-             repo,
              call_id,
              run.agent_uid,
              run.session_id,

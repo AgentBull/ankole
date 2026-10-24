@@ -175,9 +175,8 @@ defmodule Ankole.E2E.WaitHelpersTest do
         }
 
     assert {:ok, observed} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                External.record_delivery_in_tx(
-                 repo,
                  signal.conversation_id,
                  %{
                    agent_uid: signal.agent_uid,

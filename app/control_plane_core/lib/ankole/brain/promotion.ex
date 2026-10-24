@@ -30,7 +30,7 @@ defmodule Ankole.Brain.Promotion do
   @spec approve_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) ::
           {:ok, map()} | {:error, term()}
   def approve_in_tx(suggestion_id, decided_by, attrs) do
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          {:ok, suggestion} <- fetch_pending(suggestion_id) do
       result =
         case suggestion.kind do
@@ -54,7 +54,7 @@ defmodule Ankole.Brain.Promotion do
   @spec reject_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t()) ::
           {:ok, SchemaSuggestion.t()} | {:error, term()}
   def reject_in_tx(suggestion_id, decided_by) do
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          {:ok, suggestion} <- fetch_pending(suggestion_id) do
       Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
     end
@@ -160,9 +160,7 @@ defmodule Ankole.Brain.Promotion do
   defp slug_taken?(slug) do
     Object
     |> Ash.Query.filter(slug == ^slug)
-    |> Ash.Query.select([])
-    |> Ash.Query.limit(1)
-    |> Ankole.Ash.read!() != []
+    |> Ankole.Ash.exists?()
   end
 
   defp retype_only(object, term) do

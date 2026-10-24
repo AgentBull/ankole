@@ -46,11 +46,11 @@ test('sidebar creation focuses its title, keeps failed Chinese text and type, an
     await page.keyboard.insertText(name)
     const type = dialog.getByRole('combobox', { name: '页面类型', exact: true })
     await choose(page, type, 'Database')
-    await page.route('**/.internal-apis/pod/pages', async route => {
+    await page.route('**/api/v2/pod/pages', async route => {
       if (route.request().method() !== 'POST') return route.continue()
       calls++
-      expect(route.request().postDataJSON()).toMatchObject({ title: name, type: 'database' })
-      expect(route.request().postDataJSON().parent_id).toBeUndefined()
+      expect(route.request().postDataJSON().data).toMatchObject({ title: name, type: 'database' })
+      expect(route.request().postDataJSON().data.parent_id).toBeUndefined()
       if (calls === 1) {
         return route.fulfill({
           status: 503,

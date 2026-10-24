@@ -2,7 +2,7 @@ import { t } from 'i18next'
 import { Presence, Socket, type Channel, type Push } from 'phoenix'
 import type { EphemeralChannel, PresenceMember } from '@ankole/applet-sdk/types'
 import { identityQuery } from './content-api'
-import { podRealtimeToken, podVersions } from '../common/api/generated/sdk.gen'
+import { podRealtimeToken, podVersions } from './api/generated/sdk.gen'
 import { InternalAPIError } from '../common/internal-api-client'
 
 type Topic = {
@@ -161,8 +161,10 @@ export class PodRealtime {
     try {
       const versions = await podVersions({
         body: {
-          pages: [...new Set(watched.filter(item => item.kind === 'pages').map(item => item.id))],
-          tables: [...new Set(watched.filter(item => item.kind === 'tables').map(item => item.id))]
+          data: {
+            pages: [...new Set(watched.filter(item => item.kind === 'pages').map(item => item.id))],
+            tables: [...new Set(watched.filter(item => item.kind === 'tables').map(item => item.id))]
+          }
         }
       })
       for (const item of watched) {

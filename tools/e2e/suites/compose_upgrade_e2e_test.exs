@@ -273,7 +273,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     target_conversation_id = Ecto.UUID.generate()
 
     assert %{"conversation" => %{"id" => ^target_conversation_id}} =
-             Compose.api!(deployment, :post, "/.internal-apis/pod/conversations", %{
+             Compose.api!(deployment, :post, "/api/v2/pod/conversations", %{
                conversationID: target_conversation_id,
                agentUID: uid,
                messageID: Ecto.UUID.generate(),
@@ -288,7 +288,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                  Compose.api!(
                    deployment,
                    :get,
-                   "/.internal-apis/pod/conversations/#{target_conversation_id}"
+                   "/api/v2/pod/conversations/#{target_conversation_id}"
                  )
 
                detail["status"]["state"] == "idle" and

@@ -21,9 +21,9 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     {:ok, _} = SchemaPacks.install_packs([])
 
     assert {:ok, :canonical} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                :ok =
-                 Objects.ensure_canonical_object_in_tx(repo, agent.uid, :agent, "Review agent")
+                 Objects.ensure_canonical_object_in_tx(agent.uid, :agent, "Review agent")
 
                {:ok, :canonical}
              end)
@@ -663,8 +663,8 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     {:ok, completed} = ResponseCommit.commit_complete(message, [call], usage(tokens))
 
     assert {:ok, journal} =
-             Repo.transact(fn repo ->
-               case ToolResultJournal.record_tool_results_in_tx(repo, %{
+             Repo.transact(fn ->
+               case ToolResultJournal.record_tool_results_in_tx(%{
                       subject_uid: context.agent.uid,
                       previous_response_id: "resp_#{completed.id}",
                       request_items: [
@@ -739,8 +739,8 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
 
   defp event!(agent, conversation) do
     {:ok, event} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           source: "test://checkpoint",
           id: Ecto.UUID.generate(),
           type: "test.source",

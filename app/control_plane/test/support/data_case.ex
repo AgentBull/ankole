@@ -53,14 +53,14 @@ defmodule Ankole.DataCase do
   """
   def create_committed_tenant(attrs \\ %{}) do
     attrs = Map.merge(tenant_attributes(), attrs)
-    {:ok, tenant} = Ankole.Repo.transact(&Ankole.Tenants.create_in_tx(&1, attrs))
+    {:ok, tenant} = Ankole.Repo.transact(fn -> Ankole.Tenants.create_in_tx(attrs) end)
     tenant
   end
 
   @doc "Creates an isolated tenant without changing site configuration."
   def create_tenant(attrs \\ %{}) do
     {:ok, tenant} =
-      Ankole.Repo.transact(fn repo ->
+      Ankole.Repo.transact(fn ->
         {:ok, tenant} =
           Ankole.Ash.create(
             Ankole.Tenants.Tenant,
@@ -69,7 +69,7 @@ defmodule Ankole.DataCase do
           )
 
         Ankole.Repo.with_tenant(tenant.id, fn ->
-          :ok = Ankole.Pod.Access.initialize_space(repo)
+          :ok = Ankole.Pod.Access.initialize_space()
         end)
 
         {:ok, tenant}

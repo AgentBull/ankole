@@ -11,7 +11,7 @@ defmodule Ankole.Brain.SourcesTest do
              Sources.create(%{kind: "conversation", upstream_id: "channel-1", name: "Channel"})
 
     boundary = {~U[2026-08-20 10:00:00.123456Z], 9}
-    assert :ok = Sources.record_extraction_watermark(Repo, source, boundary)
+    assert :ok = Sources.record_extraction_watermark(source, boundary)
     current = Repo.get!(Source, source.id)
     assert Sources.extraction_watermark(current) == 9
     assert current.updated_at == source.updated_at
@@ -25,7 +25,7 @@ defmodule Ankole.Brain.SourcesTest do
 
     assert Sources.conversation_extraction_watermark("channel-1") == nil
     boundary = {~U[2026-08-20 10:00:00.123456Z], 9}
-    assert :ok = Sources.record_extraction_watermark(Repo, source, boundary)
+    assert :ok = Sources.record_extraction_watermark(source, boundary)
     assert Sources.conversation_extraction_watermark("channel-1") == 9
   end
 
@@ -121,15 +121,15 @@ defmodule Ankole.Brain.SourcesTest do
              })
 
     assert {:ok, locked} =
-             Repo.transact(fn repo -> Sources.lock_active(repo, source) end)
+             Repo.transact(fn -> Sources.lock_active(source) end)
 
     assert locked.id == source.id
 
-    assert {:ok, revised} = Sources.record_revision(Repo, source, "revision-1")
+    assert {:ok, revised} = Sources.record_revision(source, "revision-1")
     assert revised.upstream_revision == "revision-1"
     assert %DateTime{} = revised.last_sync_at
 
     assert {:ok, archived} = Ankole.Brain.archive_source(source.id)
-    assert {:error, :source_archived} = Repo.transact(&Sources.lock_active(&1, archived))
+    assert {:error, :source_archived} = Repo.transact(fn -> Sources.lock_active(archived) end)
   end
 end

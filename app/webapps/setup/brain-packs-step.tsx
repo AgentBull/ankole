@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { setupBrainPacks, updateSetupBrainPacks } from '../common/api/generated/sdk.gen'
-import type { SetupBrainPacks } from '../common/api/generated/types.gen'
+import type { SetupBrainPacksResponse as SetupBrainPacks } from '../common/api/generated/types.gen'
 import { ErrorBlock } from '../common/error-block'
 import { SetupPanel } from './layout'
 import { BrainPacksStepModel } from './state/brain-packs-step-model'
@@ -36,7 +36,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
   const seeded = model.sourceKey.value === 'setup-brain-packs'
   const selected: ReadonlySet<string> = seeded ? model.selectedPacks.value : new Set(query.data?.selected ?? [])
   const mutation = useMutation({
-    mutationFn: () => updateSetupBrainPacks({ body: model.submission() }),
+    mutationFn: () => updateSetupBrainPacks({ body: { data: model.submission() } }),
     onSuccess: response => {
       client.setQueryData<SetupBrainPacks>(['setup-brain-packs'], previous =>
         previous ? { ...previous, selected: response.packs } : previous

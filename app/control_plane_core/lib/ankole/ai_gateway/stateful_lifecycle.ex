@@ -62,14 +62,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   @doc false
-  @spec record_tool_results_in_tx(module(), String.t(), map(), map()) ::
+  @spec record_tool_results_in_tx(String.t(), map(), map()) ::
           {:ok, %{message: Message.t(), body: map(), disposition: :inserted | :existing}}
           | {:error, term()}
-  def record_tool_results_in_tx(repo, subject_uid, request, internal_metadata)
+  def record_tool_results_in_tx(subject_uid, request, internal_metadata)
       when is_map(request) and is_map(internal_metadata) do
     with {:ok, attrs} <- tool_result_record_attrs(subject_uid, request, internal_metadata),
          {:ok, %Message{} = message, disposition} <-
-           ToolResultJournal.record_tool_results_in_tx(repo, attrs),
+           ToolResultJournal.record_tool_results_in_tx(attrs),
          {:ok, body} <- response_resource(message) do
       {:ok, %{message: message, body: body, disposition: disposition}}
     end

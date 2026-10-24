@@ -48,7 +48,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
     )
 
     attribute(:token_count, :integer, allow_nil?: false, constraints: [min: 0])
-    attribute(:embedding, Ankole.Ash.Types.Vector)
+    attribute(:embedding, :vector)
     attribute(:embedding_signature, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:embedding_error, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:embedded_at, :utc_datetime_usec)

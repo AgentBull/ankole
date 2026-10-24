@@ -46,9 +46,9 @@ for (const fixture of [
       await embed.getByRole('button', { name: '放弃视图更改', exact: true }).click()
       await expect(embed.locator('.pod-database-grid')).toBeVisible()
       await expect
-        .poll(async () => (await request<{ content: { xml: string } }>(page, `/pages/${savedID}`)).content.xml)
+        .poll(async () => (await request<{ content: { content: string } }>(page, `/pages/${savedID}`)).content.content)
         .not.toContain(fixture.removed)
-      const content = (await request<{ content: { xml: string } }>(page, `/pages/${savedID}`)).content.xml
+      const content = (await request<{ content: { content: string } }>(page, `/pages/${savedID}`)).content.content
       expect(content).toContain(`ref="${state.database_id}"`)
       expect(content).toContain(`table="${state.table_id}"`)
       expect(content).toContain('Before the view')

@@ -63,13 +63,6 @@ defmodule Ankole.AuthZ.ExternalBinding do
       upsert?(true)
       upsert_fields([:group_id, :metadata, :updated_at])
     end
-
-    action :upsert_binding, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

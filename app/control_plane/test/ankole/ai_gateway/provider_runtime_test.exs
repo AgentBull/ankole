@@ -1052,7 +1052,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              })
 
     {:ok, _} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Ash.update(
           Repo.get!(Ankole.Principals.Agent, malformed_agent.uid),
           :options_in_tx,

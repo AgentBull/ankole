@@ -38,24 +38,21 @@ one code interface function for each resource read and write action. Code in
 other domains, web controllers, and plugins reads and writes these records
 through these functions, not through Ecto or `Ash.Query`.
 
-Each operation that opens a transaction is a generic action of the domain, for
-example `start_native_conversation`, `post_native_message`, `observe_entry`,
-`claim_intent_dispatch`, and `put_preview_checkpoint`. The generic action owns
-the transaction, takes the locks in the work lock order, and runs its
-publication after the commit. It runs only as the top-level call: in another
+Each operation that opens a transaction (`create`, `post`, `observe_entry`,
+`claim_intent_dispatch`, `PreviewStates.put_checkpoint`, and others) runs in
+`Repo.transact_top_level/2`. It owns the transaction, takes the locks in the
+work lock order, and runs its publication after commit. Inside another
 transaction it raises `Ankole.Errors.Framework.NestedOperation`. A caller that
 already owns a transaction uses the `_in_tx` function of the same operation,
-for example `create_in_tx/3`, `post_in_tx/4`, `detail_in_tx/4`, or
-`Attachments.link_payload_in_tx/4`. The public functions such as
-`Conversations.create/2` and `PreviewStates.put_checkpoint/3` call the generic
-action and give the domain reason through `Ankole.Errors.reason/1`.
+for example `create_in_tx/2`, `post_in_tx/3`, `detail_in_tx/3`, or
+`Attachments.link_payload_in_tx/3`.
 
 The domain reads the rows of other domains through their code interface
 functions. It locks Principal and Signal rows through the composition functions
-of their owners (`Principals.lock_principals_in_tx/2`,
-`Signals.lock_signals_in_tx/3`), which give each locked read to the lock-order
+of their owners (`Principals.lock_principals_in_tx/1`,
+`Signals.lock_signals_in_tx/2`), which give each locked read to the lock-order
 check. Other domains lock a Conversation row with
-`Conversations.lock_conversation_in_tx/3`. A query filters by
+`Conversations.lock_conversation_in_tx/2`. A query filters by
 the rows of a related resource with a resource-based `exists` expression; the
 resources declare no relationships, so their Ecto structs do not change. A
 Message is `withdrawn` when one of its native inputs is removed; history,
@@ -132,7 +129,7 @@ transaction. The signal has these values:
 | Sender | The authenticated Human UID |
 | Data | Conversation ID, message ID, author UID, and exact message text |
 
-`Ankole.Signals.accept_in_tx/2` stores the input in `signals`, allocates its
+`Ankole.Signals.accept_in_tx/1` stores the input in `signals`, allocates its
 Agent/Session queue position, and commits an EnsureDriver job in the same
 transaction. Native conversations create no Signal Binding, external reference,
 or Delivery intent. WorkAccess freezes the Human UID and access version;
@@ -149,12 +146,12 @@ the first nonempty line, up to 80 characters.
 
 The control plane publishes changes after the transaction commits. A rollback
 publishes no event and leaves no accepted message or signal. The native
-create, post, and queue actions return their `publications` and `session_key`.
-After the commit, the `after_commit` function of the action calls
+create, post, and queue operations return their `publications` and `session_key`.
+After commit, the `after_commit` callback of `Repo.transact_top_level/2` calls
 `Conversations.Events.publish_committed/1` and publishes one status change
-through `Sessions.Events`. Another transaction owner uses `create_in_tx/3` or the
-Human `post_in_tx/4`, retains the returned facts, and publishes them after its
-own commit. A repeated request with no new publications publishes neither
+through `Sessions.Events`. Another transaction owner uses `create_in_tx/2` or
+the Human `post_in_tx/3`, retains the returned facts, and publishes them after
+its own commit. A repeated request with no new publications publishes neither
 event. The durable EnsureDriver job owns the recovery wakeup.
 
 The publication guard rejects a transaction in the calling process. It does not
@@ -187,15 +184,15 @@ history remains model state rather than the visible transcript.
 
 ## Pod Browser API
 
-The internal API is mounted at `/.internal-apis/pod`. It uses the same
+The browser API is mounted at `/api/v2/pod`. It uses the same
 access gate as the Pod shell: setup must be complete, and the browser
-must have an active Human session. Unsafe requests require CSRF
-proof. These routes are excluded from the public Console OpenAPI contract.
-`InternalAPISpec` selects the private router operations for build-time client
-generation. Controllers and domain functions retain runtime validation;
-generation does not add request casting middleware. `mix ankole.openapi.check`
-checks both contracts (`--write` updates them); the webapps `openapi:generate`
-script generates both clients.
+must prove a Human authentication for the target Pod. Unsafe requests require
+CSRF proof. Ash actions declare the request and result types. Generic action
+requests put arguments in `data` and use `application/vnd.api+json`.
+`AnkoleWeb.JSONAPI.PodRouter.spec/0` uses AshJsonApi to generate `pod-v2.json`.
+`mix ankole.openapi.check` verifies the committed documents; `--write` exports
+them. The webapps `openapi:generate` script derives the browser clients.
+File transfer, Applet HTTP routes, and SSE use their native media and transport.
 
 The authenticated Principal determines the tenant. A Console data tenant
 selection cannot change the Pod tenant. Read, write, and SSE operations
@@ -449,7 +446,7 @@ not reset learning. Durable jobs and facts own crash recovery.
 
 The public record owner does not invoke Session execution. One transactional
 exception applies: removing a shared Message calls
-`Sessions.AmbientCuration.message_removed_in_tx/2` so every Agent's accepted
+`Sessions.AmbientCuration.message_removed_in_tx/1` so every Agent's accepted
 ambient judgment loses its anchor atomically. The database requires accepted
 judgments to retain an anchor. `Sessions.Key` is a pure value-format dependency;
 it performs no Session execution.
@@ -486,10 +483,10 @@ shared cursor column on the conversation.
 
 ## Deliver a Statement
 
-`Conversations.post_in_tx/3` is the statement operation. A validated
+`Conversations.post_in_tx/2` is the statement operation. A validated
 `Conversations.Target` supplies its kind, Conversation UUID, Binding, thread,
 and primary flag. `Target.for_reply/2` resolves a reply route;
-`for_delivery_in_tx/3` validates a cron destination and Agent participation.
+`for_delivery_in_tx/2` validates a cron destination and Agent participation.
 Native destinations accept no Binding or thread. External destinations require
 a Binding. Native and external replies use the same attachment tools; the
 receiving adapter owns delivery of the committed attachment facts.
@@ -564,11 +561,11 @@ sequence high water, first recorded provider message identity, and terminal
 presentation live in the Delivery-owned `delivery_previews` row, keyed by
 `(tenant_id, signal_id)`. Writers lock the source Signal before the preview row.
 `Delivery.PreviewStates` owns these writes to the `Delivery.PreviewState`
-resource. Its checkpoint update action locks and loads the Signal, applies the
-requested change, and persists the fenced checkpoint in one transaction. Recovery, cleanup, and fallback use this same
-action. The preview process claims, hands off, and checkpoints its surface
-through the generic actions of `PreviewState`; the process itself opens no
-transaction. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative
+resource. Its checkpoint update locks and loads the Signal, applies the
+requested change, and persists the fenced checkpoint in one transaction.
+Recovery, cleanup, and fallback use this same path. The preview process claims,
+hands off, and checkpoints its surface through `Delivery.PreviewStates`
+top-level transactions; the process itself opens no transaction. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative
 sequence directly. `Delivery.ReplyPresentation` owns the renderer-safe presentation.
 These facts let durable delivery settle or recover the visible surface. They do
 not make a streamed draft an immutable model or conversation record. Native

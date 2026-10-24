@@ -10,15 +10,16 @@ test('a valid large Chinese document crosses the real OT socket and reads back u
     const result = await page.evaluate(async owner => {
       const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
       const headers = {
-        'content-type': 'application/json',
+        accept: 'application/vnd.api+json',
+        'content-type': 'application/vnd.api+json',
         'x-ankole-authentication': meta('ankole-authentication')!,
         'x-ankole-pod': meta('ankole-pod')!,
         'x-csrf-token': meta('csrf-token')!
       }
       const request = async (path: string, method = 'GET', body?: unknown) => {
         const options: RequestInit = { method, headers }
-        if (body !== undefined) options.body = JSON.stringify(body)
-        const response = await fetch(`/.internal-apis/pod${path}`, options)
+        if (body !== undefined) options.body = JSON.stringify({ data: body })
+        const response = await fetch(`/api/v2/pod${path}`, options)
         if (!response.ok) throw new Error(`Pod ${path}: ${response.status}`)
         return response.json()
       }

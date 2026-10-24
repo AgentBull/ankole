@@ -111,7 +111,7 @@ The local registry cannot make that assignment across nodes.
 
 The adapter normalizes messages, recalls, reactions, and card actions, then
 submits them through Conversations.Observe. Conversations owns shared Messages
-and external references. Required work enters `Ankole.Signals.accept_in_tx/2`.
+and external references. Required work enters `Ankole.Signals.accept_in_tx/1`.
 
 The opaque `provider_conversation_id` is `lark:<encoded_chat_id>`. A Message
 keeps its original provider message ID. Reply and thread identifiers use

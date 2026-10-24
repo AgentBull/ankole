@@ -25,7 +25,8 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from '@tanstack/react-router'
 import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
-import type { BrowserAccount } from '../common/api/generated/types.gen'
+import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
+type BrowserAccount = BrowserSessionResponse['accounts'][number]
 import { authenticationRef, podID } from '../common/browser-context'
 import { endPodSession } from '../common/browser-session'
 import { requestErrorMessage } from '../common/request-errors'
@@ -47,7 +48,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   })
   const activate = useMutation({
     mutationFn: (account: BrowserAccount) =>
-      activateBrowserAccount({ body: { authenticationRef: account.authenticationRef } }),
+      activateBrowserAccount({ body: { data: { authenticationRef: account.authenticationRef } } }),
     onSuccess: ({ podURL }, account) => {
       const sameTenant = account.tenant.id === podID()
       window.location.assign(sameTenant ? location.href : podURL)

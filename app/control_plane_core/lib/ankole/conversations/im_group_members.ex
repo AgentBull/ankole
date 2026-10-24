@@ -22,16 +22,16 @@ defmodule Ankole.Conversations.IMGroupMembers do
   """
   @spec replace_members(String.t(), [String.t()]) :: {:ok, map()} | {:error, term()}
   def replace_members(group_id, human_uids) when is_list(human_uids) do
-    group_id
-    |> Ankole.Conversations.replace_im_group_members(human_uids)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      replace_members_in_tx(group_id, human_uids)
+    end)
   end
 
-  @doc "Same as `replace_members/2` inside the caller's transaction on `repo`."
-  def replace_members_in_tx(repo, group_id, human_uids) do
+  @doc "Same as `replace_members/2` inside the caller's transaction."
+  def replace_members_in_tx(group_id, human_uids) do
     with {:ok, group} <- lock_group(group_id) do
       uids = Enum.uniq(human_uids ++ joined_agent_uids(group.metadata))
-      Store.replace_static_group_members(repo, group.id, :im_group, uids)
+      Store.replace_static_group_members(group.id, :im_group, uids)
     end
   end
 
@@ -44,13 +44,13 @@ defmodule Ankole.Conversations.IMGroupMembers do
   """
   @spec reconcile_agent_members(String.t()) :: {:ok, map()} | {:error, term()}
   def reconcile_agent_members(group_id) do
-    group_id
-    |> Ankole.Conversations.reconcile_im_group_agents()
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      reconcile_agent_members_in_tx(group_id)
+    end)
   end
 
-  @doc "Same as `reconcile_agent_members/1` inside the caller's transaction on `repo`."
-  def reconcile_agent_members_in_tx(repo, group_id) do
+  @doc "Same as `reconcile_agent_members/1` inside the caller's transaction."
+  def reconcile_agent_members_in_tx(group_id) do
     with {:ok, group} <- lock_group(group_id) do
       joined = joined_agent_uids(group.metadata)
 
@@ -63,7 +63,6 @@ defmodule Ankole.Conversations.IMGroupMembers do
       current = agent_uids(members)
 
       Store.apply_static_group_member_delta(
-        repo,
         group.id,
         :im_group,
         joined -- current,

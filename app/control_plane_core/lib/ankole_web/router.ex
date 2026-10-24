@@ -41,7 +41,7 @@ defmodule AnkoleWeb.Router do
   end
 
   pipeline :pod_api do
-    plug :accepts, ["json", "event-stream"]
+    plug :accepts, ["json", "json_api", "event-stream"]
     plug :fetch_session
     plug :browser_csrf
     plug :put_secure_browser_headers
@@ -64,42 +64,9 @@ defmodule AnkoleWeb.Router do
     plug :require_ai_gateway_access_token
   end
 
-  # `/.internal-apis` is the private contract between the SPAs and the server —
-  # the setup wizard and sign-in app drive these; they are not a public API.
-  scope "/.internal-apis", AnkoleWeb do
+  scope "/api/v2/browser" do
     pipe_through :session_api
-
-    get "/oidc-logout/:id", OIDCLogoutController, :confirmation
-
-    get "/setup/state", SetupController, :state
-    post "/setup/sessions", SetupController, :create_session
-    delete "/setup/sessions/current", SetupController, :delete_session
-
-    post "/setup/bootstrap-activation-code/log-entries",
-         SetupController,
-         :create_activation_code_log_entry
-
-    get "/setup/plugins", SetupController, :plugins
-    put "/setup/plugins/enabled", SetupController, :update_plugins
-    get "/setup/brain-packs", SetupController, :brain_packs
-    put "/setup/brain-packs", SetupController, :put_brain_packs
-    get "/setup/identity-provider-adapters", SetupController, :identity_provider_adapters
-    put "/setup/identity-providers/:provider_id", SetupController, :put_identity_provider
-
-    post "/setup/identity-providers/:provider_id/oidc/authorizations",
-         SetupController,
-         :oidc_authorization
-
-    post "/setup/local-admin", SetupController, :create_local_admin
-
-    get "/session", AuthController, :session
-    delete "/session", AuthController, :delete_session
-    put "/sessions/active", AuthController, :activate_account
-    get "/identity-providers", AuthController, :identity_providers
-    post "/sessions/identity-selection", AuthController, :select_identity
-    delete "/authentications/current", AuthController, :delete_authentication
-    post "/sessions/local-password", AuthController, :local_password_login
-    post "/sessions/local-password/change", AuthController, :local_password_change
+    AnkoleWeb.runtime_forward("/", AnkoleWeb.JSONAPI.BrowserRouter)
   end
 
   scope "/", AnkoleWeb do
@@ -119,68 +86,28 @@ defmodule AnkoleWeb.Router do
     options "/oauth/userinfo", OIDCController, :options
   end
 
-  scope "/.internal-apis/pod", AnkoleWeb do
+  scope "/api/v2/pod", AnkoleWeb do
     pipe_through :pod_api
 
-    get "/realtime-token", PodPageController, :realtime_token
-    get "/agents/:uid/model-profiles", PodModelController, :catalog
-    get "/conversations/:id/model-profile", PodModelController, :show
-    put "/conversations/:id/model-profile", PodModelController, :update
-    get "/pages", PodPageController, :index
-    post "/pages", PodPageController, :create
-    get "/subjects", PodPageController, :subjects
-    post "/versions", PodPageController, :reconcile_versions
-    get "/space", PodPageController, :space
-    put "/space", PodPageController, :set_space
-    post "/space/agents", PodPageController, :space_agent
-    delete "/space/agents/:uid", PodPageController, :remove_space_agent
-    get "/pages/:id/files", PodFileController, :index
     get "/pages/:id/files/content", PodFileController, :download
     post "/pages/:id/files", PodFileController, :upload
-    post "/pages/:id/publish", PodFileController, :publish
     get "/pages/:id/routes/*path", PodAppletController, :get
     post "/pages/:id/routes/*path", PodAppletController, :post
     put "/pages/:id/routes/*path", PodAppletController, :put
     patch "/pages/:id/routes/*path", PodAppletController, :patch
     delete "/pages/:id/routes/*path", PodAppletController, :delete
-    post "/pages/:id/copy-file", PodFileController, :copy
-    get "/pages/:id", PodPageController, :show
-    patch "/pages/:id", PodPageController, :update
-    delete "/pages/:id", PodPageController, :delete
-    post "/pages/:id/move", PodPageController, :move
-    post "/pages/:id/restore", PodPageController, :restore
-    post "/pages/:id/embeds/:ref/delete", PodPageController, :delete_embed
-    put "/pages/:id/content", PodPageController, :write
-    put "/pages/:id/user-state", PodPageController, :user_state
-    get "/pages/:id/sharing", PodPageController, :sharing
-    put "/pages/:id/sharing", PodPageController, :set_sharing
-    get "/databases/:page_id", PodDatabaseController, :tables
-    post "/databases/:page_id/tables", PodDatabaseController, :create_table
-    get "/tables/:id", PodDatabaseController, :show
-    post "/tables/:id/query", PodDatabaseController, :query
-    post "/tables/:id/aggregate", PodDatabaseController, :aggregate
-    post "/tables/:id/records", PodDatabaseController, :write
-    post "/tables/:id/fields", PodDatabaseController, :create_field
-    patch "/fields/:id", PodDatabaseController, :update_field
-    delete "/fields/:id", PodDatabaseController, :delete_field
-    post "/tables/:id/views", PodDatabaseController, :create_view
-    patch "/views/:id", PodDatabaseController, :update_view
-    delete "/views/:id", PodDatabaseController, :delete_view
-    post "/tables/:id/copy", PodDatabaseController, :copy
-    get "/agents", PodController, :agents
     post "/attachments", PodAttachmentController, :upload
     get "/conversations/:id/attachments/:message_id", PodAttachmentController, :download
-    get "/conversations", PodController, :index
-    post "/conversations", PodController, :create
-    get "/conversations/:id", PodController, :show
-    delete "/conversations/:id", PodController, :delete
-    post "/conversations/:id/messages", PodController, :post_message
-    post "/conversations/:id/queue", PodController, :update_queue
-    get "/conversations/:id/events", PodController, :events
+    get "/conversations/:id/events", PodStreamController, :events
+  end
+
+  scope "/api/v2/pod" do
+    pipe_through :pod_api
+    AnkoleWeb.runtime_forward("/", AnkoleWeb.JSONAPI.PodRouter)
   end
 
   # Native file transfers use the same browser and tenant protection as Console operations.
-  scope "/api/v1", AnkoleWeb do
+  scope "/api/v2", AnkoleWeb do
     pipe_through([:session_api, :site_admin, :data_context])
 
     get("/agents/:agent_uid/files/content", AgentFileController, :download)

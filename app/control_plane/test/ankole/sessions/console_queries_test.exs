@@ -381,7 +381,9 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
     {page, arguments} = Keyword.split(opts, [:limit, :cursor])
     page = [limit: page[:limit] || 50] ++ if(page[:cursor], do: [after: page[:cursor]], else: [])
 
-    case AIGateway.list_console_conversations(Map.new(arguments), page: page) do
+    case Conversation
+         |> Ash.Query.for_read(:console_list, Map.new(arguments))
+         |> Ankole.Ash.read(page: page) do
       {:ok, %{results: conversations, more?: more?}} ->
         next_cursor = if more?, do: List.last(conversations).__metadata__.keyset
         {:ok, %{conversations: conversations, next_cursor: next_cursor}}

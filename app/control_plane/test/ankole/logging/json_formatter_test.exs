@@ -312,12 +312,12 @@ defmodule Ankole.Logging.JSONFormatterTest do
 
     routed_conn =
       :get
-      |> Plug.Test.conn("/.internal-apis/pod/pages/123")
+      |> Plug.Test.conn("/api/v2/pod/pages/123")
       |> Map.put(:host, "ankole.test")
       |> Map.put(:status, 200)
       |> Plug.Conn.put_private(:phoenix_router, AnkoleWeb.Router)
 
-    assert {:info, %{route: "/.internal-apis/pod/pages/:id"}} =
+    assert {:info, %{route: "/api/v2/pod"}} =
              AnkoleWeb.RequestLogger.build_log(%{duration: 0}, %{conn: routed_conn})
   end
 

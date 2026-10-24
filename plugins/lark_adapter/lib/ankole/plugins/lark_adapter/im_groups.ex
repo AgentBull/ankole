@@ -14,7 +14,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
-  alias Ankole.Repo
 
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Signals.Binding
@@ -95,10 +94,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
         %{channel: %{kind: :im_group}, provider_conversation_id: provider_conversation_id}
       )
       when is_binary(provider_conversation_id) and is_map(config) do
-    case Ankole.Conversations.External.get_conversation(
-           Repo,
-           provider_conversation_id
-         ) do
+    case Ankole.Conversations.External.get_conversation(provider_conversation_id) do
       %Conversation{principal_group_id: group_id} when is_binary(group_id) ->
         :ok
 

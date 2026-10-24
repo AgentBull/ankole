@@ -104,8 +104,8 @@ defmodule Ankole.WorkerStorageFixtures do
   def cleanup_storage!(uids, provider_ids, owner_uid) do
     for uid <- uids, Repo.get(AgentWorker, uid) do
       assert {:ok, :ok} =
-               Repo.transact(fn repo ->
-                 :ok = AgentWorkers.mark_deleting_in_tx(repo, uid)
+               Repo.transact(fn ->
+                 :ok = AgentWorkers.mark_deleting_in_tx(uid)
                  {:ok, :ok}
                end)
 

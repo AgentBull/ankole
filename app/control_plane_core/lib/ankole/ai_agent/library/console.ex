@@ -1,7 +1,7 @@
 defmodule Ankole.AIAgent.Library.Console do
   @moduledoc "Console operations for Agent Library capabilities and documents."
   use Ash.Resource,
-    domain: Ankole.AIAgent.Library,
+    domain: Ankole.AIAgent,
     data_layer: Ash.DataLayer.Simple,
     extensions: [AshJsonApi.Resource]
 

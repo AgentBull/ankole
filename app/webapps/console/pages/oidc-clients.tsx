@@ -258,7 +258,7 @@ export function OIDCClientEditorPage() {
     onMutate: model.captureSource,
     onSuccess: (response, _variables, requestedSource) => {
       if (!model.isCurrentSource(requestedSource)) return
-      const client = response as OidcClientItem
+      const client = fromDocument(response) as OidcClientItem
       model.markSaved(draftFromClient(client))
 
       toast.success(t('console.oidc_clients.saved', { name: client.name }))
@@ -281,9 +281,9 @@ export function OIDCClientEditorPage() {
     ...deleteOidcClientMutation(),
     mutationKey: ['oidc-client-delete', clientID],
     onMutate: model.captureSource,
-    onSuccess: (response, _variables, requestedSource) => {
+    onSuccess: (_response, _variables, requestedSource) => {
       if (!model.isCurrentSource(requestedSource)) return
-      toast.success(t('console.oidc_clients.deleted', { name: response.name }))
+      toast.success(t('console.oidc_clients.deleted', { name: loadedClient?.name ?? clientID }))
       void navigate({ to: '/oidc-clients' })
     },
     onError: (error, _variables, requestedSource) => {
@@ -330,7 +330,10 @@ export function OIDCClientEditorPage() {
     if (mode === 'new') {
       createClient.mutate({ body: { data: { ...body, client_type: draft.type } } })
     } else if (clientID) {
-      updateClient.mutate({ body: { data: body }, path: { id: clientID } })
+      updateClient.mutate({
+        body: { data: { type: 'oidc_client', id: clientID, attributes: body } },
+        path: { id: clientID }
+      })
     }
   }
 

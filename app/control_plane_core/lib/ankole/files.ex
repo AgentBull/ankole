@@ -27,8 +27,8 @@ defmodule Ankole.Files do
   A file cannot also be the parent of another file.
 
   This module is also the Ash domain of the `Blob` and `DriveFile` resources.
-  A commit, move, delete, or snapshot listing runs a generic action of
-  `DriveFile`, which owns the transaction. Another domain that names files in
+  A commit, move, delete, or snapshot listing runs in a top-level transaction
+  through `Ankole.Repo.transact_top_level/2`. Another domain that names files in
   its own transaction calls `commit/4`.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
@@ -125,24 +125,18 @@ defmodule Ankole.Files do
   @spec commit(drive(), [upsert()], [String.t()]) ::
           {:ok, commit_result()} | {:error, term()}
   def commit(drive, upserts, deletes \\ []) when is_drive(drive),
-    do:
-      Ankole.Ash.run_action(DriveFile, :commit_paths, %{
-        drive: drive,
-        upserts: upserts,
-        deletes: deletes
-      })
+    do: Repo.transact_top_level(fn -> commit_in_tx(drive, upserts, deletes) end)
 
   @doc """
-  Same as `commit/3` inside the caller's transaction on `repo`.
+  Same as `commit/3` inside the caller's transaction.
   """
-  @spec commit(module(), drive(), [upsert()], [String.t()]) ::
+  @spec commit_in_tx(drive(), [upsert()], [String.t()]) ::
           {:ok, commit_result()} | {:error, term()}
-  def commit(repo, drive, upserts, deletes)
-      when is_atom(repo) and is_drive(drive) and is_list(upserts) and
-             is_list(deletes) do
+  def commit_in_tx(drive, upserts, deletes \\ [])
+      when is_drive(drive) and is_list(upserts) and is_list(deletes) do
     with {:ok, upserts} <- normalize_upserts(upserts),
          {:ok, deletes} <- normalize_paths(deletes),
-         :ok <- lock_drive(repo, drive),
+         :ok <- lock_drive(drive),
          {:ok, sizes} <- reference_blobs(Enum.map(upserts, & &1.sha256)),
          deleted = deletes |> Enum.map(&delete_path_in_tx(drive, &1)) |> Enum.sum(),
          :ok <- validate_path_tree(drive, upserts) do
@@ -162,15 +156,15 @@ defmodule Ankole.Files do
   Library uses this lock to read a complete installed-Skill snapshot. A
   separate namespace avoids reversing the Principal and Agent row lock order.
   """
-  @spec lock_drive(module(), drive()) :: :ok | {:error, term()}
-  def lock_drive(repo, :pod) do
-    Ankole.AdvisoryLock.lock!(repo, "pod-drive:#{Repo.tenant_id!()}")
+  @spec lock_drive(drive()) :: :ok | {:error, term()}
+  def lock_drive(:pod) do
+    Ankole.AdvisoryLock.lock!(Repo, "pod-drive:#{Repo.tenant_id!()}")
     :ok
   end
 
-  def lock_drive(repo, drive) do
+  def lock_drive(drive) do
     with {:ok, drive} <- Principals.normalize_uid(drive) do
-      Ankole.AdvisoryLock.lock!(repo, "agent-drive:#{drive}")
+      Ankole.AdvisoryLock.lock!(Repo, "agent-drive:#{drive}")
       :ok
     end
   end
@@ -258,18 +252,13 @@ defmodule Ankole.Files do
     limit = opts |> Keyword.get(:limit, @default_list_limit) |> min(@max_list_limit) |> max(1)
 
     if Keyword.get(opts, :snapshot, false),
-      do:
-        Ankole.Ash.run_action(DriveFile, :list_snapshot, %{
-          drive: drive,
-          prefix: prefix,
-          opts: opts
-        }),
+      do: Repo.transact_top_level(fn -> list_snapshot_in_tx(drive, prefix, opts) end),
       else: list_page(drive, prefix, opts, limit)
   end
 
   @doc false
   def list_snapshot_in_tx(drive, prefix, opts) do
-    with :ok <- lock_drive(Repo, drive),
+    with :ok <- lock_drive(drive),
          {:ok, query} <- prefix_query(files_query(drive), prefix),
          {:ok, page} <- list(drive, prefix, Keyword.put(opts, :snapshot, false)) do
       manifest =
@@ -290,15 +279,13 @@ defmodule Ankole.Files do
   defp list_page(drive, prefix, opts, limit) do
     with {:ok, query} <- prefix_query(files_query(drive), prefix),
          {:ok, query} <- after_query(query, Keyword.get(opts, :after)) do
-      files =
+      page =
         query
         |> Ash.Query.sort(path: :asc)
-        |> Ash.Query.limit(limit + 1)
-        |> Ankole.Ash.read!()
+        |> Ankole.Ash.read!(action: :list_page, page: [limit: limit])
 
-      {page, rest} = Enum.split(files, limit)
-      next_after = if rest == [], do: nil, else: List.last(page).path
-      {:ok, %{files: page, next_after: next_after}}
+      next_after = if page.more?, do: List.last(page.results).path
+      {:ok, %{files: page.results, next_after: next_after}}
     end
   end
 
@@ -328,22 +315,19 @@ defmodule Ankole.Files do
         |> Ash.Query.distinct([{folder, :asc}])
         |> Ash.Query.sort([{folder, :asc}])
         |> Ash.Query.select([:path])
-        |> Ash.Query.limit(limit + 1)
-        |> Ankole.Ash.read!()
-        |> Enum.map(&folder_name(&1.path, offset))
+        |> Ankole.Ash.read!(action: :list_page, page: [limit: limit])
 
       files =
         base
         |> Ash.Query.filter(fragment("strpos(substr(?, ?), '/') = 0", path, ^offset))
         |> Ash.Query.sort(path: :asc)
-        |> Ash.Query.limit(limit + 1)
-        |> Ankole.Ash.read!()
+        |> Ankole.Ash.read!(action: :list_page, page: [limit: limit])
 
       {:ok,
        %{
-         folders: Enum.take(folders, limit),
-         files: Enum.take(files, limit),
-         truncated: length(folders) > limit or length(files) > limit
+         folders: Enum.map(folders.results, &folder_name(&1.path, offset)),
+         files: files.results,
+         truncated: folders.more? or files.more?
        }}
     end
   end
@@ -362,13 +346,13 @@ defmodule Ankole.Files do
     with {:ok, from_path} <- normalize_path(from_path),
          {:ok, to_path} <- normalize_path(to_path),
          :ok <- validate_move_target(from_path, to_path) do
-      Ankole.Ash.run_action(DriveFile, :move_paths, %{drive: drive, from: from_path, to: to_path})
+      Repo.transact_top_level(fn -> move_in_tx(drive, from_path, to_path) end)
     end
   end
 
   @doc false
   def move_in_tx(drive, from_path, to_path) do
-    with :ok <- lock_drive(Repo, drive) do
+    with :ok <- lock_drive(drive) do
       # Remove the source paths before checking the final tree. A folder
       # can move up into its parent without conflicting with itself.
       sources = remove_paths_in_tx(drive, from_path)
@@ -387,12 +371,12 @@ defmodule Ankole.Files do
   @spec delete(drive(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def delete(drive, path) when is_drive(drive) do
     with {:ok, path} <- normalize_path(path),
-         do: Ankole.Ash.run_action(DriveFile, :delete_paths, %{drive: drive, path: path})
+         do: Repo.transact_top_level(fn -> delete_in_tx(drive, path) end)
   end
 
   @doc false
   def delete_in_tx(drive, path) do
-    with :ok <- lock_drive(Repo, drive), do: {:ok, delete_path_in_tx(drive, path)}
+    with :ok <- lock_drive(drive), do: {:ok, delete_path_in_tx(drive, path)}
   end
 
   @doc "Returns whether the drive already names one content at some path."
@@ -404,10 +388,7 @@ defmodule Ankole.Files do
         |> files_query()
         |> Ash.Query.unload([:size])
         |> Ash.Query.filter(sha256 == ^digest)
-        |> Ash.Query.select([:path])
-        |> Ash.Query.limit(1)
-        |> Ankole.Ash.read_one!()
-        |> is_struct()
+        |> Ankole.Ash.exists?()
 
       {:error, _reason} ->
         false
@@ -627,8 +608,8 @@ defmodule Ankole.Files do
   The caller must hold one transaction through this call and the reference write.
   A content already marked for collection is rejected.
   """
-  @spec reference_contents_in_tx(module(), [sha256_hex()]) :: :ok | {:error, term()}
-  def reference_contents_in_tx(_repo, references) do
+  @spec reference_contents_in_tx([sha256_hex()]) :: :ok | {:error, term()}
+  def reference_contents_in_tx(references) do
     with {:ok, digests} <-
            Enum.reduce_while(references, {:ok, []}, fn reference, {:ok, digests} ->
              case decode_sha256(reference) do

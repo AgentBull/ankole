@@ -259,13 +259,13 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   end
 
   @doc false
-  def delete_agent_rows_in_tx(repo, uid) do
+  def delete_agent_rows_in_tx(uid) do
     EnvVar
     |> Ash.Query.filter(scope == ^("agent:" <> uid))
     |> Ankole.Ash.destroy_where(:remove)
     |> case do
       {:ok, _rows} -> :ok
-      {:error, error} -> repo.rollback(error)
+      {:error, error} -> Repo.rollback(error)
     end
   end
 

@@ -75,8 +75,10 @@ defmodule Ankole.Brain.SchemaPacks do
   them.
   """
   @spec install_packs([String.t()]) :: {:ok, map()} | {:error, term()}
-  def install_packs(names) when is_list(names),
-    do: Ankole.Ash.run_action(SchemaPack, :install_packs, %{names: Enum.map(names, &to_string/1)})
+  def install_packs(names) when is_list(names) do
+    names = Enum.map(names, &to_string/1)
+    Repo.transact_top_level(fn -> install_packs_in_tx(names) end)
+  end
 
   @doc """
   Installs the selected packs in the caller's transaction.
@@ -84,9 +86,9 @@ defmodule Ankole.Brain.SchemaPacks do
   Tenant creation and setup completion install the packs in their own
   transaction; a failed installation rolls back that transaction.
   """
-  @spec install_packs_in_tx(module(), [String.t()]) :: {:ok, map()} | {:error, term()}
-  def install_packs_in_tx(repo, names) when is_list(names) do
-    with :ok <- Repo.require_transaction(repo),
+  @spec install_packs_in_tx([String.t()]) :: {:ok, map()} | {:error, term()}
+  def install_packs_in_tx(names) when is_list(names) do
+    with :ok <- Repo.require_transaction(),
          {:ok, ordered} <- normalize_selection(names) do
       installed = SchemaPack |> Ash.Query.lock(:for_update) |> Ankole.Ash.read!()
       installed_names = MapSet.new(installed, & &1.name)

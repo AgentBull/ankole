@@ -52,11 +52,15 @@ defmodule Ankole.Workflow.ConsoleQueries do
   defp page(query, cursor, limit) do
     query = if cursor, do: Ash.Query.filter(query, id < ^cursor), else: query
 
-    {:ok, rows} =
-      query |> Ash.Query.sort(id: :desc) |> Ash.Query.limit(limit + 1) |> Ankole.Ash.read()
+    {:ok, page} =
+      query
+      |> Ash.Query.sort(id: :desc)
+      |> Ankole.Ash.read(action: :list_page, page: [limit: limit])
 
-    items = Enum.take(rows, limit)
-    %{items: items, next_cursor: if(length(rows) > limit, do: to_string(List.last(items).id))}
+    %{
+      items: page.results,
+      next_cursor: if(page.more?, do: to_string(List.last(page.results).id))
+    }
   end
 
   defp call_projection(%AgentCall{run: %Run{} = run} = call) do

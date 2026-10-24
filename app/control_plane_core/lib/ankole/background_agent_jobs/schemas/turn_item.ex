@@ -68,6 +68,10 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
   actions do
     defaults([:read])
 
+    read :replay_page do
+      pagination(offset?: true, max_page_size: 200, countable: false)
+    end
+
     create :append do
       accept([:turn_id, :position, :revision, :item_key, :item])
 

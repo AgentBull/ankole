@@ -280,20 +280,6 @@ defmodule Ankole.Signals.Signal do
 
     destroy(:remove)
 
-    action :intake, :term do
-      argument(:attrs, :map, allow_nil?: false)
-      after_commit({Ankole.Signals, :publish_committed})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :intake_all, :term do
-      argument(:attrs_list, {:array, :map}, allow_nil?: false)
-      after_commit({Ankole.Signals, :publish_committed})
-
-      run(__MODULE__.Actions)
-    end
-
     update :revoke_unstarted do
       require_atomic?(true)
       require_attributes([:dead_letter_at, :dead_letter_reason])

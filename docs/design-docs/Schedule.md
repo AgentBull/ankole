@@ -20,13 +20,13 @@ and human-access revocation use the same lock order.
 
 `Ankole.Schedule` is the domain module. Each write entry point (checkback
 create, update, and cancel; cron create, update, pause, resume, remove, and
-run; `fire_due_event`; `fire_cron`) is a generic action on `ScheduledEvent` or
-`CronSchedule`. The action owns its transaction and must be the top-level call.
-A failed fire records its error in a second generic action after the first
-transaction rolls back. Code that already has a transaction composes the
-`_in_tx` functions of `Schedule.Checkbacks` and `Schedule.Cron`; the Sessions
-schedule tools do this in their receipt transaction. Reads and row locks use
-Ash queries.
+run; `fire_due_event`; `fire_cron`) runs in `Repo.transact_top_level/2`, and
+Console `/api/v2` routes expose generic actions on `ScheduledEvent` and
+`CronSchedule`. A failed fire records its error in a second top-level
+transaction after the first transaction rolls back. Code that already has a
+transaction composes the `_in_tx` functions of `Schedule.Checkbacks` and
+`Schedule.Cron`; the Sessions schedule tools do this in their receipt
+transaction. Reads and row locks use Ash queries.
 
 ScheduledEvent actions declare their durable types and required input directly.
 Structured provenance, wake payloads, and errors use the shared strict JSON
@@ -102,7 +102,7 @@ starts as `scheduled`; a rejected cron fire creates cancelled history through
 `record_cancelled`. This preserves the slot index, which excludes cancelled
 rows. The `fire`, `cancel`, and `fail` actions make planned work terminal;
 `reschedule` and `record_error` keep `scheduled`. No action revives a terminal
-row. `Schedule.Store` runs updates in the transaction of the generic action,
+row. `Schedule.Store` runs updates in the caller's transaction,
 after the owning row lock. A failed delivery records its diagnostic without
 validating the unrelated target again, so an invalid retained target cannot
 block failure persistence. Creation and rescheduling validate the complete
@@ -111,7 +111,7 @@ consumer, reply route, and last fire error. It cannot change the owner,
 authorization, source, request key, or creation time. Reauthorization has its
 own action.
 
-Schedule and raw Webhook delivery call `Signals.Trigger.deliver_in_tx/5`.
+Schedule and raw Webhook delivery call `Signals.Trigger.deliver_in_tx/4`.
 The trigger's strong `automation_job_id` foreign key selects a durable
 AutomationJob run; an unbound trigger appends its owning domain's Signal.
 Each source table keeps its typed Signal and AutomationJob run references.

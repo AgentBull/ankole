@@ -7,7 +7,7 @@ defmodule Ankole.Sessions.RunType do
   @callback prepare_input(Signal.t(), DateTime.t()) ::
               {:ok, Signal.t()} | {:closed, map()} | {:error, term()}
   @callback plan(Signal.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  @callback admit_in_tx(module(), Signal.t(), map()) :: {:ok, map()} | {:error, term()}
+  @callback admit_in_tx(Signal.t(), map()) :: {:ok, map()} | {:error, term()}
   @callback prepare(Run.t()) :: {:ok, {atom(), Run.t()}} | {:error, term()}
   @callback instructions(Run.t()) :: String.t()
   @callback input(Run.t()) :: [map()]
@@ -24,7 +24,7 @@ defmodule Ankole.Sessions.RunType do
 
       def prepare_input(event, _now), do: {:ok, event}
       def prepare(run), do: {:ok, {:prepare, run}}
-      def admit_in_tx(_repo, _event, _plan), do: {:ok, %{}}
+      def admit_in_tx(_event, _plan), do: {:ok, %{}}
       def project_completion(_run, completion), do: {:ok, completion}
       def nudge?, do: true
       def finish(run), do: {:finalize, run}
@@ -84,7 +84,7 @@ defmodule Ankole.Sessions.RunType do
 
       defoverridable prepare_input: 2,
                      prepare: 1,
-                     admit_in_tx: 3,
+                     admit_in_tx: 2,
                      project_completion: 2,
                      nudge?: 0,
                      finish: 1,

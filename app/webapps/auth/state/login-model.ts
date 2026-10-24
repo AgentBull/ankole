@@ -1,4 +1,5 @@
 import { batch, createModel, effect, signal } from '@preact/signals-react'
+import { requestErrorCode, requestErrorDetails } from '../../common/request-errors'
 import { InternalAPIError } from '../../common/internal-api-client'
 
 export type LoginView = 'login' | 'change_password'
@@ -24,13 +25,13 @@ export function formatRetryDelay(seconds: number): RetryDelay {
 export function classifyLoginError(error: unknown): LoginFormError | undefined {
   if (!(error instanceof InternalAPIError)) return undefined
 
-  const code = payloadField(error.payload, 'error')
+  const code = requestErrorCode(error.payload)
   if (error.status === 401 && code === 'invalid_credentials') return { kind: 'invalid_credentials' }
   if (error.status === 403 && code === 'not_an_admin') return { kind: 'not_admin' }
   if (error.status === 403 && code === 'account_disabled') return { kind: 'account_disabled' }
 
   if (error.status === 429 && (code === 'retry_locked' || code === 'retry_busy')) {
-    const seconds = payloadField(error.payload, 'retryAfterSeconds')
+    const seconds = requestErrorDetails(error.payload).retryAfterSeconds
     if (typeof seconds === 'number' && seconds > 0) {
       return { kind: code === 'retry_busy' ? 'busy' : 'locked', remainingSeconds: Math.ceil(seconds) }
     }
@@ -98,11 +99,3 @@ export const LoginModel = createModel(() => {
     }
   }
 })
-
-function payloadField(payload: unknown, field: string): unknown {
-  if (payload && typeof payload === 'object' && field in payload) {
-    return (payload as Record<string, unknown>)[field]
-  }
-
-  return undefined
-}

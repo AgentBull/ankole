@@ -3,7 +3,17 @@ defmodule Ankole.Pod.PageUserState do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Pod,
-    tenant_in_primary_key: true
+    tenant_in_primary_key: true,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("pod_page_user_state")
+    derive_filter?(false)
+    derive_sort?(false)
+    primary_key do
+      keys([:principal_uid, :page_id])
+    end
+  end
 
   postgres do
     table("page_user_states")
@@ -19,9 +29,9 @@ defmodule Ankole.Pod.PageUserState do
       allow_nil?: false
     )
 
-    attribute(:page_id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false)
-    attribute(:favorited_at, :utc_datetime_usec)
-    attribute(:visited_at, :utc_datetime_usec)
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7, public?: true, primary_key?: true, allow_nil?: false)
+    attribute(:favorited_at, :utc_datetime_usec, public?: true)
+    attribute(:visited_at, :utc_datetime_usec, public?: true)
   end
 
   actions do
@@ -40,14 +50,6 @@ defmodule Ankole.Pod.PageUserState do
 
     destroy :purge do
       require_atomic?(true)
-    end
-
-    action :save, :term do
-      argument(:principal_uid, :term)
-      argument(:page_id, :term)
-      argument(:changes, :term)
-
-      run(__MODULE__.Actions)
     end
   end
 

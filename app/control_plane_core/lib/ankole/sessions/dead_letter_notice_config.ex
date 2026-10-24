@@ -27,9 +27,9 @@ defmodule Ankole.Sessions.DeadLetterNoticeConfig do
   end
 
   @doc false
-  @spec enabled_in_tx?(module()) :: boolean()
-  def enabled_in_tx?(repo) do
-    case AppConfigure.get_global_by_key_in_tx(repo, @key) do
+  @spec enabled_in_tx?() :: boolean()
+  def enabled_in_tx?() do
+    case AppConfigure.get_global_by_key_in_tx(@key) do
       {:ok, true} -> true
       _result -> false
     end

@@ -76,9 +76,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     before_submit = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{accepted: true} = released} =
-             Ankole.Repo.transact(fn repo ->
+             Ankole.Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  first.id,
                  agent.uid,
                  first_event.session_id,
@@ -111,10 +110,9 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert {:ok, %Run{}} = admit(dispatch)
 
     assert {:ok, %{call: sleeping}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                with {:ok, result} <-
                       Workflow.TaskLifecycle.sleep_task_in_tx(
-                        repo,
                         sleeper.id,
                         agent.uid,
                         dispatch.session_id,
@@ -122,7 +120,6 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
                       ),
                     {:ok, _} <-
                       Queue.mark_event_completed_in_tx(
-                        repo,
                         dispatch,
                         DateTime.utc_now(:microsecond)
                       ) do
@@ -147,9 +144,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert deferred.attempt_count == 0
 
     assert {:ok, transition} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  occupant.id,
                  agent.uid,
                  occupy.session_id,
@@ -206,9 +202,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert {:ok, %Run{}} = admit(event)
 
     assert {:ok, %{accepted: true}} =
-             Ankole.Repo.transact(fn repo ->
+             Ankole.Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  call.id,
                  agent.uid,
                  event.session_id,
@@ -220,7 +215,10 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert %DateTime{} = completed.completed_at
 
     %{run: workflow, calls: [queued], events: [pending]} = workflow_fixture(agent.uid)
-    assert {:ok, _} = Workflow.fail_replay(workflow.id, "program_execution_failed", "Stopped", 0)
+
+    assert {:ok, _} =
+             Workflow.Replay.fail_replay(workflow.id, "program_execution_failed", "Stopped", 0)
+
     assert {:ok, %{status: :completed}} = admit(Repo.reload!(pending))
     assert %AgentCall{status: :cancelled, attempts: 0} = Repo.get!(AgentCall, queued.id)
     refute Repo.get_by(Conversation, subject_uid: agent.uid, conversation_key: pending.session_id)
@@ -263,9 +261,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
       assert {:ok, run} = admit(event)
 
       assert {:ok, _} =
-               Ankole.Repo.transact(fn repo ->
+               Ankole.Repo.transact(fn ->
                  Workflow.TaskLifecycle.sleep_task_in_tx(
-                   repo,
                    call.id,
                    agent.uid,
                    event.session_id,
@@ -407,9 +404,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
              Receipts.fetch(Run.response_id(run.model_response), "end")
 
     assert {:ok, %{call: %{status: :queued}}} =
-             Ankole.Repo.transact(fn repo ->
+             Ankole.Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  call.id,
                  agent.uid,
                  event.session_id,
@@ -460,9 +456,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     assert %AgentCall{status: :running, attempts: 1, wake_count: 1} = Repo.reload!(call)
 
     assert {:ok, %{call: %{status: :queued, wake_kind: nil, wake_at: nil}}} =
-             Ankole.Repo.transact(fn repo ->
+             Ankole.Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  call.id,
                  agent.uid,
                  wake.session_id,
@@ -498,12 +493,11 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{reconciled: 0}} =
-             Workflow.reconcile_stale_tasks(call.run_id, DateTime.add(now, -3_600), now)
+             Workflow.Recovery.reconcile_stale_tasks(call.run_id, DateTime.add(now, -3_600), now)
 
     assert {:ok, %{accepted: true, call: %{status: :succeeded}}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  call.id,
                  run.agent_uid,
                  run.session_id,
@@ -527,7 +521,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{reconciled: 1}} =
-             Workflow.reconcile_stale_tasks(call.run_id, DateTime.add(now, -3_600), now)
+             Workflow.Recovery.reconcile_stale_tasks(call.run_id, DateTime.add(now, -3_600), now)
 
     assert Repo.reload!(call).status == :queued
   end
@@ -539,7 +533,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
 
     assert {:error, :round_rolled_back} =
              Repo.transact(fn repo ->
-               assert {:ok, %{disposition: :inserted}} = Run.record_round_in_tx(repo, run)
+               assert {:ok, %{disposition: :inserted}} = Run.record_round_in_tx(run)
                assert DateTime.after?(repo.reload!(call).progress_at, stale.progress_at)
                {:error, :round_rolled_back}
              end)
@@ -553,8 +547,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     {run, call} = progress_round()
 
     assert {:ok, %{run: %{status: :cancelled}}} =
-             Repo.transact(fn repo ->
-               Workflow.Lifecycle.cancel_in_tx(repo, call.run_id, run.agent_uid)
+             Repo.transact(fn ->
+               Workflow.Lifecycle.cancel_in_tx(call.run_id, run.agent_uid)
              end)
 
     cancelled = Repo.reload!(call)
@@ -568,9 +562,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     {run, call} = progress_round()
 
     assert {:ok, %{call: %{status: :queued}}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  call.id,
                  run.agent_uid,
                  run.session_id,
@@ -584,8 +577,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
              end)
 
     assert {:ok, %{call: %{attempts: 2}}} =
-             Repo.transact(fn repo ->
-               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, run.agent_uid, 8)
+             Repo.transact(fn ->
+               Workflow.TaskLifecycle.claim_task_in_tx(call.id, run.agent_uid, 8)
              end)
 
     reclaimed = Repo.reload!(call)
@@ -706,7 +699,8 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
         %{namespace: nil, name: "agent", arguments: call_arguments}
       end)
 
-    assert {:ok, %{new_calls: calls}} = Workflow.commit_replay_pending(run.id, pending_calls, 0)
+    assert {:ok, %{new_calls: calls}} =
+             Workflow.Replay.commit_replay_pending(run.id, pending_calls, 0)
 
     events =
       Enum.map(calls, fn call ->

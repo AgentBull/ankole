@@ -133,10 +133,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
     }
 
     assert {:error, :fixture_rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, %{wakeup_event: %Signal{}}} =
                         Ankole.BackgroundAgentJobs.Control.request_complete_in_tx(
-                          repo,
                           job.id,
                           args
                         )
@@ -146,8 +145,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
              end)
 
     # The operation owns its transaction, so it does not run inside another one.
-    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
-      Repo.transact(fn _repo -> BackgroundAgentJobs.request_complete(job.id, args) end)
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
+      Repo.transact(fn -> BackgroundAgentJobs.request_complete(job.id, args) end)
     end
 
     assert Repo.reload!(job).status == :queued
@@ -2146,12 +2145,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert {:ok, _completed} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                locked =
-                 Ankole.Signals.lock_signal_in_tx(repo, command_event.id)
+                 Ankole.Signals.lock_signal_in_tx(command_event.id)
 
                Ankole.Sessions.Queue.mark_event_completed_in_tx(
-                 repo,
                  locked,
                  DateTime.utc_now(:microsecond)
                )
@@ -2508,8 +2506,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Ankole.Attrs.maybe_put("completed_at", completed_at && DateTime.to_iso8601(completed_at))
 
     assert {:ok, checkpoint} =
-             Repo.transact(fn repo ->
-               Turns.upsert_from_worker_in_tx(repo, %{job | attempts: turn.attempt}, worker_attrs)
+             Repo.transact(fn ->
+               Turns.upsert_from_worker_in_tx(%{job | attempts: turn.attempt}, worker_attrs)
              end)
 
     checkpoint
@@ -2637,9 +2635,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
       )
 
     {:ok, conversation} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         Ankole.Conversations.External.observe_conversation_in_tx(
-          repo,
           binding,
           %{
             provider_conversation_id: "test:bg-job:#{provider_id}",

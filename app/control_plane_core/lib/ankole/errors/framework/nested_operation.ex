@@ -1,8 +1,8 @@
 defmodule Ankole.Errors.Framework.NestedOperation do
   @moduledoc """
-  Tells that a generic action started inside a transaction or inside another
-  generic action. A generic action owns its transaction, so it must be the
-  top-level call.
+  Tells that a top-level operation started inside a transaction or inside
+  another top-level operation. A top-level operation owns its transaction, so
+  it must be the top-level call.
   """
 
   use Splode.Error, fields: [:resource, :action], class: :framework

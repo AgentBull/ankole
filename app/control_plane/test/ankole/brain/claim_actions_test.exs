@@ -115,8 +115,8 @@ defmodule Ankole.Brain.ClaimActionsTest do
     now = ~U[2026-10-22 12:34:56.123456Z]
 
     assert {:ok, :withdrawn} =
-             Repo.transact(fn repo ->
-               :ok = Claims.withdraw_source_claims_in_tx(repo, source_id, now)
+             Repo.transact(fn ->
+               :ok = Claims.withdraw_source_claims_in_tx(source_id, now)
                {:ok, :withdrawn}
              end)
 
@@ -129,7 +129,7 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
   test "late failure cannot erase a successfully rebuilt vector", %{object: object} do
     original = take!(object)
-    vector = Pgvector.new([1.0 | List.duplicate(0.0, 4095)])
+    {:ok, vector} = Ash.Vector.new([1.0 | List.duplicate(0.0, 4095)])
 
     assert {:ok, :embedded} =
              Ankole.Brain.attach_claim_embedding(original, vector, "current-model")

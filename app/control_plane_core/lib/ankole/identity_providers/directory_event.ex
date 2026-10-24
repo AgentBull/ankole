@@ -106,31 +106,6 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
       change(transition_state(:dismissed))
       change(set_attribute(:processed_at, &DateTime.utc_now/0))
     end
-
-    action :receive, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:provider_id, :term, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :apply_restriction, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:event, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_open, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:event, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:action, :atom, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:only_open?, :boolean, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

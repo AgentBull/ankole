@@ -126,6 +126,10 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   actions do
     defaults([:read])
 
+    read :list_page do
+      pagination(offset?: true, max_page_size: 100, countable: false)
+    end
+
     read :across_tenants do
       multitenancy(:allow_global)
     end
@@ -141,48 +145,6 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
 
       prepare(build(sort: [inserted_at: :desc, id: :desc]))
       pagination(keyset?: true, default_limit: 20, max_page_size: 100, countable: false)
-    end
-
-    action :start_attempt, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-      argument(:ready_timeout_ms, :integer, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :finish_attempt, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:attempt_id, :term, allow_nil?: false)
-      argument(:result, :term, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :infrastructure_failure, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:attempt_id, :term, allow_nil?: false)
-      argument(:error, :term, allow_nil?: false)
-
-      argument(:disposition, :atom,
-        allow_nil?: false,
-        constraints: [one_of: [:retry, :exhausted]]
-      )
-
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :emit_event, :term do
-      argument(:agent_uid, :term, allow_nil?: false)
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:attempt_id, :term, allow_nil?: false)
-      argument(:payload, :term)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
     end
 
     create :enqueue do

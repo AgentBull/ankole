@@ -12,7 +12,7 @@ import * as sdk from '@ankole/applet-sdk'
 import type { AppletRuntime } from '@ankole/applet-sdk'
 import { fileURL } from './content-api'
 import { createAppletRoutes } from './applet-routes'
-import { podFiles } from '../common/api/generated/sdk.gen'
+import { podFiles } from './api/generated/sdk.gen'
 import { InternalAPIError } from '../common/internal-api-client'
 
 let host: Garfish | undefined

@@ -12,7 +12,6 @@ defmodule Ankole.Sessions.ModelHistory do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Principals
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.RunRef
   alias Ankole.Conversations.Conversation, as: PublicConversation
@@ -30,21 +29,18 @@ defmodule Ankole.Sessions.ModelHistory do
 
   @doc false
   @spec ensure_and_lock_conversation_in_tx(
-          module(),
           String.t(),
           String.t(),
           Signal.t()
         ) ::
           {:ok, Conversation.t()} | {:error, term()}
   def ensure_and_lock_conversation_in_tx(
-        repo,
         subject_uid,
         conversation_key,
         %Signal{} = signal
       ) do
-    with {:ok, origin} <- conversation_origin(repo, signal) do
+    with {:ok, origin} <- conversation_origin(signal) do
       ensure_and_lock_active_conversation(
-        repo,
         subject_uid,
         conversation_key,
         initial_origin_metadata(origin)
@@ -64,8 +60,7 @@ defmodule Ankole.Sessions.ModelHistory do
   @doc false
   @spec active_conversation(String.t(), String.t()) :: Conversation.t() | nil
   def active_conversation(subject_uid, conversation_key) do
-    Repo
-    |> AIGateway.list_active_conversations(
+    AIGateway.list_active_conversations(
       subject_uid: subject_uid,
       conversation_key: conversation_key,
       limit: 1
@@ -74,10 +69,10 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc "Ends model history and records the Session's Brain learning trigger atomically."
-  def end_active_conversation_in_tx(repo, subject_uid, session_id, now) do
+  def end_active_conversation_in_tx(subject_uid, session_id, now) do
     with {:ok, conversation} <-
-           AIGateway.end_active_conversation_in_tx(repo, subject_uid, session_id, now),
-         :ok <- Ankole.Brain.ConversationTriggers.conversation_ended_in_tx(repo, session_id) do
+           AIGateway.end_active_conversation_in_tx(subject_uid, session_id, now),
+         :ok <- Ankole.Brain.ConversationTriggers.conversation_ended_in_tx(session_id) do
       {:ok, conversation}
     end
   end
@@ -86,9 +81,9 @@ defmodule Ankole.Sessions.ModelHistory do
   # (for example, an internal command). Its conversation has no channel or DM
   # to record, so origin stays undeclared rather than forcing a lookup that has
   # nothing to find.
-  defp conversation_origin(_repo, %Signal{conversation_id: nil}), do: {:ok, :undeclared}
+  defp conversation_origin(%Signal{conversation_id: nil}), do: {:ok, :undeclared}
 
-  defp conversation_origin(_repo, %Signal{} = signal) do
+  defp conversation_origin(%Signal{} = signal) do
     case Ankole.Conversations.get_conversation!(signal.conversation_id) do
       %PublicConversation{kind: :external, external_kind: :im_dm} = channel ->
         with {:ok, peer_uid} <- dm_peer_uid(signal, channel) do
@@ -136,24 +131,21 @@ defmodule Ankole.Sessions.ModelHistory do
   defp initial_origin_metadata(%{} = origin), do: %{"origin" => origin}
 
   defp ensure_and_lock_active_conversation(
-         repo,
          subject_uid,
          conversation_key,
          initial_metadata
        ) do
     with {:ok, conversation} <-
            AIGateway.ensure_conversation_in_tx(
-             repo,
              subject_uid,
              conversation_key,
              initial_metadata
            ),
-         %Conversation{} = conversation <- AIGateway.lock_conversation(repo, conversation.id) do
+         %Conversation{} = conversation <- AIGateway.lock_conversation(conversation.id) do
       if is_nil(conversation.ended_at) do
         {:ok, conversation}
       else
         ensure_and_lock_active_conversation(
-          repo,
           subject_uid,
           conversation_key,
           initial_metadata
@@ -175,14 +167,14 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc "Returns Message IDs read by model calls owned by this Signal."
-  def read_message_ids_in_tx(repo, %Signal{} = signal) do
+  def read_message_ids_in_tx(%Signal{} = signal) do
     case active_conversation(signal.agent_uid, signal.session_id) do
       nil ->
         []
 
       conversation ->
         {:ok, rows} =
-          AIGateway.list_conversation_responses_in_tx(repo, signal.agent_uid, conversation.id)
+          AIGateway.list_conversation_responses_in_tx(signal.agent_uid, conversation.id)
 
         rows
         |> Enum.flat_map(fn row ->
@@ -203,22 +195,20 @@ defmodule Ankole.Sessions.ModelHistory do
 
   @doc false
   @spec delete_visible_turn_suffix_in_tx(
-          module(),
           String.t(),
           String.t(),
           String.t(),
           DateTime.t()
         ) :: {:ok, map()} | {:error, term()}
   def delete_visible_turn_suffix_in_tx(
-        repo,
         subject_uid,
         conversation_key,
         signal_id,
         %DateTime{} = now
       ) do
-    case AIGateway.active_conversation_for_update(repo, subject_uid, conversation_key) do
+    case AIGateway.active_conversation_for_update(subject_uid, conversation_key) do
       %Conversation{} = conversation ->
-        delete_visible_turn_suffix(repo, conversation, signal_id, now)
+        delete_visible_turn_suffix(conversation, signal_id, now)
 
       nil ->
         {:ok, suffix_delete_noop(:conversation_not_found)}
@@ -227,7 +217,6 @@ defmodule Ankole.Sessions.ModelHistory do
 
   @doc false
   @spec retract_visible_turn_suffix_in_tx(
-          module(),
           String.t(),
           String.t(),
           String.t(),
@@ -235,16 +224,15 @@ defmodule Ankole.Sessions.ModelHistory do
           keyword()
         ) :: {:ok, map()} | {:error, term()}
   def retract_visible_turn_suffix_in_tx(
-        repo,
         subject_uid,
         conversation_key,
         signal_id,
         %DateTime{} = now,
         opts \\ []
       ) do
-    case AIGateway.active_conversation_for_update(repo, subject_uid, conversation_key) do
+    case AIGateway.active_conversation_for_update(subject_uid, conversation_key) do
       %Conversation{} = conversation ->
-        retract_visible_turn_suffix(repo, conversation, signal_id, now, opts)
+        retract_visible_turn_suffix(conversation, signal_id, now, opts)
 
       nil ->
         {:ok, suffix_retraction_noop(:conversation_not_found)}
@@ -302,10 +290,9 @@ defmodule Ankole.Sessions.ModelHistory do
 
   defp request_ref_signal_ids(_request_refs), do: []
 
-  defp delete_visible_turn_suffix(repo, %Conversation{} = conversation, signal_id, now) do
+  defp delete_visible_turn_suffix(%Conversation{} = conversation, signal_id, now) do
     with {:ok, responses} <-
            AIGateway.list_conversation_responses_in_tx(
-             repo,
              conversation.subject_uid,
              conversation.id,
              statuses: [:complete, :generating],
@@ -335,7 +322,6 @@ defmodule Ankole.Sessions.ModelHistory do
 
           with {:ok, failed_responses} <-
                  fail_response_rows_in_tx(
-                   repo,
                    conversation.subject_uid,
                    generating_responses,
                    error,
@@ -343,7 +329,6 @@ defmodule Ankole.Sessions.ModelHistory do
                  ),
                {:ok, deletion} <-
                  AIGateway.hard_delete_visible_suffix_in_tx(
-                   repo,
                    conversation.subject_uid,
                    conversation.id,
                    Enum.map(suffix, &response_id/1)
@@ -359,7 +344,6 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   defp retract_visible_turn_suffix(
-         repo,
          %Conversation{} = conversation,
          signal_id,
          now,
@@ -367,7 +351,6 @@ defmodule Ankole.Sessions.ModelHistory do
        ) do
     with {:ok, responses} <-
            AIGateway.list_conversation_responses_in_tx(
-             repo,
              conversation.subject_uid,
              conversation.id,
              statuses: [:complete],
@@ -383,7 +366,6 @@ defmodule Ankole.Sessions.ModelHistory do
             {:ok, %{status: :preserved, preserved_message_ids: Enum.map(suffix, & &1.id)}}
           else
             AIGateway.retract_visible_suffix_in_tx(
-              repo,
               conversation.subject_uid,
               conversation.id,
               Enum.map(suffix, &response_id/1),
@@ -477,10 +459,9 @@ defmodule Ankole.Sessions.ModelHistory do
     end
   end
 
-  defp fail_response_rows_in_tx(repo, subject_uid, responses, error, now) do
+  defp fail_response_rows_in_tx(subject_uid, responses, error, now) do
     Enum.reduce_while(responses, {:ok, []}, fn response, {:ok, failed} ->
       case AIGateway.fail_generating_response_in_tx(
-             repo,
              subject_uid,
              response_id(response),
              error,
@@ -606,15 +587,13 @@ defmodule Ankole.Sessions.ModelHistory do
 
   defp response_id(%Message{id: id}), do: "resp_#{id}"
 
-  defp generating_responses_for_signal_in_tx(repo, session_key, signal_id) do
+  defp generating_responses_for_signal_in_tx(session_key, signal_id) do
     case AIGateway.active_conversation_for_update(
-           repo,
            session_key.agent_uid,
            session_key.session_id
          ) do
       %Conversation{} = conversation ->
         case AIGateway.list_conversation_responses_in_tx(
-               repo,
                session_key.agent_uid,
                conversation.id,
                statuses: [:generating],
@@ -636,12 +615,11 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc false
-  def retract_generating_turn_in_tx(repo, session_key, signal_id, now, reason)
+  def retract_generating_turn_in_tx(session_key, signal_id, now, reason)
       when is_binary(reason) do
-    generating_responses_for_signal_in_tx(repo, session_key, signal_id)
+    generating_responses_for_signal_in_tx(session_key, signal_id)
     |> Enum.reduce_while({:ok, []}, fn response, {:ok, retracted} ->
       case AIGateway.retract_generating_response_in_tx(
-             repo,
              session_key.agent_uid,
              response_id(response),
              reason,
@@ -659,15 +637,13 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc false
-  def exact_turn_retryable_in_tx(repo, session_key, signal_id) do
+  def exact_turn_retryable_in_tx(session_key, signal_id) do
     case AIGateway.active_conversation_for_update(
-           repo,
            session_key.agent_uid,
            session_key.session_id
          ) do
       %Conversation{} = conversation ->
         case AIGateway.list_conversation_responses_in_tx(
-               repo,
                session_key.agent_uid,
                conversation.id,
                statuses: [:generating, :complete, :error],

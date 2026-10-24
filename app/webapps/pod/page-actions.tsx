@@ -14,7 +14,7 @@ import {
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import type { PodPageMove } from '../common/api/generated/types.gen'
+import type { PageMove as PodPageMove } from './content-api'
 import { podLocation, podRouteID } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys, pageAPI, type Page } from './content-api'

@@ -17,6 +17,7 @@ defmodule Ankole.Brain.Patterns do
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Repo
 
   @window_days 30
   @min_pages 3
@@ -121,10 +122,8 @@ defmodule Ankole.Brain.Patterns do
     with {:ok, output} <-
            ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.patterns"),
          {:ok, patterns} <- validate_output(output, scope, prefix, facts) do
-      Ankole.Ash.run_action(Object, :write_patterns, %{
-        patterns: patterns,
-        existing: Map.new(existing, &{&1.slug, &1})
-      })
+      existing_by_slug = Map.new(existing, &{&1.slug, &1})
+      Repo.transact_top_level(fn -> write_patterns_in_tx(patterns, existing_by_slug) end)
     end
   end
 

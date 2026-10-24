@@ -1,6 +1,6 @@
 defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   @moduledoc "Accepts Worker RPC only for its bound Agent and current durable input or Job attempt."
-  alias Ankole.{Errors, Principals.WorkAccess}
+  alias Ankole.{Principals.WorkAccess, Repo}
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.RunRef
   alias Ankole.BackgroundAgentJobs
@@ -15,23 +15,30 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   The transaction takes the same locks as a terminal write, so the check
   waits for a concurrent cancellation or terminal write to commit.
   """
-  def authorize_turn(ref, worker_id, effect),
-    do: Errors.reason(AgentWorkers.authorize_worker_turn(ref, worker_id, effect))
+  def authorize_turn(ref, worker_id, effect) when is_binary(worker_id) and worker_id != "" do
+    case Repo.transact_top_level(fn -> authorize_turn_in_tx(ref, worker_id, effect) end) do
+      {:ok, :authorized} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
 
-  def authorize_turn_in_tx(repo, ref, worker_id, effect, opts \\ [])
+  def authorize_turn(_ref, _worker_id, _effect),
+    do: {:error, :worker_not_assigned_to_turn}
 
-  def authorize_turn_in_tx(repo, ref, uid, effect, opts)
+  def authorize_turn_in_tx(ref, worker_id, effect, opts \\ [])
+
+  def authorize_turn_in_tx(ref, uid, effect, opts)
       when effect in [:read, :write, :terminal] do
     case ref do
       %JobTurnRef{} ->
         # The locked Job and attempt fence serialize cancellation and terminal
         # writes. Lock the input only when its lifecycle mutation runs, after
         # Turn and Session locks.
-        with :ok <- lock_job_write(repo, uid, effect),
+        with :ok <- lock_job_write(uid, effect),
              %Job{attempts: attempt, status: status} <-
-               job(repo, ref, effect),
+               job(ref, effect),
              true <- attempt == ref.attempt and (status == :running or effect == :terminal),
-             :ok <- input(repo, ref, status != :running, Keyword.delete(opts, :lock)) do
+             :ok <- input(ref, status != :running, Keyword.delete(opts, :lock)) do
           {:ok, :authorized}
         else
           {:error, _} = error -> error
@@ -39,36 +46,36 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
         end
 
       %RunRef{} ->
-        with :ok <- input(repo, ref, false, opts), do: {:ok, :authorized}
+        with :ok <- input(ref, false, opts), do: {:ok, :authorized}
     end
   end
 
-  def authorize_turn_in_tx(_repo, _ref, _worker_id, _effect, _opts),
+  def authorize_turn_in_tx(_ref, _worker_id, _effect, _opts),
     do: {:error, :worker_not_assigned_to_turn}
 
-  defp lock_job_write(_repo, _uid, :read), do: :ok
+  defp lock_job_write(_uid, :read), do: :ok
 
-  defp lock_job_write(repo, uid, _effect) do
-    AgentWorkers.lock_in_tx(repo, uid)
-    Lifecycle.lock_agent_slots(repo, uid)
+  defp lock_job_write(uid, _effect) do
+    AgentWorkers.lock_in_tx(uid)
+    Lifecycle.lock_agent_slots(uid)
   end
 
-  defp job(_repo, ref, :read),
+  defp job(ref, :read),
     do: BackgroundAgentJobs.get_job_for_agent(ref.job_id, ref.agent_uid)
 
-  defp job(repo, ref, _effect),
-    do: BackgroundAgentJobs.lock_job_in_tx(repo, ref.job_id, ref.agent_uid)
+  defp job(ref, _effect),
+    do: BackgroundAgentJobs.lock_job_in_tx(ref.job_id, ref.agent_uid)
 
-  defp admitted_access(_repo, %{last_attempt_at: %DateTime{}}), do: :ok
-  defp admitted_access(repo, event), do: WorkAccess.check_in_tx(repo, event)
+  defp admitted_access(%{last_attempt_at: %DateTime{}}), do: :ok
+  defp admitted_access(event), do: WorkAccess.check_in_tx(event)
 
-  defp input(repo, ref, terminal?, opts) do
+  defp input(ref, terminal?, opts) do
     case Ankole.Signals.get_signal(ref.signal_id) do
       {:ok, %Signal{} = snapshot} ->
         with true <- same_input?(snapshot, ref),
              :ok <- input_open(snapshot, terminal?),
-             :ok <- admitted_access(repo, snapshot),
-             %Signal{} = event <- lock_input(repo, snapshot, opts),
+             :ok <- admitted_access(snapshot),
+             %Signal{} = event <- lock_input(snapshot, opts),
              true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
              :ok <- input_open(event, terminal?) do
           :ok
@@ -85,9 +92,9 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   defp same_input?(%Signal{} = event, ref),
     do: event.agent_uid == ref.agent_uid and event.session_id == ref.session_id
 
-  defp lock_input(repo, snapshot, opts) do
+  defp lock_input(snapshot, opts) do
     if Keyword.get(opts, :lock, false),
-      do: Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
+      do: Ankole.Signals.lock_signal_in_tx(snapshot.id),
       else: snapshot
   end
 

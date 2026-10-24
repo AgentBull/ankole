@@ -711,7 +711,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert {:ok, [%{status: :filtered}]} =
                Inbound.handle_message_receive("message", incoming, [consumer])
 
-      refute Ankole.Conversations.External.get_conversation(Repo, "slack:C1")
+      refute Ankole.Conversations.External.get_conversation("slack:C1")
     end
 
     test "Slack actions carry an authorized Principal identity" do

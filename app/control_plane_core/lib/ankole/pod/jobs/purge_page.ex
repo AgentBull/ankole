@@ -29,7 +29,7 @@ defmodule Ankole.Pod.Jobs.PurgePage do
   @batch_size 1000
   @impl Ankole.Job
   def run(%Oban.Job{args: %{"page_id" => id}}) do
-    case Ankole.Ash.run_action(Page, :start_purge, %{id: id}) do
+    case Repo.transact_top_level(fn -> start_in_tx(id) end) do
       {:ok, nil} -> :ok
       {:ok, _page} -> purge(id)
       {:error, {:retention_not_elapsed, seconds}} -> {:snooze, seconds}
@@ -127,7 +127,7 @@ defmodule Ankole.Pod.Jobs.PurgePage do
 
   defp remove_references(ids) do
     Enum.reduce_while(ids, :ok, fn page_id, :ok ->
-      case Ankole.Ash.run_action(Page, :purge_page_references, %{id: page_id}) do
+      case Repo.transact_top_level(fn -> remove_references_in_tx(page_id) end) do
         {:ok, _} -> {:cont, :ok}
         error -> {:halt, error}
       end
@@ -138,14 +138,14 @@ defmodule Ankole.Pod.Jobs.PurgePage do
   def remove_references_in_tx(page_id) do
     Pages.lock_tree()
 
-    with {:ok, _} <- Files.commit(Repo, :pod, [], [Ankole.Pod.Files.prefix(page_id)]) do
+    with {:ok, _} <- Files.commit_in_tx(:pod, [], [Ankole.Pod.Files.prefix(page_id)]) do
       Access.page_grants(page_id) |> Access.remove_grants()
       {:ok, :cleaned}
     end
   end
 
   defp delete_pages(ids) do
-    case Ankole.Ash.run_action(Page, :purge_pages, %{ids: ids}) do
+    case Repo.transact_top_level(fn -> remove_pages_in_tx(ids) end) do
       {:ok, 0} -> :ok
       {:ok, _count} -> delete_pages(ids)
       error -> error

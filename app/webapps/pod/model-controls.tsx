@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Button } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
-import { podModelProfiles, podModelSelection, setPodModelSelection } from '../common/api/generated/sdk.gen'
+import { podModelProfiles, podModelSelection, setPodModelSelection } from './api/generated/sdk.gen'
 import { podKeys } from './api'
 
 export const modelSelectionKey = (conversationID: string) =>
@@ -43,7 +43,7 @@ export function ModelControls({
   const save = useMutation({
     mutationKey: conversationID ? modelSelectionKey(conversationID) : undefined,
     mutationFn: ({ id, profile }: { id: string; profile: string | null }) =>
-      setPodModelSelection({ path: { id }, body: { profile } }),
+      setPodModelSelection({ path: { id }, body: { data: { profile } } }),
     onSuccess: (result, submitted) => client.setQueryData(modelSelectionKey(submitted.id), result)
   })
   const previousSignal = useRef(activeSignalID)

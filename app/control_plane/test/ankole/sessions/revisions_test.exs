@@ -109,8 +109,8 @@ defmodule Ankole.Sessions.RevisionsTest do
       |> Map.put("text", "Withdraw this part")
 
     assert {:ok, event} =
-             Repo.transact(fn repo ->
-               Revisions.revise_event_in_tx(repo, event, "supplement", extra, @base_time)
+             Repo.transact(fn ->
+               Revisions.revise_event_in_tx(event, "supplement", extra, @base_time)
              end)
 
     {:ok, run} = Admission.admit(key, event)
@@ -160,8 +160,8 @@ defmodule Ankole.Sessions.RevisionsTest do
       |> Map.put("text", "Withdraw this part")
 
     {:ok, event} =
-      Repo.transact(fn repo ->
-        Revisions.revise_event_in_tx(repo, event, "supplement", extra, @base_time)
+      Repo.transact(fn ->
+        Revisions.revise_event_in_tx(event, "supplement", extra, @base_time)
       end)
 
     {:ok, run} = Admission.admit(key, event)
@@ -273,8 +273,8 @@ defmodule Ankole.Sessions.RevisionsTest do
 
   defp revision(run, id, kind, entry) do
     {:ok, revision} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           producer: :kernel,
           target: %{agent_uid: run.agent_uid, session_id: run.session_id},
           source: "test:runtime",

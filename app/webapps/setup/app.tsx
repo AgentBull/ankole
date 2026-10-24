@@ -34,12 +34,15 @@ import {
   logSetupActivationCode,
   setupPlugins,
   updateSetupPlugins,
-  setupIdentityAdapters,
+  setupIdentityProviderAdapters,
   putSetupIdentityProvider,
   setupOidcAuthorization
 } from '../common/api/generated/sdk.gen'
-import type { SetupState, SetupIdentityAdapter as IdentityAdapter } from '../common/api/generated/types.gen'
-export type { SetupIdentityAdapter as IdentityAdapter } from '../common/api/generated/types.gen'
+import type {
+  SetupStateResponse as SetupState,
+  SetupIdentityProviderAdaptersResponse
+} from '../common/api/generated/types.gen'
+export type IdentityAdapter = SetupIdentityProviderAdaptersResponse['adapters'][number]
 import { ConfigFields, defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import i18n, { loadLocale, nativeLocaleLabel } from '../common/i18n'
@@ -51,7 +54,7 @@ import { PluginsStepModel, visibleIdentityAdapters } from './state/plugins-step-
 import { setupStepState, type SetupStepID } from './state/setup-progress'
 
 const bootstrapSchema = z.object({
-  activationCode: z.string().min(1, {
+  activation_code: z.string().min(1, {
     error: () => i18n.t('common.field_required', { field: i18n.t('setup.activation_code') })
   }),
   locale: z.string().min(1)
@@ -208,11 +211,11 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   const { t } = useTranslation()
   const locale = setupState?.currentLocale ?? i18n.language
   const mutation = useMutation({
-    mutationFn: (input: BootstrapInput) => createSetupSession({ body: input }),
+    mutationFn: (input: BootstrapInput) => createSetupSession({ body: { data: input } }),
     onSuccess: onAuthenticated
   })
   const form = useForm({
-    defaultValues: { activationCode: '', locale },
+    defaultValues: { activation_code: '', locale },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: bootstrapSchema },
     onSubmit: ({ value }) => {
@@ -271,7 +274,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
             )}
           </form.Field>
 
-          <form.Field name="activationCode">
+          <form.Field name="activation_code">
             {field => {
               const error = field.state.meta.errors[0]?.message
               return (
@@ -338,7 +341,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
     ? model.selectedPluginIDs.value
     : new Set(query.data?.enabledPluginIDs ?? [])
   const mutation = useMutation({
-    mutationFn: () => updateSetupPlugins({ body: model.submission() }),
+    mutationFn: () => updateSetupPlugins({ body: { data: model.submission() } }),
     onSuccess: onContinue
   })
 
@@ -394,7 +397,7 @@ function IdentityStep({
   const { t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
-    queryFn: () => setupIdentityAdapters()
+    queryFn: () => setupIdentityProviderAdapters()
   })
   const adapters = visibleIdentityAdapters(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
@@ -525,9 +528,11 @@ function SSOIdentityForm({
       await putSetupIdentityProvider({
         path: { provider_id: input.providerID },
         body: {
-          adapterID: input.adapterID,
-          config: setPath(input.config, 'oidc.enabled', true),
-          enabled: true
+          data: {
+            adapterID: input.adapterID,
+            config: setPath(input.config, 'oidc.enabled', true),
+            enabled: true
+          }
         }
       })
       return setupOidcAuthorization({ path: { provider_id: input.providerID } })

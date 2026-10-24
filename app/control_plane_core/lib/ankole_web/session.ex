@@ -245,33 +245,24 @@ defmodule AnkoleWeb.Session do
 
   # EventSource and file subresources cannot send the document's authentication
   # header. Other API URLs must not select a different signed-in identity.
-  defp parameter_reference(
-         %{method: "GET", path_info: [".internal-apis", "pod", "conversations", _id, "events"]} =
-           conn
-       ) do
-    parameter_authentication(conn)
+  defp parameter_reference(conn) do
+    case {conn.method, String.split(conn.request_path, "/", trim: true)} do
+      {"GET", ["api", "v2", "pod", "conversations", _id, "events"]} ->
+        parameter_authentication(conn)
+
+      {"GET", ["api", "v2", "pod", "pages", _id, "files", "content"]} ->
+        parameter_authentication(conn)
+
+      {"GET", ["api", "v2", "pod", "conversations", _id, "attachments", _message_id]} ->
+        parameter_authentication(conn)
+
+      {_, ["api" | _]} ->
+        if param(conn, "authentication_ref"), do: :invalid
+
+      _ ->
+        nil
+    end
   end
-
-  defp parameter_reference(
-         %{method: "GET", path_info: [".internal-apis", "pod", "pages", _id, "files", "content"]} =
-           conn
-       ),
-       do: parameter_authentication(conn)
-
-  defp parameter_reference(
-         %{
-           method: "GET",
-           path_info: [".internal-apis", "pod", "conversations", _id, "attachments", _message_id]
-         } = conn
-       ),
-       do: parameter_authentication(conn)
-
-  defp parameter_reference(%{path_info: [prefix | _]} = conn)
-       when prefix in [".internal-apis", "api"] do
-    if param(conn, "authentication_ref"), do: :invalid
-  end
-
-  defp parameter_reference(_conn), do: nil
 
   defp parameter_authentication(conn) do
     case param(conn, "authentication_ref") do
@@ -369,9 +360,20 @@ defmodule AnkoleWeb.Session do
 
   def param(conn, key) do
     params = if is_map(conn.params), do: conn.params, else: %{}
-    body = if is_map(conn.body_params), do: conn.body_params, else: %{}
+
+    body =
+      case conn.body_params do
+        %{"data" => %{} = data} -> data
+        %{} = body -> body
+        _ -> %{}
+      end
+
     query = fetch_query_params(conn).query_params
-    Map.get(params, key) || Map.get(body, key) || Map.get(query, key)
+
+    case Map.fetch(body, key) do
+      {:ok, value} -> value
+      :error -> Map.get(params, key) || Map.get(query, key)
+    end
   end
 
   def revoke_authentication(conn) do

@@ -7,6 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Wakeups
+  alias Ankole.Repo
   alias Ankole.Sessions.Queue
   alias Ankole.Signals.Signal
 
@@ -28,17 +29,16 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
     do: JobState.begin_worker_wait_in_tx(job, started_at)
 
   @doc false
-  @spec defer_in_tx(module(), Signal.t(), atom(), String.t(), DateTime.t()) ::
+  @spec defer_in_tx(Signal.t(), atom(), String.t(), DateTime.t()) ::
           {:ok, map()} | {:error, term()}
-  def defer_in_tx(_repo, _event, :agent_worker_ready_timeout, _mode, _now),
+  def defer_in_tx(_event, :agent_worker_ready_timeout, _mode, _now),
     do: {:error, :agent_worker_ready_timeout}
 
-  def defer_in_tx(repo, event, reason, mode, now) do
+  def defer_in_tx(event, reason, mode, now) do
     retry_at = DateTime.add(now, @poll_interval_seconds, :second)
 
     with :ok <-
            Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
-             repo,
              %{agent_uid: event.agent_uid, session_id: event.session_id},
              retry_at
            ) do
@@ -56,26 +56,21 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
   @doc "Resolves a Worker readiness timeout atomically."
   @spec resolve_timeout(Signal.t(), Job.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def resolve_timeout(%Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
-    Ankole.Ash.run_action(Job, :resolve_worker_timeout, %{
-      signal: event,
-      job: snapshot,
-      now: now
-    })
+    Repo.transact_top_level(fn -> resolve_timeout_in_tx(event, snapshot, now) end)
   end
 
   @doc false
-  @spec resolve_timeout_in_tx(module(), Signal.t(), Job.t(), DateTime.t()) ::
+  @spec resolve_timeout_in_tx(Signal.t(), Job.t(), DateTime.t()) ::
           {:ok, map()} | {:error, term()}
-  def resolve_timeout_in_tx(repo, %Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
-    _worker = AgentWorkers.lock_in_tx(repo, snapshot.agent_uid)
+  def resolve_timeout_in_tx(%Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
+    _worker = AgentWorkers.lock_in_tx(snapshot.agent_uid)
 
-    with :ok <- Lifecycle.lock_agent_slots(repo, snapshot.agent_uid),
+    with :ok <- Lifecycle.lock_agent_slots(snapshot.agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(snapshot.id, snapshot.agent_uid) do
       case job.status do
         :queued ->
           with {:ok, compensation} <-
                  Lifecycle.commit_status_after_runtime_prefix_in_tx(
-                   repo,
                    job.id,
                    job.agent_uid,
                    %{
@@ -91,7 +86,7 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
                    transition_action: :fail_admission
                  ),
                {:ok, event} <-
-                 Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
+                 Queue.mark_event_dead_letter_in_tx(event, now, %{
                    "code" => "agent_worker_unavailable",
                    "reason" => "agent_worker_ready_timeout"
                  }) do
@@ -104,16 +99,16 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
           end
 
         :waiting_on_user ->
-          with :ok <- Lifecycle.lock_job_sessions_in_tx(repo, job),
+          with :ok <- Lifecycle.lock_job_sessions_in_tx(job),
                {:ok, job} <-
                  JobState.clear_worker_wait_in_tx(job, now),
                {:ok, event} <-
-                 Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
+                 Queue.mark_event_dead_letter_in_tx(event, now, %{
                    "code" => "agent_worker_unavailable",
                    "reason" => "agent_worker_ready_timeout"
                  }),
                {:ok, wakeup_event} <-
-                 Wakeups.enqueue_input_undeliverable_in_tx(repo, job, event, now) do
+                 Wakeups.enqueue_input_undeliverable_in_tx(job, event, now) do
             {:ok,
              %{
                status: :dead_letter,
@@ -123,7 +118,7 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
           end
 
         status when status in [:succeeded, :failed, :stopped] ->
-          with {:ok, event} <- Queue.mark_event_completed_in_tx(repo, event, now) do
+          with {:ok, event} <- Queue.mark_event_completed_in_tx(event, now) do
             {:ok, %{status: :idle, signal: event}}
           end
 

@@ -9,9 +9,8 @@ defmodule Ankole.Sessions.InputImagesTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, room} =
-      Repo.transact(
-        &Ankole.Conversations.External.observe_conversation_in_tx(
-          &1,
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_conversation_in_tx(
           %{agent_uid: agent.uid},
           %{
             provider_conversation_id: "test:images",
@@ -21,7 +20,7 @@ defmodule Ankole.Sessions.InputImagesTest do
           },
           DateTime.utc_now(:microsecond)
         )
-      )
+      end)
 
     bytes = File.read!(Path.expand("../../fixtures/sessions/rgba.png", __DIR__))
     photo = drive_file_fixture(agent.uid, "chats/#{room.id}/inbox/photo.png", bytes)
@@ -47,9 +46,8 @@ defmodule Ankole.Sessions.InputImagesTest do
     }
 
     {:ok, %{message: message}} =
-      Repo.transact(
-        &Ankole.Conversations.External.observe_in_tx(
-          &1,
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_in_tx(
           room.id,
           %{
             provider_message_id: "image-message",
@@ -59,7 +57,7 @@ defmodule Ankole.Sessions.InputImagesTest do
           },
           DateTime.utc_now(:microsecond)
         )
-      )
+      end)
 
     event = %Ankole.Signals.Signal{
       producer: :kernel,

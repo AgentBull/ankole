@@ -39,7 +39,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
     {:ok, %{messages: [own]}} =
       in_tx(fn ->
-        Ankole.ConversationsFixtures.post_statement_in_tx(Repo, first, "Own answer")
+        Ankole.ConversationsFixtures.post_statement_in_tx(first, "Own answer")
       end)
 
     cron = append_report(context, "Cron report")
@@ -174,7 +174,6 @@ defmodule Ankole.Sessions.ConversationContextTest do
     assert {:ok, %{status: :retracted}} =
              in_tx(fn ->
                AIGateway.retract_visible_suffix_in_tx(
-                 Repo,
                  context.agent.uid,
                  context.model_conversation_id,
                  ["resp_#{response.id}"]
@@ -206,7 +205,6 @@ defmodule Ankole.Sessions.ConversationContextTest do
     assert {:ok, _} =
              in_tx(fn ->
                ModelHistory.end_active_conversation_in_tx(
-                 Repo,
                  context.agent.uid,
                  session,
                  DateTime.utc_now(:microsecond)
@@ -215,7 +213,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
     assert {:ok, successor} =
              in_tx(fn ->
-               AIGateway.ensure_conversation_in_tx(Repo, context.agent.uid, session)
+               AIGateway.ensure_conversation_in_tx(context.agent.uid, session)
              end)
 
     assert successor.id != context.model_conversation_id
@@ -280,7 +278,6 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
     assert :ok =
              Ankole.Sessions.Queue.ensure_event_source_live_in_tx(
-               Repo,
                signal,
                DateTime.utc_now()
              )
@@ -289,7 +286,6 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
     assert {:error, :signal_context_canceled} =
              Ankole.Sessions.Queue.ensure_event_source_live_in_tx(
-               Repo,
                signal,
                DateTime.utc_now()
              )
@@ -468,7 +464,6 @@ defmodule Ankole.Sessions.ConversationContextTest do
       assert {:ok, %{status: :retracted}} =
                in_tx(fn ->
                  AIGateway.retract_visible_suffix_in_tx(
-                   Repo,
                    context.agent.uid,
                    context.model_conversation_id,
                    ["resp_#{final_id}"]
@@ -501,7 +496,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
     in_tx(fn ->
       {:ok, signal} =
-        Signals.accept_in_tx(Repo, %{
+        Signals.accept_in_tx(%{
           producer: :kernel,
           source: "schedule:cron:context-test",
           id: signal_id,
@@ -512,7 +507,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
           data: %{"wake_payload" => %{"cron_schedule_name" => "Context report"}}
         })
 
-      Ankole.ConversationsFixtures.post_statement_in_tx(Repo, signal, text,
+      Ankole.ConversationsFixtures.post_statement_in_tx(signal, text,
         conversation_id: context.conversation.id
       )
     end)

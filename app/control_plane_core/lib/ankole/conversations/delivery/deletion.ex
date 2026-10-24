@@ -19,8 +19,8 @@ defmodule Ankole.Conversations.Delivery.Deletion do
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.PreviewAdapter
 
-  @spec intents(module(), Ecto.UUID.t(), [binary()]) :: [map()]
-  def intents(_repo, signal_id, ai_message_ids \\ [])
+  @spec intents(Ecto.UUID.t(), [binary()]) :: [map()]
+  def intents(signal_id, ai_message_ids \\ [])
       when is_binary(signal_id) and is_list(ai_message_ids) do
     (mirrored_reply_targets(ai_message_ids) ++
        intent_reply_targets(signal_id) ++
@@ -31,9 +31,8 @@ defmodule Ankole.Conversations.Delivery.Deletion do
   end
 
   @doc "Commits provider removals before their source Signal is deleted."
-  def commit_source_in_tx(repo, %Signal{} = input) do
-    repo
-    |> intents(input.id)
+  def commit_source_in_tx(%Signal{} = input) do
+    intents(input.id)
     |> Enum.map(fn intent ->
       intent
       |> Map.merge(%{
@@ -41,7 +40,7 @@ defmodule Ankole.Conversations.Delivery.Deletion do
         binding_name: input.reply_binding_name,
         source_signal_id: input.id
       })
-      |> then(&Ankole.Conversations.Delivery.commit_in_tx(repo, &1))
+      |> then(&Ankole.Conversations.Delivery.commit_in_tx(&1))
     end)
     |> Ankole.Attrs.collect_results()
   end

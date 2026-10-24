@@ -61,9 +61,8 @@ defmodule Ankole.E2E.ConversationsCLIRealLLMTest do
     binding = setup_multi_agent_binding!(sales.uid, ctx.fake_feishu)
 
     assert {:ok, shared} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                External.observe_conversation_in_tx(
-                 repo,
                  binding,
                  %{provider_conversation_id: "lark:#{chat}"},
                  DateTime.utc_now(:microsecond)
@@ -73,8 +72,8 @@ defmodule Ankole.E2E.ConversationsCLIRealLLMTest do
     assert shared.id == first.conversation_id
 
     assert {:ok, sales_input} =
-             Repo.transact(fn repo ->
-               Signals.accept_in_tx(repo, %{
+             Repo.transact(fn ->
+               Signals.accept_in_tx(%{
                  source: "test://sales-report",
                  id: reference,
                  type: "sales.report",

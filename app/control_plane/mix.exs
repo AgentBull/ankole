@@ -96,7 +96,8 @@ defmodule Ankole.MixProject do
   @ash_patches [
     {"ash", "ash-3.36.1.patch"},
     {"ash_postgres", "ash_postgres-2.15.1.patch"},
-    {"ash_json_api", "ash_json_api-1.7.1.patch"}
+    {"ash_json_api", "ash_json_api-1.7.1.patch"},
+    {"attesto", "attesto-2.6.1.patch"}
   ]
 
   # Patch before deps.compile takes its dependency snapshot. Gives the
@@ -111,7 +112,7 @@ defmodule Ankole.MixProject do
 
   defp apply_patch(dependency_name, dependency, filename) do
     patch = Path.expand("../control_plane_core/patches/#{filename}", __DIR__)
-    arguments = ["--force", "-p1", "-i", patch]
+    arguments = ["-F", "0", "--force", "-p1", "-i", patch]
     options = [cd: dependency, stderr_to_stdout: true]
 
     case System.cmd("patch", ["--dry-run", "--reverse" | arguments], options) do
@@ -129,15 +130,32 @@ defmodule Ankole.MixProject do
     end
   end
 
-  # A warm build can hold a dependency that was compiled before its patch.
-  # Build the patched dependencies again before deps.loadpaths snapshots them,
-  # but only when this call applied a patch.
+  # A warm build can hold a dependency that was compiled before its patch or in
+  # another Mix environment. Build the patched dependencies again before
+  # deps.loadpaths snapshots them when the build stamp does not match.
   defp compile_ash_dependencies(args) do
-    unless "--no-compile" in args or "--no-deps-check" in args or
-             patch_ash_dependencies(args) == [] do
-      names = Enum.map(@ash_patches, &elem(&1, 0))
-      Mix.Task.rerun("deps.compile", names ++ ["--include-children", "--force"])
+    unless "--no-compile" in args or "--no-deps-check" in args do
+      patched = patch_ash_dependencies(args)
+      stamp_path = Path.join(Mix.Project.build_path(), ".ash_patches")
+      stamp = ash_patches_stamp()
+
+      if patched != [] or File.read(stamp_path) != {:ok, stamp} do
+        names = Enum.map(@ash_patches, &elem(&1, 0))
+        Mix.Task.rerun("deps.compile", names ++ ["--include-children", "--force"])
+        File.mkdir_p!(Path.dirname(stamp_path))
+        File.write!(stamp_path, stamp)
+      end
     end
+  end
+
+  defp ash_patches_stamp do
+    @ash_patches
+    |> Enum.map(fn {_dep, filename} ->
+      {filename, File.read!(Path.expand("../control_plane_core/patches/#{filename}", __DIR__))}
+    end)
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   defp prepare_webapps(_args) do

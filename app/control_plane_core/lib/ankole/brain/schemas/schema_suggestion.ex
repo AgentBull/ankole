@@ -92,15 +92,17 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
   actions do
     defaults([:read])
 
-    # The Console list: the first 100 suggestions of one status, newest first.
+    # The Console list: suggestions of one status, newest first.
     read :console_list do
+      pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
+
       argument(:status, :atom,
         default: :pending,
         constraints: [one_of: [:pending, :approved, :rejected]]
       )
 
       filter(expr(status == ^arg(:status)))
-      prepare(build(sort: [created_at: :desc], limit: 100))
+      prepare(build(sort: [created_at: :desc, id: :desc]))
     end
 
     create_if_absent :suggest do
@@ -126,16 +128,6 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
       change(transition_state(:rejected))
     end
 
-    # Each review decision owns its transaction; Ankole.Brain.Promotion gives
-    # the steps.
-    action :approve_promotion, :map do
-      argument(:suggestion_id, :uuid, allow_nil?: false)
-      argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
-      argument(:attrs, :map, default: %{})
-
-      run(__MODULE__.Actions)
-    end
-
     # The Console review. The reviewer is the actor of the action
     # (Ankole.Brain.Console).
     action :console_approve do
@@ -151,14 +143,6 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
     action :console_reject, :struct do
       constraints(instance_of: __MODULE__)
       argument(:suggestion_id, :uuid, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :reject_promotion, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:suggestion_id, :uuid, allow_nil?: false)
-      argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

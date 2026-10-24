@@ -24,27 +24,29 @@ defmodule Ankole.Sessions.Receipts do
     })
 
     with {:ok, {receipt, _after_commit}} <-
-           run
-           |> Ankole.Sessions.execute_receipt(response_id, call_id, operation)
+           Ankole.Repo.transact_top_level(
+             fn -> execute_in_tx(run, response_id, call_id, operation) end,
+             after_commit: {__MODULE__, :publish_committed}
+           )
            |> Ankole.Errors.reason(),
          do: {:ok, receipt}
   end
 
   @doc false
-  def execute_in_tx(repo, run, response_id, call_id, operation) do
-    Ankole.AdvisoryLock.lock!(repo, "session-receipt:" <> response_id <> ":" <> call_id)
+  def execute_in_tx(run, response_id, call_id, operation) do
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, "session-receipt:" <> response_id <> ":" <> call_id)
 
-    with :ok <- Fence.current_in_tx(repo, run) do
+    with :ok <- Fence.current_in_tx(run) do
       case Ankole.Ash.read_one!(identity_query(response_id, call_id)) do
         %Receipt{} = receipt ->
-          with :ok <- Fence.check_in_tx(repo, run, :share),
+          with :ok <- Fence.check_in_tx(run, :share),
                do: {:ok, {receipt, []}}
 
         nil ->
-          with {:ok, sessions, commit} <- operation.(repo),
-               :ok <- Queue.lock_sessions_in_tx(repo, sessions),
-               :ok <- Fence.check_in_tx(repo, run, :share) do
-            commit_in_tx(repo, run, response_id, call_id, commit)
+          with {:ok, sessions, commit} <- operation.(),
+               :ok <- Queue.lock_sessions_in_tx(sessions),
+               :ok <- Fence.check_in_tx(run, :share) do
+            commit_in_tx(run, response_id, call_id, commit)
           end
       end
     end
@@ -78,20 +80,20 @@ defmodule Ankole.Sessions.Receipts do
     end
   end
 
-  def delete_round_in_tx(_repo, run, response_id) do
+  def delete_round_in_tx(run, response_id) do
     Receipt
     |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
     |> Ash.Query.filter(response_id == ^response_id)
     |> discard_in_tx()
   end
 
-  def delete_run_in_tx(_repo, run) do
+  def delete_run_in_tx(run) do
     Receipt
     |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
     |> discard_in_tx()
   end
 
-  defp commit_in_tx(_repo, run, response_id, call_id, operation) do
+  defp commit_in_tx(run, response_id, call_id, operation) do
     with {:ok, result, after_commit} <- operation.(),
          {:ok, receipt} <-
            Ankole.Ash.create(Receipt, :commit_result, %{

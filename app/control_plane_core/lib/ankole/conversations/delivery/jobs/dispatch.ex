@@ -12,7 +12,7 @@ defmodule Ankole.Conversations.Delivery.Jobs.Dispatch do
 
   import Ecto.Query
 
-  def schedule_in_tx(_repo, args, nil) do
+  def schedule_in_tx(args, nil) do
     {:ok, _} =
       Oban.cancel_all_jobs(
         from job in Oban.Job,
@@ -25,8 +25,8 @@ defmodule Ankole.Conversations.Delivery.Jobs.Dispatch do
     :ok
   end
 
-  def schedule_in_tx(repo, args, due_at),
-    do: Ankole.Job.schedule_in_tx(repo, __MODULE__, args, due_at)
+  def schedule_in_tx(args, due_at),
+    do: Ankole.Job.schedule_in_tx(__MODULE__, args, due_at)
 
   @impl true
   def run(%Oban.Job{args: args}) do

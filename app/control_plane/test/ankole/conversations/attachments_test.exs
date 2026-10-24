@@ -356,8 +356,7 @@ defmodule Ankole.Conversations.AttachmentsTest do
       query_time = DateTime.add(@base_time, 30, :second)
 
       assert [%{"provider_ref" => "lark:file:alice-report", "name" => "report.pdf"}] =
-               Repo
-               |> Attachments.recent(
+               Attachments.recent(
                  external_conversation_id(@channel_id),
                  "provider-alice",
                  query_time,
@@ -366,7 +365,6 @@ defmodule Ankole.Conversations.AttachmentsTest do
                |> Enum.map(&Map.take(&1, ["provider_ref", "name"]))
 
       assert Attachments.recent(
-               Repo,
                external_conversation_id(@channel_id),
                "provider-carol",
                query_time,
@@ -401,10 +399,9 @@ defmodule Ankole.Conversations.AttachmentsTest do
     Process.put(:attachment_test_agent, uid)
 
     assert {:ok, %{message: entry}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                with {:ok, conversation} <-
                       External.observe_conversation_in_tx(
-                        repo,
                         %{agent_uid: uid},
                         %{
                           provider_conversation_id: @channel_id,
@@ -415,7 +412,6 @@ defmodule Ankole.Conversations.AttachmentsTest do
                         provider_time
                       ) do
                  External.observe_in_tx(
-                   repo,
                    conversation.id,
                    %{
                      provider_message_id: provider_message_id,

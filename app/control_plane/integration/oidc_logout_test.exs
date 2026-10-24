@@ -1,8 +1,10 @@
 defmodule Ankole.OIDCLogoutIntegrationTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   import Ankole.PrincipalsFixtures
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
-  alias Ankole.{BrowserSessions, OIDC, Repo, TokenSigning}
+  alias Ankole.{BrowserSessions, OIDC, Repo}
+  alias Ankole.OIDC.Config, as: OIDCConfig
   alias Ankole.OIDC.Logout
   alias Ankole.OIDC.LogoutDelivery
   alias Ankole.OIDC.SigningKey
@@ -28,7 +30,7 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
         claims =
           Ankole.Kernel.jwt_verify_jwk(token, jwk, %{
             algorithms: ["RS256"],
-            iss: [TokenSigning.issuer()],
+            iss: [OIDCConfig.issuer()],
             validate_exp: true,
             required_spec_claims: ["iss", "aud", "iat", "exp", "jti"]
           })
@@ -193,7 +195,7 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
       [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
 
       identity =
-        Req.get!(origin <> "/.internal-apis/oidc-logout/" <> id, headers: [cookie: cookie])
+        Req.get!(origin <> "/api/v2/browser/oidc-logout/" <> id, headers: [cookie: cookie])
 
       assert identity.status == 200
       if attempt == 2, do: assert(is_nil(identity.body["identity"]))

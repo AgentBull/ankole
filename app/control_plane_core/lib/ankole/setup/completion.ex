@@ -13,6 +13,7 @@ defmodule Ankole.Setup.Completion do
 
   alias Ankole.AppConfigure
   alias Ankole.AuthZ
+  alias Ankole.Repo
   alias Ankole.Setup.Config
 
   @doc """
@@ -28,10 +29,7 @@ defmodule Ankole.Setup.Completion do
           {:ok, map()} | {:error, term()}
   def complete_with_first_site_admin(principal_uid, brain_packs \\ []) do
     with {:ok, {root, completed_write}} <-
-           Ankole.Ash.run_action(Ankole.Setup.Operations, :complete, %{
-             principal_uid: principal_uid,
-             brain_packs: brain_packs
-           }),
+           Repo.transact_top_level(fn -> complete_in_tx(principal_uid, brain_packs) end),
          {:ok, _completed} <- AppConfigure.cache_committed_write(completed_write),
          :ok <- Config.delete_bootstrap_activation_code() do
       {:ok, root}
@@ -39,10 +37,10 @@ defmodule Ankole.Setup.Completion do
   end
 
   @doc false
-  def complete_in_tx(repo, principal_uid, brain_packs) do
-    with {:ok, root} <- AuthZ.root_init_admin(principal_uid, repo),
-         :ok <- materialize_brain_packs(repo, brain_packs),
-         {:ok, completed_write} <- Config.put_completed_in_tx(repo, true) do
+  def complete_in_tx(principal_uid, brain_packs) do
+    with {:ok, root} <- AuthZ.root_init_admin(principal_uid),
+         :ok <- materialize_brain_packs(brain_packs),
+         {:ok, completed_write} <- Config.put_completed_in_tx(true) do
       {:ok, {root, completed_write}}
     end
   end
@@ -50,8 +48,8 @@ defmodule Ankole.Setup.Completion do
   # The Brain schema selection materializes inside the completion
   # transaction: a failed materialization rolls back the completed flag. A
   # repeated first-admin claim finds the packs installed and continues.
-  defp materialize_brain_packs(repo, brain_packs) do
-    case Ankole.Brain.SchemaPacks.install_packs_in_tx(repo, brain_packs) do
+  defp materialize_brain_packs(brain_packs) do
+    case Ankole.Brain.SchemaPacks.install_packs_in_tx(brain_packs) do
       {:ok, _result} -> :ok
       {:error, _reason} = error -> error
     end

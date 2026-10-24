@@ -17,8 +17,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
     workspace = Repo.update!(change(workspace, epoch: 1))
 
     {:ok, event} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           producer: :kernel,
           target: %{agent_uid: agent.uid, session_id: session_id},
           source: "test:runtime",
@@ -83,8 +83,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
   } do
     original = Repo.get!(Principal, run.agent_uid).display_name
 
-    prepare = fn repo ->
-      repo.update!(change(repo.get!(Principal, run.agent_uid), display_name: "Provisional"))
+    prepare = fn ->
+      Repo.update!(change(Repo.get!(Principal, run.agent_uid), display_name: "Provisional"))
       {:error, :preparation_failed}
     end
 
@@ -132,9 +132,9 @@ defmodule Ankole.Sessions.ReceiptsTest do
   end
 
   test "receipts reject a surrounding transaction before preparing any effect", %{run: run} do
-    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
       Repo.transact(fn _ ->
-        Receipts.execute(run, "resp_outer", "call_1", fn _ ->
+        Receipts.execute(run, "resp_outer", "call_1", fn ->
           flunk("nested preparation executed")
         end)
       end)
@@ -158,7 +158,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
              )
 
     Repo.transact(fn repo ->
-      Receipts.delete_round_in_tx(repo, run, "resp_1")
+      Receipts.delete_round_in_tx(run, "resp_1")
       repo.update!(change(workspace, epoch: 2))
       {:ok, :done}
     end)
@@ -378,6 +378,6 @@ defmodule Ankole.Sessions.ReceiptsTest do
   end
 
   defp prepare_operation(operation) do
-    fn repo -> {:ok, [], fn -> operation.(repo) end} end
+    fn -> {:ok, [], fn -> operation.(Repo) end} end
   end
 end

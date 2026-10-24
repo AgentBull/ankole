@@ -1,5 +1,5 @@
 import { authenticationRef } from './browser-context'
-import { ankoleWebAuthControllerDeleteSession, endBrowserAuthentication } from './api/generated/sdk.gen'
+import { deleteAuthSession, deleteBrowserAuthentication } from './api/generated/sdk.gen'
 
 function storageKey(): string {
   return `ankole.console.data-tenant:${authenticationRef() ?? 'anonymous'}`
@@ -15,7 +15,7 @@ export function clearDataTenant(): void {
 
 export async function endSiteSession(): Promise<void> {
   clearDataTenant()
-  await ankoleWebAuthControllerDeleteSession()
+  await deleteAuthSession()
 }
 
 /** Commit a selection only after navigation succeeded and the old document is gone. */
@@ -67,5 +67,5 @@ export function withDataContext(fetch: typeof globalThis.fetch): typeof globalTh
 
 export async function endPodSession(): Promise<void> {
   clearDataTenant()
-  await endBrowserAuthentication()
+  await deleteBrowserAuthentication()
 }

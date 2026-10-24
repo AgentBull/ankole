@@ -48,7 +48,7 @@ defmodule Ankole.Work.Owner do
     |> Ankole.Ash.read_one!(lock_identity: {schema.__schema__(:source), id})
   end
 
-  def revoke_human_work_in_tx(repo, uid, version, now) do
+  def revoke_human_work_in_tx(uid, version, now) do
     lock_revocation_parents_in_tx(uid, version)
 
     Map.new(schemas(), fn schema ->
@@ -67,7 +67,7 @@ defmodule Ankole.Work.Owner do
         Enum.reduce(tenants, 0, fn tenant_id, count ->
           {stopped, _} =
             Ankole.Repo.with_tenant(tenant_id, fn ->
-              apply(module, action, [repo, uid, version, now])
+              apply(module, action, [uid, version, now])
             end)
 
           count + stopped

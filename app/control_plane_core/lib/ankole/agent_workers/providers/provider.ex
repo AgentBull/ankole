@@ -174,11 +174,6 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
 
       run(__MODULE__.Actions)
     end
-
-    action :import_seed do
-      argument(:path, :string, constraints: [trim?: false])
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

@@ -151,13 +151,9 @@ defmodule Ankole.OIDC.Client do
     change(
       fn changeset, _context ->
         Enum.reduce(@lists, changeset, fn field, changeset ->
-          if Ash.Changeset.changing_attribute?(changeset, field) do
-            values = Ash.Changeset.get_attribute(changeset, field) || []
-            values = values |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.uniq()
-            Ash.Changeset.force_change_attribute(changeset, field, values)
-          else
-            changeset
-          end
+          Ash.Changeset.update_change(changeset, field, fn values ->
+            (values || []) |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.uniq()
+          end)
         end)
       end,
       only_when_valid?: true
@@ -272,22 +268,6 @@ defmodule Ankole.OIDC.Client do
     action :console_delete, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :create_client, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:attrs, :term)
-      argument(:group_ids, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_client, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:id, :term)
-      argument(:attrs, :term)
 
       run(__MODULE__.Actions)
     end

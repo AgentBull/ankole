@@ -46,7 +46,7 @@ test('a late automatic recovery cannot replace edits made after a manual reload'
     await expect.poll(() => held).toBeGreaterThan(0)
     const latest = await request<{ page: { revision: number } }>(page, `/pages/${id}`)
     let reads = 0
-    await page.route(`**/.internal-apis/pod/pages/${id}`, async route => {
+    await page.route(`**/api/v2/pod/pages/${id}`, async route => {
       if (route.request().method() !== 'GET' || ++reads !== 1) return route.continue()
       const response = await route.fetch()
       expect(response.ok()).toBe(true)
@@ -194,7 +194,7 @@ test('a virtualized row survives an attachment upload after focus and viewport l
     const row = grid.locator('[data-grid-record]').first()
     await expect(row).toBeVisible()
     const rowID = await row.getAttribute('data-grid-record')
-    await page.route(`**/.internal-apis/pod/pages/${id}/files`, async route => {
+    await page.route(`**/api/v2/pod/pages/${id}/files`, async route => {
       if (route.request().method() !== 'POST') return route.continue()
       started.resolve()
       await gate.promise
@@ -266,7 +266,7 @@ test('bold editing does not toggle the sidebar, and the page shortcut still work
     await page.keyboard.press('ControlOrMeta+b')
     await expect(sidebar).not.toHaveAttribute('data-state', before!)
     await expect
-      .poll(async () => (await request<{ content: { xml: string } }>(page, `/pages/${id}`)).content.xml)
+      .poll(async () => (await request<{ content: { content: string } }>(page, `/pages/${id}`)).content.content)
       .toContain('Bold review')
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE').catch(() => {})

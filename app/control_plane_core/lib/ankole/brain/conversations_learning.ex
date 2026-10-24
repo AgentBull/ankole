@@ -252,11 +252,12 @@ defmodule Ankole.Brain.ConversationsLearning do
   # advancing the watermark, so Oban can retry the slice. Infrastructure
   # failures follow the same rollback contract.
   defp finalize(%{conversation_id: conversation_id, token: token} = slice, outcome, items) do
+    prepared = prepare_embeddings(items)
+
     result =
-      Ankole.Ash.run_action(Source, :finalize_conversation_slice, %{
-        slice:
-          Map.merge(slice, %{outcome: outcome, items: items, prepared: prepare_embeddings(items)})
-      })
+      Repo.transact_top_level(fn ->
+        finalize_in_tx(Map.merge(slice, %{outcome: outcome, items: items, prepared: prepared}))
+      end)
 
     case result do
       {:ok, %{written: written} = report} ->
@@ -304,14 +305,14 @@ defmodule Ankole.Brain.ConversationsLearning do
          written =
            write_items(conversation_id, slice.items, slice.learning_context, slice.prepared),
          :ok <- ensure_extraction_written(slice.items, written),
-         :ok <- Sources.record_extraction_watermark(Repo, current, slice.boundary) do
+         :ok <- Sources.record_extraction_watermark(current, slice.boundary) do
       {:ok, %{status: slice.outcome, token: slice.token, written: written}}
     end
   end
 
   # A removed Conversation ends its Source as an archive does.
   defp lock_conversation(conversation_id) do
-    case Ankole.Conversations.lock_conversation_in_tx(Repo, conversation_id, :share) do
+    case Ankole.Conversations.lock_conversation_in_tx(conversation_id, :share) do
       {:ok, conversation} -> {:ok, conversation}
       {:error, :not_found} -> {:error, :source_archived}
     end
@@ -841,7 +842,7 @@ defmodule Ankole.Brain.ConversationsLearning do
   # checked, this locked re-read catches an archive that landed during the
   # model call, following the SourceLearning.commit_run pattern.
   defp lock_active_source(source) do
-    case Sources.lock_active(Repo, source) do
+    case Sources.lock_active(source) do
       {:ok, current} -> {:ok, current}
       {:error, reason} when reason in [:not_found, :source_archived] -> {:error, :source_archived}
     end

@@ -209,8 +209,8 @@ defmodule Ankole.ConversationsModelPreferencesTest do
     {:ok, _} = Conversations.set_model_profile(ctx.human.uid, ctx.id, "careful")
 
     {:ok, wake} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           producer: :kernel,
           source: "model-preference-test",
           id: Ecto.UUID.generate(),
@@ -264,8 +264,8 @@ defmodule Ankole.ConversationsModelPreferencesTest do
     {:ok, _} = Conversations.set_model_profile(ctx.human.uid, ctx.id, "careful")
 
     {:ok, wake} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           producer: :kernel,
           source: "deferred-model-test",
           id: Ecto.UUID.generate(),

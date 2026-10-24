@@ -38,12 +38,12 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.IdentityProviders.Config, as: ProviderConfig
 
   test "attempt admission waits for a pending tenant suspension", %{tenant: tenant} do
-    suspension = hold_transaction(fn -> Ankole.Tenants.suspend_in_tx(Repo, tenant.id) end)
+    suspension = hold_transaction(fn -> Ankole.Tenants.suspend_in_tx(tenant.id) end)
 
     admission =
       start_unboxed(fn ->
-        Repo.transact(fn repo ->
-          case Ankole.Tenants.check_work_admission_in_tx(repo, tenant.id) do
+        Repo.transact(fn ->
+          case Ankole.Tenants.check_work_admission_in_tx(tenant.id) do
             :ok -> {:ok, :admitted}
             {:error, _reason} = error -> error
           end
@@ -117,7 +117,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     quota_write =
       hold_transaction(fn ->
-        TokenQuota.put_locked(%{agent_uid: agent_uid, attrs: quota_attrs(200)})
+        TokenQuota.put_in_tx(agent_uid, quota_attrs(200))
       end)
 
     edit = start_unboxed(fn -> Principals.update_agent(agent_uid, %{options: %{}}) end)
@@ -156,12 +156,12 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end)
 
     winner =
-      hold_transaction(fn -> External.observe_conversation_in_tx(Repo, binding, first, now) end)
+      hold_transaction(fn -> External.observe_conversation_in_tx(binding, first, now) end)
 
     loser =
       start_unboxed(fn ->
-        Repo.transact(fn repo ->
-          External.observe_conversation_in_tx(repo, binding, second, now)
+        Repo.transact(fn ->
+          External.observe_conversation_in_tx(binding, second, now)
         end)
       end)
 
@@ -189,8 +189,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     now = DateTime.utc_now(:microsecond)
 
     {:ok, conversation} =
-      Repo.transact(fn repo ->
-        External.observe_conversation_in_tx(repo, binding, entry, now)
+      Repo.transact(fn ->
+        External.observe_conversation_in_tx(binding, entry, now)
       end)
 
     on_exit_in_tenant(fn ->
@@ -205,7 +205,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       holder =
         hold_transaction(fn ->
           :ok =
-            Observe.lock_entry(Repo, %{
+            Observe.lock_entry(%{
               conversation_id: conversation.id,
               provider_message_id: entry.provider_message_id
             })
@@ -258,11 +258,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                  })
       end)
 
-      first = hold_transaction(fn -> AgentWorkers.reserve_slot_in_tx(Repo, agent.uid) end)
+      first = hold_transaction(fn -> AgentWorkers.reserve_slot_in_tx(agent.uid) end)
 
       second =
         start_unboxed(fn ->
-          Repo.transact(fn repo -> AgentWorkers.reserve_slot_in_tx(repo, agent.uid) end)
+          Repo.transact(fn -> AgentWorkers.reserve_slot_in_tx(agent.uid) end)
         end)
 
       # The row is the Agent's only candidate, so a locked row must make the
@@ -299,8 +299,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           }
 
           assert {:ok, %{automation_job_run: run}} =
-                   Repo.transact(fn repo ->
-                     AutomationJobs.enqueue_run_in_tx(repo, job.id, agent.uid, event)
+                   Repo.transact(fn ->
+                     AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, event)
                    end)
 
           {job, run}
@@ -435,7 +435,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       {:ok, _object} =
         Ankole.Brain.create_object(%{slug: slug, type: "company", title: "Race"}, :system)
 
-      embedding = {Pgvector.new([1.0 | List.duplicate(0.0, 4095)]), "race-model"}
+      {:ok, vector} = Ash.Vector.new([1.0 | List.duplicate(0.0, 4095)])
+      embedding = {vector, "race-model"}
       attrs = &race_fact_attrs(slug, &1)
 
       {:ok, %{claim: original, status: :inserted}} =
@@ -513,8 +514,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       {:ok, run} =
         Sandbox.unboxed_run(Repo, fn ->
           {:ok, event} =
-            Repo.transact(fn repo ->
-              Ankole.Signals.accept_in_tx(repo, %{
+            Repo.transact(fn ->
+              Ankole.Signals.accept_in_tx(%{
                 producer: :kernel,
                 source: "test://concurrency",
                 id: Ecto.UUID.generate(),
@@ -548,14 +549,14 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     } do
       first =
         hold_receipt(fn ->
-          Receipts.execute(run, "resp_fence", "one", fn _ ->
+          Receipts.execute(run, "resp_fence", "one", fn ->
             {:ok, [], fn -> {:ok, %ToolResult{output: "one", details: %{"one" => true}}, []} end}
           end)
         end)
 
       second =
         hold_receipt(fn ->
-          Receipts.execute(run, "resp_fence", "two", fn _ ->
+          Receipts.execute(run, "resp_fence", "two", fn ->
             {:ok, [], fn -> {:ok, %ToolResult{output: "two", details: %{"two" => true}}, []} end}
           end)
         end)
@@ -572,7 +573,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
       assert {:error, :stale_driver} =
                Sandbox.unboxed_run(Repo, fn ->
-                 Receipts.execute(run, "resp_fence", "late", fn _ ->
+                 Receipts.execute(run, "resp_fence", "late", fn ->
                    flunk("the old writer executed")
                  end)
                end)
@@ -580,9 +581,9 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     test "a concurrent duplicate rolls back its domain change and returns the winner's receipt (G3)",
          %{run: run} do
-      operation = fn repo ->
+      operation = fn ->
         {1, _} =
-          repo.update_all(
+          Repo.update_all(
             from(p in Ankole.Principals.Principal,
               where: p.uid == ^run.agent_uid,
               update: [set: [display_name: fragment("? || '+tool'", p.display_name)]]
@@ -648,9 +649,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
             RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
 
           {:ok, conversation} =
-            Repo.transact(fn repo ->
+            Repo.transact(fn ->
               Ankole.Conversations.External.observe_conversation_in_tx(
-                repo,
                 binding,
                 %{provider_conversation_id: "test:#{route}"},
                 DateTime.utc_now(:microsecond)

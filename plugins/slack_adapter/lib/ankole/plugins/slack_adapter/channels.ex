@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   @moduledoc false
 
   alias Ankole.Signals.Bindings
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Logging, Principals}
   alias Ankole.AuthZ
   alias Ankole.Plugins.ChannelSync
   alias Ankole.Plugins.MapHelpers
@@ -50,10 +50,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
         channel: %{kind: :im_group},
         provider_conversation_id: provider_conversation_id
       }) do
-    case Ankole.Conversations.External.get_conversation(
-           Repo,
-           provider_conversation_id
-         ) do
+    case Ankole.Conversations.External.get_conversation(provider_conversation_id) do
       %Conversation{principal_group_id: group_id} when is_binary(group_id) ->
         :ok
 

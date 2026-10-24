@@ -22,8 +22,8 @@ defmodule Ankole.Sessions.RunTest do
     key = %{agent_uid: agent.uid, session_id: "driver:#{System.unique_integer([:positive])}"}
 
     {:ok, event} =
-      Repo.transact(fn repo ->
-        Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Signals.accept_in_tx(%{
           producer: :kernel,
           target: %{agent_uid: agent.uid, session_id: key.session_id},
           sender: agent.uid,
@@ -48,8 +48,8 @@ defmodule Ankole.Sessions.RunTest do
     [due, started, closed] =
       for {at, suffix} <- [{now, "due"}, {future, "started"}, {now, "closed"}] do
         assert {:ok, signal} =
-                 Repo.transact(fn repo ->
-                   Signals.accept_in_tx(repo, %{
+                 Repo.transact(fn ->
+                   Signals.accept_in_tx(%{
                      producer: :kernel,
                      target: key,
                      sender: key.agent_uid,
@@ -77,9 +77,9 @@ defmodule Ankole.Sessions.RunTest do
     assert Ankole.Sessions.Queue.due(key, now) |> Enum.map(& &1.id) == [due.id]
     assert Ankole.Sessions.Queue.next_ready_event(key.agent_uid, key.session_id, now).id == due.id
 
-    assert Ankole.Sessions.Queue.oldest_open(Repo, key.agent_uid, key.session_id).id == first.id
+    assert Ankole.Sessions.Queue.oldest_open(key.agent_uid, key.session_id).id == first.id
 
-    assert Ankole.Sessions.Queue.oldest_started(Repo, key.agent_uid, key.session_id).id ==
+    assert Ankole.Sessions.Queue.oldest_started(key.agent_uid, key.session_id).id ==
              started.id
 
     assert Ankole.Sessions.Queue.due(%{key | session_id: "unrelated"}, now) == []
@@ -95,8 +95,8 @@ defmodule Ankole.Sessions.RunTest do
     [admitted, fresh, stop] =
       for type <- ["command.steer", "command.steer", "command.stop"] do
         {:ok, input} =
-          Repo.transact(
-            &Signals.accept_in_tx(&1, %{
+          Repo.transact(fn ->
+            Signals.accept_in_tx(%{
               producer: :kernel,
               target: %{agent_uid: key.agent_uid, session_id: key.session_id},
               sender: human.uid,
@@ -107,7 +107,7 @@ defmodule Ankole.Sessions.RunTest do
               data: %{},
               available_at: DateTime.utc_now(:microsecond)
             })
-          )
+          end)
 
         input
       end
@@ -151,7 +151,7 @@ defmodule Ankole.Sessions.RunTest do
     Ankole.SessionsCase.stub_workflow_drivers(workflow)
 
     assert {:ok, %{new_calls: [call]}} =
-             Ankole.Workflow.commit_replay_pending(
+             Ankole.Workflow.Replay.commit_replay_pending(
                workflow.id,
                [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Review the case"}}],
                0
@@ -203,7 +203,7 @@ defmodule Ankole.Sessions.RunTest do
     assert {:ok, {:preparing, _}} = Run.restore(current)
     assert Repo.get!(Message, live.id).status == :error
     assert {:ok, :already_terminal} = ResponseCommit.commit_complete(live, [])
-    assert {:error, :stale_driver} = Repo.transact(&Fence.check_in_tx(&1, old))
+    assert {:error, :stale_driver} = Repo.transact(fn -> Fence.check_in_tx(old) end)
   end
 
   test "a committed round keeps its original progress when the same message is recorded again", %{
@@ -224,10 +224,9 @@ defmodule Ankole.Sessions.RunTest do
     original = Ankole.Sessions.RoundState.get(response)
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                :ok =
                  Ankole.Sessions.RoundState.put_in_tx(
-                   repo,
                    %{run | iteration: 99, truncated_rounds: 99, repaired: false},
                    response
                  )
@@ -521,7 +520,7 @@ defmodule Ankole.Sessions.RunTest do
                  conversation_id: old.conversation.id,
                  expected_previous_response_id: nil
                },
-               authorize_run_in_tx: &Fence.check_in_tx(&1, old)
+               authorize_run_in_tx: fn -> Fence.check_in_tx(old) end
              )
 
     refute Repo.exists?(
@@ -532,8 +531,8 @@ defmodule Ankole.Sessions.RunTest do
   end
 
   defp append_steer(key) do
-    Repo.transact(fn repo ->
-      Signals.accept_in_tx(repo, %{
+    Repo.transact(fn ->
+      Signals.accept_in_tx(%{
         producer: :kernel,
         target: %{agent_uid: key.agent_uid, session_id: key.session_id},
         sender: key.agent_uid,
@@ -548,6 +547,6 @@ defmodule Ankole.Sessions.RunTest do
   end
 
   defp prepare_operation(operation) do
-    fn repo -> {:ok, [], fn -> operation.(repo) end} end
+    fn -> {:ok, [], fn -> operation.(Repo) end} end
   end
 end

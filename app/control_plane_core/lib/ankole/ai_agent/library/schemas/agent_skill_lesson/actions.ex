@@ -7,23 +7,11 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson.Actions do
   @impl true
   def run(input, _opts, context), do: action(input.action.name, input, context)
 
-  defp action(:apply_adds, input, _context),
-    do: input.arguments |> Ankole.AIAgent.Library.apply_adds() |> Ankole.Errors.wrap()
-
   defp action(:console_teach, input, context) do
     input.arguments
     |> Map.put(:author, Ankole.ActorRef.from_principal(context.actor))
     |> Ankole.AIAgent.Library.console_teach()
     |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
-  end
-
-  defp action(:teach, input, _context),
-    do: input.arguments |> Ankole.AIAgent.Library.teach() |> Ankole.Errors.wrap()
-
-  defp action(:apply_reviews, input, _context) do
-    input.arguments
-    |> Ankole.AIAgent.Library.SkillLessons.apply_reviews()
-    |> Ankole.Errors.wrap()
   end
 
   defp action(:revoke, input, _context) do

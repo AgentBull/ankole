@@ -334,8 +334,8 @@ defmodule Ankole.Sessions.ReplyRouteTest do
              })
 
     assert {:ok, %{automation_job_run: queued}} =
-             Repo.transact(fn repo ->
-               AutomationJobs.enqueue_run_in_tx(repo, job.id, agent.uid, %{"id" => "trigger"})
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{"id" => "trigger"})
              end)
 
     assert {:ok, _worker} =

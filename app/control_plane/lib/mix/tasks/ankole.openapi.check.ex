@@ -29,15 +29,18 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
       )
 
     try do
-      for {name, module} <- [
-            {"internal", AnkoleWeb.InternalAPISpec},
-            {"console-v2", AnkoleWeb.JSONAPI.ConsoleRouter},
-            {"site-v2", AnkoleWeb.JSONAPI.SiteRouter}
-          ] do
+      for {name, module} <-
+            [
+              {"browser-v2", AnkoleWeb.JSONAPI.BrowserRouter},
+              {"console-v2", AnkoleWeb.JSONAPI.ConsoleRouter},
+              {"pod-v2", AnkoleWeb.JSONAPI.PodRouter},
+              {"site-v2", AnkoleWeb.JSONAPI.SiteRouter}
+            ] ++ edition_specs() do
         committed_path = committed_spec_path(name)
         generated = module.spec() |> OpenAPI.to_map() |> normalize()
 
         if args == ["--write"] do
+          File.mkdir_p!(Path.dirname(committed_path))
           File.write!(committed_path, Ankole.JSON.encode!(generated) <> "\n")
           Mix.shell().info("Wrote #{committed_path}")
         else
@@ -65,6 +68,19 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
     |> Ankole.JSON.encode!()
     |> Ankole.JSON.decode!()
     |> Map.delete("servers")
+  end
+
+  defp edition_specs do
+    if Code.ensure_loaded?(Ankole.SaaSWeb.JSONAPIRouter),
+      do: [{"saas-v2", Ankole.SaaSWeb.JSONAPIRouter}],
+      else: []
+  end
+
+  defp committed_spec_path("saas-v2") do
+    Path.expand(
+      "../../internals/webapps/openapi/saas-v2.json",
+      Path.dirname(Mix.Project.project_file())
+    )
   end
 
   defp committed_spec_path(name) do

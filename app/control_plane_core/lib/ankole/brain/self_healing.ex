@@ -17,12 +17,14 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.LibraryKnowledge
+  alias Ankole.Brain.Links
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.ConversationsLearning
   alias Ankole.Logging
+  alias Ankole.Repo
 
   @embed_batch_limit 500
   @embed_call_size 64
@@ -68,7 +70,7 @@ defmodule Ankole.Brain.SelfHealing do
     |> Enum.count(fn object ->
       match?(
         {:ok, _},
-        Ankole.Ash.run_action(Object, :reconcile_object_links, %{slug: object.slug})
+        Repo.transact_top_level(fn -> Links.reconcile_object_links_in_tx(object.slug) end)
       )
     end)
   end
@@ -89,7 +91,7 @@ defmodule Ankole.Brain.SelfHealing do
     |> Enum.count(fn object ->
       match?(
         {:ok, _object},
-        Ankole.Ash.run_action(Object, :reconcile_chunks, %{object: object, chunking: chunking})
+        Repo.transact_top_level(fn -> Chunks.reconcile_in_tx(object, chunking: chunking) end)
       )
     end)
   end
@@ -153,12 +155,9 @@ defmodule Ankole.Brain.SelfHealing do
         |> Enum.count(fn
           {%Claim{} = claim, vector} ->
             {:ok, status} =
-              Ankole.Ash.run_action(Claim, :attach_claim_embedding, %{
-                claim: claim,
-                embedding: vector,
-                signature: signature,
-                now: now
-              })
+              Repo.transact_top_level(fn ->
+                Claims.attach_embedding_in_tx(claim, vector, signature, now)
+              end)
 
             status != :stale
 

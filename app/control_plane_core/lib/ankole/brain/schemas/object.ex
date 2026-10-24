@@ -110,6 +110,8 @@ defmodule Ankole.Brain.Schemas.Object do
     # The Console list: a slug prefix, a title or slug search, and the live
     # or the soft-deleted objects.
     read :console_list do
+      pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
+
       argument(:prefix, :string, constraints: [trim?: false])
       argument(:search, :string)
       argument(:deleted, :boolean, default: false)
@@ -228,69 +230,6 @@ defmodule Ankole.Brain.Schemas.Object do
       change(filter(expr(is_nil(managed_by_source_id))))
     end
 
-    # Each operation owns its transaction. The Objects, Chunks, and Links
-    # modules give the steps.
-    action :create_object, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:writer, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_object, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:writer, :term, allow_nil?: false)
-      argument(:author, Ankole.Ash.Types.ActorRef)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :upsert_source_projection, :struct do
-      constraints(instance_of: __MODULE__)
-
-      argument(:source, :struct,
-        allow_nil?: false,
-        constraints: [instance_of: Ankole.Brain.Schemas.Source]
-      )
-
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :upsert_library_projection, :atom do
-      argument(:source, :struct,
-        allow_nil?: false,
-        constraints: [instance_of: Ankole.Brain.Schemas.Source]
-      )
-
-      argument(:page, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :soft_delete_object, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-      argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
-      argument(:by, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :rollback_object, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-      argument(:version_id, :uuid, allow_nil?: false)
-      argument(:writer, :term, allow_nil?: false)
-      argument(:author, Ankole.Ash.Types.ActorRef)
-
-      run(__MODULE__.Actions)
-    end
-
     action :fork_library_page, :struct do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
@@ -299,21 +238,6 @@ defmodule Ankole.Brain.Schemas.Object do
     end
 
     action :restore_object, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :reconcile_chunks, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:object, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:chunking, :map)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :reconcile_object_links, :struct do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
@@ -364,15 +288,6 @@ defmodule Ankole.Brain.Schemas.Object do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
-
-      run(__MODULE__.Actions)
-    end
-
-    # The pattern pages of one audience and their evidence links commit
-    # together; Ankole.Brain.Patterns gives the steps.
-    action :write_patterns, :integer do
-      argument(:patterns, {:array, :map}, allow_nil?: false)
-      argument(:existing, :map, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

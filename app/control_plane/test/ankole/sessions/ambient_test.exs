@@ -25,7 +25,7 @@ defmodule Ankole.Sessions.AmbientTest do
     assert decide(run, %{"action" => "HANDOFF", "handoff_job_id" => "1002"})["action"] == "NOOP"
     assert decide(run, %{"action" => "NEW_WORK", "handoff_job_id" => "1001"})["action"] == "NOOP"
 
-    run = put_in(run.request_context["ambient_work_candidates"]["complete"], false)
+    run = put_in(run.candidates["complete"], false)
     {input, schema, _, _} = Observation.render(run, @now)
     assert input =~ "The list is incomplete; HANDOFF is unavailable."
     assert input =~ "Investigate deploy failure"
@@ -139,9 +139,8 @@ defmodule Ankole.Sessions.AmbientTest do
              })
 
     assert {:ok, room} =
-             Repo.transact(
-               &Ankole.Conversations.External.observe_conversation_in_tx(
-                 &1,
+             Repo.transact(fn ->
+               Ankole.Conversations.External.observe_conversation_in_tx(
                  %{agent_uid: agent.uid},
                  %{
                    provider_conversation_id: "room:#{Ecto.UUID.generate()}",
@@ -151,16 +150,15 @@ defmodule Ankole.Sessions.AmbientTest do
                  },
                  @now
                )
-             )
+             end)
 
     Repo.update!(
       Ecto.Changeset.change(room, ambient_standing_orders: "Only speak when CI turns red.")
     )
 
     assert {:ok, %{message: message}} =
-             Repo.transact(
-               &Ankole.Conversations.External.observe_in_tx(
-                 &1,
+             Repo.transact(fn ->
+               Ankole.Conversations.External.observe_in_tx(
                  room.id,
                  %{
                    provider_message_id: "current",
@@ -169,7 +167,7 @@ defmodule Ankole.Sessions.AmbientTest do
                  },
                  @now
                )
-             )
+             end)
 
     %Observation{
       agent_uid: agent.uid,
@@ -191,17 +189,16 @@ defmodule Ankole.Sessions.AmbientTest do
       context: %{
         conversation: %{timezone: "UTC", origin_channel: %{adapter: "lark", label: "Ops"}}
       },
-      request_context: %{
-        "ambient_work_candidates" => %{
-          "complete" => true,
-          "jobs" => [
-            %{
-              "job_id" => "1001",
-              "status" => "running",
-              "title" => "Investigate deploy failure"
-            }
-          ]
-        }
+      request_context: %{},
+      candidates: %{
+        "complete" => true,
+        "jobs" => [
+          %{
+            "job_id" => "1001",
+            "status" => "running",
+            "title" => "Investigate deploy failure"
+          }
+        ]
       }
     }
   end

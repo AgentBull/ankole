@@ -14,12 +14,12 @@ defmodule Ankole.Sessions.Workspaces do
   @type result :: {:ok, SessionWorkspace.t()} | {:error, term()}
 
   @doc false
-  @spec ensure_in_tx(module(), String.t(), String.t()) :: result()
-  def ensure_in_tx(repo, agent_uid, session_id)
+  @spec ensure_in_tx(String.t(), String.t()) :: result()
+  def ensure_in_tx(agent_uid, session_id)
       when is_binary(agent_uid) and is_binary(session_id) do
     with {:ok, identity} <- identity(session_id),
-         :ok <- lock_owner_in_tx(repo, agent_uid, identity),
-         :ok <- Queue.lock_session_in_tx(repo, agent_uid, session_id) do
+         :ok <- lock_owner_in_tx(agent_uid, identity),
+         :ok <- Queue.lock_session_in_tx(agent_uid, session_id) do
       query =
         SessionWorkspace
         |> Ash.Query.filter(agent_uid == ^agent_uid and session_id == ^session_id)
@@ -69,11 +69,11 @@ defmodule Ankole.Sessions.Workspaces do
     end
   end
 
-  defp lock_owner_in_tx(_repo, _agent_uid, %{kind: :named}), do: :ok
+  defp lock_owner_in_tx(_agent_uid, %{kind: :named}), do: :ok
 
   # The owner row keeps its key while the workspace exists. Each owner domain
   # reads its row; the lock identity keeps the work lock order.
-  defp lock_owner_in_tx(_repo, agent_uid, %{kind: kind} = identity) do
+  defp lock_owner_in_tx(agent_uid, %{kind: kind} = identity) do
     owner =
       case kind do
         :conversation ->

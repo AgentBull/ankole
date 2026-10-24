@@ -68,7 +68,9 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
 
       assert Enum.sort(keys) == Enum.sort(Map.keys(rules)), inspect(router)
 
-      for {key, {authz_resource, _action}} <- rules do
+      for {key, rule} <- rules do
+        authz_resource = elem(rule, 0)
+
         {_resource, route} =
           Enum.find(routes, fn {resource, route} -> Policy.rule_key(resource, route) == key end)
 
@@ -77,6 +79,8 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
         for [_match, name] <- Regex.scan(~r/\{(\w+)\}/, authz_resource) do
           assert name in path_params,
                  "#{authz_resource} names no path parameter of #{route.route}"
+
+          assert is_binary(Policy.resolve_target!(elem(key, 0), name, "probe"))
         end
       end
     end
@@ -85,20 +89,13 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
   # AshJsonApi 1.7.1 `Info.derive_sort?/1` reads the option `:derive_sort`, so
   # it is always true. A list route derives a sort parameter unless the route
   # sets `derive_sort?: false`.
-  test "each JSON:API resource derives no filter or sort parameters" do
-    for module <- Ankole.TestModules.all(),
-        Code.ensure_loaded?(module),
-        Spark.Dsl.is?(module, Ash.Resource),
-        AshJsonApi.Resource in Spark.extensions(module) do
-      refute AshJsonApi.Resource.Info.derive_filter?(module), inspect(module)
-
-      refute Spark.Dsl.Extension.get_opt(module, [:json_api], :derive_sort?, true),
-             inspect(module)
-    end
-
+  test "Console read routes expose only their declared filters and sort" do
     for router <- @routers,
         {resource, route} <- routes(router),
         route.type in [:index, :get_related] do
+      refute route.derive_filter? && AshJsonApi.Resource.Info.derive_filter?(resource),
+             "#{inspect(resource)} #{route.name}"
+
       refute route.derive_sort?, "#{inspect(resource)} #{route.name}"
     end
   end

@@ -1,4 +1,4 @@
-import { state, request } from './fixtures'
+import { state, request, login } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { pageRoute } from './routes'
 
@@ -15,7 +15,7 @@ async function create(page: Page, title: string, attrs: Record<string, unknown> 
 async function identity(page: Page) {
   return page.evaluate(async () => {
     const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)!.content
-    const response = await fetch('/.internal-apis/session', {
+    const response = await fetch('/api/v2/browser/session', {
       headers: {
         'x-ankole-authentication': meta('ankole-authentication'),
         'x-ankole-pod': meta('ankole-pod')
@@ -96,12 +96,13 @@ test('navigation stays with each real document identity and stored branches cann
   browser
 }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
-  await context.addCookies(state.owner.cookies)
   const owner = await context.newPage()
   const member = await context.newPage()
   let parent: string | undefined
   try {
     await owner.goto(pageRoute(state.report_id))
+    await login(owner, state.owner)
+    await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     const title = `Navigation access ${crypto.randomUUID()}`
     parent = await create(owner, title)
     await create(owner, 'Navigation access child', { parent_id: parent })
@@ -116,10 +117,10 @@ test('navigation stays with each real document identity and stored branches cann
     const loggedIn = member.waitForResponse(
       response =>
         response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/.internal-apis/sessions/local-password'
+        new URL(response.url()).pathname === '/api/v2/browser/sessions/local-password'
     )
     await member.getByRole('button', { name: '登录', exact: true }).click()
-    expect((await loggedIn).status()).toBe(200)
+    expect((await loggedIn).status()).toBe(201)
     await expect(member).toHaveURL(state.base_url + pageRoute(state.report_id))
     expect(await identity(member)).toBe(state.member.uid)
     expect(await identity(owner)).toBe(state.owner.uid)

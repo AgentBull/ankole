@@ -178,13 +178,6 @@ defmodule Ankole.AuthZ.Group do
 
     destroy(:delete_in_tx)
 
-    action :ensure_synced_member, :atom do
-      argument(:group_attrs, :map, allow_nil?: false)
-      argument(:principal_uid, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     action :delete_operator_group, :struct do
       description("Deletes an operator group that has no grants.")
       constraints(instance_of: __MODULE__)
@@ -222,40 +215,6 @@ defmodule Ankole.AuthZ.Group do
       description("Removes a Principal from a static operator group.")
       argument(:principal_uid, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
-
-      run(__MODULE__.Actions)
-    end
-
-    action :add_synced_member, :struct do
-      constraints(instance_of: Ankole.AuthZ.Membership)
-      argument(:group_id, :term, allow_nil?: false)
-      argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
-      argument(:principal_uid, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :remove_synced_member, :atom do
-      argument(:group_id, :term, allow_nil?: false)
-      argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
-      argument(:principal_uid, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :replace_static_members, :map do
-      argument(:group_id, :term, allow_nil?: false)
-      argument(:expected_domain, :atom, allow_nil?: false)
-      argument(:principal_uids, {:array, :term}, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :apply_static_member_delta, :map do
-      argument(:group_id, :term, allow_nil?: false)
-      argument(:expected_domain, :atom, allow_nil?: false)
-      argument(:added_uids, {:array, :term}, allow_nil?: false)
-      argument(:removed_uids, {:array, :term}, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

@@ -62,10 +62,10 @@ defmodule Ankole.Pod.Config do
   end
 
   def trash_retention_days,
-    do: AppConfigure.get_tenant_by_key_in_tx(Ankole.Repo, "pod.trash_retention_days")
+    do: AppConfigure.get_tenant_by_key_in_tx("pod.trash_retention_days")
 
   def ot_replay_window,
-    do: AppConfigure.get_tenant_by_key_in_tx(Ankole.Repo, "pod.ot_replay_window")
+    do: AppConfigure.get_tenant_by_key_in_tx("pod.ot_replay_window")
 
   def limits do
     case AppConfigure.get_by_key("pod.database.limits") do

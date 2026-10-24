@@ -6,7 +6,7 @@ defmodule Ankole.Workflow.Jobs.PokeRun do
     max_attempts: 5,
     unique: [keys: [:run_id], period: :infinity, states: [:available, :scheduled, :retryable]]
 
-  def enqueue_in_tx(_repo, run_id) do
+  def enqueue(run_id) do
     case Oban.insert(new(%{run_id: run_id})) do
       {:ok, _} -> :ok
       error -> error

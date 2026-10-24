@@ -57,10 +57,10 @@ defmodule Ankole.Setup.Config do
   `AppConfigure.cache_committed_write/1` after the transaction commits, or
   reads keep serving the stale cached value.
   """
-  @spec put_completed_in_tx(module(), boolean()) ::
+  @spec put_completed_in_tx(boolean()) ::
           {:ok, AppConfigure.committed_write()} | {:error, term()}
-  def put_completed_in_tx(repo, completed) when is_boolean(completed) do
-    AppConfigure.put_global_by_key_in_tx(repo, @completed_key, completed)
+  def put_completed_in_tx(completed) when is_boolean(completed) do
+    AppConfigure.put_global_by_key_in_tx(@completed_key, completed)
   end
 
   @doc """

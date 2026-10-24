@@ -168,7 +168,6 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
 
           assert :ok =
                    Sources.record_extraction_watermark(
-                     Repo,
                      source,
                      {entry.created_at, entry.seq}
                    )
@@ -306,9 +305,9 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     }
 
     assert {:ok, %{message: changed}} =
-             Repo.transact(
-               &Ankole.Conversations.External.observe_in_tx(&1, c.channel.id, observation, now)
-             )
+             Repo.transact(fn ->
+               Ankole.Conversations.External.observe_in_tx(c.channel.id, observation, now)
+             end)
 
     assert changed.seq == message.seq
     assert Sources.conversation_extraction_watermark(c.channel.id) == 0
@@ -331,15 +330,17 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     assert current.id != old.id
 
     assert {:ok, %{status: :unchanged}} =
-             Repo.transact(
-               &Ankole.Conversations.External.observe_in_tx(&1, c.channel.id, observation, now)
-             )
+             Repo.transact(fn ->
+               Ankole.Conversations.External.observe_in_tx(c.channel.id, observation, now)
+             end)
 
     assert Sources.conversation_extraction_watermark(c.channel.id) == message.seq
     assert is_nil(Repo.reload!(current).expired_at)
 
     assert {:ok, _} =
-             Repo.transact(&Ankole.Conversations.External.remove_in_tx(&1, c.channel.id, "m1"))
+             Repo.transact(fn ->
+               Ankole.Conversations.External.remove_in_tx(c.channel.id, "m1")
+             end)
 
     assert Repo.reload!(current).expired_at
 
@@ -468,9 +469,8 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     now = DateTime.utc_now(:microsecond)
 
     {:ok, %{message: message}} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         Ankole.Conversations.External.observe_in_tx(
-          repo,
           conversation_id,
           %{
             provider_message_id: provider_message_id,
@@ -487,7 +487,7 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
 
   defp get_entry!(conversation_id, provider_message_id) do
     %{message: message} =
-      Ankole.Conversations.External.get_message(Repo, conversation_id, provider_message_id)
+      Ankole.Conversations.External.get_message(conversation_id, provider_message_id)
 
     message
   end

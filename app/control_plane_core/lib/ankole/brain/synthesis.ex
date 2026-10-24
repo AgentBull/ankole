@@ -22,9 +22,9 @@ defmodule Ankole.Brain.Synthesis do
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Repo
 
   @type disclosure :: Ankole.Brain.Access.disclosure()
 
@@ -86,15 +86,17 @@ defmodule Ankole.Brain.Synthesis do
         slug = "analysis/synthesis-#{Date.to_iso8601(Date.utc_today())}-#{hash}"
 
         result =
-          case Ankole.Ash.run_action(Object, :create_object, %{
-                 attrs: %{
-                   slug: slug,
-                   type: "analysis",
-                   title: title,
-                   body: Markdoc.wrap(body, evidence.scope)
-                 },
-                 writer: querier_uid
-               }) do
+          case Repo.transact_top_level(fn ->
+                 Objects.create_object_in_tx(
+                   %{
+                     slug: slug,
+                     type: "analysis",
+                     title: title,
+                     body: Markdoc.wrap(body, evidence.scope)
+                   },
+                   querier_uid
+                 )
+               end) do
             {:ok, object} ->
               evidence.chunks
               |> Enum.map(& &1.object_slug)

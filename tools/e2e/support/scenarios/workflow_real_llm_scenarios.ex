@@ -140,7 +140,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert call.wake_count == 1
     assert call.attempts == 0
     assert call.attention == false
-    assert Workflow.Queries.counts(Repo, run.id)["sleeping"] == 1
+    assert Workflow.Queries.counts(run.id)["sleeping"] == 1
 
     wait_for_event_completion!(dispatch_event, deadline(30_000))
 

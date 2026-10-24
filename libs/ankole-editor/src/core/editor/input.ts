@@ -304,7 +304,9 @@ export class InputState {
       Command.dispatch(wg, command)
     } else if (type == 'insertText') {
       const insert = event.data!.replace(/\r\n?|\n/g, ' ')
-      const { from, to } = this.unflushedSelection ? wg.state.selection : range!
+      // Typing follows the current caret, including its active marks. Chromium
+      // can retain the previous target range after a programmatic caret move.
+      const { from, to } = wg.state.selection
       Command.dispatch(wg, insertText, { from, to, insert, userEvent: 'input.type' })
     } else if (type == 'insertFromPaste') {
       const { from, to } = this.unflushedSelection ? wg.state.selection.replacementRange : range!

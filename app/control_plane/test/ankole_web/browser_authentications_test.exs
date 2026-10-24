@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.BrowserAuthenticationsTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   import Ankole.PrincipalsFixtures
   alias Ankole.BrowserSessions
   alias Ankole.Repo
@@ -22,10 +23,10 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       build_conn()
       |> init_test_session(%{browser_session: group})
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(reference))
-      |> get("/.internal-apis/session")
+      |> api_get("/api/v2/browser/session")
 
-    assert %{"authenticated" => false} =
-             AnkoleWeb.InternalAPIContract.json_response(response, 401)
+    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
+             api_response(response, 401)
   end
 
   test "logging in B preserves A's CSRF proof, and a single exit leaves B usable", %{
@@ -50,25 +51,25 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
       b_page
       |> delete_request(a_ref, b_token)
-      |> delete("/.internal-apis/authentications/current")
+      |> api_delete("/api/v2/browser/authentications/current")
     end
 
     assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
       b_page
       |> delete_request(a_ref, a_token)
       |> put_req_header("origin", "http://other-pod.example.com")
-      |> delete("/.internal-apis/authentications/current")
+      |> api_delete("/api/v2/browser/authentications/current")
     end
 
     ended =
       b_page
       |> delete_request(a_ref, a_token)
-      |> delete("/.internal-apis/authentications/current")
+      |> api_delete("/api/v2/browser/authentications/current")
 
-    assert %{"ok" => true} = AnkoleWeb.InternalAPIContract.json_response(ended, 200)
+    assert %{"ok" => true} = api_response(ended, 200)
     assert current(ended, b_ref)["principalUID"] == b.uid
-    stale = ended |> recycle() |> pin(a_ref) |> get("/.internal-apis/session")
-    assert %{"authenticated" => false} = AnkoleWeb.InternalAPIContract.json_response(stale, 401)
+    stale = ended |> recycle() |> pin(a_ref) |> api_get("/api/v2/browser/session")
+    assert %{"errors" => [%{"code" => "unauthenticated"}]} = api_response(stale, 401)
   end
 
   test "a late A cookie rejects only A and does not replace B", %{
@@ -96,9 +97,9 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       |> recycle()
       |> Plug.Test.put_req_cookie(name, stale_ciphertext)
       |> pin(current_a)
-      |> get("/.internal-apis/session")
+      |> api_get("/api/v2/browser/session")
 
-    assert %{"authenticated" => false} = AnkoleWeb.InternalAPIContract.json_response(stale, 401)
+    assert %{"errors" => [%{"code" => "unauthenticated"}]} = api_response(stale, 401)
     assert current(stale, b_ref)["principalUID"] == b.uid
   end
 
@@ -113,16 +114,18 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       page
       |> recycle()
       |> put_req_header("x-ankole-authentication", Ecto.UUID.generate() <> ".1")
-      |> get("/.internal-apis/session")
+      |> api_get("/api/v2/browser/session")
 
-    assert %{"authenticated" => false} =
-             AnkoleWeb.InternalAPIContract.json_response(response, 401)
+    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
+             api_response(response, 401)
 
     response =
-      page |> recycle() |> get("/.internal-apis/session", %{"authentication_ref" => "foreign"})
+      page
+      |> recycle()
+      |> api_get("/api/v2/browser/session", %{"authentication_ref" => "foreign"})
 
-    assert %{"authenticated" => false} =
-             AnkoleWeb.InternalAPIContract.json_response(response, 401)
+    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
+             api_response(response, 401)
   end
 
   test "a complete late login response cannot undo browser logout or displace the next account",
@@ -143,13 +146,13 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     cookies = apply_cookies(cookies, send_resp(b_login, 200, ""))
     cookies = apply_cookies(cookies, delayed_a)
 
-    b_response = cookies |> api_request(b_ref) |> get("/.internal-apis/session")
-    assert AnkoleWeb.InternalAPIContract.json_response(b_response, 200)["principalUID"] == b.uid
+    b_response = cookies |> api_request(b_ref) |> api_get("/api/v2/browser/session")
+    assert api_response(b_response, 200)["principalUID"] == b.uid
 
-    a_response = cookies |> api_request(a_ref) |> get("/.internal-apis/session")
+    a_response = cookies |> api_request(a_ref) |> api_get("/api/v2/browser/session")
 
-    assert %{"authenticated" => false} =
-             AnkoleWeb.InternalAPIContract.json_response(a_response, 401)
+    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
+             api_response(a_response, 401)
 
     Repo.put_tenant_id(tenant.id)
     assert {:error, :browser_session_expired} = BrowserSessions.get_authentication(a_ref)
@@ -206,7 +209,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     {b_login, b_ref} = add_login(browser_request(cookies_a), b)
     cookies_both = apply_cookies(cookies_a, send_resp(b_login, 200, ""))
     {:ok, _} = BrowserSessions.activate(WebSession.browser_reference(b_login), b_ref, tenant.id)
-    path = "/.internal-apis/pod/pages/#{page.id}/files/content"
+    path = "/api/v2/pod/pages/#{page.id}/files/content"
 
     params = %{
       path: "report.pdf",
@@ -226,7 +229,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     unrelated =
       cookies_both
       |> unpinned_request()
-      |> get("/.internal-apis/pod/pages/#{page.id}/files", %{
+      |> api_get("/api/v2/pod/pages/#{page.id}/files", %{
         authentication_ref: params.authentication_ref
       })
 
@@ -260,7 +263,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     {proof_name, proof} =
       Enum.find(cookies_a, fn {name, _value} -> String.ends_with?(name, a_ref["id"]) end)
 
-    path = "/.internal-apis/pod/pages/#{page.id}/files/content"
+    path = "/api/v2/pod/pages/#{page.id}/files/content"
     params = %{path: "report.pdf", authentication_ref: BrowserSessions.encode_reference(a_ref)}
 
     missing = cookies_a |> Map.delete(proof_name) |> unpinned_request() |> get(path, params)
@@ -368,8 +371,8 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       conn
       |> recycle()
       |> pin(ref)
-      |> get("/.internal-apis/session")
-      |> AnkoleWeb.InternalAPIContract.json_response(200)
+      |> api_get("/api/v2/browser/session")
+      |> api_response(200)
 
   defp pin(conn, ref),
     do: put_req_header(conn, "x-ankole-authentication", BrowserSessions.encode_reference(ref))

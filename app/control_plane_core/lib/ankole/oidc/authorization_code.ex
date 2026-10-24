@@ -94,20 +94,5 @@ defmodule Ankole.OIDC.AuthorizationCode do
     destroy :expire_in_tx do
       require_atomic?(true)
     end
-
-    action :authorize, :term do
-      argument(:params, :term)
-      argument(:authentication, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :exchange, :term do
-      argument(:client, :term)
-      argument(:code, :term)
-      argument(:grant, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 end

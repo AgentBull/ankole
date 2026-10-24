@@ -87,7 +87,7 @@ test('a document rejoins after a first-token 503 and revocation hides the cached
     })
     savedID = saved.page.id
     let failed = false
-    await member.route('**/.internal-apis/pod/realtime-token', route => {
+    await member.route('**/api/v2/pod/realtime-token', route => {
       if (!failed) {
         failed = true
         return route.fulfill({
@@ -106,8 +106,8 @@ test('a document rejoins after a first-token 503 and revocation hides the cached
     await member.keyboard.type('Recovered after token outage')
     await expect
       .poll(async () => {
-        const result = await request<{ content: { xml: string } }>(owner, `/pages/${savedID}`)
-        return result.content.xml
+        const result = await request<{ content: { content: string } }>(owner, `/pages/${savedID}`)
+        return result.content.content
       })
       .toContain('Recovered after token outage')
     const baseline = await request<{ sharing_version: string }>(owner, `/pages/${savedID}/sharing`)
@@ -195,7 +195,7 @@ test('link labels are batched by target table and follow target edits', async ({
     const targetZero = targets.find(record => record.data[targetName.id] === 'Target 000')!
     let targetQueries = 0
     page.on('request', request => {
-      if (new URL(request.url()).pathname === `/.internal-apis/pod/tables/${target.id}/query`) targetQueries++
+      if (new URL(request.url()).pathname === `/api/v2/pod/tables/${target.id}/query`) targetQueries++
     })
     await page.goto(location(savedID))
     await expect(page.getByRole('button', { name: 'Related： Target 000', exact: true })).toBeVisible()
@@ -302,8 +302,8 @@ test('a large realtime delta crosses the local byte threshold and uses the serve
     })
     let rejectedLocal = 0
     page.on('response', response => {
-      if (new URL(response.url()).pathname !== `/.internal-apis/pod/tables/${table.id}/query`) return
-      if (response.status() === 409 && response.request().postDataJSON()?.local) rejectedLocal++
+      if (new URL(response.url()).pathname !== `/api/v2/pod/tables/${table.id}/query`) return
+      if (response.status() === 409 && response.request().postDataJSON().data?.local) rejectedLocal++
     })
     await page.goto(location(savedID))
     await expect(page.getByRole('status').filter({ hasText: '6 条记录' })).toBeVisible()

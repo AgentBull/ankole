@@ -2,6 +2,7 @@ defmodule Ankole.Brain.ClaimsTest do
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
+  require Ash.Query
 
   alias Ankole.Brain.Claims
   alias Ankole.Brain.SchemaPacks
@@ -80,9 +81,7 @@ defmodule Ankole.Brain.ClaimsTest do
     end
 
     test "semantic dedup compares only the same embedding signature", %{human: human} do
-      vector =
-        [1.0 | List.duplicate(0.0, 4095)]
-        |> Pgvector.new()
+      {:ok, vector} = Ash.Vector.new([1.0 | List.duplicate(0.0, 4095)])
 
       assert {:ok, %{claim: first, status: :inserted}} =
                Ankole.Brain.write_fact(
@@ -123,6 +122,36 @@ defmodule Ankole.Brain.ClaimsTest do
 
         assert Repo.get!(Claim, claim.id).confidence === confidence * 1.0
       end
+    end
+
+    test "stored PostgreSQL vectors load and participate in semantic dedup", %{human: human} do
+      values = [0.1, 0.2 | List.duplicate(0.0, 4094)]
+      {:ok, vector} = Ash.Vector.new(values)
+
+      assert {:ok, %{claim: original}} =
+               Ankole.Brain.write_fact(fact_attrs(), human.uid, %{options: [embed: false]})
+
+      # Store a native vector without the application codec, as in an imported database.
+      Repo.query!(
+        """
+        UPDATE brain_claims
+        SET embedding = $1::text::vector,
+            embedding_signature = 'stored-model', embedded_at = now()
+        WHERE id = $2::text::uuid
+        """,
+        ["[" <> Enum.join(values, ",") <> "]", original.id]
+      )
+
+      stored = Claim |> Ash.Query.filter(id == ^original.id) |> Ankole.Ash.read_one!()
+      assert Ash.Vector.to_list(stored.embedding) == Ash.Vector.to_list(vector)
+      assert Repo.get!(Claim, original.id).embedding == stored.embedding
+
+      assert {:ok, %{claim: duplicate, status: :duplicate}} =
+               Ankole.Brain.write_fact(fact_attrs(), human.uid, %{
+                 options: [embedding: {vector, "stored-model"}]
+               })
+
+      assert duplicate.id == original.id
     end
 
     test "rejects off-grid confidence", %{human: human} do

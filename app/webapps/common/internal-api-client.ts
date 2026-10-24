@@ -24,7 +24,7 @@ export class InternalAPIError extends Error {
 export const createClientConfig: CreateClientConfig = config => ({
   ...config,
   credentials: 'same-origin',
-  headers: { accept: 'application/json' },
+  headers: { accept: 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' },
   fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
     request.headers.set('x-csrf-token', csrfToken())

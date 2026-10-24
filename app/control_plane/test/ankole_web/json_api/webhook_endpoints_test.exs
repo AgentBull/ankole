@@ -138,7 +138,7 @@ defmodule AnkoleWeb.JSONAPI.WebhookEndpointsTest do
              |> request(:delete, "/api/v2/webhook-endpoints/#{endpoint.id}")
              |> json_response(403)
 
-    assert Ankole.Signals.get_webhook_endpoint!(endpoint.id).status == :active
+    assert Webhooks.get_endpoint(endpoint.id).status == :active
   end
 
   test "missing browser session is rejected", %{conn: conn} do

@@ -223,12 +223,11 @@ Runtime keys use the corresponding `*_by_key` functions. The registry must match
 `update_global/2` holds a short per-key PostgreSQL advisory lock. The callback computes one replacement value and must not do external I/O.
 
 `AppConfigure` is the Ash domain of `AppConfig` and `SiteConfig`.
-`update_global/2`, `update_tenant/2`, and `ensure_generated_global/1` are
-generic actions that own their transaction and refresh the cache after the
-commit. Another domain's action uses the transaction forms
-(`update_tenant_in_tx/3`, `put_global_by_key_in_tx/3`,
-`lock_global_by_key_in_tx/2`) and then calls `cache_committed_write/1` after its
-own commit. A delete is one statement and needs no transaction.
+`update_global/2`, `update_tenant/2`, and `ensure_generated_global/1` run in
+`Repo.transact_top_level/2` and refresh the cache after commit. Another domain
+uses the transaction forms (`update_tenant_in_tx/2`, `put_global_by_key_in_tx/2`,
+`lock_global_by_key_in_tx/1`) and calls `cache_committed_write/1` after its own
+commit. A delete is one statement and needs no transaction.
 
 AppConfigure checks a value before it commits the write. A successful database
 commit means that the write succeeded.

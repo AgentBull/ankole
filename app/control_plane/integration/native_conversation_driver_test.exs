@@ -84,7 +84,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
         )
 
         :ok =
-          Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+          Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(agent.uid)
 
         Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
         {:ok, _} = ProviderConfigs.delete_provider(profile["provider_id"])
@@ -407,9 +407,9 @@ defmodule Ankole.Conversations.NativeDriverTest do
     key = %{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(id)}
 
     assert {:ok, {:ok, _}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                {:ok,
-                Conversations.create_in_tx(repo, human.uid, %{
+                Conversations.create_in_tx(human.uid, %{
                   conversation_id: id,
                   agent_uid: agent.uid,
                   message_id: message_id,
@@ -762,9 +762,8 @@ defmodule Ankole.Conversations.NativeDriverTest do
       Agent.update(script, &%{&1 | rounds: [{:text, "Stale answer."}, {:text, "Fresh answer."}]})
 
       assert {:ok, room} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Conversations.External.observe_conversation_in_tx(
-                   repo,
                    %{agent_uid: agent.uid},
                    %{
                      provider_conversation_id: "quote-room",
@@ -786,14 +785,13 @@ defmodule Ankole.Conversations.NativeDriverTest do
       }
 
       assert {:ok, %{message: quote}} =
-               Repo.transact(
-                 &Ankole.Conversations.External.observe_in_tx(&1, room.id, quote_attrs, now)
-               )
+               Repo.transact(fn ->
+                 Ankole.Conversations.External.observe_in_tx(room.id, quote_attrs, now)
+               end)
 
       assert {:ok, %{message: current}} =
-               Repo.transact(
-                 &Ankole.Conversations.External.observe_in_tx(
-                   &1,
+               Repo.transact(fn ->
+                 Ankole.Conversations.External.observe_in_tx(
                    room.id,
                    %{
                      provider_message_id: "request",
@@ -802,7 +800,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
                    },
                    now
                  )
-               )
+               end)
 
       data = %{
         "message_ids" => [current.id],
@@ -841,20 +839,19 @@ defmodule Ankole.Conversations.NativeDriverTest do
       case @quote_change do
         :edit ->
           assert {:ok, _} =
-                   Repo.transact(
-                     &Ankole.Conversations.External.observe_in_tx(
-                       &1,
+                   Repo.transact(fn ->
+                     Ankole.Conversations.External.observe_in_tx(
                        room.id,
                        %{quote_attrs | text: "Updated code NEW-202"},
                        DateTime.utc_now(:microsecond)
                      )
-                   )
+                   end)
 
         :remove ->
           assert {:ok, _} =
-                   Repo.transact(
-                     &Ankole.Conversations.External.remove_in_tx(&1, room.id, "quoted")
-                   )
+                   Repo.transact(fn ->
+                     Ankole.Conversations.External.remove_in_tx(room.id, "quoted")
+                   end)
       end
 
       assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
@@ -916,7 +913,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
 
   defp detail_response(human_uid, id) do
     conn =
-      Plug.Test.conn(:get, "/.internal-apis/pod/conversations/#{id}")
+      Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}")
       |> Plug.Conn.assign(:current_principal_uid, human_uid)
       |> AnkoleWeb.PodController.show(%{"id" => id})
 

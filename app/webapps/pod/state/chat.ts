@@ -57,7 +57,7 @@ export function mergeMessages(
 function replyCommitted(messages: ConversationMessage[], live: LiveReply): boolean {
   return messages.some(
     message =>
-      message.signalID !== null &&
+      message.signalID != null &&
       live.signalIDs.includes(message.signalID) &&
       (message.authorType === 'agent' || message.kind === 'notice')
   )

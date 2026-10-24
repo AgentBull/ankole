@@ -27,7 +27,12 @@ defmodule AnkoleWeb.JSONAPI.Policy do
 
   @type scope :: :site | :console
   @type rule_key :: {module(), atom(), atom()}
-  @type rule :: {authz_resource :: String.t(), authz_action :: String.t()}
+  @type rule ::
+          {authz_resource :: String.t(), authz_action :: String.t()}
+          | {authz_resource :: String.t(), authz_action :: String.t(), {module(), atom()}}
+
+  @principal_keys ~w(uid principal_uid agent_uid target_agent_uid)
+  @placeholder_pattern ~r/\{(\w+)\}/
 
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
@@ -120,7 +125,8 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Signals.ConsoleOperations, :route, :console_put_binding} =>
         {"agent:{agent_uid}:signal_bindings", "update"},
       {Ankole.Signals.ConsoleOperations, :route, :console_update_binding} =>
-        {"agent:{agent_uid}:signal_bindings", "update"},
+        {"agent:{agent_uid}:signal_bindings", "update",
+         {Ankole.Signals.ConsoleActions, :update_binding_permissions}},
       {Ankole.Signals.ConsoleOperations, :route, :console_requeue} =>
         {"agent:{agent_uid}:signal_bindings", "update"},
       {Ankole.Sessions.ConsoleOperations, :route, :console_sessions} =>
@@ -277,8 +283,8 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.OIDC.Client, :index, :console_list} => {"oidc_clients", "read"},
       {Ankole.OIDC.Client, :route, :console_create} => {"oidc_clients", "update"},
       {Ankole.OIDC.Client, :get, :read} => {"oidc_client:{id}", "read"},
-      {Ankole.OIDC.Client, :route, :console_update} => {"oidc_client:{id}", "update"},
-      {Ankole.OIDC.Client, :route, :console_delete} => {"oidc_client:{id}", "delete"},
+      {Ankole.OIDC.Client, :patch, :console_update} => {"oidc_client:{id}", "update"},
+      {Ankole.OIDC.Client, :delete, :console_delete} => {"oidc_client:{id}", "delete"},
       {Ankole.OIDC.LogoutDelivery, :index, :console_list} => {"oidc_client:{client_id}", "read"},
       {Ankole.OIDC.LogoutDelivery, :route, :console_retry} =>
         {"oidc_client:{client_id}", "update"},
@@ -404,10 +410,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         scope,
         rules
       ) do
-    with {:ok, {authz_resource, action}} <-
-           Map.fetch(rules || rules(scope), rule_key(resource, route)),
-         :ok <-
-           authorize_route(conn, resource, route, params, expand(authz_resource, params), action) do
+    with {:ok, rule} <- Map.fetch(rules || rules(scope), rule_key(resource, route)),
+         {conn, params} <- resolve_targets(conn, resource, params, rule),
+         :ok <- authorize_rule(conn, params, rule) do
       conn
       |> Ash.PlugHelpers.set_tenant(tenant(scope))
       |> Ash.PlugHelpers.set_actor(conn.assigns[:current_principal])
@@ -418,6 +423,74 @@ defmodule AnkoleWeb.JSONAPI.Policy do
 
   def before_dispatch(conn, _route_info, _scope, _rules), do: refuse(conn)
 
+  @doc """
+  Resolves one path target parameter to the canonical form that both
+  Principal/AuthZ and the Ash resource or domain action consume.
+
+  Every `{param}` placeholder in `@rules` must match an explicit clause here.
+  """
+  @spec resolve_target!(module(), String.t(), String.t()) :: String.t()
+  def resolve_target!(_resource, param, value)
+      when param in @principal_keys and is_binary(value) do
+    Ankole.PrincipalKey.canonicalize(value)
+  end
+
+  def resolve_target!(_resource, param, value)
+      when param in ["id", "client_id"] and is_binary(value) do
+    canonical_uuid(value)
+  end
+
+  def resolve_target!(resource, "name", value)
+      when resource in [Ankole.AuthZ.Group, Ankole.AuthZ.Grant] and is_binary(value) do
+    Ankole.AuthZ.resolve_group_name(value)
+  end
+
+  def resolve_target!(resource, "name", value)
+      when resource in [
+             Ankole.AgentWorkers.WorkerEnv.SiteOperations,
+             Ankole.AgentWorkers.WorkerEnv.ConsoleOperations
+           ] and is_binary(value) do
+    value
+  end
+
+  def resolve_target!(resource, "provider_id", value)
+      when resource in [
+             Ankole.AIGateway.ProviderConfigs.Provider,
+             Ankole.AIGateway.ProviderConfigs.Console
+           ] and is_binary(value) do
+    Ankole.AIGateway.ProviderConfigs.Provider.normalize_id(value)
+  end
+
+  def resolve_target!(Ankole.IdentityProviders.Console, "provider_id", value)
+      when is_binary(value) do
+    Ankole.IdentityProviders.Config.canonicalize_id(value)
+  end
+
+  def resolve_target!(resource, "provider_id", value)
+      when resource in [
+             Ankole.AgentWorkers.Providers.Provider,
+             Ankole.AgentWorkers.Providers.ConsoleOperations
+           ] and is_binary(value) do
+    value
+  end
+
+  def resolve_target!(Ankole.AIAgent.Console, "profile", value) when is_binary(value) do
+    Ankole.AIAgent.ModelProfiles.canonicalize_profile(value)
+  end
+
+  def resolve_target!(resource, "key", value)
+      when resource in [
+             Ankole.AppConfigure.SiteOperations,
+             Ankole.AppConfigure.ConsoleOperations
+           ] and is_binary(value) do
+    value
+  end
+
+  def resolve_target!(resource, param, _value) do
+    raise ArgumentError,
+          "no target resolver declared for #{inspect(resource)} parameter #{inspect(param)}"
+  end
+
   @doc "Gives the refused connection of a `before_dispatch` call, or the result of `call`."
   @spec dispatch(Plug.Conn.t(), (Plug.Conn.t() -> Plug.Conn.t())) :: Plug.Conn.t()
   def dispatch(conn, call) do
@@ -426,40 +499,91 @@ defmodule AnkoleWeb.JSONAPI.Policy do
     {__MODULE__, %Plug.Conn{} = refused} -> refused
   end
 
-  defp authorize_route(
-         conn,
-         Ankole.Signals.ConsoleOperations,
-         %{action: :console_update_binding},
-         params,
-         resource,
-         action
-       ) do
-    source = Map.fetch!(params, "agent_uid")
-    # Generic actions read a query argument before the same body argument.
-    target =
-      Map.get(
-        conn.query_params,
-        "target_agent_uid",
-        get_in(conn.body_params, ["data", "target_agent_uid"])
-      )
+  defp resolve_targets(conn, resource, params, rule) do
+    params =
+      params
+      |> canonical_principals()
+      |> resolve_rule_targets(resource, elem(rule, 0))
 
-    if is_binary(target) and target != source do
-      with :ok <- ConsolePolicy.authorize(conn, "agent:#{source}:signal_bindings", "delete"),
-           :ok <- ConsolePolicy.authorize(conn, "agent:#{target}:signal_bindings", "update"),
-           do: :ok
-    else
-      ConsolePolicy.authorize(conn, resource, action)
+    conn = %{
+      conn
+      | path_params: Map.merge(conn.path_params, params),
+        query_params: canonical_principals(conn.query_params),
+        body_params: canonical_body(conn.body_params)
+    }
+
+    {conn, params}
+  end
+
+  defp resolve_rule_targets(params, resource, authz_resource) do
+    @placeholder_pattern
+    |> Regex.scan(authz_resource)
+    |> Enum.reduce(params, fn [_match, name], acc ->
+      Map.update!(acc, name, &resolve_target!(resource, name, &1))
+    end)
+  end
+
+  defp canonical_body(%{"data" => %{} = data} = body) do
+    data =
+      data
+      |> canonical_principals()
+      |> canonical_nested_attributes()
+
+    Map.put(body, "data", data)
+  end
+
+  defp canonical_body(body), do: body
+
+  defp canonical_nested_attributes(%{"attributes" => %{} = attributes} = data),
+    do: Map.put(data, "attributes", canonical_principals(attributes))
+
+  defp canonical_nested_attributes(data), do: data
+
+  defp canonical_principals(params) do
+    Enum.reduce(@principal_keys, params, fn key, acc ->
+      case Map.fetch(acc, key) do
+        {:ok, uid} when is_binary(uid) -> Map.put(acc, key, Ankole.PrincipalKey.canonicalize(uid))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp canonical_uuid(value) do
+    trimmed = String.trim(value)
+
+    case Ecto.UUID.cast(trimmed) do
+      {:ok, uuid} -> uuid
+      :error -> trimmed
     end
   end
 
-  defp authorize_route(conn, _resource, _route, _params, authz_resource, action),
-    do: ConsolePolicy.authorize(conn, authz_resource, action)
+  defp authorize_rule(conn, params, rule) do
+    Enum.reduce_while(permissions(conn, params, rule), :ok, fn {resource, action}, :ok ->
+      case ConsolePolicy.authorize(conn, resource, action) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp permissions(_conn, params, {authz_resource, action}),
+    do: [{expand(authz_resource, params), action}]
+
+  defp permissions(conn, params, {authz_resource, action, {module, function}}) do
+    args = Map.merge(body_arguments(conn), conn.query_params)
+    apply(module, function, [params, args, expand(authz_resource, params), action])
+  end
+
+  defp body_arguments(%Plug.Conn{body_params: %{"data" => %{} = data}}), do: data
+  defp body_arguments(_conn), do: %{}
 
   defp tenant(:site), do: nil
   defp tenant(:console), do: Ankole.Repo.tenant_id()
 
   defp expand(authz_resource, params) do
-    Regex.replace(~r/\{(\w+)\}/, authz_resource, fn _match, name -> Map.fetch!(params, name) end)
+    Regex.replace(@placeholder_pattern, authz_resource, fn _match, name ->
+      Map.fetch!(params, name)
+    end)
   end
 
   defp refuse(conn) do

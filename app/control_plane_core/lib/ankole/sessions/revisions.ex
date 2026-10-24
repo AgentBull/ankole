@@ -25,8 +25,9 @@ defmodule Ankole.Sessions.Revisions do
 
   def apply(run, %Signal{producer: :kernel, data: %{"revision" => revision}} = event)
       when is_map(revision) do
-    run
-    |> Ankole.Sessions.apply_revision(event, DateTime.utc_now(:microsecond))
+    now = DateTime.utc_now(:microsecond)
+
+    Ankole.Repo.transact_top_level(fn -> apply_in_tx(run, event, now) end)
     |> Ankole.Errors.reason()
     |> then(fn result ->
       case result do
@@ -42,27 +43,26 @@ defmodule Ankole.Sessions.Revisions do
   def apply(_run, _event), do: {:error, :revision_target_unavailable}
 
   @doc false
-  def apply_in_tx(repo, run, %Signal{data: %{"revision" => revision}} = event, now) do
+  def apply_in_tx(run, %Signal{data: %{"revision" => revision}} = event, now) do
     keep_history? = executable?(run)
 
-    with :ok <- Fence.check_in_tx(repo, run),
-         {:ok, event} <- mark_revision_inputs_in_tx(repo, event, now),
+    with :ok <- Fence.check_in_tx(run),
+         {:ok, event} <- mark_revision_inputs_in_tx(event, now),
          %Signal{status: live_status} = target when live_status in [:queued, :running] <-
-           Ankole.Signals.lock_signal_in_tx(repo, revision["signal_id"]),
+           Ankole.Signals.lock_signal_in_tx(revision["signal_id"]),
          true <- target.agent_uid == run.agent_uid and target.session_id == run.session_id,
          {:ok, _} <-
            ModelHistory.retract_generating_turn_in_tx(
-             repo,
              run,
              run.signal_id,
              now,
              "input_superseded"
            ),
-         {:ok, {run, _journal}} <- Run.record_pending_in_tx(repo, run),
-         {:ok, _} <- retract_suffix(repo, run, now, keep_history?),
-         {:ok, updated} <- revise_input_in_tx(repo, target, revision, now) do
+         {:ok, {run, _journal}} <- Run.record_pending_in_tx(run),
+         {:ok, _} <- retract_suffix(run, now, keep_history?),
+         {:ok, updated} <- revise_input_in_tx(target, revision, now) do
       if updated == :removed and target.id == run.signal_id do
-        complete_removed_trigger_inputs(repo, run, event, now)
+        complete_removed_trigger_inputs(run, event, now)
       else
         apply_revision_input(run, event, target, updated)
       end
@@ -73,16 +73,16 @@ defmodule Ankole.Sessions.Revisions do
     end
   end
 
-  defp revise_input_in_tx(repo, target, revision, now),
-    do: revise_event_in_tx(repo, target, revision["kind"], revision["entry"], now)
+  defp revise_input_in_tx(target, revision, now),
+    do: revise_event_in_tx(target, revision["kind"], revision["entry"], now)
 
-  def revise_event_in_tx(repo, event, kind, entry, now) do
+  def revise_event_in_tx(event, kind, entry, now) do
     case MessageInput.revised_input_attrs(event, kind, entry, now) do
       :no_match ->
         {:ok, event}
 
       :cancel ->
-        with {:ok, _} <- Ankole.Conversations.Delivery.Deletion.commit_source_in_tx(repo, event),
+        with {:ok, _} <- Ankole.Conversations.Delivery.Deletion.commit_source_in_tx(event),
              :ok <- Ankole.Signals.remove_signal(event),
              do: {:ok, :removed}
 
@@ -91,8 +91,8 @@ defmodule Ankole.Sessions.Revisions do
     end
   end
 
-  defp mark_revision_inputs_in_tx(repo, event, now),
-    do: Ankole.Signals.transition_in_tx(repo, event, :start_attempt, %{last_attempt_at: now})
+  defp mark_revision_inputs_in_tx(event, now),
+    do: Ankole.Signals.transition_in_tx(event, :start_attempt, %{last_attempt_at: now})
 
   defp apply_revision_input(run, event, target, updated) do
     trigger = if target.id == run.signal_id, do: updated, else: run.event
@@ -122,12 +122,12 @@ defmodule Ankole.Sessions.Revisions do
      }}
   end
 
-  defp complete_removed_trigger_inputs(repo, run, event, now) do
+  defp complete_removed_trigger_inputs(run, event, now) do
     # Deletion of the trigger also closes its applied revisions and steers.
     Enum.reduce_while(Enum.uniq([event.id | run.steer_event_ids]), {:ok, :stopped}, fn id, _ ->
-      case Ankole.Signals.lock_signal_in_tx(repo, id) do
+      case Ankole.Signals.lock_signal_in_tx(id) do
         %Signal{} = input ->
-          case Queue.mark_event_completed_in_tx(repo, input, now) do
+          case Queue.mark_event_completed_in_tx(input, now) do
             {:ok, _} -> {:cont, {:ok, :stopped}}
             error -> {:halt, error}
           end
@@ -138,11 +138,10 @@ defmodule Ankole.Sessions.Revisions do
     end)
   end
 
-  defp retract_suffix(_repo, _run, _now, true), do: {:ok, nil}
+  defp retract_suffix(_run, _now, true), do: {:ok, nil}
 
-  defp retract_suffix(repo, run, now, false) do
+  defp retract_suffix(run, now, false) do
     ModelHistory.retract_visible_turn_suffix_in_tx(
-      repo,
       run.agent_uid,
       run.session_id,
       run.signal_id,

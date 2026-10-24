@@ -113,3 +113,9 @@ export function nextPageAfter(document: object | undefined): string | undefined 
   const next = (document as { links?: { next?: string | null } } | undefined)?.links?.next
   return next ? (new URL(next, 'http://localhost').searchParams.get('page[after]') ?? undefined) : undefined
 }
+
+/** The continuation request for a generated TanStack infinite query. */
+export function nextPageParams(document: object) {
+  const after = nextPageAfter(document)
+  return after ? { query: { page: { after } } } : undefined
+}

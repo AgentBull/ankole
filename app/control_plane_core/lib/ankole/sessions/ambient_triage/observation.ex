@@ -3,7 +3,7 @@ defmodule Ankole.Sessions.AmbientTriage.Observation do
 
   alias Ankole.Sessions.ToolArguments
 
-  @enforce_keys [:agent_uid, :event, :context, :model_ref, :request_context]
+  @enforce_keys [:agent_uid, :event, :context, :model_ref, :request_context, :candidates]
   defstruct @enforce_keys
   @type t :: %__MODULE__{}
 
@@ -14,7 +14,7 @@ defmodule Ankole.Sessions.AmbientTriage.Observation do
     {delta, backdrop} = observation_transcript(data, zone, now)
 
     orders = Ankole.Sessions.Prompt.Input.standing_orders(observation.event) || ""
-    candidates = observation.request_context["ambient_work_candidates"] || %{}
+    candidates = observation.candidates || %{}
     jobs = Enum.take(candidates["jobs"] || [], 8)
 
     complete? =

@@ -63,7 +63,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
       end
 
       {:ok, :ok} =
-        Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, ctx.agent_uid)} end)
+        Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(ctx.agent_uid)} end)
 
       assert {:error, :stale_worker_generation} =
                AgentWorkers.authenticate(ctx.agent_uid, ctx.token)
@@ -112,7 +112,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
       end
 
       {:ok, :ok} =
-        Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, ctx.agent_uid)} end)
+        Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(ctx.agent_uid)} end)
 
       assert {:error, :stale_worker_generation} = join_worker(ctx.agent_uid, "route-x", "inc-x")
     end
@@ -181,7 +181,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
 
     test "do not wake a deleted Agent's Worker", ctx do
       {:ok, :ok} =
-        Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, ctx.agent_uid)} end)
+        Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(ctx.agent_uid)} end)
 
       assert :ok = AgentWorkers.request(ctx.agent_uid)
       assert %AgentWorker{wanted_until: nil} = Repo.get!(AgentWorker, ctx.agent_uid)
@@ -227,7 +227,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
   end
 
   defp reserve(agent_uid),
-    do: Repo.transact(fn repo -> AgentWorkers.reserve_slot_in_tx(repo, agent_uid) end)
+    do: Repo.transact(fn -> AgentWorkers.reserve_slot_in_tx(agent_uid) end)
 
   defp set_row!(agent_uid, changes) do
     {1, _rows} =

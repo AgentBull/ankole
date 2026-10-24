@@ -272,24 +272,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
         )
       )
     end
-
-    # Records one Worker checkpoint and its items, with the Worker turn fence,
-    # the Agent slot lock, and the Job lock, in one transaction.
-    action :record_from_worker, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-
-      argument(:turn_ref, :struct,
-        allow_nil?: false,
-        constraints: [instance_of: Ankole.Sessions.JobTurnRef]
-      )
-
-      argument(:worker_id, :string, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   defp validate_checkpoint(changeset) do

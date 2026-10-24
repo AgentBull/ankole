@@ -110,14 +110,13 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   Enforces the one-agent/one-bot assignment. Updating the current binding is
   allowed; disabled bindings do not reserve a bot.
   """
-  @spec validate_binding_assignment(module(), String.t(), String.t(), chat_config()) ::
+  @spec validate_binding_assignment(String.t(), String.t(), chat_config()) ::
           :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
+  def validate_binding_assignment(agent_uid, binding_name, config)
+      when is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
     with :ok <- ensure_single_enabled_binding(agent_uid, binding_name),
          :ok <-
            ensure_bot_not_bound_to_another_agent(
-             repo,
              agent_uid,
              Map.fetch!(config, "botId")
            ) do
@@ -212,12 +211,12 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
     if existing?, do: {:error, :wecom_binding_already_exists}, else: :ok
   end
 
-  defp ensure_bot_not_bound_to_another_agent(repo, agent_uid, bot_id) do
+  defp ensure_bot_not_bound_to_another_agent(agent_uid, bot_id) do
     Ankole.Signals.list_bindings!(
       query: [filter: [adapter: "wecom", enabled: true, agent_uid: [not_eq: agent_uid]]]
     )
     |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
+      case Bindings.binding_config_in_tx(binding, __MODULE__) do
         {:ok, %{"botId" => ^bot_id}} ->
           {:halt, {:error, {:wecom_bot_already_bound, bot_id, binding.agent_uid}}}
 

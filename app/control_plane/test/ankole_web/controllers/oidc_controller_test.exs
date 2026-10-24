@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.OIDCControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
 
   import Ankole.PrincipalsFixtures
 
@@ -7,7 +8,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
   alias Ankole.OIDC
   alias Ankole.OIDC.SigningKey
   alias Ankole.OIDC.Tokens
-  alias Ankole.TokenSigning
+  alias Ankole.OIDC.Config, as: OIDCConfig
   alias Ankole.Repo
   alias AnkoleWeb.Session, as: WebSession
 
@@ -65,11 +66,11 @@ defmodule AnkoleWeb.OIDCControllerTest do
   test "discovery and JWKS publish the one RS256 installation key", %{conn: conn} do
     discovery = conn |> get("/.well-known/openid-configuration") |> json_response(200)
 
-    assert discovery["issuer"] == TokenSigning.issuer()
-    assert discovery["authorization_endpoint"] == TokenSigning.issuer() <> "/oauth/authorize"
-    assert discovery["token_endpoint"] == TokenSigning.issuer() <> "/oauth/token"
-    assert discovery["userinfo_endpoint"] == TokenSigning.issuer() <> "/oauth/userinfo"
-    assert discovery["jwks_uri"] == TokenSigning.issuer() <> "/.well-known/jwks.json"
+    assert discovery["issuer"] == OIDCConfig.issuer()
+    assert discovery["authorization_endpoint"] == OIDCConfig.issuer() <> "/oauth/authorize"
+    assert discovery["token_endpoint"] == OIDCConfig.issuer() <> "/oauth/token"
+    assert discovery["userinfo_endpoint"] == OIDCConfig.issuer() <> "/oauth/userinfo"
+    assert discovery["jwks_uri"] == OIDCConfig.issuer() <> "/.well-known/jwks.json"
     assert discovery["response_types_supported"] == ["code"]
     assert discovery["grant_types_supported"] == ["authorization_code", "refresh_token"]
     assert discovery["code_challenge_methods_supported"] == ["S256"]
@@ -131,15 +132,20 @@ defmodule AnkoleWeb.OIDCControllerTest do
               "client_id" => client_id,
               "subject_type" => "human",
               "token_use" => "access",
-              "scope" => "openid profile email offline_access",
-              "aud" => ["ankole.oidc_userinfo"]
+              "scope" => "openid profile email offline_access"
             } = access_claims} = Tokens.verify_access(access_token, Tokens.userinfo_audience())
 
     assert principal_uid == human.principal.uid
     assert client_id == client.id
     assert is_binary(access_claims["jti"])
     assert is_integer(access_claims["iat"])
-    assert is_integer(access_claims["nbf"])
+    assert Tokens.userinfo_audience() in List.wrap(access_claims["aud"])
+
+    assert {:error, :expired} =
+             Attesto.Token.verify(Ankole.OIDC.Config.get(), access_token,
+               now: access_claims["exp"]
+             )
+
     assert access_claims["exp"] > access_claims["iat"]
 
     assert %{"alg" => "RS256", "kid" => kid, "typ" => "at+jwt"} = jwt_header(access_token)
@@ -754,8 +760,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
 
     confirmation =
-      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id)
-      |> AnkoleWeb.InternalAPIContract.json_response(200)
+      get(recycle(prepared), "/api/v2/browser/oidc-logout/" <> id)
+      |> api_response(200)
 
     assert confirmation["identity"]["principalUID"] == human.principal.uid
 
@@ -779,8 +785,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert is_binary(repeated_id)
 
     assert %{"identity" => nil} =
-             get(recycle(repeated), "/.internal-apis/oidc-logout/" <> repeated_id)
-             |> AnkoleWeb.InternalAPIContract.json_response(200)
+             get(recycle(repeated), "/api/v2/browser/oidc-logout/" <> repeated_id)
+             |> api_response(200)
 
     repeated =
       post(recycle(repeated), "/oauth/logout/confirm", %{
@@ -824,8 +830,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
     id = redirect_query(prepared)["request"]
 
     confirmation =
-      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id)
-      |> AnkoleWeb.InternalAPIContract.json_response(200)
+      get(recycle(prepared), "/api/v2/browser/oidc-logout/" <> id)
+      |> api_response(200)
 
     assert confirmation["identity"]["principalUID"] == current.principal.uid
 
@@ -1016,10 +1022,12 @@ defmodule AnkoleWeb.OIDCControllerTest do
     refute redirect_query(authorization)["code"]
     page = authorization |> recycle() |> get("/sessions/new", %{"flow" => flow})
     assert html_response(page, 200) =~ "entrypoints/auth.tsx"
-    choices = page |> recycle() |> get("/.internal-apis/identity-providers", %{"flow" => flow})
+
+    choices =
+      page |> recycle() |> api_get("/api/v2/browser/identity-providers", %{"flow" => flow})
 
     assert %{"selectAccount" => true, "identities" => identities} =
-             AnkoleWeb.InternalAPIContract.json_response(choices, 200)
+             api_response(choices, 200)
 
     assert Enum.sort(Enum.map(identities, & &1["principalUID"])) ==
              Enum.sort([a.principal.uid, b.principal.uid])
@@ -1027,12 +1035,12 @@ defmodule AnkoleWeb.OIDCControllerTest do
     selected =
       choices
       |> recycle()
-      |> post("/.internal-apis/sessions/identity-selection", %{
+      |> api_post("/api/v2/browser/sessions/identity-selection", %{
         "flow" => flow,
         "authenticationRef" => Ankole.BrowserSessions.encode_reference(a_ref)
       })
 
-    assert %{"returnTo" => resume} = AnkoleWeb.InternalAPIContract.json_response(selected, 200)
+    assert %{"returnTo" => resume} = api_response(selected, 200)
     issued_a = selected |> recycle() |> get(resume)
     assert is_binary(redirect_query(issued_a)["code"])
     Repo.put_tenant_id(tenant.id)
@@ -1090,12 +1098,12 @@ defmodule AnkoleWeb.OIDCControllerTest do
     selected =
       authorization
       |> recycle()
-      |> post("/.internal-apis/sessions/identity-selection", %{
+      |> api_post("/api/v2/browser/sessions/identity-selection", %{
         "flow" => flow,
         "authenticationRef" => Ankole.BrowserSessions.encode_reference(a_ref)
       })
 
-    assert %{"returnTo" => return_to} = AnkoleWeb.InternalAPIContract.json_response(selected, 200)
+    assert %{"returnTo" => return_to} = api_response(selected, 200)
     assert return_to =~ "/sessions/new?"
 
     assert {:ok, %{status: :pending, expected_authentication_id: expected}} =
@@ -1445,7 +1453,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
       NativeKernel.jwt_verify_jwk(token, jwk, %{
         algorithms: ["RS256"],
         aud: [audience],
-        iss: [TokenSigning.issuer()],
+        iss: [OIDCConfig.issuer()],
         required_spec_claims: ["exp", "aud", "iss", "sub"],
         validate_exp: true
       })

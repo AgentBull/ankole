@@ -66,7 +66,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert checkback.origin_ai_message_id in Enum.map(messages, & &1.id)
 
     assert checkback.conversation_id ==
-             External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+             External.get_conversation("lark:oc_chaos_schedule").id
 
     assert is_nil(checkback.provider_thread_id)
     assert checkback.provider_message_id == "om_checkback_tool_1"
@@ -144,7 +144,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert primary_target["binding_name"] == "lark-chaos-primary"
 
     assert primary_target["conversation_id"] ==
-             External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+             External.get_conversation("lark:oc_chaos_schedule").id
 
     assert is_nil(primary_target["provider_thread_id"])
 
@@ -181,17 +181,16 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
              )
 
     assert %Conversation{reply_mode: :entry} =
-             External.get_conversation(Repo, secondary_provider_conversation_id)
+             External.get_conversation(secondary_provider_conversation_id)
 
     targets = [
       %{
         "binding_name" => primary.name,
-        "conversation_id" => External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+        "conversation_id" => External.get_conversation("lark:oc_chaos_schedule").id
       },
       %{
         "binding_name" => secondary.name,
-        "conversation_id" =>
-          External.get_conversation(Repo, secondary_provider_conversation_id).id
+        "conversation_id" => External.get_conversation(secondary_provider_conversation_id).id
       }
     ]
 
@@ -307,12 +306,12 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
       secondary.created_provider_message_id || secondary.target_provider_message_id
 
     secondary_reply =
-      External.get_message(Repo, secondary.conversation_id, secondary_provider_message_id)
+      External.get_message(secondary.conversation_id, secondary_provider_message_id)
 
     assert reply.message.text =~ "CHAOS_CRON_WAKE_OK"
 
     assert reply.message.conversation_id ==
-             External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+             External.get_conversation("lark:oc_chaos_schedule").id
 
     assert secondary_reply.message.text == reply.message.text
     assert secondary_reply.external_ref.ai_message_id == reply.external_ref.ai_message_id

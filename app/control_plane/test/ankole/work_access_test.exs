@@ -22,15 +22,15 @@ defmodule Ankole.WorkAccessTest do
     assert {:error, :tenant_suspended} = Schedule.run_cron_schedule(cron.id)
 
     assert {:error, :tenant_suspended} =
-             Workflow.commit_replay_pending(
+             Workflow.Replay.commit_replay_pending(
                run.id,
                [%{namespace: nil, name: "agent", arguments: %{"prompt" => "new work"}}],
                0
              )
 
     assert Repo.reload!(run).status == :running
-    assert {:ok, %{new_calls: []}} = Workflow.commit_replay_pending(run.id, [], 0)
-    assert {:ok, _} = Workflow.complete_replay(run.id, "finished existing work", 0)
+    assert {:ok, %{new_calls: []}} = Workflow.Replay.commit_replay_pending(run.id, [], 0)
+    assert {:ok, _} = Workflow.Replay.complete_replay(run.id, "finished existing work", 0)
   end
 
   test "a committed admission may finish after disablement; retry and new work cannot start" do
@@ -44,7 +44,7 @@ defmodule Ankole.WorkAccessTest do
     assert Repo.get!(Signal, source.id).status == :running
 
     assert {:error, :human_access_revoked} =
-             Repo.transact(fn repo -> WorkAccess.check_in_tx(repo, source) end)
+             Repo.transact(fn -> WorkAccess.check_in_tx(source) end)
 
     assert {:error, :human_access_revoked} = Schedule.create_check_back_later(checkback(source))
 
@@ -72,7 +72,7 @@ defmodule Ankole.WorkAccessTest do
              )
 
     assert {:error, :human_access_revoked} =
-             Repo.transact(fn repo -> WorkAccess.check_in_tx(repo, source) end)
+             Repo.transact(fn -> WorkAccess.check_in_tx(source) end)
 
     fresh = source_event(agent.uid, human.uid)
     assert {:ok, %{scheduled_event: event}} = Schedule.create_check_back_later(checkback(fresh))
@@ -118,13 +118,13 @@ defmodule Ankole.WorkAccessTest do
     assert {:ok, job} = AutomationJobs.create_job(automation(source))
 
     assert {:ok, %{automation_job_run: queued}} =
-             Repo.transact(fn repo ->
-               AutomationJobs.enqueue_run_in_tx(repo, job.id, agent.uid, trigger("queued"))
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, trigger("queued"))
              end)
 
     assert {:ok, %{automation_job_run: running}} =
-             Repo.transact(fn repo ->
-               AutomationJobs.enqueue_run_in_tx(repo, job.id, agent.uid, trigger("running"))
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, trigger("running"))
              end)
 
     assert {:ok, _worker} =
@@ -133,18 +133,27 @@ defmodule Ankole.WorkAccessTest do
              })
 
     assert {:ok, %{run: running}} = AutomationJobs.start_attempt(running.id)
+    assert AutomationJobs.count_running_runs_for_human(human.uid, human.access_version) == 0
+    assert AutomationJobs.count_running_runs_for_human(human.uid, human.access_version + 1) == 1
+
+    other_tenant = create_tenant()
+
+    assert Repo.with_tenant(other_tenant.id, fn ->
+             AutomationJobs.count_running_runs_for_human(human.uid, human.access_version + 1)
+           end) == 1
+
     assert {:ok, %{run: workflow}} = Workflow.create_with_dispatch(workflow(source))
 
     assert {:ok, %{new_calls: [call]}} =
-             Workflow.commit_replay_pending(
+             Workflow.Replay.commit_replay_pending(
                workflow.id,
                [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Check status"}}],
                0
              )
 
     assert {:ok, _} =
-             Repo.transact(fn repo ->
-               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 4)
+             Repo.transact(fn ->
+               Workflow.TaskLifecycle.claim_task_in_tx(call.id, agent.uid, 4)
              end)
 
     assert {:ok, disabled} = HumanAccess.disable(human.uid, "Offboarding", nil, "disable")
@@ -170,12 +179,14 @@ defmodule Ankole.WorkAccessTest do
                "exit_code" => 0
              })
 
-    assert {:error, :human_access_revoked} = Workflow.commit_replay_pending(workflow.id, [], 1)
+    assert AutomationJobs.count_running_runs_for_human(human.uid, disabled.access_version) == 0
+
+    assert {:error, :human_access_revoked} =
+             Workflow.Replay.commit_replay_pending(workflow.id, [], 1)
 
     assert {:ok, %{accepted: true, call: %{status: :succeeded}}} =
-             Ankole.Repo.transact(fn repo ->
+             Ankole.Repo.transact(fn ->
                Workflow.TaskLifecycle.submit_result_in_tx(
-                 repo,
                  call.id,
                  agent.uid,
                  Workflow.task_session_id(call.id),
@@ -229,7 +240,7 @@ defmodule Ankole.WorkAccessTest do
              Schedule.create_check_back_later(checkback(source))
 
     assert {:error, :work_authorization_review_required} =
-             Repo.transact(fn repo -> WorkAccess.check_in_tx(repo, source) end)
+             Repo.transact(fn -> WorkAccess.check_in_tx(source) end)
   end
 
   test "an operator can classify unknown legacy work once and the review is audited" do
@@ -267,11 +278,10 @@ defmodule Ankole.WorkAccessTest do
     source = source_event(agent.uid, nil)
 
     assert {:ok, dead} =
-             Repo.transact(fn repo ->
-               locked = Ankole.Signals.lock_signal_in_tx(repo, source.id)
+             Repo.transact(fn ->
+               locked = Ankole.Signals.lock_signal_in_tx(source.id)
 
                Ankole.Sessions.Queue.mark_event_dead_letter_in_tx(
-                 repo,
                  locked,
                  DateTime.utc_now(:microsecond),
                  %{"reason" => "authorization_unresolved"}
@@ -448,8 +458,8 @@ defmodule Ankole.WorkAccessTest do
     id = Ecto.UUID.generate()
 
     {:ok, signal} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           source: "test://work-access",
           id: id,
           type: "conversation.message.addressed",

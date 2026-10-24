@@ -24,9 +24,9 @@ defmodule Ankole.Sessions.ExternalRetryTest do
         )
 
       {:ok, source} =
-        Repo.transact(fn repo ->
+        Repo.transact(fn ->
           with {:ok, source} <-
-                 Ankole.Signals.accept_in_tx(repo, %{
+                 Ankole.Signals.accept_in_tx(%{
                    source: "https://example.test/event",
                    id: Ecto.UUID.generate(),
                    type: unquote(type),
@@ -36,19 +36,18 @@ defmodule Ankole.Sessions.ExternalRetryTest do
                    authorization: Ankole.Principals.WorkAccess.service(),
                    reply_route: %{binding_name: "bot", conversation_id: initial.conversation_id}
                  }) do
-            Queue.mark_event_dead_letter_in_tx(repo, source, now, "provider_failed")
+            Queue.mark_event_dead_letter_in_tx(source, now, "provider_failed")
           end
         end)
 
       {:ok, %{intents: [notice]}} =
-        Repo.transact(
-          &Ankole.Sessions.Notices.post_in_tx(
-            &1,
+        Repo.transact(fn ->
+          Ankole.Sessions.Notices.post_in_tx(
             source,
             :dead_letter,
             "The external event failed"
           )
-        )
+        end)
 
       assert {:ok, %Intent{status: :sent}} =
                Ankole.Conversations.Delivery.dispatch(

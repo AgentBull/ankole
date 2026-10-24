@@ -109,22 +109,5 @@ defmodule Ankole.OIDC.RefreshToken do
     destroy :remove_in_tx do
       require_atomic?(true)
     end
-
-    action :rotate, :term do
-      argument(:digest, :term)
-      argument(:child, :term)
-      argument(:successor, :term)
-      argument(:ciphertext, :term)
-      argument(:now, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :refresh, :term do
-      argument(:client, :term)
-      argument(:rotated, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 end

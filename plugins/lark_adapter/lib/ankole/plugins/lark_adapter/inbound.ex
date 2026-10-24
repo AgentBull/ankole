@@ -1048,10 +1048,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     max = Map.fetch!(consumer, :max_backfilled_attachments)
     author_id = author["id"]
 
-    case Ankole.Conversations.External.get_conversation(
-           Ankole.Repo,
-           conversation_id
-         ) do
+    case Ankole.Conversations.External.get_conversation(conversation_id) do
       %{id: id} ->
         Attachments.recent(id, author_id, provider_time,
           window_seconds: Map.fetch!(consumer, :recent_attachment_window_seconds),

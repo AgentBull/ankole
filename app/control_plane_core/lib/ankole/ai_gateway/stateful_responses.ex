@@ -105,16 +105,20 @@ defmodule Ankole.AIGateway.StatefulResponses do
              previous_response_id,
              expected_previous_response_id
            ) do
-      Message
-      |> Ankole.Ash.run_action(:admit_run, %{
-        subject_uid: subject_uid,
-        selector: selector,
-        compaction: compaction,
-        content: initial_content,
-        metadata: Map.merge(merged_metadata, Keyword.get(opts, :response_metadata, %{})),
-        authorize_run: Keyword.get(opts, :authorize_run_in_tx, fn _repo -> :ok end),
-        record_response: Keyword.get(opts, :record_response_in_tx, fn _repo, _message -> :ok end)
-      })
+      Repo.transact_top_level(
+        fn ->
+          admit_run(%{
+            subject_uid: subject_uid,
+            selector: selector,
+            compaction: compaction,
+            content: initial_content,
+            metadata: Map.merge(merged_metadata, Keyword.get(opts, :response_metadata, %{})),
+            authorize_run: Keyword.get(opts, :authorize_run_in_tx, fn -> :ok end),
+            record_response: Keyword.get(opts, :record_response_in_tx, fn _message -> :ok end)
+          })
+        end,
+        after_commit: &Ankole.AIGateway.ResponseCommit.publish_committed/1
+      )
       |> case do
         {:ok, {:publish, %Message{} = message, :response_started, _payload}} ->
           {:ok, message}
@@ -139,7 +143,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @doc false
   # Runs the `:admit_run` action. The response starts only after its commit.
   def admit_run(%{authorize_run: authorize_run, record_response: record_response} = arguments) do
-    with :ok <- authorize_run.(Repo),
+    with :ok <- authorize_run.(),
          {:ok, message} <-
            admit_planned_response_run(
              arguments.subject_uid,
@@ -148,7 +152,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
              arguments.content,
              arguments.metadata
            ),
-         :ok <- record_response.(Repo, message) do
+         :ok <- record_response.(message) do
       {:ok, {:publish, message, :response_started, %{}}}
     end
   end
@@ -191,12 +195,14 @@ defmodule Ankole.AIGateway.StatefulResponses do
         }
       )
       when is_map(artifact_attrs) and is_map(checkpoint_metadata) do
-    Ankole.Ash.run_action(Message, :install_recovery_checkpoint, %{
-      message: message,
-      artifact_attrs: artifact_attrs,
-      checkpoint_metadata: checkpoint_metadata,
-      injection: injection
-    })
+    Repo.transact_top_level(fn ->
+      install_recovery_checkpoint(%{
+        message: message,
+        artifact_attrs: artifact_attrs,
+        checkpoint_metadata: checkpoint_metadata,
+        injection: injection
+      })
+    end)
   end
 
   def install_replay_recovery_checkpoint(%Message{}, _invalid_plan),
@@ -342,16 +348,14 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp ensure_no_generating_response(conversation_id) do
-    generating =
+    generating? =
       Message
       |> Ash.Query.filter(
         conversation_id == ^conversation_id and type == :message and status == :generating
       )
-      |> Ash.Query.limit(1)
-      |> Ash.Query.select([:id])
-      |> Ankole.Ash.read!()
+      |> Ankole.Ash.exists?()
 
-    if generating == [], do: :ok, else: {:error, :response_run_in_progress}
+    if generating?, do: {:error, :response_run_in_progress}, else: :ok
   end
 
   defp ensure_expected_visible_leaf(conversation_id, expected_previous_message_id) do
@@ -422,7 +426,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
              content: initial_content,
              metadata: merged_metadata
            }) do
-      :ok = Conversations.touch_conversation_in_tx(Repo, conversation_id)
+      :ok = Conversations.touch_conversation_in_tx(conversation_id)
       {:ok, message}
     end
   end

@@ -2,6 +2,8 @@ import i18n from './i18n'
 
 /** Pages localize known failures from this code instead of showing the server's English message. */
 export function requestErrorCode(error: unknown): string | undefined {
+  const [first] = jsonApiErrors(error)
+  if (typeof first?.code === 'string') return first.code
   if (error && typeof error === 'object' && 'error' in error) {
     const value = (error as { error?: unknown }).error
     if (value && typeof value === 'object' && 'code' in value) {
@@ -20,6 +22,13 @@ export function requestErrorDetails(error: unknown): Record<string, unknown> {
 
 /** Keeps separate validation paths and line numbers in the API response. */
 export function requestErrorDetailList(error: unknown): Record<string, unknown>[] {
+  const apiDetails = jsonApiErrors(error).flatMap(item => {
+    const meta = item.meta
+    if (!isObject(meta)) return []
+    const details = meta.details
+    return Array.isArray(details) ? details.filter(isObject) : isObject(details) ? [details] : []
+  })
+  if (apiDetails.length) return apiDetails
   if (error && typeof error === 'object' && 'error' in error) {
     const value = (error as { error?: unknown }).error
     if (value && typeof value === 'object' && 'details' in value) {
@@ -36,6 +45,9 @@ export function requestErrorDetailList(error: unknown): Record<string, unknown>[
 }
 
 export function requestErrorMessage(error: unknown): string {
+  const [first] = jsonApiErrors(error)
+  if (typeof first?.detail === 'string') return conciseMessage(first.detail)
+  if (typeof first?.title === 'string') return conciseMessage(first.title)
   if (error && typeof error === 'object') {
     if ('error' in error) {
       const value = (error as { error?: unknown }).error
@@ -68,6 +80,14 @@ export function requestErrorMessage(error: unknown): string {
   }
 
   return conciseMessage(String(error ?? ''))
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function jsonApiErrors(value: unknown): Record<string, unknown>[] {
+  return isObject(value) && Array.isArray(value.errors) ? value.errors.filter(isObject) : []
 }
 
 function conciseMessage(message: string): string {

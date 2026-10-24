@@ -1,5 +1,5 @@
 defmodule Ankole.Ash.Types.UUIDv7 do
-  @moduledoc "Uses the shared UUID codec and native UUIDv7 generator."
+  @moduledoc "Uses the Ecto UUID codec with Ash UUIDv7 generation."
   use Ash.Type.NewType, subtype_of: :uuid
 
   @impl true

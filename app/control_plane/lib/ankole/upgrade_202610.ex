@@ -122,7 +122,7 @@ defmodule Ankole.Upgrade202610 do
            scope = if tenant, do: "tenant:" <> tenant.id
 
            Enum.reduce_while(rows, {:ok, :migrated}, fn row, result ->
-             case migrate_identity_provider_row(repo, row, tenant, scope) do
+             case migrate_identity_provider_row(row, tenant, scope) do
                :ok -> {:cont, result}
                {:error, reason} -> {:halt, {:error, {row.key, reason}}}
              end
@@ -134,7 +134,6 @@ defmodule Ankole.Upgrade202610 do
   end
 
   defp migrate_identity_provider_row(
-         _repo,
          %{value: %{"type" => "cipher", "value" => cipher}} = row,
          tenant,
          scope
@@ -179,7 +178,7 @@ defmodule Ankole.Upgrade202610 do
     end)
     |> Enum.group_by(& &1.config_ref)
     |> Enum.each(fn {"app-config://" <> old_key, bindings} ->
-      case Repo.transact(fn repo -> migrate_shared_key(repo, old_key, bindings) end) do
+      case Repo.transact(fn -> migrate_shared_key(old_key, bindings) end) do
         {:ok, :ok} -> :ok
         {:error, reason} -> raise "binding configuration migration failed: #{inspect(reason)}"
       end
@@ -188,18 +187,18 @@ defmodule Ankole.Upgrade202610 do
     backfill_application_identities(specs)
   end
 
-  defp migrate_shared_key(repo, old_key, bindings) do
-    with {:ok, config} <- AppConfigure.get_global_by_key_in_tx(repo, old_key),
-         :ok <- migrate_bindings(repo, bindings, config) do
+  defp migrate_shared_key(old_key, bindings) do
+    with {:ok, config} <- AppConfigure.get_global_by_key_in_tx(old_key),
+         :ok <- migrate_bindings(bindings, config) do
       old_ref = "app-config://#{old_key}"
 
       remaining? =
         Repo.across_tenants(fn ->
-          repo.exists?(from binding in Binding, where: binding.config_ref == ^old_ref)
+          Repo.exists?(from binding in Binding, where: binding.config_ref == ^old_ref)
         end)
 
       unless remaining? do
-        repo.delete_all(
+        Repo.delete_all(
           from row in SiteConfig, where: row.scope == "global" and row.key == ^old_key
         )
       end
@@ -211,16 +210,16 @@ defmodule Ankole.Upgrade202610 do
     end
   end
 
-  defp migrate_bindings(repo, bindings, config) do
+  defp migrate_bindings(bindings, config) do
     Enum.reduce_while(bindings, :ok, fn binding, :ok ->
       new_key = config_module(binding).binding_config_key(binding.agent_uid, binding.name)
 
       result =
         Repo.with_tenant(binding.tenant_id, fn ->
-          with :ok <- ensure_destination(repo, new_key, config),
-               {:ok, _write} <- AppConfigure.put_global_by_key_in_tx(repo, new_key, config),
+          with :ok <- ensure_destination(new_key, config),
+               {:ok, _write} <- AppConfigure.put_global_by_key_in_tx(new_key, config),
                {:ok, _binding} <-
-                 repo.update(
+                 Repo.update(
                    Ecto.Changeset.change(binding, config_ref: "app-config://#{new_key}")
                  ) do
             :ok
@@ -234,8 +233,8 @@ defmodule Ankole.Upgrade202610 do
     end)
   end
 
-  defp ensure_destination(repo, key, config) do
-    case AppConfigure.get_global_by_key_in_tx(repo, key) do
+  defp ensure_destination(key, config) do
+    case AppConfigure.get_global_by_key_in_tx(key) do
       :error -> :ok
       {:ok, ^config} -> :ok
       {:ok, _different} -> {:error, {:binding_configuration_key_conflict, key}}
@@ -265,7 +264,7 @@ defmodule Ankole.Upgrade202610 do
     Enum.each(Repo.all(Tenant), fn tenant ->
       Repo.with_tenant(tenant.id, fn ->
         {:ok, providers} =
-          AppConfigure.get_tenant_by_key_in_tx(Repo, "principals.identity_providers.active")
+          AppConfigure.get_tenant_by_key_in_tx("principals.identity_providers.active")
 
         Enum.each(providers, fn provider ->
           declaration =
@@ -303,7 +302,7 @@ defmodule Ankole.Upgrade202610 do
              {:ok, config} <- AppConfigure.Codec.load(definition, scope, key, row.value),
              {:ok, application} <- Bindings.resolve_platform_application(module, config, source) do
           Repo.with_tenant(tenant_id, fn ->
-            Repo.transact(&record_identity_in_tx(&1, row, config, application))
+            Repo.transact(fn -> record_identity_in_tx(row, config, application) end)
           end)
         end
 
@@ -317,21 +316,20 @@ defmodule Ankole.Upgrade202610 do
     end
   end
 
-  defp record_identity_in_tx(repo, row, config, application) do
+  defp record_identity_in_tx(row, config, application) do
     schema = AppConfig.for_scope(row.scope)
 
     locked =
-      repo.one(
+      Repo.one(
         from config in schema,
           where: config.scope == ^row.scope and config.key == ^row.key,
           lock: "FOR UPDATE"
       )
 
     if locked.value == row.value do
-      with :ok <- Bindings.validate_platform_application_in_tx(repo, application),
+      with :ok <- Bindings.validate_platform_application_in_tx(application),
            :ok <-
              Bindings.record_platform_application_in_tx(
-               repo,
                {config, row.scope, row.key},
                application
              ),
@@ -504,13 +502,13 @@ defmodule Ankole.Upgrade202610 do
           else
             with true <- current.payload == intent.payload || {:error, :intent_changed},
                  {:ok, _result} <-
-                   Files.commit(repo, current.agent_uid, Enum.uniq_by(upserts, & &1.path), []),
+                   Files.commit_in_tx(current.agent_uid, Enum.uniq_by(upserts, & &1.path), []),
                  {:ok, _row} <-
                    Ankole.Ash.update(current, :import_attachments, %{
                      payload: Map.put(current.payload, "attachments", attachments)
                    }),
                  {:ok, _intent} <-
-                   Ankole.Conversations.Delivery.commit_in_tx(repo, %{
+                   Ankole.Conversations.Delivery.commit_in_tx(%{
                      agent_uid: current.agent_uid,
                      binding_name: current.binding_name,
                      outbound_key: current.outbound_key,

@@ -1,81 +1,16 @@
 defmodule AnkoleWeb.PodAppletController do
   @moduledoc "Caller-authorized JSON routes from a revision-pinned Applet publication."
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
   alias Ankole.Pod.Applets
   alias AnkoleWeb.PodResponse
-  alias AnkoleWeb.Schemas.PodDatabase.Value
-  alias AnkoleWeb.Schemas.PodContent.ErrorEnvelope
-
-  tags(["Pod content"])
-
-  @route_parameters [
-    id: [in: :path, type: :string, required: true],
-    path: [in: :path, type: :string, required: true],
-    "x-ankole-applet-revision": [in: :header, type: :integer, required: true]
-  ]
-  @route_responses %{
-    200 => {"JSON result", "application/json", Value},
-    204 => {"No content", "application/json", Value},
-    400 => {"Error", "application/json", ErrorEnvelope},
-    401 => {"Error", "application/json", ErrorEnvelope},
-    403 => {"Error", "application/json", ErrorEnvelope},
-    404 => {"Error", "application/json", ErrorEnvelope},
-    405 => {"Error", "application/json", ErrorEnvelope},
-    409 => {"Error", "application/json", ErrorEnvelope},
-    422 => {"Error", "application/json", ErrorEnvelope},
-    500 => {"Error", "application/json", ErrorEnvelope},
-    502 => {"Error", "application/json", ErrorEnvelope},
-    503 => {"Error", "application/json", ErrorEnvelope},
-    504 => {"Error", "application/json", ErrorEnvelope}
-  }
-
-  operation(:get,
-    operation_id: "podAppletRouteGet",
-    summary: "Invoke a published Applet route",
-    parameters: @route_parameters,
-    responses: @route_responses
-  )
 
   def get(conn, params), do: invoke(conn, params)
 
-  operation(:post,
-    operation_id: "podAppletRoutePost",
-    summary: "Invoke a published Applet route",
-    parameters: @route_parameters,
-    request_body: {"JSON request", "application/json", Value, required: false},
-    responses: @route_responses
-  )
-
   def post(conn, params), do: invoke(conn, params)
-
-  operation(:put,
-    operation_id: "podAppletRoutePut",
-    summary: "Invoke a published Applet route",
-    parameters: @route_parameters,
-    request_body: {"JSON request", "application/json", Value, required: false},
-    responses: @route_responses
-  )
 
   def put(conn, params), do: invoke(conn, params)
 
-  operation(:patch,
-    operation_id: "podAppletRoutePatch",
-    summary: "Invoke a published Applet route",
-    parameters: @route_parameters,
-    request_body: {"JSON request", "application/json", Value, required: false},
-    responses: @route_responses
-  )
-
   def patch(conn, params), do: invoke(conn, params)
-
-  operation(:delete,
-    operation_id: "podAppletRouteDelete",
-    summary: "Invoke a published Applet route",
-    parameters: @route_parameters,
-    request_body: {"JSON request", "application/json", Value, required: false},
-    responses: @route_responses
-  )
 
   def delete(conn, params), do: invoke(conn, params)
 

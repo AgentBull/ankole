@@ -43,7 +43,7 @@ function LoginApp() {
     queryFn: () => loginProviders({ query: { flow } })
   })
   const selection = useMutation({
-    mutationFn: (authenticationRef: string) => selectLoginIdentity({ body: { flow, authenticationRef } }),
+    mutationFn: (authenticationRef: string) => selectLoginIdentity({ body: { data: { flow, authenticationRef } } }),
     onSuccess: data => window.location.assign(data.returnTo)
   })
   const providerList = providers.data?.providers ?? []

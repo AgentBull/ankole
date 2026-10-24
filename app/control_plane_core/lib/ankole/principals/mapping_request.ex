@@ -92,12 +92,6 @@ defmodule Ankole.Principals.MappingRequest do
 
     destroy(:delete_in_tx)
 
-    action :record_observation, :term do
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     action :bind_request, :struct do
       description("Binds a pending request to a Human and removes the request.")
       constraints(instance_of: Ankole.Principals.ExternalIdentity)

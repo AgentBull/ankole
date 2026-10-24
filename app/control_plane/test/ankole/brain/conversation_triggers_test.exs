@@ -3,13 +3,12 @@ defmodule Ankole.Brain.ConversationTriggersTest do
 
   alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.ConversationTriggers
-  alias Ankole.Repo
 
   test "an ended signal conversation enqueues slice processing for its channel" do
     channel = insert_channel!()
     conversation_key = Ankole.Sessions.Key.conversation(channel.id)
 
-    assert :ok = ConversationTriggers.conversation_ended_in_tx(Repo, conversation_key)
+    assert :ok = ConversationTriggers.conversation_ended_in_tx(conversation_key)
 
     assert_enqueued(
       worker: ProcessConversationSlice,
@@ -18,8 +17,8 @@ defmodule Ankole.Brain.ConversationTriggersTest do
   end
 
   test "non-channel conversation keys no-op" do
-    assert :ok = ConversationTriggers.conversation_ended_in_tx(Repo, "stateful-responses-api:x")
-    assert :ok = ConversationTriggers.conversation_ended_in_tx(Repo, "signal-channel:missing")
+    assert :ok = ConversationTriggers.conversation_ended_in_tx("stateful-responses-api:x")
+    assert :ok = ConversationTriggers.conversation_ended_in_tx("signal-channel:missing")
 
     refute_enqueued(worker: ProcessConversationSlice)
   end

@@ -92,9 +92,8 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     assert_receive {:relay_waiting, relay}, 2_000
 
     assert {:ok, _} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                BackgroundAgentJobs.Lifecycle.requeue_retryable_attempt_in_tx(
-                 repo,
                  job.id,
                  ctx.agent
                )

@@ -112,7 +112,17 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
         :expires_at
       ])
 
-      validate(Ankole.BrowserSessions.Validations.TargetScope, only_when_valid?: true)
+      validate(attribute_equals(:tenant_id, nil),
+        where: [attribute_equals(:purpose, :site)],
+        message: "must match the login purpose",
+        only_when_valid?: true
+      )
+
+      validate(attribute_does_not_equal(:tenant_id, nil),
+        where: [attribute_does_not_equal(:purpose, :site)],
+        message: "must match the login purpose",
+        only_when_valid?: true
+      )
     end
 
     update :bind_provider_in_tx do
@@ -160,77 +170,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
 
     destroy :expire_in_tx do
       require_atomic?(true)
-    end
-
-    action :begin_login, :term do
-      argument(:browser_ref, :term)
-      argument(:purpose, :term)
-      argument(:request, :term)
-      argument(:opts, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :bind_provider, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:provider_id, :term)
-      argument(:state, :term)
-      argument(:redirect_uri, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :put_password_ticket, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:ticket, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :complete_login, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:auth, :term)
-      argument(:before_commit, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :complete_site_login, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:provider_id, :term)
-      argument(:proof, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :select_authorization, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:authentication_ref, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :consume_authorization, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:authentication_ref, :term)
-      argument(:issue, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :consume_login, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-      argument(:purpose, :term)
-      argument(:complete, :term)
-
-      run(__MODULE__.Actions)
     end
   end
 

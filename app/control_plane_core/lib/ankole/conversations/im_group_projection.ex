@@ -11,20 +11,24 @@ defmodule Ankole.Conversations.IMGroupProjection do
   alias Ankole.Conversations.IMGroupMembers
 
   def ensure_group(namespace, external_id, attrs, %AdapterContext{} = context, opts) do
-    %{namespace: namespace, external_id: external_id}
-    |> Ankole.Conversations.ensure_im_group(attrs, context, opts)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      ensure_group_in_tx(
+        %{namespace: namespace, external_id: external_id},
+        attrs,
+        context,
+        opts
+      )
+    end)
   end
 
   @doc false
   def ensure_group_in_tx(
-        repo,
         %{namespace: namespace, external_id: external_id},
         attrs,
         context,
         opts
       ) do
-    lock_group(repo, namespace, external_id)
+    lock_group(namespace, external_id)
 
     result =
       case group(namespace, external_id, true) do
@@ -57,7 +61,7 @@ defmodule Ankole.Conversations.IMGroupProjection do
              Keyword.fetch!(opts, :binding_metadata)
            ),
          {:ok, _channel} <-
-           observe_room(repo, namespace, group.id, Keyword.fetch!(opts, :channel), context) do
+           observe_room(namespace, group.id, Keyword.fetch!(opts, :channel), context) do
       {:ok, group}
     end
   end
@@ -108,18 +112,21 @@ defmodule Ankole.Conversations.IMGroupProjection do
   end
 
   defp update_membership(namespace, external_id, update) do
-    %{namespace: namespace, external_id: external_id}
-    |> Ankole.Conversations.update_im_group_membership(update)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      update_membership_in_tx(
+        %{namespace: namespace, external_id: external_id},
+        update
+      )
+    end)
   end
 
   @doc false
-  def update_membership_in_tx(repo, %{namespace: namespace, external_id: external_id}, update) do
-    lock_group(repo, namespace, external_id)
+  def update_membership_in_tx(%{namespace: namespace, external_id: external_id}, update) do
+    lock_group(namespace, external_id)
 
     with {:ok, group} <- group(namespace, external_id, true),
          {:ok, group} <- AuthZ.profile_group(group, %{metadata: update.(group.metadata)}),
-         {:ok, result} <- clear_left_members(repo, group) do
+         {:ok, result} <- clear_left_members(group) do
       {:ok, Map.put(result, :group_id, group.id)}
     else
       {:error, :not_found} -> {:ok, %{status: :ignored_missing_group}}
@@ -127,13 +134,13 @@ defmodule Ankole.Conversations.IMGroupProjection do
     end
   end
 
-  defp clear_left_members(repo, group) do
+  defp clear_left_members(group) do
     if BindingMembership.all_left?(group.metadata) do
-      with {:ok, result} <- IMGroupMembers.replace_members_in_tx(repo, group.id, []) do
+      with {:ok, result} <- IMGroupMembers.replace_members_in_tx(group.id, []) do
         {:ok, Map.put(result, :status, :all_left_members_cleared)}
       end
     else
-      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members_in_tx(repo, group.id) do
+      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members_in_tx(group.id) do
         {:ok, %{status: :participant_marked_left, removed_memberships: delta.removed_memberships}}
       end
     end
@@ -149,11 +156,11 @@ defmodule Ankole.Conversations.IMGroupProjection do
     })
   end
 
-  defp observe_room(repo, namespace, group_id, %{fact: fact, on_conflict: policy}, context) do
+  defp observe_room(namespace, group_id, %{fact: fact, on_conflict: policy}, context) do
     fact = Map.put(fact, :principal_group_id, group_id)
 
     fact =
-      case {policy, External.get_conversation(repo, fact.provider_conversation_id)} do
+      case {policy, External.get_conversation(fact.provider_conversation_id)} do
         {:keep_existing, %Conversation{principal_group_id: existing_id}}
         when is_binary(existing_id) and existing_id != group_id ->
           existing_namespace =
@@ -188,7 +195,6 @@ defmodule Ankole.Conversations.IMGroupProjection do
       end
 
     External.observe_conversation_in_tx(
-      repo,
       %{agent_uid: context.agent_uid, name: context.binding_name},
       %{
         provider_conversation_id: fact.provider_conversation_id,
@@ -223,8 +229,8 @@ defmodule Ankole.Conversations.IMGroupProjection do
     end
   end
 
-  defp lock_group(repo, namespace, external_id) do
-    Ankole.AdvisoryLock.lock!(repo, "im_group:#{namespace}:#{external_id}")
+  defp lock_group(namespace, external_id) do
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, "im_group:#{namespace}:#{external_id}")
 
     :ok
   end

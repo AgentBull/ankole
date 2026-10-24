@@ -6,9 +6,9 @@ defmodule Ankole.WorkFixtures do
     now = DateTime.utc_now(:microsecond)
 
     {:ok, event} =
-      Ankole.Repo.transact(fn repo ->
+      Ankole.Repo.transact(fn ->
         with {:ok, event} <-
-               Ankole.Signals.accept_in_tx(repo, %{
+               Ankole.Signals.accept_in_tx(%{
                  source: "test://work",
                  id: id,
                  type: "test.work",
@@ -18,7 +18,7 @@ defmodule Ankole.WorkFixtures do
                  authorization: Ankole.Principals.WorkAccess.service(),
                  data: %{}
                }) do
-          Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now)
+          Ankole.Sessions.Queue.mark_event_completed_in_tx(event, now)
         end
       end)
 

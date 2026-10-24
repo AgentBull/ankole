@@ -7,8 +7,9 @@ defmodule Ankole.Workflow.RunServer do
 
   alias Ankole.Kernel.ProgramRunner
   alias Ankole.Repo
-  alias Ankole.Workflow
   alias Ankole.Workflow.Lifecycle
+  alias Ankole.Workflow.Recovery
+  alias Ankole.Workflow.Replay
   alias Ankole.Workflow.Schemas.Run
 
   @max_pending_calls 1_024
@@ -184,8 +185,7 @@ defmodule Ankole.Workflow.RunServer do
     now = DateTime.utc_now(:microsecond)
     cutoff = DateTime.add(now, -state.stale_after_seconds, :second)
 
-    case Workflow.reconcile_stale_tasks(state.run_id, cutoff, now)
-         |> Lifecycle.cleanup_committed() do
+    case Recovery.reconcile_stale_tasks(state.run_id, cutoff, now) do
       {:ok, %{run: %Run{status: :running}, reconciled: reconciled}} ->
         state = schedule_watchdog(state)
 
@@ -274,7 +274,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp load_replay_input(run_id) do
-    case Ankole.Ash.run_action(Run, :replay_input, %{run_id: run_id}) do
+    case Repo.transact_top_level(fn -> Replay.replay_input_in_tx(run_id) end) do
       {:ok, {:terminal, status}} -> {:terminal, status}
       {:ok, {:cleanup_pending, run}} -> {:cleanup_pending, run}
       result -> result
@@ -348,12 +348,11 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp handle_snapshot_result({:outcome, %{status: :pending} = outcome}, memo_length, state) do
-    case Workflow.commit_replay_pending(
+    case Replay.commit_replay_pending(
            state.run_id,
            Map.get(outcome, :pending_calls, []),
            memo_length
-         )
-         |> Lifecycle.cleanup_terminal_transition() do
+         ) do
       {:ok, %{run: %Run{status: :running}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)
       {:error, :workflow_replay_snapshot_changed} -> restart_stale_snapshot(state)
@@ -368,8 +367,7 @@ defmodule Ankole.Workflow.RunServer do
        ) do
     case output_text(Map.get(outcome, :output, [])) do
       {:ok, result_text} ->
-        case Workflow.complete_replay(state.run_id, result_text, memo_length)
-             |> Lifecycle.cleanup_terminal_transition() do
+        case Replay.complete_replay(state.run_id, result_text, memo_length) do
           {:ok, %{run: %Run{status: :running}}} ->
             continue_or_wait(state)
 
@@ -416,8 +414,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp fail_or_retry(state, code, reason, memo_length) do
-    case Workflow.fail_replay(state.run_id, code, format_reason(reason), memo_length)
-         |> Lifecycle.cleanup_terminal_transition() do
+    case Replay.fail_replay(state.run_id, code, format_reason(reason), memo_length) do
       {:ok, %{run: %Run{status: :running}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)
       {:error, :workflow_replay_snapshot_changed} -> restart_stale_snapshot(state)

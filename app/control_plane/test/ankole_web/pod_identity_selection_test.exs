@@ -1,5 +1,7 @@
 defmodule AnkoleWeb.PodIdentitySelectionTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
+  import AnkoleWeb.PodAPI
   import Ankole.PrincipalsFixtures
   alias Ankole.{BrowserSessions, Repo}
   alias AnkoleWeb.PodURL
@@ -94,7 +96,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       shell
       |> recycle()
       |> put_req_header("accept", "application/json")
-      |> get(auth_origin(shell, ctx.tenant) <> "/.internal-apis/identity-providers?flow=#{flow}")
+      |> get(auth_origin(shell, ctx.tenant) <> "/api/v2/browser/identity-providers?flow=#{flow}")
 
     assert %{"identities" => identities} = json_response(choices, 200)
 
@@ -102,7 +104,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
              Enum.sort([ctx.a.uid, ctx.b.uid])
 
     selected = select(shell, ctx.tenant, flow, ctx.a_ref)
-    assert %{"returnTo" => "/content/space"} = json_response(selected, 200)
+    assert %{"returnTo" => "/content/space"} = api_response(selected, 200)
     assert BrowserSessions.current_reference(WebSession.browser_reference(selected)) == ctx.a_ref
     assert {:error, :login_expired} = WebSession.login_transaction(selected, flow)
 
@@ -111,7 +113,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> recycle()
       |> put_req_header("accept", "application/json")
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.b_ref))
-      |> get(ctx.origin <> "/.internal-apis/session")
+      |> get(ctx.origin <> "/api/v2/browser/session")
 
     assert json_response(pinned, 200)["principalUID"] == ctx.b.uid
 
@@ -130,7 +132,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> put_req_header("x-csrf-token", csrf)
       |> put_req_header("origin", ctx.origin)
       |> put_req_header("accept", "application/json")
-      |> delete(ctx.origin <> "/.internal-apis/authentications/current")
+      |> delete(ctx.origin <> "/api/v2/browser/authentications/current")
 
     assert json_response(revoked, 200) == %{"ok" => true}
     deleted = revoked.resp_cookies[SessionCookies.authentication_prefix() <> ctx.a_ref["id"]]
@@ -165,8 +167,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> recycle()
       |> put_req_header("accept", "application/json")
       |> put_req_header("x-ankole-authentication", pinned)
-      |> get(ctx.origin <> "/.internal-apis/session")
-      |> AnkoleWeb.InternalAPIContract.json_response(200)
+      |> get(ctx.origin <> "/api/v2/browser/session")
+      |> api_response(200)
 
     assert session["displayName"] == "First account"
     assert session["tenant"]["id"] == ctx.a.tenant_id
@@ -191,7 +193,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> put_req_header("x-ankole-authentication", pinned)
       |> put_req_header("x-csrf-token", csrf)
       |> put_req_header("origin", ctx.site_origin)
-      |> put(ctx.site_origin <> "/.internal-apis/sessions/active", %{authenticationRef: ref})
+      |> api_put(ctx.site_origin <> "/api/v2/browser/sessions/active", %{authenticationRef: ref})
     end
 
     activated = activate.(foreign_account["authenticationRef"])
@@ -203,7 +205,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
         BrowserSessions.encode_reference(%{"id" => Ecto.UUID.generate(), "revision" => 1})
       )
 
-    assert json_response(unknown, 401) == %{"error" => "invalid_authentication"}
+    assert api_error(unknown, 401)["code"] == "invalid_authentication"
   end
 
   test "the session gives the Console URL only to a site administrator", ctx do
@@ -213,8 +215,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     session =
       ctx.signed
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.a_ref))
-      |> get(ctx.origin <> "/.internal-apis/session")
-      |> AnkoleWeb.InternalAPIContract.json_response(200)
+      |> get(ctx.origin <> "/api/v2/browser/session")
+      |> api_response(200)
 
     assert session["consoleURL"] == ctx.site_origin <> "/site-admin-console"
   end
@@ -328,12 +330,12 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
         |> put_req_header("content-type", "application/json")
         |> put_req_header("x-csrf-token", csrf)
         |> put_req_header("origin", site)
-        |> post(site <> "/.internal-apis/saas/pod-login", %{
+        |> api_post(site <> "/api/v2/saas/pod-login", %{
           slug: tenant.slug,
           return_to: "/content/space"
         })
 
-      %{"returnTo" => location} = json_response(start, 200)
+      %{"returnTo" => location} = api_response(start, 200)
       {start, location}
     else
       start =
@@ -356,7 +358,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     |> put_req_header("content-type", "application/json")
     |> put_req_header("x-csrf-token", csrf)
     |> put_req_header("origin", origin)
-    |> post(origin <> "/.internal-apis/sessions/identity-selection", %{
+    |> api_post(origin <> "/api/v2/browser/sessions/identity-selection", %{
       flow: flow,
       authenticationRef: BrowserSessions.encode_reference(ref)
     })

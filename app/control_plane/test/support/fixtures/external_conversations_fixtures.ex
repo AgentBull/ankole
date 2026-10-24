@@ -5,7 +5,7 @@ defmodule Ankole.ExternalConversationsFixtures do
   alias Ankole.Repo
 
   def external_conversation_fixture(provider_id, attrs \\ %{}) do
-    External.get_conversation(Repo, provider_id) ||
+    External.get_conversation(provider_id) ||
       create_external_conversation!(
         Map.merge(
           %{
@@ -25,7 +25,7 @@ defmodule Ankole.ExternalConversationsFixtures do
 
   def create_external_conversation!(attrs) do
     {:ok, conversation} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Ash.create(Conversation, :create_external, attrs)
       end)
 
@@ -40,7 +40,7 @@ defmodule Ankole.ExternalConversationsFixtures do
   end
 
   def external_message(provider_conversation_id, provider_message_id) do
-    conversation = External.get_conversation(Repo, provider_conversation_id)
-    conversation && External.get_message(Repo, conversation.id, provider_message_id)
+    conversation = External.get_conversation(provider_conversation_id)
+    conversation && External.get_message(conversation.id, provider_message_id)
   end
 end

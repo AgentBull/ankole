@@ -156,19 +156,19 @@ or its attempt is replaced.
 
 ### Persistence and transactions
 
-The root module `Ankole.Pod` is the Ash domain. Its resources are `Page`,
+The root module `Ankole.Pod` is the Ash domain. Its durable resources are `Page`,
 `PageContent`, `PageChange`, `PageUserState`, `DbTable`, `DbField`, and
-`DbView`. Each Pod operation that writes, or reads under a row lock, is a
-generic action of its subject resource: page, document, file, applet, and purge
-operations on `Page`; table, record, query, and copy operations on `DbTable`;
-field operations on `DbField`; view operations on `DbView`. The generic action
-owns the transaction. Its first step checks and locks the Agent's turn when the
-operation has write authority. The module functions (`Ankole.Pod.Pages.create/3`
-and the others) run these actions and give the domain reason of a failure. The
-`*_in_tx` functions are the action bodies; another Pod operation can call one of
-them in its own transaction, as a Database copy calls `Pages.create_in_tx/2`.
-Broadcasts to the page, access, and table topics run after the commit
-(`after_commit`), and only when the action succeeds.
+`DbView`, and its `*.Browser` resources serve `/api/v2/pod` JSON:API routes.
+The browser actions validate query operators as finite enums, then convert
+them to the JSON strings consumed by the shared database query contract.
+Each Pod operation that writes, or reads under a row lock, runs in
+`Repo.transact_top_level/2` in its owning module (`Ankole.Pod.Pages`,
+`Documents`, `Files`, `Applets`, `Database`, and `Jobs.PurgePage`). Its first
+step checks and locks the Agent's turn when the operation has write authority.
+The `*_in_tx` functions run the write steps; another Pod operation can call one
+of them in its own transaction, as a Database copy calls `Pages.create_in_tx/1`.
+Broadcasts to the page, access, and table topics run after commit
+(`after_commit`), and only when the transaction succeeds.
 
 The page tree read model is native SQL in `Ankole.Pod.Access` (`path/1`,
 `canonical_navigation/2`, `subtree_preserves_permissions?/4`) and in
@@ -193,7 +193,7 @@ foreign-key cascades to perform bulk deletion.
 
 `Ankole.Pod.Documents` owns revisions and writes. Ash resources own the persisted
 Page, PageContent, PageChange, and PageUserState facts. Their create, update,
-and destroy actions run in the transaction of the calling generic action. Page
+and destroy actions run in the caller's transaction. Page
 revision increments run as database expressions. PageChange entries are
 immutable; the write transaction appends and prunes them with the content
 update. Favorite and visit upserts change only the
@@ -510,7 +510,7 @@ JSON results use status 200; `undefined` uses 204. A handler can throw
 `AnkoleRuntime.HttpError` with a 4xx status. Unexpected exceptions use a fixed
 browser error; Agent calls also receive bounded diagnostics and console logs.
 
-The HTTP path is `/.internal-apis/pod/pages/:id/routes/*path`. It uses the
+The HTTP path is `/api/v2/pod/pages/:id/routes/*path`. It uses the
 ordinary Pod login and CSRF checks and requires `x-ankole-applet-revision`.
 Admission reads the authorized Applet revision and immutable backend package
 under the same page lock. A stale revision gets 409 `applet_revision_changed`.

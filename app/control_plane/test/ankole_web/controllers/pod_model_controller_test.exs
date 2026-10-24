@@ -1,8 +1,7 @@
 defmodule AnkoleWeb.PodModelControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
-  import Phoenix.ConnTest, except: [json_response: 2, build_conn: 0]
-  import AnkoleWeb.InternalAPIContract, only: [json_response: 2]
   import Ankole.SessionsCase, only: [agent_fixture: 1]
   alias Ankole.{Conversations, Repo}
   alias Ankole.AIAgent.ModelProfiles
@@ -29,9 +28,9 @@ defmodule AnkoleWeb.PodModelControllerTest do
   end
 
   test "the browser catalog exposes only configured names and descriptions", ctx do
-    response = get(ctx.conn, "/.internal-apis/pod/agents/#{ctx.agent.uid}/model-profiles")
+    response = api_get(ctx.conn, "/api/v2/pod/agents/#{ctx.agent.uid}/model-profiles")
 
-    assert json_response(response, 200) == %{
+    assert api_response(response, 200) == %{
              "profiles" => [%{"name" => "careful", "description" => "Careful analysis"}]
            }
 
@@ -43,10 +42,10 @@ defmodule AnkoleWeb.PodModelControllerTest do
       get(
         build_conn(),
         AnkoleWeb.Plugs.RequestHost.origin(ctx.conn) <>
-          "/.internal-apis/pod/agents/#{ctx.agent.uid}/model-profiles"
+          "/api/v2/pod/agents/#{ctx.agent.uid}/model-profiles"
       )
 
-    assert json_response(anonymous, 401)["error"]["code"] == "unauthorized"
+    assert api_response(anonymous, 401)["error"]["code"] == "unauthorized"
   end
 
   test "a custom first model and a later saved preference use the real typed API", ctx do
@@ -54,7 +53,7 @@ defmodule AnkoleWeb.PodModelControllerTest do
     message = Ecto.UUID.generate()
 
     created =
-      post(ctx.conn, "/.internal-apis/pod/conversations", %{
+      api_post(ctx.conn, "/api/v2/pod/conversations", %{
         conversationID: id,
         messageID: message,
         agentUID: ctx.agent.uid,
@@ -62,25 +61,25 @@ defmodule AnkoleWeb.PodModelControllerTest do
         modelProfile: "careful"
       })
 
-    assert json_response(created, 200)["conversation"]["id"] == id
+    assert api_response(created, 200)["conversation"]["id"] == id
     assert Repo.get_by!(Signal, message_id: message).data["model_profile"] == "careful"
 
     current =
-      created |> recycle_api() |> get("/.internal-apis/pod/conversations/#{id}/model-profile")
+      created |> recycle_api() |> api_get("/api/v2/pod/conversations/#{id}/model-profile")
 
-    assert %{"profile" => "careful", "activeProfile" => nil} = json_response(current, 200)
+    assert %{"profile" => "careful", "activeProfile" => nil} = api_response(current, 200)
 
     saved =
       current
       |> recycle_api()
-      |> put("/.internal-apis/pod/conversations/#{id}/model-profile", %{profile: nil})
+      |> api_put("/api/v2/pod/conversations/#{id}/model-profile", %{profile: nil})
 
-    assert %{"profile" => nil} = json_response(saved, 200)
+    assert %{"profile" => nil} = api_response(saved, 200)
 
     reopened =
-      saved |> recycle_api() |> get("/.internal-apis/pod/conversations/#{id}/model-profile")
+      saved |> recycle_api() |> api_get("/api/v2/pod/conversations/#{id}/model-profile")
 
-    assert %{"profile" => nil} = json_response(reopened, 200)
+    assert %{"profile" => nil} = api_response(reopened, 200)
   end
 
   test "a different active model returns a recoverable conflict and queued responses identify their model",
@@ -101,31 +100,32 @@ defmodule AnkoleWeb.PodModelControllerTest do
              Admission.admit(%{agent_uid: ctx.agent.uid, session_id: detail.session_id}, input)
 
     changed =
-      put(ctx.conn, "/.internal-apis/pod/conversations/#{id}/model-profile", %{profile: "careful"})
+      api_put(ctx.conn, "/api/v2/pod/conversations/#{id}/model-profile", %{profile: "careful"})
 
-    assert %{"profile" => "careful", "activeProfile" => "primary"} = json_response(changed, 200)
+    assert %{"profile" => "careful", "activeProfile" => "primary"} = api_response(changed, 200)
 
     rejected =
       changed
       |> recycle_api()
-      |> post("/.internal-apis/pod/conversations/#{id}/messages", %{
+      |> api_post("/api/v2/pod/conversations/#{id}/messages", %{
         messageID: Ecto.UUID.generate(),
         text: "Next model",
         deliveryMode: "steer"
       })
 
-    assert %{"error" => %{"code" => "requires_queue_for_profile"}} = json_response(rejected, 409)
+    assert %{"errors" => [%{"code" => "requires_queue_for_profile"}]} =
+             api_response(rejected, 409)
 
     queued =
       rejected
       |> recycle_api()
-      |> post("/.internal-apis/pod/conversations/#{id}/messages", %{
+      |> api_post("/api/v2/pod/conversations/#{id}/messages", %{
         messageID: Ecto.UUID.generate(),
         text: "Next model",
         deliveryMode: "queue"
       })
 
     assert [%{"modelProfile" => "careful", "deliveryMode" => "queue"}] =
-             json_response(queued, 200)["pendingInputs"]
+             api_response(queued, 200)["pendingInputs"]
   end
 end

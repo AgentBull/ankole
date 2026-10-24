@@ -91,7 +91,7 @@ test('ending a site session keeps the next login from inheriting the old data te
 
   await endSiteSession()
 
-  expect(requests).toEqual([{ path: '/.internal-apis/session', method: 'DELETE', csrf: 'session-csrf' }])
+  expect(requests).toEqual([{ path: '/api/v2/browser/session', method: 'DELETE', csrf: 'session-csrf' }])
   const tenants: (string | null)[] = []
   const transport = (async (request: Request) => {
     tenants.push(request.headers.get('x-ankole-tenant'))

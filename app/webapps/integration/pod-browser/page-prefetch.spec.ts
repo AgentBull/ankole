@@ -26,7 +26,7 @@ test('a cold page fetches its data before its lazy module and chat query changes
   let fetchedAt = 0
   page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => {
-    if (request.method() === 'GET' && new URL(request.url()).pathname === `/.internal-apis/pod/pages/${pageID}`) {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/v2/pod/pages/${pageID}`) {
       pageRequests++
       record('page data requested')
     }
@@ -50,8 +50,7 @@ test('a cold page fetches its data before its lazy module and chat query changes
     })
     const dataResponse = page.waitForResponse(
       response =>
-        response.request().method() === 'GET' &&
-        new URL(response.url()).pathname === `/.internal-apis/pod/pages/${pageID}`
+        response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/v2/pod/pages/${pageID}`
     )
     await page.goto(pageRoute(pageID), { waitUntil: 'commit' })
     await expect.poll(() => held.length).toBeGreaterThan(0)

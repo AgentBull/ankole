@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 test('selecting either Agent in a compiled Pod enables sending and retains the selection', async ({ page }) => {
-  await page.route('**/.internal-apis/pod/**', route =>
+  await page.route('**/api/v2/pod/**', route =>
     route.fulfill({
       json: route.request().url().endsWith('/agents')
         ? {

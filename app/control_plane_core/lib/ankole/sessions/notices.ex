@@ -21,24 +21,23 @@ defmodule Ankole.Sessions.Notices do
          now
        ) do
     result =
-      event
-      |> Ankole.Sessions.fail_workflow_model(profile, reason, now)
+      Ankole.Repo.transact_top_level(fn ->
+        workflow_model_unavailable_in_tx(event, profile, reason, now)
+      end)
       |> Ankole.Errors.reason()
       |> Ankole.Workflow.cleanup_terminal_transition()
 
     with {:ok, _} <- result do
-      complete_without_turn(event, now, :model_profile_unavailable, %{profile: profile}, fn _,
-                                                                                            _ ->
+      complete_without_turn(event, now, :model_profile_unavailable, %{profile: profile}, fn _ ->
         {:ok, nil}
       end)
     end
   end
 
   @doc false
-  def workflow_model_unavailable_in_tx(repo, event, profile, reason, now) do
+  def workflow_model_unavailable_in_tx(event, profile, reason, now) do
     with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(event.session_id) do
       Ankole.Workflow.TaskLifecycle.model_unavailable_in_tx(
-        repo,
         call_id,
         event.agent_uid,
         event.session_id,
@@ -72,14 +71,16 @@ defmodule Ankole.Sessions.Notices do
         now,
         :model_profile_unavailable,
         %{profile: profile, profile_error: reason},
-        fn repo, locked_event ->
+        fn locked_event ->
           text =
             I18n.t("conversations.delivery.reply.model_profile_unavailable", %{
               "profile" => profile,
               "ref" => locked_event.id
             })
 
-          post_in_tx(repo, locked_event, :model_profile_unavailable, text, %{"profile" => profile})
+          post_in_tx(locked_event, :model_profile_unavailable, text, %{
+            "profile" => profile
+          })
         end
       )
     end
@@ -96,17 +97,18 @@ defmodule Ankole.Sessions.Notices do
       now,
       :agent_token_quota_exceeded,
       %{token_quota: window},
-      fn repo, locked_event ->
+      fn locked_event ->
         text = token_quota_notice_text(window, locked_event.id)
 
-        post_in_tx(repo, locked_event, :token_quota_exceeded, text)
+        post_in_tx(locked_event, :token_quota_exceeded, text)
       end
     )
   end
 
   def finalize({:error, :tenant_suspended}, %Signal{last_attempt_at: nil} = event, now) do
-    event
-    |> Ankole.Sessions.reject_suspended_input(now)
+    Ankole.Repo.transact_top_level(fn ->
+      reject_suspended_input_in_tx(event, now)
+    end)
     |> Ankole.Errors.reason()
     |> log_notice_failure(:tenant_suspended)
   end
@@ -114,21 +116,21 @@ defmodule Ankole.Sessions.Notices do
   def finalize(result, %Signal{}, %DateTime{}), do: result
 
   @doc false
-  def reject_suspended_input_in_tx(repo, event, now) do
-    :ok = lock_work_in_tx(repo, event)
-    :ok = Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id)
+  def reject_suspended_input_in_tx(event, now) do
+    :ok = lock_work_in_tx(event)
+    :ok = Queue.lock_session_in_tx(event.agent_uid, event.session_id)
 
-    case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
+    case Ankole.Signals.lock_signal_in_tx(event.id) do
       %Signal{last_attempt_at: nil, status: live_status} = current
       when live_status in [:queued, :running] ->
-        with {:ok, workflow_transition} <- reject_unstarted_workflow_task(repo, current, now),
+        with {:ok, workflow_transition} <- reject_unstarted_workflow_task(current, now),
              {:ok, completed} <-
-               Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, current, now) do
+               Ankole.Sessions.Queue.mark_event_completed_in_tx(current, now) do
           notice =
-            maybe_commit_notice(repo, completed, fn repo, input ->
+            maybe_commit_notice(completed, fn input ->
               text = I18n.t("conversations.delivery.reply.tenant_suspended", %{"ref" => input.id})
 
-              post_in_tx(repo, input, :tenant_suspended, text)
+              post_in_tx(input, :tenant_suspended, text)
             end)
 
           {:ok,
@@ -152,16 +154,15 @@ defmodule Ankole.Sessions.Notices do
   end
 
   @doc false
-  def lock_work_in_tx(repo, event) do
+  def lock_work_in_tx(event) do
     case Ankole.Workflow.parse_task_session_id(event.session_id) do
       {:ok, _call_id} ->
         with {:ok, %{run: run}} <-
                Ankole.Workflow.Slot.lock_session_work_in_tx(
-                 repo,
                  event.agent_uid,
                  event.session_id
                ) do
-          Queue.lock_sessions_in_tx(repo, [
+          Queue.lock_sessions_in_tx([
             {event.agent_uid, event.session_id},
             {run.agent_uid, run.owner_session_id}
           ])
@@ -172,11 +173,10 @@ defmodule Ankole.Sessions.Notices do
     end
   end
 
-  defp reject_unstarted_workflow_task(repo, event, now) do
+  defp reject_unstarted_workflow_task(event, now) do
     case Ankole.Workflow.parse_task_session_id(event.session_id) do
       {:ok, call_id} ->
         case Ankole.Workflow.TaskLifecycle.fail_unstarted_task_in_tx(
-               repo,
                call_id,
                event.agent_uid,
                "tenant_suspended",
@@ -219,17 +219,18 @@ defmodule Ankole.Sessions.Notices do
   # Rejection can follow a crashed run. Recover its committed tool results
   # before closing its input and writing the notice.
   defp complete_without_turn(signal, _now, status, fields, commit_notice) do
-    signal
-    |> Ankole.Sessions.complete_without_turn(status, fields, commit_notice)
+    Ankole.Repo.transact_top_level(fn ->
+      complete_without_turn_in_tx(signal, status, fields, commit_notice)
+    end)
     |> Ankole.Errors.reason()
     |> log_notice_failure(status)
   end
 
   @doc false
-  def complete_without_turn_in_tx(repo, signal, status, fields, commit_notice) do
-    with {:ok, result} <- Run.reject_input_in_tx(repo, signal, :stopped, status) do
+  def complete_without_turn_in_tx(signal, status, fields, commit_notice) do
+    with {:ok, result} <- Run.reject_input_in_tx(signal, :stopped, status) do
       if result.status == :completed do
-        notice_result = maybe_commit_notice(repo, result.reply_event, commit_notice)
+        notice_result = maybe_commit_notice(result.reply_event, commit_notice)
 
         {:ok,
          result
@@ -248,22 +249,21 @@ defmodule Ankole.Sessions.Notices do
   # An ambient group message has not asked the agent to speak. A turn that
   # cannot start must not turn every observed message into a warning.
   defp maybe_commit_notice(
-         _repo,
          %Signal{producer: :kernel, type: "im.message.may_intervene"},
          _commit_notice
        ),
        do: {:ok, %Ankole.Conversations.PostResult{}}
 
-  defp maybe_commit_notice(repo, %Signal{} = signal, commit_notice) do
-    with {:ok, targets} <- Ankole.Sessions.Presentation.targets_in_tx(repo, signal) do
+  defp maybe_commit_notice(%Signal{} = signal, commit_notice) do
+    with {:ok, targets} <- Ankole.Sessions.Presentation.targets_in_tx(signal) do
       if Enum.any?(targets, &StatementTarget.reply_eligible?(&1, signal)),
-        do: commit_notice.(repo, signal),
+        do: commit_notice.(signal),
         else: {:ok, %Ankole.Conversations.PostResult{}}
     end
   end
 
   @doc "Posts one runtime notice through the statement destination contract."
-  def post_in_tx(repo, event, kind, text, params \\ %{}) do
+  def post_in_tx(event, kind, text, params \\ %{}) do
     {prefix, source, state, empty_error} =
       case kind do
         :dead_letter ->
@@ -297,7 +297,7 @@ defmodule Ankole.Sessions.Notices do
       }
     }
 
-    Ankole.Sessions.Presentation.post_in_tx(repo, event, statement)
+    Ankole.Sessions.Presentation.post_in_tx(event, statement)
   end
 
   defp notice_posted({:ok, %Ankole.Conversations.PostResult{} = posted}), do: posted
@@ -324,7 +324,7 @@ defmodule Ankole.Sessions.Notices do
   defp log_notice_failure(result, _status), do: result
 
   @doc false
-  def commit_context_withdrawal_notice_in_tx(repo, events, fallback, now) do
+  def commit_context_withdrawal_notice_in_tx(events, fallback, now) do
     (Enum.reverse(events) ++ [fallback])
     |> Enum.uniq_by(& &1.id)
     |> Enum.filter(fn event ->
@@ -340,38 +340,38 @@ defmodule Ankole.Sessions.Notices do
           data: %{}
       }
 
-      case Queue.ensure_event_source_live_in_tx(repo, anchor, now) do
+      case Queue.ensure_event_source_live_in_tx(anchor, now) do
         {:error, :signal_canceled} ->
           {:cont, {:ok, %Ankole.Conversations.PostResult{}}}
 
         result when result in [:ok, {:error, :signal_context_canceled}] ->
-          {:halt, commit_context_withdrawal_notice(repo, event)}
+          {:halt, commit_context_withdrawal_notice(event)}
       end
     end)
   end
 
-  defp commit_context_withdrawal_notice(repo, event) do
+  defp commit_context_withdrawal_notice(event) do
     text = I18n.t("conversations.delivery.reply.context_withdrawn")
-    post_in_tx(repo, event, :stopped, text, %{"reason" => "context_withdrawn"})
+    post_in_tx(event, :stopped, text, %{"reason" => "context_withdrawn"})
   end
 
   @doc false
-  def commit_dead_letter_notice_in_tx(_repo, %Signal{}, :human_access_revoked),
+  def commit_dead_letter_notice_in_tx(%Signal{}, :human_access_revoked),
     do: {:ok, %Ankole.Conversations.PostResult{}}
 
-  def commit_dead_letter_notice_in_tx(repo, %Signal{} = event, reason),
-    do: post_in_tx(repo, event, :dead_letter, dead_letter_notice_text(repo, event, reason))
+  def commit_dead_letter_notice_in_tx(%Signal{} = event, reason),
+    do: post_in_tx(event, :dead_letter, dead_letter_notice_text(event, reason))
 
   defp dead_letter_notice_text(%Signal{} = event),
     do: I18n.t("conversations.delivery.reply.dead_letter", %{"ref" => event.id})
 
-  defp dead_letter_notice_text(repo, %Signal{} = event, reason) do
+  defp dead_letter_notice_text(%Signal{} = event, reason) do
     text =
       dead_letter_quota_text(event, reason) ||
         AsyncWorkUnit.dead_letter_notice_text(event) ||
         dead_letter_notice_text(event)
 
-    if DeadLetterNoticeConfig.enabled_in_tx?(repo) do
+    if DeadLetterNoticeConfig.enabled_in_tx?() do
       detail = Sanitizer.preview(reason)
 
       text <>

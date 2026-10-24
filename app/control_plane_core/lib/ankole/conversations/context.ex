@@ -27,7 +27,7 @@ defmodule Ankole.Conversations.Context do
     |> Map.new(&{&1.message_id, &1})
   end
 
-  def ambient_scene_fingerprint(_repo, conversation_id) do
+  def ambient_scene_fingerprint(conversation_id) do
     observations(conversation_id)
     |> Ash.Query.sort(seq: :desc)
     |> Ash.Query.limit(@ambient_rows)

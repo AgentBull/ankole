@@ -2,27 +2,24 @@ defmodule Ankole.Pod.Documents do
   @moduledoc """
   Commits complete documents and idempotent OT batches under the page row lock.
 
-  A write runs a generic action of `Ankole.Pod.Page`, which owns the
-  transaction. The action gives the page ID and the result; the page channel
-  gets the commit after the transaction ends.
+  A write runs in a top-level transaction; the page channel gets the commit
+  after the transaction ends.
   """
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Access, Page, PageChange, PageContent, Pages}
+  alias Ankole.Pod.{Access, PageChange, PageContent, Pages}
 
   def write(uid, id, base_revision, xml, authority \\ nil)
 
   def write(uid, id, base_revision, xml, authority)
       when is_integer(base_revision) and is_binary(xml) do
     # Validate before the transaction; the page lock decides which error applies.
-    Page
-    |> Ankole.Ash.run_action(:write_document, %{
-      uid: uid,
-      id: id,
-      base_revision: base_revision,
-      validation: Ankole.Kernel.page_validate(xml),
-      authority: authority
-    })
+    validation = Ankole.Kernel.page_validate(xml)
+
+    authority
+    |> Access.write(fn -> write_in_tx(uid, id, base_revision, validation) end,
+      after_commit: &committed/1
+    )
     |> result()
   end
 
@@ -50,13 +47,8 @@ defmodule Ankole.Pod.Documents do
     if is_integer(batch.base) and batch.base >= 0 and is_binary(batch.client) and
          byte_size(batch.client) in 1..255 and is_integer(batch.seq) and batch.seq > 0 and
          is_list(batch.changes) do
-      Page
-      |> Ankole.Ash.run_action(:apply_document_changes, %{
-        uid: uid,
-        id: id,
-        batch: batch,
-        authority: authority
-      })
+      authority
+      |> Access.write(fn -> apply_in_tx(uid, id, batch) end, after_commit: &committed/1)
       |> result()
     else
       {:error, :invalid_request}
@@ -103,7 +95,7 @@ defmodule Ankole.Pod.Documents do
   end
 
   def since(uid, id, revision) when is_integer(revision) and revision >= 0,
-    do: Ankole.Ash.run_action(Page, :read_page_changes, %{uid: uid, id: id, revision: revision})
+    do: Repo.transact_top_level(fn -> since_in_tx(uid, id, revision) end)
 
   def since(_uid, _id, _revision), do: {:error, :invalid_request}
 

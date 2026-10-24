@@ -27,7 +27,7 @@ defmodule Ankole.Sessions.ConsoleActions do
   end
 
   defp describe(:channel_not_found),
-    do: Errors.Invalid.NotFound.exception(resource: Ankole.Conversations.Schemas.Conversation)
+    do: Errors.Invalid.NotFound.exception(resource: Ankole.Conversations.Conversation)
 
   defp describe(:standing_orders_too_long),
     do:

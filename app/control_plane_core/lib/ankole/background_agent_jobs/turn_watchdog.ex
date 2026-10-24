@@ -8,6 +8,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.AgentWorkers
+  alias Ankole.Repo
   alias Ankole.Sessions.TurnControl
   alias Ankole.Sessions.CodexJob
   alias Ankole.Signals.Signal
@@ -21,10 +22,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   @spec stall_code() :: String.t()
   def stall_code, do: @stall_code
 
-  def reconcile_stuck_job(job_id, opts \\ []) do
+  def reconcile_stuck_job(job_id, opts \\ []) when is_integer(job_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    case Ankole.Ash.run_action(Job, :inspect_stall, %{job_id: job_id, now: now}) do
+    case Repo.transact_top_level(fn -> inspect_stall_in_tx(job_id, now) end) do
       {:ok, {ref, stalls}} ->
         reason = %{
           "code" => @stall_code,
@@ -49,13 +50,13 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   Reads the stall state of a running Job under the Worker, slot, and Job locks,
   inside the `inspect_stall` action of the Job.
   """
-  @spec inspect_stall_in_tx(module(), pos_integer(), DateTime.t()) ::
+  @spec inspect_stall_in_tx(pos_integer(), DateTime.t()) ::
           {:ok, {JobTurnRef.t(), pos_integer()} | :live | :no_active_turn}
-  def inspect_stall_in_tx(repo, job_id, %DateTime{} = now) do
+  def inspect_stall_in_tx(job_id, %DateTime{} = now) do
     case Queries.get(job_id) do
       %Job{status: :running} = job ->
-        _worker = AgentWorkers.lock_in_tx(repo, job.agent_uid)
-        :ok = Lifecycle.lock_agent_slots(repo, job.agent_uid)
+        _worker = AgentWorkers.lock_in_tx(job.agent_uid)
+        :ok = Lifecycle.lock_agent_slots(job.agent_uid)
         job = Queries.lock_for_agent_in_tx(job.id, job.agent_uid)
         # A Worker can accept an attempt and fail before its first trajectory.
         # The claim time bounds that gap without another deadline owner.
@@ -63,7 +64,6 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
 
         event =
           Ankole.Sessions.Queue.oldest_open(
-            repo,
             job.agent_uid,
             BackgroundAgentJobs.job_session_id(job.id)
           )
@@ -95,10 +95,9 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   ones instead of retrying forever. An exhausted stall arrives here as a
   dead-letter event and follows the ordinary Job failure compensation.
   """
-  @spec compensate_in_tx(module(), Signal.t(), map(), DateTime.t()) ::
+  @spec compensate_in_tx(Signal.t(), map(), DateTime.t()) ::
           {:ok, map() | nil} | {:error, term()}
   def compensate_in_tx(
-        repo,
         %Signal{agent_uid: agent_uid, session_id: session_id, status: live_status},
         %{"code" => @stall_code, "message" => message},
         %DateTime{} = now
@@ -108,13 +107,12 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
          :ok <-
            Turns.interrupt_active_for_current_attempt_in_tx(
-             repo,
              job,
              %{"code" => @stall_code, "summary" => message},
              now
            ),
          {:ok, requeued} <-
-           Lifecycle.requeue_retryable_attempt_in_tx(repo, job.id, agent_uid, charge: true) do
+           Lifecycle.requeue_retryable_attempt_in_tx(job.id, agent_uid, charge: true) do
       {:ok, %{kind: :turn_stall_interrupted, job: requeued || job}}
     else
       :error -> {:ok, nil}
@@ -123,8 +121,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
     end
   end
 
-  def compensate_in_tx(repo, %Signal{} = event, reason, %DateTime{} = now),
-    do: BackgroundAgentJobs.compensate_turn_error_in_tx(repo, event, reason, now)
+  def compensate_in_tx(%Signal{} = event, reason, %DateTime{} = now),
+    do: BackgroundAgentJobs.compensate_turn_error_in_tx(event, reason, now)
 
   defp stall_count(job_id) do
     %{attempts: attempts} =

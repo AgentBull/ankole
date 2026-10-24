@@ -1,6 +1,12 @@
 defmodule Ankole.Pod.DbField do
   @moduledoc "A field definition and its schema version."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod, extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("pod_db_field")
+    derive_filter?(false)
+    derive_sort?(false)
+  end
 
   postgres do
     table("db_fields")
@@ -23,17 +29,17 @@ defmodule Ankole.Pod.DbField do
 
   attributes do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
-      primary_key?: true,
+      public?: true, primary_key?: true,
       allow_nil?: false,
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
-    attribute(:table_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-    attribute(:name, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:position, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:table_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
+    attribute(:name, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
 
     attribute(:type, :atom,
-      allow_nil?: false,
+      public?: true, allow_nil?: false,
       constraints: [
         one_of: [
           :text,
@@ -54,9 +60,9 @@ defmodule Ankole.Pod.DbField do
       ]
     )
 
-    attribute(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
-    attribute(:is_primary, :boolean, allow_nil?: false, default: false)
-    attribute(:version, :integer, allow_nil?: false, default: 1, constraints: [min: 1])
+    attribute(:config, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+    attribute(:is_primary, :boolean, public?: true, allow_nil?: false, default: false)
+    attribute(:version, :integer, public?: true, allow_nil?: false, default: 1, constraints: [min: 1])
   end
 
   relationships do
@@ -83,36 +89,6 @@ defmodule Ankole.Pod.DbField do
 
     destroy :remove do
       require_atomic?(true)
-    end
-
-    action :create_field, :term do
-      argument(:uid, :term)
-      argument(:id, :term)
-      argument(:attrs, :term)
-      argument(:authority, :term)
-      after_commit({Ankole.Pod.Database, :committed_schema})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_field, :term do
-      argument(:uid, :term)
-      argument(:id, :term)
-      argument(:attrs, :term)
-      argument(:authority, :term)
-      after_commit({Ankole.Pod.Database, :committed_schema})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :delete_field, :term do
-      argument(:uid, :term)
-      argument(:id, :term)
-      argument(:version, :term)
-      argument(:authority, :term)
-      after_commit({Ankole.Pod.Database, :committed_schema})
-
-      run(__MODULE__.Actions)
     end
   end
 

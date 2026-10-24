@@ -5,14 +5,14 @@ defmodule Ankole.Schedule do
   Schedule owns durable time semantics. Oban jobs are wake edges. The domain
   tables and the selected consumer record are the correctness boundary.
 
-  Each write operation is a generic action that owns its transaction and gives
-  `{:ok, value}` or `{:error, reason}`. Code that runs in its own transaction
-  composes the `_in_tx` functions of `Ankole.Schedule.Checkbacks` and
-  `Ankole.Schedule.Cron`.
+  Each top-level write operation owns its transaction and gives `{:ok, value}`
+  or `{:error, reason}`. Code that runs in its own transaction composes the
+  `_in_tx` functions of `Ankole.Schedule.Checkbacks` and `Ankole.Schedule.Cron`.
   """
 
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  alias Ankole.Repo
   alias Ankole.Schedule.Checkbacks
   alias Ankole.Schedule.Cron
   alias Ankole.Schedule.Fire
@@ -63,13 +63,11 @@ defmodule Ankole.Schedule do
   resources do
     resource ScheduledEvent do
       define(:list_scheduled_events, action: :read)
-      define(:reauthorize_scheduled_event, action: :reauthorize)
     end
 
     resource CronSchedule do
       # `get_cron_schedule/1` is the facade read that gives `{:error, :not_found}`.
       define(:get_cron_schedule_record, action: :read, get_by: [:id], not_found_error?: false)
-      define(:reauthorize_cron_schedule, action: :reauthorize)
     end
   end
 
@@ -78,7 +76,7 @@ defmodule Ankole.Schedule do
   """
   @spec create_check_back_later(map(), keyword()) :: create_result()
   def create_check_back_later(attrs, opts \\ []) do
-    Ankole.Ash.run_action(ScheduledEvent, :create_check_back_later, %{attrs: attrs, opts: opts})
+    Repo.transact_top_level(fn -> Checkbacks.create_check_back_later_in_tx(attrs, opts) end)
   end
 
   @doc """
@@ -87,12 +85,11 @@ defmodule Ankole.Schedule do
   @spec update_checkback(pos_integer(), map(), keyword()) ::
           {:ok, %{status: :updated, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  def update_checkback(scheduled_event_id, attrs, opts \\ []) do
-    Ankole.Ash.run_action(
-      ScheduledEvent,
-      :update_checkback,
-      %{scheduled_event_id: scheduled_event_id, attrs: attrs, opts: opts}
-    )
+  def update_checkback(scheduled_event_id, attrs, opts \\ [])
+      when is_integer(scheduled_event_id) do
+    Repo.transact_top_level(fn ->
+      Checkbacks.update_checkback_in_tx(scheduled_event_id, attrs, opts)
+    end)
   end
 
   @doc """
@@ -102,7 +99,7 @@ defmodule Ankole.Schedule do
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
           | {:error, term()}
   def create_cron_schedule(attrs, opts \\ []) do
-    Ankole.Ash.run_action(CronSchedule, :create_cron_schedule, %{attrs: attrs, opts: opts})
+    Repo.transact_top_level(fn -> Cron.create_cron_schedule_in_tx(attrs, opts) end)
   end
 
   @doc """
@@ -111,11 +108,9 @@ defmodule Ankole.Schedule do
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def update_cron_schedule(cron_schedule_id, attrs, opts \\ []) do
-    Ankole.Ash.run_action(
-      CronSchedule,
-      :update_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, attrs: attrs, opts: opts}
-    )
+    Repo.transact_top_level(fn ->
+      Cron.update_cron_schedule_in_tx(cron_schedule_id, attrs, opts)
+    end)
   end
 
   @doc """
@@ -124,11 +119,9 @@ defmodule Ankole.Schedule do
   @spec pause_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def pause_cron_schedule(cron_schedule_id, opts \\ []) do
-    Ankole.Ash.run_action(
-      CronSchedule,
-      :pause_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts}
-    )
+    Repo.transact_top_level(fn ->
+      Cron.pause_cron_schedule_in_tx(cron_schedule_id, opts)
+    end)
   end
 
   @doc """
@@ -137,11 +130,9 @@ defmodule Ankole.Schedule do
   @spec resume_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def resume_cron_schedule(cron_schedule_id, opts \\ []) do
-    Ankole.Ash.run_action(
-      CronSchedule,
-      :resume_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts}
-    )
+    Repo.transact_top_level(fn ->
+      Cron.resume_cron_schedule_in_tx(cron_schedule_id, opts)
+    end)
   end
 
   @doc """
@@ -150,11 +141,9 @@ defmodule Ankole.Schedule do
   @spec remove_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def remove_cron_schedule(cron_schedule_id, opts \\ []) do
-    Ankole.Ash.run_action(
-      CronSchedule,
-      :remove_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts}
-    )
+    Repo.transact_top_level(fn ->
+      Cron.remove_cron_schedule_in_tx(cron_schedule_id, opts)
+    end)
   end
 
   @doc """
@@ -162,31 +151,27 @@ defmodule Ankole.Schedule do
   """
   @spec run_cron_schedule(Ecto.UUID.t(), keyword()) :: create_result()
   def run_cron_schedule(cron_schedule_id, opts \\ []) do
-    Ankole.Ash.run_action(
-      CronSchedule,
-      :run_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts}
-    )
+    Repo.transact_top_level(fn ->
+      Cron.run_cron_schedule_in_tx(cron_schedule_id, opts)
+    end)
   end
 
   @doc """
   Cancels one pending checkback event.
   """
   @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
-  def cancel_checkback(scheduled_event_id, opts \\ []) do
-    Ankole.Ash.run_action(
-      ScheduledEvent,
-      :cancel_checkback,
-      %{scheduled_event_id: scheduled_event_id, opts: opts}
-    )
+  def cancel_checkback(scheduled_event_id, opts \\ []) when is_integer(scheduled_event_id) do
+    Repo.transact_top_level(fn ->
+      Checkbacks.cancel_checkback_in_tx(scheduled_event_id, opts)
+    end)
   end
 
   @doc """
   Cancels scheduled check-backs for one provider entry inside a transaction.
   """
-  @spec cancel_checkbacks_for_provider_entry_in_tx(module(), map(), DateTime.t()) ::
+  @spec cancel_checkbacks_for_provider_entry_in_tx(map(), DateTime.t()) ::
           {:ok, non_neg_integer()}
-  defdelegate cancel_checkbacks_for_provider_entry_in_tx(repo, attrs, now), to: Checkbacks
+  defdelegate cancel_checkbacks_for_provider_entry_in_tx(attrs, now), to: Checkbacks
 
   @doc """
   Fires a due scheduled event by appending an Signal or automation job run.
@@ -194,12 +179,8 @@ defmodule Ankole.Schedule do
   @spec fire_due_event(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
-  def fire_due_event(scheduled_event_id, opts \\ []) do
-    ScheduledEvent
-    |> Ankole.Ash.run_action(:fire_due_event, %{
-      scheduled_event_id: scheduled_event_id,
-      opts: opts
-    })
+  def fire_due_event(scheduled_event_id, opts \\ []) when is_integer(scheduled_event_id) do
+    Repo.transact_top_level(fn -> Fire.fire_due_event_in_tx(scheduled_event_id, opts) end)
     |> Fire.persist_fire_error(scheduled_event_id, opts)
   end
 
@@ -207,8 +188,7 @@ defmodule Ankole.Schedule do
   def fire_cron(cron_schedule_id, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    CronSchedule
-    |> Ankole.Ash.run_action(:fire_cron, %{cron_schedule_id: cron_schedule_id, now: now})
+    Repo.transact_top_level(fn -> Fire.fire_cron_in_tx(cron_schedule_id, now) end)
     |> Fire.persist_cron_error(cron_schedule_id, now, opts)
   end
 

@@ -70,7 +70,7 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
       () => conflictGate.resolve()
     )
     let uploads = 0
-    await page.route(`**/.internal-apis/pod/pages/${saved.id}/files`, async route => {
+    await page.route(`**/api/v2/pod/pages/${saved.id}/files`, async route => {
       if (route.request().method() !== 'POST') return route.continue()
       uploads++
       if (uploads === 1) {
@@ -130,7 +130,7 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
     expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(4)
 
     let failToken = true
-    await page.route('**/.internal-apis/pod/realtime-token', route => {
+    await page.route('**/api/v2/pod/realtime-token', route => {
       if (!failToken) return route.continue()
       failToken = false
       return route.fulfill({
@@ -174,7 +174,7 @@ test('Applet loading and live connections recover independently, then real acces
     if (!id) throw new Error('The real fixture must seed a dedicated runtime recovery Applet')
     let failResource = true,
       failToken = true
-    await page.route(`**/.internal-apis/pod/pages/${id}/files/content?**`, async route => {
+    await page.route(`**/api/v2/pod/pages/${id}/files/content?**`, async route => {
       if (!failResource || new URL(route.request().url()).searchParams.get('path') !== 'dist/applet.js') {
         return route.continue()
       }
@@ -183,7 +183,7 @@ test('Applet loading and live connections recover independently, then real acces
       await resourceGate.promise
       await route.fulfill({ status: 503, body: 'Temporary Applet asset failure' })
     })
-    await page.route('**/.internal-apis/pod/realtime-token', route => {
+    await page.route('**/api/v2/pod/realtime-token', route => {
       if (!failToken) return route.continue()
       failToken = false
       return route.fulfill({

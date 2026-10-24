@@ -73,10 +73,7 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
         assert reply.message.text =~ "CHAOS_DIRECT_OK"
 
         assert reply.message.conversation_id ==
-                 Ankole.Conversations.External.get_conversation(
-                   Repo,
-                   "lark:oc_perf_chat_#{index}"
-                 ).id
+                 Ankole.Conversations.External.get_conversation("lark:oc_perf_chat_#{index}").id
 
         {index, input, reply}
       end

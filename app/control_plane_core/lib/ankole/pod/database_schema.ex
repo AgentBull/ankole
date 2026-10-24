@@ -2,36 +2,37 @@ defmodule Ankole.Pod.Database.Schema do
   @moduledoc """
   Changes Database fields and views and converts the stored record values.
 
-  Each change runs a generic action of `Ankole.Pod.DbField` or
-  `Ankole.Pod.DbView`. The action result gives the written definition and the
-  changed tables; the table rooms get the change after the commit.
+  Each change runs in a top-level transaction through `Ankole.Pod.Access.write/3`.
+  The write result gives the written definition and the changed tables; the
+  table rooms get the change after the commit.
   """
   import Ecto.Query
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
+  alias Ankole.Pod.{Access, Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
   alias Ankole.Pod.Database.{Records, Write}
 
   def create_field(uid, id, attrs, authority \\ nil),
-    do: run(DbField, :create_field, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do: write(authority, fn -> create_field_in_tx(uid, id, attrs) end)
 
   def update_field(uid, id, attrs, authority \\ nil),
-    do: run(DbField, :update_field, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do: write(authority, fn -> update_field_in_tx(uid, id, attrs) end)
 
   def delete_field(uid, id, version, authority \\ nil),
-    do: run(DbField, :delete_field, %{uid: uid, id: id, version: version, authority: authority})
+    do: write(authority, fn -> delete_field_in_tx(uid, id, version) end)
 
   def create_view(uid, id, attrs, authority \\ nil),
-    do: run(DbView, :create_view, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do: write(authority, fn -> create_view_in_tx(uid, id, attrs) end)
 
   def update_view(uid, id, attrs, authority \\ nil),
-    do: run(DbView, :update_view, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do: write(authority, fn -> update_view_in_tx(uid, id, attrs) end)
 
   def delete_view(uid, id, version, authority \\ nil),
-    do: run(DbView, :delete_view, %{uid: uid, id: id, version: version, authority: authority})
+    do: write(authority, fn -> delete_view_in_tx(uid, id, version) end)
 
-  defp run(resource, action, arguments) do
-    with {:ok, %{written: written}} <- Ankole.Ash.run_action(resource, action, arguments),
+  defp write(authority, fun) do
+    with {:ok, %{written: written}} <-
+           Access.write(authority, fun, after_commit: &Database.committed_schema/1),
          do: {:ok, written}
   end
 

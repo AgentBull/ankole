@@ -22,8 +22,10 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
       const query = new URLSearchParams(window.location.search)
       return localPasswordLogin({
         body: {
-          ...input,
-          flow: query.get('flow')
+          data: {
+            ...input,
+            flow: query.get('flow') ?? ''
+          }
         }
       })
     },

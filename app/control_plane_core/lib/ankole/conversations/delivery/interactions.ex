@@ -32,9 +32,9 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   clarification. In that case the interaction starts superseded and can never
   appear as a live question after the conversation has moved on.
   """
-  @spec open_in_tx(module(), Signal.t(), map(), DateTime.t()) ::
+  @spec open_in_tx(Signal.t(), map(), DateTime.t()) ::
           {:ok, Signal.t()} | {:error, term()}
-  def open_in_tx(repo, %Signal{} = event, presentation, %DateTime{} = now)
+  def open_in_tx(%Signal{} = event, presentation, %DateTime{} = now)
       when is_map(presentation) do
     checkpoint = PreviewStates.get(event).checkpoint || %{}
     superseded_by = first_newer_conversation_event(event)
@@ -42,7 +42,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     checkpoint =
       InteractionState.initialize(checkpoint, presentation, now, superseded_by: superseded_by)
 
-    PreviewStates.put_checkpoint_in_tx(repo, event, checkpoint)
+    PreviewStates.put_checkpoint_in_tx(event, checkpoint)
   end
 
   @doc """
@@ -52,13 +52,13 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   new event's queue sequence. Locking older Signal rows under that same lock
   gives button/form callbacks and ordinary messages one deterministic winner.
   """
-  @spec supersede_older_in_tx(module(), Signal.t(), DateTime.t()) ::
+  @spec supersede_older_in_tx(Signal.t(), DateTime.t()) ::
           {:ok, [Signal.t()]} | {:error, term()}
-  def supersede_older_in_tx(repo, %Signal{} = newer_event, %DateTime{} = now) do
+  def supersede_older_in_tx(%Signal{} = newer_event, %DateTime{} = now) do
     if Types.supersedes_pending_interaction?(newer_event.type) do
       newer_event
       |> older_reply_interaction_events()
-      |> supersede_events_in_tx(repo, newer_event, now)
+      |> supersede_events_in_tx(newer_event, now)
     else
       {:ok, []}
     end
@@ -72,29 +72,27 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   the removed entry can lose their pending interaction; unrelated cards in the
   same session remain actionable.
   """
-  @spec supersede_removed_source_in_tx(module(), Signal.t(), DateTime.t()) ::
+  @spec supersede_removed_source_in_tx(Signal.t(), DateTime.t()) ::
           {:ok, [Signal.t()]} | {:error, term()}
   def supersede_removed_source_in_tx(
-        repo,
         %Signal{type: "conversation.message.removed", provider_message_id: provider_message_id} =
           removed_event,
         %DateTime{} = now
       )
       when is_binary(provider_message_id) and provider_message_id != "" do
     Ankole.Signals.signals_for_entry_in_tx(
-      repo,
       removed_event.agent_uid,
       removed_event.reply_binding_name,
       removed_event.conversation_id,
       provider_message_id
     )
     |> Enum.filter(&(&1.session_id == removed_event.session_id))
-    |> Enum.map(&PreviewStates.load(Ankole.Signals.lock_signal_in_tx(repo, &1.id)))
+    |> Enum.map(&PreviewStates.load(Ankole.Signals.lock_signal_in_tx(&1.id)))
     |> Enum.reject(&is_nil/1)
-    |> supersede_events_in_tx(repo, removed_event, now)
+    |> supersede_events_in_tx(removed_event, now)
   end
 
-  def supersede_removed_source_in_tx(_repo, %Signal{}, %DateTime{}), do: {:ok, []}
+  def supersede_removed_source_in_tx(%Signal{}, %DateTime{}), do: {:ok, []}
 
   @doc """
   Supersedes predecessor interactions when a queued reset actually rolls the session.
@@ -103,19 +101,18 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   may wait behind running work. Once the reset executes, its predecessor
   conversation is no longer available to interpret an isolated card answer.
   """
-  @spec supersede_for_session_reset_in_tx(module(), Signal.t(), DateTime.t()) ::
+  @spec supersede_for_session_reset_in_tx(Signal.t(), DateTime.t()) ::
           {:ok, [Signal.t()]} | {:error, term()}
   def supersede_for_session_reset_in_tx(
-        repo,
         %Signal{type: "session.reset_due"} = reset_event,
         %DateTime{} = now
       ) do
     reset_event
     |> older_reply_interaction_events()
-    |> supersede_events_in_tx(repo, reset_event, now)
+    |> supersede_events_in_tx(reset_event, now)
   end
 
-  def supersede_for_session_reset_in_tx(_repo, %Signal{}, %DateTime{}), do: {:ok, []}
+  def supersede_for_session_reset_in_tx(%Signal{}, %DateTime{}), do: {:ok, []}
 
   @doc """
   Validates and records a managed reply action inside the ingress transaction.
@@ -123,16 +120,16 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   Unknown action protocols remain ordinary adapter actions. Managed callbacks
   are accepted at most once and always re-authorize the current human Principal.
   """
-  @spec accept_in_tx(module(), Binding.t(), Observation.t(), DateTime.t()) ::
+  @spec accept_in_tx(Binding.t(), Observation.t(), DateTime.t()) ::
           {:ok, acceptance()} | {:error, term()}
-  def accept_in_tx(repo, %Binding{} = binding, %Observation{} = fact, %DateTime{} = now) do
+  def accept_in_tx(%Binding{} = binding, %Observation{} = fact, %DateTime{} = now) do
     action = fact.action || %{}
     value = map_value(action, "value")
     protocol = ReplyPresentation.action_protocol()
 
     case map_value(value, "version") do
       ^protocol ->
-        accept_managed_in_tx(repo, binding, fact, action, value, now)
+        accept_managed_in_tx(binding, fact, action, value, now)
 
       nil ->
         {:ok, :unmanaged}
@@ -152,17 +149,17 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp accept_managed_in_tx(repo, binding, fact, action, value, now) do
+  defp accept_managed_in_tx(binding, fact, action, value, now) do
     with {:ok, callback} <- normalize_callback(value),
          :ok <- authorize_operator(map_value(action, "operator_principal_uid")),
          %Signal{} = source <- find_source_event(binding, fact, callback),
          :ok <-
-           Ankole.Signals.lock_target_in_tx(repo, %{
+           Ankole.Signals.lock_target_in_tx(%{
              agent_uid: source.agent_uid,
              session_id: source.session_id
            }),
          %Signal{} = event <- lock_source_event(binding, fact, callback),
-         {:ok, result} <- accept_locked_event(repo, event, fact, callback, now) do
+         {:ok, result} <- accept_locked_event(event, fact, callback, now) do
       {:ok, result}
     else
       nil -> {:ok, :stale}
@@ -249,8 +246,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp lock_source_event(binding, fact, callback) do
-    Ankole.Repo
-    |> Ankole.Signals.lock_signals_in_tx(source_event_filter(binding, fact, callback))
+    Ankole.Signals.lock_signals_in_tx(source_event_filter(binding, fact, callback))
     |> List.first()
     |> accepted_reply_surface(fact.provider_message_id, binding)
   end
@@ -284,12 +280,12 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
   defp reply_surface_entry?(_event, _provider_message_id, _binding), do: false
 
-  defp accept_locked_event(repo, event, fact, callback, now) do
+  defp accept_locked_event(event, fact, callback, now) do
     checkpoint = PreviewStates.get(event).checkpoint || %{}
 
     case InteractionState.interaction(checkpoint, callback.interaction_id) do
       %{"state" => "pending"} ->
-        accept_pending_answer(repo, event, checkpoint, fact, callback, now)
+        accept_pending_answer(event, checkpoint, fact, callback, now)
 
       %{"state" => "answered", "answer" => answer} ->
         if answer == callback.answer, do: {:ok, :duplicate}, else: {:ok, :stale}
@@ -302,20 +298,20 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp accept_pending_answer(repo, event, checkpoint, fact, callback, now) do
+  defp accept_pending_answer(event, checkpoint, fact, callback, now) do
     case first_newer_session_reset(event) do
       %Signal{} = reset_event ->
         with {:ok, _superseded} <-
-               supersede_events_in_tx([event], repo, reset_event, now) do
+               supersede_events_in_tx([event], reset_event, now) do
           {:ok, :stale}
         end
 
       nil ->
-        accept_current_answer(repo, event, checkpoint, fact, callback, now)
+        accept_current_answer(event, checkpoint, fact, callback, now)
     end
   end
 
-  defp accept_current_answer(repo, event, checkpoint, fact, callback, now) do
+  defp accept_current_answer(event, checkpoint, fact, callback, now) do
     presentation = ReplyPresentation.normalize(checkpoint["presentation"])
 
     if ReplyPresentation.matches?(presentation, callback) do
@@ -333,7 +329,6 @@ defmodule Ankole.Conversations.Delivery.Interactions do
              InteractionState.resolve(checkpoint, callback.interaction_id, resolution),
            {:ok, _updated} <-
              PreviewStates.put_checkpoint_in_tx(
-               repo,
                event,
                updated_checkpoint
              ) do
@@ -396,7 +391,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     if signal_ids == [] do
       []
     else
-      Ankole.Signals.lock_signals_in_tx(Ankole.Repo,
+      Ankole.Signals.lock_signals_in_tx(
         id: [in: signal_ids],
         agent_uid: newer_event.agent_uid,
         session_id: newer_event.session_id,
@@ -405,7 +400,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp supersede_events_in_tx(events, repo, newer_event, now) do
+  defp supersede_events_in_tx(events, newer_event, now) do
     Enum.reduce_while(events, {:ok, []}, fn event, {:ok, updated} ->
       case InteractionState.supersede(
              PreviewStates.get(event).checkpoint || %{},
@@ -417,7 +412,6 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
         {:ok, checkpoint} ->
           case PreviewStates.put_checkpoint_in_tx(
-                 repo,
                  event,
                  checkpoint
                ) do

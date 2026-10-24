@@ -65,12 +65,8 @@ defmodule Ankole.Sessions.AmbientTriage do
            event: event,
            context: context,
            model_ref: runtime.model_ref,
-           request_context:
-             Map.put(
-               runtime.request_context,
-               "ambient_work_candidates",
-               Ambient.candidates(event)
-             )
+           request_context: runtime.request_context,
+           candidates: Ambient.candidates(event)
          },
          {:ok, attrs} <- recognize(observation) do
       commit(key, event, attrs)
@@ -156,8 +152,9 @@ defmodule Ankole.Sessions.AmbientTriage do
     do: commit(key, event, %{action: "NOOP", authority: "NONE", reason: reason})
 
   defp retry(key, event) do
-    key
-    |> Ankole.Sessions.retry_ambient_triage(event, DateTime.utc_now(:microsecond))
+    now = DateTime.utc_now(:microsecond)
+
+    Ankole.Repo.transact_top_level(fn -> retry_in_tx(key, event, now) end)
     |> Ankole.Errors.reason()
     |> case do
       {:ok, %Signal{status: :queued, attempt_count: attempts} = current} when attempts >= 3 ->
@@ -183,12 +180,12 @@ defmodule Ankole.Sessions.AmbientTriage do
   end
 
   @doc false
-  def retry_in_tx(repo, key, event, now) do
-    with :ok <- Admission.authorize_new_work_in_tx(repo, event),
-         :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id) do
-      case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
+  def retry_in_tx(key, event, now) do
+    with :ok <- Admission.authorize_new_work_in_tx(event),
+         :ok <- Queue.lock_session_in_tx(key.agent_uid, key.session_id) do
+      case Ankole.Signals.lock_signal_in_tx(event.id) do
         %Signal{status: :queued} = current ->
-          Ankole.Signals.transition_in_tx(repo, current, :retry_triage, %{
+          Ankole.Signals.transition_in_tx(current, :retry_triage, %{
             available_at: DateTime.add(now, 30)
           })
 

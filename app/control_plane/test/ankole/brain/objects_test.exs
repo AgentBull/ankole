@@ -200,11 +200,10 @@ defmodule Ankole.Brain.ObjectsTest do
       refute "agent-skills" in Objects.installed_type_names()
 
       assert {:error, :invalid_canonical_principal} =
-               Objects.ensure_canonical_object_in_tx(Repo, human.uid, :agent, "Forged")
+               Objects.ensure_canonical_object_in_tx(human.uid, :agent, "Forged")
 
       assert {:error, :invalid_canonical_principal} =
                Objects.ensure_canonical_object_in_tx(
-                 Repo,
                  UUIDv7.autogenerate(),
                  :agent,
                  "Forged"
@@ -543,10 +542,11 @@ defmodule Ankole.Brain.ObjectsTest do
 
       # Mark chunk 0 as embedded so we can observe reuse and reset.
       chunk_zero = Repo.get_by!(Chunk, object_id: object.id, chunk_index: 0)
+      {:ok, vector} = Ash.Vector.new(List.duplicate(0.5, 4096))
 
       chunk_zero
       |> Ecto.Changeset.change(
-        embedding: Pgvector.new(List.duplicate(0.5, 4096)),
+        embedding: vector,
         embedding_signature: "sig",
         embedded_at: DateTime.utc_now(:microsecond)
       )
@@ -744,7 +744,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert {:error, :transaction_required} = Objects.create_object_in_tx(attrs, human.uid)
       assert {:error, :not_found} = Objects.get_by_slug("notes/operation")
 
-      assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+      assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
         Repo.transact(fn -> Ankole.Brain.create_object(attrs, human.uid) end)
       end
 

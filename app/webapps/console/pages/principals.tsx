@@ -67,10 +67,15 @@ export function AccessSubNav() {
   )
 }
 
+/** The Principal list shared by navigation and the page. */
+export function principalListOptions() {
+  return listPrincipalsOptions({ query: { include_disabled: true } })
+}
+
 export function PrincipalsListPage() {
   const { t } = useTranslation()
   const principals = useQuery({
-    ...listPrincipalsOptions({ query: { include_disabled: true } }),
+    ...principalListOptions(),
     select: data => fromDocument(data)
   })
   const localIdentity = useLocalIdentityProvider()

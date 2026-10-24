@@ -63,9 +63,8 @@ defmodule Ankole.AIGateway.FunctionCallReplayTest do
     {:ok, original} = ResponseCommit.commit_complete(original, [call])
 
     assert {:ok, %{message: journal}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                AIGateway.record_tool_results_in_tx(
-                 repo,
                  agent.uid,
                  %{"previous_response_id" => "resp_#{original.id}", "input" => [output]},
                  %{}

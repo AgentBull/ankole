@@ -55,12 +55,12 @@ defmodule Ankole.Sessions.NativeCronTest do
     {:ok, signal} = cron_signal(context, [context.first.id, context.second.id])
 
     assert {:ok, %{messages: messages}} =
-             Repo.transact(
-               &Presentation.post_in_tx(&1, signal, %Ankole.Conversations.Statement{
+             Repo.transact(fn ->
+               Presentation.post_in_tx(signal, %Ankole.Conversations.Statement{
                  signal: signal,
                  text: "Shared report"
                })
-             )
+             end)
 
     assert MapSet.new(Enum.map(messages, & &1.conversation_id)) ==
              MapSet.new([context.first.id, context.second.id])
@@ -72,22 +72,22 @@ defmodule Ankole.Sessions.NativeCronTest do
            )
 
     assert {:ok, %{messages: same}} =
-             Repo.transact(
-               &Presentation.post_in_tx(&1, signal, %Ankole.Conversations.Statement{
+             Repo.transact(fn ->
+               Presentation.post_in_tx(signal, %Ankole.Conversations.Statement{
                  signal: signal,
                  text: "Shared report"
                })
-             )
+             end)
 
     assert MapSet.new(Enum.map(same, & &1.id)) == MapSet.new(Enum.map(messages, & &1.id))
 
     assert {:error, :conversation_conflict} =
-             Repo.transact(
-               &Presentation.post_in_tx(&1, signal, %Ankole.Conversations.Statement{
+             Repo.transact(fn ->
+               Presentation.post_in_tx(signal, %Ankole.Conversations.Statement{
                  signal: signal,
                  text: "Changed report"
                })
-             )
+             end)
 
     assert {:ok, first} = Conversations.get(context.human.uid, context.first.id)
     assert Enum.map(first.messages, & &1.text) == ["Initial question", "Shared report"]
@@ -97,9 +97,9 @@ defmodule Ankole.Sessions.NativeCronTest do
     {:ok, signal} = cron_signal(context, [context.first.id])
 
     assert {:error, :abort} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                {:ok, %{messages: [_]}} =
-                 Presentation.post_in_tx(repo, signal, %Ankole.Conversations.Statement{
+                 Presentation.post_in_tx(signal, %Ankole.Conversations.Statement{
                    signal: signal,
                    text: "Uncommitted report"
                  })
@@ -108,12 +108,12 @@ defmodule Ankole.Sessions.NativeCronTest do
              end)
 
     assert {:ok, %{messages: [message]}} =
-             Repo.transact(
-               &Presentation.post_in_tx(&1, signal, %Ankole.Conversations.Statement{
+             Repo.transact(fn ->
+               Presentation.post_in_tx(signal, %Ankole.Conversations.Statement{
                  signal: signal,
                  text: "Committed report"
                })
-             )
+             end)
 
     assert message.seq == 2
   end
@@ -143,9 +143,8 @@ defmodule Ankole.Sessions.NativeCronTest do
   test "a cron rejection records every external notice independently beside the native notice",
        context do
     {:ok, external} =
-      Repo.transact(
-        &Ankole.Conversations.External.observe_conversation_in_tx(
-          &1,
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_conversation_in_tx(
           %{agent_uid: context.agent.uid},
           %{
             provider_conversation_id: "test:missing-route",
@@ -155,7 +154,7 @@ defmodule Ankole.Sessions.NativeCronTest do
           },
           DateTime.utc_now(:microsecond)
         )
-      )
+      end)
 
     targets = [
       %{"conversation_id" => context.first.id},

@@ -110,35 +110,21 @@ defmodule Ankole.AuthZ.Grant do
   end
 
   changes do
-    change(fn changeset, _context ->
-      if is_nil(Ash.Changeset.get_attribute(changeset, :condition)),
-        do: Ash.Changeset.force_change_attribute(changeset, :condition, "true"),
-        else: changeset
-    end)
+    change(set_attribute(:condition, "true"), where: [attribute_equals(:condition, nil)])
   end
 
   validations do
-    validate(fn changeset, _context ->
-      case {Ash.Changeset.get_attribute(changeset, :principal_uid),
-            Ash.Changeset.get_attribute(changeset, :group_id)} do
-        {principal_uid, nil} when is_binary(principal_uid) -> :ok
-        {nil, group_id} when is_binary(group_id) -> :ok
-        {nil, nil} -> {:error, field: :principal_uid, message: "or group_id is required"}
-        {_principal_uid, _group_id} -> {:error, field: :group_id, message: "must be blank"}
-      end
-    end)
+    validate(attribute_does_not_equal(:principal_uid, nil),
+      where: [attribute_equals(:group_id, nil)],
+      message: "or group_id is required"
+    )
 
-    validate(fn changeset, _context ->
-      case Ash.Changeset.get_attribute(changeset, :action) do
-        action when is_binary(action) ->
-          if String.contains?(action, ":"),
-            do: {:error, field: :action, message: "must not contain colon"},
-            else: :ok
+    validate(attribute_equals(:group_id, nil),
+      where: [attribute_does_not_equal(:principal_uid, nil)],
+      message: "must be blank"
+    )
 
-        _action ->
-          :ok
-      end
-    end)
+    validate(match(:action, ~r/\A[^:]*\z/), message: "must not contain colon")
 
     validate(
       {Ankole.AuthZ.Validations.Syntax, attribute: :resource_pattern, kind: :resource_pattern},
@@ -196,27 +182,6 @@ defmodule Ankole.AuthZ.Grant do
 
     destroy(:delete_in_tx)
 
-    action :create_permission_grant, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :upsert_permission_grant, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :delete_permission_grant, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:id, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     action :create_operator_grant, :struct do
       description("Creates a grant for a Principal or a group. A Pod page action is refused.")
       constraints(instance_of: __MODULE__)
@@ -246,14 +211,6 @@ defmodule Ankole.AuthZ.Grant do
       description("Deletes a grant. A Pod page grant is refused.")
       constraints(instance_of: __MODULE__)
       argument(:id, :string, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_permission_grant, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:grant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:attrs, :map, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

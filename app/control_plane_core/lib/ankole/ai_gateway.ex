@@ -8,8 +8,7 @@ defmodule Ankole.AIGateway do
 
   This module is also the Ash domain of the gateway resources. Other domains
   read the rows through its defines. The response, provider, and artifact
-  writes go through the functions below and their owner modules, which run the
-  generic actions of the resources.
+  writes go through the functions below and their owner modules.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
@@ -34,26 +33,14 @@ defmodule Ankole.AIGateway do
   alias Ankole.Security.SSRFFilter
 
   resources do
-    resource Ankole.AIGateway.Schemas.Artifact do
-      define(:get_artifact, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_artifacts, action: :read)
-    end
-
-    resource Ankole.AIGateway.Schemas.CompactionArtifact do
-      define(:get_compaction_artifact, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_compaction_artifacts, action: :read)
-    end
-
-    resource Ankole.AIGateway.Schemas.UsageRecord do
-      define(:get_usage_record, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_usage_records, action: :read)
-    end
+    resource(Ankole.AIGateway.Schemas.Artifact)
+    resource(Ankole.AIGateway.Schemas.CompactionArtifact)
+    resource(Ankole.AIGateway.Schemas.UsageRecord)
 
     resource Ankole.AIGateway.Schemas.Conversation do
       # `get_conversation/3` reads a conversation of one subject.
       define(:get_conversation_by_id, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_conversations, action: :read)
-      define(:list_console_conversations, action: :console_list)
     end
 
     resource Ankole.AIGateway.Schemas.Message do
@@ -374,37 +361,37 @@ defmodule Ankole.AIGateway do
     as: :get_conversation_for_subject
 
   @doc "Records caller-supplied tool results in the current transaction."
-  defdelegate record_tool_results_in_tx(repo, subject_uid, request, metadata),
+  defdelegate record_tool_results_in_tx(subject_uid, request, metadata),
     to: StatefulLifecycle
 
   @doc false
-  defdelegate ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata \\ %{}),
+  defdelegate ensure_conversation_in_tx(subject_uid, conversation_key, metadata \\ %{}),
     to: Conversations
 
   @doc false
-  defdelegate active_conversation_for_update(repo, subject_uid, conversation_key),
+  defdelegate active_conversation_for_update(subject_uid, conversation_key),
     to: Conversations
 
   @doc false
-  defdelegate end_active_conversation_in_tx(repo, subject_uid, conversation_key, now),
+  defdelegate end_active_conversation_in_tx(subject_uid, conversation_key, now),
     to: Conversations
 
   @doc false
-  defdelegate lock_conversation(repo, conversation_id), to: Conversations
+  defdelegate lock_conversation(conversation_id), to: Conversations
 
   @doc """
   Lists active conversations using generic subject/conversation filters.
   """
-  @spec list_active_conversations(module(), keyword()) :: [
+  @spec list_active_conversations(keyword()) :: [
           Ankole.AIGateway.Schemas.Conversation.t()
         ]
-  defdelegate list_active_conversations(repo, opts \\ []), to: Conversations
+  defdelegate list_active_conversations(opts \\ []), to: Conversations
 
   @doc false
-  defdelegate conversation_exists_by_key?(repo, subject_uid, conversation_key), to: Conversations
+  defdelegate conversation_exists_by_key?(subject_uid, conversation_key), to: Conversations
 
   @doc false
-  defdelegate list_conversation_responses_in_tx(repo, subject_uid, conversation_id, opts \\ []),
+  defdelegate list_conversation_responses_in_tx(subject_uid, conversation_id, opts \\ []),
     to: Ankole.AIGateway.ResponseChain
 
   @doc """
@@ -417,7 +404,6 @@ defmodule Ankole.AIGateway do
 
   @doc false
   defdelegate fail_generating_response_in_tx(
-                repo,
                 subject_uid,
                 response_id,
                 error_details,
@@ -427,7 +413,6 @@ defmodule Ankole.AIGateway do
 
   @doc false
   defdelegate retract_generating_response_in_tx(
-                repo,
                 subject_uid,
                 response_id,
                 reason,
@@ -437,7 +422,6 @@ defmodule Ankole.AIGateway do
 
   @doc false
   defdelegate hard_delete_visible_suffix_in_tx(
-                repo,
                 subject_uid,
                 conversation_id,
                 response_ids,
@@ -447,7 +431,6 @@ defmodule Ankole.AIGateway do
 
   @doc false
   defdelegate retract_visible_suffix_in_tx(
-                repo,
                 subject_uid,
                 conversation_id,
                 response_ids,
@@ -459,7 +442,7 @@ defmodule Ankole.AIGateway do
   defdelegate reconcile_orphaned_response(response_id, opts \\ []),
     to: Ankole.AIGateway.ResponseCommit
 
-  defdelegate reconcile_orphaned_response_in_tx(repo, response_id, opts),
+  defdelegate reconcile_orphaned_response_in_tx(response_id, opts),
     to: Ankole.AIGateway.ResponseCommit
 
   @doc false

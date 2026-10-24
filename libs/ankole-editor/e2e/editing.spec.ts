@@ -1,5 +1,25 @@
 import { caret, expect, openDocument, reopen, selectDocument, showSource, test } from './helpers'
 
+for (const afterDraw of [false, true]) {
+  test(`typing after moving and formatting the caret keeps its position and marks (${afterDraw ? 'drawn' : 'pending'})`, async ({
+    page
+  }) => {
+    await openDocument(page, 'Editable text')
+    const editor = page.locator('.editor-content')
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.press('ControlOrMeta+b')
+    if (afterDraw) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    }
+    await page.keyboard.insertText('Bold review')
+    await expect(editor).toHaveText('Editable textBold review')
+    await expect(editor.locator('strong')).toHaveText('Bold review')
+    await reopen(page)
+    await expect(editor.locator('strong')).toHaveText('Bold review')
+  })
+}
+
 test('keyboard formatting survives Markdown and a full editor remount', async ({ page }) => {
   await openDocument(page, 'Keep this')
   await selectDocument(page)

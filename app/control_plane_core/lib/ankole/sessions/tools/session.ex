@@ -305,13 +305,12 @@ defmodule Ankole.Sessions.Tools.Session do
   end
 
   @impl true
-  def prepare_in_tx(repo, run, call, args),
-    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+  def prepare_in_tx(run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(run, call, args) end}
 
-  defp commit_tool_in_tx(repo, run, %{"name" => "set_channel_standing_orders"}, args) do
+  defp commit_tool_in_tx(run, %{"name" => "set_channel_standing_orders"}, args) do
     with {:ok, saved} <-
            Ankole.Sessions.AmbientCuration.set_standing_orders_in_tx(
-             repo,
              run.agent_uid,
              run.signal_id,
              args["orders"],

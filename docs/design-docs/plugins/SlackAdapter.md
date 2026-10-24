@@ -93,7 +93,7 @@ directory sync.
 
 The adapter normalizes each accepted chat event and submits it through
 Conversations.Observe. Conversations owns shared Messages and external
-references. Required work enters `Ankole.Signals.accept_in_tx/2`.
+references. Required work enters `Ankole.Signals.accept_in_tx/1`.
 
 The opaque `provider_conversation_id` is `slack:<channel_id>`. The message timestamp is the
 provider message ID. A reply uses the root message timestamp as its reply target.

@@ -1,7 +1,10 @@
 defmodule Ankole.Ash.Types.JSONList do
-  @moduledoc "Uses the durable JSON array contract for Ash attributes."
+  @moduledoc "Stores an Ash-validated JSON array in one JSONB value for atomic SQL updates."
   use Ash.Type
   use AshJsonApi.Type
+
+  @impl true
+  def storage_type(_constraints), do: :map
 
   @impl true
   def cast_atomic(value, constraints) do
@@ -9,30 +12,18 @@ defmodule Ankole.Ash.Types.JSONList do
   end
 
   @impl true
-  def storage_type(_constraints), do: :map
-  @impl true
   def cast_input(nil, _constraints), do: {:ok, nil}
-  def cast_input(value, _constraints), do: normalize(value)
+
+  def cast_input(value, _constraints) when is_list(value),
+    do: Ash.Type.cast_input({:array, Ankole.Ash.Types.JSONValue}, value, nil_items?: true)
+
+  def cast_input(_value, _constraints), do: :error
+
   @impl true
-  def cast_stored(nil, _constraints), do: {:ok, nil}
-  def cast_stored(value, _constraints), do: normalize(value)
+  def cast_stored(value, constraints), do: cast_input(value, constraints)
   @impl true
-  def dump_to_native(nil, _constraints), do: {:ok, nil}
-  def dump_to_native(value, _constraints), do: normalize(value)
+  def dump_to_native(value, constraints), do: cast_input(value, constraints)
 
-  defp normalize(value) do
-    case Ankole.Ecto.JSONPayload.normalize_list(value) do
-      {:ok, list} ->
-        {:ok, list}
-
-      {:error, reason} ->
-        {:error,
-         message: "must be JSON-serializable list: #{Ankole.Ecto.JSONPayload.reason_text(reason)}"}
-    end
-  end
-
-  # The OpenAPI document reads a schema struct; the request validation reads
-  # a JSON Schema map.
   @impl AshJsonApi.Type
   def json_schema(_constraints),
     do: %OpenApiSpex.Schema{type: :array, items: %OpenApiSpex.Schema{}}

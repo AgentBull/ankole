@@ -134,9 +134,12 @@ defmodule Ankole.AIGateway.Artifacts do
          {:ok, order} <- list_order(params),
          :ok <- list_purpose(params),
          {:ok, cursor} <- list_cursor(params) do
-      rows = list_query(subject_uid, params, order, cursor, limit + 1) |> Ankole.Ash.read!()
-      has_more = length(rows) > limit
-      rows = Enum.take(rows, limit)
+      page =
+        subject_uid
+        |> list_query(params, order, cursor)
+        |> Ankole.Ash.read!(action: :list_page, page: [limit: limit])
+
+      rows = page.results
       data = Enum.map(rows, &file_object/1)
 
       {:ok,
@@ -145,7 +148,7 @@ defmodule Ankole.AIGateway.Artifacts do
          "data" => data,
          "first_id" => rows |> List.first() |> nullable_file_id(),
          "last_id" => rows |> List.last() |> nullable_file_id(),
-         "has_more" => has_more
+         "has_more" => page.more?
        }}
     end
   end
@@ -388,7 +391,7 @@ defmodule Ankole.AIGateway.Artifacts do
     end
   end
 
-  defp list_query(subject_uid, params, order, cursor, limit) do
+  defp list_query(subject_uid, params, order, cursor) do
     now = DateTime.utc_now(:microsecond)
 
     query =
@@ -397,7 +400,6 @@ defmodule Ankole.AIGateway.Artifacts do
         subject_uid == ^subject_uid and kind == :uploaded_file and
           (is_nil(expires_at) or expires_at > ^now)
       )
-      |> Ash.Query.limit(limit)
 
     query =
       case Ankole.Attrs.get_truthy(params, "purpose") do
@@ -422,17 +424,11 @@ defmodule Ankole.AIGateway.Artifacts do
       |> Ankole.Ash.read_one!()
 
     case anchor do
-      %Artifact{inserted_at: inserted_at, id: id} when order == :asc ->
-        Ash.Query.filter(
-          query,
-          inserted_at > ^inserted_at or (inserted_at == ^inserted_at and id > ^id)
-        )
-
-      %Artifact{inserted_at: inserted_at, id: id} ->
-        Ash.Query.filter(
-          query,
-          inserted_at < ^inserted_at or (inserted_at == ^inserted_at and id < ^id)
-        )
+      %Artifact{} ->
+        sort = [inserted_at: order, id: order]
+        [anchor] = Ash.Page.Keyset.data_with_keyset([anchor], Artifact, sort)
+        {:ok, filter} = Ash.Page.Keyset.filter(query, anchor.__metadata__.keyset, sort, :after)
+        Ash.Query.filter(query, ^filter)
 
       nil ->
         Ash.Query.filter(query, false)

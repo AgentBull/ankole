@@ -4,7 +4,6 @@ defmodule Ankole.Plugins.EmailAdapter.Delivery do
   @behaviour Ankole.Conversations.Delivery.Adapter
 
   alias Ankole.Signals.Bindings
-  alias Ankole.Repo
   alias Ankole.Plugins.EmailAdapter.Address
   alias Ankole.Plugins.EmailAdapter.Config
   alias Ankole.Plugins.EmailAdapter.ErrorPolicy
@@ -135,7 +134,7 @@ defmodule Ankole.Plugins.EmailAdapter.Delivery do
   # A reply addresses the mirrored target message; a post addresses the
   # thread participants that the channel remembers.
   defp target(%Intent{operation: :reply} = intent, config) do
-    case External.get_message(Repo, intent.conversation_id, intent.reply_to_provider_message_id) do
+    case External.get_message(intent.conversation_id, intent.reply_to_provider_message_id) do
       %{external_ref: %{raw_payload: payload}} when is_map(payload) and map_size(payload) > 0 ->
         reply_targets = addresses(payload["reply_to"]) |> nonempty() || addresses(payload["from"])
         target_id = payload["message_id"] || intent.reply_to_provider_message_id

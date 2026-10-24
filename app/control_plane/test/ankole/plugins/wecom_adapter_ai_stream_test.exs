@@ -85,7 +85,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     channel = Repo.get_by!(Conversation, provider_conversation_id: @channel_id)
 
     assert {:ok, _} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(channel, :put_metadata, %{
                  metadata: Map.merge(channel.metadata, channel_metadata)
                })

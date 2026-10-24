@@ -25,9 +25,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider.Actions do
   defp action(:console_credential_strategy, %{arguments: args}, _context),
     do: credential_change(args, :select_strategy, %{strategy: args.strategy})
 
-  defp action(:change, input, _context),
-    do: input.arguments |> ProviderConfigs.change_locked() |> Ankole.Errors.wrap()
-
   defp action(:put, input, _context) do
     input.arguments
     |> ProviderConfigs.put()
@@ -46,12 +43,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider.Actions do
     |> ProviderConfigs.retire()
     |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
   end
-
-  defp action(:put_cooldown, input, _context),
-    do: input.arguments |> ProviderConfigs.put_cooldown() |> Ankole.Errors.wrap()
-
-  defp action(:rotate_credential, input, _context),
-    do: input.arguments |> ProviderConfigs.rotate_credential() |> Ankole.Errors.wrap()
 
   defp credential_change(args, update, params) do
     %{provider_id: args.provider_id, update: update, params: params}

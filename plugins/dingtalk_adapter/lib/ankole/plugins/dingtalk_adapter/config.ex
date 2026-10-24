@@ -113,14 +113,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   Enforces the one-agent/one-DingTalk-app assignment. Updating the current
   binding is allowed; disabled bindings do not reserve an app.
   """
-  @spec validate_binding_assignment(module(), String.t(), String.t(), chat_config()) ::
+  @spec validate_binding_assignment(String.t(), String.t(), chat_config()) ::
           :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
+  def validate_binding_assignment(agent_uid, binding_name, config)
+      when is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
     with :ok <- ensure_single_enabled_binding(agent_uid, binding_name),
          :ok <-
            ensure_app_not_bound_to_another_agent(
-             repo,
              agent_uid,
              Map.fetch!(config, "clientId")
            ) do
@@ -215,12 +214,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
     if existing?, do: {:error, :dingtalk_binding_already_exists}, else: :ok
   end
 
-  defp ensure_app_not_bound_to_another_agent(repo, agent_uid, client_id) do
+  defp ensure_app_not_bound_to_another_agent(agent_uid, client_id) do
     Ankole.Signals.list_bindings!(
       query: [filter: [adapter: "dingtalk", enabled: true, agent_uid: [not_eq: agent_uid]]]
     )
     |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
+      case Bindings.binding_config_in_tx(binding, __MODULE__) do
         {:ok, %{"clientId" => ^client_id}} ->
           {:halt, {:error, {:dingtalk_app_already_bound, client_id, binding.agent_uid}}}
 

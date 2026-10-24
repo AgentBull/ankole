@@ -91,9 +91,9 @@ defmodule Ankole.Sessions.ChannelHistoryTest do
 
   defp insert_message!(id, attrs) do
     {:ok, result} =
-      Repo.transact(
-        &Ankole.Conversations.External.observe_in_tx(&1, id, attrs, attrs.provider_time)
-      )
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_in_tx(id, attrs, attrs.provider_time)
+      end)
 
     result
   end

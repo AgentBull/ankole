@@ -65,15 +65,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
       upsert_fields([:source_kind, :content, :content_hash, :metadata, :deleted_at, :updated_at])
       change(Ankole.AIAgent.Library.Changes.PrepareDocument, only_when_valid?: true)
     end
-
-    action :replace_document, :term do
-      argument(:agent_uid, :term, allow_nil?: false)
-      argument(:kind, :string, allow_nil?: false)
-      argument(:content, :term, allow_nil?: false)
-      argument(:expected_content_hash, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

@@ -72,7 +72,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   def state(provider_id),
     do: DirectoryState |> Ash.Query.filter(provider_id == ^provider_id) |> Ankole.Ash.read_one!()
 
-  def configuration_changed_in_tx(_repo, provider_id) do
+  def configuration_changed_in_tx(provider_id) do
     DirectoryState
     |> Ash.Query.filter(provider_id == ^provider_id)
     |> update_states(:configuration_changed_in_tx, %{})
@@ -103,27 +103,26 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
       |> Ash.Query.limit(100)
       |> Ankole.Ash.read!()
 
-  def guard_subject(_repo, provider_id, external_ids) do
+  def guard_subject(provider_id, external_ids) do
     DirectoryEvent
     |> Ash.Query.filter(
       provider_id == ^provider_id and not is_nil(reason) and
         status in [:pending, :review_required] and
         fragment("? && ?::text[]", external_ids, ^external_ids)
     )
-    |> Ash.Query.limit(1)
-    |> Ankole.Ash.read!()
+    |> Ankole.Ash.exists?()
     |> case do
-      [] -> :ok
-      [_event] -> {:error, :provider_identity_requires_review}
+      false -> :ok
+      true -> {:error, :provider_identity_requires_review}
     end
   end
 
   def receive_event(provider_id, attrs) do
-    Ankole.Ash.run_action(DirectoryEvent, :receive, %{provider_id: provider_id, attrs: attrs})
+    Ankole.Repo.transact_top_level(fn -> receive_event_in_tx(provider_id, attrs) end)
   end
 
   @doc false
-  def receive_event_in_tx(repo, provider_id, attrs) do
+  def receive_event_in_tx(provider_id, attrs) do
     with {:ok, state} <- lock_state(provider_id) do
       case DirectoryEvent
            |> Ash.Query.filter(provider_id == ^provider_id and event_id == ^attrs.event_id)
@@ -146,15 +145,15 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
                        else: state.approved_scope_fingerprint
                      )
                  }) do
-            dispatch_directory_event(repo, event)
+            dispatch_directory_event(event)
           end
       end
     end
   end
 
-  defp dispatch_directory_event(repo, event) do
+  defp dispatch_directory_event(event) do
     if is_binary(event.reason) do
-      apply_restriction(repo, event)
+      apply_restriction(event)
     else
       with {:ok, _} <- Oban.insert(ProcessDirectoryEvent.new(%{"event_id" => event.id})),
            do: {:ok, event}
@@ -170,7 +169,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
         :ok
 
       %{reason: reason} = event when is_binary(reason) ->
-        case Ankole.Ash.run_action(DirectoryEvent, :apply_restriction, %{event: event}) do
+        case Ankole.Repo.transact_top_level(fn -> apply_restriction_in_tx(event) end) do
           {:ok, _} -> :ok
           error -> error
         end
@@ -214,12 +213,9 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   # A review always writes the event; the processing result does not change
   # an event that a reviewer or an earlier run closed.
   defp update_open_event(event, action, attrs, only_open? \\ true) do
-    Ankole.Ash.run_action(DirectoryEvent, :update_open, %{
-      event: event,
-      action: action,
-      attrs: attrs,
-      only_open?: only_open?
-    })
+    Ankole.Repo.transact_top_level(fn ->
+      update_open_event_in_tx(event, action, attrs, only_open?)
+    end)
   end
 
   @doc false
@@ -234,30 +230,29 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   end
 
   def begin_sync(provider_id, expected_config \\ nil) do
-    Ankole.Ash.run_action(DirectoryState, :begin_sync, %{
-      provider_id: provider_id,
-      expected_config: expected_config
-    })
+    Ankole.Repo.transact_top_level(fn ->
+      begin_sync_in_tx(provider_id, expected_config)
+    end)
   end
 
   @doc false
-  def begin_sync_in_tx(repo, provider_id, expected_config) do
+  def begin_sync_in_tx(provider_id, expected_config) do
     with {:ok, state} <- lock_state(provider_id),
-         :ok <- current_configuration(repo, provider_id, expected_config) do
+         :ok <- current_configuration(provider_id, expected_config) do
       Ankole.Ash.update(state, :begin_sync_in_tx, %{})
     end
   end
 
-  defp current_configuration(_repo, _provider_id, nil), do: :ok
+  defp current_configuration(_provider_id, nil), do: :ok
 
-  defp current_configuration(repo, provider_id, expected) do
+  defp current_configuration(provider_id, expected) do
     alias Ankole.AppConfigure
 
     with {:ok, providers} <-
-           AppConfigure.get_in_tx(repo, Ankole.IdentityProviders.Config.active_definition()),
+           AppConfigure.get_in_tx(Ankole.IdentityProviders.Config.active_definition()),
          %{"enabled" => true, "config_key" => key} <-
            Enum.find(providers, &(&1["provider_id"] == provider_id)),
-         {:ok, ^expected} <- AppConfigure.get_tenant_by_key_in_tx(repo, key) do
+         {:ok, ^expected} <- AppConfigure.get_tenant_by_key_in_tx(key) do
       :ok
     else
       _ -> {:error, :directory_configuration_changed}
@@ -265,16 +260,13 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   end
 
   def finish_sync(ticket, scope, observations, opts) do
-    Ankole.Ash.run_action(DirectoryState, :finish_sync, %{
-      ticket: ticket,
-      scope: scope,
-      observations: observations,
-      opts: opts
-    })
+    Ankole.Repo.transact_top_level(fn ->
+      finish_sync_in_tx(ticket, scope, observations, opts)
+    end)
   end
 
   @doc false
-  def finish_sync_in_tx(repo, ticket, scope, observations, opts) do
+  def finish_sync_in_tx(ticket, scope, observations, opts) do
     with {:ok, state} <- lock_state(ticket.provider_id),
          true <- state.revision == ticket.revision do
       members = observations |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
@@ -294,12 +286,11 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
           (state.approved_scope_fingerprint != fingerprint or members == [] or
              reduction > Keyword.fetch!(opts, :maximum_removal_percent))
 
-      with :ok <- apply_observations(repo, state.provider_id, observations, ticket),
+      with :ok <- apply_observations(state.provider_id, observations, ticket),
            :ok <-
              if(removal_enabled and not review,
                do:
                  restrict_missing(
-                   repo,
                    state.provider_id,
                    missing,
                    "sync:" <> ticket.id <> ":" <> to_string(ticket.revision),
@@ -353,17 +344,19 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   end
 
   def approve_snapshot(provider_id, fingerprint, actor_uid, reason, confirm_removals) do
-    Ankole.Ash.run_action(DirectoryState, :approve_snapshot, %{
-      provider_id: provider_id,
-      fingerprint: fingerprint,
-      actor: actor_uid,
-      reason: reason,
-      confirm_removals: confirm_removals
-    })
+    Ankole.Repo.transact_top_level(fn ->
+      approve_snapshot_in_tx(
+        provider_id,
+        fingerprint,
+        actor_uid,
+        reason,
+        confirm_removals
+      )
+    end)
   end
 
   @doc false
-  def approve_snapshot_in_tx(repo, provider_id, fingerprint, actor_uid, reason, confirm_removals) do
+  def approve_snapshot_in_tx(provider_id, fingerprint, actor_uid, reason, confirm_removals) do
     with true <- is_binary(reason) and String.trim(reason) != "",
          {:ok, state} <- lock_state(provider_id),
          true <- state.snapshot_fingerprint == fingerprint and state.status == :review_required,
@@ -371,7 +364,6 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
          true <- confirm_removals or state.missing_uids == [],
          :ok <-
            restrict_missing(
-             repo,
              provider_id,
              state.missing_uids,
              "review:" <> fingerprint,
@@ -407,16 +399,16 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   end
 
   @doc false
-  def apply_restriction_in_tx(repo, event) do
+  def apply_restriction_in_tx(event) do
     with {:ok, _} <- lock_state(event.provider_id),
-         do: apply_restriction(repo, get_event(event.id))
+         do: apply_restriction(get_event(event.id))
   end
 
-  defp apply_restriction(_repo, %{status: status} = event)
+  defp apply_restriction(%{status: status} = event)
        when status in [:processed, :dismissed],
        do: {:ok, event}
 
-  defp apply_restriction(repo, event) do
+  defp apply_restriction(event) do
     uids =
       identity_owners(external_id: [in: event.external_ids], provider: event.provider_id)
 
@@ -424,7 +416,6 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
       [uid] ->
         with {:ok, _} <-
                HumanAccess.restrict_from_provider_in_tx(
-                 repo,
                  uid,
                  event.provider_id,
                  event.reason,
@@ -457,21 +448,20 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
     |> Enum.uniq()
   end
 
-  defp apply_observations(repo, provider_id, observations, ticket) do
+  defp apply_observations(provider_id, observations, ticket) do
     Enum.reduce_while(Enum.sort(observations), :ok, fn {uid, status}, :ok ->
       operation_id = "snapshot:" <> ticket.id <> ":" <> to_string(ticket.revision)
 
       result =
         case status do
           :healthy ->
-            HumanAccess.verify_provider_recovery_in_tx(repo, uid, provider_id, operation_id)
+            HumanAccess.verify_provider_recovery_in_tx(uid, provider_id, operation_id)
 
           :unknown ->
             {:ok, :unchanged}
 
           reason ->
             HumanAccess.restrict_from_provider_in_tx(
-              repo,
               uid,
               provider_id,
               reason,
@@ -487,10 +477,9 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
     end)
   end
 
-  defp restrict_missing(repo, provider_id, uids, operation_id, time) do
+  defp restrict_missing(provider_id, uids, operation_id, time) do
     Enum.reduce_while(uids, :ok, fn uid, :ok ->
       case HumanAccess.restrict_from_provider_in_tx(
-             repo,
              uid,
              provider_id,
              "directory_removal",

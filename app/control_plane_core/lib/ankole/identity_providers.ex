@@ -50,16 +50,8 @@ defmodule Ankole.IdentityProviders do
 
   resources do
     resource(Ankole.IdentityProviders.Console)
-
-    resource DirectoryEvent do
-      define(:get_directory_event, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_directory_events, action: :read)
-    end
-
-    resource DirectoryState do
-      define(:get_directory_state, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_directory_states, action: :read)
-    end
+    resource(DirectoryEvent)
+    resource(DirectoryState)
   end
 
   @adapter_contract_id "principals.identity_provider"

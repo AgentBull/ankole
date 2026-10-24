@@ -49,7 +49,7 @@ test('command shortcuts claim real editor selections before link or delete bindi
       await expect(editor).toBeFocused()
       await expect(editor).toHaveText(text)
     }
-    expect((await request<{ content: { xml: string } }>(page, `/pages/${id}`)).content.xml).toContain(text)
+    expect((await request<{ content: { content: string } }>(page, `/pages/${id}`)).content.content).toContain(text)
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
@@ -69,20 +69,19 @@ for (const decision of ['proceed', 'cancel'] as const) {
     let agentsRequests = 0
     try {
       id = await createDocument(page)
-      await page.route('**/.internal-apis/pod/agents', async route => {
+      await page.route('**/api/v2/pod/agents', async route => {
         agentsRequests++
         await agentsGate
         await route.continue()
       })
-      await page.route(`**/.internal-apis/pod/pages/${id}`, route =>
+      await page.route(`**/api/v2/pod/pages/${id}`, route =>
         route.request().method() === 'PATCH'
           ? route.fulfill({ status: 503, json: { error: 'Command navigation title save failed' } })
           : route.continue()
       )
       const failedSave = page.waitForResponse(
         response =>
-          response.request().method() === 'PATCH' &&
-          new URL(response.url()).pathname === `/.internal-apis/pod/pages/${id}`
+          response.request().method() === 'PATCH' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}`
       )
       const title = page.getByRole('textbox', { name: '页面标题', exact: true })
       await title.fill('Unfinished command navigation title')

@@ -22,10 +22,10 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  def admit_in_tx(repo, event, _plan) do
+  def admit_in_tx(event, _plan) do
     case AmbientJudgment |> Ash.Query.filter(signal_id == ^event.id) |> Ankole.Ash.read_one!() do
       %AmbientJudgment{action: action} when action in ["FOREGROUND_REPLY", "NEW_WORK"] ->
-        {:ok, %{"ambient_work_candidates" => candidates_in_tx(repo, event)}}
+        {:ok, %{}}
 
       _ ->
         {:error, :ambient_turn_not_authorized}
@@ -74,14 +74,16 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  def resolve(%Signal{} = event, now),
-    do: event |> Ankole.Sessions.resolve_ambient(now) |> Ankole.Errors.reason()
+  def resolve(%Signal{} = event, now) do
+    Ankole.Repo.transact_top_level(fn -> resolve_in_tx(event, now) end)
+    |> Ankole.Errors.reason()
+  end
 
   @doc false
-  def resolve_in_tx(repo, %Signal{} = event, now) do
-    with :ok <- Ankole.Sessions.Admission.authorize_attempt_in_tx(repo, event),
-         :ok <- Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id) do
-      case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
+  def resolve_in_tx(%Signal{} = event, now) do
+    with :ok <- Ankole.Sessions.Admission.authorize_attempt_in_tx(event),
+         :ok <- Queue.lock_session_in_tx(event.agent_uid, event.session_id) do
+      case Ankole.Signals.lock_signal_in_tx(event.id) do
         %Signal{status: :completed} = completed_event ->
           {:ok, %{status: :already_completed, signal: completed_event}}
 
@@ -93,10 +95,10 @@ defmodule Ankole.Sessions.Ambient do
               {:ok, %{status: :ambient_fresh, signal: locked_event}}
 
             locked_event.last_attempt_at ->
-              resolve_attempted_event(repo, locked_event, now)
+              resolve_attempted_event(locked_event, now)
 
             true ->
-              resolve_locked_event(repo, locked_event, now)
+              resolve_locked_event(locked_event, now)
           end
 
         %Signal{} = unavailable_event ->
@@ -108,24 +110,24 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  defp resolve_attempted_event(repo, locked_event, now) do
-    case stale_reason(repo, locked_event, now) do
+  defp resolve_attempted_event(locked_event, now) do
+    case stale_reason(locked_event, now) do
       nil ->
         {:ok, %{status: :ambient_fresh, signal: locked_event}}
 
       reason ->
-        with {:ok, event} <- Queue.mark_event_completed_in_tx(repo, locked_event, now),
+        with {:ok, event} <- Queue.mark_event_completed_in_tx(locked_event, now),
              do: {:ok, %{status: :ambient_superseded, signal: event, reason: reason}}
     end
   end
 
-  defp resolve_locked_event(repo, event, now) do
-    pending_events = lock_pending_ambient_events(repo, event)
-    current_scene_fingerprint = current_scene_fingerprint(repo, event.conversation_id)
+  defp resolve_locked_event(event, now) do
+    pending_events = lock_pending_ambient_events(event)
+    current_scene_fingerprint = current_scene_fingerprint(event.conversation_id)
 
     classified =
       Enum.map(pending_events, fn pending_event ->
-        {pending_event, stale_reason(repo, pending_event, now, current_scene_fingerprint)}
+        {pending_event, stale_reason(pending_event, now, current_scene_fingerprint)}
       end)
 
     latest_fresh_event =
@@ -151,7 +153,7 @@ defmodule Ankole.Sessions.Ambient do
           [{pending_event, reason}]
       end)
 
-    with {:ok, completed_by_id} <- complete_superseded(repo, superseded, now) do
+    with {:ok, completed_by_id} <- complete_superseded(superseded, now) do
       case Map.get(completed_by_id, event.id) do
         {%Signal{} = completed_event, reason} ->
           {:ok,
@@ -176,13 +178,13 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  defp lock_pending_ambient_events(repo, %Signal{} = event) do
+  defp lock_pending_ambient_events(%Signal{} = event) do
     channel =
       if is_binary(event.conversation_id),
         do: event.conversation_id,
         else: [is_nil: true]
 
-    Ankole.Signals.lock_signals_in_tx(repo,
+    Ankole.Signals.lock_signals_in_tx(
       agent_uid: event.agent_uid,
       session_id: event.session_id,
       type: "im.message.may_intervene",
@@ -193,9 +195,9 @@ defmodule Ankole.Sessions.Ambient do
     )
   end
 
-  defp complete_superseded(repo, superseded, now) do
+  defp complete_superseded(superseded, now) do
     Enum.reduce_while(superseded, {:ok, %{}}, fn {event, reason}, {:ok, completed_by_id} ->
-      case Queue.mark_event_completed_in_tx(repo, event, now) do
+      case Queue.mark_event_completed_in_tx(event, now) do
         {:ok, completed_event} ->
           completed_by_id = Map.put(completed_by_id, event.id, {completed_event, reason})
           {:cont, {:ok, completed_by_id}}
@@ -207,11 +209,10 @@ defmodule Ankole.Sessions.Ambient do
   end
 
   @doc "Gives the work candidates of an ambient input outside a transaction."
-  def candidates(event), do: candidates_in_tx(Ankole.Repo, event)
+  def candidates(event), do: candidates_in_tx(event)
 
-  def candidates_in_tx(repo, event) do
+  def candidates_in_tx(event) do
     BackgroundAgentJobQueries.ambient_candidates_in_tx(
-      repo,
       event.agent_uid,
       event.session_id,
       event.conversation_id,
@@ -235,28 +236,28 @@ defmodule Ankole.Sessions.Ambient do
     }
   end
 
-  defp stale_reason(repo, %Signal{} = event, now) do
-    current_scene_fingerprint = current_scene_fingerprint(repo, event.conversation_id)
-    stale_reason(repo, event, now, current_scene_fingerprint)
+  defp stale_reason(%Signal{} = event, now) do
+    current_scene_fingerprint = current_scene_fingerprint(event.conversation_id)
+    stale_reason(event, now, current_scene_fingerprint)
   end
 
   @doc false
-  @spec ensure_fresh_in_tx(module(), Signal.t(), DateTime.t()) ::
+  @spec ensure_fresh_in_tx(Signal.t(), DateTime.t()) ::
           :ok | {:error, {:ambient_stale, atom()}}
-  def ensure_fresh_in_tx(repo, %Signal{} = event, %DateTime{} = now) do
-    case stale_reason(repo, event, now) do
+  def ensure_fresh_in_tx(%Signal{} = event, %DateTime{} = now) do
+    case stale_reason(event, now) do
       nil -> :ok
       reason -> {:error, {:ambient_stale, reason}}
     end
   end
 
-  defp stale_reason(repo, %Signal{} = event, now, current_scene_fingerprint) do
+  defp stale_reason(%Signal{} = event, now, current_scene_fingerprint) do
     ambient_batch = event.data["ambient_batch"]
     stored_fingerprint = map_value(ambient_batch, "scene_fingerprint")
     expires_at = ambient_batch |> map_value("expires_at") |> Ankole.Attrs.parse_datetime()
 
     cond do
-      not current_binding_allows_intervention?(repo, event) ->
+      not current_binding_allows_intervention?(event) ->
         :binding_policy_changed
 
       not is_binary(stored_fingerprint) or is_nil(expires_at) ->
@@ -276,15 +277,15 @@ defmodule Ankole.Sessions.Ambient do
     end
   end
 
-  defp current_scene_fingerprint(repo, conversation_id) when is_binary(conversation_id),
-    do: Context.ambient_scene_fingerprint(repo, conversation_id)
+  defp current_scene_fingerprint(conversation_id) when is_binary(conversation_id),
+    do: Context.ambient_scene_fingerprint(conversation_id)
 
-  defp current_scene_fingerprint(_repo, _conversation_id), do: nil
+  defp current_scene_fingerprint(_conversation_id), do: nil
 
-  defp current_binding_allows_intervention?(repo, %Signal{} = event) do
+  defp current_binding_allows_intervention?(%Signal{} = event) do
     binding =
       is_binary(event.reply_binding_name) &&
-        Ankole.Signals.share_binding_in_tx(repo, event.agent_uid, event.reply_binding_name)
+        Ankole.Signals.share_binding_in_tx(event.agent_uid, event.reply_binding_name)
 
     case binding do
       %Binding{

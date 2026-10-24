@@ -20,7 +20,6 @@ defmodule Ankole.Brain.Tools do
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
-  alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Scope
   alias Ankole.Brain.SourceLearning
   alias Ankole.Brain.Sources
@@ -348,7 +347,7 @@ defmodule Ankole.Brain.Tools do
             valid_from: DateTime.utc_now(:microsecond)
           })
 
-        Ankole.Ash.run_action(Claim, :write_fact, %{attrs: attrs, writer: context.querier_uid})
+        Claims.write_fact(attrs, context.querier_uid)
 
       kind in Claims.fact_kinds() ->
         {:error, :until_date_only_for_takes}

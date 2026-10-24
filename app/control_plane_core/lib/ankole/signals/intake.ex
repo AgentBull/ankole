@@ -12,8 +12,8 @@ defmodule Ankole.Signals.Intake do
   alias Ankole.Signals.Signal
   alias Ankole.Errors.Invalid.Stale
 
-  def accept(repo, attrs) do
-    with {:ok, [signal]} <- accept_all(repo, [attrs]), do: {:ok, signal}
+  def accept(attrs) do
+    with {:ok, [signal]} <- accept_all([attrs]), do: {:ok, signal}
   end
 
   @doc """
@@ -23,32 +23,32 @@ defmodule Ankole.Signals.Intake do
   Signal row. One query reads the existing Signals and one bulk insert writes
   the new Signals. The result has one Signal for each input, in the input order.
   """
-  def accept_all(_repo, []), do: {:ok, []}
+  def accept_all([]), do: {:ok, []}
 
-  def accept_all(repo, attrs_list) do
+  def accept_all(attrs_list) do
     Ankole.Observability.stage("signal.intake.prepared_in_tx", %{}, fn ->
-      accept_all_in_tx(repo, attrs_list)
+      accept_all_in_tx(attrs_list)
     end)
   end
 
-  defp accept_all_in_tx(repo, attrs_list) do
-    with {:ok, facts} <- all_facts(repo, attrs_list),
-         :ok <- Queue.lock_sessions_in_tx(repo, Enum.map(facts, &{&1.agent_uid, &1.session_id})),
+  defp accept_all_in_tx(attrs_list) do
+    with {:ok, facts} <- all_facts(attrs_list),
+         :ok <- Queue.lock_sessions_in_tx(Enum.map(facts, &{&1.agent_uid, &1.session_id})),
          {:ok, signals} <- persist(facts),
-         :ok <- wake_sessions(repo, signals) do
+         :ok <- wake_sessions(signals) do
       {:ok, signals}
     end
   end
 
   # An Agent target reads its Principal one time for each Agent in the list.
-  defp all_facts(repo, attrs_list) do
+  defp all_facts(attrs_list) do
     attrs_list
     |> Enum.reduce_while({:ok, [], %{}}, fn attrs, {:ok, facts, principals} ->
       target = Ankole.Attrs.get(attrs, :target)
       {principal, principals} = agent_principal(target, principals)
 
       with {:ok, target} <- resolve_target(target, principal),
-           {:ok, fact} <- facts(repo, attrs, target) do
+           {:ok, fact} <- facts(attrs, target) do
         {:cont, {:ok, [fact | facts], principals}}
       else
         error -> {:halt, error}
@@ -73,14 +73,13 @@ defmodule Ankole.Signals.Intake do
 
   defp agent_principal(_target, principals), do: {nil, principals}
 
-  defp wake_sessions(repo, signals) do
+  defp wake_sessions(signals) do
     signals
     |> Enum.uniq_by(& &1.id)
     |> Enum.reduce_while(:ok, fn signal, :ok ->
-      with {:ok, _} <- Interactions.supersede_older_in_tx(repo, signal, signal.inserted_at),
+      with {:ok, _} <- Interactions.supersede_older_in_tx(signal, signal.inserted_at),
            :ok <-
              EnsureDriver.enqueue_in_tx(
-               repo,
                %{agent_uid: signal.agent_uid, session_id: signal.session_id},
                signal.available_at
              ) do
@@ -131,7 +130,7 @@ defmodule Ankole.Signals.Intake do
     end
   end
 
-  defp facts(repo, attrs, target) do
+  defp facts(attrs, target) do
     with {:ok, source} <- required_text(attrs, :source),
          {:ok, producer} <- producer(Ankole.Attrs.get(attrs, :producer)),
          {:ok, id} <- required_text(attrs, :id),
@@ -147,7 +146,7 @@ defmodule Ankole.Signals.Intake do
 
       authorization =
         case Ankole.Attrs.get(attrs, :authorization) do
-          nil -> WorkAccess.from_sender(repo, sender)
+          nil -> WorkAccess.from_sender(sender)
           snapshot -> WorkAccess.fields(snapshot)
         end
 

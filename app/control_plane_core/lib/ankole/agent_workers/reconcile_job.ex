@@ -83,7 +83,9 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     case observe(uid) do
       {:ok, seen} ->
         {:ok, %{step: step, worker: worker}} =
-          AgentWorkers.decide_reconcile_step(uid, seen, previous, prepared)
+          Repo.transact_top_level(fn ->
+            decide_in_tx(%{agent_uid: uid, seen: seen, previous: previous, prepared: prepared})
+          end)
 
         notify_change(seen.worker, worker)
 
@@ -129,7 +131,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp decide(uid, seen, previous, prepared) do
-    case AgentWorkers.lock_in_tx(Repo, uid) do
+    case AgentWorkers.lock_in_tx(uid) do
       nil ->
         :done
 
@@ -215,7 +217,9 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     result = call(action, facts)
 
     {:ok, %{recorded: recorded, worker: worker}} =
-      AgentWorkers.record_reconcile_result(action, facts, result)
+      Repo.transact_top_level(fn ->
+        record_in_tx(%{call: action, facts: facts, result: result})
+      end)
 
     notify_change(facts.worker, worker)
 
@@ -467,7 +471,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp record(action, facts, result) do
-    case AgentWorkers.lock_in_tx(Repo, facts.worker.agent_uid) do
+    case AgentWorkers.lock_in_tx(facts.worker.agent_uid) do
       nil ->
         :ok
 
@@ -586,13 +590,25 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp record_prepare_error(uid, provider_id, reason, kind) do
-    {:ok, _worker} = AgentWorkers.record_prepare_error(uid, provider_id, inspect(reason), kind)
+    {:ok, _worker} =
+      Repo.transact_top_level(
+        fn ->
+          record_prepare_error_in_tx(%{
+            agent_uid: uid,
+            provider_id: provider_id,
+            reason: inspect(reason),
+            kind: kind
+          })
+        end,
+        after_commit: &WorkerAdmission.publish_worker/1
+      )
+
     :ok
   end
 
   @doc false
   def record_prepare_error_in_tx(%{agent_uid: uid, provider_id: provider_id} = input) do
-    case AgentWorkers.lock_in_tx(Repo, uid) do
+    case AgentWorkers.lock_in_tx(uid) do
       %AgentWorker{state: :absent, provider_id: ^provider_id} = worker ->
         {:ok, write(worker, :observe, AgentWorker.error_fields(input.reason, input.kind))}
 

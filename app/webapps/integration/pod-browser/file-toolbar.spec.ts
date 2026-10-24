@@ -26,7 +26,7 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
       buffer: Buffer.from(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }))
     }
     let calls = 0
-    await page.route(`**/.internal-apis/pod/pages/${id}/files`, async route => {
+    await page.route(`**/api/v2/pod/pages/${id}/files`, async route => {
       if (route.request().method() !== 'POST') return route.continue()
       calls++
       if (calls === 1) return route.fulfill({ status: 503, json: { error: 'Upload temporarily unavailable' } })

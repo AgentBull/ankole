@@ -158,7 +158,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, _other} = Ankole.AIGatewayCase.ensure_conversation(other_subject.uid, "selected")
 
     assert [conversation] =
-             AIGateway.list_active_conversations(Repo,
+             AIGateway.list_active_conversations(
                subject_uid: subject.uid,
                conversation_key: "selected",
                limit: 10
@@ -192,9 +192,8 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
              })
 
     assert {:ok, %{status: :deleted, deleted_count: 1}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                AIGateway.hard_delete_visible_suffix_in_tx(
-                 repo,
                  subject.uid,
                  conversation.id,
                  ["resp_#{anchor.id}"]
@@ -240,9 +239,8 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
               retracted_count: 2,
               retracted_message_ids: [second_id, first_id]
             }} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                AIGateway.retract_visible_suffix_in_tx(
-                 repo,
                  subject.uid,
                  conversation.id,
                  ["resp_#{second.id}", "resp_#{first.id}"],
@@ -280,9 +278,8 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, failed} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                AIGateway.fail_generating_response_in_tx(
-                 repo,
                  subject.uid,
                  "resp_#{response.id}",
                  %{"code" => "cancelled"},
@@ -345,9 +342,8 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     assert touched.metadata["provider_model"] == "kept-model"
 
     assert {:ok, failed} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                ResponseCommit.fail_generating_response_in_tx(
-                 repo,
                  subject.uid,
                  "resp_#{response.id}",
                  %{"code" => "cancelled"},
@@ -377,8 +373,8 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   defp record_tool_results(attrs) do
     {:ok, result} =
-      Ankole.Repo.transact(fn repo ->
-        {:ok, ToolResultJournal.record_tool_results_in_tx(repo, attrs)}
+      Ankole.Repo.transact(fn ->
+        {:ok, ToolResultJournal.record_tool_results_in_tx(attrs)}
       end)
 
     case result do

@@ -63,9 +63,8 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, conversation} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                External.observe_conversation_in_tx(
-                 repo,
                  binding,
                  %{
                    provider_conversation_id: "lark:#{chat_id}",
@@ -157,7 +156,7 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
     assert request.body["msg_type"] == "text"
     assert Ankole.JSON.decode!(request.body["content"]) == %{"text" => "Recovered final reply"}
 
-    assert %{message: message} = External.get_message(Repo, conversation.id, "om_recovered")
+    assert %{message: message} = External.get_message(conversation.id, "om_recovered")
     assert message.text == "Recovered final reply"
 
     assert :ok = perform_job(Reconciler, %{})

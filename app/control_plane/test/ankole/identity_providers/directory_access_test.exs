@@ -13,8 +13,8 @@ defmodule Ankole.IdentityProviders.DirectoryAccessTest do
     assert healthy.status == :healthy
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo ->
-               :ok = DirectoryAccess.configuration_changed_in_tx(repo, ticket.provider_id)
+             Repo.transact(fn ->
+               :ok = DirectoryAccess.configuration_changed_in_tx(ticket.provider_id)
                {:ok, :ok}
              end)
 
@@ -32,7 +32,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccessTest do
     {:ok, ticket} = DirectoryAccess.begin_sync("immutable-provider")
 
     assert {:error, error} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(ticket, :receive_event_in_tx, %{revision: 999, status: :healthy})
              end)
 
@@ -49,7 +49,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccessTest do
       })
 
     assert {:error, error} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(event, :review_in_tx, %{
                  provider_id: "substituted",
                  review_reason: "Verified"

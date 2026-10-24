@@ -28,13 +28,13 @@ defmodule Ankole.Conversations.Delivery do
   @doc """
   Records a provider-visible intent inside a caller-owned transaction.
   """
-  @spec commit_in_tx(module(), map()) :: {:ok, Intent.t()} | {:error, term()}
-  def commit_in_tx(repo, attrs) when is_map(attrs) do
+  @spec commit_in_tx(map()) :: {:ok, Intent.t()} | {:error, term()}
+  def commit_in_tx(attrs) when is_map(attrs) do
     with :ok <- verify_attachment_destination(attrs),
          {:ok, %Intent{} = intent} <-
            Ankole.Ash.create(Intent, :commit, attrs),
-         :ok <- reference_attachments(repo, intent),
-         :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, intent) do
+         :ok <- reference_attachments(intent),
+         :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(intent) do
       {:ok, intent}
     end
   end
@@ -51,9 +51,9 @@ defmodule Ankole.Conversations.Delivery do
     end)
   end
 
-  defp reference_attachments(_repo, %Intent{status: :sent}), do: :ok
+  defp reference_attachments(%Intent{status: :sent}), do: :ok
 
-  defp reference_attachments(repo, %Intent{payload: payload}) do
+  defp reference_attachments(%Intent{payload: payload}) do
     references =
       payload
       |> Map.get("attachments", [])
@@ -62,7 +62,7 @@ defmodule Ankole.Conversations.Delivery do
         _legacy_attachment -> []
       end)
 
-    Ankole.Files.reference_contents_in_tx(repo, references)
+    Ankole.Files.reference_contents_in_tx(references)
   end
 
   @doc """
@@ -74,14 +74,12 @@ defmodule Ankole.Conversations.Delivery do
   conversation mirror the agent reads back.
   """
   @spec commit_reply_attachments_in_tx(
-          module(),
           Signal.t(),
           binary(),
           [map()],
           keyword()
         ) :: {:ok, [Intent.t()]} | {:error, term()}
   def commit_reply_attachments_in_tx(
-        repo,
         %Signal{} = signal,
         ai_message_id,
         attachments,
@@ -93,7 +91,6 @@ defmodule Ankole.Conversations.Delivery do
       for target <- reply_targets(signal, opts),
           {attachment, index} <- Enum.with_index(attachments) do
         commit_reply_attachment_intent_in_tx(
-          repo,
           signal,
           ai_message_id,
           target,
@@ -132,7 +129,6 @@ defmodule Ankole.Conversations.Delivery do
   Commits the durable final replies adopted by an explicit Agent Turn completion.
   """
   @spec commit_final_reply_in_tx(
-          module(),
           Signal.t(),
           Message.t(),
           String.t(),
@@ -140,7 +136,6 @@ defmodule Ankole.Conversations.Delivery do
         ) ::
           {:ok, [Intent.t()]} | {:error, term()}
   def commit_final_reply_in_tx(
-        repo,
         %Signal{} = signal,
         %Message{} = message,
         text,
@@ -155,7 +150,6 @@ defmodule Ankole.Conversations.Delivery do
         |> reply_targets(opts)
         |> Enum.map(
           &commit_final_reply_intent_in_tx(
-            repo,
             signal,
             message,
             final_text,
@@ -169,7 +163,6 @@ defmodule Ankole.Conversations.Delivery do
 
   @doc false
   @spec commit_clarify_reply_in_tx(
-          module(),
           Signal.t(),
           Message.t(),
           String.t(),
@@ -177,7 +170,6 @@ defmodule Ankole.Conversations.Delivery do
           keyword()
         ) :: {:ok, Intent.t()} | {:error, term()}
   def commit_clarify_reply_in_tx(
-        repo,
         %Signal{} = signal,
         %Message{} = message,
         text,
@@ -193,7 +185,6 @@ defmodule Ankole.Conversations.Delivery do
       outbound_key = "ai-reply:#{message.id}"
 
       commit_in_tx(
-        repo,
         Map.merge(
           %{
             agent_uid: signal.agent_uid,
@@ -228,7 +219,6 @@ defmodule Ankole.Conversations.Delivery do
 
   @doc false
   def commit_notice_in_tx(
-        repo,
         %Signal{} = signal,
         text,
         %{
@@ -254,7 +244,6 @@ defmodule Ankole.Conversations.Delivery do
               if(target.key, do: ":#{target.key}", else: "")
 
           commit_in_tx(
-            repo,
             Map.merge(
               %{
                 agent_uid: signal.agent_uid,
@@ -342,9 +331,7 @@ defmodule Ankole.Conversations.Delivery do
         (created_provider_message_id == ^provider_message_id or
            fragment("(? -> ?) @> to_jsonb(?::text)", payload, ^payload_key, ^provider_message_id))
     )
-    |> Ash.Query.limit(1)
-    |> Ankole.Ash.read!()
-    |> Enum.any?()
+    |> Ankole.Ash.exists?()
   end
 
   @doc """
@@ -382,7 +369,6 @@ defmodule Ankole.Conversations.Delivery do
   def effective_operation(operation, _capabilities), do: operation
 
   defp commit_reply_attachment_intent_in_tx(
-         repo,
          %Signal{} = signal,
          ai_message_id,
          target,
@@ -397,7 +383,6 @@ defmodule Ankole.Conversations.Delivery do
       outbound_key = reply_attachment_outbound_key(ai_message_id, target, index)
 
       commit_in_tx(
-        repo,
         Map.merge(
           %{
             agent_uid: routed_event.agent_uid,
@@ -429,7 +414,6 @@ defmodule Ankole.Conversations.Delivery do
   end
 
   defp commit_final_reply_intent_in_tx(
-         repo,
          %Signal{} = signal,
          %Message{} = message,
          final_text,
@@ -456,7 +440,6 @@ defmodule Ankole.Conversations.Delivery do
       payload = maybe_put_reply_presentation(payload, routed_event, target, final_text, opts)
 
       commit_in_tx(
-        repo,
         Map.merge(
           %{
             agent_uid: routed_event.agent_uid,
@@ -710,10 +693,10 @@ defmodule Ankole.Conversations.Delivery do
   defdelegate requeue(arg1, arg2, arg3, arg4 \\ []), to: Ankole.Conversations.Delivery.Recovery
   defdelegate wake_blocked_for_binding(arg1, arg2), to: Ankole.Conversations.Delivery.Recovery
 
-  defdelegate resolve_durable_reply_signal_in_tx(arg1, arg2, arg3, arg4, arg5),
+  defdelegate resolve_durable_reply_signal_in_tx(arg1, arg2, arg3, arg4),
     to: Ankole.Conversations.Delivery.Queries
 
-  defdelegate durable_reply_surface_exists_in_tx?(arg1, arg2, arg3, arg4, arg5),
+  defdelegate durable_reply_surface_exists_in_tx?(arg1, arg2, arg3, arg4),
     to: Ankole.Conversations.Delivery.Queries
 
   defdelegate list_stopped_deliveries(arg1 \\ nil), to: Ankole.Conversations.Delivery.Queries

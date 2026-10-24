@@ -1,7 +1,7 @@
 import { state, request as podRequest } from './fixtures'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import type { ConversationDetail } from '../../common/api/generated/types.gen'
+import type { ConversationDetail } from '../../pod/api'
 import { conversationRoute } from './routes'
 
 const png = readFileSync(new URL('../../../control_plane/test/fixtures/sessions/rgba.png', import.meta.url))
@@ -50,7 +50,7 @@ async function createChat(page: Page) {
   await composer.getByRole('textbox', { name: '消息', exact: true }).fill('Attachment preview browser fixture')
   const sent = page.waitForResponse(
     response =>
-      response.request().method() === 'POST' && new URL(response.url()).pathname === '/.internal-apis/pod/conversations'
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
   )
   await composer.getByRole('button', { name: '发送消息', exact: true }).click()
   const detail = (await (await sent).json()) as ConversationDetail
@@ -76,7 +76,7 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     const expectedIdentity = await page.locator('meta[name="ankole-authentication"]').getAttribute('content')
     let reads = 0
     // Keep the real HTTP adapter: the first read reaches the server with a missing path.
-    await page.route('**/.internal-apis/pod/conversations/*/attachments/**', async route => {
+    await page.route('**/api/v2/pod/conversations/*/attachments/**', async route => {
       const url = new URL(route.request().url())
       if (url.searchParams.get('path') === attachment.path && reads++ === 0) {
         url.searchParams.set('path', 'missing-preview-file.txt')
@@ -202,7 +202,7 @@ test('closing a pending preview aborts its request, and removing its owning mess
     page.on('requestfailed', request => {
       if (matches(request.url())) failed++
     })
-    await page.route('**/.internal-apis/pod/conversations/*/attachments/**', async route => {
+    await page.route('**/api/v2/pod/conversations/*/attachments/**', async route => {
       if (!matches(route.request().url())) return route.continue()
       started.resolve()
       await gate.promise

@@ -7,13 +7,13 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   alias Ankole.Conversations.External
   alias Ankole.Conversations.Attachments
 
-  def finalize_successful_intent(repo, intent, conversation, result, now) do
-    with {:ok, sent} <- mark_intent_succeeded(repo, intent, result),
-         {:ok, sent} <- mirror_intent_success(repo, sent, conversation, result, now),
+  def finalize_successful_intent(intent, conversation, result, now) do
+    with {:ok, sent} <- mark_intent_succeeded(intent, result),
+         {:ok, sent} <- mirror_intent_success(sent, conversation, result, now),
          do: {:ok, sent}
   end
 
-  defp mark_intent_succeeded(repo, intent, result) do
+  defp mark_intent_succeeded(intent, result) do
     recovery_state = result_map(result, :recovery_state, intent.recovery_state)
     payload = result_map(result, :payload, intent.payload)
     delivered_operation_attrs = delivered_operation_attrs(intent, result)
@@ -40,7 +40,7 @@ defmodule Ankole.Conversations.Delivery.Mirror do
       |> case do
         {:ok, succeeded} ->
           with :ok <-
-                 Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, succeeded),
+                 Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(succeeded),
                do: {:ok, succeeded}
 
         error ->
@@ -85,7 +85,6 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   end
 
   defp mirror_intent_success(
-         repo,
          %Intent{operation: operation} = intent,
          _conversation,
          result,
@@ -100,7 +99,7 @@ defmodule Ankole.Conversations.Delivery.Mirror do
 
     Enum.reduce_while(Enum.with_index(parts), {:ok, intent, nil}, fn {part, index},
                                                                      {:ok, current, first_id} ->
-      case record_delivered_message(repo, current, part, index, now) do
+      case record_delivered_message(current, part, index, now) do
         {:ok, message} -> {:cont, {:ok, current, first_id || message.id}}
         {:error, _} = error -> {:halt, error}
       end
@@ -115,19 +114,17 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   end
 
   defp mirror_intent_success(
-         repo,
          %Intent{operation: :delete} = intent,
          _conversation,
          _result,
          _now
        ) do
     with {:ok, _} <-
-           External.remove_in_tx(repo, intent.conversation_id, intent.target_provider_message_id),
+           External.remove_in_tx(intent.conversation_id, intent.target_provider_message_id),
          do: {:ok, intent}
   end
 
   defp mirror_intent_success(
-         repo,
          %Intent{operation: operation} = intent,
          _conversation,
          _result,
@@ -136,7 +133,6 @@ defmodule Ankole.Conversations.Delivery.Mirror do
        when operation in [:reaction_add, :reaction_remove] do
     with {:ok, _} <-
            External.fold_reaction_in_tx(
-             repo,
              intent.conversation_id,
              intent.target_provider_message_id,
              %{
@@ -150,11 +146,11 @@ defmodule Ankole.Conversations.Delivery.Mirror do
          do: {:ok, intent}
   end
 
-  defp record_delivered_message(repo, intent, result, index, now) do
+  defp record_delivered_message(intent, result, index, now) do
     provider_id = delivered_provider_message_id(intent, result, index)
 
     if is_binary(provider_id) do
-      prior = prior_delivery_observation(repo, intent.conversation_id, provider_id)
+      prior = prior_delivery_observation(intent.conversation_id, provider_id)
       text = delivered_message_text(result, intent)
       payload = result_map(result, :payload, intent.payload)
 
@@ -181,11 +177,11 @@ defmodule Ankole.Conversations.Delivery.Mirror do
         provider_time: result_datetime(result, :provider_time),
         ai_message_id: intent.ai_message_id,
         signal_id: intent.source_signal_id,
-        session_id: delivery_source_session_id(repo, intent.source_signal_id)
+        session_id: delivery_source_session_id(intent.source_signal_id)
       }
 
       with {:ok, %{message: message}} <-
-             External.record_delivery_in_tx(repo, intent.conversation_id, observation, now),
+             External.record_delivery_in_tx(intent.conversation_id, observation, now),
            do: {:ok, message}
     else
       {:error, :delivery_provider_message_id_missing}
@@ -203,8 +199,8 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   defp delivered_message_text(result, intent),
     do: result_text(result, :fallback_visible_text) || intent.fallback_visible_text
 
-  defp prior_delivery_observation(repo, conversation_id, provider_message_id) do
-    External.get_message(repo, conversation_id, provider_message_id) ||
+  defp prior_delivery_observation(conversation_id, provider_message_id) do
+    External.get_message(conversation_id, provider_message_id) ||
       %{
         message: %{attachments: [], links: [], mentions: []},
         external_ref: %{
@@ -215,9 +211,9 @@ defmodule Ankole.Conversations.Delivery.Mirror do
       }
   end
 
-  defp delivery_source_session_id(_repo, nil), do: nil
+  defp delivery_source_session_id(nil), do: nil
 
-  defp delivery_source_session_id(_repo, signal_id) do
+  defp delivery_source_session_id(signal_id) do
     case Ankole.Signals.get_signal!(signal_id) do
       %Signal{session_id: session_id} -> session_id
       nil -> nil

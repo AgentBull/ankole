@@ -3,6 +3,7 @@ import { Wordgard } from '../../../src/core/editor'
 import { Command } from '../../../src/core/command/command'
 import { insertText } from '../../../src/core/command/commands'
 import { Leaf, Node } from '../../../src/core/doc'
+import { GardSelection } from '../../../src/core/state'
 import ist from 'ist'
 import { requireFocus, tempEditor } from './tempview'
 import { r, rWord, rLetter } from '../generate'
@@ -19,6 +20,7 @@ function inputEvent(wg: Wordgard, type: string, init: InputEventInit) {
 }
 
 function domDel(wg: Wordgard, node: Text, from: number, to: number) {
+  wg.dispatch({ selection: GardSelection.range(wg.posAtDOM(node, from), wg.posAtDOM(node, to)) })
   inputEvent(wg, 'beforeinput', {
     inputType: 'deleteContentBackward',
     data: '',
@@ -32,6 +34,9 @@ function domDel(wg: Wordgard, node: Text, from: number, to: number) {
 }
 
 function domIns(wg: Wordgard, node: Text, text: string, from: number, to = from) {
+  // Plain typing replaces the selected range. Move the caret without drawing,
+  // so these tests still exercise several DOM changes between flushes.
+  wg.dispatch({ selection: GardSelection.range(wg.posAtDOM(node, from), wg.posAtDOM(node, to)) })
   inputEvent(wg, 'beforeinput', {
     inputType: 'insertText',
     data: text,

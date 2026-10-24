@@ -127,9 +127,9 @@ defmodule Ankole.AIGateway.ResponseChain do
   This is a generic Response query. Callers may filter by lifecycle status, but
   AIGateway does not interpret caller metadata or choose an Actor target.
   """
-  @spec list_conversation_responses_in_tx(module(), String.t(), binary(), keyword()) ::
+  @spec list_conversation_responses_in_tx(String.t(), binary(), keyword()) ::
           {:ok, [Message.t()]} | {:error, :invalid_conversation}
-  def list_conversation_responses_in_tx(_repo, subject_uid, conversation_id, opts \\ []) do
+  def list_conversation_responses_in_tx(subject_uid, conversation_id, opts \\ []) do
     statuses = Keyword.get(opts, :statuses)
 
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
@@ -172,7 +172,6 @@ defmodule Ankole.AIGateway.ResponseChain do
   complete leaf suffix. AIGateway never chooses the suffix from caller metadata.
   """
   @spec hard_delete_visible_suffix_in_tx(
-          module(),
           String.t(),
           binary(),
           [binary()],
@@ -187,7 +186,6 @@ defmodule Ankole.AIGateway.ResponseChain do
            }}
           | {:error, term()}
   def hard_delete_visible_suffix_in_tx(
-        _repo,
         subject_uid,
         conversation_id,
         response_ids,
@@ -213,7 +211,6 @@ defmodule Ankole.AIGateway.ResponseChain do
   complete leaf suffix.
   """
   @spec retract_visible_suffix_in_tx(
-          module(),
           String.t(),
           binary(),
           [binary()],
@@ -227,7 +224,7 @@ defmodule Ankole.AIGateway.ResponseChain do
              optional(:reason) => atom()
            }}
           | {:error, term()}
-  def retract_visible_suffix_in_tx(_repo, subject_uid, conversation_id, response_ids, opts \\ []) do
+  def retract_visible_suffix_in_tx(subject_uid, conversation_id, response_ids, opts \\ []) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
          {:ok, message_ids} <- decode_response_ids(response_ids),
@@ -373,16 +370,15 @@ defmodule Ankole.AIGateway.ResponseChain do
   end
 
   defp complete_response_rows?(conversation_id, message_ids) do
-    complete =
+    complete_count =
       Message
       |> Ash.Query.filter(
         id in ^message_ids and conversation_id == ^conversation_id and type == :message and
           status == :complete
       )
-      |> Ash.Query.select([:id])
-      |> Ankole.Ash.read!()
+      |> Ankole.Ash.count!()
 
-    length(complete) == length(message_ids)
+    complete_count == length(message_ids)
   end
 
   defp response_suffix_has_external_children?(conversation_id, message_ids) do
@@ -391,10 +387,7 @@ defmodule Ankole.AIGateway.ResponseChain do
       conversation_id == ^conversation_id and previous_message_id in ^message_ids and
         id not in ^message_ids and status == :complete
     )
-    |> Ash.Query.limit(1)
-    |> Ash.Query.select([:id])
-    |> Ankole.Ash.read!()
-    |> Enum.any?()
+    |> Ankole.Ash.exists?()
   end
 
   defp decode_response_ids(response_ids) when is_list(response_ids) do

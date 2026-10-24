@@ -3,9 +3,8 @@ defmodule Ankole.BackgroundAgentJobs do
   Durable BackgroundAgentJob work items and normalized runtime-turn trajectories.
 
   This module is the domain of the Job, Turn, and TurnItem resources. PostgreSQL
-  owns work lifecycle and trajectory truth. Each operation that changes more
-  than one row runs one generic action that owns its transaction, so the
-  operation must be the top-level call. The `_in_tx` functions are the
+  owns work lifecycle and trajectory truth. Each top-level operation that changes
+  more than one row owns its transaction. The `_in_tx` functions are the
   composition steps that other domains call inside their own operation. The
   internal modules keep dispatch, lifecycle transitions, control actions,
   queries, and turn persistence as separate responsibilities.
@@ -15,10 +14,10 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @behaviour Ankole.Sessions.AsyncWorkUnit
 
+  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs.Control
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
@@ -33,7 +32,6 @@ defmodule Ankole.BackgroundAgentJobs do
     resource Ankole.BackgroundAgentJobs.Schemas.Job do
       define(:list_jobs, action: :read)
       define(:record_lessons_applied_job, action: :record_lessons_applied)
-      define(:reauthorize_job, action: :reauthorize)
     end
 
     resource(Ankole.BackgroundAgentJobs.Schemas.Turn)
@@ -145,41 +143,44 @@ defmodule Ankole.BackgroundAgentJobs do
 
   In a caller's transaction, use `Dispatch.create_with_dispatch_in_tx/2`.
   """
-  def create_with_dispatch(attrs), do: Ankole.Ash.run_action(Job, :start, %{attrs: attrs})
+  def create_with_dispatch(attrs) when is_map(attrs),
+    do: Repo.transact_top_level(fn -> Dispatch.create_with_dispatch_in_tx(attrs) end)
 
   @doc "Creates one durable successor for a terminal Job and dispatches it atomically."
-  def respawn_with_dispatch(source_job_id, attrs),
-    do: Ankole.Ash.run_action(Job, :respawn, %{source_job_id: source_job_id, attrs: attrs})
+  def respawn_with_dispatch(source_job_id, attrs)
+      when is_integer(source_job_id) and is_map(attrs) do
+    Repo.transact_top_level(fn ->
+      Dispatch.respawn_with_dispatch_in_tx(source_job_id, attrs)
+    end)
+  end
 
   @doc false
-  defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
+  defdelegate requeue_credential_pool_exhausted_attempt_in_tx(job_id, agent_uid),
     to: Lifecycle
 
   @doc "Completes a job Signal that no longer needs execution."
-  def complete_signal(signal), do: Ankole.Ash.run_action(Job, :complete_signal, %{signal: signal})
+  def complete_signal(%Signal{} = signal),
+    do: Repo.transact_top_level(fn -> Dispatch.complete_signal_in_tx(signal) end)
 
   @doc """
   Commits one lifecycle transition and its parent wakeup atomically, then wakes
   the Job driver.
   """
-  def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ []) do
-    Ankole.Ash.run_action(Job, :commit_status, %{
-      job_id: job_id,
-      agent_uid: agent_uid,
-      attrs: attrs,
-      options: opts
-    })
+  def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ [])
+      when is_integer(job_id) and is_binary(agent_uid) and is_map(attrs) do
+    Repo.transact_top_level(
+      fn -> Lifecycle.commit_status_in_tx(job_id, agent_uid, attrs, opts) end,
+      after_commit: &Lifecycle.publish_status_commit/1
+    )
   end
 
   defp fail_turn_persistence_rejection_in_tx(
-         repo,
          job_id,
          agent_uid,
          %DateTime{} = now
        ) do
     with {:ok, result} <-
            Lifecycle.commit_status_after_runtime_prefix_in_tx(
-             repo,
              job_id,
              agent_uid,
              %{
@@ -199,14 +200,13 @@ defmodule Ankole.BackgroundAgentJobs do
              transition_action: :fail_turn
            ),
          {:ok, :ok} <-
-           Dispatch.complete_all_open_events_in_tx(repo, job_id, agent_uid, now) do
+           Dispatch.complete_all_open_events_in_tx(job_id, agent_uid, now) do
       {:ok, result}
     end
   end
 
   @doc false
   def compensate_turn_error_in_tx(
-        repo,
         %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
@@ -219,25 +219,23 @@ defmodule Ankole.BackgroundAgentJobs do
       )
       when live_status in [:queued, :running] do
     case parse_job_session_id(session_id) do
-      {:ok, job_id} -> compensate_credential_pool_exhaustion(repo, job_id, agent_uid, reason, now)
+      {:ok, job_id} -> compensate_credential_pool_exhaustion(job_id, agent_uid, reason, now)
       :error -> {:ok, nil}
     end
   end
 
   def compensate_turn_error_in_tx(
-        repo,
         %Signal{agent_uid: agent_uid, session_id: session_id},
         %{"details_json" => %{"error_code" => "background_agent_job_turn_persistence_rejected"}},
         %DateTime{} = now
       ) do
     case parse_job_session_id(session_id) do
-      {:ok, job_id} -> fail_turn_persistence_rejection_in_tx(repo, job_id, agent_uid, now)
+      {:ok, job_id} -> fail_turn_persistence_rejection_in_tx(job_id, agent_uid, now)
       :error -> {:ok, nil}
     end
   end
 
   def compensate_turn_error_in_tx(
-        repo,
         %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
@@ -252,7 +250,6 @@ defmodule Ankole.BackgroundAgentJobs do
     with {:ok, job_id} <- parse_job_session_id(session_id),
          {:ok, result} <-
            Lifecycle.commit_status_after_runtime_prefix_in_tx(
-             repo,
              job_id,
              agent_uid,
              %{
@@ -269,7 +266,7 @@ defmodule Ankole.BackgroundAgentJobs do
              transition_action: :fail_turn
            ),
          {:ok, :ok} <-
-           Dispatch.complete_all_open_events_in_tx(repo, job_id, agent_uid, now) do
+           Dispatch.complete_all_open_events_in_tx(job_id, agent_uid, now) do
       {:ok, result}
     else
       :error -> {:ok, nil}
@@ -282,7 +279,6 @@ defmodule Ankole.BackgroundAgentJobs do
   # Signal waits on the retry ladder; the next delivery claims a fresh
   # attempt through the ordinary capacity checks.
   def compensate_turn_error_in_tx(
-        repo,
         %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
@@ -293,12 +289,12 @@ defmodule Ankole.BackgroundAgentJobs do
       )
       when live_status in [:queued, :running] and is_map(reason) do
     case parse_job_session_id(session_id) do
-      {:ok, job_id} -> requeue_retryable_attempt(repo, job_id, agent_uid, reason)
+      {:ok, job_id} -> requeue_retryable_attempt(job_id, agent_uid, reason)
       :error -> {:ok, nil}
     end
   end
 
-  def compensate_turn_error_in_tx(_repo, %Signal{}, _reason, %DateTime{}),
+  def compensate_turn_error_in_tx(%Signal{}, _reason, %DateTime{}),
     do: {:ok, nil}
 
   @doc "Returns a terminal Job error when the Agent quota is exhausted."
@@ -335,22 +331,21 @@ defmodule Ankole.BackgroundAgentJobs do
   # keeps the claim and charges no execution-failure budget. A stale or missing
   # time is an ordinary capacity failure: the Job returns to `queued` and this
   # attempt charges the budget like any other provider-capacity failure.
-  defp compensate_credential_pool_exhaustion(repo, job_id, agent_uid, reason, now) do
+  defp compensate_credential_pool_exhaustion(job_id, agent_uid, reason, now) do
     case TurnErrorClassifier.credential_pool_retry_at(reason, now) do
       %DateTime{} ->
-        case Lifecycle.requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid) do
+        case Lifecycle.requeue_credential_pool_exhausted_attempt_in_tx(job_id, agent_uid) do
           {:ok, job} -> {:ok, %{kind: :credential_pool_requeued, job: job}}
           {:error, _reason} = error -> error
         end
 
       nil ->
-        requeue_retryable_attempt(repo, job_id, agent_uid, reason)
+        requeue_retryable_attempt(job_id, agent_uid, reason)
     end
   end
 
-  defp requeue_retryable_attempt(repo, job_id, agent_uid, reason) do
+  defp requeue_retryable_attempt(job_id, agent_uid, reason) do
     case Lifecycle.requeue_retryable_attempt_in_tx(
-           repo,
            job_id,
            agent_uid,
            charge: charged_turn_error?(reason)
@@ -384,8 +379,8 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate console_turn_page(job, cursor), to: Turns, as: :console_page
 
   @doc "Durably requests cancellation without trusting worker-local state."
-  def request_stop(job_id, attrs),
-    do: Ankole.Ash.run_action(Job, :request_stop, %{job_id: job_id, attrs: attrs})
+  def request_stop(job_id, attrs) when is_integer(job_id) and is_map(attrs),
+    do: Repo.transact_top_level(fn -> Control.request_stop_in_tx(job_id, attrs) end)
 
   @doc """
   Lists live Job ids whose owner session is one of the given sessions.
@@ -397,32 +392,29 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate live_job_ids_for_owner_sessions(session_ids, agent_uid), to: Queries
 
   @doc "Commits an externally verified completion with the caller's result summary."
-  def request_complete(job_id, attrs),
-    do: Ankole.Ash.run_action(Job, :request_complete, %{job_id: job_id, attrs: attrs})
+  def request_complete(job_id, attrs) when is_integer(job_id) and is_map(attrs),
+    do: Repo.transact_top_level(fn -> Control.request_complete_in_tx(job_id, attrs) end)
 
   @doc "Journals one message for a live Job."
-  def send_message(job_id, attrs),
-    do: Ankole.Ash.run_action(Job, :send_message, %{job_id: job_id, attrs: attrs})
+  def send_message(job_id, attrs) when is_integer(job_id) and is_map(attrs),
+    do: Repo.transact_top_level(fn -> Control.send_message_in_tx(job_id, attrs) end)
 
   @doc false
-  defdelegate lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id), to: Control
+  defdelegate lock_ambient_handoff_target_in_tx(agent_uid, job_id), to: Control
 
   @doc false
-  defdelegate handoff_ambient_message_in_tx(repo, source_event, job, message, now),
+  defdelegate handoff_ambient_message_in_tx(source_event, job, message, now),
     to: Control
 
   @doc false
   defdelegate message_result(job, command_event_id, caller_session_id), to: Turns
 
   @doc "Records one Worker Turn checkpoint and its items atomically."
-  def upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id) do
-    Ankole.Ash.run_action(Turn, :record_from_worker, %{
-      job_id: job_id,
-      agent_uid: agent_uid,
-      attrs: attrs,
-      turn_ref: turn_ref,
-      worker_id: worker_id
-    })
+  def upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id)
+      when is_integer(job_id) and is_binary(agent_uid) and is_map(attrs) and is_binary(worker_id) do
+    Repo.transact_top_level(fn ->
+      Lifecycle.upsert_turn_from_worker_in_tx(job_id, agent_uid, attrs, turn_ref, worker_id)
+    end)
   end
 
   @doc "Lists normalized runtime turns for one job."
@@ -441,7 +433,7 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate get_job_for_agent(job_id, agent_uid), to: Queries, as: :get_for_agent
 
   @doc "Locks one job of an agent inside the caller's transaction; `nil` when it does not exist."
-  def lock_job_in_tx(_repo, job_id, agent_uid),
+  def lock_job_in_tx(job_id, agent_uid),
     do: Queries.lock_for_agent_in_tx(job_id, agent_uid)
 
   @doc false

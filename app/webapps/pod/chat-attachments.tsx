@@ -3,7 +3,7 @@ import { RiAttachment2, RiCloseLine, RiRefreshLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useRef, type ClipboardEventHandler, type DragEventHandler } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ConversationAttachment } from '../common/api/generated/types.gen'
+import type { ConversationAttachment } from './api'
 import { InternalAPIError } from '../common/internal-api-client'
 import { identityQuery } from './content-api'
 import type { ChatAttachments } from './state/chat-attachments'
@@ -150,7 +150,7 @@ export function MessageAttachments({
             className="flex max-w-full items-center gap-2 rounded-control border border-border p-2">
             <AttachmentPreview
               name={attachment.name}
-              type={attachment.content_type ?? attachment.mime_type}
+              type={attachment.content_type ?? attachment.mime_type ?? undefined}
               url={url}
               downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.path, true)}
               conversationID={conversationID}
@@ -172,5 +172,5 @@ export function MessageAttachments({
 
 export function conversationAttachmentURL(conversationID: string, messageID: string, path: string, download = false) {
   const query = new URLSearchParams({ path, ...(download ? { download: 'true' } : {}), ...identityQuery() })
-  return `/.internal-apis/pod/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(messageID)}?${query}`
+  return `/api/v2/pod/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(messageID)}?${query}`
 }

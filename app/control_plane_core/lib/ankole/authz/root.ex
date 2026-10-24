@@ -35,9 +35,7 @@ defmodule Ankole.AuthZ.Root do
             group.built_in == true and group.kind == :static and principal.type == :human and
             principal.status == :active
         )
-        |> Ash.Query.limit(1)
-        |> Ankole.Ash.read!()
-        |> Enum.any?()
+        |> Ankole.Ash.exists?()
       end)
     else
       {:error, _reason} -> false
@@ -48,12 +46,12 @@ defmodule Ankole.AuthZ.Root do
 
   # Runs inside the caller's transaction. Admin writes take the group lock
   # before the principal lock, in that one installation-wide order.
-  def root_init_admin(repo, principal_uid) do
-    with %Group{} = admin_group <- Store.fetch_group_by_name(repo, @admin_group_name),
-         {:ok, admin_group} <- Store.lock_group(repo, admin_group.id),
-         {:ok, principal} <- Store.fetch_principal_for_update(repo, principal_uid),
+  def root_init_admin(principal_uid) do
+    with %Group{} = admin_group <- Store.fetch_group_by_name(@admin_group_name),
+         {:ok, admin_group} <- Store.lock_group(admin_group.id),
+         {:ok, principal} <- Store.fetch_principal_for_update(principal_uid),
          :ok <- Store.ensure_active_human(principal),
-         {:ok, membership} <- ensure_root_membership(repo, admin_group, principal.uid) do
+         {:ok, membership} <- ensure_root_membership(admin_group, principal.uid) do
       {:ok, %{admin_group: admin_group, membership: membership}}
     else
       nil -> {:error, :site_admin_group_missing}
@@ -61,8 +59,8 @@ defmodule Ankole.AuthZ.Root do
     end
   end
 
-  def ensure_site_admin_group(repo) do
-    upsert_builtin_group(repo, %{
+  def ensure_site_admin_group do
+    upsert_builtin_group(%{
       name: @admin_group_name,
       display_name: "Site Administrators",
       kind: :static,
@@ -79,7 +77,7 @@ defmodule Ankole.AuthZ.Root do
   It runs in the caller's transaction, after the transfer of site
   administration to another tenant.
   """
-  def delete_site_admin_group_in_tx(_repo) do
+  def delete_site_admin_group_in_tx do
     Ankole.Pod.Pages.lock_tree()
 
     case Group
@@ -98,8 +96,8 @@ defmodule Ankole.AuthZ.Root do
     end
   end
 
-  def ensure_all_humans_group(repo) do
-    upsert_builtin_group(repo, %{
+  def ensure_all_humans_group do
+    upsert_builtin_group(%{
       name: @all_humans_group_name,
       display_name: "All Humans",
       kind: :computed,
@@ -110,10 +108,10 @@ defmodule Ankole.AuthZ.Root do
     })
   end
 
-  defp ensure_root_membership(repo, %Group{} = admin_group, principal_uid) do
-    case lock_admin_memberships(repo, admin_group.id) do
+  defp ensure_root_membership(%Group{} = admin_group, principal_uid) do
+    case lock_admin_memberships(admin_group.id) do
       [] ->
-        Store.insert_membership(repo, admin_group.id, principal_uid)
+        Store.insert_membership(admin_group.id, principal_uid)
 
       [%Membership{principal_uid: ^principal_uid} = membership] ->
         {:ok, membership}
@@ -123,7 +121,7 @@ defmodule Ankole.AuthZ.Root do
     end
   end
 
-  defp lock_admin_memberships(_repo, admin_group_id) do
+  defp lock_admin_memberships(admin_group_id) do
     Membership
     |> Ash.Query.filter(group_id == ^admin_group_id)
     |> Ash.Query.sort(principal_uid: :asc)
@@ -131,8 +129,8 @@ defmodule Ankole.AuthZ.Root do
     |> Ankole.Ash.read!()
   end
 
-  defp upsert_builtin_group(repo, attrs) do
-    case Store.fetch_group_by_name(repo, attrs.name) do
+  defp upsert_builtin_group(attrs) do
+    case Store.fetch_group_by_name(attrs.name) do
       %Group{} = group ->
         case builtin_shape_matches?(group, attrs) do
           true -> {:ok, group}
@@ -140,14 +138,14 @@ defmodule Ankole.AuthZ.Root do
         end
 
       nil ->
-        create_builtin_group(repo, attrs)
+        create_builtin_group(attrs)
     end
   end
 
-  defp create_builtin_group(repo, attrs) do
+  defp create_builtin_group(attrs) do
     Ankole.Ash.create(Group, :ensure_in_tx, attrs)
     |> case do
-      {:ok, _group} -> upsert_builtin_group(repo, attrs)
+      {:ok, _group} -> upsert_builtin_group(attrs)
       {:error, _reason} = error -> error
     end
   end

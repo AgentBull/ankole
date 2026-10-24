@@ -43,13 +43,15 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
     mutationFn: async (input: AdminInput) => {
       await putSetupIdentityProvider({
         path: { provider_id: adapter.defaultProviderID },
-        body: { adapterID: adapter.adapterID, config: defaultConfig(adapter.fields), enabled: true }
+        body: { data: { adapterID: adapter.adapterID, config: defaultConfig(adapter.fields), enabled: true } }
       })
       return createSetupLocalAdmin({
         body: {
-          display_name: input.displayName.trim() || undefined,
-          email: input.email,
-          password: input.password
+          data: {
+            display_name: input.displayName.trim() || undefined,
+            email: input.email,
+            password: input.password
+          }
         }
       })
     },

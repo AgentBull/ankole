@@ -8,7 +8,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
   through `brain.*` AppConfigure keys.
   """
 
-  alias Ankole.AIAgent.Operations
   alias Ankole.AIGateway.ImageModelCatalog
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs
@@ -19,6 +18,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.Attrs
   alias Ankole.Principals
   alias Ankole.Principals.Agent
+  alias Ankole.Repo
 
   @profiles ~w(
     primary light heavy coding vision_fallback web_search web_fetch image_generate
@@ -165,19 +165,14 @@ defmodule Ankole.AIAgent.ModelProfiles do
   @spec put_model_profile(String.t(), profile(), map() | nil) ::
           {:ok, %{agent: Agent.t(), profile: map() | nil}} | {:error, term()}
   def put_model_profile(agent_uid, profile, attrs) do
-    Ankole.Ash.run_action(Operations, :put_model_profile, %{
-      agent_uid: normalize_uid!(agent_uid),
-      profile: profile,
-      attrs: attrs
-    })
+    agent_uid = normalize_uid!(agent_uid)
+    Repo.transact_top_level(fn -> put_profile_locked(agent_uid, profile, attrs) end)
   end
 
-  @doc false
-  # Runs the `:put_model_profile` action of `Ankole.AIAgent.Operations`.
-  def put_profile_locked(%{agent_uid: agent_uid, profile: profile} = arguments) do
+  defp put_profile_locked(agent_uid, profile, attrs) do
     with %Agent{} = agent <- lock_agent(agent_uid),
          {:ok, profile} <- normalize_profile(profile),
-         {:ok, normalized_profile} <- normalize_profile_attrs(profile, arguments.attrs),
+         {:ok, normalized_profile} <- normalize_profile_attrs(profile, attrs),
          {:ok, options} <-
            put_profile_options(agent.options || %{}, profile, normalized_profile),
          {:ok, agent} <- update_agent_options(agent, options) do
@@ -196,15 +191,11 @@ defmodule Ankole.AIAgent.ModelProfiles do
   """
   @spec put_provider_hosted_capabilities(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def put_provider_hosted_capabilities(agent_uid, attrs) when is_map(attrs) do
-    Ankole.Ash.run_action(Operations, :put_provider_hosted_capabilities, %{
-      agent_uid: normalize_uid!(agent_uid),
-      attrs: attrs
-    })
+    agent_uid = normalize_uid!(agent_uid)
+    Repo.transact_top_level(fn -> put_provider_hosted_locked(agent_uid, attrs) end)
   end
 
-  @doc false
-  # Runs the `:put_provider_hosted_capabilities` action of `Ankole.AIAgent.Operations`.
-  def put_provider_hosted_locked(%{agent_uid: agent_uid, attrs: attrs}) do
+  defp put_provider_hosted_locked(agent_uid, attrs) do
     with %Agent{} = agent <- lock_agent(agent_uid),
          {:ok, updates} <- normalize_provider_hosted_attrs(attrs),
          capabilities = Map.merge(provider_hosted_from_agent(agent), updates),
@@ -408,7 +399,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
     end
   end
 
-  defp lock_agent(agent_uid), do: Principals.lock_agent_in_tx(Ankole.Repo, agent_uid)
+  defp lock_agent(agent_uid), do: Principals.lock_agent_in_tx(agent_uid)
 
   defp update_agent_options(agent, options) do
     agent
@@ -457,14 +448,24 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp maybe_mark_fallback(value, _fallback_profile), do: value
 
-  defp normalize_profile(profile) when is_binary(profile) do
-    profile = String.trim(profile)
-    fixed_profile = String.downcase(profile)
+  @doc """
+  Canonicalizes a model profile name before authorization and execution.
+  """
+  @spec canonicalize_profile(String.t()) :: String.t()
+  def canonicalize_profile(profile) when is_binary(profile) do
+    trimmed = String.trim(profile)
+    fixed_profile = String.downcase(trimmed)
 
-    cond do
-      fixed_profile in @profiles -> {:ok, fixed_profile}
-      custom_profile_name?(profile) -> {:ok, profile}
-      true -> {:error, :invalid_model_profile}
+    if fixed_profile in @profiles, do: fixed_profile, else: trimmed
+  end
+
+  defp normalize_profile(profile) when is_binary(profile) do
+    profile = canonicalize_profile(profile)
+
+    if profile in @profiles or custom_profile_name?(profile) do
+      {:ok, profile}
+    else
+      {:error, :invalid_model_profile}
     end
   end
 

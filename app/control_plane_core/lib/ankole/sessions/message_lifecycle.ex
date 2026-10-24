@@ -10,20 +10,18 @@ defmodule Ankole.Sessions.MessageLifecycle do
   alias Ankole.Schedule
 
   def process(%Signal{} = input, opts) do
-    input
-    |> Ankole.Sessions.process_message_removal(
-      Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    )
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    Ankole.Repo.transact_top_level(fn -> process_in_tx(input, now) end)
     |> Ankole.Errors.reason()
     |> stop_removed_previews()
   end
 
   @doc false
-  def process_in_tx(repo, %Signal{} = input, now) do
+  def process_in_tx(%Signal{} = input, now) do
     with %Signal{} = input <- Ankole.Signals.get_signal!(input.id),
          {:ok, cancelled_checkbacks} <-
            Schedule.cancel_checkbacks_for_provider_entry_in_tx(
-             repo,
              %{
                "agent_uid" => input.agent_uid,
                "session_id" => input.session_id,
@@ -32,12 +30,11 @@ defmodule Ankole.Sessions.MessageLifecycle do
              },
              now
            ),
-         :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
-         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
+         :ok <- Queue.lock_session_in_tx(input.agent_uid, input.session_id),
+         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(input.id),
          {:ok, superseded_interactions} <-
-           Interactions.supersede_removed_source_in_tx(repo, input, now) do
+           Interactions.supersede_removed_source_in_tx(input, now) do
       ignore_lifecycle_event(
-        repo,
         input,
         cancelled_checkbacks,
         superseded_interactions,
@@ -50,19 +47,18 @@ defmodule Ankole.Sessions.MessageLifecycle do
   end
 
   defp ignore_lifecycle_event(
-         repo,
          %Signal{} = input,
          cancelled_checkbacks,
          superseded_interactions,
          now
        ) do
-    source_events = source_signals(repo, input)
+    source_events = source_signals(input)
 
     with {:ok, aigateway_deletions} <-
-           hard_delete_visible_aigateway_tail(repo, source_events, now),
+           hard_delete_visible_aigateway_tail(source_events, now),
          deleted_answers = deleted_answer_events(source_events, aigateway_deletions),
-         reply_deletions = reply_deletion_intents(repo, deleted_answers),
-         {:ok, completed_event} <- complete_lifecycle_event(repo, input, now, reply_deletions) do
+         reply_deletions = reply_deletion_intents(deleted_answers),
+         {:ok, completed_event} <- complete_lifecycle_event(input, now, reply_deletions) do
       {:ok,
        %{
          status: :entry_lifecycle_ignored,
@@ -77,10 +73,9 @@ defmodule Ankole.Sessions.MessageLifecycle do
     end
   end
 
-  defp source_signals(repo, %Signal{provider_message_id: provider_message_id} = input)
+  defp source_signals(%Signal{provider_message_id: provider_message_id} = input)
        when is_binary(provider_message_id) and provider_message_id != "" do
     Ankole.Signals.signals_for_entry_in_tx(
-      repo,
       input.agent_uid,
       input.reply_binding_name,
       input.conversation_id,
@@ -88,13 +83,12 @@ defmodule Ankole.Sessions.MessageLifecycle do
     )
   end
 
-  defp source_signals(_repo, %Signal{}), do: []
+  defp source_signals(%Signal{}), do: []
 
-  defp hard_delete_visible_aigateway_tail(repo, source_events, now) do
+  defp hard_delete_visible_aigateway_tail(source_events, now) do
     source_events
     |> Enum.map(
       &ModelHistory.delete_visible_turn_suffix_in_tx(
-        repo,
         &1.agent_uid,
         &1.session_id,
         &1.id,
@@ -118,15 +112,15 @@ defmodule Ankole.Sessions.MessageLifecycle do
     end)
   end
 
-  defp reply_deletion_intents(repo, deleted_answers) do
+  defp reply_deletion_intents(deleted_answers) do
     deleted_answers
     |> Enum.flat_map(fn {event, ai_message_ids} ->
-      Deletion.intents(repo, event.id, ai_message_ids)
+      Deletion.intents(event.id, ai_message_ids)
     end)
     |> Enum.uniq_by(& &1.outbound_key)
   end
 
-  defp complete_lifecycle_event(repo, %Signal{} = input, now, intents) do
+  defp complete_lifecycle_event(%Signal{} = input, now, intents) do
     results =
       Enum.map(intents, fn attrs ->
         Map.merge(
@@ -140,11 +134,11 @@ defmodule Ankole.Sessions.MessageLifecycle do
           },
           attrs
         )
-        |> then(&Ankole.Conversations.Delivery.commit_in_tx(repo, &1))
+        |> then(&Ankole.Conversations.Delivery.commit_in_tx(&1))
       end)
 
     with {:ok, _} <- Ankole.Attrs.collect_results(results),
-         do: Queue.complete_entry_lifecycle_event_in_tx(repo, input, completed_at: now)
+         do: Queue.complete_entry_lifecycle_event_in_tx(input, completed_at: now)
   end
 
   # A preview that still holds an open card would keep editing an entry the

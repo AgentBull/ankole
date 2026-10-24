@@ -60,6 +60,8 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
 
     # The Console version history of one Object; the slug can be an alias.
     read :console_list do
+      pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
+
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
       prepare(__MODULE__.Preparations)
     end

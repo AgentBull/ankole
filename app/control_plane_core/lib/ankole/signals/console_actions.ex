@@ -7,6 +7,21 @@ defmodule Ankole.Signals.ConsoleActions do
   @impl true
   def run(input, _opts, _context), do: input |> execute() |> Errors.wrap(&describe/1)
 
+  @doc "Gives the AuthZ permissions required to update or move a Signal Binding."
+  def update_binding_permissions(params, args, default_resource, default_action) do
+    source = Map.fetch!(params, "agent_uid")
+    target = Map.get(args, "target_agent_uid")
+
+    if is_binary(target) and target != source do
+      [
+        {"agent:#{source}:signal_bindings", "delete"},
+        {"agent:#{target}:signal_bindings", "update"}
+      ]
+    else
+      [{default_resource, default_action}]
+    end
+  end
+
   defp execute(%{action: %{name: :console_adapters}}) do
     with {:ok, adapters} <- Bindings.list_adapters(), do: {:ok, %{signal_adapters: adapters}}
   end

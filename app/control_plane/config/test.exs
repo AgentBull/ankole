@@ -18,7 +18,7 @@ config :ankole, AnkoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   server: false
 
-config :ankole, Ankole.TokenSigning, issuer: "http://localhost:4002"
+config :ankole, Ankole.OIDC.Config, issuer: "http://localhost:4002"
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
 

@@ -1,23 +1,11 @@
-import { state, type Login } from './fixtures'
+import { state, login } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { pageRoute } from './routes'
-
-async function login(page: Page, credentials: Login) {
-  await page.getByRole('textbox', { name: '邮箱', exact: true }).fill(credentials.email)
-  await page.getByLabel('密码', { exact: true }).fill(credentials.password)
-  const completed = page.waitForResponse(
-    response =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/.internal-apis/sessions/local-password'
-  )
-  await page.getByRole('button', { name: '登录', exact: true }).click()
-  expect((await completed).status()).toBe(200)
-}
 
 async function identity(page: Page) {
   return page.evaluate(async () => {
     const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)!.content
-    const result = await fetch('/.internal-apis/session', {
+    const result = await fetch('/api/v2/browser/session', {
       headers: {
         'x-ankole-authentication': meta('ankole-authentication'),
         'x-ankole-pod': meta('ankole-pod')

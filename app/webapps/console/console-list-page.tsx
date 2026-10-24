@@ -286,6 +286,30 @@ function EmptyActions({ create, extra }: { create: ReactNode; extra: ReactNode }
   return <>{extra ?? create}</>
 }
 
+/** Fetches the next page while keeping the loaded rows available. */
+export function LoadMore({
+  query
+}: {
+  query: {
+    hasNextPage: boolean
+    isFetching: boolean
+    isPlaceholderData: boolean
+    fetchNextPage: () => Promise<unknown>
+  }
+}) {
+  const { t } = useTranslation()
+  if (!query.hasNextPage) return null
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={query.isFetching || query.isPlaceholderData}
+      onClick={() => void query.fetchNextPage()}>
+      {t('console.pagination.next_page')}
+    </Button>
+  )
+}
+
 /**
  * Pager for the cursor-based list endpoints.
  *

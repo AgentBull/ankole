@@ -526,8 +526,8 @@ defmodule Ankole.Sessions.PresentationTest do
         admit_event("clarify-with-newer-turn")
 
       assert {:ok, newer_event} =
-               Repo.transact(fn repo ->
-                 Ankole.Signals.accept_in_tx(repo, %{
+               Repo.transact(fn ->
+                 Ankole.Signals.accept_in_tx(%{
                    producer: :kernel,
                    target: %{agent_uid: event.agent_uid, session_id: event.session_id},
                    source: "test:runtime",
@@ -896,8 +896,8 @@ defmodule Ankole.Sessions.PresentationTest do
     assert_turn_remains_running(event)
 
     {:ok, revision} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           producer: :kernel,
           target: %{agent_uid: agent.uid, session_id: event.session_id},
           source: "test:runtime",

@@ -43,6 +43,7 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.Brain.Sources
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
+  alias Ankole.Repo
 
   @max_content_bytes 10 * 1024 * 1024
   @extraction_window_chars 12_000
@@ -123,16 +124,15 @@ defmodule Ankole.Brain.SourceLearning do
   end
 
   defp commit_run(source, object_attrs, extraction, scope, fingerprint) do
-    result =
-      Ankole.Ash.run_action(Source, :commit_learning_run, %{
-        run: %{
-          source: source,
-          object_attrs: object_attrs,
-          extraction: extraction,
-          scope: scope,
-          fingerprint: fingerprint
-        }
-      })
+    run = %{
+      source: source,
+      object_attrs: object_attrs,
+      extraction: extraction,
+      scope: scope,
+      fingerprint: fingerprint
+    }
+
+    result = Repo.transact_top_level(fn -> commit_run_in_tx(run) end)
 
     with {:ok, %{rejected: rejected} = report} <- result do
       if rejected > 0 do
@@ -156,12 +156,12 @@ defmodule Ankole.Brain.SourceLearning do
   def commit_run_in_tx(%{source: source, extraction: extraction} = run) do
     session = provenance_session(source)
 
-    with {:ok, current} <- Sources.lock_active(Ankole.Repo, source),
+    with {:ok, current} <- Sources.lock_active(source),
          :ok <- ensure_same_revision(current, source.upstream_revision),
          {:ok, object} <- Objects.upsert_source_projection_in_tx(current, run.object_attrs),
-         expired = Claims.expire_source_session_facts(Ankole.Repo, object.slug, session),
+         expired = Claims.expire_source_session_facts(object.slug, session),
          {:ok, written} <- write_claims(object, extraction.items, run.scope, session),
-         {:ok, _source} <- Sources.record_revision(Ankole.Repo, current, run.fingerprint) do
+         {:ok, _source} <- Sources.record_revision(current, run.fingerprint) do
       {:ok,
        %{
          status: :learned,

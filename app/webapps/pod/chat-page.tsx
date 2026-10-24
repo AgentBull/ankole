@@ -238,7 +238,7 @@ export function ChatPage({
         retryTime={retryTime}
         activity={model.activity.value}
         conversationID={conversationID}
-        retryableMessageID={data.retryableMessageID}
+        retryableMessageID={data.retryableMessageID ?? null}
         actions={commands.messageActions}
       />
       <div className="pod-chat-composer-dock">

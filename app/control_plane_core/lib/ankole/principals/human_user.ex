@@ -58,6 +58,11 @@ defmodule Ankole.Principals.HumanUser do
       accept([:principal_uid, :email, :mobile, :job_title])
     end
 
+    create :create_local_in_tx do
+      accept([:principal_uid, :email, :mobile, :job_title])
+      require_attributes([:email])
+    end
+
     update :profile_in_tx do
       accept([:email, :mobile, :job_title])
     end

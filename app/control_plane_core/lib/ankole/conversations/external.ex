@@ -36,9 +36,8 @@ defmodule Ankole.Conversations.External do
     :raw_payload
   ]
 
-  def observe_entry_in_tx(repo, fact, now) do
+  def observe_entry_in_tx(fact, now) do
     observe_in_tx(
-      repo,
       fact.conversation_id,
       %{
         agent_uid: fact.agent_uid,
@@ -63,7 +62,7 @@ defmodule Ankole.Conversations.External do
     )
   end
 
-  def get_conversation(_repo, provider_conversation_id) do
+  def get_conversation(provider_conversation_id) do
     Conversation
     |> Ash.Query.filter(
       kind == :external and provider_conversation_id == ^provider_conversation_id
@@ -110,13 +109,13 @@ defmodule Ankole.Conversations.External do
 
   @doc "Changes the metadata of an external conversation under its row lock."
   def update_metadata(conversation_id, fun) when is_function(fun, 1) do
-    conversation_id
-    |> Ankole.Conversations.update_external_metadata(fun)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      update_metadata_in_tx(conversation_id, fun)
+    end)
   end
 
   @doc false
-  def update_metadata_in_tx(_repo, conversation_id, fun) do
+  def update_metadata_in_tx(conversation_id, fun) do
     case lock_conversation(conversation_id) do
       %Conversation{kind: :external} = conversation ->
         Ankole.Ash.update(conversation, :put_metadata, %{
@@ -128,25 +127,24 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  def observe_conversation_in_tx(repo, %{agent_uid: agent_uid}, observation, now) do
+  def observe_conversation_in_tx(%{agent_uid: agent_uid}, observation, now) do
     provider_id = Ankole.Attrs.get(observation, :provider_conversation_id)
 
     if is_binary(provider_id) and String.trim(provider_id) != "" do
-      lock_identity(repo, [provider_id])
+      lock_identity([provider_id])
 
-      existing = get_conversation(repo, provider_id)
+      existing = get_conversation(provider_id)
 
       attrs = conversation_attrs(existing, observation, now)
 
       with {:ok, conversation} <-
              write_conversation(
-               repo,
                existing,
                Map.merge(attrs, %{
                  provider_conversation_id: provider_id
                })
              ),
-           {:ok, _} <- ensure_agent(repo, conversation.id, agent_uid) do
+           {:ok, _} <- ensure_agent(conversation.id, agent_uid) do
         {:ok, conversation}
       end
     else
@@ -154,17 +152,17 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  def observe_in_tx(repo, conversation_id, observation, now) do
+  def observe_in_tx(conversation_id, observation, now) do
     provider_id = Ankole.Attrs.get(observation, :provider_message_id)
 
     with :ok <- validate_provider_message_id(provider_id),
          %Conversation{kind: :external} = conversation <- lock_conversation(conversation_id) do
-      existing = get_message(repo, conversation_id, provider_id)
+      existing = get_message(conversation_id, provider_id)
 
       if stale?(existing, Ankole.Attrs.get(observation, :provider_time)) do
         {:ok, Map.merge(existing, %{status: :unchanged, conversation: conversation})}
       else
-        write_observation(repo, conversation, existing, observation, provider_id, now)
+        write_observation(conversation, existing, observation, provider_id, now)
       end
     else
       {:error, _} = error -> error
@@ -173,10 +171,10 @@ defmodule Ankole.Conversations.External do
   end
 
   @doc "Records a confirmed provider send/edit through the same identity as inbound observations."
-  def record_delivery_in_tx(repo, conversation_id, observation, now),
-    do: observe_in_tx(repo, conversation_id, observation, now)
+  def record_delivery_in_tx(conversation_id, observation, now),
+    do: observe_in_tx(conversation_id, observation, now)
 
-  def get_message(_repo, conversation_id, provider_message_id) do
+  def get_message(conversation_id, provider_message_id) do
     ExternalMessageRef
     |> Ash.Query.filter(
       conversation_id == ^conversation_id and provider_message_id == ^provider_message_id
@@ -194,12 +192,11 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  def remove_in_tx(repo, conversation_id, provider_message_id) do
+  def remove_in_tx(conversation_id, provider_message_id) do
     with %Conversation{kind: :external} <- lock_conversation(conversation_id),
-         %{message: message} <- get_message(repo, conversation_id, provider_message_id),
+         %{message: message} <- get_message(conversation_id, provider_message_id),
          :ok <-
            Ankole.Conversations.message_changed_in_tx(
-             repo,
              message,
              nil,
              DateTime.utc_now(:microsecond)
@@ -214,9 +211,9 @@ defmodule Ankole.Conversations.External do
   end
 
   @doc "Folds a provider reaction under the conversation lock without creating a statement or Signal."
-  def fold_reaction_in_tx(repo, conversation_id, provider_message_id, reaction, now) do
+  def fold_reaction_in_tx(conversation_id, provider_message_id, reaction, now) do
     with %Conversation{kind: :external} <- lock_conversation(conversation_id),
-         %{external_ref: ref} <- get_message(repo, conversation_id, provider_message_id) do
+         %{external_ref: ref} <- get_message(conversation_id, provider_message_id) do
       actors = ref.reactions |> Map.get(reaction.reaction_key, []) |> List.wrap() |> MapSet.new()
 
       actors =
@@ -244,14 +241,14 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  defp write_observation(repo, conversation, existing, observation, provider_id, now) do
+  defp write_observation(conversation, existing, observation, provider_id, now) do
     {message, ref, status} =
       case existing do
         nil -> {%Message{}, %ExternalMessageRef{}, :inserted}
         %{message: message, external_ref: ref} -> {message, ref, :updated}
       end
 
-    with {:ok, sequence} <- message_sequence(repo, conversation, message) do
+    with {:ok, sequence} <- message_sequence(conversation, message) do
       author = Ankole.Attrs.get(observation, :author) || ref.author || %{}
       {author_type, author_uid} = author_identity(author)
 
@@ -277,7 +274,7 @@ defmodule Ankole.Conversations.External do
           attachments: attachments,
           created_at: message.created_at || Ankole.Attrs.get(observation, :provider_time) || now,
           reply_to_message_id:
-            reply_message_id(repo, conversation.id, observation, message.reply_to_message_id)
+            reply_message_id(conversation.id, observation, message.reply_to_message_id)
         })
 
       ref_attrs =
@@ -294,7 +291,6 @@ defmodule Ankole.Conversations.External do
       with {:ok, message} <- write_message(message, message_attrs),
            attachments =
              Attachments.prepare_in_tx(
-               repo,
                Ankole.Attrs.get(observation, :agent_uid),
                conversation.id,
                message.id,
@@ -307,7 +303,7 @@ defmodule Ankole.Conversations.External do
            status = if(ref.content_hash == hash, do: :unchanged, else: status),
            ref_attrs = Map.put(ref_attrs, :content_hash, hash),
            {:ok, ref} <- write_reference(ref, ref_attrs),
-           :ok <- Ankole.Conversations.message_changed_in_tx(repo, before_message, message, now),
+           :ok <- Ankole.Conversations.message_changed_in_tx(before_message, message, now),
            {:ok, conversation} <-
              Ankole.Ash.update(conversation, :touch, %{
                last_activity_at: latest(conversation.last_activity_at, now),
@@ -374,20 +370,20 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  defp write_conversation(_repo, nil, attrs),
+  defp write_conversation(nil, attrs),
     do: Ankole.Ash.create(Conversation, :create_external, attrs)
 
-  defp write_conversation(_repo, conversation, attrs),
+  defp write_conversation(conversation, attrs),
     do: Ankole.Ash.update(conversation, :observe, Map.delete(attrs, :provider_conversation_id))
 
-  defp ensure_agent(_repo, id, uid) do
+  defp ensure_agent(id, uid) do
     Ankole.Ash.create(Participant, :join, %{conversation_id: id, principal_uid: uid, role: :agent})
   end
 
-  defp lock_identity(repo, parts) do
+  defp lock_identity(parts) do
     key = Enum.join([Ankole.Repo.tenant_id!() | parts], "|")
 
-    Ankole.AdvisoryLock.lock!(repo, "external-conversation:" <> key, hash: :extended)
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, "external-conversation:" <> key, hash: :extended)
   end
 
   defp lock_conversation(id) do
@@ -397,10 +393,10 @@ defmodule Ankole.Conversations.External do
     |> Ankole.Ash.read_one!()
   end
 
-  defp message_sequence(repo, conversation, %Message{seq: nil}),
-    do: Ankole.Conversations.next_sequence_in_tx(repo, conversation)
+  defp message_sequence(conversation, %Message{seq: nil}),
+    do: Ankole.Conversations.next_sequence_in_tx(conversation)
 
-  defp message_sequence(_repo, _conversation, %Message{seq: sequence}), do: {:ok, sequence}
+  defp message_sequence(_conversation, %Message{seq: sequence}), do: {:ok, sequence}
 
   defp write_message(%Message{id: nil}, attrs),
     do: Ankole.Ash.create(Message, :record, attrs)
@@ -434,12 +430,12 @@ defmodule Ankole.Conversations.External do
 
   defp latest(_, new), do: new
 
-  defp reply_message_id(repo, id, observation, old) do
+  defp reply_message_id(id, observation, old) do
     if Map.has_key?(observation, :reply_to_provider_message_id) or
          Map.has_key?(observation, "reply_to_provider_message_id") do
       reply_id = Ankole.Attrs.get(observation, :reply_to_provider_message_id)
 
-      case is_binary(reply_id) && get_message(repo, id, reply_id) do
+      case is_binary(reply_id) && get_message(id, reply_id) do
         %{message: %{id: id}} -> id
         _ -> nil
       end

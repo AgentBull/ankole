@@ -44,9 +44,10 @@ The current surface is:
 
 ## Identifier Generation
 
-`Ankole.Kernel.gen_uuid_v7/0` supplies UUIDv7 identifiers to Elixir.
-Control-plane Ecto schemas use `Ankole.Ecto.UUIDv7` for opaque PostgreSQL `uuid`
-row IDs. Database migrations declare UUID primary keys without PostgreSQL
+The Control Plane generates UUIDv7 identifiers with `Ash.UUIDv7.generate/0`.
+Its Ecto schemas use `Ankole.Ecto.UUIDv7` for opaque PostgreSQL `uuid` row IDs.
+The kernel exposes `gen_uuid_v7` to its native consumers.
+Database migrations declare UUID primary keys without PostgreSQL
 defaults such as `gen_random_uuid()`. Principal `uid`, provider channel IDs,
 and composite provider/runtime keys use their domain-defined semantic formats.
 

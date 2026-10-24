@@ -1,6 +1,12 @@
 defmodule Ankole.Pod.PageContent do
   @moduledoc "Canonical page XML and the plain text derived by the kernel."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod, extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("pod_page_content")
+    derive_filter?(false)
+    derive_sort?(false)
+  end
 
   postgres do
     table("page_contents")
@@ -11,11 +17,11 @@ defmodule Ankole.Pod.PageContent do
   end
 
   attributes do
-    attribute(:page_id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false)
-    attribute(:content, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7, public?: true, primary_key?: true, allow_nil?: false)
+    attribute(:content, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
 
     attribute(:plain_text, :string,
-      allow_nil?: false,
+      public?: true, allow_nil?: false,
       default: "",
       constraints: [trim?: false, allow_empty?: true]
     )

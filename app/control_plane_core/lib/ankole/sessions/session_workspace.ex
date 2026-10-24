@@ -8,8 +8,7 @@ defmodule Ankole.Sessions.SessionWorkspace do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Sessions,
-    fragments: [Ankole.Sessions.Operations]
+    domain: Ankole.Sessions
 
   @type t :: %__MODULE__{}
 

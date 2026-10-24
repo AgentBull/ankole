@@ -6,8 +6,8 @@ defmodule Ankole.Conversations.Jobs.InboundBatchFinalize do
     max_attempts: 5,
     unique: [keys: [:batch_id], period: :infinity, states: [:available, :scheduled, :retryable]]
 
-  def schedule_in_tx(repo, args, due_at),
-    do: Ankole.Job.schedule_in_tx(repo, __MODULE__, args, due_at)
+  def schedule_in_tx(args, due_at),
+    do: Ankole.Job.schedule_in_tx(__MODULE__, args, due_at)
 
   # One wakeup serves every revision of a batch. A wakeup that runs before the
   # batch is due, for example on a node with an earlier clock, waits again.

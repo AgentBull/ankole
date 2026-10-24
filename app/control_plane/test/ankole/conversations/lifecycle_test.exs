@@ -29,7 +29,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       Ankole.ExternalConversationsFixtures.external_conversation_fixture("batch-state")
 
     assert {:ok, batch} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.create(InboundBatch, :open, %{
                  agent_uid: agent.uid,
                  binding_name: "batch-state",
@@ -47,7 +47,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
     for expected <- 1..3 do
       assert {:ok, revised} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.update(batch, :revise, %{
                    available_at: DateTime.add(@base_time, expected)
                  })
@@ -57,7 +57,7 @@ defmodule Ankole.Conversations.LifecycleTest do
     end
 
     assert {:ok, finalized} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(Repo.reload!(batch), :finalize, %{})
              end)
 
@@ -66,7 +66,7 @@ defmodule Ankole.Conversations.LifecycleTest do
 
     for {action, attrs} <- [{:revise, %{entries: []}}, {:cancel, %{}}, {:finalize, %{}}] do
       assert {:error, %Ash.Error.Invalid{}} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.update(finalized, action, attrs)
                end)
     end
@@ -80,7 +80,7 @@ defmodule Ankole.Conversations.LifecycleTest do
           {:finalize, %{}}
         ] do
       assert {:error, %Ash.Error.Invalid{}} =
-               Repo.transact(fn _repo -> Ankole.Ash.update(batch, action, attrs) end)
+               Repo.transact(fn -> Ankole.Ash.update(batch, action, attrs) end)
     end
 
     Ankole.DataCase.assert_persisted_equal(Repo.reload!(finalized), finalized)
@@ -107,12 +107,12 @@ defmodule Ankole.Conversations.LifecycleTest do
     }
 
     assert {:ok, first} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.create(InputTombstone, :record, attrs)
              end)
 
     assert {:ok, renewed} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.create(InputTombstone, :record, %{
                  attrs
                  | tombstoned_until: DateTime.add(@base_time, 2, :hour)
@@ -188,7 +188,6 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert {:error, :signal_canceled} =
                Ankole.Sessions.Queue.ensure_event_source_live_in_tx(
-                 Repo,
                  Repo.reload!(input),
                  DateTime.add(@base_time, 1, :second)
                )
@@ -387,7 +386,7 @@ defmodule Ankole.Conversations.LifecycleTest do
         emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _tombstone} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.create(InputTombstone, :record, %{
                    conversation_id: conversation_id!("lark:chat:group-a"),
                    provider_message_id: "msg-1",
@@ -412,7 +411,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       %{signal: event} = emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, event} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.update(event, :revise_input, %{
                    data:
                      Map.put(event.data, "entries", [
@@ -425,10 +424,10 @@ defmodule Ankole.Conversations.LifecycleTest do
       assert MapSet.new(Signal.input_provider_message_ids(event)) ==
                MapSet.new([event.provider_message_id, "batch-input"])
 
-      assert :ok = Ankole.Sessions.Queue.ensure_event_source_live_in_tx(Repo, event, @base_time)
+      assert :ok = Ankole.Sessions.Queue.ensure_event_source_live_in_tx(event, @base_time)
 
       assert {:ok, _} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.create(InputTombstone, :record, %{
                    conversation_id: event.conversation_id,
                    provider_message_id: "batch-input",
@@ -451,7 +450,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       on_exit(fn -> :telemetry.detach(handler) end)
 
       assert {:error, :signal_canceled} =
-               Ankole.Sessions.Queue.ensure_event_source_live_in_tx(Repo, event, @base_time)
+               Ankole.Sessions.Queue.ensure_event_source_live_in_tx(event, @base_time)
 
       assert_receive {:tombstone_query, _}
       refute_receive {:tombstone_query, _}, 50
@@ -472,7 +471,7 @@ defmodule Ankole.Conversations.LifecycleTest do
         })
 
       assert {:ok, event} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.update(event, :revise_input, %{data: payload})
                end)
 
@@ -496,7 +495,6 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert :ok =
                Ankole.Sessions.Queue.ensure_event_source_live_in_tx(
-                 Repo,
                  event,
                  DateTime.add(@base_time, 2, :second)
                )

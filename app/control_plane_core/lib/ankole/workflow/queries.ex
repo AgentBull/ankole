@@ -57,9 +57,9 @@ defmodule Ankole.Workflow.Queries do
           {:ok,
            Map.merge(result, %{
              run: run,
-             counts: counts(Repo, run.id),
-             failure_summaries: failure_summaries(Repo, run.id),
-             live_tasks: live_tasks(Repo, run.id)
+             counts: counts(run.id),
+             failure_summaries: failure_summaries(run.id),
+             live_tasks: live_tasks(run.id)
            })}
         end
 
@@ -71,25 +71,22 @@ defmodule Ankole.Workflow.Queries do
   def list(agent_uid, opts \\ []) when is_binary(agent_uid) and is_list(opts) do
     with {:ok, statuses} <- list_statuses(Keyword.get(opts, :status)),
          {:ok, cursor} <- list_cursor(Keyword.get(opts, :cursor)) do
-      {:ok, rows} =
+      {:ok, page} =
         Run
         |> Ash.Query.filter(agent_uid == ^agent_uid and status in ^statuses)
         |> maybe_before_cursor(cursor)
         |> Ash.Query.sort(id: :desc)
-        |> Ash.Query.limit(33)
-        |> Ankole.Ash.read()
-
-      page = Enum.take(rows, 32)
+        |> Ankole.Ash.read(action: :list_page, page: [limit: 32])
 
       next_cursor =
-        if length(rows) > 32 do
-          page |> List.last() |> then(&Integer.to_string(&1.id))
+        if page.more? do
+          page.results |> List.last() |> then(&Integer.to_string(&1.id))
         end
 
       {:ok,
        %{
          runs:
-           Enum.map(page, fn run ->
+           Enum.map(page.results, fn run ->
              %{
                "run_id" => run.id,
                "title" => run.title,
@@ -101,7 +98,7 @@ defmodule Ankole.Workflow.Queries do
     end
   end
 
-  def counts(_repo, run_id), do: run_id |> List.wrap() |> run_counts() |> Map.fetch!(run_id)
+  def counts(run_id), do: run_id |> List.wrap() |> run_counts() |> Map.fetch!(run_id)
 
   @doc """
   Counts the calls of each run by status. The result maps each run id to
@@ -131,7 +128,7 @@ defmodule Ankole.Workflow.Queries do
     end)
   end
 
-  def live_tasks(_repo, run_id) do
+  def live_tasks(run_id) do
     {:ok, calls} =
       AgentCall
       |> Ash.Query.filter(run_id == ^run_id and status in [:queued, :running, :sleeping])
@@ -152,7 +149,7 @@ defmodule Ankole.Workflow.Queries do
     end)
   end
 
-  def failure_summaries(_repo, run_id) do
+  def failure_summaries(run_id) do
     {:ok, calls} =
       AgentCall
       |> Ash.Query.filter(run_id == ^run_id and status == :failed)

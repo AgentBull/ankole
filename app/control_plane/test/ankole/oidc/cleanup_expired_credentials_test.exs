@@ -74,7 +74,7 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
         session = make_session.(expires_at: old, ended_at: old)
 
         {:ok, delivery} =
-          Repo.transact(fn _repo ->
+          Repo.transact(fn ->
             with {:ok, delivery} <-
                    Ankole.Ash.create(LogoutDelivery, :enqueue_in_tx, %{
                      session_id: session.id,
@@ -101,7 +101,7 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
     login |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
     {:ok, request} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Ash.create(LogoutRequest, :prepare_in_tx, %{
           browser_id: anonymous.id,
           browser_revision: anonymous.revision,

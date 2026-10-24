@@ -86,7 +86,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     :ok =
       :gen_tcp.send(
         client,
-        "POST /.internal-apis/pod/pages/#{applet.id}/routes/commit HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nx-ankole-applet-revision: 1\r\n\r\n{}"
+        "POST /api/v2/pod/pages/#{applet.id}/routes/commit HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nx-ankole-applet-revision: 1\r\n\r\n{}"
       )
 
     eventually(fn -> assert Repo.get!(Ankole.Pod.DbTable, ctx.table.id).record_count == 1 end)
@@ -123,7 +123,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     request = fn value ->
       body = to_string(value)
 
-      "POST /.internal-apis/pod/pages/#{applet.id}/routes/echo HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: #{byte_size(body)}\r\nx-ankole-applet-revision: 1\r\n\r\n#{body}"
+      "POST /api/v2/pod/pages/#{applet.id}/routes/echo HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: #{byte_size(body)}\r\nx-ankole-applet-revision: 1\r\n\r\n#{body}"
     end
 
     :ok = :gen_tcp.send(client, request.(1))

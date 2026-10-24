@@ -41,8 +41,8 @@ defmodule Ankole.Sessions.Tools do
     owner = tool.executor
 
     if Tool.receipt?(tool, args) do
-      Receipts.execute(run, Run.response_id(run.model_response), Run.call_id(call), fn repo ->
-        owner.prepare_in_tx(repo, run, call, args)
+      Receipts.execute(run, Run.response_id(run.model_response), Run.call_id(call), fn ->
+        owner.prepare_in_tx(run, call, args)
       end)
     else
       owner.execute(run, call, args)

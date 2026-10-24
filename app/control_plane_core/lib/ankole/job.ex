@@ -41,9 +41,9 @@ defmodule Ankole.Job do
   `only_earlier: true`, a pending wakeup moves only to an earlier time, so a
   later request cannot postpone a committed wakeup.
   """
-  @spec schedule_in_tx(module(), module(), map(), DateTime.t(), keyword()) ::
+  @spec schedule_in_tx(module(), map(), DateTime.t(), keyword()) ::
           :ok | {:error, term()}
-  def schedule_in_tx(repo, worker, args, due_at, opts \\ []) do
+  def schedule_in_tx(worker, args, due_at, opts \\ []) do
     import Ecto.Query, only: [from: 2, where: 3]
 
     state =
@@ -65,19 +65,19 @@ defmodule Ankole.Job do
             do: where(query, [job], job.scheduled_at > ^due_at),
             else: query
 
-        repo.update_all(query, set: [scheduled_at: due_at, state: state])
+        Ankole.Repo.update_all(query, set: [scheduled_at: due_at, state: state])
       end
 
       :ok
     end
   end
 
-  @doc "Moves the pending wakeup of `worker` in its own transaction. See `schedule_in_tx/5`."
+  @doc "Moves the pending wakeup of `worker` in its own transaction. See `schedule_in_tx/4`."
   @spec schedule(module(), map(), DateTime.t(), keyword()) :: :ok | {:error, term()}
   def schedule(worker, args, due_at, opts \\ []) do
     with {:ok, :ok} <-
-           Ankole.Repo.transact(fn repo ->
-             with :ok <- schedule_in_tx(repo, worker, args, due_at, opts), do: {:ok, :ok}
+           Ankole.Repo.transact(fn ->
+             with :ok <- schedule_in_tx(worker, args, due_at, opts), do: {:ok, :ok}
            end),
          do: :ok
   end

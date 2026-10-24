@@ -69,9 +69,11 @@ defmodule Ankole.Brain.Schemas.Source do
   actions do
     defaults([:read])
 
-    # The Console list: the 100 most recently changed Sources.
+    # The Console list: Sources, most recently changed first.
     read :console_list do
-      prepare(build(sort: [updated_at: :desc], limit: 100))
+      pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
+
+      prepare(build(sort: [updated_at: :desc, id: :desc]))
     end
 
     create :register do
@@ -182,40 +184,6 @@ defmodule Ankole.Brain.Schemas.Source do
       constraints(instance_of: __MODULE__)
       argument(:source_id, :uuid, allow_nil?: false)
       argument(:scope, :string, constraints: [trim?: false, allow_empty?: true])
-
-      run(__MODULE__.Actions)
-    end
-
-    # One learning run commits its page, its Claims, and the Source revision
-    # together; Ankole.Brain.SourceLearning gives the steps.
-    action :commit_learning_run, :map do
-      argument(:run, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    # One OIDC Client conversation replaces its page and its Claims together;
-    # Ankole.Brain.OIDCClientLearning gives the steps.
-    action :learn_oidc_conversation, :map do
-      argument(:run, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    # One conversation slice commits its memory writes and the extraction
-    # watermark together; Ankole.Brain.ConversationsLearning gives the steps.
-    action :finalize_conversation_slice, :map do
-      argument(:slice, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    # The end of one Library projection withdraws the pages that left the set
-    # and records the set revision; Ankole.Brain.LibraryKnowledge gives the steps.
-    action :finish_library_projection, :integer do
-      argument(:source, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:live_slugs, {:array, :string}, allow_nil?: false)
-      argument(:fingerprint, :string, allow_nil?: false, constraints: [trim?: false])
 
       run(__MODULE__.Actions)
     end

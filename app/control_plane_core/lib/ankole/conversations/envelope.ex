@@ -10,8 +10,8 @@ defmodule Ankole.Conversations.Envelope do
 
   @ambient_execution_ttl_seconds 5 * 60
 
-  def accept(repo, binding, fact, type, channel, entry, now) do
-    fact = Reference.enrich(repo, fact)
+  def accept(binding, fact, type, channel, entry, now) do
+    fact = Reference.enrich(fact)
 
     session_id =
       Map.get(fact, :session_id) || Ankole.Sessions.Key.conversation(fact.conversation_id)
@@ -23,7 +23,7 @@ defmodule Ankole.Conversations.Envelope do
       end
 
     attrs = %{
-      source_work: event_authorization(repo, fact, type),
+      source_work: event_authorization(fact, type),
       agent_uid: binding.agent_uid,
       binding_name: binding.name,
       session_id: session_id,
@@ -39,13 +39,13 @@ defmodule Ankole.Conversations.Envelope do
     payload =
       binding
       |> im_envelope(fact, type, channel, entry, now)
-      |> maybe_ambient_batch_payload(repo, type, attrs, fact, channel, now)
+      |> maybe_ambient_batch_payload(type, attrs, fact, channel, now)
       |> Ankole.Conversations.Attachments.scope_payload(fact.conversation_id)
 
-    message_ids = current_message_ids(repo, fact, entry)
+    message_ids = current_message_ids(fact, entry)
     message_id = current_message_id(entry) || List.last(message_ids)
 
-    Signals.accept_in_tx(repo, %{
+    Signals.accept_in_tx(%{
       producer: :kernel,
       source: payload["source"],
       id: fact.source_event_id,
@@ -74,7 +74,6 @@ defmodule Ankole.Conversations.Envelope do
 
   defp maybe_ambient_batch_payload(
          payload,
-         repo,
          "im.message.may_intervene",
          attrs,
          %{finalized_batch_id: _batch_id, batch_entries: entries},
@@ -82,12 +81,11 @@ defmodule Ankole.Conversations.Envelope do
          now
        )
        when is_list(entries) do
-    refresh_ambient_batch_payload(payload, repo, attrs, entries, channel, now)
+    refresh_ambient_batch_payload(payload, attrs, entries, channel, now)
   end
 
   defp maybe_ambient_batch_payload(
          payload,
-         _repo,
          _type,
          _attrs,
          %{finalized_batch_id: _batch_id},
@@ -96,17 +94,17 @@ defmodule Ankole.Conversations.Envelope do
        ),
        do: payload
 
-  defp maybe_ambient_batch_payload(payload, _repo, _type, _attrs, _fact, _channel, _now),
+  defp maybe_ambient_batch_payload(payload, _type, _attrs, _fact, _channel, _now),
     do: payload
 
-  defp refresh_ambient_batch_payload(payload, repo, attrs, entries, _channel, now) do
+  defp refresh_ambient_batch_payload(payload, attrs, entries, _channel, now) do
     judged_until =
       Ankole.Sessions.AmbientCuration.judged_until(attrs.agent_uid, attrs.conversation_id)
 
     observed_messages = Context.ambient_delta_messages(attrs, entries, judged_until)
     backdrop_messages = Context.ambient_backdrop_messages(attrs, judged_until)
     unreplied_messages = Context.unreplied_messages(attrs, entries)
-    scene_fingerprint = Context.ambient_scene_fingerprint(repo, attrs.conversation_id)
+    scene_fingerprint = Context.ambient_scene_fingerprint(attrs.conversation_id)
 
     payload
     |> put_in(["data", "entry"], batch_entry_summary(entries))
@@ -262,7 +260,7 @@ defmodule Ankole.Conversations.Envelope do
   defp current_message_id(%{message: %Message{id: id}}), do: id
   defp current_message_id(_), do: nil
 
-  defp current_message_ids(repo, fact, entry) do
+  defp current_message_ids(fact, entry) do
     case Map.get(fact, :batch_entries) do
       entries when is_list(entries) ->
         Enum.flat_map(entries, fn entry ->
@@ -271,7 +269,7 @@ defmodule Ankole.Conversations.Envelope do
               [id]
 
             _ ->
-              case External.get_message(repo, fact.conversation_id, entry["provider_message_id"]) do
+              case External.get_message(fact.conversation_id, entry["provider_message_id"]) do
                 %{message: %{id: id}} -> [id]
                 _ -> []
               end
@@ -296,15 +294,15 @@ defmodule Ankole.Conversations.Envelope do
 
   defp envelope_subject(_fact), do: nil
 
-  defp event_authorization(_repo, _fact, "im.message.may_intervene"),
+  defp event_authorization(_fact, "im.message.may_intervene"),
     do: Ankole.Principals.WorkAccess.service()
 
-  defp event_authorization(_repo, _fact, "conversation.message.removed"),
+  defp event_authorization(_fact, "conversation.message.removed"),
     do: Ankole.Principals.WorkAccess.service()
 
-  defp event_authorization(repo, fact, _type) do
+  defp event_authorization(fact, _type) do
     if Map.has_key?(fact, :finalized_batch_id),
-      do: Ankole.Principals.WorkAccess.from_observation(repo, fact.author),
-      else: Ankole.Principals.WorkAccess.from_sender(repo, Map.get(fact, :sender_key))
+      do: Ankole.Principals.WorkAccess.from_observation(fact.author),
+      else: Ankole.Principals.WorkAccess.from_sender(Map.get(fact, :sender_key))
   end
 end

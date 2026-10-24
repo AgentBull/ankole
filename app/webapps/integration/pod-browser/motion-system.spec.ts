@@ -118,7 +118,7 @@ test('a successful first send during mobile exit does not reopen the closed page
   const page = await context.newPage()
   const posted = Promise.withResolvers<{ conversation: { id: string } }>()
   const acknowledgement = Promise.withResolvers<void>()
-  await page.route('**/.internal-apis/pod/conversations', async route => {
+  await page.route('**/api/v2/pod/conversations', async route => {
     if (route.request().method() !== 'POST') return route.continue()
     const response = await route.fetch()
     posted.resolve(await response.json())

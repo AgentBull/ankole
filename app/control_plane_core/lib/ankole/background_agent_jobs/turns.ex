@@ -68,9 +68,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   @internal_uuid_pattern ~r/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
 
   @doc false
-  @spec upsert_from_worker_in_tx(module(), Job.t(), map()) ::
+  @spec upsert_from_worker_in_tx(Job.t(), map()) ::
           {:ok, Turn.t()} | {:error, term()}
-  def upsert_from_worker_in_tx(_repo, %Job{} = job, attrs) when is_map(attrs) do
+  def upsert_from_worker_in_tx(%Job{} = job, attrs) when is_map(attrs) do
     with {:ok, attrs} <- normalize_worker_attrs(attrs, job),
          {turn_items, attrs} <- Map.pop(attrs, "turn_items", []),
          :ok <- validate_attempt(job, attrs),
@@ -350,10 +350,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp lifecycle_event_identity(%Job{}), do: nil
 
   @doc false
-  @spec ensure_lead_closed_for_current_attempt_in_tx(module(), Job.t(), keyword()) ::
+  @spec ensure_lead_closed_for_current_attempt_in_tx(Job.t(), keyword()) ::
           :ok | {:error, :background_agent_job_turn_trajectory_incomplete}
-  def ensure_lead_closed_for_current_attempt_in_tx(repo, %Job{} = job, opts \\ []) do
-    turns = lock_attempt_in_tx(repo, job)
+  def ensure_lead_closed_for_current_attempt_in_tx(%Job{} = job, opts \\ []) do
+    turns = lock_attempt_in_tx(job)
 
     lead_turns = Enum.filter(turns, &Turn.lead?(&1, job.runtime_thread_id))
     lead_statuses = Enum.map(lead_turns, & &1.status)
@@ -388,7 +388,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   @doc false
-  def lock_attempt_in_tx(_repo, %Job{} = job) do
+  def lock_attempt_in_tx(%Job{} = job) do
     Turn
     |> Ash.Query.filter(job_id == ^job.id and attempt == ^job.attempts)
     |> Ash.Query.sort(started_at: :asc, id: :asc)
@@ -402,10 +402,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   @doc false
-  @spec consecutive_lead_failures_in_tx(module(), Job.t(), pos_integer()) ::
+  @spec consecutive_lead_failures_in_tx(Job.t(), pos_integer()) ::
           {non_neg_integer(), map() | nil}
   def consecutive_lead_failures_in_tx(
-        _repo,
         %Job{runtime_thread_id: lead_thread_id} = job,
         limit
       )
@@ -424,13 +423,12 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end
   end
 
-  def consecutive_lead_failures_in_tx(_repo, %Job{}, _limit), do: {0, nil}
+  def consecutive_lead_failures_in_tx(%Job{}, _limit), do: {0, nil}
 
   @doc false
-  @spec interrupt_before_attempt_in_tx(module(), Job.t(), pos_integer(), DateTime.t()) ::
+  @spec interrupt_before_attempt_in_tx(Job.t(), pos_integer(), DateTime.t()) ::
           :ok | {:error, term()}
   def interrupt_before_attempt_in_tx(
-        _repo,
         %Job{} = job,
         expected_attempt,
         %DateTime{} = now
@@ -457,13 +455,11 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   @doc false
   @spec interrupt_active_for_current_attempt_in_tx(
-          module(),
           Job.t(),
           map(),
           DateTime.t()
         ) :: :ok | {:error, term()}
   def interrupt_active_for_current_attempt_in_tx(
-        _repo,
         %Job{} = job,
         %{} = error,
         %DateTime{} = now

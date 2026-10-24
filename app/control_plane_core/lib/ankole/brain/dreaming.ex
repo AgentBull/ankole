@@ -11,7 +11,7 @@ defmodule Ankole.Brain.Dreaming do
 
   The bucket and term-usage counts are aggregate read models (M4) and stay
   Ecto queries that give values only. Each write goes through a resource
-  action; a multi-row promotion runs the `:consolidate_facts` generic action.
+  action; a multi-row promotion runs in a top-level transaction.
   """
 
   import Ecto.Query, warn: false
@@ -188,8 +188,8 @@ defmodule Ankole.Brain.Dreaming do
   end
 
   defp cosine(a, b) do
-    a = Pgvector.to_list(a)
-    b = Pgvector.to_list(b)
+    a = Ash.Vector.to_list(a)
+    b = Ash.Vector.to_list(b)
 
     {dot, norm_a, norm_b} =
       Enum.zip(a, b)
@@ -202,12 +202,14 @@ defmodule Ankole.Brain.Dreaming do
       else: dot / (:math.sqrt(norm_a) * :math.sqrt(norm_b))
   end
 
-  # The take insert and the consolidation marks commit together in the
-  # `:consolidate_facts` action. The embedding prepares before the action.
+  # The take insert and the consolidation marks commit together in one
+  # top-level transaction. The embedding prepares before the transaction.
   defp promote_cluster(object_slug, scope, cluster) do
     top = Enum.max_by(cluster, & &1.confidence)
     average = Enum.sum(Enum.map(cluster, & &1.confidence)) / length(cluster)
     weight = Float.round(average * 20) / 20
+    fact_ids = Enum.map(cluster, & &1.id)
+    embedding = Claims.prepare_embedding(top.claim)
 
     take = %{
       object_slug: object_slug,
@@ -219,14 +221,9 @@ defmodule Ankole.Brain.Dreaming do
       provenance: "dreaming consolidation of #{length(cluster)} facts"
     }
 
-    result =
-      Ankole.Ash.run_action(Claim, :consolidate_facts, %{
-        take: take,
-        fact_ids: Enum.map(cluster, & &1.id),
-        embedding: Claims.prepare_embedding(top.claim)
-      })
-
-    case result do
+    case Repo.transact_top_level(fn ->
+           Claims.consolidate_facts_in_tx(take, fact_ids, embedding)
+         end) do
       {:ok, _take} -> :ok
       {:error, _reason} -> :skip
     end
@@ -445,7 +442,7 @@ defmodule Ankole.Brain.Dreaming do
           {:ok, Contradiction.t()} | {:error, :not_found | :conflict | term()}
   def decide_contradiction_in_tx(contradiction_id, status, resolution_note)
       when status in [:resolved, :dismissed] do
-    with :ok <- Repo.require_transaction(Repo) do
+    with :ok <- Repo.require_transaction() do
       Contradiction
       |> Ash.Query.filter(id == ^contradiction_id)
       |> Ash.Query.lock(:for_update)
@@ -524,9 +521,7 @@ defmodule Ankole.Brain.Dreaming do
     rejected_before =
       SchemaSuggestion
       |> Ash.Query.filter(term == ^term and kind == ^kind and status == :rejected)
-      |> Ash.Query.select([])
-      |> Ash.Query.limit(1)
-      |> Ankole.Ash.read!() != []
+      |> Ankole.Ash.exists?()
 
     if rejected_before do
       :skip

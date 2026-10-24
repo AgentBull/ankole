@@ -62,7 +62,7 @@ defmodule Ankole.Sessions.RoundState do
     end
   end
 
-  def put_in_tx(_repo, run, message, results \\ %{}) do
+  def put_in_tx(run, message, results \\ %{}) do
     attrs =
       Map.take(run, @control_fields ++ [:steer_event_ids, :pages])
       |> Map.put(

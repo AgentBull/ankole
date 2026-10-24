@@ -42,7 +42,7 @@ config :ankole, AnkoleWeb.Endpoint,
   ],
   pubsub_server: Ankole.PubSub
 
-config :ankole, Ankole.TokenSigning, issuer: "http://ankole.localhost:4000"
+config :ankole, Ankole.OIDC.Config, issuer: "http://ankole.localhost:4000"
 
 # Configure Elixir's Logger for Docker/Kubernetes structured-log ingestion.
 config :logger, :default_handler,

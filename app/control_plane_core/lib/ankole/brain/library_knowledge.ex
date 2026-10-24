@@ -37,12 +37,12 @@ defmodule Ankole.Brain.LibraryKnowledge do
   alias Ankole.AIAgent.Library.SourceReader, as: LibrarySourceReader
   alias Ankole.Brain.Config
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Sources
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
+  alias Ankole.Repo
 
   @source_kind "library"
   @builtin_set_id "library"
@@ -204,12 +204,12 @@ defmodule Ankole.Brain.LibraryKnowledge do
     do: archived_report(source)
 
   defp finish_projection(set, source, pages, rejected, fingerprint, counts) do
+    live_slugs = Enum.map(pages, & &1.slug)
+
     result =
-      Ankole.Ash.run_action(Source, :finish_library_projection, %{
-        source: source,
-        live_slugs: Enum.map(pages, & &1.slug),
-        fingerprint: fingerprint
-      })
+      Repo.transact_top_level(fn ->
+        finish_projection_in_tx(source, live_slugs, fingerprint)
+      end)
 
     if rejected != [] do
       Logging.warning("brain.library_knowledge.pages_rejected", %{
@@ -240,10 +240,10 @@ defmodule Ankole.Brain.LibraryKnowledge do
   # Withdraws the pages that left the set and records the set revision in the
   # transaction of the `:finish_library_projection` action.
   def finish_projection_in_tx(source, live_slugs, fingerprint) do
-    with {:ok, current} <- Sources.lock_active(Ankole.Repo, source) do
+    with {:ok, current} <- Sources.lock_active(source) do
       withdrawn = Objects.withdraw_library_projection(current, live_slugs)
 
-      with {:ok, _source} <- Sources.record_revision(Ankole.Repo, current, fingerprint) do
+      with {:ok, _source} <- Sources.record_revision(current, fingerprint) do
         {:ok, withdrawn}
       end
     end
@@ -435,12 +435,12 @@ defmodule Ankole.Brain.LibraryKnowledge do
   end
 
   defp installed_type?(type),
-    do: not is_nil(Ankole.Ash.read_one!(Ash.Query.filter(SchemaType, name == ^type)))
+    do: Ankole.Ash.exists?(Ash.Query.filter(SchemaType, name == ^type))
 
   # One page failing must not take the sweep down with it: the page reports
   # as errored and the rest of the set still lands.
   defp project_page(source, page) do
-    case Ankole.Ash.run_action(Object, :upsert_library_projection, %{source: source, page: page}) do
+    case Repo.transact_top_level(fn -> Objects.upsert_library_projection_in_tx(source, page) end) do
       {:ok, outcome} -> outcome
       {:error, :source_archived} = error -> error
       {:error, reason} -> page_failed(page, inspect(reason))

@@ -2,8 +2,8 @@ defmodule Ankole.OIDC do
   @moduledoc """
   Owns OIDC clients, their group and model policy, and client-origin projection.
 
-  A Client write that has more than one step runs as a generic action on
-  `Ankole.OIDC.Client`, and that action owns its transaction.
+  Console API writes run as generic actions on `Ankole.OIDC.Client`, and
+  multi-step internal writes run in `Ankole.Repo.transact_top_level/1`.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
@@ -37,8 +37,8 @@ defmodule Ankole.OIDC do
         index(:console_list, name: "list_oidc_clients", derive_sort?: false)
         route(:post, "/", :console_create, name: "create_oidc_client")
         get(:read, name: "get_oidc_client")
-        route(:patch, "/:id", :console_update, name: "update_oidc_client")
-        route(:delete, "/:id", :console_delete, name: "delete_oidc_client")
+        patch(:console_update, name: "update_oidc_client")
+        delete(:console_delete, name: "delete_oidc_client")
       end
 
       base_route "/oidc-clients/:client_id/logout-deliveries", Ankole.OIDC.LogoutDelivery do
@@ -60,35 +60,7 @@ defmodule Ankole.OIDC do
     resource(Ankole.OIDC.LogoutDelivery)
   end
 
-  @allow_http_issuer Mix.env() in [:dev, :test]
-
-  def attesto_config do
-    issuer = Ankole.TokenSigning.issuer()
-
-    options = [
-      issuer: issuer,
-      audience: Ankole.OIDC.Tokens.userinfo_audience(),
-      keystore: Ankole.OIDC.Keystore,
-      principal_kinds: [Attesto.PrincipalKind.new("human", "usr_")]
-    ]
-
-    case URI.parse(issuer) do
-      %URI{scheme: "https"} ->
-        Attesto.Config.new(options)
-
-      %URI{scheme: "http", host: host, query: nil, fragment: nil, userinfo: nil}
-      when is_binary(host) and host != "" ->
-        if @allow_http_issuer do
-          :ok = Attesto.Keystore.validate!(Ankole.OIDC.Keystore)
-          struct!(Attesto.Config, options)
-        else
-          raise ArgumentError, "HTTP OIDC issuers are restricted to development and tests"
-        end
-
-      _ ->
-        raise ArgumentError, "invalid OIDC issuer"
-    end
-  end
+  defdelegate attesto_config(), to: Ankole.OIDC.Config, as: :get
 
   @ai_gateway_scope "ai_gateway.write"
 
@@ -126,7 +98,7 @@ defmodule Ankole.OIDC do
   end
 
   def discovery_metadata do
-    issuer = Ankole.TokenSigning.issuer()
+    issuer = Ankole.OIDC.Config.issuer()
 
     metadata =
       Attesto.OpenIDDiscovery.metadata(attesto_config(),
@@ -220,21 +192,22 @@ defmodule Ankole.OIDC do
   defp find_client(id, active?) do
     query = Ash.Query.filter(client_query(), id == ^id)
     query = if active?, do: Ash.Query.filter(query, enabled == true), else: query
-    Ash.read_one!(query, authorize?: false)
+    Ankole.Ash.read_one!(query)
   end
 
   # A caller that selected all tenants reads the clients of every tenant.
   defp client_query do
     action = if Repo.across_tenants?(), do: :lookup_across_tenants, else: :read
-    Ash.Query.for_read(Client, action, %{}, tenant: Repo.tenant_id(), authorize?: false)
+    Ash.Query.for_read(Client, action)
   end
 
   @doc "Creates a client and returns its one-time secret when confidential."
   @spec create_client(map()) ::
           {:ok, %{client: map(), client_secret: String.t() | nil}} | {:error, term()}
   def create_client(attrs) when is_map(attrs) do
-    with {:ok, args, secret} <- prepare_create(attrs),
-         {:ok, client} <- Ankole.Ash.run_action(Client, :create_client, args) do
+    with {:ok, %{attrs: attrs, group_ids: group_ids}, secret} <- prepare_create(attrs),
+         {:ok, client} <-
+           Repo.transact_top_level(fn -> create_client_in_tx(attrs, group_ids) end) do
       {:ok, %{client: projection(client), client_secret: secret}}
     end
   end
@@ -277,7 +250,8 @@ defmodule Ankole.OIDC do
   @spec update_client(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def update_client(id, attrs) when is_map(attrs) do
     with {:ok, id} <- cast_uuid(id),
-         {:ok, updated} <- Ankole.Ash.run_action(Client, :update_client, %{id: id, attrs: attrs}) do
+         {:ok, updated} <-
+           Repo.transact_top_level(fn -> update_client_in_tx(id, attrs) end) do
       {:ok, projection(updated)}
     end
   end
@@ -329,7 +303,7 @@ defmodule Ankole.OIDC do
   end
 
   defp load_console_fields(client),
-    do: Ash.load!(client, [:allowed_group_ids], tenant: Repo.tenant_id(), authorize?: false)
+    do: Ankole.Ash.load!(client, [:allowed_group_ids])
 
   @doc "Deletes a client and all of its OAuth credentials, but no Principal data."
   @spec delete_client(String.t()) :: {:ok, map()} | {:error, term()}
@@ -387,7 +361,7 @@ defmodule Ankole.OIDC do
     client_query()
     |> Ash.Query.filter(enabled == true)
     |> Ash.Query.select([:redirect_uris])
-    |> Ash.read!(authorize?: false)
+    |> Ankole.Ash.read!()
     |> Enum.flat_map(& &1.redirect_uris)
     |> Enum.map(&ClientPolicy.redirect_origin/1)
     |> Enum.reject(&is_nil/1)

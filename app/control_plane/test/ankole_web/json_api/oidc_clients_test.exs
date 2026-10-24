@@ -75,16 +75,21 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
       })
 
     assert %{
-             "id" => ^client_id,
-             "name" => "OIDC without Gateway",
-             "scopes" => ["openid", "email"],
-             "allowed_group_ids" => [],
-             "model_aliases" => %{}
+             "data" => %{
+               "id" => ^client_id,
+               "type" => "oidc_client",
+               "attributes" => %{
+                 "name" => "OIDC without Gateway",
+                 "scopes" => ["openid", "email"],
+                 "allowed_group_ids" => [],
+                 "model_aliases" => %{}
+               }
+             }
            } = json_response(update, 200)
 
     deleted = conn |> request(:delete, "/api/v2/oidc-clients/#{client_id}") |> json_response(200)
 
-    assert deleted["id"] == client_id
+    assert deleted["data"]["id"] == client_id
     assert {:error, :not_found} = OIDC.get_client(client_id)
 
     for {method, path, data} <- [
@@ -224,7 +229,7 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
              |> json_response(404)
 
     assert {:ok, _} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(Repo.get!(Ankole.OIDC.LogoutDelivery, id), :exhaust_in_tx, %{})
              end)
 
@@ -238,6 +243,11 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
   end
 
   defp request(conn, method, path, data \\ nil) do
+    data =
+      if method == :patch and data,
+        do: %{type: "oidc_client", id: List.last(String.split(path, "/")), attributes: data},
+        else: data
+
     conn
     |> recycle_api()
     |> put_req_header("accept", @json_api)

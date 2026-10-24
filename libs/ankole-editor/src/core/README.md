@@ -22,6 +22,7 @@ Input:
 
 - Between a `beforeinput` event that the browser applies itself and its `input` event, `flush()` does nothing and `focus()` does not move the DOM selection. A redraw in that time put the browser's change next to the drawn one, and later typing went between them.
 - Keydown and `beforeinput` read a DOM selection that the editor has not read yet, without a flush (`InputState.readNewSelection`). A selection that the editor set and has not drawn yet wins (`DOMObserver.editorSelectionPending`; selections read from the DOM carry `selectionFromDOM`).
+- Plain typing uses that current selection and its active marks. Chromium can report the previous input target range after a keyboard command has moved the caret; replacement and composition events retain their own target ranges.
 - Safari commits a composition with `deleteCompositionText` and `insertFromComposition`. Both apply to the document. On desktop Safari, the key event that follows the end of a composition (for example Enter) does not run as a command.
 - When a composition starts, the editor first draws a selection that it set and has not drawn yet, so that the browser composes there. A composition that starts between blocks first gets an empty paragraph.
 - `insertReplacementText` and `insertFromYank` accept `data` as well as `dataTransfer`. A non-cancelable replacement, or an `input` event without a matching `beforeinput`, is read from the DOM when it changes text inside existing text nodes.

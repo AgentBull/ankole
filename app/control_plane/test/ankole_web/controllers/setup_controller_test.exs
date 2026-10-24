@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.SetupControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
 
   import Ecto.Query
   import ExUnit.CaptureLog
@@ -31,7 +32,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     :ok
   end
 
-  test "POST /.internal-apis/setup/bootstrap-activation-code/log-entries reprints the current activation code",
+  test "POST /api/v2/browser/setup/bootstrap-activation-code/log-entries reprints the current activation code",
        %{conn: conn} do
     assert {:ok, "ABCDEFGH"} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
     original_logger_level = Logger.level()
@@ -45,18 +46,18 @@ defmodule AnkoleWeb.SetupControllerTest do
         conn =
           conn
           |> init_test_session(%{})
-          |> post(~p"/.internal-apis/setup/bootstrap-activation-code/log-entries", %{})
+          |> api_post(~p"/api/v2/browser/setup/bootstrap-activation-code/log-entries", %{})
 
         send(test_pid, {:response, conn})
       end)
 
     assert_receive {:response, conn}
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 200) == %{"ok" => true}
+    assert api_response(conn, 200) == %{"ok" => true}
     assert log =~ "SETUP ACTIVATION CODE: ABCDEFGH"
     assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
   end
 
-  test "POST /.internal-apis/setup/sessions clears old setup session and OIDC state on invalid activation code",
+  test "POST /api/v2/browser/setup/sessions clears old setup session and OIDC state on invalid activation code",
        %{conn: conn} do
     assert {:ok, "ABCDEFGH"} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
 
@@ -69,12 +70,12 @@ defmodule AnkoleWeb.SetupControllerTest do
         state: "old-state",
         redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
       })
-      |> post(~p"/.internal-apis/setup/sessions", %{
-        "activationCode" => "WRONG000",
+      |> api_post(~p"/api/v2/browser/setup/sessions", %{
+        "activation_code" => "WRONG000",
         "locale" => "zh-Hans-CN"
       })
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 401)["error"] ==
+    assert api_error(conn, 401)["code"] ==
              "invalid bootstrap activation code"
 
     assert get_session(conn, :setup_session) == nil
@@ -89,9 +90,9 @@ defmodule AnkoleWeb.SetupControllerTest do
       conn
       |> forwarded_https_conn()
       |> init_test_session(%{})
-      |> get(~p"/.internal-apis/setup/state")
+      |> api_get(~p"/api/v2/browser/setup/state")
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 200)["publicBaseURL"] ==
+    assert api_response(conn, 200)["publicBaseURL"] ==
              "https://#{conn.host}"
   end
 
@@ -109,10 +110,10 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> forwarded_https_conn()
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
-      |> post(~p"/.internal-apis/setup/identity-providers/lark-main/oidc/authorizations")
+      |> api_post(~p"/api/v2/browser/setup/identity-providers/lark-main/oidc/authorizations")
 
     %{"authorizationURL" => authorization_url} =
-      AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+      api_response(conn, 200)
 
     redirect_uri =
       authorization_url
@@ -158,9 +159,9 @@ defmodule AnkoleWeb.SetupControllerTest do
       conn
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
-      |> post(~p"/.internal-apis/setup/identity-providers/dingtalk-main/oidc/authorizations")
+      |> api_post(~p"/api/v2/browser/setup/identity-providers/dingtalk-main/oidc/authorizations")
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 400)["error"] =~
+    assert api_error(conn, 400)["code"] =~
              "invalidClientIdOrSecret"
 
     assert WebSession.setup_oidc_state(conn) == nil
@@ -188,15 +189,15 @@ defmodule AnkoleWeb.SetupControllerTest do
            )
   end
 
-  test "GET /.internal-apis/setup/identity-provider-adapters uses adapter declaration fields",
+  test "GET /api/v2/browser/setup/identity-provider-adapters uses adapter declaration fields",
        %{conn: conn} do
     conn =
       conn
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
-      |> get(~p"/.internal-apis/setup/identity-provider-adapters")
+      |> api_get(~p"/api/v2/browser/setup/identity-provider-adapters")
 
-    assert %{"adapters" => adapters} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    assert %{"adapters" => adapters} = api_response(conn, 200)
 
     lark = Enum.find(adapters, &(&1["adapterID"] == "lark"))
     assert lark["displayName"]["default"] == "Lark"
@@ -216,9 +217,9 @@ defmodule AnkoleWeb.SetupControllerTest do
       conn
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
-      |> get(~p"/.internal-apis/setup/identity-provider-adapters")
+      |> api_get(~p"/api/v2/browser/setup/identity-provider-adapters")
 
-    assert %{"adapters" => adapters} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    assert %{"adapters" => adapters} = api_response(conn, 200)
     assert Enum.any?(adapters, &(&1["adapterID"] == "lark"))
     assert Enum.any?(adapters, &(&1["adapterID"] == "slack"))
   end
@@ -231,8 +232,8 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
 
-    conn = get(conn, ~p"/.internal-apis/setup/plugins")
-    response = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    conn = api_get(conn, ~p"/api/v2/browser/setup/plugins")
+    response = api_response(conn, 200)
 
     assert response["enabledPluginIDs"] == ["lark-adapter"]
     assert Enum.any?(response["plugins"], &(&1["id"] == "slack-adapter"))
@@ -240,10 +241,10 @@ defmodule AnkoleWeb.SetupControllerTest do
     updated =
       conn
       |> recycle()
-      |> put(~p"/.internal-apis/setup/plugins/enabled", %{
+      |> api_put(~p"/api/v2/browser/setup/plugins/enabled", %{
         "pluginIDs" => ["lark-adapter", "slack-adapter"]
       })
-      |> AnkoleWeb.InternalAPIContract.json_response(200)
+      |> api_response(200)
 
     assert updated["enabledPluginIDs"] == ["lark-adapter", "slack-adapter"]
     assert {:ok, ["lark-adapter", "slack-adapter"]} = PluginsConfig.enabled_ids()
@@ -254,12 +255,12 @@ defmodule AnkoleWeb.SetupControllerTest do
       conn
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
-      |> put(~p"/.internal-apis/setup/plugins/enabled", %{"pluginIDs" => ["missing-plugin"]})
+      |> api_put(~p"/api/v2/browser/setup/plugins/enabled", %{"pluginIDs" => ["missing-plugin"]})
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 400)["error"] =~ "unknown_plugin_ids"
+    assert api_error(conn, 400)["code"] =~ "unknown_plugin_ids"
   end
 
-  describe "POST /.internal-apis/setup/local-admin" do
+  describe "POST /api/v2/browser/setup/local-admin" do
     test "creates the administrator, completes setup, and signs the browser in", %{
       conn: conn,
       tenant: tenant
@@ -270,33 +271,33 @@ defmodule AnkoleWeb.SetupControllerTest do
         |> WebSession.put_setup_session()
 
       put_conn =
-        put(setup_conn, ~p"/.internal-apis/setup/identity-providers/local-main", %{
+        api_put(setup_conn, ~p"/api/v2/browser/setup/identity-providers/local-main", %{
           "adapterID" => "local",
           "config" => %{"retry_protection" => %{"enabled" => true}},
           "enabled" => true
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(put_conn, 200)["adapter_id"] == "local"
+      assert api_response(put_conn, 200)["adapter_id"] == "local"
 
       conn =
-        post(recycle(put_conn), ~p"/.internal-apis/setup/local-admin", %{
+        api_post(recycle(put_conn), ~p"/api/v2/browser/setup/local-admin", %{
           "email" => "Admin@Example.com",
           "password" => "hunter2-long"
         })
 
       assert %{"returnTo" => "/site-admin-console"} =
-               AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+               api_response(conn, 200)
 
       assert {:ok, true} = SetupConfig.completed?()
       assert get_session(conn, :setup_session) == nil
 
-      conn = get(recycle(conn), ~p"/.internal-apis/session")
+      conn = api_get(recycle(conn), ~p"/api/v2/browser/session")
 
       assert %{
                "authenticated" => true,
                "principalUID" => uid,
                "providerID" => "local-main"
-             } = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+             } = api_response(conn, 200)
 
       assert {:ok, _} = Ecto.UUID.cast(uid)
       assert Ankole.AuthZ.site_admin?(uid)
@@ -319,31 +320,31 @@ defmodule AnkoleWeb.SetupControllerTest do
         |> WebSession.put_setup_session()
 
       conn =
-        post(setup_conn, ~p"/.internal-apis/setup/local-admin", %{
+        api_post(setup_conn, ~p"/api/v2/browser/setup/local-admin", %{
           "email" => "admin@example.com",
           "password" => "hunter2-long"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 409)["error"] ==
+      assert api_error(conn, 409)["code"] ==
                "local identity provider is not configured"
 
       {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
 
       conn =
-        post(setup_conn, ~p"/.internal-apis/setup/local-admin", %{
+        api_post(setup_conn, ~p"/api/v2/browser/setup/local-admin", %{
           "email" => "not-an-email",
           "password" => "hunter2-long"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 422)["error"] == "email is invalid"
+      assert api_error(conn, 422)["code"] == "email is invalid"
 
       conn =
-        post(setup_conn, ~p"/.internal-apis/setup/local-admin", %{
+        api_post(setup_conn, ~p"/api/v2/browser/setup/local-admin", %{
           "email" => "admin@example.com",
           "password" => "short"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 422)["error"] ==
+      assert api_error(conn, 422)["code"] ==
                "password must be at least 6 characters"
     end
 
@@ -357,12 +358,12 @@ defmodule AnkoleWeb.SetupControllerTest do
         conn
         |> init_test_session(%{})
         |> WebSession.put_setup_session()
-        |> post(~p"/.internal-apis/setup/local-admin", %{
+        |> api_post(~p"/api/v2/browser/setup/local-admin", %{
           "email" => "admin@example.com",
           "password" => "hunter2-long"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 409)["error"] ==
+      assert api_error(conn, 409)["code"] ==
                "setup already completed"
     end
   end

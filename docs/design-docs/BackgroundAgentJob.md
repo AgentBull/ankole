@@ -816,16 +816,16 @@ fixed target. Only a `worker_report` success seeds a steer successor.
 `external_complete` answers open steers with its own wakeup, and
 `external_complete` and `fail_admission` do not require a closed lead Turn.
 
-Each operation that changes more than one row runs one generic action of the
-Job or Turn resource: `create_with_dispatch`, `respawn_with_dispatch`,
+Each operation that changes more than one row runs in
+`Repo.transact_top_level/2`: `create_with_dispatch`, `respawn_with_dispatch`,
 `request_stop`, `request_complete`, `send_message`, `commit_status_with_wakeup`
-(its `after_commit` wakes the Job driver), `upsert_turn_from_worker`,
+(whose `after_commit` wakes the Job driver), `upsert_turn_from_worker`,
 `complete_signal`, `WorkerWait.resolve_timeout`, and the lock phase of
-`TurnWatchdog.reconcile_stuck_job`. The action owns its transaction, so the
-operation must be the top-level call. Another domain composes these steps
+`TurnWatchdog.reconcile_stuck_job`. Each operation owns its transaction and
+must be the top-level call. Another domain composes these steps
 inside its own operation with the `_in_tx` functions, for example
-`Lifecycle.claim_attempt_in_tx/6`, `Lifecycle.commit_status_with_wakeup_in_tx`,
-`Dispatch.prepare_create_in_tx/2`, and `lock_job_in_tx/3`. Action rejection runs before SQL and
+`Lifecycle.claim_attempt_in_tx/5`, `Lifecycle.commit_status_with_wakeup_in_tx`,
+`Dispatch.prepare_create_in_tx/1`, and `lock_job_in_tx/2`. Action rejection runs before SQL and
 does not roll back the enclosing transaction. `CodexJob.abort` can therefore
 commit its Signal settlement and owner wakeup after a rejected transition.
 Worker authorization reads the input under the locked Job and attempt fence;

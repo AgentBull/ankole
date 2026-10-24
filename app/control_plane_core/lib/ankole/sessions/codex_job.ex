@@ -61,7 +61,7 @@ defmodule Ankole.Sessions.CodexJob do
   @spec rebuild(map(), DateTime.t()) ::
           {:ok, :idle | %{event: Signal.t(), delay_ms: non_neg_integer()}}
   def rebuild(key, now \\ DateTime.utc_now(:microsecond)) do
-    case Queue.oldest_open(Repo, key.agent_uid, key.session_id) do
+    case Queue.oldest_open(key.agent_uid, key.session_id) do
       nil ->
         {:ok, :idle}
 
@@ -111,8 +111,7 @@ defmodule Ankole.Sessions.CodexJob do
         ready_timeout_ms: ready_timeout_ms
       }
 
-      admission
-      |> Ankole.Sessions.admit_job_input(snapshot)
+      Ankole.Repo.transact_top_level(fn -> admit_in_tx(admission, snapshot) end)
       |> Ankole.Errors.reason()
       |> admission_result(event, snapshot, now)
     else
@@ -122,14 +121,14 @@ defmodule Ankole.Sessions.CodexJob do
   end
 
   @doc false
-  def admit_in_tx(repo, %{key: key} = admission, %Job{id: id} = snapshot) do
+  def admit_in_tx(%{key: key} = admission, %Job{id: id} = snapshot) do
     # Lock Principal rows before AgentWorkers, SlotLock, and Job rows.
-    access_result = admission_access(repo, admission.event, snapshot)
-    worker = AgentWorkers.lock_in_tx(repo, key.agent_uid)
+    access_result = admission_access(admission.event, snapshot)
+    worker = AgentWorkers.lock_in_tx(key.agent_uid)
 
-    with :ok <- Lifecycle.lock_agent_slots(repo, key.agent_uid),
-         %Job{} = job <- BackgroundAgentJobs.lock_job_in_tx(repo, id, key.agent_uid) do
-      admit_locked_in_tx(repo, admission, job, worker, access_result)
+    with :ok <- Lifecycle.lock_agent_slots(key.agent_uid),
+         %Job{} = job <- BackgroundAgentJobs.lock_job_in_tx(id, key.agent_uid) do
+      admit_locked_in_tx(admission, job, worker, access_result)
     else
       nil -> {:error, :job_not_found}
       error -> error
@@ -137,7 +136,6 @@ defmodule Ankole.Sessions.CodexJob do
   end
 
   defp admit_locked_in_tx(
-         repo,
          %{event: event, prepared: prepared} = admission,
          job,
          worker,
@@ -147,7 +145,6 @@ defmodule Ankole.Sessions.CodexJob do
       job.status in Job.terminal_statuses() ->
         with {:ok, event} <-
                Queue.mark_event_completed_in_tx(
-                 repo,
                  event,
                  admission.now
                ),
@@ -162,28 +159,27 @@ defmodule Ankole.Sessions.CodexJob do
       true ->
         {:ok, spec} = prepared
 
-        admit_attempt_in_tx(repo, admission, job, worker, spec)
+        admit_attempt_in_tx(admission, job, worker, spec)
     end
   end
 
   defp adopt_attempt?(%{last_attempt_at: %DateTime{}}, %{status: :running}), do: true
   defp adopt_attempt?(_event, _job), do: false
 
-  defp admission_access(repo, event, job) do
+  defp admission_access(event, job) do
     # Closing a terminal Job's trigger or adopting a live running attempt does not
     # admit new work.
     if adopt_attempt?(event, job) or job.status in Job.terminal_statuses() do
       :ok
     else
-      with :ok <- Ankole.Tenants.check_work_admission_in_tx(repo, Repo.tenant_id!()),
-           :ok <- WorkAccess.lock_authorizers_in_tx(repo, [event, job]),
-           :ok <- WorkAccess.check_in_tx(repo, event),
-           do: WorkAccess.check_in_tx(repo, job)
+      with :ok <- Ankole.Tenants.check_work_admission_in_tx(Repo.tenant_id!()),
+           :ok <- WorkAccess.lock_authorizers_in_tx([event, job]),
+           :ok <- WorkAccess.check_in_tx(event),
+           do: WorkAccess.check_in_tx(job)
     end
   end
 
   defp admit_attempt_in_tx(
-         repo,
          %{
            key: key,
            event: snapshot,
@@ -197,11 +193,11 @@ defmodule Ankole.Sessions.CodexJob do
     mode = if job.status == :running, do: "adopt", else: "start"
 
     with {:ok, agent_context} <- start_context(mode, context) do
-      case place_and_claim_in_tx(repo, snapshot, job, worker, spec, mode, admission) do
+      case place_and_claim_in_tx(snapshot, job, worker, spec, mode, admission) do
         {:wait, reason} ->
-          with :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id),
-               {:ok, event} <- current_input_in_tx(repo, key, snapshot, now) do
-            WorkerWait.defer_in_tx(repo, event, reason, mode, now)
+          with :ok <- Queue.lock_session_in_tx(key.agent_uid, key.session_id),
+               {:ok, event} <- current_input_in_tx(key, snapshot, now) do
+            WorkerWait.defer_in_tx(event, reason, mode, now)
           end
 
         {:error, _reason} = error ->
@@ -209,11 +205,11 @@ defmodule Ankole.Sessions.CodexJob do
 
         {:ok, job, worker} ->
           with {:ok, agent_context} <- project_context(mode, agent_context, job),
-               {:ok, _} <- Workspaces.ensure_in_tx(repo, key.agent_uid, key.session_id),
-               %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(repo, key),
-               {:ok, event} <- current_input_in_tx(repo, key, snapshot, now),
+               {:ok, _} <- Workspaces.ensure_in_tx(key.agent_uid, key.session_id),
+               %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(key),
+               {:ok, event} <- current_input_in_tx(key, snapshot, now),
                {:ok, event} <-
-                 Ankole.Signals.transition_in_tx(repo, event, :start_attempt, %{
+                 Ankole.Signals.transition_in_tx(event, :start_attempt, %{
                    last_attempt_at: DateTime.utc_now(:microsecond)
                  }),
                {:ok, workspace} <- Ankole.Ash.update_atomic(workspace, :advance_epoch),
@@ -268,12 +264,12 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  defp current_input_in_tx(repo, key, snapshot, now) do
-    with %Signal{id: head_id} <- Queue.oldest_open(repo, key.agent_uid, key.session_id),
+  defp current_input_in_tx(key, snapshot, now) do
+    with %Signal{id: head_id} <- Queue.oldest_open(key.agent_uid, key.session_id),
          true <- head_id == snapshot.id,
          %Signal{status: live_status} = event
          when live_status in [:queued, :running] <-
-           Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
+           Ankole.Signals.lock_signal_in_tx(snapshot.id),
          true <- event.agent_uid == key.agent_uid and event.session_id == key.session_id,
          true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot) do
       if DateTime.compare(event.available_at, now) == :gt,
@@ -284,7 +280,7 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  defp place_and_claim_in_tx(_repo, _snapshot, job, worker, _spec, "adopt", _admission) do
+  defp place_and_claim_in_tx(_snapshot, job, worker, _spec, "adopt", _admission) do
     if is_nil(worker) or worker.state not in [:ready, :draining] do
       {:wait, :agent_worker_unavailable}
     else
@@ -292,8 +288,8 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  defp place_and_claim_in_tx(repo, snapshot, job, worker, spec, "start", admission) do
-    capacity_available? = Lifecycle.capacity_available_in_tx?(repo, job, admission.cap)
+  defp place_and_claim_in_tx(snapshot, job, worker, spec, "start", admission) do
+    capacity_available? = Lifecycle.capacity_available_in_tx?(job, admission.cap)
 
     {status, started_at} =
       AgentWorkers.wait_status(
@@ -316,14 +312,14 @@ defmodule Ankole.Sessions.CodexJob do
           {:wait, :agent_worker_ready_timeout}
 
         true ->
-          reserve_and_claim_in_tx(repo, snapshot, job, spec, admission.cap)
+          reserve_and_claim_in_tx(snapshot, job, spec, admission.cap)
       end
     end
   end
 
-  defp reserve_and_claim_in_tx(repo, snapshot, job, spec, cap) do
-    with {:ok, worker} <- AgentWorkers.reserve_slot_in_tx(repo, job.agent_uid),
-         {:ok, job} <- claim(repo, snapshot, job, spec, cap) do
+  defp reserve_and_claim_in_tx(snapshot, job, spec, cap) do
+    with {:ok, worker} <- AgentWorkers.reserve_slot_in_tx(job.agent_uid),
+         {:ok, job} <- claim(snapshot, job, spec, cap) do
       {:ok, job, worker}
     else
       {:error, :no_worker_capacity} -> {:wait, :no_worker_capacity}
@@ -338,16 +334,17 @@ defmodule Ankole.Sessions.CodexJob do
   defp start_context("start", {:ok, nil}), do: {:error, :input_unavailable}
   defp start_context("start", context), do: context
 
-  defp claim(repo, %Signal{producer: :kernel, type: "command.steer"}, job, spec, cap),
-    do:
-      Lifecycle.claim_continuation_in_tx(repo, job.id, job.agent_uid, job.attempts + 1, spec, cap)
+  defp claim(%Signal{producer: :kernel, type: "command.steer"}, job, spec, cap),
+    do: Lifecycle.claim_continuation_in_tx(job.id, job.agent_uid, job.attempts + 1, spec, cap)
 
-  defp claim(repo, _event, job, spec, cap),
-    do: Lifecycle.claim_attempt_in_tx(repo, job.id, job.agent_uid, job.attempts + 1, spec, cap)
+  defp claim(_event, job, spec, cap),
+    do: Lifecycle.claim_attempt_in_tx(job.id, job.agent_uid, job.attempts + 1, spec, cap)
 
   @spec start(Attempt.t()) :: {:ok, term()} | {:error, term()}
   def start(run) do
-    with {:ok, :live} <- run |> Ankole.Sessions.check_job_turn() |> Ankole.Errors.reason(),
+    with {:ok, :live} <-
+           Ankole.Repo.transact_top_level(fn -> check_turn_in_tx(run) end)
+           |> Ankole.Errors.reason(),
          do:
            WorkerRoute.send_mandatory(
              AgentWorkers.target(run.job_worker),
@@ -356,16 +353,18 @@ defmodule Ankole.Sessions.CodexJob do
   end
 
   @doc false
-  def check_turn_in_tx(repo, run) do
+  def check_turn_in_tx(run) do
     with {:ok, :authorized} <-
-           WorkerRouteAuth.authorize_turn_in_tx(repo, run.job_ref, run.agent_uid, :write),
-         :ok <- Fence.check_in_tx(repo, run, :share),
+           WorkerRouteAuth.authorize_turn_in_tx(run.job_ref, run.agent_uid, :write),
+         :ok <- Fence.check_in_tx(run, :share),
          do: {:ok, :live}
   end
 
   @spec mailbox(Attempt.t()) :: :ok | {:error, term()}
   def mailbox(run) do
-    with {:ok, events} <- run |> Ankole.Sessions.claim_job_mailbox() |> Ankole.Errors.reason() do
+    with {:ok, events} <-
+           Ankole.Repo.transact_top_level(fn -> mailbox_in_tx(run) end)
+           |> Ankole.Errors.reason() do
       events
       |> Enum.reverse()
       |> Enum.reduce_while(:ok, fn event, :ok ->
@@ -381,7 +380,7 @@ defmodule Ankole.Sessions.CodexJob do
   end
 
   @doc false
-  def mailbox_in_tx(repo, run) do
+  def mailbox_in_tx(run) do
     events =
       Queue.due(run)
       |> Enum.filter(
@@ -389,12 +388,12 @@ defmodule Ankole.Sessions.CodexJob do
             &1.type == "command.steer")
       )
 
-    :ok = WorkAccess.lock_authorizers_in_tx(repo, events)
+    :ok = WorkAccess.lock_authorizers_in_tx(events)
 
-    with :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
-         :ok <- Fence.check_in_tx(repo, run, :share) do
+    with :ok <- Queue.lock_session_in_tx(run.agent_uid, run.session_id),
+         :ok <- Fence.check_in_tx(run, :share) do
       Enum.reduce_while(events, {:ok, []}, fn event, {:ok, events} ->
-        case mailbox_event_in_tx(repo, run, event) do
+        case mailbox_event_in_tx(run, event) do
           {:ok, %Signal{status: live_status} = event}
           when live_status in [:queued, :running] ->
             {:cont, {:ok, [event | events]}}
@@ -409,16 +408,16 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  defp mailbox_event_in_tx(repo, run, snapshot) do
+  defp mailbox_event_in_tx(run, snapshot) do
     with %Signal{status: live_status} = event
          when live_status in [:queued, :running] <-
-           Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
+           Ankole.Signals.lock_signal_in_tx(snapshot.id),
          true <- event.agent_uid == run.agent_uid and event.session_id == run.session_id,
          true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
          {:ok, %Signal{status: live_status} = authorized}
          when live_status in [:queued, :running] <-
-           Admission.authorize_event_in_tx(repo, event) do
-      Ankole.Signals.transition_in_tx(repo, authorized, :start_attempt, %{
+           Admission.authorize_event_in_tx(event) do
+      Ankole.Signals.transition_in_tx(authorized, :start_attempt, %{
         last_attempt_at: DateTime.utc_now(:microsecond)
       })
     else
@@ -454,19 +453,20 @@ defmodule Ankole.Sessions.CodexJob do
 
   @spec abort(JobTurnRef.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def abort(ref, worker_id, error) do
-    ref
-    |> Ankole.Sessions.abort_job_turn(worker_id, error, DateTime.utc_now(:microsecond))
+    now = DateTime.utc_now(:microsecond)
+
+    Ankole.Repo.transact_top_level(fn -> abort_in_tx(ref, worker_id, error, now) end)
     |> Ankole.Errors.reason()
   end
 
   @doc false
-  def abort_in_tx(repo, ref, worker_id, error, now) do
+  def abort_in_tx(ref, worker_id, error, now) do
     with {:ok, :authorized} <-
-           WorkerRouteAuth.authorize_turn_in_tx(repo, ref, worker_id, :terminal, lock: true),
+           WorkerRouteAuth.authorize_turn_in_tx(ref, worker_id, :terminal, lock: true),
          %Job{} = job <- BackgroundAgentJobs.get_job(ref.job_id),
-         _turns <- Ankole.BackgroundAgentJobs.Turns.lock_attempt_in_tx(repo, job),
-         :ok <- Lifecycle.lock_job_sessions_in_tx(repo, job),
-         %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(repo, ref.signal_id) do
+         _turns <- Ankole.BackgroundAgentJobs.Turns.lock_attempt_in_tx(job),
+         :ok <- Lifecycle.lock_job_sessions_in_tx(job),
+         %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(ref.signal_id) do
       if job.status != :running do
         {:ok, %{signal: event, compensation: nil}}
       else
@@ -476,15 +476,14 @@ defmodule Ankole.Sessions.CodexJob do
 
         event_result =
           if TurnErrorClassifier.retryable?(error),
-            do: Ankole.Signals.transition_in_tx(repo, event, :defer, %{available_at: delay}),
-            else: Queue.mark_event_dead_letter_in_tx(repo, event, now, error)
+            do: Ankole.Signals.transition_in_tx(event, :defer, %{available_at: delay}),
+            else: Queue.mark_event_dead_letter_in_tx(event, now, error)
 
         with {:ok, event} <- event_result,
              {:ok, _compensation} <-
-               Ankole.BackgroundAgentJobs.TurnWatchdog.compensate_in_tx(repo, event, error, now),
+               Ankole.BackgroundAgentJobs.TurnWatchdog.compensate_in_tx(event, error, now),
              :ok <-
                Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
-                 repo,
                  %{agent_uid: event.agent_uid, session_id: event.session_id},
                  delay
                ),
@@ -570,19 +569,21 @@ defmodule Ankole.Sessions.CodexJob do
 
   defp admission_result({:error, reason}, event, job, now) do
     code = if is_atom(reason), do: Atom.to_string(reason), else: "job_admission_rejected"
+    reason_text = inspect(reason)
 
-    job
-    |> Ankole.Sessions.reject_job_admission(event, code, inspect(reason), now)
+    Ankole.Repo.transact_top_level(fn ->
+      reject_admission_in_tx(job, event, code, reason_text, now)
+    end)
     |> Ankole.Errors.reason()
   end
 
   defp admission_result(result, _event, _job, _now), do: result
 
   @doc false
-  def reject_admission_in_tx(repo, job, event, code, reason, now) do
-    with {:ok, compensation} <- fail_unadmitted_job(repo, job, code, now),
+  def reject_admission_in_tx(job, event, code, reason, now) do
+    with {:ok, compensation} <- fail_unadmitted_job(job, code, now),
          {:ok, event} <-
-           Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
+           Queue.mark_event_dead_letter_in_tx(event, now, %{
              "code" => code,
              "reason" => reason
            }) do
@@ -595,12 +596,11 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  defp fail_unadmitted_job(_repo, nil, _code, _now), do: {:ok, nil}
+  defp fail_unadmitted_job(nil, _code, _now), do: {:ok, nil}
 
-  defp fail_unadmitted_job(repo, job, code, now),
+  defp fail_unadmitted_job(job, code, now),
     do:
       Lifecycle.commit_status_with_wakeup_in_tx(
-        repo,
         job.id,
         job.agent_uid,
         %{

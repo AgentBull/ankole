@@ -278,8 +278,8 @@ defmodule Ankole.AIGateway.ResponseFixtures do
     now = DateTime.utc_now(:microsecond)
 
     {:ok, signal} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           source: "test://gateway-runtime",
           id: "#{source_event_id}-#{System.unique_integer([:positive])}",
           type: "test.source",

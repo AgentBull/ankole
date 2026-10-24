@@ -62,12 +62,75 @@ defmodule Ankole.BrowserSessionsTest do
     assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).status == :consumed
   end
 
+  test "login and authentication scopes keep the same tenant field rejection", %{
+    browser: browser,
+    tenant: tenant
+  } do
+    now = DateTime.utc_now()
+
+    for purpose <- [:site, :pod, :console, :oauth], tenant_id <- [nil, tenant.id] do
+      scope = %{browser_id: browser["id"], tenant_id: tenant_id, purpose: purpose}
+      proof = %{csrf_token: "scope-matrix", expires_at: DateTime.add(now, 60)}
+
+      for {resource, action, attrs} <- [
+            {BrowserSessions.LoginTransaction, :begin_in_tx,
+             Map.merge(proof, %{started_revision: 0})},
+            {BrowserSessions.Authentication, :create_in_tx,
+             Map.merge(proof, %{provider_id: "test-site", subject_id: "scope-matrix", revision: 1})}
+          ] do
+        result =
+          Repo.transact(fn -> Ankole.Ash.create(resource, action, Map.merge(attrs, scope)) end)
+
+        if purpose == :site == is_nil(tenant_id) do
+          assert {:ok, record} = result
+          assert record.purpose == purpose
+          assert record.tenant_id == tenant_id
+        else
+          assert {:error, error} = result
+
+          assert Ankole.Ash.validation_details(error) == [
+                   %{path: "tenant_id", message: "must match the login purpose"}
+                 ]
+        end
+      end
+    end
+  end
+
+  test "logout revisions reject an advance past login without changing the browser", %{
+    browser: browser
+  } do
+    row = Repo.get!(BrowserSessions.Session, browser["id"])
+
+    assert {:error, error} =
+             Repo.transact(fn ->
+               Ankole.Ash.update(row, :logout_in_tx, %{revision: 2, logout_revision: 3})
+             end)
+
+    assert Ankole.Ash.validation_details(error) == [
+             %{path: "logout_revision", message: "cannot exceed the browser revision"}
+           ]
+
+    assert_persisted_equal(Repo.get!(BrowserSessions.Session, row.id), row)
+
+    for logout_revision <- [0, 1, 2] do
+      assert {:ok, updated} =
+               Repo.transact(fn ->
+                 Ankole.Ash.update(row, :logout_in_tx, %{
+                   revision: 2,
+                   logout_revision: logout_revision
+                 })
+               end)
+
+      assert updated.logout_revision == logout_revision
+    end
+  end
+
   test "a browser write owns its transaction; another transaction composes its _in_tx step", %{
     browser: browser
   } do
     {:ok, transaction} = BrowserSessions.begin_login(browser, :pod, %{})
 
-    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
       Repo.transact(fn -> BrowserSessions.bind_provider(browser, transaction.id, "local") end)
     end
 
@@ -388,7 +451,7 @@ defmodule Ankole.BrowserSessionsTest do
              BrowserSessions.create_pod_access(reference, fn authentication ->
                # The callback runs in the BrowserSessions transaction.
                with {:ok, tenant} <-
-                      Ankole.Tenants.create_in_tx(Repo, %{
+                      Ankole.Tenants.create_in_tx(%{
                         slug: "pod-#{Ecto.UUID.generate()}",
                         display_name: "New Pod"
                       }) do
@@ -409,7 +472,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:error, :creation_failed} =
              BrowserSessions.create_pod_access(reference, fn _ ->
-               Ankole.Tenants.create_in_tx(Repo, %{
+               Ankole.Tenants.create_in_tx(%{
                  slug: "rollback-#{Ecto.UUID.generate()}",
                  display_name: "Roll back"
                })

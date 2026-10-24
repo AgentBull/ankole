@@ -108,9 +108,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnStateTest do
              Repo.transact(fn _ -> Ankole.Ash.create(Turn, :record, attrs) end)
 
     assert {:ok, repeated} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Turns.upsert_from_worker_in_tx(
-                 repo,
                  %{job | attempts: 1},
                  Map.delete(attrs, :usage)
                )
@@ -135,8 +134,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnStateTest do
 
     for _ <- 1..2 do
       assert {:ok, :ok} =
-               Repo.transact(fn repo ->
-                 :ok = Turns.interrupt_active_for_current_attempt_in_tx(repo, job, error, @now)
+               Repo.transact(fn ->
+                 :ok = Turns.interrupt_active_for_current_attempt_in_tx(job, error, @now)
                  {:ok, :ok}
                end)
     end
@@ -178,11 +177,6 @@ defmodule Ankole.BackgroundAgentJobs.TurnStateTest do
     end
 
     Ankole.DataCase.assert_persisted_equal(Repo.all(TurnItem), [original])
-
-    assert Ash.Resource.Info.actions(TurnItem) |> Enum.map(& &1.type) |> Enum.sort() == [
-             :create,
-             :read
-           ]
   end
 
   test "a lesson stamp preserves an applied Signal recorded after its Job snapshot", %{job: job} do

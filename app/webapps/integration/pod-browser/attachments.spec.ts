@@ -2,7 +2,7 @@ import { state, request as podRequest } from './fixtures'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { conversationRoute, pageRoute } from './routes'
-import type { ConversationDetail } from '../../common/api/generated/types.gen'
+import type { ConversationDetail } from '../../pod/api'
 
 const imageBytes = readFileSync(
   new URL('../../../control_plane/test/fixtures/sessions/rgba.png', import.meta.url)
@@ -55,7 +55,7 @@ test('file preparation and an uncertain send retain stable identities through pa
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
     await panel.getByRole('button', { name: '新对话', exact: true }).click()
     const composer = panel.locator('.pod-chat-composer')
-    await page.route('**/.internal-apis/pod/attachments', async route => {
+    await page.route('**/api/v2/pod/attachments', async route => {
       uploadIDs.push(uploadID(route.request()))
       if (uploadIDs.length === 1) {
         return route.fulfill({
@@ -83,9 +83,9 @@ test('file preparation and an uncertain send retain stable identities through pa
     expect(uploadIDs[0]).toBeTruthy()
     expect(uploadIDs[1]).toBe(uploadIDs[0])
     await composer.getByRole('textbox', { name: '消息', exact: true }).fill('请读取上传的说明')
-    await page.route('**/.internal-apis/pod/conversations', async route => {
+    await page.route('**/api/v2/pod/conversations', async route => {
       if (route.request().method() !== 'POST') return route.continue()
-      const body = route.request().postDataJSON()
+      const body = route.request().postDataJSON().data
       messageIDs.push(body.messageID)
       const response = await route.fetch()
       id = (await response.json()).conversation.id
@@ -156,8 +156,7 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
     await expect(composer.getByRole('status')).toHaveText('已就绪')
     const sent = page.waitForResponse(
       response =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/.internal-apis/pod/conversations'
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
     )
     await composer.getByRole('button', { name: '发送消息', exact: true }).click()
     const detail = await (await sent).json()

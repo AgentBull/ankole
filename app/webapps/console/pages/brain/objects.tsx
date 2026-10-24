@@ -27,7 +27,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiBrainLine, RiCloseLine, RiEditLine, RiLoaderLine } from '@remixicon/react'
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
@@ -35,17 +35,18 @@ import { showBrainObjectOptions } from '../../api/v2/generated/@tanstack/react-q
 import {
   forgetBrainObjectMutation,
   forkBrainObjectMutation,
-  listBrainObjectsOptions,
-  listBrainObjectVersionsOptions,
+  listBrainObjectsInfiniteOptions,
+  listBrainObjectVersionsInfiniteOptions,
   restoreBrainObjectMutation,
   rollbackBrainObjectMutation
 } from '../../api/v2/generated/@tanstack/react-query.gen'
-import { fromDocument } from '../../api/json-api'
+import { nextPageParams, fromDocument } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { formatConsoleDate } from '../../console-primitives'
 import {
   FilterSwitch,
+  LoadMore,
   ResourceListPage,
   ResourceSearch,
   RowViewAction,
@@ -74,15 +75,17 @@ function BrainObjectsList() {
   const [deleted, setDeleted] = useState(false)
   const searchQuery = query.trim()
 
-  const objects = useQuery({
-    ...listBrainObjectsOptions({
+  const objects = useInfiniteQuery({
+    ...listBrainObjectsInfiniteOptions({
       query: {
         ...(prefix ? { prefix } : {}),
         ...(searchQuery ? { search: searchQuery } : {}),
         ...(deleted ? { deleted: true } : {})
       }
     }),
-    select: document => fromDocument(document),
+    initialPageParam: {},
+    getNextPageParam: nextPageParams,
+    select: data => data.pages.flatMap(document => fromDocument(document)),
     // A committed search changes the query key; keep the previous rows on
     // screen instead of swapping the table for skeletons.
     placeholderData: keepPreviousData
@@ -114,6 +117,7 @@ function BrainObjectsList() {
       emptyDescription={t('console.brain.objects_empty_description')}
       emptyIcon={<RiBrainLine aria-hidden />}
       error={objects.error}
+      footer={<LoadMore query={objects} />}
       isFiltered={filtered}
       onClearFilters={() => {
         setQuery('')
@@ -194,9 +198,14 @@ export function BrainObjectDrawer() {
     enabled: Boolean(slug)
   })
   const page = detail.data?.object
-  const versions = useQuery({
-    ...listBrainObjectVersionsOptions({ query: { slug } }),
-    select: document => fromDocument(document),
+  const versions = useInfiniteQuery({
+    ...listBrainObjectVersionsInfiniteOptions({ query: { slug } }),
+    initialPageParam: {},
+    getNextPageParam: document => {
+      const next = nextPageParams(document)
+      return next ? { query: { slug, ...next.query } } : undefined
+    },
+    select: data => data.pages.flatMap(document => fromDocument(document)),
     enabled: Boolean(page)
   })
 
@@ -518,6 +527,7 @@ export function BrainObjectDrawer() {
                           ))}
                         </CompactTable>
                       )}
+                      <LoadMore query={versions} />
                     </DrawerSection>
                   </>
                 ) : null}

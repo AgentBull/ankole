@@ -3,14 +3,8 @@ import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankol
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { contentKeys, type PageRole } from './content-api'
-import {
-  podSpace,
-  podSpaceWrite,
-  podSpaceAgent,
-  podSpaceAgentDelete,
-  podSubjects
-} from '../common/api/generated/sdk.gen'
-import type { PodSpace as Space } from '../common/api/generated/types.gen'
+import { podSpace, podSpaceWrite, podSpaceAgentWrite, podSpaceAgentDelete, podSubjects } from './api/generated/sdk.gen'
+import type { PodSpaceResponse as Space } from './api/generated/types.gen'
 import { Choice, ContentError, roleLabels } from './content-primitives'
 
 type SpaceChange =
@@ -26,9 +20,9 @@ export function SpaceSettingsButton() {
     mutationFn: async (change: SpaceChange): Promise<unknown> => {
       switch (change.type) {
         case 'role':
-          return podSpaceWrite({ body: { role: change.role } })
+          return podSpaceWrite({ body: { data: { role: change.role } } })
         case 'grant':
-          return podSpaceAgent({ body: { principal_uid: change.principal_uid, role: change.role } })
+          return podSpaceAgentWrite({ body: { data: { principal_uid: change.principal_uid, role: change.role } } })
         case 'remove':
           return podSpaceAgentDelete({ path: { uid: change.principal_uid } })
       }

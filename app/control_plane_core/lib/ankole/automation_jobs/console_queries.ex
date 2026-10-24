@@ -11,11 +11,15 @@ defmodule Ankole.AutomationJobs.ConsoleQueries do
 
     query = if cursor, do: Ash.Query.filter(query, id < ^cursor), else: query
 
-    {:ok, rows} =
-      query |> Ash.Query.sort(id: :desc) |> Ash.Query.limit(limit + 1) |> Ankole.Ash.read()
+    {:ok, page} =
+      query
+      |> Ash.Query.sort(id: :desc)
+      |> Ankole.Ash.read(action: :list_page, page: [limit: limit])
 
-    page = rows |> Enum.take(limit) |> Enum.map(&projection/1)
-    %{runs: page, next_cursor: if(length(rows) > limit, do: to_string(List.last(page).id))}
+    %{
+      runs: Enum.map(page.results, &projection/1),
+      next_cursor: if(page.more?, do: to_string(List.last(page.results).id))
+    }
   end
 
   defp projection(%Run{} = run) do

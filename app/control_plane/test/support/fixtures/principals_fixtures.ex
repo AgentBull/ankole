@@ -9,11 +9,11 @@ defmodule Ankole.PrincipalsFixtures do
   alias Ankole.AgentWorkers.AgentWorker
 
   def first_site_admin_fixture(uid) do
-    Ankole.Repo.transact(fn repo ->
-      with {:ok, _} <- Ankole.AuthZ.Root.ensure_all_humans_group(repo),
-           {:ok, group} <- Ankole.AuthZ.Root.ensure_site_admin_group(repo),
-           {:ok, _} <- Ankole.AuthZ.Grants.upsert_console_admin_grants(repo, group),
-           do: Ankole.AuthZ.root_init_admin(uid, repo)
+    Ankole.Repo.transact(fn ->
+      with {:ok, _} <- Ankole.AuthZ.Root.ensure_all_humans_group(),
+           {:ok, group} <- Ankole.AuthZ.Root.ensure_site_admin_group(),
+           {:ok, _} <- Ankole.AuthZ.Grants.upsert_console_admin_grants(group),
+           do: Ankole.AuthZ.root_init_admin(uid)
     end)
   end
 
@@ -32,7 +32,7 @@ defmodule Ankole.PrincipalsFixtures do
           Principals.delete_agent(uid)
 
         _ ->
-          Ankole.Repo.transact(fn _repo ->
+          Ankole.Repo.transact(fn ->
             Ankole.Ash.update(principal, :disable_in_tx, %{})
           end)
       end
@@ -64,7 +64,7 @@ defmodule Ankole.PrincipalsFixtures do
         job_title: "Operator"
       })
 
-    {:ok, result} = Ankole.Repo.transact(&Principals.create_human_in_tx(&1, attrs))
+    {:ok, result} = Ankole.Repo.transact(fn -> Principals.create_human_in_tx(attrs) end)
     result
   end
 
@@ -83,7 +83,7 @@ defmodule Ankole.PrincipalsFixtures do
       |> Map.put_new_lazy(:worker_provider_id, fn -> worker_provider_fixture().provider_id end)
       |> Map.put(:uid, Ankole.Kernel.gen_uuid_v7())
 
-    {:ok, result} = Ankole.Repo.transact(&Principals.create_agent_in_tx(&1, attrs))
+    {:ok, result} = Ankole.Repo.transact(fn -> Principals.create_agent_in_tx(attrs) end)
     result
   end
 
@@ -97,7 +97,7 @@ defmodule Ankole.PrincipalsFixtures do
         credentials: %{}
       })
 
-    {:ok, provider} = Ankole.Repo.transact(fn repo -> Providers.create_in_tx(repo, attrs) end)
+    {:ok, provider} = Ankole.Repo.transact(fn -> Providers.create_in_tx(attrs) end)
     provider
   end
 
@@ -127,8 +127,8 @@ defmodule Ankole.PrincipalsFixtures do
         else: ["agents/#{agent_uid}"]
 
     {:ok, _} =
-      Ankole.Repo.transact(fn repo ->
-        :ok = Ankole.Conversations.delete_for_agent_in_tx(repo, agent_uid)
+      Ankole.Repo.transact(fn ->
+        :ok = Ankole.Conversations.delete_for_agent_in_tx(agent_uid)
         {:ok, :ok}
       end)
 
@@ -189,7 +189,7 @@ defmodule Ankole.PrincipalsFixtures do
       })
 
     {:ok, result} =
-      Ankole.Repo.transact(&Principals.upsert_platform_subject_human_in_tx(&1, attrs))
+      Ankole.Repo.transact(fn -> Principals.upsert_platform_subject_human_in_tx(attrs) end)
 
     result
   end
@@ -212,7 +212,7 @@ defmodule Ankole.PrincipalsFixtures do
   end
 
   def create_external_identity(attrs) do
-    Ankole.Repo.transact(fn _repo ->
+    Ankole.Repo.transact(fn ->
       Ankole.Ash.create(Ankole.Principals.ExternalIdentity, :bind_in_tx, attrs)
     end)
   end

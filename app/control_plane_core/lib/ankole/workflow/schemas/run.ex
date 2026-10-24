@@ -155,57 +155,8 @@ defmodule Ankole.Workflow.Schemas.Run do
   actions do
     defaults([:read])
 
-    action :create_with_dispatch, :term do
-      argument(:attrs, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :replay_input, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :commit_replay_pending, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:pending_calls, :term, allow_nil?: false)
-      argument(:expected_memo_length, :integer, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :complete_replay, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:result_text, :term, allow_nil?: false)
-      argument(:expected_memo_length, :integer, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :fail_replay, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:code, :term, allow_nil?: false)
-      argument(:summary, :term, allow_nil?: false)
-      argument(:expected_memo_length, :integer, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :reconcile_stale_tasks, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:cutoff, :utc_datetime_usec, allow_nil?: false)
-      argument(:reconciled_at, :utc_datetime_usec, allow_nil?: false)
-      after_commit({Ankole.Workflow.Mail, :release_committed_capacity})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :complete_cleanup, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:completed_at, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
+    read :list_page do
+      pagination(offset?: true, max_page_size: 100, countable: false)
     end
 
     update :reauthorize do

@@ -17,9 +17,8 @@ defmodule Ankole.Conversations.ExternalTest do
       })
 
     {:ok, conversation} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         External.observe_conversation_in_tx(
-          repo,
           binding,
           %{
             provider_conversation_id: "mock:room",
@@ -160,26 +159,27 @@ defmodule Ankole.Conversations.ExternalTest do
 
     for _ <- 1..2 do
       assert {:ok, _} =
-               Repo.transact(&External.fold_reaction_in_tx(&1, c.id, "react", reaction, @now))
+               Repo.transact(fn ->
+                 External.fold_reaction_in_tx(c.id, "react", reaction, @now)
+               end)
     end
 
     assert {:ok, _} = observe(c.id, %{provider_message_id: "react", text: "Edited"})
-    ref = External.get_message(Repo, c.id, "react").external_ref
+    ref = External.get_message(c.id, "react").external_ref
     assert ref.reactions == %{"thumbs-up" => ["external-human"]}
     assert ref.message_id == first.message.id
 
     assert {:ok, _} =
-             Repo.transact(
-               &External.fold_reaction_in_tx(
-                 &1,
+             Repo.transact(fn ->
+               External.fold_reaction_in_tx(
                  c.id,
                  "react",
                  %{reaction | action: :remove},
                  @now
                )
-             )
+             end)
 
-    assert External.get_message(Repo, c.id, "react").external_ref.reactions == %{}
+    assert External.get_message(c.id, "react").external_ref.reactions == %{}
     assert Repo.aggregate(Message, :count) == 1
   end
 
@@ -188,9 +188,8 @@ defmodule Ankole.Conversations.ExternalTest do
     agent: agent
   } do
     assert {:ok, final} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                External.record_delivery_in_tx(
-                 repo,
                  c.id,
                  %{
                    provider_message_id: "sent",
@@ -220,11 +219,11 @@ defmodule Ankole.Conversations.ExternalTest do
     assert {:ok, first} = observe(c.id, %{provider_message_id: "first", text: "First"})
     assert {:ok, tail} = observe(c.id, %{provider_message_id: "tail", text: "Tail"})
     read_watermark = tail.message.seq
-    assert {:ok, _} = Repo.transact(&External.remove_in_tx(&1, c.id, "tail"))
+    assert {:ok, _} = Repo.transact(fn -> External.remove_in_tx(c.id, "tail") end)
     assert {:ok, later} = observe(c.id, %{provider_message_id: "later", text: "Later"})
     assert later.message.seq > read_watermark
     assert later.message.seq > first.message.seq
-    assert %{message: %{id: id}} = External.get_message(Repo, c.id, "later")
+    assert %{message: %{id: id}} = External.get_message(c.id, "later")
     assert id == later.message.id
     assert Repo.get_by!(Conversation, id: c.id).sequence_high_water == later.message.seq
   end
@@ -260,7 +259,7 @@ defmodule Ankole.Conversations.ExternalTest do
     assert {:ok, observed} = observe(c.id, %{provider_message_id: "same", text: "History"})
     assert {:ok, _} = Repo.transact(fn _repo -> Ankole.Ash.destroy(binding, :remove) end)
     assert Repo.get_by!(Conversation, id: c.id).provider_conversation_id == "mock:room"
-    assert External.get_message(Repo, c.id, "same").message.id == observed.message.id
+    assert External.get_message(c.id, "same").message.id == observed.message.id
 
     assert {:ok, _} = observe(c.id, %{provider_message_id: "later", text: "Another observer"})
   end
@@ -272,9 +271,8 @@ defmodule Ankole.Conversations.ExternalTest do
     %{principal: another} = agent_fixture()
 
     assert {:ok, same} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                External.observe_conversation_in_tx(
-                 repo,
                  %{agent_uid: another.uid},
                  %{
                    provider_conversation_id: "mock:room",
@@ -322,7 +320,7 @@ defmodule Ankole.Conversations.ExternalTest do
                where: p.conversation_id == ^c.id and p.principal_uid == ^agent.uid
            ) == []
 
-    remaining = External.get_message(Repo, c.id, "old-agent")
+    remaining = External.get_message(c.id, "old-agent")
     assert remaining.message.id == observed.message.id
     assert is_nil(remaining.message.author_uid)
     assert remaining.external_ref.author["agent_uid"] == agent.uid
@@ -350,7 +348,7 @@ defmodule Ankole.Conversations.ExternalTest do
 
     assert observed.message.author_type == :human
     assert {:ok, _} = Repo.delete(human)
-    remaining = External.get_message(Repo, c.id, "same")
+    remaining = External.get_message(c.id, "same")
     assert remaining.message.id == observed.message.id
     assert is_nil(remaining.message.author_uid)
     assert remaining.external_ref.author == author
@@ -360,10 +358,9 @@ defmodule Ankole.Conversations.ExternalTest do
     conversation: c
   } do
     assert {:error, :signal_rejected} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, _} =
                         External.observe_in_tx(
-                          repo,
                           c.id,
                           %{provider_message_id: "rollback", text: "Never accepted"},
                           @now
@@ -372,7 +369,7 @@ defmodule Ankole.Conversations.ExternalTest do
                {:error, :signal_rejected}
              end)
 
-    assert is_nil(External.get_message(Repo, c.id, "rollback"))
+    assert is_nil(External.get_message(c.id, "rollback"))
     assert Repo.aggregate(Message, :count) == 0
     assert Repo.aggregate(ExternalMessageRef, :count) == 0
   end
@@ -382,9 +379,8 @@ defmodule Ankole.Conversations.ExternalTest do
     binding: binding
   } do
     assert {:ok, updated} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                External.observe_conversation_in_tx(
-                 repo,
                  binding,
                  %{
                    provider_conversation_id: "mock:room",
@@ -402,5 +398,5 @@ defmodule Ankole.Conversations.ExternalTest do
     assert updated.metadata == %{"topic" => "Team"}
   end
 
-  defp observe(id, attrs), do: Repo.transact(&External.observe_in_tx(&1, id, attrs, @now))
+  defp observe(id, attrs), do: Repo.transact(fn -> External.observe_in_tx(id, attrs, @now) end)
 end

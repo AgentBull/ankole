@@ -115,9 +115,8 @@ defmodule Ankole.Conversations.ObserveTest do
         end)
       end)
 
-      observe = fn repo, metadata, time ->
+      observe = fn metadata, time ->
         External.observe_conversation_in_tx(
-          repo,
           %{agent_uid: agent.uid},
           %{
             provider_conversation_id: provider_id,
@@ -131,15 +130,15 @@ defmodule Ankole.Conversations.ObserveTest do
 
       Sandbox.unboxed_run(Repo, fn ->
         assert {:ok, %PublicConversation{}} =
-                 Repo.transact(fn repo -> observe.(repo, %{"base" => true}, @base_time) end)
+                 Repo.transact(fn -> observe.(%{"base" => true}, @base_time) end)
       end)
 
       first =
         Task.async(
           Repo.bind_tenant(fn ->
             Sandbox.unboxed_run(Repo, fn ->
-              Repo.transact(fn repo ->
-                result = observe.(repo, %{"first" => true}, first_seen_at)
+              Repo.transact(fn ->
+                result = observe.(%{"first" => true}, first_seen_at)
                 send(parent, :first_observation_written)
 
                 receive do
@@ -156,7 +155,7 @@ defmodule Ankole.Conversations.ObserveTest do
         Task.async(
           Repo.bind_tenant(fn ->
             Sandbox.unboxed_run(Repo, fn ->
-              Repo.transact(fn repo -> observe.(repo, %{"second" => true}, older_seen_at) end)
+              Repo.transact(fn -> observe.(%{"second" => true}, older_seen_at) end)
             end)
           end)
         )
@@ -165,7 +164,7 @@ defmodule Ankole.Conversations.ObserveTest do
       send(first.pid, :commit_first_observation)
       assert {:ok, %PublicConversation{}} = Task.await(first, 5_000)
       assert {:ok, %PublicConversation{}} = Task.await(second, 5_000)
-      conversation = External.get_conversation(Repo, provider_id)
+      conversation = External.get_conversation(provider_id)
       assert conversation.metadata == %{"base" => true, "first" => true, "second" => true}
       assert conversation.last_seen_at == first_seen_at
     end
@@ -471,7 +470,7 @@ defmodule Ankole.Conversations.ObserveTest do
         )
 
       assert {:ok, _} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.update(
                    Repo.get_by!(ExternalMessageRef, message_id: visible_reply.id),
                    :observe,
@@ -635,9 +634,8 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       {:ok, room} =
-        Repo.transact(fn repo ->
+        Repo.transact(fn ->
           External.observe_conversation_in_tx(
-            repo,
             %{agent_uid: agent.uid},
             %{provider_conversation_id: "lark:chat:group-a", external_kind: :im_group},
             @base_time
@@ -791,9 +789,9 @@ defmodule Ankole.Conversations.ObserveTest do
                })
 
       assert {:ok, _entry} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  conversation =
-                   External.get_conversation(repo, newer_fact.provider_conversation_id)
+                   External.get_conversation(newer_fact.provider_conversation_id)
 
                  fact = %{
                    newer_fact
@@ -801,7 +799,7 @@ defmodule Ankole.Conversations.ObserveTest do
                      session_id: Ankole.Sessions.Key.conversation(conversation.id)
                  }
 
-                 External.observe_entry_in_tx(repo, fact, newer_time)
+                 External.observe_entry_in_tx(fact, newer_time)
                end)
 
       mention_at = DateTime.add(@base_time, 500, :millisecond)
@@ -987,7 +985,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert dm_input.type == "conversation.message.addressed"
       assert dm_batch.mode == :addressed
 
-      assert External.get_conversation(Repo, "lark:dm:alice-agent").metadata[
+      assert External.get_conversation("lark:dm:alice-agent").metadata[
                "dm_peer_principal_uid"
              ] ==
                dm_input.sender_key
@@ -1012,7 +1010,7 @@ defmodule Ankole.Conversations.ObserveTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert External.get_conversation(Repo, "lark:dm:alice-agent").metadata[
+      assert External.get_conversation("lark:dm:alice-agent").metadata[
                "dm_peer_principal_uid"
              ] ==
                dm_input.sender_key
@@ -2609,11 +2607,10 @@ defmodule Ankole.Conversations.ObserveTest do
       end
 
     assert {:ok, _} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                if author[:agent_uid] do
                  {:ok, _} =
                    External.observe_conversation_in_tx(
-                     repo,
                      %{agent_uid: author.agent_uid},
                      %{provider_conversation_id: "lark:chat:group-a", external_kind: :im_group},
                      provider_time
@@ -2621,7 +2618,6 @@ defmodule Ankole.Conversations.ObserveTest do
                end
 
                External.observe_in_tx(
-                 repo,
                  conversation_id,
                  %{
                    provider_message_id: provider_message_id,
@@ -2642,9 +2638,8 @@ defmodule Ankole.Conversations.ObserveTest do
     {:ok, binding} = Ankole.Signals.Bindings.get_binding(agent_uid, binding_name)
 
     {:ok, room} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         External.observe_conversation_in_tx(
-          repo,
           binding,
           %{
             provider_conversation_id: "lark:chat:group-a",

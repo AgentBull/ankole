@@ -1,7 +1,6 @@
 defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
   use Ankole.DataCase, async: true
 
-  alias Ankole.Repo
   alias Ankole.Conversations.Delivery
 
   import Ankole.PrincipalsFixtures
@@ -31,7 +30,6 @@ defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
              resolve_owner(agent.uid, provider_provider_message_id)
 
     assert Delivery.durable_reply_surface_exists_in_tx?(
-             Repo,
              agent.uid,
              @binding_name,
              room_id(),
@@ -39,7 +37,6 @@ defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
            )
 
     refute Delivery.durable_reply_surface_exists_in_tx?(
-             Repo,
              agent.uid,
              "another-binding",
              room_id(),
@@ -115,7 +112,6 @@ defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
 
   defp resolve_owner(agent_uid, provider_provider_message_id) do
     Delivery.resolve_durable_reply_signal_in_tx(
-      Repo,
       agent_uid,
       @binding_name,
       room_id(),

@@ -30,15 +30,8 @@ defmodule Ankole.AgentWorkers.Providers do
 
   resources do
     resource(Ankole.AgentWorkers.Providers.ConsoleOperations)
-
     resource(Ankole.AgentWorkers.WorkerEnv.SiteOperations)
-
-    resource Provider do
-      define(:add_provider, action: :add)
-      define(:configure_provider, action: :configure_provider, args: [:provider_id])
-      define(:delete_provider, action: :delete_provider, args: [:provider_id])
-      define(:import_providers, action: :import_seed, args: [:path])
-    end
+    resource(Provider)
   end
 
   # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
@@ -126,42 +119,42 @@ defmodule Ankole.AgentWorkers.Providers do
   def default_status do
     case Ankole.Ash.read_one!(Ash.Query.filter(Provider, is_default == true)) do
       nil -> {:error, :worker_provider_required}
-      provider -> with {:ok, _id} <- select_provider(Repo, provider), do: check(provider)
+      provider -> with {:ok, _id} <- select_provider(provider), do: check(provider)
     end
   end
 
   @doc "Selects a provider for a new Agent inside the Agent transaction."
-  def select_in_tx(repo, nil) do
-    lock_registry(repo, :shared)
+  def select_in_tx(nil) do
+    lock_registry(:shared)
 
     case Provider
          |> Ash.Query.filter(is_default == true)
          |> Ash.Query.lock("FOR KEY SHARE")
          |> Ankole.Ash.read_one!() do
       nil -> {:error, :worker_provider_required}
-      provider -> select_provider(repo, provider)
+      provider -> select_provider(provider)
     end
   end
 
-  def select_in_tx(repo, provider_id) when is_binary(provider_id) do
-    lock_registry(repo, :shared)
+  def select_in_tx(provider_id) when is_binary(provider_id) do
+    lock_registry(:shared)
 
     case Provider
          |> Ash.Query.filter(provider_id == ^provider_id)
          |> Ash.Query.lock("FOR KEY SHARE")
          |> Ankole.Ash.read_one!() do
       nil -> {:error, :worker_provider_not_found}
-      provider -> select_provider(repo, provider)
+      provider -> select_provider(provider)
     end
   end
 
-  def select_in_tx(_repo, _id), do: {:error, :worker_provider_required}
+  def select_in_tx(_id), do: {:error, :worker_provider_required}
 
-  defp select_provider(repo, provider) do
+  defp select_provider(provider) do
     enabled =
       case ProviderKind.registry()[provider.kind] do
         %{active?: true, plugin_id: plugin_id} when not is_nil(plugin_id) ->
-          configured_plugins(repo)
+          configured_plugins()
 
         _kind ->
           {:ok, []}
@@ -177,8 +170,8 @@ defmodule Ankole.AgentWorkers.Providers do
     end
   end
 
-  defp configured_plugins(repo),
-    do: Ankole.AppConfigure.get_in_tx(repo, Ankole.Plugins.enabled_ids_definition())
+  defp configured_plugins(),
+    do: Ankole.AppConfigure.get_in_tx(Ankole.Plugins.enabled_ids_definition())
 
   defp ensure_plugin_selected(nil, _enabled), do: :ok
 
@@ -197,17 +190,17 @@ defmodule Ankole.AgentWorkers.Providers do
   list. Only a change that removes Worker kinds takes the exclusive registry
   lock and checks the Worker rows of every tenant.
   """
-  @spec veto_disable_in_tx(module(), [String.t()], [String.t()]) :: :ok | {:error, term()}
-  def veto_disable_in_tx(repo, previous_ids, enabled_ids) do
+  @spec veto_disable_in_tx([String.t()], [String.t()]) :: :ok | {:error, term()}
+  def veto_disable_in_tx(previous_ids, enabled_ids) do
     ProviderKind.registry()
     |> ProviderKind.disabled_kinds(previous_ids, enabled_ids)
-    |> validate_disabled_kinds(repo)
+    |> validate_disabled_kinds()
   end
 
-  defp validate_disabled_kinds(disabled_kinds, _repo) when map_size(disabled_kinds) == 0, do: :ok
+  defp validate_disabled_kinds(disabled_kinds) when map_size(disabled_kinds) == 0, do: :ok
 
-  defp validate_disabled_kinds(disabled_kinds, repo) do
-    lock_registry(repo, :exclusive)
+  defp validate_disabled_kinds(disabled_kinds) do
+    lock_registry(:exclusive)
     kinds = Map.keys(disabled_kinds)
     providers = Provider |> Ash.Query.filter(kind in ^kinds) |> Ankole.Ash.read!()
 
@@ -221,24 +214,32 @@ defmodule Ankole.AgentWorkers.Providers do
     end
   end
 
-  def create(attrs), do: Errors.reason(add_provider(attrs))
+  def create(attrs) do
+    Repo.transact_top_level(fn -> create_in_tx(attrs) end)
+    |> Errors.reason()
+  end
 
   @doc "Creates a provider in the caller's transaction (the composition step of `create/1`)."
-  def create_in_tx(repo, attrs) do
+  def create_in_tx(attrs) do
     with {:ok, input} <- action_input(attrs) do
       changeset = Ankole.Ash.for_create(Provider, :create, input)
 
-      with :ok <- lock_for_default(repo, changeset),
+      with :ok <- lock_for_default(changeset),
            do: Ankole.Ash.create(changeset)
     end
   end
 
-  def update(provider_id, attrs),
-    do: Errors.reason(configure_provider(provider_id, attrs))
+  def update(provider_id, attrs) when is_binary(provider_id) and provider_id != "" do
+    Repo.transact_top_level(
+      fn -> configure_in_tx(provider_id, attrs) end,
+      after_commit: &reconcile_workers/1
+    )
+    |> Errors.reason()
+  end
 
   @doc "Changes a provider in the caller's transaction (the composition step of `update/2`)."
-  def configure_in_tx(repo, provider_id, attrs) do
-    lock_registry(repo, :exclusive)
+  def configure_in_tx(provider_id, attrs) do
+    lock_registry(:exclusive)
 
     with %Provider{} = provider <- lock_provider(provider_id),
          {:ok, input} <- action_input(attrs),
@@ -257,10 +258,13 @@ defmodule Ankole.AgentWorkers.Providers do
   def reconcile_workers(%Provider{provider_id: provider_id}),
     do: provider_id |> AgentWorkers.provider_workers() |> Enum.each(&ReconcileJob.enqueue/1)
 
-  def delete(provider_id), do: Errors.reason(delete_provider(provider_id))
+  def delete(provider_id) when is_binary(provider_id) and provider_id != "" do
+    Repo.transact_top_level(fn -> delete_in_tx(provider_id) end)
+    |> Errors.reason()
+  end
 
   @doc "Deletes an unassigned provider in the caller's transaction."
-  def delete_in_tx(_repo, provider_id) do
+  def delete_in_tx(provider_id) do
     case lock_provider(provider_id) do
       nil ->
         {:error, :worker_provider_not_found}
@@ -273,13 +277,18 @@ defmodule Ankole.AgentWorkers.Providers do
   end
 
   @doc "Assigns a migrated Worker exactly once."
-  def assign(agent_uid, provider_id),
-    do: Errors.reason(AgentWorkers.assign_worker_provider(agent_uid, provider_id))
+  def assign(agent_uid, provider_id) when is_binary(agent_uid) and agent_uid != "" do
+    Repo.transact_top_level(
+      fn -> assign_in_tx(agent_uid, provider_id) end,
+      after_commit: &ReconcileJob.enqueue/1
+    )
+    |> Errors.reason()
+  end
 
   @doc "Assigns a provider to an Agent's Worker in the caller's transaction."
-  def assign_in_tx(repo, agent_uid, provider_id) do
-    with {:ok, provider_id} <- select_in_tx(repo, provider_id),
-         %AgentWorker{} = worker <- AgentWorkers.lock_in_tx(repo, agent_uid) do
+  def assign_in_tx(agent_uid, provider_id) do
+    with {:ok, provider_id} <- select_in_tx(provider_id),
+         %AgentWorker{} = worker <- AgentWorkers.lock_in_tx(agent_uid) do
       Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id})
     else
       nil -> {:error, :agent_not_found}
@@ -290,10 +299,9 @@ defmodule Ankole.AgentWorkers.Providers do
   @doc false
   # Runs the `console_assign_provider` action of the Worker. A missing Agent is
   # not found, and an Agent that has a provider or is being deleted is a
-  # conflict, as in the v1 Console API.
+  # conflict.
   def console_assign_in_tx(agent_uid, provider_id) do
-    Repo
-    |> assign_in_tx(agent_uid, provider_id)
+    assign_in_tx(agent_uid, provider_id)
     |> Errors.reason()
     |> Errors.wrap(&assign_rejection/1)
   end
@@ -322,7 +330,7 @@ defmodule Ankole.AgentWorkers.Providers do
   """
   @spec selectable_fun() :: (Provider.t() -> boolean())
   def selectable_fun do
-    enabled = configured_plugins(Repo)
+    enabled = configured_plugins()
     &match?({:ok, _id}, validate_selection(&1, enabled))
   end
 
@@ -346,10 +354,10 @@ defmodule Ankole.AgentWorkers.Providers do
     |> Ankole.Ash.read_one!()
   end
 
-  defp lock_for_default(repo, changeset) do
+  defp lock_for_default(changeset) do
     if changeset.valid? do
       mode = if Ash.Changeset.get_attribute(changeset, :is_default), do: :exclusive, else: :shared
-      lock_registry(repo, mode)
+      lock_registry(mode)
       unset_other_defaults(changeset)
     else
       :ok
@@ -374,9 +382,9 @@ defmodule Ankole.AgentWorkers.Providers do
   # All creates exclude seed import. Only default changes need to exclude
   # each other; independent non-default creates can hold the shared lock.
   @doc false
-  def lock_registry(repo, :exclusive),
-    do: Ankole.AdvisoryLock.lock!(repo, "worker_providers", hash: :extended)
+  def lock_registry(:exclusive),
+    do: Ankole.AdvisoryLock.lock!(Repo, "worker_providers", hash: :extended)
 
-  def lock_registry(repo, :shared),
-    do: Ankole.AdvisoryLock.lock!(repo, "worker_providers", hash: :extended, shared: true)
+  def lock_registry(:shared),
+    do: Ankole.AdvisoryLock.lock!(Repo, "worker_providers", hash: :extended, shared: true)
 end

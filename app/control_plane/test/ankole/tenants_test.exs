@@ -363,8 +363,8 @@ defmodule Ankole.TenantsTest do
           Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid, binding_name: "test")
 
         {:ok, event} =
-          Repo.transact(fn repo ->
-            Ankole.Signals.accept_in_tx(repo, %{
+          Repo.transact(fn ->
+            Ankole.Signals.accept_in_tx(%{
               target: %{agent_uid: agent.uid, session_id: "test:tenant-delete"},
               sender: author.uid,
               source: "test://tenant-delete",
@@ -416,7 +416,7 @@ defmodule Ankole.TenantsTest do
       assert persisted.authorization_kind == "human"
 
       assert {:error, :human_access_revoked} =
-               Repo.transact(fn repo -> WorkAccess.check_in_tx(repo, persisted) end)
+               Repo.transact(fn -> WorkAccess.check_in_tx(persisted) end)
 
       review = WorkAccess.list_unresolved()
 
@@ -531,8 +531,8 @@ defmodule Ankole.TenantsTest do
       HumanAccess.restore(human.uid, review.fingerprint, nil, "verified", Ecto.UUID.generate())
 
     {:ok, event} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           target: %{agent_uid: agent.uid, session_id: "test:cleanup-retry"},
           sender: restored.uid,
           source: "test://cleanup-retry",
@@ -698,9 +698,9 @@ defmodule Ankole.TenantDeletionConcurrencyTest do
     creator =
       Task.async(fn ->
         Repo.with_tenant(tenant.id, fn ->
-          Repo.transact(fn repo ->
+          Repo.transact(fn ->
             {:ok, result} =
-              Principals.create_human_in_tx(repo, %{display_name: "Admitted before deletion"})
+              Principals.create_human_in_tx(%{display_name: "Admitted before deletion"})
 
             send(parent, {:human_inserted, result.principal.uid})
             receive do: (:commit -> {:ok, result})

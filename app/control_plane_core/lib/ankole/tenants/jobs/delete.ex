@@ -110,7 +110,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
                principal.uid,
                "tenant_deleting",
                actor,
-               Ankole.Kernel.gen_uuid_v7()
+               Ash.UUIDv7.generate()
              ) do
           {:ok, _} -> {:cont, result}
           {:error, _} = error -> {:halt, error}
@@ -158,7 +158,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
 
   defp delete_batch(tenant_id, table) when table in ["permission_grants", "principal_groups"] do
     {:ok, result} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Pod.Pages.lock_tree()
         {:ok, delete_rows(tenant_id, table)}
       end)
@@ -177,14 +177,14 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp finish(tenant) do
-    case Repo.transact(&finish_in_tx(&1, tenant)) do
+    case Repo.transact(fn -> finish_in_tx(tenant) end) do
       {:ok, :finished} -> :ok
       {:ok, :resources_pending} -> {:snooze, 1}
       {:error, _} = error -> error
     end
   end
 
-  defp finish_in_tx(repo, tenant) do
+  defp finish_in_tx(tenant) do
     Ankole.Pod.Pages.lock_tree()
 
     case Tenants.Tenant
@@ -197,17 +197,17 @@ defmodule Ankole.Tenants.Jobs.Delete do
       locked ->
         # A request admitted before deletion can create another Agent. The
         # tenant lock closes that race before final deletion can bypass cleanup.
-        if repo.exists?(
+        if Repo.exists?(
              from p in Principal,
                where: p.type == :agent or (p.type == :human and p.status == :active)
            ) or
-             repo.exists?(AgentWorker) or
+             Repo.exists?(AgentWorker) or
              Ankole.Principals.WorkCleanup.pending_for_tenant(1) != [] do
           {:ok, :resources_pending}
         else
           for table <- @tables ++ ["principals"] do
             Ecto.Adapters.SQL.query!(
-              repo,
+              Repo,
               "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid",
               [tenant.id]
             )

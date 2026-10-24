@@ -23,7 +23,9 @@ defmodule Ankole.Sessions.Worker do
           | {:wait, atom()}
           | {:error, term()}
   def prepare_open(run) do
-    with {:ok, row} <- run |> Ankole.Sessions.read_worker_status() |> Ankole.Errors.reason(),
+    with {:ok, row} <-
+           Ankole.Repo.transact_top_level(fn -> worker_status_in_tx(run) end)
+           |> Ankole.Errors.reason(),
          {:ok, row} <- row,
          {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid) do
       {:ok, row,
@@ -44,8 +46,8 @@ defmodule Ankole.Sessions.Worker do
   end
 
   @doc false
-  def worker_status_in_tx(repo, run) do
-    with :ok <- Fence.check_in_tx(repo, run, :share) do
+  def worker_status_in_tx(run) do
+    with :ok <- Fence.check_in_tx(run, :share) do
       # Adoption first asks the current process about its existing
       # workspace. The Worker enforces physical capacity for a new one.
       {:ok, AgentWorkers.workspace_status(run.agent_uid)}

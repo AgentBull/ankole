@@ -229,13 +229,13 @@ The `AgentWorker` Ash resource owns lifecycle transitions and the write
 contracts for generation, admission, demand, capacity, and provider assignment.
 Its state machine admits only the declared transition from the stored state.
 `Ankole.AgentWorkers` is the Ash domain of the Worker resources. Each
-operation that locks a row and writes more than one step is a generic action
-of its subject resource: admission, heartbeat renewal, drain, route release,
+operation that locks a row and writes more than one step runs in
+`Repo.transact_top_level/2`: admission, heartbeat renewal, drain, route release,
 connection expiry, provider assignment, and each locked reconciliation step.
 The provider registry changes are generic actions of `Provider` in the
-`Ankole.AgentWorkers.Providers` domain. The generic action owns the transaction, and
-its publish function (for example `worker_changed`) runs only after the
-commit. Platform requests run outside these transactions. Disconnect and
+`Ankole.AgentWorkers.Providers` domain and domain functions in `Providers`. Each
+top-level transaction runs its publish function (for example `worker_changed`)
+only after commit. Platform requests run outside these transactions. Disconnect and
 settlement derive the next state from this same machine. State time uses the
 database clock and keeps one continuous not-ready budget across `starting`
 and `stale`. Each action passes its target state to the clock change. The
@@ -355,7 +355,7 @@ idle timeout and SSRF setting and sends them in `WorkspaceOpen` or `TurnStart`.
 
 ## Placement and Lifecycle
 
-`reserve_slot_in_tx/2` locks the one Worker row with `FOR UPDATE` and reserves
+`reserve_slot_in_tx/1` locks the one Worker row with `FOR UPDATE` and reserves
 a reported slot for a new Codex Turn. A non-ready
 Worker returns `agent_worker_unavailable`. The caller requests it outside
 the transaction and leaves the input open.
@@ -829,10 +829,10 @@ instance settings, and secrets are owned by PostgreSQL after import.
 `agent_computer.worker.ready_timeout` defaults to ten minutes; idle release
 belongs to provider YAML.
 
-Seed import runs only when no provider exists. It is one generic action: it
-imports all providers and assigns any unassigned Agent rows in one
-transaction. Secret entries refer to an environment variable or mounted file.
-A failed import assigns no Agent.
+Seed import runs only when no provider exists. It runs in one top-level
+transaction (`Repo.transact_top_level/2`): it imports all providers and assigns
+any unassigned Agent rows together. Secret entries refer to an environment
+variable or mounted file. A failed import assigns no Agent.
 
 Control-plane nodes of different versions must not run together. The Worker
 image and protocol of the running revision are the replacement target.

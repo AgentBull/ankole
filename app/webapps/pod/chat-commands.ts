@@ -70,11 +70,7 @@ export function useChatCommands({
     mutationFn: (command: ConversationQueueRequest) => updateQueue(conversationID!, command),
     onSuccess: async (data, command) => {
       await acceptConversationResult(client, data)
-      if (
-        (command.action === 'edit' || command.action === 'edit_last') &&
-        command.messageID &&
-        command.text !== undefined
-      ) {
+      if ((command.action === 'edit' || command.action === 'edit_last') && command.messageID && command.text != null) {
         model.editSaved(command.messageID, command.text)
       }
       if (command.action === 'stop' || command.action === 'resume') model.controlAccepted()

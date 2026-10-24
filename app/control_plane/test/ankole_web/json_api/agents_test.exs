@@ -6,6 +6,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
+  alias Ankole.Conversations
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
@@ -55,6 +56,22 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     assert tenant_id == Repo.tenant_id()
     assert {:ok, _} = Ecto.UUID.cast(agent_uid)
 
+    conversation_ids =
+      for _ <- 1..2 do
+        id = Ecto.UUID.generate()
+
+        assert {:ok, _} =
+                 Ankole.ConversationsFixtures.create(owner.uid, %{
+                   conversation_id: id,
+                   message_id: Ecto.UUID.generate(),
+                   agent_uid: agent_uid,
+                   text: "Help me review this case."
+                 })
+
+        :ok = Conversations.Events.subscribe(id)
+        id
+      end
+
     assert %{"data" => agents} = conn |> send_v2(:get, "/api/v2/agents") |> json_response(200)
 
     assert %{"type" => "agent", "attributes" => %{"status" => "active"}} =
@@ -78,6 +95,8 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     assert %{"status" => "disabled"} =
              conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(200)
 
+    for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
+
     # A disabled agent stays listed so the operator can re-enable or delete it.
     assert %{"data" => agents} = conn |> send_v2(:get, "/api/v2/agents") |> json_response(200)
 
@@ -89,12 +108,21 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     assert %{"status" => "active"} =
              conn |> send_v2(:post, "/api/v2/agents/#{agent_uid}/enable") |> json_response(201)
 
+    for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
+
     # Deleting requires disabling first; the second delete removes the row.
     assert %{"status" => "disabled"} =
              conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(200)
 
+    for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
+
     assert %{"handle" => "console-agent"} =
              conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(200)
+
+    for id <- conversation_ids do
+      assert_receive {:conversation_event, ^id, :status}
+      assert {:error, :conversation_not_found} = Conversations.get(owner.uid, id)
+    end
 
     assert %{"data" => agents} = conn |> send_v2(:get, "/api/v2/agents") |> json_response(200)
     refute Enum.any?(agents, &(&1["id"] == agent_uid))

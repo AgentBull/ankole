@@ -530,9 +530,8 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
 
   defp mirror_delivered_reply!(input, provider_message_id, ai_message_id) do
     assert {:ok, _message} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Ankole.Conversations.External.record_delivery_in_tx(
-                 repo,
                  input.conversation_id,
                  %{
                    provider_message_id: provider_message_id,

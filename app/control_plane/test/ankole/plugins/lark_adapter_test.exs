@@ -3106,7 +3106,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                })
 
       assert {:ok, _binding} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.create(ExternalBinding, :bind_in_tx, %{
                    provider: "lark-main",
                    external_kind: :directory_department,
@@ -3680,8 +3680,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   defp add_im_group_member(group_id, principal_uid) do
-    Repo.transact(fn repo ->
-      AuthZStore.add_synced_group_member(repo, group_id, :im_group, principal_uid)
+    Repo.transact(fn ->
+      AuthZStore.add_synced_group_member(group_id, :im_group, principal_uid)
     end)
   end
 

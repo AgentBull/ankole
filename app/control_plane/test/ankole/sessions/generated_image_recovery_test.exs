@@ -24,14 +24,13 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     path = "chats/#{ctx.signal.conversation_id}/notes.txt"
 
     assert {:ok, _} =
-             Repo.transact(
-               &Files.commit(
-                 &1,
+             Repo.transact(fn ->
+               Files.commit_in_tx(
                  ctx.agent.uid,
                  [%{path: path, sha256: stored.sha256, source: "generated"}],
                  []
                )
-             )
+             end)
 
     attachment = %{
       "path" => path,
@@ -350,6 +349,6 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     do: %{"id" => id, "type" => "image_generation_call", "status" => "completed", "result" => nil}
 
   defp prepare_operation(operation) do
-    fn repo -> {:ok, [], fn -> operation.(repo) end} end
+    fn -> {:ok, [], fn -> operation.(Repo) end} end
   end
 end

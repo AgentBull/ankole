@@ -4,14 +4,14 @@ defmodule Ankole.Pod.PagesFixtures do
 
   def create_record!(resource, action, attrs) do
     {:ok, record} =
-      Ankole.Repo.transact(fn _repo -> Ankole.Ash.create(resource, action, attrs) end)
+      Ankole.Repo.transact(fn -> Ankole.Ash.create(resource, action, attrs) end)
 
     record
   end
 
   def update_record!(record, action, attrs \\ %{}) do
     {:ok, record} =
-      Ankole.Repo.transact(fn _repo -> Ankole.Ash.update(record, action, attrs) end)
+      Ankole.Repo.transact(fn -> Ankole.Ash.update(record, action, attrs) end)
 
     record
   end

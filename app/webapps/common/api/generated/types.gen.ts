@@ -5,1866 +5,118 @@ export type ClientOptions = {
 }
 
 /**
- * PodGroup
+ * A "Resource object" representing a browser_authentication
  */
-export type PodGroup = {
-  field_id: string
-  value?: Value
-  value_json?: string | null
-}
-
-/**
- * PodCopyResult
- */
-export type PodCopyResult = {
-  page: PodPage
-  table: PodTable
-}
-
-/**
- * PodContent
- */
-export type PodContent = {
-  plain_text: string
-  xml: string
-}
-
-/**
- * SetupBrainPack
- */
-export type SetupBrainPack = {
-  description: string | null
-  name: string
-  required: boolean
-  version: string | null
-}
-
-/**
- * PodRealtimeToken
- */
-export type PodRealtimeToken = {
-  principal: {
-    name: string
-    uid: string
-  }
-  token: string
-}
-
-/**
- * PodViewUpdate
- */
-export type PodViewUpdate = PodViewWrite & {
-  version: number
-}
-
-/**
- * PodPageMove
- */
-export type PodPageMove = {
+export type BrowserAuthentication = {
   /**
-   * Place the page after this sibling in the destination.
+   * An attributes object for a browser_authentication
    */
-  after_id?: string
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
   /**
-   * Place the page before this sibling in the destination.
+   * A relationships object for a browser_authentication
    */
-  before_id?: string
-  parent_id?: string | null
-  private_owner_uid?: string | null
-}
-
-/**
- * LocalizedText
- */
-export type LocalizedText = {
-  default: string
-  [key: string]: string
-}
-
-/**
- * AuthSessionDeleteResponse
- */
-export type AuthSessionDeleteResponse = {
-  ok: boolean
-}
-
-/**
- * JSONValue
- *
- * Any JSON-compatible value.
- */
-export type JsonValue = unknown
-
-/**
- * BrowserSession
- */
-export type BrowserSession = {
-  accounts?: Array<BrowserAccount>
-  authenticated: boolean
-  /**
-   * Present only for a site administrator.
-   */
-  consoleURL?: string | null
-  displayName?: string
-  principalUID?: string
-  providerID?: string | null
-  tenant?: BrowserTenant
-}
-
-/**
- * SetupIdentityProviderRequest
- */
-export type SetupIdentityProviderRequest = {
-  adapterID: string
-  config?: {
-    [key: string]: unknown
+  relationships?: {
+    [key: string]: never
   }
-  enabled?: boolean
-}
-
-/**
- * PodTable
- */
-export type PodTable = {
-  data_version: number
-  id: string
-  name: string
-  next_auto_number: number
-  page_id: string
-  position: string
-  record_count: number
-}
-
-/**
- * ConversationLink
- */
-export type ConversationLink = {
-  id: string
-  kind: 'page'
-}
-
-/**
- * PodField
- */
-export type PodField = {
-  config: {
-    [key: string]: unknown
-  }
-  id: string
-  is_primary: boolean
-  name: string
-  position: string
-  table_id: string
-  type:
-    | 'text'
-    | 'number'
-    | 'select'
-    | 'datetime'
-    | 'checkbox'
-    | 'user'
-    | 'attachment'
-    | 'auto_number'
-    | 'link'
-    | 'formula'
-    | 'created_at'
-    | 'updated_at'
-    | 'created_by'
-    | 'updated_by'
-  version: number
-}
-
-/**
- * PodTables
- */
-export type PodTables = {
-  tables: Array<PodTable>
-}
-
-/**
- * SetupAuthorization
- */
-export type SetupAuthorization = {
-  authorizationURL: string
-}
-
-/**
- * ConversationAttachmentReceipt
- */
-export type ConversationAttachmentReceipt = {
-  content_type: string | null
-  name: string
-  receipt: string
-  size: number
-}
-
-/**
- * BrowserError
- */
-export type BrowserError = {
-  code: string
-  details?: Array<BrowserErrorDetail> | null
-  message: string
-}
-
-/**
- * PodGrant
- */
-export type PodGrant = {
-  group_id: string | null
-  kind?: 'human' | 'agent' | 'group'
-  name?: string
-  principal_uid: string | null
-  role: 'view' | 'edit' | 'manage'
-}
-
-/**
- * PodDatabaseLimits
- */
-export type PodDatabaseLimits = {
-  group_count: number
-  local_bytes: number
-  local_rows: number
-  query_rows: number
-  record_bytes: number
-  statement_timeout_ms: number
-}
-
-/**
- * PodTableCreate
- */
-export type PodTableCreate = {
-  name?: string
-}
-
-/**
- * ConversationAttachment
- */
-export type ConversationAttachment = {
-  attachment_id?: number
-  blob_ref: string
-  content_type?: string
-  mime_type?: string
-  name: string
-  path: string
-  resource_type?: string
-  size: number
-  upload_id?: string
-}
-
-/**
- * LoginIdentitySelection
- */
-export type LoginIdentitySelection = {
-  authenticationRef: string
-  flow: string
-}
-
-/**
- * PodAggregateResult
- */
-export type PodAggregateResult = {
-  data_version: number
-  groups: Array<PodAggregateGroup>
-}
-
-/**
- * PodAgents
- */
-export type PodAgents = {
-  agents: Array<PodAgent>
-}
-
-/**
- * PodUserStateResult
- */
-export type PodUserStateResult = {
-  user_state: PodUserState
-}
-
-/**
- * Value
- */
-export type Value =
-  | string
-  | number
-  | boolean
-  | Array<unknown>
-  | {
-      [key: string]: unknown
-    }
-  | null
-
-/**
- * PodFieldWrite
- */
-export type PodFieldWrite = {
-  clear_invalid?: boolean
-  config?: {
-    [key: string]: unknown
-  }
-  is_primary?: boolean
-  name?: string
-  position?: string
-  type?:
-    | 'text'
-    | 'number'
-    | 'select'
-    | 'datetime'
-    | 'checkbox'
-    | 'user'
-    | 'attachment'
-    | 'auto_number'
-    | 'link'
-    | 'formula'
-    | 'created_at'
-    | 'updated_at'
-    | 'created_by'
-    | 'updated_by'
-  version?: number
-}
-
-/**
- * PodUserStateWrite
- */
-export type PodUserStateWrite = {
-  favorite?: boolean
-  visited?: boolean
-}
-
-/**
- * PodSubject
- */
-export type PodSubject = {
-  group_id?: string
-  kind: 'human' | 'agent' | 'group'
-  name: string
-  principal_uid?: string
-}
-
-/**
- * PodDeleteVersion
- */
-export type PodDeleteVersion = {
-  version: number
-}
-
-/**
- * ConversationCreateRequest
- */
-export type ConversationCreateRequest = {
-  agentUID: string
-  attachments?: Array<string>
-  conversationID: string
-  deliveryMode?: 'steer' | 'queue'
-  messageID: string
-  modelProfile?: string | null
-  pageID?: string | null
-  text: string
-}
-
-/**
- * ConversationDetail
- */
-export type ConversationDetail = {
-  conversation: Conversation
-  messageRange: {
-    firstSeq: number
-    lastSeq: number
-  }
-  messages: Array<ConversationMessage>
-  olderMessagesBeforeSeq: number | null
-  pendingInputs: Array<ConversationPendingInput>
-  queuePaused: boolean
-  queueVersion: string
-  removedMessageIDs: Array<string>
-  retryableMessageID: string | null
-  status: ConversationStatus
-}
-
-/**
- * LoginIdentity
- */
-export type LoginIdentity = {
-  authenticationRef: string
-  displayName: string
-  principalUID: string
-  providerID: string
-}
-
-/**
- * PodPageUpdate
- */
-export type PodPageUpdate = {
-  icon?: string | null
-  title?: string
-}
-
-/**
- * ConversationQueueRequest
- */
-export type ConversationQueueRequest = {
-  action: 'edit' | 'send_now' | 'remove' | 'reorder' | 'stop' | 'resume' | 'regenerate' | 'edit_last'
-  commandID?: string
-  expectedText?: string | null
-  expectedVersion?: string
-  messageID?: string
-  messageIDs?: Array<string>
-  text?: string
-}
-
-/**
- * PodRecords
- */
-export type PodRecords = {
-  complete: boolean
-  data_version: number
-  page_token: string | null
-  records: Array<PodRecord>
-}
-
-/**
- * PodCondition
- */
-export type PodCondition = {
-  field_id: string
-  operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
-  value?: Value
-}
-
-/**
- * LogoutConfirmation
- */
-export type LogoutConfirmation = {
-  clientName: string | null
-  identity: BrowserIdentity | null
-}
-
-/**
- * PodPublishEntry
- */
-export type PodPublishEntry = {
-  content_type?: string | null
-  path: string
-  sha256: string
-}
-
-/**
- * LoginComplete
- */
-export type LoginComplete = {
-  returnTo: string
-  status: 'ok'
-}
-
-/**
- * PodRecordCreate
- */
-export type PodRecordCreate = {
-  data: {
-    [key: string]: Value
-  }
-  id?: string
-}
-
-/**
- * PodSpaceAgentWrite
- */
-export type PodSpaceAgentWrite = {
-  principal_uid: string
-  role: 'view' | 'edit' | 'manage'
-}
-
-/**
- * PodActivityItem
- */
-export type PodActivityItem = {
-  consequential?: boolean
-  label?: string
-  label_bindings?: {
-    [key: string]: string
-  }
-  label_key?: string
-  operation_id: string
-  phase?: string
-  state?: string
-}
-
-/**
- * PodSharing
- */
-export type PodSharing = {
-  grants: Array<PodGrant>
-  inherit_permissions: boolean
-  sharing_version: string
-  subjects: Array<PodSubject>
-}
-
-/**
- * PodVersionsRequest
- */
-export type PodVersionsRequest = {
-  pages?: Array<string>
-  tables?: Array<string>
-}
-
-/**
- * PodRecordWrite
- */
-export type PodRecordWrite = {
-  creates?: Array<PodRecordCreate>
-  deletes?: Array<PodRecordDelete>
-  updates?: Array<PodRecordUpdate>
-}
-
-/**
- * PodActivity
- */
-export type PodActivity = {
-  agentUID: string
-  conversationID: string
-  epoch: number
-  phase: PodActivityItem | null
-  responseID: string | null
-  revision: number
-  sessionID: string
-  signalID: string | null
-  state: 'active' | 'unavailable' | 'settled'
-  tools: Array<PodActivityItem>
-}
-
-/**
- * PodModelChoice
- */
-export type PodModelChoice = {
-  profile: string | null
-}
-
-/**
- * PodTableResult
- */
-export type PodTableResult = {
-  table: PodTable
-}
-
-/**
- * SetupIdentityProvider
- */
-export type SetupIdentityProvider = {
-  adapter_id: string
-  config: {
-    [key: string]: unknown
-  }
-  config_key: string
-  enabled: boolean
-  plugin_id: string
-  provider_id: string
-}
-
-/**
- * PodAgent
- */
-export type PodAgent = {
-  displayName: string
-  uid: string
-}
-
-/**
- * PodViewWrite
- */
-export type PodViewWrite = {
-  config?: {
-    [key: string]: unknown
-  }
-  name?: string
-  position?: string
-  type?: 'grid' | 'kanban' | 'gallery'
-  version?: number
-}
-
-/**
- * BrowserErrorEnvelope
- */
-export type BrowserErrorEnvelope = {
-  error: BrowserError
-}
-
-/**
- * InternalOK
- */
-export type InternalOk = {
-  ok: true
-}
-
-/**
- * SetupSessionRequest
- */
-export type SetupSessionRequest = {
-  activationCode?: string
-  activation_code?: string
-  locale?: string
-}
-
-/**
- * PodSort
- */
-export type PodSort = {
-  direction: 'asc' | 'desc'
-  field_id: string
-}
-
-/**
- * PodFileWriteResult
- */
-export type PodFileWriteResult = {
-  file: PodFileEntry
-  page_id: string
-  revision: number
-  src?: string
-}
-
-/**
- * SetupPluginsRequest
- */
-export type SetupPluginsRequest = {
-  pluginIDs: Array<string>
-}
-
-/**
- * PodDocumentResult
- */
-export type PodDocumentResult = {
-  content: PodContent
-  page: PodPage
-}
-
-/**
- * PodSpaceWrite
- */
-export type PodSpaceWrite = {
-  role: 'view' | 'edit' | 'manage'
-}
-
-/**
- * SetupPlugin
- */
-export type SetupPlugin = {
-  description: LocalizedText | null
-  displayName: LocalizedText
-  id: string
-}
-
-/**
- * SignalAdapterField
- */
-export type SignalAdapterField = {
-  advanced?: boolean
-  default?: JsonValue
-  description?: LocalizedText
-  encrypted?: boolean
-  label?: LocalizedText
-  max?: number
-  min?: number
-  options?: Array<SignalAdapterFieldOption>
-  path: string
-  required?: boolean
-  requiredWhen?: Array<SignalAdapterFieldRequirement>
   type: string
-  validation?: SignalAdapterPatternValidation | SignalAdapterJsonObjectValidation
-  [key: string]: unknown
 }
 
 /**
- * PodError
+ * A "Resource object" representing a browser_setup
  */
-export type PodError = {
-  code: string
-  details: Value
-  message: string
-}
-
-/**
- * PodPublishRequest
- */
-export type PodPublishRequest = {
-  base_revision: number
-  files: Array<PodPublishEntry>
-}
-
-/**
- * PodEmpty
- */
-export type PodEmpty = {
-  [key: string]: never
-}
-
-/**
- * SignalAdapterFieldOption
- */
-export type SignalAdapterFieldOption = {
-  description?: LocalizedText
-  label?: LocalizedText
-  value: string
-  [key: string]: unknown
-}
-
-/**
- * SetupIdentityAdapters
- */
-export type SetupIdentityAdapters = {
-  adapters: Array<SetupIdentityAdapter>
-}
-
-/**
- * SignalAdapterFieldRequirement
- */
-export type SignalAdapterFieldRequirement = {
-  path: string
-  value: JsonValue
-}
-
-/**
- * ConversationMessage
- */
-export type ConversationMessage = {
-  attachments: Array<ConversationAttachment>
-  authorType: 'human' | 'agent' | 'system'
-  authorUID: string | null
-  createdAt: string
-  id: string
-  kind: 'message' | 'notice'
-  links: Array<ConversationLink>
-  replyToMessageID: string | null
-  seq: number
-  signalID: string | null
-  text: string
-}
-
-/**
- * SetupComplete
- */
-export type SetupComplete = {
-  returnTo: string
-}
-
-/**
- * PodRecordQuery
- */
-export type PodRecordQuery = {
-  filter?: PodFilter
-  group?: PodGroup
-  ids?: Array<string>
-  local?: boolean
-  page_size?: number
-  page_token?: string
-  sort?: Array<PodSort>
-}
-
-/**
- * PodPageResult
- */
-export type PodPageResult = {
-  page: PodPage
-}
-
-/**
- * BrowserErrorDetail
- */
-export type BrowserErrorDetail = {
-  line?: number | null
-  message: string
-  path?: string | null
-  [key: string]: unknown
-}
-
-/**
- * PodView
- */
-export type PodView = {
-  config: {
-    [key: string]: unknown
+export type BrowserSetup = {
+  /**
+   * An attributes object for a browser_setup
+   */
+  attributes?: {
+    [key: string]: never
   }
   id: string
-  name: string
-  position: string
-  table_id: string
-  type: 'grid' | 'kanban' | 'gallery'
-  version: number
-}
-
-/**
- * PodFieldResult
- */
-export type PodFieldResult = {
-  field: PodField
-}
-
-/**
- * PodWriteResult
- */
-export type PodWriteResult = {
-  data_version: number
-  deleted_ids: Array<string>
-  records: Array<PodRecord>
-}
-
-/**
- * PodSpaceAgent
- */
-export type PodSpaceAgent = {
-  group_id: string | null
-  kind: 'agent'
-  name: string
-  principal_uid: string
-  role: 'view' | 'edit' | 'manage'
-}
-
-/**
- * ConversationMessageRequest
- */
-export type ConversationMessageRequest = {
-  attachments?: Array<string>
-  deliveryMode?: 'steer' | 'queue'
-  messageID: string
-  text: string
-}
-
-/**
- * PodPageCreate
- */
-export type PodPageCreate = {
-  icon?: string | null
-  parent_id?: string | null
-  position?: string
-  private_owner_uid?: string | null
-  saved_from_message_id?: string | null
-  title?: string
-  type?: 'doc' | 'database' | 'applet' | 'file'
-}
-
-/**
- * PodFileEntry
- */
-export type PodFileEntry = {
-  content_type: string | null
-  path: string
-  sha256: string
-  size: number
-}
-
-/**
- * PodGrantWrite
- */
-export type PodGrantWrite = {
-  group_id?: string | null
-  principal_uid?: string | null
-  role: 'view' | 'edit' | 'manage'
-}
-
-/**
- * LoginResult
- */
-export type LoginResult = LoginComplete | PasswordChangeRequired
-
-/**
- * PodPageDetail
- */
-export type PodPageDetail = {
-  content: PodContent | null
-  page: PodPage
-  role: 'view' | 'edit' | 'manage'
-  source_conversation: {
-    deleted?: boolean
-    id?: string
-    message_id?: string
-    title?: string
-  } | null
-}
-
-/**
- * PodSpaceAgentResult
- */
-export type PodSpaceAgentResult = {
-  principal_uid: string
-  role?: 'view' | 'edit' | 'manage'
-}
-
-/**
- * PodFileManifest
- */
-export type PodFileManifest = {
-  files: Array<PodFileEntry>
-  page_id: string
-  revision: number
-  routes?: Array<string>
-}
-
-/**
- * PodUserState
- */
-export type PodUserState = {
-  favorited_at: string | null
-  page_id: string
-  visited_at: string | null
-}
-
-/**
- * SetupLocalAdminRequest
- */
-export type SetupLocalAdminRequest = {
-  display_name?: string | null
-  email: string
-  password: string
-}
-
-/**
- * PodSharingWrite
- */
-export type PodSharingWrite = {
-  grants?: Array<PodGrantWrite>
-  inherit_permissions?: boolean
-  sharing_version: string
-}
-
-/**
- * LocalPasswordLoginRequest
- */
-export type LocalPasswordLoginRequest = {
-  email: string
-  flow?: string | null
-  password: string
-}
-
-/**
- * Conversation
- */
-export type Conversation = {
-  agent: ConversationAgent
-  id: string
-  lastActivityAt: string
-  pageID: string | null
-  title: string
-}
-
-/**
- * PodRecordUpdate
- */
-export type PodRecordUpdate = {
-  data: {
-    [key: string]: Value
+  /**
+   * A relationships object for a browser_setup
+   */
+  relationships?: {
+    [key: string]: never
   }
-  expected_versions: {
-    [key: string]: number
+  type: string
+}
+
+export type Error = {
+  /**
+   * An application-specific error code, expressed as a string value.
+   */
+  code?: string
+  /**
+   * A human-readable explanation specific to this occurrence of the problem.
+   */
+  detail?: string
+  /**
+   * A unique identifier for this particular occurrence of the problem.
+   */
+  id?: string
+  links?: Links
+  source?: {
+    /**
+     * A string indicating which query parameter caused the error.
+     */
+    parameter?: string
+    /**
+     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
+     */
+    pointer?: string
   }
-  id: string
-}
-
-/**
- * SetupPlugins
- */
-export type SetupPlugins = {
-  enabledPluginIDs: Array<string>
-  plugins: Array<SetupPlugin>
-}
-
-/**
- * BrowserAccountActivated
- */
-export type BrowserAccountActivated = {
-  podURL: string
-}
-
-/**
- * SetupBrainPackSelection
- */
-export type SetupBrainPackSelection = {
-  packs: Array<string>
-}
-
-/**
- * LocalPasswordChangeRequest
- */
-export type LocalPasswordChangeRequest = {
-  flow?: string | null
-  newPassword: string
-}
-
-/**
- * PasswordChangeRequired
- */
-export type PasswordChangeRequired = {
-  status: 'password_change_required'
-}
-
-/**
- * PodRecordDelete
- */
-export type PodRecordDelete = {
-  expected_versions: {
-    [key: string]: number
-  }
-  id: string
-}
-
-/**
- * PodSubjects
- */
-export type PodSubjects = {
-  subjects: Array<PodSubject>
-}
-
-/**
- * PodAggregateQuery
- */
-export type PodAggregateQuery = {
-  filter?: PodFilter
-  group_by?: Array<PodGroupBy>
-  metrics: Array<PodMetric>
-}
-
-/**
- * PodModelProfiles
- */
-export type PodModelProfiles = {
-  profiles: Array<PodModelProfile>
-}
-
-/**
- * SetupPluginsSelection
- */
-export type SetupPluginsSelection = {
-  enabledPluginIDs: Array<string>
-}
-
-/**
- * PodDocumentWrite
- */
-export type PodDocumentWrite = {
-  base_revision: number
-  xml: string
-}
-
-/**
- * PodCopyRequest
- */
-export type PodCopyRequest = {
-  filter?: PodFilter
-  parent_id?: string | null
-  private_owner_uid?: string | null
+  /**
+   * The HTTP status code applicable to this problem, expressed as a string value.
+   */
+  status?: string
+  /**
+   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
+   */
   title?: string
 }
 
-/**
- * LoginProvider
- */
-export type LoginProvider = {
-  adapterID: string
-  displayName?: string | null
-  kind: 'password' | 'oidc' | 'site'
-  loginPath?: string | null
-  pluginID: string | null
-  providerID: string
-}
+export type Errors = Array<Error>
 
 /**
- * SetupState
+ * A link MUST be represented as either: a string containing the link's URL or a link object.
  */
-export type SetupState = {
-  authenticated: boolean
-  availableLocales: Array<string>
-  completed: boolean
-  currentLocale: string
-  publicBaseURL: string
+export type Link = string
+
+export type Links = {
+  [key: string]: Link
 }
 
-/**
- * PodTableSchema
- */
-export type PodTableSchema = {
-  fields: Array<PodField>
-  limits: PodDatabaseLimits
-  local_query: {
-    jsonb_compare: boolean
-    text_contains_ascii: boolean
-  }
-  mode: 'local' | 'remote'
-  table: PodTable
-  timezone: string
-  views: Array<PodView>
-}
-
-/**
- * BrowserAccount
- *
- * A Pod identity that this browser has proved.
- */
-export type BrowserAccount = {
-  authenticationRef: string
-  displayName: string
-  podURL: string
-  principalUID: string
-  providerID: string | null
-  tenant: BrowserTenant
-}
-
-/**
- * PodErrorEnvelope
- */
-export type PodErrorEnvelope = {
-  error: PodError
-  revision?: number
-}
-
-/**
- * PodViewResult
- */
-export type PodViewResult = {
-  view: PodView
-}
-
-/**
- * BrowserAccountActivation
- */
-export type BrowserAccountActivation = {
-  authenticationRef: string
-}
-
-/**
- * ConversationPendingInput
- */
-export type ConversationPendingInput = {
-  attachments: Array<ConversationAttachment>
-  deliveryMode: 'steer' | 'queue'
-  messageID: string
-  modelProfile: string
-  text: string
-}
-
-/**
- * LoginProviders
- */
-export type LoginProviders = {
-  identities: Array<LoginIdentity>
-  identity: BrowserIdentity | null
-  providers: Array<LoginProvider>
-  selectAccount: boolean
-}
-
-/**
- * PodFilter
- */
-export type PodFilter = {
-  conditions: Array<PodCondition>
-  conjunction: 'and' | 'or'
-}
-
-/**
- * PodModelProfile
- */
-export type PodModelProfile = {
-  description: string
-  name: string
-}
-
-/**
- * BrowserTenant
- */
-export type BrowserTenant = {
-  displayName: string
-  id: string
-  slug: string
-}
-
-/**
- * PodPage
- */
-export type PodPage = {
-  created_at: string
-  deleted_at: string | null
-  icon: string | null
-  id: string
-  inherit_permissions: boolean
-  parent_id: string | null
-  position: string
-  private_owner_uid: string | null
-  purge_started_at: string | null
-  revision: number
-  role: 'view' | 'edit' | 'manage'
-  saved_from_message_id: string | null
-  title: string
-  type: 'doc' | 'database' | 'applet' | 'file'
-  updated_at: string
-}
-
-/**
- * PodFileUpload
- */
-export type PodFileUpload = {
-  base_revision?: number
-  file: Blob | File
-  role?: 'file' | 'asset' | 'attachment'
-}
-
-/**
- * ConversationAgent
- */
-export type ConversationAgent = {
-  active: boolean
-  displayName: string
-  uid: string
-}
-
-/**
- * PodFieldUpdate
- */
-export type PodFieldUpdate = PodFieldWrite & {
-  version: number
-}
-
-/**
- * ConversationAttachmentUpload
- */
-export type ConversationAttachmentUpload = {
-  file: Blob | File
-  fileID: string
-}
-
-/**
- * PodPageList
- */
-export type PodPageList = {
-  pages: Array<PodPage>
-  principal_uid: string
-}
-
-/**
- * PodMetric
- */
-export type PodMetric = {
-  alias: string
-  field_id?: string
-  operation: 'count' | 'sum' | 'avg' | 'min' | 'max'
-}
-
-/**
- * BrowserIdentity
- */
-export type BrowserIdentity = {
-  displayName: string
-  principalUID?: string
-  providerID: string
-}
-
-/**
- * SetupBrainPacks
- */
-export type SetupBrainPacks = {
-  packs: Array<SetupBrainPack>
-  selected: Array<string>
-}
-
-/**
- * PodRecord
- */
-export type PodRecord = {
-  created_at: string
-  created_by: string
-  data: {
-    [key: string]: Value
-  }
-  id: string
-  updated_at: string
-  updated_by: string
-  versions: {
-    [key: string]: number
-  }
-}
-
-/**
- * PodFileCopyRequest
- */
-export type PodFileCopyRequest = {
-  base_revision: number
-  message_id: string
-  path: string
-}
-
-/**
- * PodGroupBy
- */
-export type PodGroupBy = {
-  bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year'
-  field_id: string
-}
-
-/**
- * SetupIdentityAdapter
- */
-export type SetupIdentityAdapter = {
-  adapterID: string
-  defaultProviderID: string
-  displayName: LocalizedText
-  fields: Array<SignalAdapterField>
-  pluginID: string
-}
-
-/**
- * SignalAdapterJSONObjectValidation
- */
-export type SignalAdapterJsonObjectValidation = {
-  kind: 'json_object'
-  message: LocalizedText
-  requiredStringProperties?: Array<string>
-  stringPrefixes?: {
-    [key: string]: string
-  }
-}
-
-/**
- * ConversationStatus
- */
-export type ConversationStatus = {
-  activity: PodActivity
-  retryAt: string | null
-  state: 'idle' | 'queued' | 'running' | 'retrying'
-}
-
-/**
- * Conversations
- */
-export type Conversations = {
-  conversations: Array<Conversation>
-}
-
-/**
- * PodVersions
- */
-export type PodVersions = {
-  pages: Array<{
-    id: string
-    revision: number
-  }>
-  tables: Array<{
-    data_version: number
-    id: string
-  }>
-}
-
-/**
- * InternalError
- */
-export type InternalError = {
-  error: string
-  retryAfterSeconds?: number
-}
-
-/**
- * SignalAdapterPatternValidation
- */
-export type SignalAdapterPatternValidation = {
-  kind: 'pattern'
-  message: LocalizedText
-  pattern: string
-}
-
-/**
- * PodModelSelection
- */
-export type PodModelSelection = {
-  activeProfile: string | null
-  profile: string | null
-  profiles: Array<PodModelProfile>
-}
-
-/**
- * PodAggregateGroup
- */
-export type PodAggregateGroup = {
-  metrics: {
-    [key: string]: Value
-  }
-  value_json?: Array<string | null>
-  values: Array<Value>
-}
-
-/**
- * PodSpace
- */
-export type PodSpace = {
-  agents: Array<PodSpaceAgent>
-  can_manage: boolean
-  role: 'view' | 'edit' | 'manage'
-}
-
-export type SetupPluginsData = {
+export type DeleteBrowserAuthenticationData = {
   body?: never
   path?: never
   query?: never
-  url: '/.internal-apis/setup/plugins'
+  url: '/api/v2/browser/authentications/current'
 }
 
-export type SetupPluginsErrors = {
+export type DeleteBrowserAuthenticationErrors = {
   /**
-   * Error
+   * General Error
    */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
+  default: Errors
 }
 
-export type SetupPluginsError = SetupPluginsErrors[keyof SetupPluginsErrors]
+export type DeleteBrowserAuthenticationError =
+  DeleteBrowserAuthenticationErrors[keyof DeleteBrowserAuthenticationErrors]
 
-export type SetupPluginsResponses = {
+export type DeleteBrowserAuthenticationResponses = {
   /**
    * Success
    */
-  200: SetupPlugins
-}
-
-export type SetupPluginsResponse = SetupPluginsResponses[keyof SetupPluginsResponses]
-
-export type UpdateSetupPluginsData = {
-  /**
-   * Request
-   */
-  body?: SetupPluginsRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/plugins/enabled'
-}
-
-export type UpdateSetupPluginsErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type UpdateSetupPluginsError = UpdateSetupPluginsErrors[keyof UpdateSetupPluginsErrors]
-
-export type UpdateSetupPluginsResponses = {
-  /**
-   * Success
-   */
-  200: SetupPluginsSelection
-}
-
-export type UpdateSetupPluginsResponse = UpdateSetupPluginsResponses[keyof UpdateSetupPluginsResponses]
-
-export type ActivateBrowserAccountData = {
-  /**
-   * Account
-   */
-  body?: BrowserAccountActivation
-  path?: never
-  query?: never
-  url: '/.internal-apis/sessions/active'
-}
-
-export type ActivateBrowserAccountErrors = {
-  /**
-   * Error
-   */
-  default: InternalError
-}
-
-export type ActivateBrowserAccountError = ActivateBrowserAccountErrors[keyof ActivateBrowserAccountErrors]
-
-export type ActivateBrowserAccountResponses = {
-  /**
-   * Activated
-   */
-  200: BrowserAccountActivated
-}
-
-export type ActivateBrowserAccountResponse = ActivateBrowserAccountResponses[keyof ActivateBrowserAccountResponses]
-
-export type PodPageListData = {
-  body?: never
-  path?: never
-  query?: {
-    scope?: 'all' | 'space' | 'private' | 'shared' | 'recent' | 'favorites' | 'trash'
-    query?: string
+  200: {
+    ok: boolean
   }
-  url: '/.internal-apis/pod/pages'
 }
 
-export type PodPageListErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageListError = PodPageListErrors[keyof PodPageListErrors]
-
-export type PodPageListResponses = {
-  /**
-   * Success
-   */
-  200: PodPageList
-}
-
-export type PodPageListResponse = PodPageListResponses[keyof PodPageListResponses]
-
-export type PodPageCreateData = {
-  /**
-   * Request
-   */
-  body: PodPageCreate
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/pages'
-}
-
-export type PodPageCreateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageCreateError = PodPageCreateErrors[keyof PodPageCreateErrors]
-
-export type PodPageCreateResponses = {
-  /**
-   * Success
-   */
-  200: PodPageResult
-}
-
-export type PodPageCreateResponse = PodPageCreateResponses[keyof PodPageCreateResponses]
-
-export type PodVersionsData = {
-  /**
-   * Request
-   */
-  body: PodVersionsRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/versions'
-}
-
-export type PodVersionsErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodVersionsError = PodVersionsErrors[keyof PodVersionsErrors]
-
-export type PodVersionsResponses = {
-  /**
-   * Success
-   */
-  200: PodVersions
-}
-
-export type PodVersionsResponse = PodVersionsResponses[keyof PodVersionsResponses]
-
-export type SetupOidcAuthorizationData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/.internal-apis/setup/identity-providers/{provider_id}/oidc/authorizations'
-}
-
-export type SetupOidcAuthorizationErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type SetupOidcAuthorizationError = SetupOidcAuthorizationErrors[keyof SetupOidcAuthorizationErrors]
-
-export type SetupOidcAuthorizationResponses = {
-  /**
-   * Success
-   */
-  200: SetupAuthorization
-}
-
-export type SetupOidcAuthorizationResponse = SetupOidcAuthorizationResponses[keyof SetupOidcAuthorizationResponses]
-
-export type PodConversationsData = {
-  body?: never
-  path?: never
-  query?: {
-    pageID?: string
-  }
-  url: '/.internal-apis/pod/conversations'
-}
-
-export type PodConversationsErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type PodConversationsError = PodConversationsErrors[keyof PodConversationsErrors]
-
-export type PodConversationsResponses = {
-  /**
-   * Success
-   */
-  200: Conversations
-}
-
-export type PodConversationsResponse = PodConversationsResponses[keyof PodConversationsResponses]
-
-export type CreateConversationData = {
-  /**
-   * Request
-   */
-  body?: ConversationCreateRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/conversations'
-}
-
-export type CreateConversationErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type CreateConversationError = CreateConversationErrors[keyof CreateConversationErrors]
-
-export type CreateConversationResponses = {
-  /**
-   * Success
-   */
-  200: ConversationDetail
-}
-
-export type CreateConversationResponse = CreateConversationResponses[keyof CreateConversationResponses]
-
-export type PodEmbedDeleteData = {
-  body?: never
-  path: {
-    id: string
-    ref: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/embeds/{ref}/delete'
-}
-
-export type PodEmbedDeleteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodEmbedDeleteError = PodEmbedDeleteErrors[keyof PodEmbedDeleteErrors]
-
-export type PodEmbedDeleteResponses = {
-  /**
-   * Success
-   */
-  200: PodEmpty
-}
-
-export type PodEmbedDeleteResponse = PodEmbedDeleteResponses[keyof PodEmbedDeleteResponses]
+export type DeleteBrowserAuthenticationResponse =
+  DeleteBrowserAuthenticationResponses[keyof DeleteBrowserAuthenticationResponses]
 
 export type LoginProvidersData = {
   body?: never
@@ -1872,42 +124,14 @@ export type LoginProvidersData = {
   query?: {
     flow?: string
   }
-  url: '/.internal-apis/identity-providers'
+  url: '/api/v2/browser/identity-providers'
 }
 
 export type LoginProvidersErrors = {
   /**
-   * Error
+   * General Error
    */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
+  default: Errors
 }
 
 export type LoginProvidersError = LoginProvidersErrors[keyof LoginProvidersErrors]
@@ -1916,1943 +140,33 @@ export type LoginProvidersResponses = {
   /**
    * Success
    */
-  200: LoginProviders
+  200: {
+    identities: Array<{
+      authenticationRef: string
+      displayName: string
+      principalUID: string
+      providerID: string
+    }>
+    identity?: {
+      displayName: string
+      principalUID: string
+      providerID: string
+    } | null
+    providers: Array<{
+      adapterID: string
+      displayName: {
+        [key: string]: string
+      }
+      kind: string
+      loginPath: string
+      pluginID?: string | null
+      providerID: string
+    }>
+    selectAccount: boolean
+  }
 }
 
 export type LoginProvidersResponse = LoginProvidersResponses[keyof LoginProvidersResponses]
-
-export type PodConversationEventsData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/conversations/{id}/events'
-}
-
-export type PodConversationEventsErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  413: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type PodConversationEventsError = PodConversationEventsErrors[keyof PodConversationEventsErrors]
-
-export type PodConversationEventsResponses = {
-  /**
-   * Events
-   */
-  200: string
-}
-
-export type PodConversationEventsResponse = PodConversationEventsResponses[keyof PodConversationEventsResponses]
-
-export type PodDatabaseSchemaData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}'
-}
-
-export type PodDatabaseSchemaErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseSchemaError = PodDatabaseSchemaErrors[keyof PodDatabaseSchemaErrors]
-
-export type PodDatabaseSchemaResponses = {
-  /**
-   * Success
-   */
-  200: PodTableSchema
-}
-
-export type PodDatabaseSchemaResponse = PodDatabaseSchemaResponses[keyof PodDatabaseSchemaResponses]
-
-export type PodAppletPublishData = {
-  /**
-   * Request
-   */
-  body: PodPublishRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/publish'
-}
-
-export type PodAppletPublishErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-  /**
-   * Error
-   */
-  503: PodErrorEnvelope
-}
-
-export type PodAppletPublishError = PodAppletPublishErrors[keyof PodAppletPublishErrors]
-
-export type PodAppletPublishResponses = {
-  /**
-   * Success
-   */
-  200: PodFileManifest
-}
-
-export type PodAppletPublishResponse = PodAppletPublishResponses[keyof PodAppletPublishResponses]
-
-export type PodModelProfilesData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/agents/{uid}/model-profiles'
-}
-
-export type PodModelProfilesErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-}
-
-export type PodModelProfilesError = PodModelProfilesErrors[keyof PodModelProfilesErrors]
-
-export type PodModelProfilesResponses = {
-  /**
-   * Configured profile names
-   */
-  200: PodModelProfiles
-}
-
-export type PodModelProfilesResponse = PodModelProfilesResponses[keyof PodModelProfilesResponses]
-
-export type PodSpaceAgentData = {
-  /**
-   * Request
-   */
-  body: PodSpaceAgentWrite
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/space/agents'
-}
-
-export type PodSpaceAgentErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodSpaceAgentError = PodSpaceAgentErrors[keyof PodSpaceAgentErrors]
-
-export type PodSpaceAgentResponses = {
-  /**
-   * Success
-   */
-  200: PodSpaceAgentResult
-}
-
-export type PodSpaceAgentResponse = PodSpaceAgentResponses[keyof PodSpaceAgentResponses]
-
-export type PodDatabaseCopyData = {
-  /**
-   * Request
-   */
-  body: PodCopyRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}/copy'
-}
-
-export type PodDatabaseCopyErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseCopyError = PodDatabaseCopyErrors[keyof PodDatabaseCopyErrors]
-
-export type PodDatabaseCopyResponses = {
-  /**
-   * Success
-   */
-  200: PodCopyResult
-}
-
-export type PodDatabaseCopyResponse = PodDatabaseCopyResponses[keyof PodDatabaseCopyResponses]
-
-export type LocalPasswordLoginData = {
-  /**
-   * Request
-   */
-  body?: LocalPasswordLoginRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/sessions/local-password'
-}
-
-export type LocalPasswordLoginErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type LocalPasswordLoginError = LocalPasswordLoginErrors[keyof LocalPasswordLoginErrors]
-
-export type LocalPasswordLoginResponses = {
-  /**
-   * Success
-   */
-  200: LoginResult
-}
-
-export type LocalPasswordLoginResponse = LocalPasswordLoginResponses[keyof LocalPasswordLoginResponses]
-
-export type DeleteSetupSessionData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/sessions/current'
-}
-
-export type DeleteSetupSessionErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type DeleteSetupSessionError = DeleteSetupSessionErrors[keyof DeleteSetupSessionErrors]
-
-export type DeleteSetupSessionResponses = {
-  /**
-   * Success
-   */
-  200: InternalOk
-}
-
-export type DeleteSetupSessionResponse = DeleteSetupSessionResponses[keyof DeleteSetupSessionResponses]
-
-export type DeleteConversationData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/conversations/{id}'
-}
-
-export type DeleteConversationErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-}
-
-export type DeleteConversationError = DeleteConversationErrors[keyof DeleteConversationErrors]
-
-export type DeleteConversationResponses = {
-  /**
-   * Deleted
-   */
-  204: void
-}
-
-export type DeleteConversationResponse = DeleteConversationResponses[keyof DeleteConversationResponses]
-
-export type ConversationDetailData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: {
-    loadedFirstSeq?: number
-    beforeSeq?: number
-  }
-  url: '/.internal-apis/pod/conversations/{id}'
-}
-
-export type ConversationDetailErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type ConversationDetailError = ConversationDetailErrors[keyof ConversationDetailErrors]
-
-export type ConversationDetailResponses = {
-  /**
-   * Success
-   */
-  200: ConversationDetail
-}
-
-export type ConversationDetailResponse = ConversationDetailResponses[keyof ConversationDetailResponses]
-
-export type CreateSetupLocalAdminData = {
-  /**
-   * Request
-   */
-  body?: SetupLocalAdminRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/local-admin'
-}
-
-export type CreateSetupLocalAdminErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type CreateSetupLocalAdminError = CreateSetupLocalAdminErrors[keyof CreateSetupLocalAdminErrors]
-
-export type CreateSetupLocalAdminResponses = {
-  /**
-   * Success
-   */
-  200: SetupComplete
-}
-
-export type CreateSetupLocalAdminResponse = CreateSetupLocalAdminResponses[keyof CreateSetupLocalAdminResponses]
-
-export type PodSpaceAgentDeleteData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/space/agents/{uid}'
-}
-
-export type PodSpaceAgentDeleteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodSpaceAgentDeleteError = PodSpaceAgentDeleteErrors[keyof PodSpaceAgentDeleteErrors]
-
-export type PodSpaceAgentDeleteResponses = {
-  /**
-   * Success
-   */
-  200: PodSpaceAgentResult
-}
-
-export type PodSpaceAgentDeleteResponse = PodSpaceAgentDeleteResponses[keyof PodSpaceAgentDeleteResponses]
-
-export type PutSetupIdentityProviderData = {
-  /**
-   * Request
-   */
-  body?: SetupIdentityProviderRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/.internal-apis/setup/identity-providers/{provider_id}'
-}
-
-export type PutSetupIdentityProviderErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type PutSetupIdentityProviderError = PutSetupIdentityProviderErrors[keyof PutSetupIdentityProviderErrors]
-
-export type PutSetupIdentityProviderResponses = {
-  /**
-   * Success
-   */
-  200: SetupIdentityProvider
-}
-
-export type PutSetupIdentityProviderResponse =
-  PutSetupIdentityProviderResponses[keyof PutSetupIdentityProviderResponses]
-
-export type PodAgentsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/agents'
-}
-
-export type PodAgentsErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type PodAgentsError = PodAgentsErrors[keyof PodAgentsErrors]
-
-export type PodAgentsResponses = {
-  /**
-   * Success
-   */
-  200: PodAgents
-}
-
-export type PodAgentsResponse = PodAgentsResponses[keyof PodAgentsResponses]
-
-export type PodDatabaseViewCreateData = {
-  /**
-   * Request
-   */
-  body: PodViewWrite
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}/views'
-}
-
-export type PodDatabaseViewCreateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseViewCreateError = PodDatabaseViewCreateErrors[keyof PodDatabaseViewCreateErrors]
-
-export type PodDatabaseViewCreateResponses = {
-  /**
-   * Success
-   */
-  200: PodViewResult
-}
-
-export type PodDatabaseViewCreateResponse = PodDatabaseViewCreateResponses[keyof PodDatabaseViewCreateResponses]
-
-export type PodDatabaseViewDeleteData = {
-  /**
-   * Request
-   */
-  body: PodDeleteVersion
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/views/{id}'
-}
-
-export type PodDatabaseViewDeleteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseViewDeleteError = PodDatabaseViewDeleteErrors[keyof PodDatabaseViewDeleteErrors]
-
-export type PodDatabaseViewDeleteResponses = {
-  /**
-   * Success
-   */
-  200: PodViewResult
-}
-
-export type PodDatabaseViewDeleteResponse = PodDatabaseViewDeleteResponses[keyof PodDatabaseViewDeleteResponses]
-
-export type PodDatabaseViewUpdateData = {
-  /**
-   * Request
-   */
-  body: PodViewUpdate
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/views/{id}'
-}
-
-export type PodDatabaseViewUpdateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseViewUpdateError = PodDatabaseViewUpdateErrors[keyof PodDatabaseViewUpdateErrors]
-
-export type PodDatabaseViewUpdateResponses = {
-  /**
-   * Success
-   */
-  200: PodViewResult
-}
-
-export type PodDatabaseViewUpdateResponse = PodDatabaseViewUpdateResponses[keyof PodDatabaseViewUpdateResponses]
-
-export type SetupIdentityAdaptersData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/identity-provider-adapters'
-}
-
-export type SetupIdentityAdaptersErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type SetupIdentityAdaptersError = SetupIdentityAdaptersErrors[keyof SetupIdentityAdaptersErrors]
-
-export type SetupIdentityAdaptersResponses = {
-  /**
-   * Success
-   */
-  200: SetupIdentityAdapters
-}
-
-export type SetupIdentityAdaptersResponse = SetupIdentityAdaptersResponses[keyof SetupIdentityAdaptersResponses]
-
-export type SelectLoginIdentityData = {
-  /**
-   * Selection
-   */
-  body?: LoginIdentitySelection
-  path?: never
-  query?: never
-  url: '/.internal-apis/sessions/identity-selection'
-}
-
-export type SelectLoginIdentityErrors = {
-  /**
-   * Error
-   */
-  default: InternalError
-}
-
-export type SelectLoginIdentityError = SelectLoginIdentityErrors[keyof SelectLoginIdentityErrors]
-
-export type SelectLoginIdentityResponses = {
-  /**
-   * Selection
-   */
-  200: LoginComplete
-}
-
-export type SelectLoginIdentityResponse = SelectLoginIdentityResponses[keyof SelectLoginIdentityResponses]
-
-export type CreateSetupSessionData = {
-  /**
-   * Request
-   */
-  body?: SetupSessionRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/sessions'
-}
-
-export type CreateSetupSessionErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type CreateSetupSessionError = CreateSetupSessionErrors[keyof CreateSetupSessionErrors]
-
-export type CreateSetupSessionResponses = {
-  /**
-   * Success
-   */
-  200: InternalOk
-}
-
-export type CreateSetupSessionResponse = CreateSetupSessionResponses[keyof CreateSetupSessionResponses]
-
-export type PodDatabaseFieldCreateData = {
-  /**
-   * Request
-   */
-  body: PodFieldWrite
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}/fields'
-}
-
-export type PodDatabaseFieldCreateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseFieldCreateError = PodDatabaseFieldCreateErrors[keyof PodDatabaseFieldCreateErrors]
-
-export type PodDatabaseFieldCreateResponses = {
-  /**
-   * Success
-   */
-  200: PodFieldResult
-}
-
-export type PodDatabaseFieldCreateResponse = PodDatabaseFieldCreateResponses[keyof PodDatabaseFieldCreateResponses]
-
-export type UploadConversationAttachmentData = {
-  /**
-   * Request
-   */
-  body: ConversationAttachmentUpload
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/attachments'
-}
-
-export type UploadConversationAttachmentErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  413: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type UploadConversationAttachmentError =
-  UploadConversationAttachmentErrors[keyof UploadConversationAttachmentErrors]
-
-export type UploadConversationAttachmentResponses = {
-  /**
-   * Success
-   */
-  200: ConversationAttachmentReceipt
-}
-
-export type UploadConversationAttachmentResponse =
-  UploadConversationAttachmentResponses[keyof UploadConversationAttachmentResponses]
-
-export type PodPageUserStateData = {
-  /**
-   * Request
-   */
-  body: PodUserStateWrite
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/user-state'
-}
-
-export type PodPageUserStateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageUserStateError = PodPageUserStateErrors[keyof PodPageUserStateErrors]
-
-export type PodPageUserStateResponses = {
-  /**
-   * Success
-   */
-  200: PodUserStateResult
-}
-
-export type PodPageUserStateResponse = PodPageUserStateResponses[keyof PodPageUserStateResponses]
-
-export type PodRealtimeTokenData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/realtime-token'
-}
-
-export type PodRealtimeTokenErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodRealtimeTokenError = PodRealtimeTokenErrors[keyof PodRealtimeTokenErrors]
-
-export type PodRealtimeTokenResponses = {
-  /**
-   * Success
-   */
-  200: PodRealtimeToken
-}
-
-export type PodRealtimeTokenResponse = PodRealtimeTokenResponses[keyof PodRealtimeTokenResponses]
-
-export type SetupStateData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/state'
-}
-
-export type SetupStateErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type SetupStateError = SetupStateErrors[keyof SetupStateErrors]
-
-export type SetupStateResponses = {
-  /**
-   * Success
-   */
-  200: SetupState
-}
-
-export type SetupStateResponse = SetupStateResponses[keyof SetupStateResponses]
-
-export type PodDatabaseFieldDeleteData = {
-  /**
-   * Request
-   */
-  body: PodDeleteVersion
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/fields/{id}'
-}
-
-export type PodDatabaseFieldDeleteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseFieldDeleteError = PodDatabaseFieldDeleteErrors[keyof PodDatabaseFieldDeleteErrors]
-
-export type PodDatabaseFieldDeleteResponses = {
-  /**
-   * Success
-   */
-  200: PodFieldResult
-}
-
-export type PodDatabaseFieldDeleteResponse = PodDatabaseFieldDeleteResponses[keyof PodDatabaseFieldDeleteResponses]
-
-export type PodDatabaseFieldUpdateData = {
-  /**
-   * Request
-   */
-  body: PodFieldUpdate
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/fields/{id}'
-}
-
-export type PodDatabaseFieldUpdateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseFieldUpdateError = PodDatabaseFieldUpdateErrors[keyof PodDatabaseFieldUpdateErrors]
-
-export type PodDatabaseFieldUpdateResponses = {
-  /**
-   * Success
-   */
-  200: PodFieldResult
-}
-
-export type PodDatabaseFieldUpdateResponse = PodDatabaseFieldUpdateResponses[keyof PodDatabaseFieldUpdateResponses]
-
-export type PodDatabaseWriteData = {
-  /**
-   * Request
-   */
-  body: PodRecordWrite
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}/records'
-}
-
-export type PodDatabaseWriteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseWriteError = PodDatabaseWriteErrors[keyof PodDatabaseWriteErrors]
-
-export type PodDatabaseWriteResponses = {
-  /**
-   * Success
-   */
-  200: PodWriteResult
-}
-
-export type PodDatabaseWriteResponse = PodDatabaseWriteResponses[keyof PodDatabaseWriteResponses]
-
-export type PodDatabaseTablesData = {
-  body?: never
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/databases/{page_id}'
-}
-
-export type PodDatabaseTablesErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseTablesError = PodDatabaseTablesErrors[keyof PodDatabaseTablesErrors]
-
-export type PodDatabaseTablesResponses = {
-  /**
-   * Success
-   */
-  200: PodTables
-}
-
-export type PodDatabaseTablesResponse = PodDatabaseTablesResponses[keyof PodDatabaseTablesResponses]
-
-export type PodSpaceData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/space'
-}
-
-export type PodSpaceErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodSpaceError = PodSpaceErrors[keyof PodSpaceErrors]
-
-export type PodSpaceResponses = {
-  /**
-   * Success
-   */
-  200: PodSpace
-}
-
-export type PodSpaceResponse = PodSpaceResponses[keyof PodSpaceResponses]
-
-export type PodSpaceWriteData = {
-  /**
-   * Request
-   */
-  body: PodSpaceWrite
-  path?: never
-  query?: never
-  url: '/.internal-apis/pod/space'
-}
-
-export type PodSpaceWriteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodSpaceWriteError = PodSpaceWriteErrors[keyof PodSpaceWriteErrors]
-
-export type PodSpaceWriteResponses = {
-  /**
-   * Success
-   */
-  200: PodSpaceWrite
-}
-
-export type PodSpaceWriteResponse = PodSpaceWriteResponses[keyof PodSpaceWriteResponses]
-
-export type PodFileDownloadData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query: {
-    path: string
-    sha256?: string
-    download?: 'true' | 'false'
-  }
-  url: '/.internal-apis/pod/pages/{id}/files/content'
-}
-
-export type PodFileDownloadErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodFileDownloadError = PodFileDownloadErrors[keyof PodFileDownloadErrors]
-
-export type PodFileDownloadResponses = {
-  /**
-   * File
-   */
-  200: Blob | File
-}
-
-export type PodFileDownloadResponse = PodFileDownloadResponses[keyof PodFileDownloadResponses]
-
-export type PodDatabaseTableCreateData = {
-  /**
-   * Request
-   */
-  body: PodTableCreate
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/databases/{page_id}/tables'
-}
-
-export type PodDatabaseTableCreateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseTableCreateError = PodDatabaseTableCreateErrors[keyof PodDatabaseTableCreateErrors]
-
-export type PodDatabaseTableCreateResponses = {
-  /**
-   * Success
-   */
-  200: PodTableResult
-}
-
-export type PodDatabaseTableCreateResponse = PodDatabaseTableCreateResponses[keyof PodDatabaseTableCreateResponses]
-
-export type PodPageRestoreData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/restore'
-}
-
-export type PodPageRestoreErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageRestoreError = PodPageRestoreErrors[keyof PodPageRestoreErrors]
-
-export type PodPageRestoreResponses = {
-  /**
-   * Success
-   */
-  200: PodPageResult
-}
-
-export type PodPageRestoreResponse = PodPageRestoreResponses[keyof PodPageRestoreResponses]
-
-export type PodFilesData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/files'
-}
-
-export type PodFilesErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodFilesError = PodFilesErrors[keyof PodFilesErrors]
-
-export type PodFilesResponses = {
-  /**
-   * Success
-   */
-  200: PodFileManifest
-}
-
-export type PodFilesResponse = PodFilesResponses[keyof PodFilesResponses]
-
-export type PodFileUploadData = {
-  /**
-   * Request
-   */
-  body: PodFileUpload
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/files'
-}
-
-export type PodFileUploadErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodFileUploadError = PodFileUploadErrors[keyof PodFileUploadErrors]
-
-export type PodFileUploadResponses = {
-  /**
-   * Success
-   */
-  200: PodFileWriteResult
-}
-
-export type PodFileUploadResponse = PodFileUploadResponses[keyof PodFileUploadResponses]
-
-export type SetupBrainPacksData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/brain-packs'
-}
-
-export type SetupBrainPacksErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type SetupBrainPacksError = SetupBrainPacksErrors[keyof SetupBrainPacksErrors]
-
-export type SetupBrainPacksResponses = {
-  /**
-   * Success
-   */
-  200: SetupBrainPacks
-}
-
-export type SetupBrainPacksResponse = SetupBrainPacksResponses[keyof SetupBrainPacksResponses]
-
-export type UpdateSetupBrainPacksData = {
-  /**
-   * Request
-   */
-  body?: SetupBrainPackSelection
-  path?: never
-  query?: never
-  url: '/.internal-apis/setup/brain-packs'
-}
-
-export type UpdateSetupBrainPacksErrors = {
-  /**
-   * Error
-   */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
-}
-
-export type UpdateSetupBrainPacksError = UpdateSetupBrainPacksErrors[keyof UpdateSetupBrainPacksErrors]
-
-export type UpdateSetupBrainPacksResponses = {
-  /**
-   * Success
-   */
-  200: SetupBrainPackSelection
-}
-
-export type UpdateSetupBrainPacksResponse = UpdateSetupBrainPacksResponses[keyof UpdateSetupBrainPacksResponses]
-
-export type UpdateConversationQueueData = {
-  /**
-   * Request
-   */
-  body?: ConversationQueueRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/conversations/{id}/queue'
-}
-
-export type UpdateConversationQueueErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type UpdateConversationQueueError = UpdateConversationQueueErrors[keyof UpdateConversationQueueErrors]
-
-export type UpdateConversationQueueResponses = {
-  /**
-   * Success
-   */
-  200: ConversationDetail
-}
-
-export type UpdateConversationQueueResponse = UpdateConversationQueueResponses[keyof UpdateConversationQueueResponses]
-
-export type PodDocumentWriteData = {
-  /**
-   * Request
-   */
-  body: PodDocumentWrite
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/content'
-}
-
-export type PodDocumentWriteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDocumentWriteError = PodDocumentWriteErrors[keyof PodDocumentWriteErrors]
-
-export type PodDocumentWriteResponses = {
-  /**
-   * Success
-   */
-  200: PodDocumentResult
-}
-
-export type PodDocumentWriteResponse = PodDocumentWriteResponses[keyof PodDocumentWriteResponses]
 
 export type LogoutConfirmationData = {
   body?: never
@@ -3860,14 +174,14 @@ export type LogoutConfirmationData = {
     id: string
   }
   query?: never
-  url: '/.internal-apis/oidc-logout/{id}'
+  url: '/api/v2/browser/oidc-logout/{id}'
 }
 
 export type LogoutConfirmationErrors = {
   /**
-   * Error
+   * General Error
    */
-  401: InternalError
+  default: Errors
 }
 
 export type LogoutConfirmationError = LogoutConfirmationErrors[keyof LogoutConfirmationErrors]
@@ -3876,1204 +190,224 @@ export type LogoutConfirmationResponses = {
   /**
    * Success
    */
-  200: LogoutConfirmation
+  200: {
+    clientName?: string | null
+    identity?: {
+      displayName: string
+      principalUID: string
+      providerID: string
+    } | null
+  }
 }
 
 export type LogoutConfirmationResponse = LogoutConfirmationResponses[keyof LogoutConfirmationResponses]
 
-export type PodDatabaseAggregateData = {
-  /**
-   * Request
-   */
-  body: PodAggregateQuery
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}/aggregate'
-}
-
-export type PodDatabaseAggregateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseAggregateError = PodDatabaseAggregateErrors[keyof PodDatabaseAggregateErrors]
-
-export type PodDatabaseAggregateResponses = {
-  /**
-   * Success
-   */
-  200: PodAggregateResult
-}
-
-export type PodDatabaseAggregateResponse = PodDatabaseAggregateResponses[keyof PodDatabaseAggregateResponses]
-
-export type AnkoleWebAuthControllerDeleteSessionData = {
+export type DeleteAuthSessionData = {
   body?: never
   path?: never
   query?: never
-  url: '/.internal-apis/session'
+  url: '/api/v2/browser/session'
 }
 
-export type AnkoleWebAuthControllerDeleteSessionResponses = {
+export type DeleteAuthSessionErrors = {
   /**
-   * Deleted session
+   * General Error
    */
-  200: AuthSessionDeleteResponse
+  default: Errors
 }
 
-export type AnkoleWebAuthControllerDeleteSessionResponse =
-  AnkoleWebAuthControllerDeleteSessionResponses[keyof AnkoleWebAuthControllerDeleteSessionResponses]
+export type DeleteAuthSessionError = DeleteAuthSessionErrors[keyof DeleteAuthSessionErrors]
+
+export type DeleteAuthSessionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type DeleteAuthSessionResponse = DeleteAuthSessionResponses[keyof DeleteAuthSessionResponses]
 
 export type BrowserSessionData = {
   body?: never
   path?: never
   query?: never
-  url: '/.internal-apis/session'
+  url: '/api/v2/browser/session'
 }
 
 export type BrowserSessionErrors = {
   /**
-   * Unauthenticated
+   * General Error
    */
-  401: BrowserSession
-  /**
-   * Error
-   */
-  default: InternalError
+  default: Errors
 }
 
 export type BrowserSessionError = BrowserSessionErrors[keyof BrowserSessionErrors]
 
 export type BrowserSessionResponses = {
   /**
-   * Session
+   * Success
    */
-  200: BrowserSession
+  200: {
+    accounts: Array<{
+      authenticationRef: string
+      displayName: string
+      podURL: string
+      principalUID: string
+      providerID: string
+      tenant: {
+        displayName: string
+        id: string
+        slug: string
+      }
+    }>
+    authenticated: boolean
+    consoleURL?: string | null
+    displayName: string
+    principalUID: string
+    providerID: string
+    tenant: {
+      displayName: string
+      id: string
+      slug: string
+    }
+  }
 }
 
 export type BrowserSessionResponse = BrowserSessionResponses[keyof BrowserSessionResponses]
 
-export type PodDatabaseQueryData = {
+export type ActivateBrowserAccountData = {
   /**
-   * Request
+   * Request body for the activateBrowserAccount operation on browser_authentication resource
    */
-  body: PodRecordQuery
-  path: {
-    id: string
+  body: {
+    data: {
+      authenticationRef: string
+    }
   }
-  query?: never
-  url: '/.internal-apis/pod/tables/{id}/query'
-}
-
-export type PodDatabaseQueryErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodDatabaseQueryError = PodDatabaseQueryErrors[keyof PodDatabaseQueryErrors]
-
-export type PodDatabaseQueryResponses = {
-  /**
-   * Success
-   */
-  200: PodRecords
-}
-
-export type PodDatabaseQueryResponse = PodDatabaseQueryResponses[keyof PodDatabaseQueryResponses]
-
-export type ConversationAttachmentDownloadData = {
-  body?: never
-  path: {
-    id: string
-    message_id: string
-  }
-  query: {
-    path: string
-    download?: 'true' | 'false'
-  }
-  url: '/.internal-apis/pod/conversations/{id}/attachments/{message_id}'
-}
-
-export type ConversationAttachmentDownloadErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-}
-
-export type ConversationAttachmentDownloadError =
-  ConversationAttachmentDownloadErrors[keyof ConversationAttachmentDownloadErrors]
-
-export type ConversationAttachmentDownloadResponses = {
-  /**
-   * File
-   */
-  200: Blob | File
-}
-
-export type ConversationAttachmentDownloadResponse =
-  ConversationAttachmentDownloadResponses[keyof ConversationAttachmentDownloadResponses]
-
-export type PodPageSharingData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/sharing'
-}
-
-export type PodPageSharingErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageSharingError = PodPageSharingErrors[keyof PodPageSharingErrors]
-
-export type PodPageSharingResponses = {
-  /**
-   * Success
-   */
-  200: PodSharing
-}
-
-export type PodPageSharingResponse = PodPageSharingResponses[keyof PodPageSharingResponses]
-
-export type PodPageSharingWriteData = {
-  /**
-   * Request
-   */
-  body: PodSharingWrite
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/sharing'
-}
-
-export type PodPageSharingWriteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageSharingWriteError = PodPageSharingWriteErrors[keyof PodPageSharingWriteErrors]
-
-export type PodPageSharingWriteResponses = {
-  /**
-   * Success
-   */
-  200: PodPageResult
-}
-
-export type PodPageSharingWriteResponse = PodPageSharingWriteResponses[keyof PodPageSharingWriteResponses]
-
-export type PodPageDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}'
-}
-
-export type PodPageDeleteErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageDeleteError = PodPageDeleteErrors[keyof PodPageDeleteErrors]
-
-export type PodPageDeleteResponses = {
-  /**
-   * Success
-   */
-  200: PodPageResult
-}
-
-export type PodPageDeleteResponse = PodPageDeleteResponses[keyof PodPageDeleteResponses]
-
-export type PodPageReadData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}'
-}
-
-export type PodPageReadErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageReadError = PodPageReadErrors[keyof PodPageReadErrors]
-
-export type PodPageReadResponses = {
-  /**
-   * Success
-   */
-  200: PodPageDetail
-}
-
-export type PodPageReadResponse = PodPageReadResponses[keyof PodPageReadResponses]
-
-export type PodPageUpdateData = {
-  /**
-   * Request
-   */
-  body: PodPageUpdate
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}'
-}
-
-export type PodPageUpdateErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageUpdateError = PodPageUpdateErrors[keyof PodPageUpdateErrors]
-
-export type PodPageUpdateResponses = {
-  /**
-   * Success
-   */
-  200: PodPageResult
-}
-
-export type PodPageUpdateResponse = PodPageUpdateResponses[keyof PodPageUpdateResponses]
-
-export type LogSetupActivationCodeData = {
-  body?: never
   path?: never
   query?: never
-  url: '/.internal-apis/setup/bootstrap-activation-code/log-entries'
+  url: '/api/v2/browser/sessions/active'
 }
 
-export type LogSetupActivationCodeErrors = {
+export type ActivateBrowserAccountErrors = {
   /**
-   * Error
+   * General Error
    */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
+  default: Errors
 }
 
-export type LogSetupActivationCodeError = LogSetupActivationCodeErrors[keyof LogSetupActivationCodeErrors]
+export type ActivateBrowserAccountError = ActivateBrowserAccountErrors[keyof ActivateBrowserAccountErrors]
 
-export type LogSetupActivationCodeResponses = {
+export type ActivateBrowserAccountResponses = {
   /**
    * Success
    */
-  200: InternalOk
-}
-
-export type LogSetupActivationCodeResponse = LogSetupActivationCodeResponses[keyof LogSetupActivationCodeResponses]
-
-export type PostConversationMessageData = {
-  /**
-   * Request
-   */
-  body?: ConversationMessageRequest
-  path: {
-    id: string
+  200: {
+    podURL: string
   }
-  query?: never
-  url: '/.internal-apis/pod/conversations/{id}/messages'
 }
 
-export type PostConversationMessageErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  403: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  409: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
+export type ActivateBrowserAccountResponse = ActivateBrowserAccountResponses[keyof ActivateBrowserAccountResponses]
 
-export type PostConversationMessageError = PostConversationMessageErrors[keyof PostConversationMessageErrors]
-
-export type PostConversationMessageResponses = {
+export type SelectLoginIdentityData = {
   /**
-   * Success
+   * Request body for the selectLoginIdentity operation on browser_authentication resource
    */
-  200: ConversationDetail
-}
-
-export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
-
-export type PodPageMoveData = {
-  /**
-   * Request
-   */
-  body: PodPageMove
-  path: {
-    id: string
+  body: {
+    data: {
+      authenticationRef: string
+      flow: string
+    }
   }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/move'
-}
-
-export type PodPageMoveErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageMoveError = PodPageMoveErrors[keyof PodPageMoveErrors]
-
-export type PodPageMoveResponses = {
-  /**
-   * Success
-   */
-  200: PodPageResult
-}
-
-export type PodPageMoveResponse = PodPageMoveResponses[keyof PodPageMoveResponses]
-
-export type PodSubjectsData = {
-  body?: never
   path?: never
   query?: never
-  url: '/.internal-apis/pod/subjects'
+  url: '/api/v2/browser/sessions/identity-selection'
 }
 
-export type PodSubjectsErrors = {
+export type SelectLoginIdentityErrors = {
   /**
-   * Error
+   * General Error
    */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
+  default: Errors
 }
 
-export type PodSubjectsError = PodSubjectsErrors[keyof PodSubjectsErrors]
+export type SelectLoginIdentityError = SelectLoginIdentityErrors[keyof SelectLoginIdentityErrors]
 
-export type PodSubjectsResponses = {
+export type SelectLoginIdentityResponses = {
   /**
    * Success
    */
-  200: PodSubjects
-}
-
-export type PodSubjectsResponse = PodSubjectsResponses[keyof PodSubjectsResponses]
-
-export type PodFileCopyData = {
-  /**
-   * Request
-   */
-  body: PodFileCopyRequest
-  path: {
-    id: string
+  201: {
+    returnTo: string
+    status: 'ok'
   }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/copy-file'
 }
 
-export type PodFileCopyErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
+export type SelectLoginIdentityResponse = SelectLoginIdentityResponses[keyof SelectLoginIdentityResponses]
 
-export type PodFileCopyError = PodFileCopyErrors[keyof PodFileCopyErrors]
-
-export type PodFileCopyResponses = {
+export type LocalPasswordLoginData = {
   /**
-   * Success
+   * Request body for the localPasswordLogin operation on browser_authentication resource
    */
-  200: PodFileWriteResult
-}
-
-export type PodFileCopyResponse = PodFileCopyResponses[keyof PodFileCopyResponses]
-
-export type EndBrowserAuthenticationData = {
-  body?: never
+  body: {
+    data: {
+      email: string
+      flow: string
+      password: string
+    }
+  }
   path?: never
   query?: never
-  url: '/.internal-apis/authentications/current'
+  url: '/api/v2/browser/sessions/local-password'
 }
 
-export type EndBrowserAuthenticationErrors = {
+export type LocalPasswordLoginErrors = {
   /**
-   * Error
+   * General Error
    */
-  default: InternalError
+  default: Errors
 }
 
-export type EndBrowserAuthenticationError = EndBrowserAuthenticationErrors[keyof EndBrowserAuthenticationErrors]
+export type LocalPasswordLoginError = LocalPasswordLoginErrors[keyof LocalPasswordLoginErrors]
 
-export type EndBrowserAuthenticationResponses = {
+export type LocalPasswordLoginResponses = {
   /**
-   * Ended
+   * Success
    */
-  200: InternalOk
+  201:
+    | {
+        status: 'password_change_required'
+      }
+    | {
+        returnTo: string
+        status: 'ok'
+      }
 }
 
-export type EndBrowserAuthenticationResponse =
-  EndBrowserAuthenticationResponses[keyof EndBrowserAuthenticationResponses]
-
-export type PodModelSelectionData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/conversations/{id}/model-profile'
-}
-
-export type PodModelSelectionErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-}
-
-export type PodModelSelectionError = PodModelSelectionErrors[keyof PodModelSelectionErrors]
-
-export type PodModelSelectionResponses = {
-  /**
-   * Chat model preference
-   */
-  200: PodModelSelection
-}
-
-export type PodModelSelectionResponse = PodModelSelectionResponses[keyof PodModelSelectionResponses]
-
-export type SetPodModelSelectionData = {
-  /**
-   * Chat model preference
-   */
-  body?: PodModelChoice
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/conversations/{id}/model-profile'
-}
-
-export type SetPodModelSelectionErrors = {
-  /**
-   * Error
-   */
-  401: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  404: BrowserErrorEnvelope
-  /**
-   * Error
-   */
-  422: BrowserErrorEnvelope
-}
-
-export type SetPodModelSelectionError = SetPodModelSelectionErrors[keyof SetPodModelSelectionErrors]
-
-export type SetPodModelSelectionResponses = {
-  /**
-   * Saved preference
-   */
-  200: PodModelSelection
-}
-
-export type SetPodModelSelectionResponse = SetPodModelSelectionResponses[keyof SetPodModelSelectionResponses]
-
-export type PodAppletRouteDeleteData = {
-  /**
-   * JSON request
-   */
-  body?: Value
-  headers: {
-    'x-ankole-applet-revision': number
-  }
-  path: {
-    id: string
-    path: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/routes/*path'
-}
-
-export type PodAppletRouteDeleteErrors = {
-  /**
-   * Error
-   */
-  400: PodErrorEnvelope
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  405: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-  /**
-   * Error
-   */
-  500: PodErrorEnvelope
-  /**
-   * Error
-   */
-  502: PodErrorEnvelope
-  /**
-   * Error
-   */
-  503: PodErrorEnvelope
-  /**
-   * Error
-   */
-  504: PodErrorEnvelope
-}
-
-export type PodAppletRouteDeleteError = PodAppletRouteDeleteErrors[keyof PodAppletRouteDeleteErrors]
-
-export type PodAppletRouteDeleteResponses = {
-  /**
-   * JSON result
-   */
-  200: Value
-  /**
-   * No content
-   */
-  204: Value
-}
-
-export type PodAppletRouteDeleteResponse = PodAppletRouteDeleteResponses[keyof PodAppletRouteDeleteResponses]
-
-export type PodAppletRouteGetData = {
-  body?: never
-  headers: {
-    'x-ankole-applet-revision': number
-  }
-  path: {
-    id: string
-    path: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/routes/*path'
-}
-
-export type PodAppletRouteGetErrors = {
-  /**
-   * Error
-   */
-  400: PodErrorEnvelope
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  405: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-  /**
-   * Error
-   */
-  500: PodErrorEnvelope
-  /**
-   * Error
-   */
-  502: PodErrorEnvelope
-  /**
-   * Error
-   */
-  503: PodErrorEnvelope
-  /**
-   * Error
-   */
-  504: PodErrorEnvelope
-}
-
-export type PodAppletRouteGetError = PodAppletRouteGetErrors[keyof PodAppletRouteGetErrors]
-
-export type PodAppletRouteGetResponses = {
-  /**
-   * JSON result
-   */
-  200: Value
-  /**
-   * No content
-   */
-  204: Value
-}
-
-export type PodAppletRouteGetResponse = PodAppletRouteGetResponses[keyof PodAppletRouteGetResponses]
-
-export type PodAppletRoutePatchData = {
-  /**
-   * JSON request
-   */
-  body?: Value
-  headers: {
-    'x-ankole-applet-revision': number
-  }
-  path: {
-    id: string
-    path: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/routes/*path'
-}
-
-export type PodAppletRoutePatchErrors = {
-  /**
-   * Error
-   */
-  400: PodErrorEnvelope
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  405: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-  /**
-   * Error
-   */
-  500: PodErrorEnvelope
-  /**
-   * Error
-   */
-  502: PodErrorEnvelope
-  /**
-   * Error
-   */
-  503: PodErrorEnvelope
-  /**
-   * Error
-   */
-  504: PodErrorEnvelope
-}
-
-export type PodAppletRoutePatchError = PodAppletRoutePatchErrors[keyof PodAppletRoutePatchErrors]
-
-export type PodAppletRoutePatchResponses = {
-  /**
-   * JSON result
-   */
-  200: Value
-  /**
-   * No content
-   */
-  204: Value
-}
-
-export type PodAppletRoutePatchResponse = PodAppletRoutePatchResponses[keyof PodAppletRoutePatchResponses]
-
-export type PodAppletRoutePostData = {
-  /**
-   * JSON request
-   */
-  body?: Value
-  headers: {
-    'x-ankole-applet-revision': number
-  }
-  path: {
-    id: string
-    path: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/routes/*path'
-}
-
-export type PodAppletRoutePostErrors = {
-  /**
-   * Error
-   */
-  400: PodErrorEnvelope
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  405: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-  /**
-   * Error
-   */
-  500: PodErrorEnvelope
-  /**
-   * Error
-   */
-  502: PodErrorEnvelope
-  /**
-   * Error
-   */
-  503: PodErrorEnvelope
-  /**
-   * Error
-   */
-  504: PodErrorEnvelope
-}
-
-export type PodAppletRoutePostError = PodAppletRoutePostErrors[keyof PodAppletRoutePostErrors]
-
-export type PodAppletRoutePostResponses = {
-  /**
-   * JSON result
-   */
-  200: Value
-  /**
-   * No content
-   */
-  204: Value
-}
-
-export type PodAppletRoutePostResponse = PodAppletRoutePostResponses[keyof PodAppletRoutePostResponses]
-
-export type PodAppletRoutePutData = {
-  /**
-   * JSON request
-   */
-  body?: Value
-  headers: {
-    'x-ankole-applet-revision': number
-  }
-  path: {
-    id: string
-    path: string
-  }
-  query?: never
-  url: '/.internal-apis/pod/pages/{id}/routes/*path'
-}
-
-export type PodAppletRoutePutErrors = {
-  /**
-   * Error
-   */
-  400: PodErrorEnvelope
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  405: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-  /**
-   * Error
-   */
-  500: PodErrorEnvelope
-  /**
-   * Error
-   */
-  502: PodErrorEnvelope
-  /**
-   * Error
-   */
-  503: PodErrorEnvelope
-  /**
-   * Error
-   */
-  504: PodErrorEnvelope
-}
-
-export type PodAppletRoutePutError = PodAppletRoutePutErrors[keyof PodAppletRoutePutErrors]
-
-export type PodAppletRoutePutResponses = {
-  /**
-   * JSON result
-   */
-  200: Value
-  /**
-   * No content
-   */
-  204: Value
-}
-
-export type PodAppletRoutePutResponse = PodAppletRoutePutResponses[keyof PodAppletRoutePutResponses]
+export type LocalPasswordLoginResponse = LocalPasswordLoginResponses[keyof LocalPasswordLoginResponses]
 
 export type LocalPasswordChangeData = {
   /**
-   * Request
+   * Request body for the localPasswordChange operation on browser_authentication resource
    */
-  body?: LocalPasswordChangeRequest
+  body: {
+    data: {
+      flow: string
+      newPassword: string
+    }
+  }
   path?: never
   query?: never
-  url: '/.internal-apis/sessions/local-password/change'
+  url: '/api/v2/browser/sessions/local-password/change'
 }
 
 export type LocalPasswordChangeErrors = {
   /**
-   * Error
+   * General Error
    */
-  400: InternalError
-  /**
-   * Error
-   */
-  401: InternalError
-  /**
-   * Error
-   */
-  403: InternalError
-  /**
-   * Error
-   */
-  409: InternalError
-  /**
-   * Error
-   */
-  422: InternalError
-  /**
-   * Error
-   */
-  429: InternalError
-  /**
-   * Error
-   */
-  500: InternalError
-  /**
-   * Error
-   */
-  503: InternalError
+  default: Errors
 }
 
 export type LocalPasswordChangeError = LocalPasswordChangeErrors[keyof LocalPasswordChangeErrors]
@@ -5082,7 +416,465 @@ export type LocalPasswordChangeResponses = {
   /**
    * Success
    */
-  200: LoginComplete
+  201: {
+    returnTo: string
+    status: 'ok'
+  }
 }
 
 export type LocalPasswordChangeResponse = LocalPasswordChangeResponses[keyof LocalPasswordChangeResponses]
+
+export type LogSetupActivationCodeData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/bootstrap-activation-code/log-entries'
+}
+
+export type LogSetupActivationCodeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type LogSetupActivationCodeError = LogSetupActivationCodeErrors[keyof LogSetupActivationCodeErrors]
+
+export type LogSetupActivationCodeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type LogSetupActivationCodeResponse = LogSetupActivationCodeResponses[keyof LogSetupActivationCodeResponses]
+
+export type SetupBrainPacksData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/brain-packs'
+}
+
+export type SetupBrainPacksErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetupBrainPacksError = SetupBrainPacksErrors[keyof SetupBrainPacksErrors]
+
+export type SetupBrainPacksResponses = {
+  /**
+   * Success
+   */
+  200: {
+    packs: Array<{
+      description?: string | null
+      name: string
+      required: boolean
+      version?: string | null
+    }>
+    selected: Array<string>
+  }
+}
+
+export type SetupBrainPacksResponse = SetupBrainPacksResponses[keyof SetupBrainPacksResponses]
+
+export type UpdateSetupBrainPacksData = {
+  /**
+   * Request body for the updateSetupBrainPacks operation on browser_setup resource
+   */
+  body: {
+    data: {
+      packs: Array<string>
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/brain-packs'
+}
+
+export type UpdateSetupBrainPacksErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSetupBrainPacksError = UpdateSetupBrainPacksErrors[keyof UpdateSetupBrainPacksErrors]
+
+export type UpdateSetupBrainPacksResponses = {
+  /**
+   * Success
+   */
+  200: {
+    packs: Array<string>
+  }
+}
+
+export type UpdateSetupBrainPacksResponse = UpdateSetupBrainPacksResponses[keyof UpdateSetupBrainPacksResponses]
+
+export type SetupIdentityProviderAdaptersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/identity-provider-adapters'
+}
+
+export type SetupIdentityProviderAdaptersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetupIdentityProviderAdaptersError =
+  SetupIdentityProviderAdaptersErrors[keyof SetupIdentityProviderAdaptersErrors]
+
+export type SetupIdentityProviderAdaptersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    adapters: Array<{
+      adapterID: string
+      defaultProviderID: string
+      displayName?: {
+        [key: string]: string
+      } | null
+      fields: Array<{
+        advanced?: boolean | null
+        default?: unknown | null
+        description?: {
+          [key: string]: string
+        } | null
+        encrypted?: boolean | null
+        label?: {
+          [key: string]: string
+        } | null
+        max?: number | null
+        min?: number | null
+        options?: Array<{
+          description?: {
+            [key: string]: string
+          } | null
+          label?: {
+            [key: string]: string
+          } | null
+          value: string
+        }> | null
+        path: string
+        required?: boolean | null
+        requiredWhen?: Array<{
+          path: string
+          value?: unknown | null
+        }> | null
+        type: string
+        validation?:
+          | null
+          | {
+              kind: 'pattern'
+              message: {
+                [key: string]: string
+              }
+              pattern: string
+            }
+          | {
+              kind: 'json_object'
+              message: {
+                [key: string]: string
+              }
+              requiredStringProperties?: Array<string> | null
+              stringPrefixes?: {
+                [key: string]: string
+              } | null
+            }
+      }>
+      pluginID: string
+    }>
+  }
+}
+
+export type SetupIdentityProviderAdaptersResponse =
+  SetupIdentityProviderAdaptersResponses[keyof SetupIdentityProviderAdaptersResponses]
+
+export type PutSetupIdentityProviderData = {
+  /**
+   * Request body for the putSetupIdentityProvider operation on browser_setup resource
+   */
+  body: {
+    data: {
+      adapterID: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled: boolean
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/browser/setup/identity-providers/{provider_id}'
+}
+
+export type PutSetupIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutSetupIdentityProviderError = PutSetupIdentityProviderErrors[keyof PutSetupIdentityProviderErrors]
+
+export type PutSetupIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    adapter_id: string
+    config: {
+      [key: string]: unknown
+    }
+    config_key: string
+    enabled: boolean
+    plugin_id?: string | null
+    provider_id: string
+    stored_secret_paths: Array<string>
+  }
+}
+
+export type PutSetupIdentityProviderResponse =
+  PutSetupIdentityProviderResponses[keyof PutSetupIdentityProviderResponses]
+
+export type SetupOidcAuthorizationData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/browser/setup/identity-providers/{provider_id}/oidc/authorizations'
+}
+
+export type SetupOidcAuthorizationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetupOidcAuthorizationError = SetupOidcAuthorizationErrors[keyof SetupOidcAuthorizationErrors]
+
+export type SetupOidcAuthorizationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    authorizationURL: string
+  }
+}
+
+export type SetupOidcAuthorizationResponse = SetupOidcAuthorizationResponses[keyof SetupOidcAuthorizationResponses]
+
+export type CreateSetupLocalAdminData = {
+  /**
+   * Request body for the createSetupLocalAdmin operation on browser_setup resource
+   */
+  body: {
+    data: {
+      display_name?: string | null
+      email: string
+      password: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/local-admin'
+}
+
+export type CreateSetupLocalAdminErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateSetupLocalAdminError = CreateSetupLocalAdminErrors[keyof CreateSetupLocalAdminErrors]
+
+export type CreateSetupLocalAdminResponses = {
+  /**
+   * Success
+   */
+  201: {
+    returnTo: string
+  }
+}
+
+export type CreateSetupLocalAdminResponse = CreateSetupLocalAdminResponses[keyof CreateSetupLocalAdminResponses]
+
+export type SetupPluginsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/plugins'
+}
+
+export type SetupPluginsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetupPluginsError = SetupPluginsErrors[keyof SetupPluginsErrors]
+
+export type SetupPluginsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    enabledPluginIDs: Array<string>
+    plugins: Array<{
+      description?: {
+        [key: string]: string
+      } | null
+      displayName?: {
+        [key: string]: string
+      } | null
+      id: string
+    }>
+  }
+}
+
+export type SetupPluginsResponse = SetupPluginsResponses[keyof SetupPluginsResponses]
+
+export type UpdateSetupPluginsData = {
+  /**
+   * Request body for the updateSetupPlugins operation on browser_setup resource
+   */
+  body: {
+    data: {
+      pluginIDs: Array<string>
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/plugins/enabled'
+}
+
+export type UpdateSetupPluginsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSetupPluginsError = UpdateSetupPluginsErrors[keyof UpdateSetupPluginsErrors]
+
+export type UpdateSetupPluginsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    enabledPluginIDs: Array<string>
+  }
+}
+
+export type UpdateSetupPluginsResponse = UpdateSetupPluginsResponses[keyof UpdateSetupPluginsResponses]
+
+export type CreateSetupSessionData = {
+  /**
+   * Request body for the createSetupSession operation on browser_setup resource
+   */
+  body: {
+    data: {
+      activation_code: string
+      locale?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/sessions'
+}
+
+export type CreateSetupSessionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateSetupSessionError = CreateSetupSessionErrors[keyof CreateSetupSessionErrors]
+
+export type CreateSetupSessionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type CreateSetupSessionResponse = CreateSetupSessionResponses[keyof CreateSetupSessionResponses]
+
+export type DeleteSetupSessionData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/sessions/current'
+}
+
+export type DeleteSetupSessionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteSetupSessionError = DeleteSetupSessionErrors[keyof DeleteSetupSessionErrors]
+
+export type DeleteSetupSessionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type DeleteSetupSessionResponse = DeleteSetupSessionResponses[keyof DeleteSetupSessionResponses]
+
+export type SetupStateData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/state'
+}
+
+export type SetupStateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetupStateError = SetupStateErrors[keyof SetupStateErrors]
+
+export type SetupStateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    authenticated: boolean
+    availableLocales: Array<string>
+    completed: boolean
+    currentLocale: string
+    publicBaseURL: string
+  }
+}
+
+export type SetupStateResponse = SetupStateResponses[keyof SetupStateResponses]

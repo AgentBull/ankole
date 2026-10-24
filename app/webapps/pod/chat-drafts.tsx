@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChatDrafts } from './state/chat-drafts'
+import { useRouter } from '@tanstack/react-router'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useTranslation } from 'react-i18next'
 import { ChatAttachmentDrafts } from './chat-attachments'
@@ -33,6 +34,8 @@ export function useChatDrafts() {
 export function useChatDraft(conversationID?: string, pageID?: string) {
   const drafts = useChatDrafts()
   const [selection, setSelection] = useState<string>()
+  const router = useRouter()
+  useEffect(() => router.subscribe('onBeforeNavigate', () => setSelection(undefined)), [router])
   const model = useMemo(
     () => drafts.get(!conversationID && !pageID ? selection : conversationID, conversationID ? undefined : pageID),
     [drafts, conversationID, pageID, selection]

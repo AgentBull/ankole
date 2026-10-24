@@ -62,10 +62,10 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     grant =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn repo ->
+          Repo.transact(fn ->
             send(parent, {:grant_started, backend_pid()})
 
-            AuthZ.Grants.create_permission_grant(repo, %{
+            AuthZ.Grants.create_permission_grant(%{
               principal_uid: ctx.viewer.uid,
               resource_pattern: "pod:**:#{ctx.page.id}:**",
               action: "page_manage"
@@ -108,9 +108,9 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     writer =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn repo ->
+          Repo.transact(fn ->
             {:ok, _} =
-              AuthZ.Grants.create_permission_grant(repo, %{
+              AuthZ.Grants.create_permission_grant(%{
                 principal_uid: ctx.viewer.uid,
                 resource_pattern: "pod:**:#{ctx.right.id}:**",
                 action: "page_manage"

@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodAttachmentControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
   import Ecto.Query
   alias Ankole.{BrowserSessions, Files, Repo}
@@ -25,9 +26,9 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     count = Repo.aggregate(Ankole.Pod.Page, :count)
 
     result =
-      post(conn, "/.internal-apis/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
+      post(conn, "/api/v2/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
 
-    receipt = AnkoleWeb.InternalAPIContract.json_response(result, 200)["receipt"]
+    receipt = Phoenix.ConnTest.json_response(result, 200)["receipt"]
     assert is_binary(receipt)
     assert Repo.aggregate(Ankole.Pod.Page, :count) == count
 
@@ -37,7 +38,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     created =
       result
       |> recycle_api()
-      |> post("/.internal-apis/pod/conversations", %{
+      |> api_post("/api/v2/pod/conversations", %{
         conversationID: id,
         messageID: message_id,
         agentUID: agent.uid,
@@ -49,18 +50,18 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
              "conversation" => %{"title" => "brief.txt"},
              "messages" => [%{"attachments" => [attachment]}]
            } =
-             AnkoleWeb.InternalAPIContract.json_response(created, 200)
+             api_response(created, 200)
 
-    refreshed = created |> recycle_api() |> get("/.internal-apis/pod/conversations/#{id}")
+    refreshed = created |> recycle_api() |> api_get("/api/v2/pod/conversations/#{id}")
 
-    assert hd(AnkoleWeb.InternalAPIContract.json_response(refreshed, 200)["messages"])[
+    assert hd(Phoenix.ConnTest.json_response(refreshed, 200)["messages"])[
              "attachments"
            ] == [attachment]
 
     download =
       refreshed
       |> recycle_api()
-      |> get("/.internal-apis/pod/conversations/#{id}/attachments/#{message_id}", %{
+      |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{
         path: attachment["path"]
       })
 
@@ -87,7 +88,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     upload = %Plug.Upload{path: local, filename: "active.html", content_type: "text/html"}
 
     stored =
-      post(conn, "/.internal-apis/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
+      post(conn, "/api/v2/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
 
     receipt = json_response(stored, 200)["receipt"]
     id = Ecto.UUID.generate()
@@ -96,7 +97,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     created =
       stored
       |> recycle_api()
-      |> post("/.internal-apis/pod/conversations", %{
+      |> api_post("/api/v2/pod/conversations", %{
         conversationID: id,
         messageID: message_id,
         agentUID: agent.uid,
@@ -104,12 +105,12 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
         attachments: [receipt]
       })
 
-    path = hd(hd(json_response(created, 200)["messages"])["attachments"])["path"]
+    path = hd(hd(api_response(created, 200)["messages"])["attachments"])["path"]
 
     download =
       created
       |> recycle_api()
-      |> get("/.internal-apis/pod/conversations/#{id}/attachments/#{message_id}", %{path: path})
+      |> get("/api/v2/pod/conversations/#{id}/attachments/#{message_id}", %{path: path})
 
     assert response(download, 200) =~ "<script>"
     assert [disposition] = get_resp_header(download, "content-disposition")
@@ -118,7 +119,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     missing =
       download
       |> recycle_api()
-      |> get("/.internal-apis/pod/conversations/#{id}/attachments/not-a-uuid", %{path: path})
+      |> get("/api/v2/pod/conversations/#{id}/attachments/not-a-uuid", %{path: path})
 
     assert response(missing, 404)
   end
@@ -139,10 +140,10 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     }
 
     response =
-      post(conn, "/.internal-apis/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
+      post(conn, "/api/v2/pod/attachments", %{file: upload, fileID: Ecto.UUID.generate()})
 
     assert %{"error" => %{"code" => "file_too_large"}} =
-             AnkoleWeb.InternalAPIContract.json_response(response, 413)
+             Phoenix.ConnTest.json_response(response, 413)
 
     assert Repo.aggregate(Message, :count) == 0
   end
@@ -294,7 +295,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     assert BrowserSessions.current_reference(browser) == other_ref
 
     path =
-      "/.internal-apis/pod/conversations/#{detail.conversation.id}/attachments/#{message.id}"
+      "/api/v2/pod/conversations/#{detail.conversation.id}/attachments/#{message.id}"
 
     selected = attachment_get(host, cookies, path, attachment["path"], owner_ref)
     assert get_req_header(selected, "x-ankole-authentication") == []
@@ -316,7 +317,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
 
     ordinary_api =
       cookie_request(host, cookies)
-      |> get("http://#{host}:4002/.internal-apis/pod/conversations/#{detail.conversation.id}", %{
+      |> get("http://#{host}:4002/api/v2/pod/conversations/#{detail.conversation.id}", %{
         authentication_ref: BrowserSessions.encode_reference(owner_ref)
       })
 

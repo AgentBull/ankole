@@ -15,7 +15,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   """
 
   alias Ankole.Signals.Bindings
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Logging, Principals}
   alias Ankole.Plugins.ChannelSync
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.Microsoft365Adapter.Config
@@ -430,7 +430,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     conversation_id =
       conversation_id |> Conversations.base_conversation_id() |> Conversations.conversation_id()
 
-    case External.get_conversation(Repo, conversation_id) do
+    case External.get_conversation(conversation_id) do
       %Conversation{} = channel ->
         metadata = channel.metadata || %{}
 

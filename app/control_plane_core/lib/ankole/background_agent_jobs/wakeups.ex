@@ -26,13 +26,12 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
   }
 
   @doc false
-  @spec conclude_transition_in_tx(module(), Job.t(), DateTime.t(), map() | nil) ::
+  @spec conclude_transition_in_tx(Job.t(), DateTime.t(), map() | nil) ::
           {:ok, Signal.t() | nil} | {:error, term()}
   # A skill-lesson reflection is a system job: its end must wake no session.
   # A succeeded reflection instead enqueues the apply worker inside this
   # transaction, so lessons land only after the terminal status is durable.
   def conclude_transition_in_tx(
-        _repo,
         %Job{metadata: %{"skill_lesson_reflection" => true}} = job,
         _now,
         _steer_outcome
@@ -47,18 +46,16 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
     {:ok, nil}
   end
 
-  def conclude_transition_in_tx(repo, %Job{} = job, %DateTime{} = now, steer_outcome),
-    do: append_wakeup_event(repo, job, now, steer_outcome)
+  def conclude_transition_in_tx(%Job{} = job, %DateTime{} = now, steer_outcome),
+    do: append_wakeup_event(job, now, steer_outcome)
 
   @doc false
   @spec enqueue_input_undeliverable_in_tx(
-          module(),
           Job.t(),
           Signal.t(),
           DateTime.t()
         ) :: {:ok, Signal.t() | nil} | {:error, term()}
   def enqueue_input_undeliverable_in_tx(
-        _repo,
         %Job{metadata: %{"skill_lesson_reflection" => true}},
         %Signal{},
         %DateTime{}
@@ -66,7 +63,6 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
       do: {:ok, nil}
 
   def enqueue_input_undeliverable_in_tx(
-        repo,
         %Job{} = job,
         %Signal{} = steer_event,
         %DateTime{} = now
@@ -93,7 +89,7 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
            (is_binary(reply_route["binding_name"]) or
               match?({:ok, _}, Ecto.UUID.cast(reply_route["conversation_id"]))) ||
              {:error, :background_agent_job_reply_route_binding_missing} do
-      Ankole.Signals.accept_in_tx(repo, %{
+      Ankole.Signals.accept_in_tx(%{
         producer: :kernel,
         source: "control-plane://background-agent-job",
         id: source_event_id,
@@ -165,7 +161,7 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
 
   def dead_letter_notice_text(%Signal{}), do: nil
 
-  defp append_wakeup_event(repo, %Job{} = job, now, steer_outcome) do
+  defp append_wakeup_event(%Job{} = job, now, steer_outcome) do
     case wakeup_event_type(job.status) do
       nil ->
         {:ok, nil}
@@ -180,7 +176,7 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
                (is_binary(reply_route["binding_name"]) or
                   match?({:ok, _}, Ecto.UUID.cast(reply_route["conversation_id"]))) ||
                  {:error, :background_agent_job_reply_route_binding_missing} do
-          Ankole.Signals.accept_in_tx(repo, %{
+          Ankole.Signals.accept_in_tx(%{
             producer: :kernel,
             source: payload["source"],
             id: source_event_id,

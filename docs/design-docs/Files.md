@@ -32,17 +32,13 @@ domain. Blob actions own storage refresh, reference renewal, collection
 marking, and final removal. The marking and removal actions use the same
 live-reference predicate. DriveFile actions own path upserts and moves under
 the natural identity. `drive_files` has no primary key, so AshPostgres
-has no destroy action for it: `DriveFile.remove_paths_in_tx/2` removes a
+has no destroy action for it: `DriveFile.remove_paths_in_tx/1` removes a
 subtree with one `DELETE ... RETURNING` statement that binds the current
 tenant. It requires the caller's transaction.
 
-A commit, move, delete, or snapshot listing is a generic action of `DriveFile`
-(`commit_paths`, `move_paths`, `delete_paths`, `list_snapshot`), and one batch
-of collection is the generic action `collect_marked` of `Blob`. Each generic
-action owns its transaction. `Ankole.Files.commit/3`, `move/3`, `delete/2`, and
-`list/3` with `snapshot: true` run these actions and give the domain reason of
-a failure. Another domain that names files in its own transaction calls
-`commit/4`.
+`Ankole.Files.commit/3`, `move/3`, `delete/2`, `list/3` with `snapshot: true`,
+and garbage collection batches run in `Repo.transact_top_level/2`. Another
+domain that commits files in its own transaction calls `commit_in_tx/3`.
 
 - A path identifies a file. A folder is only a path prefix; there are no folder
   rows. A path is relative, uses `/`, has at most 1024 bytes, and has no empty,

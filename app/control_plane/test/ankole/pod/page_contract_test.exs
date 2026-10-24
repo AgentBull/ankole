@@ -287,9 +287,8 @@ defmodule Ankole.Pod.PageContractTest do
              Ankole.Conversations.delete(ctx.owner.uid, detail.conversation.id)
 
     assert {:ok, _} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Ankole.Sessions.Queue.mark_event_completed_in_tx(
-                 repo,
                  event,
                  DateTime.utc_now(:microsecond)
                )

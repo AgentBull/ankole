@@ -158,7 +158,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
     auth = %{transport_route: unique_route(), worker_id: agent.uid, generation: generation}
     ready = %{incarnation_id: "nested", max_slots: 1, available_slots: 1}
 
-    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
       Repo.transact(fn -> WorkerAdmission.admit_join(ready, auth) end)
     end
 

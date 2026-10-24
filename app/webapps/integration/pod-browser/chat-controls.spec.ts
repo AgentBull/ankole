@@ -20,13 +20,13 @@ async function request(page: Page, path: string, method = 'GET', body?: unknown)
 async function mutation(page: Page, id: string, action: string, act: () => Promise<unknown>) {
   const response = page.waitForResponse(
     response =>
-      new URL(response.url()).pathname === `/.internal-apis/pod/conversations/${id}/queue` &&
+      new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/queue` &&
       response.request().method() === 'POST' &&
-      response.request().postDataJSON().action === action
+      response.request().postDataJSON().data.action === action
   )
   await act()
   const result = await response
-  expect(result.status()).toBe(200)
+  expect(result.status()).toBe(201)
   return result.json() as Promise<Detail>
 }
 
@@ -60,8 +60,7 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
     await expect(input).toHaveValue(/\n$/)
     const created = page.waitForResponse(
       response =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/.internal-apis/pod/conversations'
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
     )
     await input.press('Enter')
     const first = (await (await created).json()) as Detail
@@ -76,12 +75,12 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
       const response = page.waitForResponse(
         response =>
           response.request().method() === 'POST' &&
-          new URL(response.url()).pathname === `/.internal-apis/pod/conversations/${id}/messages`
+          new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/messages`
       )
       await input.fill(text)
       await input.press('Enter')
       const result = await response
-      expect(result.status()).toBe(200)
+      expect(result.status()).toBe(201)
       return result.json() as Promise<Detail>
     }
     await add('Second queued request')
@@ -102,9 +101,9 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
     })
     const stale = page.waitForResponse(
       response =>
-        new URL(response.url()).pathname === `/.internal-apis/pod/conversations/${id}/queue` &&
+        new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/queue` &&
         response.request().method() === 'POST' &&
-        response.request().postDataJSON().action === 'edit'
+        response.request().postDataJSON().data.action === 'edit'
     )
     await input.press('Enter')
     expect((await stale).status()).toBe(409)
@@ -195,20 +194,20 @@ test('a completed message copies exact code and text, then edits and retries thr
     await input.fill('Edited request through the actual API')
     let committed: Detail | undefined
     const commandIDs: string[] = []
-    const queuePath = `/.internal-apis/pod/conversations/${id}/queue`
+    const queuePath = `/api/v2/pod/conversations/${id}/queue`
     page.on('request', request => {
       if (
         request.method() === 'POST' &&
         new URL(request.url()).pathname === queuePath &&
-        request.postDataJSON().action === 'edit_last'
+        request.postDataJSON().data.action === 'edit_last'
       ) {
-        commandIDs.push(request.postDataJSON().commandID)
+        commandIDs.push(request.postDataJSON().data.commandID)
       }
     })
     await page.route(`**${queuePath}`, async route => {
-      if (route.request().postDataJSON().action !== 'edit_last' || committed) return route.continue()
+      if (route.request().postDataJSON().data.action !== 'edit_last' || committed) return route.continue()
       const response = await route.fetch()
-      expect(response.status()).toBe(200)
+      expect(response.status()).toBe(201)
       committed = await response.json()
       await route.abort('failed')
     })
@@ -305,12 +304,11 @@ test('reordering follow-ups preserves the still-pending first request shown in t
     await input.fill('First request waiting for Main startup')
     const accepted = page.waitForResponse(
       response =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/.internal-apis/pod/conversations'
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
     )
     await input.press('Enter')
     const firstResponse = await accepted
-    expect(firstResponse.status()).toBe(200)
+    expect(firstResponse.status()).toBe(201)
     const first = (await firstResponse.json()) as Detail
     id = first.conversation.id
     const firstID = first.pendingInputs[0]!.messageID
@@ -321,12 +319,12 @@ test('reordering follow-ups preserves the still-pending first request shown in t
       const response = page.waitForResponse(
         response =>
           response.request().method() === 'POST' &&
-          new URL(response.url()).pathname === `/.internal-apis/pod/conversations/${id}/messages`
+          new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/messages`
       )
       await input.fill(text)
       await input.press('Enter')
       const result = await response
-      expect(result.status()).toBe(200)
+      expect(result.status()).toBe(201)
       return result.json() as Promise<Detail>
     }
     await add('Second queued follow-up')

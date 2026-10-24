@@ -41,24 +41,24 @@ defmodule Ankole.Conversations.ModelPreferences do
   def selected(%Conversation{metadata: metadata}), do: metadata["model_profile"]
   def logical(conversation), do: selected(conversation) || "primary"
 
-  def selection(repo, conversation, agent_uid) do
+  def selection(conversation, agent_uid) do
     with {:ok, catalog} <- catalog(agent_uid) do
       {:ok,
        Map.merge(catalog, %{
          profile: selected(conversation),
-         active_profile: active_profile(repo, agent_uid, conversation.id)
+         active_profile: active_profile(agent_uid, conversation.id)
        })}
     end
   end
 
-  def initialize(repo, %Conversation{sequence_high_water: 0} = conversation, agent_uid, profile) do
-    with {:ok, profile} <- validate(agent_uid, profile), do: put(repo, conversation, profile)
+  def initialize(%Conversation{sequence_high_water: 0} = conversation, agent_uid, profile) do
+    with {:ok, profile} <- validate(agent_uid, profile), do: put(conversation, profile)
   end
 
   # Retrying the original create must not reset a later, explicitly saved preference.
-  def initialize(_repo, conversation, _agent_uid, _profile), do: {:ok, conversation}
+  def initialize(conversation, _agent_uid, _profile), do: {:ok, conversation}
 
-  def put(_repo, conversation, profile) do
+  def put(conversation, profile) do
     metadata =
       if is_nil(profile),
         do: Map.delete(conversation.metadata, "model_profile"),
@@ -67,26 +67,26 @@ defmodule Ankole.Conversations.ModelPreferences do
     Ankole.Ash.update(conversation, :put_metadata, %{metadata: metadata})
   end
 
-  def authorize_input(_repo, _conversation, _agent_uid, _mode, false), do: :ok
+  def authorize_input(_conversation, _agent_uid, _mode, false), do: :ok
 
-  def authorize_input(repo, conversation, agent_uid, mode, true) do
+  def authorize_input(conversation, agent_uid, mode, true) do
     with {:ok, _} <- validate(agent_uid, selected(conversation)) do
       if mode == "steer",
-        do: ensure_can_steer(repo, agent_uid, conversation.id, logical(conversation)),
+        do: ensure_can_steer(agent_uid, conversation.id, logical(conversation)),
         else: :ok
     end
   end
 
-  def ensure_can_steer(repo, agent_uid, conversation_id, profile) do
-    case active_profile(repo, agent_uid, conversation_id) do
+  def ensure_can_steer(agent_uid, conversation_id, profile) do
+    case active_profile(agent_uid, conversation_id) do
       nil -> :ok
       ^profile -> :ok
       _ -> {:error, :requires_queue_for_profile}
     end
   end
 
-  def active_profile(repo, agent_uid, conversation_id) do
-    case Queue.oldest_started(repo, agent_uid, Ankole.Sessions.Key.conversation(conversation_id)) do
+  def active_profile(agent_uid, conversation_id) do
+    case Queue.oldest_started(agent_uid, Ankole.Sessions.Key.conversation(conversation_id)) do
       %Signal{data: %{"model_profile" => profile}} -> profile
       %Signal{} = input -> Commands.profile(input) || "primary"
       nil -> nil

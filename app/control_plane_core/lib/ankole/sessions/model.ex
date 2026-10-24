@@ -51,10 +51,10 @@ defmodule Ankole.Sessions.Model do
         request_context: run.spec.request_context,
         response_metadata:
           Ankole.Attrs.maybe_put(%{}, "model_profile", run.spec.model_ref["profile"]),
-        authorize_run_in_tx: fn repo ->
-          Fence.check_in_tx(repo, run)
+        authorize_run_in_tx: fn ->
+          Fence.check_in_tx(run)
         end,
-        record_response_in_tx: &Ankole.Sessions.RoundState.put_in_tx(&1, run, &2)
+        record_response_in_tx: &Ankole.Sessions.RoundState.put_in_tx(run, &1)
       )
     end
     |> case do

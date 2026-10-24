@@ -1,19 +1,16 @@
 defmodule Ankole.OIDC.Grants do
   @moduledoc false
   alias Ankole.OIDC
-  alias Ankole.OIDC.{AuthorizationCode, Claims, CodeStore, RefreshStore, RefreshToken}
-  alias Ankole.OIDC.{Sessions, Tokens}
+  alias Ankole.OIDC.{Claims, CodeStore, RefreshStore, Sessions, Tokens}
+  alias Ankole.Repo
   @refresh_ttl 30 * 24 * 60 * 60
 
   def authorize(params, authentication) do
-    Ankole.Ash.run_action(AuthorizationCode, :authorize, %{
-      params: params,
-      authentication: authentication
-    })
+    Repo.transact_top_level(fn -> authorize_in_tx(params, authentication) end)
   end
 
   @doc """
-  Issues an authorization code in the transaction of the calling generic action.
+  Issues an authorization code in the caller's transaction.
 
   `BrowserSessions.consume_authorization/4` runs its `issue` callback in its
   transaction, so that callback issues the code with this function.
@@ -77,7 +74,7 @@ defmodule Ankole.OIDC.Grants do
              ttl: @refresh_ttl,
              rotation_grace_seconds: 10
            ) do
-      case Ankole.Ash.run_action(RefreshToken, :refresh, %{client: client, rotated: rotated}) do
+      case Repo.transact_top_level(fn -> refresh_in_tx(client, rotated) end) do
         {:ok, _} = result ->
           result
 
@@ -99,11 +96,7 @@ defmodule Ankole.OIDC.Grants do
   def exchange(_, _), do: {:error, "invalid_request", "grant credentials are required"}
 
   defp issue_code_response(client, code, grant) do
-    case Ankole.Ash.run_action(AuthorizationCode, :exchange, %{
-           client: client,
-           code: code,
-           grant: grant
-         }) do
+    case Repo.transact_top_level(fn -> exchange_code_in_tx(client, code, grant) end) do
       {:ok, _} = result -> result
       _ -> invalid_grant()
     end

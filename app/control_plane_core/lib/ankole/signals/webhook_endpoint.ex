@@ -195,13 +195,6 @@ defmodule Ankole.Signals.WebhookEndpoint do
       change(transition_state(:expired))
     end
 
-    action :create_endpoint, :term do
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:token, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     # The Console creates a standing CloudEvents endpoint. The plaintext token
     # is in this result only.
     action :create_operator_endpoint, :map do
@@ -225,24 +218,6 @@ defmodule Ankole.Signals.WebhookEndpoint do
     action :cancel_operator_endpoint, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :cancel_endpoint, :term do
-      argument(:agent_uid, :term)
-      argument(:session_id, :term)
-      argument(:endpoint_id, :term, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :receive, :term do
-      argument(:token, :term, allow_nil?: false)
-      argument(:format, :term, allow_nil?: false)
-      argument(:input, :term, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

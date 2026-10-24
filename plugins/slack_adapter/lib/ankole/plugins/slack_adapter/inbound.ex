@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @moduledoc false
 
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Logging, Principals}
   alias Ankole.Conversations.{Attachments, External}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.Channels
@@ -451,7 +451,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
        ) do
     if is_binary(text) and not Enum.any?(mentions, &(&1["targets_current_agent"] == false)) and
          Regex.match?(~r/(上面|前面|文件|图片|附件|above|previous|file|image|attachment)/i, text) do
-      case External.get_conversation(Repo, provider_conversation_id(channel_id)) do
+      case External.get_conversation(provider_conversation_id(channel_id)) do
         %{id: id} ->
           Attachments.recent(id, user_id, provider_time,
             window_seconds: consumer.recent_attachment_window_seconds,

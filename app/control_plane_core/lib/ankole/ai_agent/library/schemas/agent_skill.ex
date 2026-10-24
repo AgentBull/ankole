@@ -118,14 +118,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
     destroy :remove_stale do
       require_atomic?(true)
     end
-
-    action :sync_catalog, :term do
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:sources, :term, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

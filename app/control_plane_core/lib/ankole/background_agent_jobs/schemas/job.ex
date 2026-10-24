@@ -24,7 +24,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
 
   alias Ankole.AIAgent.Library.AgentPlugins.Contract
   alias Ankole.BackgroundAgentJobs.JobState
-  alias Ankole.Signals.Signal
 
   @model_id [min: Ankole.ModelIntegerID.minimum(), max: Ankole.ModelIntegerID.maximum()]
   @model_profile ~r/\A[a-z][a-z0-9_-]{0,63}\z/
@@ -519,29 +518,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       change(transition_state(:stopped))
     end
 
-    # The operations below own their transaction. Each one takes its locks in
-    # the work lock order and runs the composition function that other domains
-    # call inside their own operation.
-    action :start, :term do
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :respawn, :term do
-      argument(:source_job_id, :integer, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :request_stop, :term do
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     action :console_cancel, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, :integer, allow_nil?: false, constraints: @model_id)
@@ -560,51 +536,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       )
 
       after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :request_complete, :term do
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :send_message, :term do
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :commit_status, :term do
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:options, :term, allow_nil?: false, default: [])
-      after_commit({Ankole.BackgroundAgentJobs.Lifecycle, :publish_status_commit})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :complete_signal, :term do
-      argument(:signal, :struct, allow_nil?: false, constraints: [instance_of: Signal])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :resolve_worker_timeout, :term do
-      argument(:signal, :struct, allow_nil?: false, constraints: [instance_of: Signal])
-      argument(:job, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :inspect_stall, :term do
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

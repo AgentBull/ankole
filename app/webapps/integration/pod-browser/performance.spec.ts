@@ -1,9 +1,10 @@
-import { state } from './fixtures'
+import { state, request as podRequest } from './fixtures'
 import { pageRoute, conversationRoute } from './routes'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import type { ConversationDetail, Conversations } from '../../common/api/generated/types.gen'
+import type { ConversationDetail } from '../../pod/api'
+import type { PodConversationsResponse as Conversations } from '../../pod/api/generated/types.gen'
 
 const outputDirectory = process.env.POD_PERFORMANCE_OUTPUT
 const scenario = process.env.POD_PERFORMANCE_SCENARIO ?? 'load'
@@ -29,27 +30,6 @@ type Resource = {
   serviceWorker?: boolean
   servedFromCache?: boolean
   failure?: string
-}
-
-async function podRequest<T = unknown>(page: Page, resource: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ resource, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
-      const response = await fetch(`/.internal-apis/pod${resource}`, {
-        method,
-        headers: {
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication')!,
-          'x-ankole-pod': meta('ankole-pod')!,
-          'x-csrf-token': meta('csrf-token')!
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Performance fixture ${method} ${resource}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { resource, method, body }
-  )
 }
 
 async function instrument(page: Page, cdp: CDPSession, profile: (typeof profiles)[number]) {

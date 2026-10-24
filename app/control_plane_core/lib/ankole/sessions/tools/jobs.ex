@@ -350,7 +350,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
   end
 
   @impl true
-  def prepare_in_tx(repo, run, %{"name" => "create_background_job"} = call, args) do
+  def prepare_in_tx(run, %{"name" => "create_background_job"} = call, args) do
     attrs =
       Map.take(args, ~w(title task model_profile workspace_template_id))
       |> Map.put("title", String.trim(args["title"]))
@@ -363,22 +363,21 @@ defmodule Ankole.Sessions.Tools.Jobs do
          ) do
       {:error, "no matching workspace template is available"}
     else
-      Ankole.BackgroundAgentJobs.Dispatch.prepare_create_in_tx(repo, attrs)
+      Ankole.BackgroundAgentJobs.Dispatch.prepare_create_in_tx(attrs)
       |> project_prepared(&job_result/1)
     end
   end
 
-  def prepare_in_tx(repo, run, %{"name" => "respawn_background_job"} = call, args) do
+  def prepare_in_tx(run, %{"name" => "respawn_background_job"} = call, args) do
     Ankole.BackgroundAgentJobs.Dispatch.prepare_respawn_in_tx(
-      repo,
       args["source_job_id"],
       Map.merge(origin(run, call), %{"message" => args["message"]})
     )
     |> project_prepared(&job_result/1)
   end
 
-  def prepare_in_tx(repo, run, %{"name" => "stop_background_job"}, args) do
-    Ankole.BackgroundAgentJobs.Control.prepare_stop_in_tx(repo, args["job_id"], %{
+  def prepare_in_tx(run, %{"name" => "stop_background_job"}, args) do
+    Ankole.BackgroundAgentJobs.Control.prepare_stop_in_tx(args["job_id"], %{
       "agent_uid" => run.agent_uid,
       "cancel_requested_by" => "agent:#{run.agent_uid}"
     })
@@ -390,8 +389,8 @@ defmodule Ankole.Sessions.Tools.Jobs do
     end)
   end
 
-  def prepare_in_tx(repo, run, %{"name" => "send_message_to_background_job"} = call, args) do
-    Ankole.BackgroundAgentJobs.Control.prepare_message_in_tx(repo, args["job_id"], %{
+  def prepare_in_tx(run, %{"name" => "send_message_to_background_job"} = call, args) do
+    Ankole.BackgroundAgentJobs.Control.prepare_message_in_tx(args["job_id"], %{
       "agent_uid" => run.agent_uid,
       "request_id" => Run.tool_identity(run, call),
       "source_signal_id" => Route.current_input_signal_id(run),

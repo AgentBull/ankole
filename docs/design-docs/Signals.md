@@ -1,7 +1,7 @@
 # Signals
 
 Signals owns durable stimuli for Agent work. Every producer calls
-`Ankole.Signals.accept/1` or `Ankole.Signals.accept_in_tx/2`. A Signal names its
+`Ankole.Signals.accept/1` or `Ankole.Signals.accept_in_tx/1`. A Signal names its
 source, event identity, facts, authorization, and execution target.
 
 [Conversations](Conversations.md) owns shared conversations, participants,
@@ -11,11 +11,11 @@ owns execution, input ordering, recovery, and the model history connection.
 
 ## One Intake
 
-`accept/1` runs the `intake` generic action of `Signal` (the define
-`Ankole.Signals.intake/1`) and returns `{:ok, %Ankole.Signals.Signal{}}` or
-`{:error, reason}`. `accept_in_tx/2` has the same result and requires the caller
-to own a transaction. Use the latter when the stimulus must commit with a
-Message, schedule execution, Job result, or Workflow result.
+`accept/1` runs in a top-level transaction (`Repo.transact_top_level/2`) and
+returns `{:ok, %Ankole.Signals.Signal{}}` or `{:error, reason}`.
+`accept_in_tx/1` has the same result and requires the caller to own a
+transaction. Use the latter when the stimulus must commit with a Message,
+schedule execution, Job result, or Workflow result.
 
 ```elixir
 Ankole.Signals.accept(%{
@@ -61,7 +61,7 @@ returns the first Signal, including its first target and facts. Changing a
 subscription does not move an accepted event to another Session. Several rules
 that match the same event for the same Agent also return that one Signal.
 
-`accept_all/1` and `accept_all_in_tx/2` accept a list of stimuli in one
+`accept_all/1` and `accept_all_in_tx/1` accept a list of stimuli in one
 transaction. The intake locks all target Sessions in order with one statement,
 reads the existing Signals with one query, and inserts the new Signals with one
 bulk insert. The sequence read and the wakeup job stay one for each Session. A
@@ -95,29 +95,29 @@ revocation use the caller's transaction and tenant context. Signal
 writes do not start a second transaction owner.
 
 `Ankole.Signals` is the Signals Ash domain (`Signal`, `Binding`,
-`WebhookEndpoint`). Other domains use its defines (`get_signal`, `list_signals`,
-`update_metadata_signal`, `revise_input_signal`, `reauthorize_signal`,
-`remove_signal`, `get_binding`, `list_bindings`, `get_webhook_endpoint`,
-`list_webhook_endpoints`) and its composition functions for a transaction that
-they own: `accept_in_tx/2`, `lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`,
-`lock_signals_in_tx/3` (a keyword filter, queue order unless `sort:` gives
-another order, an optional `limit:`, row lock identity),
-`transition_in_tx/4` (one queue state transition of a locked Signal),
-`reset_attempts_in_tx/3`, and `signals_for_entry_in_tx/5`. The Session queue
+`WebhookEndpoint`). Other domains use its defines and functions (`get_signal`,
+`list_signals`, `update_metadata_signal`, `revise_input_signal`,
+`reauthorize_signal`, `remove_signal`, `get_binding`, `list_bindings`,
+`get_webhook_endpoint`, `list_webhook_endpoints`) and its composition functions
+for a transaction that they own: `accept_in_tx/1`, `lock_signal_in_tx/1`,
+`lock_session_signal_in_tx/2`, `lock_signals_in_tx/2` (a keyword filter, queue
+order unless `sort:` gives another order, an optional `limit:`, row lock
+identity), `transition_in_tx/3` (one queue state transition of a locked Signal),
+`reset_attempts_in_tx/2`, and `signals_for_entry_in_tx/4`. The Session queue
 reads are `session_queue/3` and `session_status_signal/3`. Human revocation of
-unstarted Signals is `stop_human_work_in_tx/4`. A read across tenants runs in
+unstarted Signals is `stop_human_work_in_tx/3`. A read across tenants runs in
 `Repo.across_tenants/1`: Signals use the Work provenance read action
 `work_across_tenants` (`due_sessions_across_tenants/1`,
 `count_admitted_attempts_for_human/2`), and Bindings and Endpoints use their
 `lookup_across_tenants` read action.
 
-Binding and Endpoint writes with more than one step are generic actions that
-own their transaction: `assign_binding`, `reassign_binding`,
-`put_cloud_binding`, `move_cloud_binding`, `disable_binding`,
-`create_webhook_endpoint`, `cancel_webhook_endpoint`, and `receive_webhook`.
-`Bindings` and `Webhooks` keep their public functions and give back the domain
-reason with `Ankole.Errors.reason/1`. A Binding assignment refreshes the
-configuration cache after its commit.
+Binding and Endpoint writes with more than one step (`assign_binding`,
+`reassign_binding`, `put_cloud_binding`, `move_cloud_binding`,
+`disable_binding`, `create_webhook_endpoint`, `cancel_webhook_endpoint`, and
+`receive_webhook`) run in `Repo.transact_top_level/2` in `Bindings` and
+`Webhooks`. Console `/api/v2` routes expose generic actions for Binding and
+Endpoint management. A Binding assignment refreshes the configuration cache
+after commit.
 
 An unresolved dead-lettered Signal remains visible in access review. Review
 states are separate from reauthorizable states: review cannot restart terminal
@@ -167,11 +167,12 @@ late clarification uses the same declared superseding types. Only a kernel
 `session.reset_due` Signal acts as a reset barrier for an interaction answer.
 The provider-removal lifecycle type is `conversation.message.removed`.
 
-`accept_in_tx/2` returns the accepted Signal as a pending publication fact.
+`accept_in_tx/1` returns the accepted Signal as a pending publication fact.
 Its outer transaction owner calls `Signals.publish_committed/1` in the same
-process after commit. The `intake` action declares the same publication with
-`after_commit`, and a call inside another transaction raises
-`Ankole.Errors.Framework.NestedOperation`. Publication sends a Session state notification,
+process after commit. `accept/1` registers the same publication with
+`after_commit` on `Repo.transact_top_level/2`, and a call inside another
+transaction raises `Ankole.Errors.Framework.NestedOperation`. Publication sends
+a Session state notification,
 calls the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
 on the Session input topic. Drivers read the durable input; an observation or
 raw Conversation message cannot create a second input through PubSub.
@@ -323,7 +324,7 @@ CloudEvents or `data_base64`; the latter returns 422 with
 `unsupported_cloudevent_binary_data`.
 
 All enabled, available Endpoint subscriptions are evaluated in one transaction.
-Each match calls the same `Signals.accept_in_tx/2`. A routing failure rolls
+Each match calls the same `Signals.accept_in_tx/1`. A routing failure rolls
 back the full fanout. Multiple Agents receive independent Signals with the
 original event source and ID. Producer redelivery returns existing Signal IDs
 without changing the original facts. A request with no matches is ignored.
@@ -374,7 +375,7 @@ unknown capabilities return 404.
 
 `create-webhook-cli --automation-job-id <id>` binds a raw Endpoint to an active
 Automation Job for the same Agent. The callback creates a durable Job run
-with the same receipt envelope. `Signals.Trigger.deliver_in_tx/5` owns this
+with the same receipt envelope. `Signals.Trigger.deliver_in_tx/4` owns this
 Signal-or-AutomationJob dispatch for Webhook and Schedule triggers. The Endpoint
 uses strong foreign keys. An Endpoint cannot be rebound; cancel it and
 create another one. See [Automation Jobs](AutomationJobs.md).
@@ -617,7 +618,7 @@ queue owner.
 | Platform fact | Owning contract | Identity and result |
 | --- | --- | --- |
 | Jira issue comment | Conversation host `observe` and `deliver` | The issue comment space supplies one opaque provider conversation ID; each comment supplies its provider message ID. `external_kind: issue`, `reply_mode: entry`, and an explicit addressed Signal type use the observation contract. A confirmed comment send or edit uses Delivery and the same external reference. |
-| Salesforce record change | Event source and `Signals.accept_in_tx/2` | The record ID is the CloudEvent subject; the change is JSON data. Source and event ID deduplicate the stimulus. A subscription names its Agent and ordinary Session. The event creates no Conversation or Message. |
+| Salesforce record change | Event source and `Signals.accept_in_tx/1` | The record ID is the CloudEvent subject; the change is JSON data. Source and event ID deduplicate the stimulus. A subscription names its Agent and ordinary Session. The event creates no Conversation or Message. |
 | Salesforce comment space, if later supported | Conversation host `observe` and `deliver` | The platform's actual comment space is the Conversation; observed comments and confirmed replies follow the host contract. A record change must not fabricate a comment. |
 
 A future host declares its provider configuration, identity mapping, and

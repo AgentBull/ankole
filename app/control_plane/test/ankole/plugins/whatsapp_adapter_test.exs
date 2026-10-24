@@ -1263,9 +1263,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     )
 
     {:ok, %{message: message}} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         Ankole.Conversations.External.observe_in_tx(
-          repo,
           external_conversation_id(conversation_id),
           %{
             provider_message_id: "wamid.aged-#{System.unique_integer([:positive])}",

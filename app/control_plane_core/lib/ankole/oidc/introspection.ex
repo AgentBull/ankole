@@ -33,7 +33,7 @@ defmodule Ankole.OIDC.Introspection do
            Sessions.validate(context.claims["session_id"], id, context.subject, scope, :refresh) do
       %{
         active: true,
-        iss: Ankole.TokenSigning.issuer(),
+        iss: Ankole.OIDC.Config.issuer(),
         sub: context.subject,
         client_id: id,
         scope: scope,

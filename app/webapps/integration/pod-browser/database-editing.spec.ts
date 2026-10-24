@@ -51,7 +51,7 @@ test('an upload transport failure releases the edit snapshot before the next att
     await page.goto(location(saved.pageID))
     const row = page.locator(`[data-grid-record="${record.id}"]`)
     const file = row.getByLabel('添加附件', { exact: true })
-    const uploadURL = `**/.internal-apis/pod/pages/${saved.pageID}/files`
+    const uploadURL = `**/api/v2/pod/pages/${saved.pageID}/files`
     await page.route(uploadURL, route => route.abort('connectionfailed'), { times: 1 })
     await file.setInputFiles({ name: 'interrupted.txt', mimeType: 'text/plain', buffer: Buffer.from('Interrupted') })
     await expect(row.getByRole('alert')).toBeVisible()
@@ -122,7 +122,7 @@ test('new-record dialog retains failed answers, freezes a pending submission, an
     const started = Promise.withResolvers<void>()
     const gate = Promise.withResolvers<void>()
     release = () => gate.resolve()
-    await page.route(`**/.internal-apis/pod/tables/${saved.tableID}/records`, async route => {
+    await page.route(`**/api/v2/pod/tables/${saved.tableID}/records`, async route => {
       console.log('WRITE BODY', route.request().postData())
       requests++
       if (requests === 1) {
@@ -179,7 +179,7 @@ test('new-record dialog retains failed answers, freezes a pending submission, an
     const uploadStarted = Promise.withResolvers<void>(),
       uploadGate = Promise.withResolvers<void>()
     releaseUpload = () => uploadGate.resolve()
-    await page.route(`**/.internal-apis/pod/pages/${saved.pageID}/files`, async route => {
+    await page.route(`**/api/v2/pod/pages/${saved.pageID}/files`, async route => {
       if (route.request().method() !== 'POST') return route.continue()
       uploadStarted.resolve()
       await uploadGate.promise
@@ -241,15 +241,15 @@ test('record deletion requires confirmation, retains failures, and prevents clos
     const gate = Promise.withResolvers<void>(),
       started = Promise.withResolvers<void>()
     release = () => gate.resolve()
-    await page.route(`**/.internal-apis/pod/tables/${saved.tableID}/records`, async route => {
-      if (route.request().postDataJSON().deletes && fail) {
+    await page.route(`**/api/v2/pod/tables/${saved.tableID}/records`, async route => {
+      if (route.request().postDataJSON().data.deletes && fail) {
         fail = false
         await route.fulfill({
           status: 503,
           contentType: 'application/json',
           body: JSON.stringify({ error: 'Deletion unavailable' })
         })
-      } else if (route.request().postDataJSON().creates) {
+      } else if (route.request().postDataJSON().data.creates) {
         started.resolve()
         await gate.promise
         await route.continue()

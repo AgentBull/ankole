@@ -69,8 +69,9 @@ create, replace, or remove projection rows; replacement clears the full vector
 state. An unchanged position retains its row and vector. Embedding results use
 one atomic action that compares the input text, embedding timestamp, and model
 signature before it commits. PostgreSQL checks the complete vector state and
-rejects partial success or failure records. The shared vector type uses the
-Pgvector codec and preserves the native vector representation.
+rejects partial success or failure records. Embeddings use the Ash `:vector`
+type and `AshPostgres.Extensions.Vector` to store 4096 float32 values in the
+PostgreSQL `vector(4096)` column.
 
 ## Scope and Disclosure
 
@@ -410,7 +411,7 @@ one failing phase is recorded without blocking the rest:
    resolution: the same commit writes `resolved_at`, `resolved_quality`,
    `resolved_outcome` (`true`, `false`, or NULL for `partial`),
    and `resolution_provenance` `dreaming grade` through the same resolve
-   step (`Claims.resolve_take_in_tx/3`) that the Console uses, with the Brain
+   step (`Claims.resolve_take_in_tx/2`) that the Console uses, with the Brain
    maintainer Agent's actor reference in `resolved_by`, and deactivates the
    Take, so it leaves the candidate set and enters the scorecards without a
    manual resolve. A Console resolve stores the Human's actor reference instead.
@@ -548,28 +549,30 @@ the stored Source owner. Maintenance stamps do not advance the content clock.
 Source actions keep upstream identity immutable and reject sync and extraction
 writes after archive. Registration retries keep the first Source facts.
 
-`Ankole.Brain` is the code interface of the domain. A read define gives one
-resource. An operation define runs a generic action that owns its transaction.
-The action locks its rows, runs its write steps, and commits them together:
+`Ankole.Brain` is the domain interface. Resource reads use Ash queries and
+domain functions. Each multi-step operation runs in
+`Repo.transact_top_level/2`, locks its rows, runs its write steps, and commits
+them together:
 
-| Resource | Operations |
+| Module | Operations |
 |---|---|
-| Object | `create_object`, `update_object`, `upsert_source_projection`, `upsert_library_projection`, `soft_delete_object`, `rollback_object`, `fork_library_page`, `restore_object`, `reconcile_chunks`, `reconcile_object_links` |
-| Claim | `write_fact`, `supersede_claim`, `expire_fact`, `deactivate_take`, `resolve_take`, `attach_claim_embedding`, `consolidate_facts` |
-| Source | `archive_source`, `update_source_default_scope` |
-| SchemaSuggestion, MergeSuggestion, Contradiction | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
+| `Objects` / `Chunks` / `Links` | `create_object`, `update_object`, `upsert_source_projection`, `upsert_library_projection`, `soft_delete_object`, `rollback_object`, `fork_library_page`, `restore_object`, `reconcile_chunks`, `reconcile_object_links` |
+| `Claims` | `write_fact`, `supersede_claim`, `expire_fact`, `deactivate_take`, `resolve_take`, `attach_claim_embedding`, `consolidate_facts` |
+| `Sources` | `archive_source`, `update_source_default_scope` |
+| `Promotion` / `Merge` / `Dreaming` | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
 
 The Console API at `/api/v2/brain` (`AnkoleWeb.JSONAPI.ConsoleRouter`) gives
 the `json_api` routes of `Ankole.Brain`. Each list is a `:console_list` read
-action that gives the first 100 rows. A Console write that records its
-operator is a `console_*` generic action: the Principal of the session is the
-Ash actor of the action (`Ankole.Brain.Console`), and the action runs the same
-`_in_tx` steps as the operation define. A missing target gives 404, and a
-reason that conflicts with the current state (`content_hash_conflict`,
-`object_deleted`, `slug_taken`, `conflict`) gives 409; another domain reason
-gives 422 with the reason as the code. The routes for
-`fork_library_page`, `restore_object`, `decide`, `archive_source`, and
-`update_default_scope` give the operation actions directly.
+action that gives the first 100 rows. A Console write is a generic action on
+its subject resource (`console_create`, `console_update`, `fork_library_page`,
+`console_rollback`, `console_forget`, `restore_object`, `console_supersede`,
+`console_resolve`, `decide`, `console_approve`, `console_reject`,
+`archive_source`, `update_default_scope`): the Principal of the session is the
+Ash actor (`Ankole.Brain.Console`), and the action runs the same `_in_tx` steps
+or top-level domain function. A missing target gives 404, and a reason that
+conflicts with the current state (`content_hash_conflict`, `object_deleted`,
+`slug_taken`, `conflict`) gives 409; another domain reason gives 422 with the
+reason as the code.
 
 `Ankole.Brain.ConsoleViews` supplies the health snapshot, the object page, the
 object types, the search preview, the per-principal audit, and the Dreaming
@@ -580,24 +583,13 @@ operations that they call own their transactions. The object page accepts
 the selected Principal's knowledge and disclosure boundaries; the operator
 audit can read the full claim detail.
 
-The background writes of the Brain modules are generic actions without a
-define. Each module function keeps its name and runs its action with
-`Ankole.Ash.run_action/4`:
-
-| Resource | Action | Module function |
-|---|---|---|
-| Claim | `commit_grade` | `Calibration.grade_takes/0` (one grade) |
-| Claim | `forget_claim` | `Forget.forget_claim/3` |
-| Timeline | `write_timeline` | `Timelines.write_timeline/3` |
-| Object | `write_patterns` | `Patterns.run/0` (the pages of one audience) |
-| Source | `commit_learning_run` | `SourceLearning.learn/1` (file and URL Sources) |
-| Source | `learn_oidc_conversation` | `OIDCClientLearning.learn/1` (one conversation) |
-| Source | `finalize_conversation_slice` | `ConversationsLearning.process_conversation/1` |
-| Source | `finish_library_projection` | `LibraryKnowledge.sync/1` (one set) |
-| SchemaPack | `install_packs` | `SchemaPacks.install_packs/1` |
-
+Background Brain writes also run in `Repo.transact_top_level/2` in their owning
+modules: `Calibration.grade_takes/0`, `Forget.forget_claim/3`,
+`Timelines.write_timeline/3`, `Patterns.run/0`, `SourceLearning.learn/1`,
+`OIDCClientLearning.learn/1`, `ConversationsLearning.process_conversation/1`,
+`LibraryKnowledge.sync/1`, and `SchemaPacks.install_packs/1`.
 Tenant creation and setup completion install the schema packs in their own
-transaction with `SchemaPacks.install_packs_in_tx/2`.
+transaction with `SchemaPacks.install_packs_in_tx/1`.
 
 A conversation slice writes its memory items in one transaction and keeps the
 transaction after an item fails validation. So an item write gives an error
@@ -609,16 +601,13 @@ cannot be marked after the insert, the Fact write rolls back the transaction of
 its caller. A timeline write rolls back the same way when the chunk projection
 of its host fails after the insert.
 
-A generic action is always the top-level call. A failed operation gives an
-`Ash.Error.Invalid` error; `Ankole.Errors.reason/1` gives back the domain
-reason. Callers outside the Brain directory use only the defines. Brain modules
-run the same actions with `Ankole.Ash.run_action/4`, which gives the domain
-reason. A step that runs in the transaction of another action is an `_in_tx`
-function of the owning module, for example `Objects.create_object_in_tx/2` or
-`Chunks.reconcile_in_tx/2`. An `_in_tx` function refuses to run outside a
-transaction. The embedding of a new claim text comes from the network in the
-`before_transaction` hook of `write_fact` and `supersede_claim`, so no
-transaction waits for the network.
+Each top-level Brain operation rejects a caller transaction before it writes. A
+step that runs in the transaction of another operation is an `_in_tx` function
+of the owning module, for example `Objects.create_object_in_tx/1` or
+`Chunks.reconcile_in_tx/1`. An `_in_tx` function refuses to run outside a
+transaction. `write_fact` and `supersede_claim` request the embedding of new
+claim text from the network before they open a transaction, so no transaction
+waits for the network.
 
 The knowledge boundary (`Access`) and the lazy Skill projection
 (`LazySkillVisibility`) filter Ash queries. Their filters use the Claim

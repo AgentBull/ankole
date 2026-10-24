@@ -117,7 +117,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
            } =
              conn
              |> recycle_api()
-             |> multipart(~p"/api/v1/agents/#{agent_uid}/files",
+             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
                path: "inbox/brief.txt",
                file: build_upload!("brief")
              )
@@ -126,7 +126,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     download =
       conn
       |> recycle_api()
-      |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=inbox/brief.txt")
+      |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=inbox/brief.txt")
 
     assert response(download, 200) == "brief"
     assert [disposition] = get_resp_header(download, "content-disposition")
@@ -135,7 +135,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"error" => %{"code" => "not_found"}} =
              conn
              |> recycle_api()
-             |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=inbox/missing.txt")
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=inbox/missing.txt")
              |> json_response(404)
   end
 
@@ -151,7 +151,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
 
       assert conn
              |> recycle_api()
-             |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=#{path}")
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files/content?path=#{path}")
              |> response(200) == content
     end
   end
@@ -167,7 +167,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
       assert %{"uploaded_file" => %{"path" => ^path}} =
                conn
                |> recycle_api()
-               |> multipart(~p"/api/v1/agents/#{agent_uid}/files",
+               |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
                  path: path,
                  file: build_upload!(content)
                )
@@ -186,7 +186,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"error" => %{"code" => "file_too_large"}} =
              conn
              |> recycle_api()
-             |> multipart(~p"/api/v1/agents/#{agent_uid}/files",
+             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
                path: "huge.bin",
                file: build_upload!(oversize)
              )
@@ -206,7 +206,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"error" => %{"code" => "path_conflict"}} =
              conn
              |> recycle_api()
-             |> multipart(~p"/api/v1/agents/#{agent_uid}/files",
+             |> multipart(~p"/api/v2/agents/#{agent_uid}/files",
                path: "existing/child.txt",
                file: build_upload!("rejected")
              )
@@ -316,7 +316,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
 
     conn
     |> put_req_header("content-type", "multipart/form-data; boundary=#{boundary}")
-    |> api_post(path, IO.iodata_to_binary(body))
+    |> post(path, IO.iodata_to_binary(body))
   end
 
   defp api_request(conn, method, path, body \\ nil) do

@@ -286,7 +286,7 @@ test('Private creation and moves wait for identity after delayed and failed read
       status: 503,
       json: { error: { code: 'private_unavailable', message: 'Private temporarily unavailable' } }
     })
-  await owner.route('**/.internal-apis/pod/pages?**', async intercepted => {
+  await owner.route('**/api/v2/pod/pages?**', async intercepted => {
     if (new URL(intercepted.request().url()).searchParams.get('scope') !== 'private' || mode === 'pass') {
       await intercepted.continue()
     } else if (mode === 'hold') held.push(intercepted)
@@ -294,8 +294,8 @@ test('Private creation and moves wait for identity after delayed and failed read
   })
   owner.on('request', request => {
     const path = new URL(request.url()).pathname
-    if (request.method() === 'POST' && (path === '/.internal-apis/pod/pages' || path.endsWith('/move'))) {
-      writes.push({ path, body: request.postDataJSON() as Record<string, unknown> })
+    if (request.method() === 'POST' && (path === '/api/v2/pod/pages' || path.endsWith('/move'))) {
+      writes.push({ path, body: request.postDataJSON().data as Record<string, unknown> })
     }
   })
   const rejectHeld = async () => {
@@ -472,7 +472,10 @@ test('a large business table uses global groups and per-group paging across its 
     await owner.getByRole('option', { name: 'New', exact: true }).click()
     await owner.getByRole('button', { name: '应用', exact: true }).click()
     await expect
-      .poll(async () => (await request<{ content: { xml: string } }>(owner, `/pages/${state.report_id}`)).content.xml)
+      .poll(
+        async () =>
+          (await request<{ content: { content: string } }>(owner, `/pages/${state.report_id}`)).content.content
+      )
       .toContain(status)
     expect(
       (
@@ -572,12 +575,12 @@ test('chat findings and attachments become durable pages after the native source
     const [deleted] = await Promise.all([
       owner.waitForResponse(
         response =>
-          new URL(response.url()).pathname === `/.internal-apis/pod/conversations/${state.conversation_id}` &&
+          new URL(response.url()).pathname === `/api/v2/pod/conversations/${state.conversation_id}` &&
           response.request().method() === 'DELETE'
       ),
       owner.getByRole('button', { name: '确认删除对话', exact: true }).click()
     ])
-    expect(deleted.status()).toBe(204)
+    expect(deleted.status()).toBe(200)
     await expect
       .poll(
         async () =>

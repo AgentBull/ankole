@@ -151,6 +151,7 @@ end
 
 defmodule AnkoleWeb.LocalPasswordBusyIntegrationTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
 
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.LocalPassword
@@ -228,6 +229,11 @@ defmodule AnkoleWeb.LocalPasswordBusyIntegrationTest do
 
   defp post_password(conn, params) do
     {:ok, conn, transaction} = WebSession.begin_login(conn, :console, %{})
-    post(conn, "/.internal-apis/sessions/local-password", Map.put(params, "flow", transaction.id))
+
+    api_post(
+      conn,
+      "/api/v2/browser/sessions/local-password",
+      Map.put(params, "flow", transaction.id)
+    )
   end
 end

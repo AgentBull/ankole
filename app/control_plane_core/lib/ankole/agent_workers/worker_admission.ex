@@ -18,8 +18,8 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
     * A row whose connection breaks or goes silent becomes `stale`; the control
       plane closes the old connection, and a live process must connect again.
 
-  Each change is a generic action of `AgentWorker`, which owns its
-  transaction. Connection changes wake the Agent's drivers after the commit.
+  Each top-level change owns its transaction and wakes the Agent's drivers
+  after the commit.
   A reconnect does not end a Codex attempt or consume input; the driver
   probes its existing operation. Times are database time.
   """
@@ -59,14 +59,17 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
            Map.get(auth, :generation) || {:error, :stale_worker_generation},
          {:ok, attrs} <- ready_attrs(ready),
          {:ok, %{worker: worker}} <-
-           Errors.reason(
-             AgentWorkers.admit_worker(
-               agent_uid,
-               generation,
-               route,
-               attrs.incarnation_id,
-               attrs.capacity
-             )
+           Repo.transact_top_level(
+             fn ->
+               admit_in_tx(%{
+                 agent_uid: agent_uid,
+                 generation: generation,
+                 route: route,
+                 incarnation: attrs.incarnation_id,
+                 capacity: attrs.capacity
+               })
+             end,
+             after_commit: &publish_admission/1
            ),
          do: {:ok, worker}
   end
@@ -78,14 +81,17 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
     with {:ok, %{route: route, agent_uid: agent_uid}} <- authenticated(auth),
          {:ok, incarnation_id} <- required_text(heartbeat.incarnation_id, "incarnation_id"),
          {:ok, %{worker: worker}} <-
-           Errors.reason(
-             AgentWorkers.renew_worker_connection(
-               agent_uid,
-               route,
-               incarnation_id,
-               capacity(heartbeat.max_slots, heartbeat.available_slots),
-               load(heartbeat.active_slots, heartbeat.active_tasks, heartbeat.idle_for_ms)
-             )
+           Repo.transact_top_level(
+             fn ->
+               renew_in_tx(%{
+                 agent_uid: agent_uid,
+                 route: route,
+                 incarnation: incarnation_id,
+                 capacity: capacity(heartbeat.max_slots, heartbeat.available_slots),
+                 load: load(heartbeat.active_slots, heartbeat.active_tasks, heartbeat.idle_for_ms)
+               })
+             end,
+             after_commit: &publish_renewal/1
            ),
          do: {:ok, worker}
   end
@@ -100,8 +106,12 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
           {:ok, AgentWorker.t()} | {:error, term()}
   def handle_control_shutdown(%FabricProto.ControlShutdown{} = control_shutdown, auth) do
     with {:ok, %{route: route, agent_uid: agent_uid}} <- authenticated(auth),
-         {:ok, reason} <- required_text(control_shutdown.reason, "reason"),
-         do: Errors.reason(AgentWorkers.drain_worker_connection(agent_uid, route, reason))
+         {:ok, reason} <- required_text(control_shutdown.reason, "reason") do
+      Repo.transact_top_level(
+        fn -> drain_in_tx(%{agent_uid: agent_uid, route: route, reason: reason}) end,
+        after_commit: &publish_worker/1
+      )
+    end
   end
 
   @doc """
@@ -116,8 +126,11 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
   """
   @spec mark_route_unusable(String.t() | nil, term()) :: :ok | {:ok, term()} | {:error, term()}
   def mark_route_unusable(route, reason)
-      when is_binary(route) and reason in [:unknown_route, :socket_closed] do
-    case Errors.reason(AgentWorkers.release_worker_route(route)) do
+      when is_binary(route) and route != "" and reason in [:unknown_route, :socket_closed] do
+    case Repo.transact_top_level(
+           fn -> release_route_in_tx(%{route: route}) end,
+           after_commit: &publish_worker/1
+         ) do
       {:ok, %AgentWorker{}} -> {:ok, :marked_stale}
       {:ok, nil} -> {:ok, :route_not_registered}
       {:error, _reason} = error -> error
@@ -128,14 +141,18 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
 
   @doc "Expires a connection after 60 seconds without a heartbeat, on any control-plane node."
   @spec expire_connection(String.t()) :: :ok | {:error, term()}
-  def expire_connection(agent_uid) do
-    with {:ok, _expired} <- Errors.reason(AgentWorkers.expire_worker_connection(agent_uid)),
+  def expire_connection(agent_uid) when is_binary(agent_uid) and agent_uid != "" do
+    with {:ok, _expired} <-
+           Repo.transact_top_level(
+             fn -> expire_in_tx(%{agent_uid: agent_uid}) end,
+             after_commit: &publish_expiry/1
+           ),
          do: :ok
   end
 
   @doc false
   def admit_in_tx(%{agent_uid: agent_uid, generation: generation} = input) do
-    case AgentWorkers.lock_in_tx(Repo, agent_uid) do
+    case AgentWorkers.lock_in_tx(agent_uid) do
       %AgentWorker{state: state, generation: ^generation} = worker when state in @join_states ->
         if worker.protocol_version == RuntimeFabric.protocol_version(),
           do: admit_locked(worker, input),
@@ -181,7 +198,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
   # change wakes drivers that are waiting for a slot.
   @doc false
   def renew_in_tx(%{agent_uid: agent_uid} = input) do
-    previous = AgentWorkers.lock_in_tx(Repo, agent_uid)
+    previous = AgentWorkers.lock_in_tx(agent_uid)
     attrs = Map.take(input, [:route, :incarnation, :capacity, :load])
     query = Ash.Query.filter(AgentWorker, agent_uid == ^agent_uid)
 
@@ -198,7 +215,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
 
   @doc false
   def drain_in_tx(%{agent_uid: agent_uid, route: route, reason: reason}) do
-    case AgentWorkers.lock_in_tx(Repo, agent_uid) do
+    case AgentWorkers.lock_in_tx(agent_uid) do
       %AgentWorker{state: state, transport_route: ^route} = worker
       when state in @connected_states ->
         Ankole.Ash.update(worker, :drain, %{drain_reason: worker.drain_reason || reason})

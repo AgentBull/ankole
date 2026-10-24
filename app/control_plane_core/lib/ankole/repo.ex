@@ -544,6 +544,51 @@ defmodule Ankole.Repo do
           end)
     }
 
+  @bare_ok {__MODULE__, :bare_ok}
+
+  @doc """
+  Runs a top-level domain transaction and an optional after-commit callback.
+
+  Raises `Ankole.Errors.Framework.NestedOperation` when the process is already
+  in a transaction. Composition inside a transaction uses the `_in_tx`
+  functions of the owning domain.
+  """
+  def transact_top_level(fun, opts \\ []) when is_function(fun, 0) do
+    {after_commit, repo_opts} = Keyword.pop(opts, :after_commit)
+
+    if in_transaction?() do
+      {resource, action} = Keyword.get(repo_opts, :operation, {__MODULE__, :transact_top_level})
+      raise Ankole.Errors.Framework.NestedOperation, resource: resource, action: action
+    end
+
+    result =
+      case transact(
+             fn ->
+               case fun.() do
+                 :ok -> {:ok, @bare_ok}
+                 other -> other
+               end
+             end,
+             Keyword.delete(repo_opts, :operation)
+           ) do
+        {:ok, @bare_ok} -> :ok
+        other -> other
+      end
+
+    run_after_commit(result, after_commit)
+    result
+  end
+
+  defp run_after_commit(_result, nil), do: :ok
+  defp run_after_commit({:ok, value}, {module, function}), do: apply(module, function, [value])
+  defp run_after_commit(:ok, {module, function}), do: apply(module, function, [nil])
+
+  defp run_after_commit({:ok, value}, callback) when is_function(callback, 1),
+    do: callback.(value)
+
+  defp run_after_commit(:ok, callback) when is_function(callback, 1), do: callback.(nil)
+  defp run_after_commit(_error, _callback), do: :ok
+
   @doc "Rejects a publishing entry point before any nested transaction can write."
   def assert_outside_transaction! do
     if in_transaction?(),
@@ -553,6 +598,8 @@ defmodule Ankole.Repo do
   end
 
   @doc "Checks a caller-owned transaction boundary for an _in_tx entry point."
+  def require_transaction, do: require_transaction(__MODULE__)
+
   def require_transaction(repo) do
     if repo.in_transaction?(), do: :ok, else: {:error, :transaction_required}
   end

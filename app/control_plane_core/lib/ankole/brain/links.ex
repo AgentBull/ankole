@@ -36,8 +36,8 @@ defmodule Ankole.Brain.Links do
   def normalize_tags(_tags), do: {:error, {:invalid, "tags"}}
 
   @doc false
-  def replace_tags_in_tx(repo, slug, tags) do
-    with :ok <- Repo.require_transaction(repo),
+  def replace_tags_in_tx(slug, tags) do
+    with :ok <- Repo.require_transaction(),
          {:ok, _removed} <-
            Tag
            |> Ash.Query.filter(object_slug == ^slug and tag not in ^tags)
@@ -57,8 +57,8 @@ defmodule Ankole.Brain.Links do
   `Ankole.Brain.Schemas.Object` owns the transaction of a single reconcile.
   """
   def reconcile_object_links_in_tx(slug) do
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, object} <- Objects.lock_object_in_tx(Repo, slug),
+    with :ok <- Repo.require_transaction(),
+         {:ok, object} <- Objects.lock_object_in_tx(slug),
          true <- is_nil(object.deleted_at) do
       wikilinks =
         Enum.map(Markdoc.wikilinks(object.body), &{&1, "", "markdown", nil, "qualified"})

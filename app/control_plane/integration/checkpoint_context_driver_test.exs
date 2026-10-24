@@ -139,7 +139,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
           from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)
         )
 
-        Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+        Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(agent.uid)
         Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
         ProviderConfigs.delete_provider(provider_id)
       end)

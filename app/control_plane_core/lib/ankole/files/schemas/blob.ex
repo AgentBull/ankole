@@ -116,12 +116,6 @@ defmodule Ankole.Files.Schemas.Blob do
       change(filter(expr(deleting)))
       change(filter(@unreferenced))
     end
-
-    # One batch of collection: it removes each marked row and its object while
-    # it holds the row lock, so a failed object delete keeps the row marked.
-    action :collect_marked, :term do
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

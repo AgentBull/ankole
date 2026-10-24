@@ -5,14 +5,12 @@ defmodule Ankole.Ash.Resource do
   `Ankole.Ash.Transformers.CallerTransaction` gives the transaction owner of
   each action. A generic action must be the top-level call
   (`Ankole.Ash.TopLevel`) and can publish after its commit with
-  `after_commit/1`. `operations: true` declares a resource without rows for
-  the generic actions of an operation that has no subject resource.
+  `after_commit/1`.
   """
 
   defmacro __using__(opts) do
     {tenancy, opts} = Keyword.pop!(opts, :tenancy)
     {tenant_in_primary_key, opts} = Keyword.pop(opts, :tenant_in_primary_key, false)
-    {operations, opts} = Keyword.pop(opts, :operations, false)
 
     unless tenancy in [:tenant, :site],
       do: raise(ArgumentError, "resource tenancy must be :tenant or :site")
@@ -38,23 +36,6 @@ defmodule Ankole.Ash.Resource do
 
       def __tenancy__, do: unquote(tenancy)
       @persist {:ankole_tenancy, unquote(tenancy)}
-
-      # An operations resource keeps no rows; it holds the generic actions of
-      # a domain operation that has no subject resource. Ash rolls back a
-      # failed generic action through the data layer of its resource, and
-      # Ash.DataLayer.Simple cannot roll back. A polymorphic AshPostgres
-      # resource has no table but uses the Repo transaction.
-      if unquote(operations) do
-        postgres do
-          repo(Ankole.Repo)
-          polymorphic?(true)
-          migrate?(false)
-        end
-
-        resource do
-          require_primary_key?(false)
-        end
-      end
 
       preparations do
         prepare(Ankole.Ash.TopLevel, on: [:action])

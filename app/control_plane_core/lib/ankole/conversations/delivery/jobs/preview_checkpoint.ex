@@ -10,8 +10,8 @@ defmodule Ankole.Conversations.Delivery.Jobs.PreviewCheckpoint do
       states: [:available, :scheduled, :retryable]
     ]
 
-  def schedule_in_tx(repo, args, due_at),
-    do: Ankole.Job.schedule_in_tx(repo, __MODULE__, args, due_at)
+  def schedule_in_tx(args, due_at),
+    do: Ankole.Job.schedule_in_tx(__MODULE__, args, due_at)
 
   @impl true
   def run(%Oban.Job{args: args}) do

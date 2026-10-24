@@ -37,7 +37,7 @@ defmodule Ankole.Signals.BindingConfigTest do
     assert {:ok, expected} = Config.validate_binding_config(value)
     assert {:ok, _} = AppConfigure.put_global_by_key(key, value)
     assert {:ok, ^expected} = Bindings.binding_config(binding, Config)
-    assert {:ok, ^expected} = Bindings.binding_config_in_tx(Repo, binding, Config)
+    assert {:ok, ^expected} = Bindings.binding_config_in_tx(binding, Config)
     assert %Config.Runtime{channel_id: "1650000001"} = Config.runtime_config(expected)
   end
 
@@ -46,7 +46,7 @@ defmodule Ankole.Signals.BindingConfigTest do
     intent: intent
   } do
     assert :error = Bindings.binding_config(binding, Config)
-    assert :error = Bindings.binding_config_in_tx(Repo, binding, Config)
+    assert :error = Bindings.binding_config_in_tx(binding, Config)
     assert {:error, :binding_config_not_found} = Bindings.delivery_config(intent, Config)
 
     assert {:error, :binding_not_found} =
@@ -57,7 +57,7 @@ defmodule Ankole.Signals.BindingConfigTest do
     for ref <- [nil, "app-config:legacy", "legacy"] do
       invalid = %{binding | config_ref: ref}
       assert {:error, :invalid_config_ref} = Bindings.binding_config(invalid, Config)
-      assert {:error, :invalid_config_ref} = Bindings.binding_config_in_tx(Repo, invalid, Config)
+      assert {:error, :invalid_config_ref} = Bindings.binding_config_in_tx(invalid, Config)
     end
   end
 
@@ -79,7 +79,7 @@ defmodule Ankole.Signals.BindingConfigTest do
              Bindings.binding_config(binding, Config)
 
     assert {:error, {:storage_error, "global", ^key, _}} =
-             Bindings.binding_config_in_tx(Repo, binding, Config)
+             Bindings.binding_config_in_tx(binding, Config)
 
     assert {:error, {:storage_error, "global", ^key, _}} =
              Bindings.delivery_config(intent, Config)

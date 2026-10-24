@@ -71,8 +71,9 @@ defmodule Ankole.Sessions.Admission do
             end)
 
           Ankole.Observability.stage("session.admission.claim", attributes, fn ->
-            key
-            |> Ankole.Sessions.admit_input(event, plan, prepared, now)
+            Ankole.Repo.transact_top_level(fn ->
+              admit_in_tx(key, event, plan, prepared, now)
+            end)
             |> Ankole.Errors.reason()
           end)
         else
@@ -90,19 +91,22 @@ defmodule Ankole.Sessions.Admission do
     do: dead_letter_input(event, now, %{"code" => "invalid_signal_target"})
 
   @doc "Dead-letters one input in its own transaction."
-  def dead_letter_input(event, now, reason),
-    do: event |> Ankole.Sessions.dead_letter_input(now, reason) |> Ankole.Errors.reason()
+  def dead_letter_input(event, now, reason) do
+    Ankole.Repo.transact_top_level(fn ->
+      dead_letter_input_in_tx(event, now, reason)
+    end)
+    |> Ankole.Errors.reason()
+  end
 
   @doc false
-  def dead_letter_input_in_tx(repo, event, now, reason) do
-    with {:ok, event} <- Queue.mark_event_dead_letter_in_tx(repo, event, now, reason),
+  def dead_letter_input_in_tx(event, now, reason) do
+    with {:ok, event} <- Queue.mark_event_dead_letter_in_tx(event, now, reason),
          do: {:ok, %{status: :dead_letter, signal: event}}
   end
 
   @spec authorize_event(Signal.t()) :: {:ok, Signal.t()} | {:error, term()}
   def authorize_event(event) do
-    event
-    |> Ankole.Sessions.authorize_input()
+    Ankole.Repo.transact_top_level(fn -> authorize_event_in_tx(event) end)
     |> Ankole.Errors.reason()
     |> case do
       {:ok, %{signal: completed} = result} ->
@@ -120,22 +124,21 @@ defmodule Ankole.Sessions.Admission do
     end
   end
 
-  @spec authorize_event_in_tx(module(), Signal.t()) ::
+  @spec authorize_event_in_tx(Signal.t()) ::
           {:ok, Signal.t() | map()} | {:error, term()}
-  def authorize_event_in_tx(_repo, %Signal{last_attempt_at: %DateTime{}} = event),
+  def authorize_event_in_tx(%Signal{last_attempt_at: %DateTime{}} = event),
     do: {:ok, event}
 
-  def authorize_event_in_tx(repo, event) do
-    case authorize_new_in_tx(repo, event) do
+  def authorize_event_in_tx(event) do
+    case authorize_new_in_tx(event) do
       :ok ->
         {:ok, event}
 
       {:error, :tenant_suspended} ->
-        Notices.reject_suspended_input_in_tx(repo, event, DateTime.utc_now(:microsecond))
+        Notices.reject_suspended_input_in_tx(event, DateTime.utc_now(:microsecond))
 
       {:error, reason} ->
         Queue.mark_event_dead_letter_in_tx(
-          repo,
           event,
           DateTime.utc_now(:microsecond),
           %{"code" => to_string(reason)}
@@ -151,25 +154,25 @@ defmodule Ankole.Sessions.Admission do
   defp defer_workflow(result, _event, _now), do: result
 
   @doc false
-  def admit_in_tx(repo, key, snapshot, plan, prepared, now) do
-    with :ok <- authorize_attempt_in_tx(repo, snapshot),
-         {:ok, :not_committed} <- finalize_workflow_input_in_tx(repo, snapshot, plan),
-         {:ok, kind_context} <- Run.type(snapshot).admit_in_tx(repo, snapshot, plan),
-         {:ok, _} <- Workspaces.ensure_in_tx(repo, key.agent_uid, key.session_id),
-         %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(repo, key),
+  def admit_in_tx(key, snapshot, plan, prepared, now) do
+    with :ok <- authorize_attempt_in_tx(snapshot),
+         {:ok, :not_committed} <- finalize_workflow_input_in_tx(snapshot, plan),
+         {:ok, kind_context} <- Run.type(snapshot).admit_in_tx(snapshot, plan),
+         {:ok, _} <- Workspaces.ensure_in_tx(key.agent_uid, key.session_id),
+         %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(key),
          %Signal{agent_uid: uid, session_id: session} =
            event <-
-           Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
+           Ankole.Signals.lock_signal_in_tx(snapshot.id),
          true <- uid == key.agent_uid and session == key.session_id,
          true <- event.status in [:queued, :running],
          true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
-         :ok <- current_queue_head(repo, event),
-         :ok <- Commands.prepare_new_in_tx(repo, event, now),
+         :ok <- current_queue_head(event),
+         :ok <- Commands.prepare_new_in_tx(event, now),
          {:ok, conversation} <-
-           ModelHistory.ensure_and_lock_conversation_in_tx(repo, uid, session, event),
+           ModelHistory.ensure_and_lock_conversation_in_tx(uid, session, event),
          {:ok, workspace} <- Ankole.Ash.update_atomic(workspace, :advance_epoch),
          {:ok, event} <-
-           Ankole.Signals.transition_in_tx(repo, event, :admit, %{
+           Ankole.Signals.transition_in_tx(event, :admit, %{
              last_attempt_at: now,
              data:
                if(plan.kind == :main,
@@ -194,10 +197,10 @@ defmodule Ankole.Sessions.Admission do
 
       case prepared_spec(prepared, plan.kind) do
         {:ok, spec} ->
-          finish_admission_in_tx(repo, %{run | spec: spec}, plan, kind_context, now)
+          finish_admission_in_tx(%{run | spec: spec}, plan, kind_context, now)
 
         {:capacity, reason} ->
-          with {:ok, event} <- Run.defer_retry_in_tx(repo, run, reason, now),
+          with {:ok, event} <- Run.defer_retry_in_tx(run, reason, now),
                do: {:ok, %{status: :deferred, signal: event}}
 
         error ->
@@ -207,7 +210,7 @@ defmodule Ankole.Sessions.Admission do
       {:ok, %{status: :completed} = result} -> {:ok, result}
       nil -> {:error, :input_unavailable}
       false -> {:error, :input_unavailable}
-      {:error, :human_access_revoked} -> reject_access_in_tx(repo, snapshot, now)
+      {:error, :human_access_revoked} -> reject_access_in_tx(snapshot, now)
       {:error, _} = error -> error
       _closed -> {:error, :input_unavailable}
     end
@@ -215,7 +218,6 @@ defmodule Ankole.Sessions.Admission do
 
   # The Driver may have read the queue before a Human reordered pending follow-ups.
   defp current_queue_head(
-         _repo,
          %Signal{
            producer: :kernel,
            source: "conversation:" <> id,
@@ -230,17 +232,17 @@ defmodule Ankole.Sessions.Admission do
     end
   end
 
-  defp current_queue_head(_repo, _event), do: :ok
+  defp current_queue_head(_event), do: :ok
 
-  defp finalize_workflow_input_in_tx(repo, event, %{kind: :workflow_task} = plan),
-    do: Ankole.Sessions.WorkflowTask.finalize_input_in_tx(repo, event, plan)
+  defp finalize_workflow_input_in_tx(event, %{kind: :workflow_task} = plan),
+    do: Ankole.Sessions.WorkflowTask.finalize_input_in_tx(event, plan)
 
-  defp finalize_workflow_input_in_tx(_repo, _event, _plan), do: {:ok, :not_committed}
+  defp finalize_workflow_input_in_tx(_event, _plan), do: {:ok, :not_committed}
 
-  defp fail_exhausted_workflow_in_tx(repo, event, %{kind: :workflow_task} = plan, reason),
-    do: Ankole.Sessions.WorkflowTask.fail_exhausted_in_tx(repo, event, plan, reason)
+  defp fail_exhausted_workflow_in_tx(event, %{kind: :workflow_task} = plan, reason),
+    do: Ankole.Sessions.WorkflowTask.fail_exhausted_in_tx(event, plan, reason)
 
-  defp fail_exhausted_workflow_in_tx(_repo, _event, _plan, _reason), do: {:ok, nil}
+  defp fail_exhausted_workflow_in_tx(_event, _plan, _reason), do: {:ok, nil}
 
   defp prepared_spec({:error, {:model_profile_unavailable, _profile, reason}} = error, kind)
        when kind in [:main, :scheduled, :ambient] do
@@ -251,7 +253,7 @@ defmodule Ankole.Sessions.Admission do
 
   defp prepared_spec(prepared, _kind), do: prepared
 
-  defp finish_admission_in_tx(repo, run, plan, kind_context, _now) do
+  defp finish_admission_in_tx(run, plan, kind_context, _now) do
     event = run.event
     delivered = event
 
@@ -269,8 +271,8 @@ defmodule Ankole.Sessions.Admission do
         "attempt_count" => event.attempt_count
       }
 
-      with {:ok, transition} <- fail_exhausted_workflow_in_tx(repo, event, plan, reason),
-           {:ok, result} <- Run.finalize_recovered_in_tx(repo, run, :dead_letter, reason) do
+      with {:ok, transition} <- fail_exhausted_workflow_in_tx(event, plan, reason),
+           {:ok, result} <- Run.finalize_recovered_in_tx(run, :dead_letter, reason) do
         {:ok,
          result
          |> Map.put(:status, :dead_letter)
@@ -284,38 +286,38 @@ defmodule Ankole.Sessions.Admission do
   # Tenant suspension permits recovery of accepted input. Each new admission
   # still checks the Human authorization; the current attempt keeps its rights.
   @doc "Checks an attempt before taking its domain, Session, or Signal locks."
-  def authorize_attempt_in_tx(repo, %Signal{last_attempt_at: %DateTime{}} = event) do
-    with :ok <- WorkAccess.check_in_tx(repo, event), do: agent_active(repo, event.agent_uid)
+  def authorize_attempt_in_tx(%Signal{last_attempt_at: %DateTime{}} = event) do
+    with :ok <- WorkAccess.check_in_tx(event), do: agent_active(event.agent_uid)
   end
 
-  def authorize_attempt_in_tx(repo, event), do: authorize_new_work_in_tx(repo, event)
+  def authorize_attempt_in_tx(event), do: authorize_new_work_in_tx(event)
 
-  defp authorize_new_in_tx(repo, %Signal{producer: :kernel, type: "command.stop"} = event),
-    do: WorkAccess.check_in_tx(repo, event)
+  defp authorize_new_in_tx(%Signal{producer: :kernel, type: "command.stop"} = event),
+    do: WorkAccess.check_in_tx(event)
 
-  defp authorize_new_in_tx(repo, event) do
+  defp authorize_new_in_tx(event) do
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
-         do: WorkAccess.check_in_tx(repo, event)
+         do: WorkAccess.check_in_tx(event)
   end
 
   @doc "Checks new Session work before its domain, Session, or Signal locks."
-  def authorize_new_work_in_tx(repo, event) do
+  def authorize_new_work_in_tx(event) do
     # The share lock serializes new work with tenant suspension and deletion.
-    _lock = Ankole.Tenants.lock_tenant_in_tx(repo, Repo.tenant_id!(), :share)
+    _lock = Ankole.Tenants.lock_tenant_in_tx(Repo.tenant_id!(), :share)
 
-    with :ok <- authorize_new_in_tx(repo, event) do
-      agent_active(repo, event.agent_uid)
+    with :ok <- authorize_new_in_tx(event) do
+      agent_active(event.agent_uid)
     end
   end
 
-  defp reject_access_in_tx(repo, snapshot, _now) do
+  defp reject_access_in_tx(snapshot, _now) do
     with {:ok, result} <-
-           Run.reject_input_in_tx(repo, snapshot, :dead_letter, :human_access_revoked),
+           Run.reject_input_in_tx(snapshot, :dead_letter, :human_access_revoked),
          do: {:ok, Map.put(result, :status, :access_revoked)}
   end
 
-  defp agent_active(repo, uid) do
-    case Ankole.Principals.lock_principal_in_tx(repo, uid, :share) do
+  defp agent_active(uid) do
+    case Ankole.Principals.lock_principal_in_tx(uid, :share) do
       {:ok, %Principal{type: :agent, status: :active}} -> :ok
       _inactive -> {:error, :agent_not_active}
     end

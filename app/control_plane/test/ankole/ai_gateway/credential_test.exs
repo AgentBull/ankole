@@ -22,7 +22,7 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert api_key.expires_in == 30 * 24 * 60 * 60
 
     assert {:ok, claims} =
-             Ankole.TokenSigning.verify(api_key.api_key, "ankole.ai_gateway", "at+jwt")
+             Attesto.Token.verify(Ankole.OIDC.Config.get("ankole.ai_gateway"), api_key.api_key)
 
     assert claims["aud"] == "ankole.ai_gateway"
     assert claims["scope"] == "ai_gateway"
@@ -31,7 +31,12 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert claims["token_use"] == "access"
     assert is_binary(claims["jti"])
     assert is_integer(claims["iat"])
-    assert is_integer(claims["nbf"])
+
+    assert {:error, :expired} =
+             Attesto.Token.verify(Ankole.OIDC.Config.get("ankole.ai_gateway"), api_key.api_key,
+               now: api_key.expires_at
+             )
+
     assert claims["exp"] == api_key.expires_at
 
     assert %{"alg" => "RS256", "typ" => "at+jwt", "kid" => kid} =
@@ -62,7 +67,7 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert String.ends_with?(response.base_url, "/api/v1/ai-gateway")
 
     assert {:ok, claims} =
-             Ankole.TokenSigning.verify(response.api_key, "ankole.ai_gateway", "at+jwt")
+             Attesto.Token.verify(Ankole.OIDC.Config.get("ankole.ai_gateway"), response.api_key)
 
     assert claims["sub"] == agent.uid
   end

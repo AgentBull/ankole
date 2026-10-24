@@ -72,13 +72,6 @@ defmodule Ankole.OIDC.LogoutRequest do
     destroy :expire_in_tx do
       require_atomic?(true)
     end
-
-    action :confirm, :term do
-      argument(:browser_ref, :term)
-      argument(:id, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

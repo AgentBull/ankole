@@ -73,22 +73,18 @@ defmodule Ankole.Principals.WorkAccess do
     with schema when not is_nil(schema) <- Owner.schema(kind),
          {:ok, id} <- cast_id(schema, id),
          true <- is_binary(reason) and String.trim(reason) != "" do
-      Ankole.Ash.run_action(Principal, :classify_work, %{
-        kind: kind,
-        id: id,
-        human_uid: human_uid,
-        actor: actor_uid,
-        reason: reason
-      })
+      Repo.transact_top_level(fn ->
+        classify_in_tx(kind, id, human_uid, actor_uid, reason)
+      end)
     else
       _ -> {:error, :invalid_work_review}
     end
   end
 
   @doc false
-  def classify_in_tx(repo, kind, id, human_uid, actor_uid, reason) do
+  def classify_in_tx(kind, id, human_uid, actor_uid, reason) do
     schema = Owner.schema(kind)
-    authorization = if is_nil(human_uid), do: service(), else: from_sender(repo, human_uid)
+    authorization = if is_nil(human_uid), do: service(), else: from_sender(human_uid)
     subject_uid = human_uid || actor_uid.uid
     subject = read_principal(subject_uid)
 
@@ -97,7 +93,7 @@ defmodule Ankole.Principals.WorkAccess do
          true <-
            is_nil(human_uid) or subject.tenant_id == Repo.tenant_id!() or
              subject.uid == actor_uid.uid,
-         :ok <- check_in_tx(repo, authorization),
+         :ok <- check_in_tx(authorization),
          %{} = work <- Owner.lock(schema, id),
          true <- reauthorizable?(kind, work),
          true <- work.authorization_kind != "human" or not is_nil(human_uid),
@@ -108,7 +104,7 @@ defmodule Ankole.Principals.WorkAccess do
              Ankole.Ash.create(Ankole.Principals.AccessEvent, :record_in_tx, %{
                principal_uid: subject_uid,
                actor: actor_uid,
-               operation_id: Ankole.Kernel.gen_uuid_v7(),
+               operation_id: Ash.UUIDv7.generate(),
                source: "work_review",
                action: "classify_work",
                reason: reason,
@@ -169,7 +165,7 @@ defmodule Ankole.Principals.WorkAccess do
   def fields(_),
     do: %{authorization_kind: "review_required", human_uid: nil, human_access_version: nil}
 
-  def from_sender(_repo, uid) when is_binary(uid) do
+  def from_sender(uid) when is_binary(uid) do
     case read_principal(uid) do
       %Principal{type: :human, access_version: version} ->
         %{authorization_kind: "human", human_uid: uid, human_access_version: version}
@@ -182,21 +178,21 @@ defmodule Ankole.Principals.WorkAccess do
     end
   end
 
-  def from_sender(_repo, _uid), do: fields(nil)
+  def from_sender(_uid), do: fields(nil)
   def service, do: %{authorization_kind: "service", human_uid: nil, human_access_version: nil}
 
-  def from_observation(_repo, %{"principal_uid" => uid, "human_access_version" => version})
+  def from_observation(%{"principal_uid" => uid, "human_access_version" => version})
       when is_binary(uid) and is_integer(version),
       do: %{authorization_kind: "human", human_uid: uid, human_access_version: version}
 
-  def from_observation(repo, %{"principal_uid" => uid}) do
-    case from_sender(repo, uid) do
+  def from_observation(%{"principal_uid" => uid}) do
+    case from_sender(uid) do
       %{authorization_kind: "service"} = authorization -> authorization
       _ -> fields(nil)
     end
   end
 
-  def from_observation(_repo, _author), do: fields(nil)
+  def from_observation(_author), do: fields(nil)
 
   def valid_now?(work) do
     Ankole.Tenants.accepting_work?(Repo.tenant_id!()) and valid_subject_now?(work)
@@ -221,7 +217,7 @@ defmodule Ankole.Principals.WorkAccess do
 
   defp from_event(_id), do: fields(nil)
 
-  def inherit(repo, attrs) do
+  def inherit(attrs) do
     source_id = Ankole.Attrs.get_truthy(attrs, :source_signal_id)
     created_by = Ankole.Attrs.get_truthy(attrs, :created_by) || %{}
 
@@ -235,7 +231,7 @@ defmodule Ankole.Principals.WorkAccess do
 
         is_binary(created_by["principal_uid"]) ->
           case Ankole.ActorRef.cast(created_by["principal_uid"]) do
-            {:ok, reference} -> from_sender(repo, reference.uid)
+            {:ok, reference} -> from_sender(reference.uid)
             :error -> fields(nil)
           end
 
@@ -258,7 +254,7 @@ defmodule Ankole.Principals.WorkAccess do
       else: Map.merge(attrs, authorization)
   end
 
-  def check_in_tx(_repo, %{
+  def check_in_tx(%{
         authorization_kind: "human",
         human_uid: uid,
         human_access_version: version
@@ -269,10 +265,10 @@ defmodule Ankole.Principals.WorkAccess do
     end
   end
 
-  def check_in_tx(_repo, %{authorization_kind: "service"}), do: :ok
-  def check_in_tx(_repo, _work), do: {:error, :work_authorization_review_required}
+  def check_in_tx(%{authorization_kind: "service"}), do: :ok
+  def check_in_tx(_work), do: {:error, :work_authorization_review_required}
 
-  def lock_authorizers_in_tx(_repo, works) do
+  def lock_authorizers_in_tx(works) do
     works
     |> Enum.flat_map(fn
       %{authorization_kind: "human", human_uid: uid} when is_binary(uid) -> [uid]
@@ -283,15 +279,15 @@ defmodule Ankole.Principals.WorkAccess do
     :ok
   end
 
-  def check_record_in_tx(repo, schema, id) do
+  def check_record_in_tx(schema, id) do
     case Owner.get(schema, id) do
       nil -> {:error, :work_not_found}
-      work -> check_in_tx(repo, work)
+      work -> check_in_tx(work)
     end
   end
 
-  def check_attrs_in_tx(repo, attrs) do
-    check_in_tx(repo, Map.new(@fields, &{&1, Ankole.Attrs.get_truthy(attrs, &1)}))
+  def check_attrs_in_tx(attrs) do
+    check_in_tx(Map.new(@fields, &{&1, Ankole.Attrs.get_truthy(attrs, &1)}))
   end
 
   defp human_uids(works) do

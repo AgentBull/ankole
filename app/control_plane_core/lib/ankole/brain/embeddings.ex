@@ -43,7 +43,7 @@ defmodule Ankole.Brain.Embeddings do
   signature of the same model snapshot that produced them.
   """
   @spec embed_texts([String.t()]) ::
-          {:ok, {[Pgvector.t()], String.t()}} | {:error, term()}
+          {:ok, {[Ash.Vector.t()], String.t()}} | {:error, term()}
   def embed_texts([]) do
     with {:ok, model} <- configured_model(),
          {:ok, signature} <- signature(model) do
@@ -153,6 +153,7 @@ defmodule Ankole.Brain.Embeddings do
 
   defp pad_vector(values) do
     padded = values ++ List.duplicate(0.0, @physical_dimensions - length(values))
-    Pgvector.new(padded)
+    {:ok, vector} = Ash.Vector.new(padded)
+    vector
   end
 end

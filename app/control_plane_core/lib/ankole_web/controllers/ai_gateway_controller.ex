@@ -1,14 +1,12 @@
 defmodule AnkoleWeb.AIGatewayController do
   alias Ankole.AIGateway.FailureResponse
   alias Ankole.AIGateway.CompactionRequests
-  alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
   Principal-authenticated AIGateway runtime API.
   """
 
   use AnkoleWeb, :controller
-  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway
   alias Ankole.Sessions.CodexModelBinding
@@ -16,25 +14,8 @@ defmodule AnkoleWeb.AIGatewayController do
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.OIDC.Grant
-  alias OpenAPISpex.Schema
-
-  @json_object %Schema{type: :object, additionalProperties: true}
-
-  tags(["AIGateway"])
-  security([%{"aiGatewayBearer" => []}])
-
-  operation(:options, false)
 
   def options(conn, _params), do: send_resp(conn, 204, "")
-
-  operation(:responses,
-    summary: "Create a stateless OpenResponses response",
-    request_body: {"OpenResponses request", "application/json", @json_object, required: true},
-    responses: [
-      ok: {"OpenResponses response", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
 
   def responses(conn, _params) do
     request = conn.body_params || %{}
@@ -75,23 +56,6 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  operation(:retrieve_response,
-    summary: "Retrieve a stored stateful OpenResponses response",
-    parameters: [
-      response_id: [
-        in: :path,
-        type: :string,
-        required: true,
-        description: "Stored response id, formatted as resp_{uuid}"
-      ]
-    ],
-    responses: [
-      ok: {"OpenResponses response", "application/json", @json_object},
-      not_found: {"Not found", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
-
   def retrieve_response(conn, %{"response_id" => response_id}) do
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
 
@@ -100,15 +64,6 @@ defmodule AnkoleWeb.AIGatewayController do
       {:error, reason} -> error(conn, reason)
     end
   end
-
-  operation(:embeddings,
-    summary: "Create embeddings through AIGateway",
-    request_body: {"Embedding request", "application/json", @json_object, required: true},
-    responses: [
-      ok: {"Embedding response", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
 
   def embeddings(conn, _params) do
     request = conn.body_params || %{}
@@ -120,15 +75,6 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  operation(:rerank,
-    summary: "Create a rerank result through AIGateway",
-    request_body: {"Rerank request", "application/json", @json_object, required: true},
-    responses: [
-      ok: {"Rerank response", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
-
   def rerank(conn, _params) do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
@@ -138,16 +84,6 @@ defmodule AnkoleWeb.AIGatewayController do
       {:error, reason} -> error(conn, reason)
     end
   end
-
-  operation(:web_search,
-    summary: "Search the web through AIGateway",
-    request_body: {"Web search request", "application/json", @json_object, required: true},
-    responses: [
-      ok: {"Web search response", "application/json", @json_object},
-      bad_request: {"Invalid web search request", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
 
   def web_search(conn, _params) do
     request = conn.body_params || %{}
@@ -159,16 +95,6 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  operation(:web_fetch,
-    summary: "Fetch web pages through AIGateway",
-    request_body: {"Web fetch request", "application/json", @json_object, required: true},
-    responses: [
-      ok: {"Web fetch response", "application/json", @json_object},
-      bad_request: {"Invalid web fetch request", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
-
   def web_fetch(conn, _params) do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
@@ -178,64 +104,6 @@ defmodule AnkoleWeb.AIGatewayController do
       {:error, reason} -> error(conn, reason)
     end
   end
-
-  operation(:models,
-    summary: "List AIGateway model selectors",
-    parameters: [
-      output_modalities: [
-        in: :query,
-        type: :string,
-        required: false,
-        description: "Comma-separated output modalities or all"
-      ],
-      input_modalities: [
-        in: :query,
-        type: :string,
-        required: false,
-        description: "Comma-separated input modalities"
-      ],
-      supported_parameters: [
-        in: :query,
-        type: :string,
-        required: false,
-        description: "Comma-separated supported request parameters"
-      ],
-      sort: [
-        in: :query,
-        type: :string,
-        required: false,
-        description: "OpenRouter-style sort key"
-      ],
-      q: [
-        in: :query,
-        type: :string,
-        required: false,
-        description: "Free-text selector search"
-      ],
-      context: [
-        in: :query,
-        type: :integer,
-        required: false,
-        description: "Minimum context length"
-      ],
-      min_price: [
-        in: :query,
-        type: :number,
-        required: false,
-        description: "Minimum prompt price"
-      ],
-      max_price: [
-        in: :query,
-        type: :number,
-        required: false,
-        description: "Maximum prompt price"
-      ]
-    ],
-    responses: [
-      ok: {"OpenRouter-style model list", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
 
   def models(conn, params) do
     subject_uid = conn.assigns.current_ai_gateway_subject_uid

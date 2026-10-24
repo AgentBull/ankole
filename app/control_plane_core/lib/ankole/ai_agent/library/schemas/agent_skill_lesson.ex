@@ -95,7 +95,22 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   end
 
   validations do
-    validate(Ankole.AIAgent.Library.Validations.LeaseShape)
+    validate(attribute_equals(:review_after, nil),
+      where: [attribute_equals(:author_kind, :human)],
+      message: "human lessons carry no lease"
+    )
+
+    for field <- [:review_after, :checked_release, :checked_skill_hash] do
+      validate(present(field),
+        where: [attribute_equals(:author_kind, :dreaming)],
+        message: "is required"
+      )
+    end
+
+    validate(attribute_does_not_equal(:evidence_job_ids, []),
+      where: [attribute_equals(:author_kind, :dreaming)],
+      message: "must contain evidence"
+    )
   end
 
   actions do
@@ -140,43 +155,11 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       change(filter(expr(is_nil(retired_at))))
     end
 
-    action :apply_adds, :term do
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:adds, :term, allow_nil?: false)
-      argument(:context, :term, allow_nil?: false)
-      argument(:sources, :term, allow_nil?: false)
-      argument(:catalog_options, :term, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     action :console_teach, :struct do
       constraints(instance_of: __MODULE__)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:skill_name, :string, allow_nil?: false)
       argument(:content, :string, allow_nil?: false, constraints: [trim?: false])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :teach, :term do
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:skill_name, :term)
-      argument(:content, :term)
-      argument(:author, :term)
-      argument(:sources, :term, allow_nil?: false)
-      argument(:catalog_options, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :apply_reviews, :term do
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:reviews, :term, allow_nil?: false)
-      argument(:docket_ids, :term, allow_nil?: false)
-      argument(:context, :term, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

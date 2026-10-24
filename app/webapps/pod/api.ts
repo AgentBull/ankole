@@ -4,42 +4,35 @@ import { requestErrorCode } from '../common/request-errors'
 import { mergeMessageWindow } from './state/message-history'
 import { replaceEqualDeep, type QueryClient } from '@tanstack/react-query'
 
-export type {
-  PodAgent,
-  PodActivity,
-  PodActivityItem,
-  ConversationMessage,
-  ConversationStatus,
-  ConversationDetail,
-  ConversationPendingInput,
-  ConversationQueueRequest
-} from '../common/api/generated/types.gen'
 import type {
-  ConversationDetail,
-  ConversationQueueRequest,
-  ConversationCreateRequest,
-  ConversationAttachmentReceipt
-} from '../common/api/generated/types.gen'
+  ConversationDetailResponse,
+  CreateConversationData,
+  UpdateConversationQueueData,
+  PodAgentsResponse
+} from './api/generated/types.gen'
+export { uploadAttachment } from './native-transfers'
 import {
   podAgents,
   podConversations,
   conversationDetail,
   createConversation,
   postConversationMessage,
-  updateConversationQueue,
-  uploadConversationAttachment
-} from '../common/api/generated/sdk.gen'
+  updateConversationQueue
+} from './api/generated/sdk.gen'
+
+export type ConversationDetail = ConversationDetailResponse
+export type ConversationStatus = ConversationDetail['status']
+export type ConversationMessage = ConversationDetail['messages'][number]
+export type ConversationPendingInput = ConversationDetail['pendingInputs'][number]
+export type ConversationAttachment = ConversationMessage['attachments'][number]
+export type ConversationCreateRequest = CreateConversationData['body']['data']
+export type ConversationQueueRequest = UpdateConversationQueueData['body']['data']
+export type PodAgent = PodAgentsResponse['agents'][number]
+export type PodActivity = NonNullable<ConversationStatus['activity']>
+export type PodActivityItem = PodActivity['tools'][number]
 
 /** Local attachment IDs identify the captured draft; the API receives only signed receipts. */
 export type MessageSubmission = ConversationCreateRequest & { attachmentIDs?: string[] }
-
-export function uploadAttachment(
-  file: File,
-  fileID: string,
-  signal: AbortSignal
-): Promise<ConversationAttachmentReceipt> {
-  return uploadConversationAttachment({ body: { file, fileID }, signal })
-}
 
 export const podKeys = {
   get agents() {
@@ -85,20 +78,20 @@ export function postMessage(submission: MessageSubmission, create: boolean): Pro
   const content = { text, deliveryMode, ...(attachments?.length ? { attachments } : {}) }
   return create
     ? createConversation({
-        body: { conversationID, messageID, agentUID, modelProfile, ...content, ...(pageID ? { pageID } : {}) }
+        body: { data: { conversationID, messageID, agentUID, modelProfile, ...content, ...(pageID ? { pageID } : {}) } }
       })
-    : postConversationMessage({ path: { id: conversationID }, body: { messageID, ...content } })
+    : postConversationMessage({ path: { id: conversationID }, body: { data: { messageID, ...content } } })
 }
 
 export function updateQueue(conversationID: string, body: ConversationQueueRequest): Promise<ConversationDetail> {
-  return updateConversationQueue({ path: { id: conversationID }, body })
+  return updateConversationQueue({ path: { id: conversationID }, body: { data: body } })
 }
 export function conversationEventsURL(id: string): string {
   const query = new URLSearchParams()
   const authentication = authenticationRef()
   if (authentication) query.set('authentication_ref', authentication)
   const suffix = query.size ? `?${query}` : ''
-  return `/.internal-apis/pod/conversations/${encodeURIComponent(id)}/events${suffix}`
+  return `/api/v2/pod/conversations/${encodeURIComponent(id)}/events${suffix}`
 }
 
 export function conversationNotFound(error: unknown): boolean {

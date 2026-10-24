@@ -71,7 +71,17 @@ defmodule Ankole.Pod.PageChange do
         :created_at
       ])
 
-      validate(Ankole.Pod.Validations.PageChangeShape)
+      for field <- [:client_id, :client_seq, :changes] do
+        validate(attribute_does_not_equal(field, nil),
+          where: [attribute_equals(:kind, :change)],
+          message: "is required"
+        )
+
+        validate(attribute_equals(field, nil),
+          where: [attribute_equals(:kind, :reset)],
+          message: "is not part of a reset entry"
+        )
+      end
     end
 
     destroy :prune do

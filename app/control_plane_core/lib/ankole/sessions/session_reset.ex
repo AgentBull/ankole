@@ -39,15 +39,16 @@ defmodule Ankole.Sessions.SessionReset do
       |> Keyword.put_new(:now, DateTime.utc_now(:microsecond))
       |> Keyword.put_new(:timezone, SystemConfig.default_timezone())
 
-    boundary_at |> Ankole.Sessions.enqueue_session_resets(opts) |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn -> enqueue_in_tx(boundary_at, opts) end)
+    |> Ankole.Errors.reason()
   end
 
   @doc false
-  def enqueue_in_tx(repo, %DateTime{} = boundary_at, opts) do
+  def enqueue_in_tx(%DateTime{} = boundary_at, opts) do
     conversations = due_daily_reset_conversations(boundary_at, opts)
 
     conversations
-    |> Enum.map(&enqueue_session_reset_due_in_tx(repo, &1, boundary_at, opts[:now], opts))
+    |> Enum.map(&enqueue_session_reset_due_in_tx(&1, boundary_at, opts[:now], opts))
     |> collect_results()
     |> case do
       {:ok, events} ->
@@ -136,7 +137,6 @@ defmodule Ankole.Sessions.SessionReset do
   end
 
   defp enqueue_session_reset_due_in_tx(
-         repo,
          %{subject_uid: subject_uid, conversation_key: conversation_key} = conversation,
          %DateTime{} = boundary_at,
          %DateTime{} = now,
@@ -156,7 +156,7 @@ defmodule Ankole.Sessions.SessionReset do
         }
       }
 
-      Ankole.Signals.accept_in_tx(repo, %{
+      Ankole.Signals.accept_in_tx(%{
         producer: :kernel,
         source: "control-plane://session-reset/daily",
         id: event_id,
@@ -190,25 +190,25 @@ defmodule Ankole.Sessions.SessionReset do
   end
 
   def process_due(session_key, %Signal{} = input, opts) do
-    session_key
-    |> Ankole.Sessions.reset_session(
-      input,
-      Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    )
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    Ankole.Repo.transact_top_level(fn ->
+      process_due_in_tx(session_key, input, now)
+    end)
     |> Ankole.Errors.reason()
   end
 
   @doc false
-  def process_due_in_tx(repo, session_key, %Signal{} = input, now) do
-    with :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
-         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
-         {:ok, closed_conversation} <- close_current_session_for_reset(repo, session_key, now),
+  def process_due_in_tx(session_key, %Signal{} = input, now) do
+    with :ok <- Queue.lock_session_in_tx(input.agent_uid, input.session_id),
+         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(input.id),
+         {:ok, closed_conversation} <- close_current_session_for_reset(session_key, now),
          {:ok, conversation} <-
-           ensure_successor_conversation(repo, session_key, closed_conversation),
+           ensure_successor_conversation(session_key, closed_conversation),
          {:ok, superseded_interactions} <-
-           Interactions.supersede_for_session_reset_in_tx(repo, input, now),
+           Interactions.supersede_for_session_reset_in_tx(input, now),
          {:ok, completed_event} <-
-           Queue.complete_session_lifecycle_event_in_tx(repo, input, completed_at: now) do
+           Queue.complete_session_lifecycle_event_in_tx(input, completed_at: now) do
       {:ok,
        %{
          status: :session_reset,
@@ -227,16 +227,14 @@ defmodule Ankole.Sessions.SessionReset do
     end
   end
 
-  defp close_current_session_for_reset(repo, session_key, now) do
+  defp close_current_session_for_reset(session_key, now) do
     case AIGateway.active_conversation_for_update(
-           repo,
            session_key.agent_uid,
            session_key.session_id
          ) do
       %{} ->
         with {:ok, conversation} <-
                ModelHistory.end_active_conversation_in_tx(
-                 repo,
                  session_key.agent_uid,
                  session_key.session_id,
                  now
@@ -249,11 +247,10 @@ defmodule Ankole.Sessions.SessionReset do
     end
   end
 
-  defp ensure_successor_conversation(_repo, _session_key, nil), do: {:ok, nil}
+  defp ensure_successor_conversation(_session_key, nil), do: {:ok, nil}
 
-  defp ensure_successor_conversation(repo, session_key, %{} = previous_conversation) do
+  defp ensure_successor_conversation(session_key, %{} = previous_conversation) do
     AIGateway.ensure_conversation_in_tx(
-      repo,
       session_key.agent_uid,
       session_key.session_id,
       ModelHistory.successor_origin_metadata(previous_conversation)

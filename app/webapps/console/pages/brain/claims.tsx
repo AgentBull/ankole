@@ -26,21 +26,27 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiChatQuoteLine, RiLoaderLine, RiMore2Fill } from '@remixicon/react'
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import {
   forgetBrainClaimMutation,
-  listBrainClaimsOptions,
+  listBrainClaimsInfiniteOptions,
   resolveBrainTakeMutation,
   supersedeBrainClaimMutation
 } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { ListBrainClaimsResponse } from '../../api/v2/generated/types.gen'
-import { fromDocument, type Flat } from '../../api/json-api'
+import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'
+import {
+  FilterSwitch,
+  LoadMore,
+  ResourceListPage,
+  ResourceSearch,
+  useResourceSearchDraft
+} from '../../console-list-page'
 import { BrainSubNav, brainObjectPath } from './brain-nav'
 
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
@@ -70,8 +76,8 @@ export function BrainClaimsPage() {
   const [objectSlug, setObjectSlug] = useState('')
   const [slugDraft, setSlugDraft] = useResourceSearchDraft(objectSlug, setObjectSlug)
 
-  const claims = useQuery({
-    ...listBrainClaimsOptions({
+  const claims = useInfiniteQuery({
+    ...listBrainClaimsInfiniteOptions({
       query: {
         ...(claimType === 'all' ? {} : { claim_type: claimType }),
         ...(currentOnly ? { status: 'current' } : {}),
@@ -79,7 +85,9 @@ export function BrainClaimsPage() {
         ...(query.trim() ? { search: query.trim() } : {})
       }
     }),
-    select: document => fromDocument(document),
+    initialPageParam: {},
+    getNextPageParam: nextPageParams,
+    select: data => data.pages.flatMap(document => fromDocument(document)),
     placeholderData: keepPreviousData
   })
   const rows = claims.data ?? []
@@ -109,6 +117,7 @@ export function BrainClaimsPage() {
         emptyDescription={t('console.brain.claims_empty_description')}
         emptyIcon={<RiChatQuoteLine aria-hidden />}
         error={claims.error}
+        footer={<LoadMore query={claims} />}
         isFiltered={Boolean(query.trim() || objectSlug.trim() || claimType !== 'all' || !currentOnly)}
         onClearFilters={() => {
           setQuery('')

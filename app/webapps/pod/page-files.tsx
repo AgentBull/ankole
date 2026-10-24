@@ -5,13 +5,14 @@ import { lazy, Suspense, useRef, useState } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
 import { contentKeys, fileURL, type PageDetail } from './content-api'
 import { ContentError } from './content-primitives'
-import { podFiles, podFileUpload } from '../common/api/generated/sdk.gen'
-import type { PodFileEntry, PodFileWriteResult } from '../common/api/generated/types.gen'
+import { podFiles } from './api/generated/sdk.gen'
+import { uploadFile } from './native-transfers'
+import type { PodFileCopyResponse } from './api/generated/types.gen'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
 
-export type DriveFile = PodFileEntry
-export type UploadedFile = PodFileWriteResult
+export type DriveFile = NonNullable<Awaited<ReturnType<typeof podFiles>>>['files'][number]
+export type UploadedFile = PodFileCopyResponse
 const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
 const filesQuery = (id: string) => ({
@@ -25,10 +26,7 @@ export async function uploadPageFile(
   role: 'file' | 'asset' | 'attachment',
   revision?: number
 ): Promise<UploadedFile> {
-  return podFileUpload({
-    path: { id },
-    body: { file, role, ...(revision === undefined ? {} : { base_revision: revision }) }
-  })
+  return uploadFile(id, file, role, revision)
 }
 
 export function FilePage({ detail }: { detail: PageDetail }) {

@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.AuthControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
@@ -77,7 +78,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       |> init_test_session(%{})
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "missing"})
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 401)["error"] ==
+    assert api_response(conn, 401)["error"] ==
              "login_expired"
 
     assert WebSession.admin_session(conn) == nil
@@ -102,7 +103,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       end)
       |> get(~p"/sessions/oidc/other-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 401)["error"] ==
+    assert api_response(conn, 401)["error"] ==
              "login_expired"
 
     assert WebSession.admin_session(conn) == nil
@@ -131,7 +132,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       end)
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 401)["error"] ==
+    assert api_response(conn, 401)["error"] ==
              "login_expired"
 
     assert WebSession.admin_session(conn) == nil
@@ -154,7 +155,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       })
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "setup-state"})
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 409)["error"] ==
+    assert api_response(conn, 409)["error"] ==
              "setup already completed"
 
     assert WebSession.admin_session(conn) == nil
@@ -172,10 +173,10 @@ defmodule AnkoleWeb.AuthControllerTest do
       :ok
     end
 
-    test "GET /.internal-apis/identity-providers reports the provider kind", %{conn: conn} do
-      conn = get(conn, ~p"/.internal-apis/identity-providers")
+    test "GET /api/v2/browser/identity-providers reports the provider kind", %{conn: conn} do
+      conn = api_get(conn, ~p"/api/v2/browser/identity-providers")
 
-      assert %{"providers" => [provider]} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+      assert %{"providers" => [provider]} = api_response(conn, 200)
       assert provider["providerID"] == "local-main"
       assert provider["adapterID"] == "local"
       assert provider["kind"] == "password"
@@ -212,13 +213,13 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> recycle()
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> api_post(~p"/api/v2/browser/sessions/local-password", %{
           "flow" => flow["flow"],
           "email" => email,
           "password" => "correct-horse"
         })
 
-      assert %{"status" => "ok"} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+      assert %{"status" => "ok"} = api_response(conn, 200)
       assert WebSession.admin_session(conn)["principal_uid"] == principal.uid
     end
 
@@ -235,12 +236,12 @@ defmodule AnkoleWeb.AuthControllerTest do
         })
 
       assert %{"status" => "ok", "returnTo" => "/"} =
-               AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+               api_response(conn, 200)
 
-      conn = get(recycle(conn), ~p"/.internal-apis/session")
+      conn = get(recycle(conn), ~p"/api/v2/browser/session")
 
       assert %{"authenticated" => true, "providerID" => "local-main"} =
-               AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+               api_response(conn, 200)
     end
 
     test "a wrong password and an unknown email return the same error", %{conn: conn} do
@@ -255,7 +256,7 @@ defmodule AnkoleWeb.AuthControllerTest do
             "password" => password
           })
 
-        assert AnkoleWeb.InternalAPIContract.json_response(conn, 401)["error"] ==
+        assert api_error(conn, 401)["code"] ==
                  "invalid_credentials"
 
         assert WebSession.admin_session(conn) == nil
@@ -273,7 +274,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "password" => "correct-horse"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 403)["error"] == "not_an_admin"
+      assert api_error(conn, 403)["code"] == "not_an_admin"
       assert WebSession.admin_session(conn) == nil
     end
 
@@ -303,7 +304,7 @@ defmodule AnkoleWeb.AuthControllerTest do
         |> post_password(%{"email" => email, "password" => "correct-horse"})
 
       assert %{"status" => "ok", "returnTo" => return_to} =
-               AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+               api_response(conn, 200)
 
       assert return_to == "/oauth/authorize/resume?flow=" <> transaction.id
 
@@ -324,7 +325,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "password" => "correct-horse"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 403)["error"] == "account_disabled"
+      assert api_error(conn, 403)["code"] == "account_disabled"
     end
 
     test "a must-change credential runs the forced change before any session", %{conn: conn} do
@@ -340,7 +341,7 @@ defmodule AnkoleWeb.AuthControllerTest do
         })
 
       assert %{"status" => "password_change_required"} =
-               AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+               api_response(conn, 200)
 
       assert WebSession.admin_session(conn) == nil
 
@@ -349,7 +350,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "newPassword" => "short"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 422)["error"] ==
+      assert api_error(conn, 422)["code"] ==
                "password_too_short"
 
       conn =
@@ -358,10 +359,10 @@ defmodule AnkoleWeb.AuthControllerTest do
         })
 
       assert %{"returnTo" => "/site-admin-console/agents"} =
-               AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+               api_response(conn, 200)
 
-      conn = get(recycle(conn), ~p"/.internal-apis/session")
-      assert %{"authenticated" => true} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+      conn = get(recycle(conn), ~p"/api/v2/browser/session")
+      assert %{"authenticated" => true} = api_response(conn, 200)
 
       :ok = WebSession.put_privileged_tenant()
 
@@ -380,7 +381,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "newPassword" => "my-own-password"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 401)["error"] ==
+      assert api_error(conn, 401)["code"] ==
                "change_ticket_expired"
     end
 
@@ -420,7 +421,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "newPassword" => "my-own-password"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 403)["error"] == "not_an_admin"
+      assert api_error(conn, 403)["code"] == "not_an_admin"
       assert WebSession.admin_session(conn) == nil
 
       assert {:ok, %{must_change_password: true}} =
@@ -442,7 +443,7 @@ defmodule AnkoleWeb.AuthControllerTest do
         })
 
       assert %{"status" => "password_change_required"} =
-               AnkoleWeb.InternalAPIContract.json_response(login_conn, 200)
+               api_response(login_conn, 200)
 
       {:ok, transaction} = WebSession.login_transaction(login_conn, login_conn.private.login_flow)
       assert is_integer(transaction.password_ticket["credential_version"])
@@ -452,14 +453,14 @@ defmodule AnkoleWeb.AuthControllerTest do
           "newPassword" => "first-choice-pass"
         })
 
-      assert %{"returnTo" => _return_to} = AnkoleWeb.InternalAPIContract.json_response(first, 200)
+      assert %{"returnTo" => _return_to} = api_response(first, 200)
 
       replay =
         post_change(login_conn, %{
           "newPassword" => "replayed-pass-123"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(replay, 401)["error"] ==
+      assert api_error(replay, 401)["code"] ==
                "change_ticket_expired"
 
       assert WebSession.admin_session(replay) == nil
@@ -484,7 +485,7 @@ defmodule AnkoleWeb.AuthControllerTest do
         })
 
       assert %{"status" => "password_change_required"} =
-               AnkoleWeb.InternalAPIContract.json_response(login_conn, 200)
+               api_response(login_conn, 200)
 
       assert {:ok, reset_password} = LocalPassword.reset_local_password(principal.uid, true)
 
@@ -493,7 +494,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "newPassword" => "stale-ticket-password"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(replay, 401)["error"] ==
+      assert api_error(replay, 401)["code"] ==
                "change_ticket_expired"
 
       assert WebSession.admin_session(replay) == nil
@@ -520,9 +521,9 @@ defmodule AnkoleWeb.AuthControllerTest do
             "email" => email,
             "password" => "wrong"
           })
-          |> AnkoleWeb.InternalAPIContract.json_response(401)
+          |> api_response(401)
 
-        assert response["error"] == "invalid_credentials"
+        assert hd(response["errors"])["code"] == "invalid_credentials"
       end
 
       conn =
@@ -533,9 +534,9 @@ defmodule AnkoleWeb.AuthControllerTest do
           "password" => "correct-horse"
         })
 
-      response = AnkoleWeb.InternalAPIContract.json_response(conn, 429)
-      assert response["error"] == "retry_locked"
-      assert response["retryAfterSeconds"] in 1..(30 * 60)
+      response = api_response(conn, 429)
+      assert hd(response["errors"])["code"] == "retry_locked"
+      assert hd(response["errors"])["meta"]["details"]["retryAfterSeconds"] in 1..(30 * 60)
     end
 
     test "sign-in is refused while setup is incomplete", %{conn: conn} do
@@ -550,7 +551,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "password" => "correct-horse"
         })
 
-      assert AnkoleWeb.InternalAPIContract.json_response(conn, 409)["error"] ==
+      assert api_error(conn, 409)["code"] ==
                "setup is not complete"
     end
   end
@@ -566,19 +567,19 @@ defmodule AnkoleWeb.AuthControllerTest do
         do: conn,
         else: start_console_login(conn, %{"return_to" => params["returnTo"]})
 
-    post(
+    api_post(
       conn,
-      "/.internal-apis/sessions/local-password",
-      Map.put(params, "flow", conn.private.login_flow)
+      "/api/v2/browser/sessions/local-password",
+      params |> Map.delete("returnTo") |> Map.put("flow", conn.private.login_flow)
     )
     |> Plug.Conn.put_private(:login_flow, conn.private.login_flow)
   end
 
   defp post_change(conn, params) do
-    post(
+    api_post(
       conn,
-      AnkoleWeb.Plugs.RequestHost.origin(conn) <> "/.internal-apis/sessions/local-password/change",
-      Map.put(params, "flow", conn.private[:login_flow])
+      AnkoleWeb.Plugs.RequestHost.origin(conn) <> "/api/v2/browser/sessions/local-password/change",
+      Map.put(params, "flow", conn.private[:login_flow] || Ecto.UUID.generate())
     )
     |> Plug.Conn.put_private(:login_flow, conn.private[:login_flow])
   end

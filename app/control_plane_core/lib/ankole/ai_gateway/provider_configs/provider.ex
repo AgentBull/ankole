@@ -237,28 +237,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       change(Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused, only_when_valid?: true)
     end
 
-    action :change, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:provider_id, :string, allow_nil?: false)
-
-      argument(:update, :atom,
-        allow_nil?: false,
-        constraints: [
-          one_of: [
-            :configure,
-            :add_credential,
-            :replace_credential,
-            :remove_credential,
-            :select_strategy
-          ]
-        ]
-      )
-
-      argument(:params, :map, allow_nil?: false, sensitive?: true)
-
-      run(__MODULE__.Actions)
-    end
-
     # The arguments keep the raw values: the `create` and `configure` actions
     # validate them. An omitted argument keeps the stored value.
     action :put, :struct do
@@ -282,23 +260,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     action :retire, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :put_cooldown, :term do
-      argument(:row_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-      argument(:credential, :map, allow_nil?: false, sensitive?: true)
-      argument(:until, :struct, allow_nil?: false, constraints: [instance_of: DateTime])
-      argument(:reason, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :rotate_credential, :map do
-      argument(:provider_id, :string, allow_nil?: false)
-      argument(:credential_id, :string, allow_nil?: false)
-      argument(:callback, :function, allow_nil?: false, constraints: [arity: 3])
 
       run(__MODULE__.Actions)
     end

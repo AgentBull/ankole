@@ -82,11 +82,11 @@ keeps the result in the reset dialog and clears it before another reset.
 
 ## Sign-in Flow
 
-`POST /.internal-apis/sessions/local-password` verifies the email and
+`POST /api/v2/browser/sessions/local-password` verifies the email and
 password. A verified administrator gets the normal admin browser session. A
 verified account whose credential carries `must_change_password` gets a
 10-minute change ticket instead; `POST
-/.internal-apis/sessions/local-password/change` sets the new password and then
+/api/v2/browser/sessions/local-password/change` sets the new password and then
 opens the session. A missing account and a wrong password return the same
 error, and a miss runs one verify against a throwaway hash so response time
 does not reveal whether the account exists.

@@ -109,7 +109,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
   test "an embedding result commits once and a later body edit invalidates its position",
        context do
     chunk = Repo.get_by!(Chunk, object_id: context.object.id, chunk_index: 0)
-    vector = Pgvector.new(List.duplicate(0.5, 4096))
+    {:ok, vector} = Ash.Vector.new(List.duplicate(0.5, 4096))
     embedded = hold(fn -> Chunks.record_embedding(chunk, {:ok, vector, "current-model"}) end)
 
     late_failure =

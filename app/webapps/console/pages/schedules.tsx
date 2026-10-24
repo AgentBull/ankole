@@ -37,7 +37,8 @@ import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { listAgentSessionsOptions, listSignalBindingsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
-import { fromDocument } from '../api/json-api'
+import type { CronSchedule, ScheduledEvent } from '../api/v2/generated/types.gen'
+import { fromDocument, type Flat } from '../api/json-api'
 import {
   cancelCheckbackMutation,
   createCronScheduleMutation,
@@ -69,7 +70,6 @@ import {
   isMutableCronStatus,
   scheduleOccurrenceBound,
   ScheduleEditorModel,
-  type CronStatus,
   type ScheduleDelivery,
   type ScheduleEditorDraft,
   type ScheduleRecurrence
@@ -77,37 +77,14 @@ import {
 import { matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
 
-type CronScheduleItem = {
-  id: string
-  status: CronStatus | 'deleted' | 'completed'
-  agent_uid: string
-  owner_session_id: string
-  /** Derived session `cron:<id>` where every fire runs. */
-  execution_session_id: string
-  binding_name: string | null
-  name: string
+// The recurrence and delivery JSON are normalized by the Schedule domain.
+// All resource fields, including optional calculations, use the generated contract.
+type CronScheduleItem = Flat<CronSchedule> & {
   schedule: ScheduleRecurrence
-  timezone: string
-  payload: Record<string, unknown>
-  delivery: ScheduleDelivery | null
-  next_fire_at: string | null
-  last_fire_at: string | null
-  idempotency_key: string
-  automation_job_id: number | null
+  delivery?: ScheduleDelivery | null
 }
 
-/** One concrete fire: a one-shot checkback or one slot of a cron schedule. */
-type ScheduledEventItem = {
-  id: string
-  kind: 'check_back_later' | 'cron_fire'
-  status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
-  agent_uid: string
-  session_id: string
-  binding_name: string | null
-  due_at: string
-  wake_payload: Record<string, unknown>
-  fired_at: string | null
-}
+type ScheduledEventItem = Flat<ScheduledEvent>
 
 /** The list of cron schedules, also read by the route loader. */
 export function cronScheduleListOptions(agentUID: string | undefined) {
@@ -132,7 +109,7 @@ export function SchedulesListPage() {
 
   const crons = useQuery({
     ...cronScheduleListOptions(scope.agentUID),
-    select: document => fromDocument(document) as unknown as CronScheduleItem[],
+    select: document => fromDocument(document) as CronScheduleItem[],
     refetchInterval: LIST_REFRESH_MS
   })
 
@@ -306,7 +283,7 @@ export function ScheduleCheckbacksPage() {
 
   const checkbacks = useQuery({
     ...checkbackListOptions(scope.agentUID),
-    select: document => fromDocument(document) as unknown as ScheduledEventItem[],
+    select: document => fromDocument(document),
     refetchInterval: LIST_REFRESH_MS
   })
 
@@ -467,7 +444,7 @@ export function ScheduleCronEditorPage() {
 
   const existing = useQuery({
     ...getCronScheduleOptions({ path: { agent_uid: agentUID, id: cronID ?? '' } }),
-    select: document => fromDocument(document) as unknown as CronScheduleItem,
+    select: document => fromDocument(document) as CronScheduleItem,
     enabled: editing && Boolean(agentUID && cronID)
   })
   const existingRow = existing.data
@@ -477,7 +454,7 @@ export function ScheduleCronEditorPage() {
       path: { agent_uid: agentUID, cron_schedule_id: cronID ?? '' },
       query: { page: { limit: 25 } }
     }),
-    select: document => fromDocument(document) as unknown as ScheduledEventItem[],
+    select: document => fromDocument(document),
     enabled: editing && Boolean(agentUID && cronID)
   })
   const runRows = runs.data ?? []

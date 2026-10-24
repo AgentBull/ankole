@@ -4,19 +4,18 @@ defmodule Ankole.Conversations.Delivery.Posting do
   alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.Conversations.Delivery.Interactions
 
-  def post_in_tx(repo, target, %Statement{notice: %{} = notice} = statement) do
+  def post_in_tx(target, %Statement{notice: %{} = notice} = statement) do
     with {:ok, intent} <-
-           Delivery.commit_notice_in_tx(repo, statement.signal, Statement.text(statement), notice,
+           Delivery.commit_notice_in_tx(statement.signal, Statement.text(statement), notice,
              delivery_target: delivery_target(target, statement.signal)
            ) do
       {:ok, %PostResult{intents: List.wrap(intent)}}
     end
   end
 
-  def post_in_tx(_repo, _target, %Statement{outcome: :silent}), do: {:ok, %PostResult{}}
+  def post_in_tx(_target, %Statement{outcome: :silent}), do: {:ok, %PostResult{}}
 
   def post_in_tx(
-        repo,
         %StatementTarget{} = target,
         %Statement{signal: signal, completion: completion} = statement
       ) do
@@ -30,26 +29,23 @@ defmodule Ankole.Conversations.Delivery.Posting do
 
     with {:ok, attachments} <-
            Delivery.commit_reply_attachments_in_tx(
-             repo,
              signal,
              completion.final_response.id,
              completion.attachments,
              opts
            ),
-         {:ok, replies} <- reply_in_tx(repo, target, statement, opts) do
+         {:ok, replies} <- reply_in_tx(target, statement, opts) do
       {:ok, %PostResult{intents: attachments ++ replies}}
     end
   end
 
   defp reply_in_tx(
-         repo,
          %{primary: true},
          %Statement{completion: %{clarify_prompt: %{} = prompt}} = statement,
          opts
        ) do
     with {:ok, intent} <-
            Delivery.commit_clarify_reply_in_tx(
-             repo,
              statement.signal,
              statement.completion.final_response,
              Statement.text(statement),
@@ -58,7 +54,6 @@ defmodule Ankole.Conversations.Delivery.Posting do
            ),
          {:ok, _} <-
            Interactions.open_in_tx(
-             repo,
              statement.signal,
              intent.payload["reply_presentation"],
              statement.now
@@ -67,10 +62,9 @@ defmodule Ankole.Conversations.Delivery.Posting do
     end
   end
 
-  defp reply_in_tx(repo, _target, %Statement{} = statement, opts) do
+  defp reply_in_tx(_target, %Statement{} = statement, opts) do
     if is_binary(Statement.text(statement)) do
       Delivery.commit_final_reply_in_tx(
-        repo,
         statement.signal,
         statement.completion.final_response,
         Statement.text(statement),

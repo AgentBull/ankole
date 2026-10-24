@@ -50,10 +50,10 @@ defmodule Ankole.Conversations.Attachments do
     do: {input, DateTime.utc_now(:microsecond)}
 
   def reuse_stored_attachments(input, provider_fact_states) do
-    conversation = External.get_conversation(Repo, input.provider_conversation_id)
+    conversation = External.get_conversation(input.provider_conversation_id)
 
     existing =
-      if conversation, do: External.get_message(Repo, conversation.id, input.provider_message_id)
+      if conversation, do: External.get_message(conversation.id, input.provider_message_id)
 
     case existing do
       %{message: %{attachments: stored}, external_ref: %{metadata: stored_metadata}}
@@ -206,17 +206,16 @@ defmodule Ankole.Conversations.Attachments do
   defp present(value) when is_binary(value) and value != "", do: value
   defp present(_value), do: nil
 
-  def prepare_in_tx(repo, agent_uid, conversation_id, message_id, attachments, existing) do
+  def prepare_in_tx(agent_uid, conversation_id, message_id, attachments, existing) do
     attachments
     |> List.wrap()
     |> Enum.with_index()
     |> Enum.map(fn {attachment, index} ->
-      put_attachment_id(repo, attachment, index, List.wrap(existing))
+      put_attachment_id(attachment, index, List.wrap(existing))
     end)
     |> scope(conversation_id)
     |> Enum.map(
       &link_attachment(
-        repo,
         agent_uid,
         %{conversation_id: conversation_id, message_id: message_id},
         &1
@@ -228,12 +227,12 @@ defmodule Ankole.Conversations.Attachments do
   Assigns native Message identities without exposing a queued upload in the Agent drive.
   A Message has its own path so a later upload cannot read or replace an Agent's edits to an older input.
   """
-  def prepare_native_in_tx(repo, conversation_id, message_id, attachments, existing) do
+  def prepare_native_in_tx(conversation_id, message_id, attachments, existing) do
     attachments
     |> Enum.with_index()
     |> Enum.map(fn {attachment, index} ->
       path = Files.content_path("inbox", attachment["blob_ref"], attachment["name"])
-      attachment = put_attachment_id(repo, attachment, index, existing)
+      attachment = put_attachment_id(attachment, index, existing)
       Map.put(attachment, "path", String.replace_prefix(path, "inbox/", "inbox/#{message_id}/"))
     end)
     |> scope(conversation_id)
@@ -244,7 +243,7 @@ defmodule Ankole.Conversations.Attachments do
   # second fetch fails after the first one stored the bytes, or reports before
   # it, the stored result with its `blob_ref` stays. This runs under the entry
   # lock, so the order in which two downloads finish cannot lose the bytes.
-  defp put_attachment_id(repo, attachment, index, existing_attachments)
+  defp put_attachment_id(attachment, index, existing_attachments)
        when is_map(attachment) do
     existing = matching_existing_attachment(attachment, index, existing_attachments)
 
@@ -254,12 +253,12 @@ defmodule Ankole.Conversations.Attachments do
       Map.put(
         attachment,
         "attachment_id",
-        valid_attachment_id(existing) || next_attachment_id(repo)
+        valid_attachment_id(existing) || next_attachment_id()
       )
     end
   end
 
-  defp put_attachment_id(_repo, attachment, _index, _existing_attachments), do: attachment
+  defp put_attachment_id(attachment, _index, _existing_attachments), do: attachment
 
   @doc """
   Names in the Agent's drive every stored attachment that an Signal
@@ -290,15 +289,15 @@ defmodule Ankole.Conversations.Attachments do
   def link_payload(_agent_uid, _payload, _channel_id), do: :ok
 
   @doc "Same as `link_payload/3` inside the caller's transaction on `repo`."
-  @spec link_payload_in_tx(module(), String.t(), map(), String.t() | nil) :: :ok
-  def link_payload_in_tx(repo, agent_uid, payload, channel_id)
+  @spec link_payload_in_tx(String.t(), map(), String.t() | nil) :: :ok
+  def link_payload_in_tx(agent_uid, payload, channel_id)
       when is_binary(agent_uid) and is_map(payload) do
     payload
     |> unlinked_attachments(agent_uid, channel_id)
-    |> Enum.each(&link_attachment(repo, agent_uid, %{conversation_id: channel_id}, &1))
+    |> Enum.each(&link_attachment(agent_uid, %{conversation_id: channel_id}, &1))
   end
 
-  def link_payload_in_tx(_repo, _agent_uid, _payload, _channel_id), do: :ok
+  def link_payload_in_tx(_agent_uid, _payload, _channel_id), do: :ok
 
   defp unlinked_attachments(payload, agent_uid, channel_id) do
     payload
@@ -397,7 +396,6 @@ defmodule Ankole.Conversations.Attachments do
   defp field(_value, _key), do: nil
 
   defp link_attachment(
-         repo,
          agent_uid,
          provenance,
          %{"blob_ref" => sha256, "path" => path} = attachment
@@ -405,11 +403,11 @@ defmodule Ankole.Conversations.Attachments do
        when is_binary(agent_uid) and is_binary(sha256) and is_binary(path) do
     linked_attachment(
       attachment,
-      Files.commit(repo, agent_uid, [drive_upsert(provenance, attachment)], [])
+      Files.commit_in_tx(agent_uid, [drive_upsert(provenance, attachment)], [])
     )
   end
 
-  defp link_attachment(_repo, _agent_uid, _fact, attachment), do: attachment
+  defp link_attachment(_agent_uid, _fact, attachment), do: attachment
 
   defp drive_upsert(provenance, attachment) do
     %{
@@ -490,17 +488,14 @@ defmodule Ankole.Conversations.Attachments do
 
   defp valid_attachment_id(_attachment), do: nil
 
-  defp next_attachment_id(repo) do
+  defp next_attachment_id() do
     %{rows: [[attachment_id]]} =
-      SQL.query!(repo, "SELECT nextval('#{@attachment_id_sequence}')", [])
+      SQL.query!(Repo, "SELECT nextval('#{@attachment_id_sequence}')", [])
 
     attachment_id
   end
 
-  def recent(conversation_id, author_id, at, opts \\ []),
-    do: recent(Repo, conversation_id, author_id, at, opts)
-
-  def recent(_repo, conversation_id, author_id, %DateTime{} = at, opts) do
+  def recent(conversation_id, author_id, %DateTime{} = at, opts \\ []) do
     since = DateTime.add(at, -Keyword.get(opts, :window_seconds, 120), :second)
     limit = Keyword.get(opts, :limit, 3)
     rows = Keyword.get(opts, :message_limit, max(20, limit))

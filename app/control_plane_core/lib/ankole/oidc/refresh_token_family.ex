@@ -43,11 +43,5 @@ defmodule Ankole.OIDC.RefreshTokenFamily do
       argument(:at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
       change(atomic_update(:revoked_at, expr(fragment("COALESCE(?, ?)", revoked_at, ^arg(:at)))))
     end
-
-    action :revoke_family, :term do
-      argument(:id, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 end

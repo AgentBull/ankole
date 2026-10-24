@@ -77,7 +77,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
     }
 
     assert {:ok, _turn} =
-             Repo.transact(fn repo -> Turns.upsert_from_worker_in_tx(repo, running, attrs) end)
+             Repo.transact(fn -> Turns.upsert_from_worker_in_tx(running, attrs) end)
 
     running
     |> Ecto.Changeset.change(status: :succeeded, completed_at: started_at)

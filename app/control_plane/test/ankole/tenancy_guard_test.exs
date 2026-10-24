@@ -18,7 +18,7 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/webhook.ex:consumers_for_app" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" =>
+    "across_tenants:../control_plane_core/lib/ankole_web/browser_auth.ex:perform_logout_confirmation" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:read_principals" =>
@@ -42,7 +42,7 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_worker_count" => 1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_workers" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:save_pod_authentications" =>
+    "across_tenants:../control_plane_core/lib/ankole/browser_sessions/pod_access.ex:save_pod_authentications" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" =>
       1,
@@ -126,7 +126,8 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" =>
       1,
-    "sql_fragment:../control_plane_core/lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
+    "sql_fragment:../control_plane_core/lib/ankole/browser_sessions/revocation.ex:cleanup_expired" =>
+      1,
     "sql_fragment:../control_plane_core/lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:finalized_batch_contains_source_entry?" =>

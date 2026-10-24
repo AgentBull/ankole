@@ -354,7 +354,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
 
     # The route disappears after the schedule froze its target list. One
     # unreachable target must not cancel the others.
-    secondary = External.get_conversation(Repo, "lark:oc_chaos_schedule_secondary")
+    secondary = External.get_conversation("lark:oc_chaos_schedule_secondary")
     assert secondary
     Repo.delete!(ctx.record_binding)
     assert {:ok, _preserved} = External.fetch_conversation(secondary.id)
@@ -377,7 +377,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     run_intent_dispatch!()
     rows = final_reply_rows(fire_input.id, message.id)
     by_channel = Map.new(rows, &{&1.conversation_id, &1})
-    live = Map.fetch!(by_channel, External.get_conversation(Repo, "lark:oc_chaos_schedule").id)
+    live = Map.fetch!(by_channel, External.get_conversation("lark:oc_chaos_schedule").id)
     gone = Map.fetch!(by_channel, secondary.id)
 
     refute live.status == :failed
@@ -404,7 +404,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     end
 
     for provider_id <- ["lark:oc_chaos_schedule", "lark:oc_chaos_schedule_secondary"] do
-      assert External.get_conversation(Repo, provider_id)
+      assert External.get_conversation(provider_id)
     end
 
     fire_input = fire_cron_schedule!(schedule)

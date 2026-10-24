@@ -10,15 +10,15 @@ contracts.
 Each aggregate operation (create, enable, delete, or update an Agent; create
 or update a Human; create a local account; platform subject upserts; Human
 access changes; mapping observations and reviews; work classification and
-cleanup; local password writes) is a generic action of
-`Ankole.Principals.Principal`, `MappingRequest`, or `LocalCredential`. The
-generic action owns the transaction and the lock order, and the resource
-actions run in it. Another domain does the same steps in its own transaction
-through the `_in_tx` functions, for example `Principals.create_human_in_tx/2`
-and `Principals.lock_principal_in_tx/3`; it cannot call the generic action
-there. The browser login completes a forced password change in its own
-transaction with `complete_forced_password_change_in_tx/4`; it hashes the
-password before that transaction.
+cleanup; local password writes) runs in `Repo.transact_top_level/2`, which owns
+the transaction and the lock order while the resource actions run inside it.
+Console `/api/v2` routes use generic actions on `Principal` and
+`MappingRequest`. Another domain runs the same steps in its own transaction
+through the `_in_tx` functions, for example `Principals.create_human_in_tx/1`
+and `Principals.lock_principal_in_tx/2`; it cannot call a top-level operation
+there. Browser login completes a forced password change in its own transaction
+with `complete_forced_password_change_in_tx/3`; it hashes the password before
+that transaction.
 A read of a Principal in any tenant uses the `allow_global` read action through
 `Principals.get_principal_across_tenants/1` in a `Repo.across_tenants` block.
 Profile actions accept only profile fields;
@@ -325,6 +325,14 @@ Agent cannot change.
 `update_agent` changes mutable display and subtype fields.
 It cannot change the UID or Principal type.
 
+Enable and delete transactions capture the affected Conversation IDs. The first
+delete request disables an active Agent; a delete request for a disabled Agent
+removes its durable rows. `Principals.publish_agent_changes/1` publishes status
+notifications in the Agent's tenant after commit, including for Conversations
+removed by that transaction. `Principals.publish_agent_deletion/1` then requests
+Worker reconciliation. Domain operations and the Console use these same
+publication functions. Their Principal and Agent return values stay distinct.
+
 The Console keeps an independent draft and content hash for each Agent Library
 document. A conflict reload replaces the draft only if the operator has not
 edited it, canceled it, started another reload, or left that source. A failed
@@ -346,8 +354,9 @@ explicit removal approval. Event review checks both the provider and event ID.
 stateless Ash transport resources. Their actions call the owning domain's
 public operations. They keep no rows and open no transaction. Each durable
 write stays with its existing domain action and PostgreSQL adapter.
-`AnkoleWeb.JSONAPI.Policy` sets the operator and selected data tenant before
-it authorizes the route through Principal/AuthZ.
+`AnkoleWeb.JSONAPI.Policy` resolves decoded route targets to their canonical
+identifiers, authorizes the route through Principal/AuthZ, and passes those
+resolved targets, the operator, and the selected data tenant to the Ash action.
 
 The Human access view at `/api/v2/principals/:uid/access` includes restrictions,
 permission review, history, affected work, and cleanup results. Access changes

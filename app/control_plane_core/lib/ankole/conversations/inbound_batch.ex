@@ -156,12 +156,5 @@ defmodule Ankole.Conversations.InboundBatch do
       change(transition_state(:canceled))
       change(atomic_update(:batch_revision, expr(batch_revision + 1)))
     end
-
-    action :finalize_due, :term do
-      argument(:batch_id, :term)
-      argument(:now, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 end

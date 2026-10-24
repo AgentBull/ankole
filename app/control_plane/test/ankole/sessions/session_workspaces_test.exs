@@ -55,9 +55,9 @@ defmodule Ankole.Sessions.SessionWorkspacesTest do
     assert {:ok, workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, "manual:epoch")
 
     assert {:ok, advanced} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                key = %{agent_uid: agent.uid, session_id: workspace.session_id}
-               locked = Ankole.Sessions.Fence.lock_workspace_in_tx(repo, key)
+               locked = Ankole.Sessions.Fence.lock_workspace_in_tx(key)
                Ankole.Ash.update(locked, :advance_epoch, %{})
              end)
 
@@ -84,8 +84,8 @@ defmodule Ankole.Sessions.SessionWorkspacesTest do
              Ankole.SessionsCase.ensure_workspace(agent.uid, "manual:epoch-snapshot")
 
     assert {:ok, {first, second}} =
-             Repo.transact(fn repo ->
-               locked = Ankole.Sessions.Fence.lock_workspace_in_tx(repo, workspace)
+             Repo.transact(fn ->
+               locked = Ankole.Sessions.Fence.lock_workspace_in_tx(workspace)
 
                with {:ok, first} <- Ankole.Ash.update(locked, :advance_epoch, %{}),
                     {:ok, second} <- Ankole.Ash.update(locked, :advance_epoch, %{}) do

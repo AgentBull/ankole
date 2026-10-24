@@ -240,30 +240,12 @@ defmodule Ankole.BackgroundAgentJobs.ConsoleOperations do
                     constraints: [
                       fields: [
                         last_model_call: [
-                          type: :map,
-                          constraints: [
-                            fields: [
-                              cached_input_tokens: [type: :integer, allow_nil?: false],
-                              input_tokens: [type: :integer, allow_nil?: false],
-                              output_tokens: [type: :integer, allow_nil?: false],
-                              reasoning_output_tokens: [type: :integer, allow_nil?: false],
-                              total_tokens: [type: :integer, allow_nil?: false]
-                            ]
-                          ],
+                          type: Ankole.BackgroundAgentJobs.ConsoleTokenUsage,
                           allow_nil?: false
                         ],
                         model_context_window: [type: :integer],
                         thread_total: [
-                          type: :map,
-                          constraints: [
-                            fields: [
-                              cached_input_tokens: [type: :integer, allow_nil?: false],
-                              input_tokens: [type: :integer, allow_nil?: false],
-                              output_tokens: [type: :integer, allow_nil?: false],
-                              reasoning_output_tokens: [type: :integer, allow_nil?: false],
-                              total_tokens: [type: :integer, allow_nil?: false]
-                            ]
-                          ],
+                          type: Ankole.BackgroundAgentJobs.ConsoleTokenUsage,
                           allow_nil?: false
                         ]
                       ]

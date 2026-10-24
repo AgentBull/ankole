@@ -5,7 +5,7 @@ defmodule Ankole.OIDC.Claims do
   # FOR SHARE holds the active Human and its profile until the tokens of the
   # grant are minted.
   def load(subject) do
-    case Principals.lock_active_human_in_tx(Ankole.Repo, subject) do
+    case Principals.lock_active_human_in_tx(subject) do
       {:ok, %{principal: principal, human_user: human}} -> {:ok, principal, human}
       {:error, _reason} -> {:error, :inactive_human}
     end

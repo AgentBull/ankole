@@ -77,15 +77,19 @@ import type {
   DecryptSiteWorkerEnvResponse,
   DeleteAiGatewayCredentialData,
   DeleteAiGatewayCredentialError,
+  DeleteAiGatewayCredentialResponse,
   DeleteAiGatewayProviderData,
   DeleteAiGatewayProviderError,
+  DeleteAiGatewayProviderResponse,
   DeleteSiteWorkerEnvData,
   DeleteSiteWorkerEnvError,
   DeleteSiteWorkerEnvResponse,
   DeleteTenantData,
   DeleteTenantError,
+  DeleteTenantResponse,
   DeleteWorkerProviderData,
   DeleteWorkerProviderError,
+  DeleteWorkerProviderResponse,
   EnableAiGatewayProviderData,
   EnableAiGatewayProviderError,
   EnableAiGatewayProviderResponse,
@@ -145,6 +149,7 @@ import type {
   ResetSiteAppConfigurationResponse,
   ResumeTenantData,
   ResumeTenantError,
+  ResumeTenantResponse,
   StartChatgptLoginData,
   StartChatgptLoginError,
   StartChatgptLoginResponse,
@@ -287,9 +292,13 @@ export const listAiGatewayProvidersOptions = (options?: Options<ListAiGatewayPro
  */
 export const deleteAiGatewayProviderMutation = (
   options?: Partial<Options<DeleteAiGatewayProviderData>>
-): UseMutationOptions<unknown, DeleteAiGatewayProviderError, Options<DeleteAiGatewayProviderData>> => {
+): UseMutationOptions<
+  DeleteAiGatewayProviderResponse,
+  DeleteAiGatewayProviderError,
+  Options<DeleteAiGatewayProviderData>
+> => {
   const mutationOptions: UseMutationOptions<
-    unknown,
+    DeleteAiGatewayProviderResponse,
     DeleteAiGatewayProviderError,
     Options<DeleteAiGatewayProviderData>
   > = {
@@ -512,9 +521,13 @@ export const addAiGatewayCredentialMutation = (
  */
 export const deleteAiGatewayCredentialMutation = (
   options?: Partial<Options<DeleteAiGatewayCredentialData>>
-): UseMutationOptions<unknown, DeleteAiGatewayCredentialError, Options<DeleteAiGatewayCredentialData>> => {
+): UseMutationOptions<
+  DeleteAiGatewayCredentialResponse,
+  DeleteAiGatewayCredentialError,
+  Options<DeleteAiGatewayCredentialData>
+> => {
   const mutationOptions: UseMutationOptions<
-    unknown,
+    DeleteAiGatewayCredentialResponse,
     DeleteAiGatewayCredentialError,
     Options<DeleteAiGatewayCredentialData>
   > = {
@@ -887,8 +900,8 @@ export const listTenantBrainPacksOptions = (options?: Options<ListTenantBrainPac
  */
 export const deleteTenantMutation = (
   options?: Partial<Options<DeleteTenantData>>
-): UseMutationOptions<unknown, DeleteTenantError, Options<DeleteTenantData>> => {
-  const mutationOptions: UseMutationOptions<unknown, DeleteTenantError, Options<DeleteTenantData>> = {
+): UseMutationOptions<DeleteTenantResponse, DeleteTenantError, Options<DeleteTenantData>> => {
+  const mutationOptions: UseMutationOptions<DeleteTenantResponse, DeleteTenantError, Options<DeleteTenantData>> = {
     mutationFn: async fnOptions => {
       const { data } = await deleteTenant({
         ...options,
@@ -925,8 +938,8 @@ export const updateTenantMutation = (
  */
 export const resumeTenantMutation = (
   options?: Partial<Options<ResumeTenantData>>
-): UseMutationOptions<unknown, ResumeTenantError, Options<ResumeTenantData>> => {
-  const mutationOptions: UseMutationOptions<unknown, ResumeTenantError, Options<ResumeTenantData>> = {
+): UseMutationOptions<ResumeTenantResponse, ResumeTenantError, Options<ResumeTenantData>> => {
+  const mutationOptions: UseMutationOptions<ResumeTenantResponse, ResumeTenantError, Options<ResumeTenantData>> = {
     mutationFn: async fnOptions => {
       const { data } = await resumeTenant({
         ...options,
@@ -1130,8 +1143,12 @@ export const createWorkerProviderMutation = (
  */
 export const deleteWorkerProviderMutation = (
   options?: Partial<Options<DeleteWorkerProviderData>>
-): UseMutationOptions<unknown, DeleteWorkerProviderError, Options<DeleteWorkerProviderData>> => {
-  const mutationOptions: UseMutationOptions<unknown, DeleteWorkerProviderError, Options<DeleteWorkerProviderData>> = {
+): UseMutationOptions<DeleteWorkerProviderResponse, DeleteWorkerProviderError, Options<DeleteWorkerProviderData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteWorkerProviderResponse,
+    DeleteWorkerProviderError,
+    Options<DeleteWorkerProviderData>
+  > = {
     mutationFn: async fnOptions => {
       const { data } = await deleteWorkerProvider({
         ...options,

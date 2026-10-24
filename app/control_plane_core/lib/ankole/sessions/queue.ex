@@ -23,22 +23,22 @@ defmodule Ankole.Sessions.Queue do
 
   Callers that also lock Signal rows must take this advisory lock first.
   """
-  @spec lock_session_in_tx(module(), String.t(), String.t()) :: :ok
-  def lock_session_in_tx(repo, agent_uid, session_id)
+  @spec lock_session_in_tx(String.t(), String.t()) :: :ok
+  def lock_session_in_tx(agent_uid, session_id)
       when is_binary(agent_uid) and is_binary(session_id) do
-    Ankole.AdvisoryLock.lock!(repo, {agent_uid, session_id})
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, {agent_uid, session_id})
 
     :ok
   end
 
   @doc "Locks every participating session before any workspace or Signal row."
-  def lock_sessions_in_tx(repo, sessions) do
+  def lock_sessions_in_tx(sessions) do
     case sessions |> Enum.uniq() |> Enum.sort() do
       [] ->
         :ok
 
       sorted ->
-        Ankole.AdvisoryLock.lock!(repo, sorted)
+        Ankole.AdvisoryLock.lock!(Ankole.Repo, sorted)
         :ok
     end
   end
@@ -50,15 +50,14 @@ defmodule Ankole.Sessions.Queue do
   owns the source tombstone check and completion
   timestamp.
   """
-  @spec complete_signal_in_tx(module(), Signal.t(), keyword()) ::
+  @spec complete_signal_in_tx(Signal.t(), keyword()) ::
           session_commit_result()
-  def complete_signal_in_tx(repo, %Signal{} = signal, opts) do
+  def complete_signal_in_tx(%Signal{} = signal, opts) do
     completed_at = Keyword.get(opts, :completed_at, DateTime.utc_now(:microsecond))
 
-    with :ok <- ensure_event_source_live_in_tx(repo, signal, completed_at),
+    with :ok <- ensure_event_source_live_in_tx(signal, completed_at),
          {:ok, completed_event} <-
            persist_signal_completion_in_tx(
-             repo,
              signal,
              Keyword.put(opts, :completed_at, completed_at)
            ) do
@@ -73,14 +72,13 @@ defmodule Ankole.Sessions.Queue do
   after earlier execution already completed it. Re-applying the source-entry
   tombstone guard here would cancel the lifecycle notice itself.
   """
-  @spec complete_entry_lifecycle_event_in_tx(module(), Signal.t(), keyword()) ::
+  @spec complete_entry_lifecycle_event_in_tx(Signal.t(), keyword()) ::
           session_commit_result()
   def complete_entry_lifecycle_event_in_tx(
-        repo,
         %Signal{type: "conversation.message.removed"} = signal,
         opts
       ) do
-    persist_signal_completion_in_tx(repo, signal, opts)
+    persist_signal_completion_in_tx(signal, opts)
   end
 
   @doc """
@@ -90,11 +88,11 @@ defmodule Ankole.Sessions.Queue do
   output. Individual Response terminals intentionally leave the Signal
   open and never pass through `complete_signal_in_tx/3`.
   """
-  @spec ensure_event_source_live_in_tx(module(), Signal.t(), DateTime.t()) ::
+  @spec ensure_event_source_live_in_tx(Signal.t(), DateTime.t()) ::
           :ok | {:error, :signal_canceled | :signal_context_canceled}
-  def ensure_event_source_live_in_tx(repo, %Signal{} = signal, %DateTime{} = now) do
-    with :ok <- reject_tombstoned_event_source(repo, signal, now),
-         do: reject_withdrawn_background(repo, signal)
+  def ensure_event_source_live_in_tx(%Signal{} = signal, %DateTime{} = now) do
+    with :ok <- reject_tombstoned_event_source(signal, now),
+         do: reject_withdrawn_background(signal)
   end
 
   @doc """
@@ -103,60 +101,56 @@ defmodule Ankole.Sessions.Queue do
   Command feedback is a provider-visible control response, not transcript or
   model output, so it deliberately has no AI message id.
   """
-  @spec complete_command_event_in_tx(module(), Signal.t(), keyword()) ::
+  @spec complete_command_event_in_tx(Signal.t(), keyword()) ::
           session_commit_result()
   def complete_command_event_in_tx(
-        repo,
         %Signal{type: "command." <> _name} = signal,
         opts
       ) do
-    complete_signal_in_tx(repo, signal, opts)
+    complete_signal_in_tx(signal, opts)
   end
 
   @doc """
   Completes a session-lifecycle event without requiring a worker turn fence.
   """
-  @spec complete_session_lifecycle_event_in_tx(module(), Signal.t(), keyword()) ::
+  @spec complete_session_lifecycle_event_in_tx(Signal.t(), keyword()) ::
           session_commit_result()
   def complete_session_lifecycle_event_in_tx(
-        repo,
         %Signal{type: "session." <> _name} = signal,
         opts
       ) do
-    complete_signal_in_tx(repo, signal, opts)
+    complete_signal_in_tx(signal, opts)
   end
 
-  defp persist_signal_completion_in_tx(repo, %Signal{} = signal, opts) do
+  defp persist_signal_completion_in_tx(%Signal{} = signal, opts) do
     with {:ok, %Signal{} = updated} <-
-           mark_event_completed(repo, signal, completion_attrs(opts)) do
+           mark_event_completed(signal, completion_attrs(opts)) do
       {:ok, updated}
     end
   end
 
-  def mark_event_completed_in_tx(repo, %Signal{} = signal, completed_at) do
+  def mark_event_completed_in_tx(%Signal{} = signal, completed_at) do
     with {:ok, %Signal{} = event} <-
-           mark_event_completed(repo, signal, %{completed_at: completed_at}) do
+           mark_event_completed(signal, %{completed_at: completed_at}) do
       {:ok, event}
     end
   end
 
   @doc false
   @spec mark_turn_event_completed_in_tx(
-          module(),
           Signal.t(),
           DateTime.t(),
           String.t() | nil,
           String.t()
         ) :: session_commit_result()
   def mark_turn_event_completed_in_tx(
-        repo,
         %Signal{} = signal,
         completed_at,
         final_response_id,
         turn_outcome
       ) do
     with {:ok, %Signal{} = event} <-
-           mark_event_completed(repo, signal, %{
+           mark_event_completed(signal, %{
              completed_at: completed_at,
              final_response_id: final_response_id,
              turn_outcome: turn_outcome
@@ -173,18 +167,17 @@ defmodule Ankole.Sessions.Queue do
   keeps a bounded, redacted copy of `reason`, so the row itself says why it
   was dead-lettered.
   """
-  @spec mark_event_dead_letter_in_tx(module(), Signal.t(), DateTime.t(), term()) ::
+  @spec mark_event_dead_letter_in_tx(Signal.t(), DateTime.t(), term()) ::
           session_commit_result()
   def mark_event_dead_letter_in_tx(
-        _repo,
         %Signal{status: :completed} = signal,
         _dead_letter_at,
         _reason
       ),
       do: {:ok, signal}
 
-  def mark_event_dead_letter_in_tx(repo, %Signal{} = signal, dead_letter_at, reason) do
-    Signals.transition_in_tx(repo, signal, :dead_letter, %{
+  def mark_event_dead_letter_in_tx(%Signal{} = signal, dead_letter_at, reason) do
+    Signals.transition_in_tx(signal, :dead_letter, %{
       dead_letter_at: dead_letter_at,
       dead_letter_reason: dead_letter_reason(reason)
     })
@@ -193,11 +186,11 @@ defmodule Ankole.Sessions.Queue do
   defp dead_letter_reason(reason) when is_map(reason), do: Sanitizer.transport(reason)
   defp dead_letter_reason(reason), do: %{"reason" => Sanitizer.transport(reason)}
 
-  defp mark_event_completed(_repo, %Signal{status: :dead_letter}, _attrs),
+  defp mark_event_completed(%Signal{status: :dead_letter}, _attrs),
     do: {:error, :signal_already_dead_lettered}
 
-  defp mark_event_completed(repo, %Signal{} = signal, attrs) when is_map(attrs),
-    do: Signals.transition_in_tx(repo, signal, :complete, attrs)
+  defp mark_event_completed(%Signal{} = signal, attrs) when is_map(attrs),
+    do: Signals.transition_in_tx(signal, :complete, attrs)
 
   defp completion_attrs(opts) do
     %{completed_at: Keyword.fetch!(opts, :completed_at)}
@@ -213,15 +206,15 @@ defmodule Ankole.Sessions.Queue do
     do: Signals.session_queue(key.agent_uid, key.session_id, due_at: now)
 
   @doc "The oldest open input, including future or unstarted work."
-  def oldest_open(_repo, uid, session),
+  def oldest_open(uid, session),
     do: uid |> Signals.session_queue(session, limit: 1) |> List.first()
 
   @doc "The oldest admitted open input, including a deferred retry."
-  def oldest_started(_repo, uid, session),
+  def oldest_started(uid, session),
     do: uid |> Signals.session_queue(session, started?: true, limit: 1) |> List.first()
 
   @doc "Returns runnable or admitted work for the public Session status."
-  def status_event(_repo, uid, session, now), do: Signals.session_status_signal(uid, session, now)
+  def status_event(uid, session, now), do: Signals.session_status_signal(uid, session, now)
 
   def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond)),
     do: uid |> Signals.session_queue(session, due_at: now, limit: 1) |> List.first()
@@ -230,7 +223,6 @@ defmodule Ankole.Sessions.Queue do
   # Events without provider entry identity cannot be matched to a deletion
   # tombstone, so they remain completable.
   defp reject_tombstoned_event_source(
-         _repo,
          %Signal{conversation_id: nil},
          _now
        ),
@@ -239,9 +231,9 @@ defmodule Ankole.Sessions.Queue do
   # Rejects completion if the source provider entry was tombstoned after the
   # Signal was queued. This keeps local generation from replying to content
   # that has already been withdrawn.
-  defp reject_tombstoned_event_source(_repo, %Signal{reply_binding_name: nil}, _now), do: :ok
+  defp reject_tombstoned_event_source(%Signal{reply_binding_name: nil}, _now), do: :ok
 
-  defp reject_tombstoned_event_source(_repo, %Signal{} = event, now) do
+  defp reject_tombstoned_event_source(%Signal{} = event, now) do
     provider_message_ids = Signal.input_provider_message_ids(event)
 
     case provider_message_ids do
@@ -265,12 +257,12 @@ defmodule Ankole.Sessions.Queue do
     end
   end
 
-  defp reject_withdrawn_background(_repo, %Signal{conversation_id: nil}), do: :ok
+  defp reject_withdrawn_background(%Signal{conversation_id: nil}), do: :ok
 
-  defp reject_withdrawn_background(repo, signal) do
+  defp reject_withdrawn_background(signal) do
     declared = if is_map(signal.data), do: List.wrap(signal.data["message_ids"]), else: []
     explicit_ids = [signal.message_id | declared]
-    background = Ankole.Sessions.ModelHistory.read_message_ids_in_tx(repo, signal) -- explicit_ids
+    background = Ankole.Sessions.ModelHistory.read_message_ids_in_tx(signal) -- explicit_ids
 
     {:ok, messages} =
       Ankole.Conversations.list_messages(

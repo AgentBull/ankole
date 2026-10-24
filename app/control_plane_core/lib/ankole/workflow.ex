@@ -2,9 +2,10 @@ defmodule Ankole.Workflow do
   @moduledoc """
   The Workflow domain: durable program runs and their Agent calls.
 
-  This module is the boundary API. Each write operation is a generic action
-  that owns its transaction and must be the top-level call. Code that already
-  runs in a transaction composes the `_in_tx` functions of the owner modules
+  This module declares cross-domain interfaces. RunServer calls the replay
+  and recovery owner modules directly. Each top-level write owns its transaction
+  and post-commit work. Code that already runs in a transaction composes the
+  `_in_tx` functions of the owner modules
   (`Ankole.Workflow.TaskLifecycle`, `Ankole.Workflow.Lifecycle`, and
   `Ankole.Workflow.Slot`) and calls `cleanup_terminal_transition/1` after its
   commit.
@@ -16,7 +17,9 @@ defmodule Ankole.Workflow do
 
   @behaviour Ankole.Sessions.AsyncWorkUnit
 
+  alias Ankole.Repo
   alias Ankole.Workflow.Lifecycle
+  alias Ankole.Workflow.Mail
   alias Ankole.Workflow.Queries
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run
@@ -25,7 +28,6 @@ defmodule Ankole.Workflow do
     resource Run do
       define(:get_run, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_runs, action: :read)
-      define(:reauthorize_run, action: :reauthorize)
     end
 
     resource AgentCall do
@@ -48,68 +50,20 @@ defmodule Ankole.Workflow do
 
   @doc "Creates or finds the run of one Workflow tool call."
   def create_with_dispatch(attrs),
-    do: Ankole.Ash.run_action(Run, :create_with_dispatch, %{attrs: attrs})
+    do: Repo.transact_top_level(fn -> Lifecycle.create_with_dispatch_in_tx(attrs) end)
 
   @doc "Sends an owner message to one live task of a run."
   def send_task_message(run_id, call_seq, agent_uid, message, source_tool_call_id) do
-    Ankole.Ash.run_action(AgentCall, :send_task_message, %{
-      run_id: run_id,
-      call_seq: call_seq,
-      agent_uid: agent_uid,
-      message: message,
-      source_tool_call_id: source_tool_call_id
-    })
+    Repo.transact_top_level(fn ->
+      Mail.send_task_message_in_tx(run_id, call_seq, agent_uid, message, source_tool_call_id)
+    end)
   end
 
   @doc "Defers a task Signal until the Agent has free Workflow capacity."
   def defer_task_event(signal, available_at, reason) do
-    Ankole.Ash.run_action(AgentCall, :defer_task_event, %{
-      signal: signal,
-      available_at: available_at,
-      reason: reason
-    })
-  end
-
-  @doc "Commits the new Agent calls of one replay under its memo fence."
-  def commit_replay_pending(run_id, pending_calls, expected_memo_length) do
-    Ankole.Ash.run_action(Run, :commit_replay_pending, %{
-      run_id: run_id,
-      pending_calls: pending_calls,
-      expected_memo_length: expected_memo_length
-    })
-  end
-
-  @doc "Completes a run with the result of its final replay."
-  def complete_replay(run_id, result_text, expected_memo_length) do
-    Ankole.Ash.run_action(Run, :complete_replay, %{
-      run_id: run_id,
-      result_text: result_text,
-      expected_memo_length: expected_memo_length
-    })
-  end
-
-  @doc "Fails a run with the error of its final replay."
-  def fail_replay(run_id, code, summary, expected_memo_length) do
-    Ankole.Ash.run_action(Run, :fail_replay, %{
-      run_id: run_id,
-      code: code,
-      summary: summary,
-      expected_memo_length: expected_memo_length
-    })
-  end
-
-  @doc """
-  Requeues or fails the stale and overdue tasks of a run.
-
-  A released task slot wakes the next capacity waiter after the commit. The
-  caller does the terminal cleanup with `Lifecycle.cleanup_committed/1`.
-  """
-  def reconcile_stale_tasks(run_id, cutoff, reconciled_at) do
-    Ankole.Ash.run_action(Run, :reconcile_stale_tasks, %{
-      run_id: run_id,
-      cutoff: cutoff,
-      reconciled_at: reconciled_at
-    })
+    Repo.transact_top_level(fn ->
+      Mail.defer_task_event_in_tx(signal, available_at, reason)
+    end)
   end
 
   @doc "Wakes the owner process of each run that still needs replay or cleanup."

@@ -119,18 +119,7 @@ defmodule Ankole.BackgroundActivities.ConsoleOperations do
                     allow_nil?: false
                   ],
                   run_counts: [
-                    type: :map,
-                    constraints: [
-                      fields: [
-                        cancelled: [type: :integer, allow_nil?: false],
-                        failed: [type: :integer, allow_nil?: false],
-                        queued: [type: :integer, allow_nil?: false],
-                        running: [type: :integer, allow_nil?: false],
-                        sleeping: [type: :integer, allow_nil?: false],
-                        succeeded: [type: :integer, allow_nil?: false],
-                        total: [type: :integer, allow_nil?: false]
-                      ]
-                    ],
+                    type: Ankole.BackgroundActivities.ConsoleRunCounts,
                     allow_nil?: false
                   ],
                   run_error_code: [type: :string, constraints: [trim?: false, allow_empty?: true]],
@@ -189,18 +178,7 @@ defmodule Ankole.BackgroundActivities.ConsoleOperations do
                   cleanup_pending: [type: :boolean, allow_nil?: false],
                   completed_at: [type: :string, constraints: [trim?: false, allow_empty?: true]],
                   counts: [
-                    type: :map,
-                    constraints: [
-                      fields: [
-                        cancelled: [type: :integer, allow_nil?: false],
-                        failed: [type: :integer, allow_nil?: false],
-                        queued: [type: :integer, allow_nil?: false],
-                        running: [type: :integer, allow_nil?: false],
-                        sleeping: [type: :integer, allow_nil?: false],
-                        succeeded: [type: :integer, allow_nil?: false],
-                        total: [type: :integer, allow_nil?: false]
-                      ]
-                    ],
+                    type: Ankole.BackgroundActivities.ConsoleRunCounts,
                     allow_nil?: false
                   ],
                   error_code: [type: :string, constraints: [trim?: false, allow_empty?: true]],

@@ -82,6 +82,10 @@ defmodule Ankole.Files.Schemas.DriveFile do
   actions do
     defaults([:read])
 
+    read :list_page do
+      pagination(offset?: true, max_page_size: 5000, countable: false)
+    end
+
     create :commit do
       accept([
         :agent_uid,
@@ -125,39 +129,6 @@ defmodule Ankole.Files.Schemas.DriveFile do
       upsert_identity(:drive_path)
       upsert_fields([:path])
       upsert_condition(expr(false))
-    end
-
-    # Drive operations. Each one owns its transaction and takes the drive lock
-    # before it reads or changes paths.
-    action :commit_paths, :term do
-      argument(:drive, :term)
-      argument(:upserts, :term)
-      argument(:deletes, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :move_paths, :term do
-      argument(:drive, :term)
-      argument(:from, :term)
-      argument(:to, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :delete_paths, :term do
-      argument(:drive, :term)
-      argument(:path, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :list_snapshot, :term do
-      argument(:drive, :term)
-      argument(:prefix, :term)
-      argument(:opts, :term)
-
-      run(__MODULE__.Actions)
     end
   end
 

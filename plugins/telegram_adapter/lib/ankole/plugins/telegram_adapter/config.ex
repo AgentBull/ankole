@@ -73,10 +73,10 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
 
   def validate_binding_config(_value), do: {:error, :invalid_telegram_binding_config}
 
-  @spec validate_binding_assignment(module(), String.t(), String.t(), t()) ::
+  @spec validate_binding_assignment(String.t(), String.t(), t()) ::
           :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
+  def validate_binding_assignment(agent_uid, binding_name, config)
+      when is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
     fingerprint = secret_fingerprint(config)
 
     Ankole.Signals.list_bindings!(
@@ -89,7 +89,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
       ]
     )
     |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
+      case Bindings.binding_config_in_tx(binding, __MODULE__) do
         {:ok, other} ->
           if secret_fingerprint(other) == fingerprint do
             {:halt,

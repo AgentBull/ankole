@@ -121,7 +121,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     assert {:ok, token} = AgentWorkers.credential(first)
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+             Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     deleting = Repo.get!(AgentWorker, uid)
     assert deleting.generation == first.generation
@@ -188,7 +188,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^uid), set: [provider_id: nil])
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+             Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
     assert Repo.get(AgentWorker, uid) == nil

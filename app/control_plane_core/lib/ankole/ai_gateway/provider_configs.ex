@@ -21,6 +21,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   require Ash.Query
 
   alias Ankole.Attrs
+  alias Ankole.Repo
   alias Ecto.Adapters.SQL
 
   alias Ankole.AIGateway.ChatGPTAuth
@@ -246,10 +247,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec delete_provider(String.t()) :: provider_result()
   def delete_provider(provider_id) when is_binary(provider_id),
-    do:
-      Provider
-      |> Ankole.Ash.run_action(:retire, %{provider_id: provider_id})
-      |> Ankole.Errors.reason()
+    do: Repo.transact_top_level(fn -> retire(%{provider_id: provider_id}) end)
 
   @doc false
   # Runs the `:retire` action of the Provider resource.
@@ -271,9 +269,9 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @spec enable_provider(String.t()) :: provider_result()
   def enable_provider(provider_id) when is_binary(provider_id),
     do:
-      Provider
-      |> Ankole.Ash.run_action(:enable_provider, %{provider_id: provider_id})
-      |> Ankole.Errors.reason()
+      Repo.transact_top_level(fn ->
+        change_locked(%{provider_id: provider_id, update: :enable, params: %{}})
+      end)
 
   @doc """
   Selects, decrypts, and refreshes one provider credential.
@@ -342,12 +340,9 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   @doc "Persists a cooldown only for the attributed credential revision."
   def put_credential_cooldown(row_id, credential, %DateTime{} = until, reason) do
-    case Ankole.Ash.run_action(Provider, :put_cooldown, %{
-           row_id: row_id,
-           credential: credential,
-           until: until,
-           reason: reason
-         }) do
+    case Repo.transact_top_level(fn ->
+           put_cooldown(%{row_id: row_id, credential: credential, until: until, reason: reason})
+         end) do
       {:ok, _provider} -> :ok
       error -> error
     end
@@ -452,11 +447,13 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         ) :: {:ok, map()} | {:error, term()}
   def update_credential_under_lock(provider_id, credential_id, callback)
       when is_binary(provider_id) and is_binary(credential_id) and is_function(callback, 3) do
-    Ankole.Ash.run_action(Provider, :rotate_credential, %{
-      provider_id: provider_id,
-      credential_id: credential_id,
-      callback: callback
-    })
+    Repo.transact_top_level(fn ->
+      rotate_credential(%{
+        provider_id: provider_id,
+        credential_id: credential_id,
+        callback: callback
+      })
+    end)
   end
 
   @doc false
@@ -534,11 +531,9 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   # credential pool.
   defp change(provider_id, update, params),
     do:
-      Ankole.Ash.run_action(Provider, :change, %{
-        provider_id: provider_id,
-        update: update,
-        params: params
-      })
+      Repo.transact_top_level(fn ->
+        change_locked(%{provider_id: provider_id, update: update, params: params})
+      end)
 
   @doc false
   # Runs the `:change` action of the Provider resource.
@@ -562,10 +557,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   # live inside each agent's `options` JSON, so the database filters and expands
   # only matching JSONB profile entries.
   @doc false
-  def provider_references(repo, provider_id) do
+  def provider_references(provider_id) do
     %{rows: rows} =
       SQL.query!(
-        repo,
+        Repo,
         """
         SELECT agent.uid || ':' || profile.key AS reference
         FROM agents AS agent
@@ -587,7 +582,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
       )
 
     with {:ok, brain_references} <-
-           Ankole.Brain.Config.model_provider_references(repo, provider_id) do
+           Ankole.Brain.Config.model_provider_references(provider_id) do
       Enum.map(rows, fn [reference] -> reference end) ++ brain_references
     end
   end

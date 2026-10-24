@@ -24,13 +24,13 @@ The site-owned `Tenant` resource belongs to the `Ankole.Tenants` domain. Its
 typed actions own profile validation and persistence. Profile writes cannot set
 suspension or deletion markers. Dedicated lifecycle actions set those markers;
 repeated deletion preserves the first deletion time. The final destroy action
-requires a deletion marker. Each lifecycle operation (scaffold, profile
-change, suspend, resume, begin deletion, site-administration transfer) and the
-creation are generic actions of `Tenant`. A lifecycle action locks the
-site-administration row and then the tenant row in its own transaction, and
-checks the protected tenant. Another domain does the same steps in its
-transaction through the `_in_tx` functions, for example `Tenants.create_in_tx/2`
-in the SaaS Pod creation. The site JSON:API serves these actions at
+requires a deletion marker. `Ankole.Tenants` runs each lifecycle operation
+(create, scaffold, profile change, suspend, resume, begin deletion,
+site-administration transfer) in `Repo.transact_top_level/2`. Each lifecycle
+write locks the site-administration row and then the tenant row, and checks the
+protected tenant. Another domain runs the same steps in its transaction through
+the `_in_tx` functions, for example `Tenants.create_in_tx/1` in SaaS Pod
+creation. `Tenant` declares generic actions for the site JSON:API at
 `/api/v2/site/tenants` (list, Brain pack names, create, profile change,
 suspension as `POST`/`DELETE …/suspension`, begin deletion) and
 `/api/v2/site/privileged-tenant` (read, transfer). The
@@ -89,15 +89,15 @@ The Repo scopes scalar queries inside batch rows and conflict queries. A CTE
 join uses its scoped inner query rather than a tenant column on its projection.
 
 Ash runs synchronously. All bulk actions use `Ankole.Ash`, which fixes their
-concurrency at one. A generic action owns its transaction. It must be the
-top-level call, and its `after_commit` function runs only after its commit. A
-create, update, or destroy action runs in the transaction of its generic action,
+concurrency at one. `Repo.transact_top_level/2` and resource generic actions own
+top-level transactions, and their `after_commit` functions run only after
+commit. A create, update, or destroy action runs in the caller's transaction,
 or alone as one statement. It does not upgrade itself to an atomic write; an
 action that must be atomic declares `require_atomic? true`. Rejection occurs in
-changes or validations before database execution, so the generic action can
-commit compensation. Transaction hooks and action hooks are rejected on resource
-actions. The default error handler of each resource action gives the declared
-exceptions of `Ankole.Errors`.
+changes or validations before database execution, so the enclosing transaction
+can commit compensation. Transaction hooks and action hooks are rejected on
+resource actions. The default error handler of each resource action gives the
+declared exceptions of `Ankole.Errors`.
 Ecto migrations own the database tables through `migrate? false` and
 install the SQL expression functions that Ash requires. The schema test checks
 resource constraint and index mappings against the selected edition's database.
@@ -200,7 +200,7 @@ The work shell belongs to the tenant's slug host: locally,
 subdomain. Pages and Conversations use `/pages/<short-uuid>` and
 `/conversations/<short-uuid>`. Kernel encodes each UUID's 16 bytes as canonical,
 unpadded base64url (22 characters). Durable storage, internal `ankole:page`
-references and the private browser API at `/.internal-apis/pod` keep full UUIDs.
+references and the private browser API at `/api/v2/pod` keep full UUIDs.
 
 The Host selects the tenant. Normal navigation does not carry `tenant_id` or
 use a `/pod` prefix. Legacy browser paths redirect to the canonical host and

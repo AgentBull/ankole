@@ -19,9 +19,9 @@ defmodule Ankole.AIGateway.ToolResultJournal do
   consume applied input, and delete its receipts in one commit. The returned
   row becomes the next `previous_response_id`.
   """
-  @spec record_tool_results_in_tx(module(), map()) ::
+  @spec record_tool_results_in_tx(map()) ::
           {:ok, Message.t(), :inserted | :existing} | {:error, term()}
-  def record_tool_results_in_tx(repo, attrs) when is_map(attrs) do
+  def record_tool_results_in_tx(attrs) when is_map(attrs) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     previous_response_id = previous_response_id(attrs)
     request_items = Ankole.Attrs.get(attrs, :request_items, [])
@@ -54,7 +54,6 @@ defmodule Ankole.AIGateway.ToolResultJournal do
             })
 
           insert_tool_result_journal(
-            repo,
             anchor,
             reconciled_items,
             merged_metadata,
@@ -63,7 +62,6 @@ defmodule Ankole.AIGateway.ToolResultJournal do
 
         {:quarantine, reason, details} ->
           quarantine_tool_result_items(
-            repo,
             anchor,
             request_items,
             extra_metadata,
@@ -80,7 +78,6 @@ defmodule Ankole.AIGateway.ToolResultJournal do
   end
 
   defp insert_tool_result_journal(
-         repo,
          %Message{} = anchor,
          request_items,
          metadata,
@@ -99,7 +96,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
              journal_key: idempotency_key
            }) do
       if message.id == id do
-        :ok = Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
+        :ok = Conversations.touch_conversation_in_tx(anchor.conversation_id)
         {:ok, message, :inserted}
       else
         {:ok, message, :existing}
@@ -254,7 +251,6 @@ defmodule Ankole.AIGateway.ToolResultJournal do
   end
 
   defp quarantine_tool_result_items(
-         repo,
          anchor,
          request_items,
          extra_metadata,
@@ -295,7 +291,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
              journal_key: idempotency_key
            }) do
       if message.id == id,
-        do: Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
+        do: Conversations.touch_conversation_in_tx(anchor.conversation_id)
 
       tool_results_quarantined_error(message, quarantine)
     end

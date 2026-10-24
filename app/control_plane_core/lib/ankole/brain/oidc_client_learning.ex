@@ -22,6 +22,7 @@ defmodule Ankole.Brain.OIDCClientLearning do
   alias Ankole.JSON
   alias Ankole.Logging
   alias Ankole.OIDC
+  alias Ankole.Repo
 
   def sweep do
     if Config.enabled?() do
@@ -129,15 +130,15 @@ defmodule Ankole.Brain.OIDCClientLearning do
     with {:ok, extraction} <-
            SourceLearning.extract_items(slug, title, conversation_excerpts(material.requests)),
          {:ok, %{object: object, written: written}} <-
-           Ankole.Ash.run_action(Source, :learn_oidc_conversation, %{
-             run: %{
+           Repo.transact_top_level(fn ->
+             learn_conversation_in_tx(%{
                source: source,
                attrs: attrs,
                previous: previous,
                items: extraction.items,
                scope: scope
-             }
-           }) do
+             })
+           end) do
       if written.rejected > 0 do
         Logging.warning(
           "brain.oidc_client_items_rejected",
@@ -162,10 +163,10 @@ defmodule Ankole.Brain.OIDCClientLearning do
   def learn_conversation_in_tx(%{source: source, attrs: attrs} = run) do
     session = "source:#{source.id}"
 
-    with {:ok, current} <- Sources.lock_active(Ankole.Repo, source),
+    with {:ok, current} <- Sources.lock_active(source),
          :ok <- ensure_current(current, source, attrs.slug, run.previous),
          {:ok, object} <- Objects.upsert_source_projection_in_tx(current, attrs),
-         _expired = Claims.expire_source_session_facts(Ankole.Repo, object.slug, session),
+         _expired = Claims.expire_source_session_facts(object.slug, session),
          {:ok, written} <- SourceLearning.write_claims(object, run.items, run.scope, session),
          {:ok, _source} <- Ankole.Ash.update(current, :record_sync, %{}) do
       {:ok, %{object: object, written: written}}

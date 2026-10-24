@@ -54,12 +54,10 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
       |> MapSet.new(&{&1["agent_uid"], &1["binding_name"], &1["outbound_key"]})
 
     keys =
-      Repo.across_tenants(fn ->
-        Intent
-        |> Ash.Query.for_read(:due_across_tenants, %{now: now, recovery_before: recovery_before})
-        |> Ash.Query.select([:agent_uid, :binding_name, :outbound_key, :tenant_id])
-        |> Ash.read!(authorize?: false)
-      end)
+      Intent
+      |> Ash.Query.for_read(:due_across_tenants, %{now: now, recovery_before: recovery_before})
+      |> Ash.Query.select([:agent_uid, :binding_name, :outbound_key, :tenant_id])
+      |> Ankole.Ash.read_across_tenants!()
       |> Enum.reject(
         &MapSet.member?(active_keys, {&1.agent_uid, &1.binding_name, &1.outbound_key})
       )
@@ -195,16 +193,15 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
          %Adapter{} = adapter,
          now
        ) do
-    agent_uid
-    |> Ankole.Conversations.claim_intent_dispatch(binding_name, outbound_key, adapter, now)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      claim_in_tx(agent_uid, binding_name, outbound_key, adapter, now)
+    end)
   end
 
   @doc false
-  def claim_in_tx(repo, agent_uid, binding_name, outbound_key, %Adapter{} = adapter, now) do
+  def claim_in_tx(agent_uid, binding_name, outbound_key, %Adapter{} = adapter, now) do
     with %Intent{} = intent <-
            Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
-             repo,
              agent_uid,
              binding_name,
              outbound_key
@@ -224,14 +221,14 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
           {:ok, {:reconcile, intent, conversation, adapter}}
 
         {:unknown, intent, reason} ->
-          Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, reason, now)
+          Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(intent, reason, now)
 
         :continue ->
-          prepare_fresh_intent_dispatch(repo, intent, conversation, adapter, now)
+          prepare_fresh_intent_dispatch(intent, conversation, adapter, now)
       end
     else
       nil -> {:error, :intent_not_found}
-      {:unsupported, intent} -> mark_intent_unsupported(repo, intent)
+      {:unsupported, intent} -> mark_intent_unsupported(intent)
       {:error, _reason} = error -> error
     end
   end
@@ -442,26 +439,26 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # can perform the operation, then flip it to :pending (which also stamps
   # platform_send_started_at and bumps attempt_count). All under the row lock
   # held by the caller, so two dispatchers can't both claim the same row.
-  defp prepare_fresh_intent_dispatch(repo, intent, conversation, adapter, now) do
+  defp prepare_fresh_intent_dispatch(intent, conversation, adapter, now) do
     if intent.expires_at && DateTime.compare(intent.expires_at, now) != :gt do
       with {:ok, expired} <-
              Ankole.Ash.update(intent, :expire, %{}),
-           :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, expired),
+           :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(expired),
            do: {:ok, expired}
     else
-      claim_intent(repo, intent, conversation, adapter, now)
+      claim_intent(intent, conversation, adapter, now)
     end
   end
 
-  defp claim_intent(repo, intent, conversation, adapter, now) do
+  defp claim_intent(intent, conversation, adapter, now) do
     with :ok <- dispatchable_intent?(intent, now),
          :ok <- attachments_migrated(intent),
-         {:ok, intent} <- degrade_threaded_reply(repo, intent, adapter),
+         {:ok, intent} <- degrade_threaded_reply(intent, adapter),
          :ok <- intent_supported?(intent, conversation, adapter),
-         {:ok, sending_intent} <- mark_intent_sending(repo, intent, now) do
+         {:ok, sending_intent} <- mark_intent_sending(intent, now) do
       {:ok, {:send, sending_intent, conversation, adapter}}
     else
-      {:unsupported, intent} -> mark_intent_unsupported(repo, intent)
+      {:unsupported, intent} -> mark_intent_unsupported(intent)
       {:error, _reason} = error -> error
     end
   end
@@ -483,7 +480,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # what it can do. Rewriting the row keeps the attempted operation durable, and
   # the reply anchor stays: it records what the message answers, and no adapter
   # that needs this degrade reads it.
-  defp degrade_threaded_reply(_repo, %Intent{operation: :reply} = intent, adapter) do
+  defp degrade_threaded_reply(%Intent{operation: :reply} = intent, adapter) do
     case Ankole.Conversations.Delivery.effective_operation(:reply, Adapter.capabilities(adapter)) do
       :reply ->
         {:ok, intent}
@@ -493,7 +490,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  defp degrade_threaded_reply(_repo, %Intent{} = intent, _adapter), do: {:ok, intent}
+  defp degrade_threaded_reply(%Intent{} = intent, _adapter), do: {:ok, intent}
 
   # The resource owns attempt admission. Dispatch also checks retry policy and time.
   defp dispatchable_intent?(%Intent{status: :pending} = intent, _now),
@@ -615,15 +612,15 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # Reconcile durable AI replies that have a reply presentation and a provider
   # reconciliation capability. Other sends have no provable outcome after a
   # crash, so recovery marks them unknown instead of repeating the operation.
-  defp mark_intent_sending(repo, intent, now) do
+  defp mark_intent_sending(intent, now) do
     with {:ok, %Intent{} = intent} <-
            Ankole.Ash.update(intent, :start_attempt, %{platform_send_started_at: now}),
-         :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, intent) do
+         :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(intent) do
       {:ok, intent}
     end
   end
 
-  defp mark_intent_unsupported(_repo, intent) do
+  defp mark_intent_unsupported(intent) do
     Ankole.Ash.update(intent, :fail, %{
       next_attempt_at: nil,
       last_error: %{"code" => "unsupported_operation"},
@@ -706,27 +703,22 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # reply can retry inside the same bound after it gains a possible-duplicate
   # notice; other uncertain operations stop.
   defp finalize_intent_send(send_result, intent, conversation, now) do
-    intent
-    |> Ankole.Conversations.finalize_intent_attempt(:send, send_result, conversation, now)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      finalize_in_tx(intent, :send, send_result, conversation, now)
+    end)
   end
 
   defp finalize_intent_reconcile(reconcile_result, intent, conversation, now) do
-    intent
-    |> Ankole.Conversations.finalize_intent_attempt(
-      :reconcile,
-      reconcile_result,
-      conversation,
-      now
-    )
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      finalize_in_tx(intent, :reconcile, reconcile_result, conversation, now)
+    end)
   end
 
   @doc false
-  def finalize_in_tx(repo, intent, phase, result, conversation, now) do
-    case refetch_claimed_intent(repo, intent, Atom.to_string(phase)) do
+  def finalize_in_tx(intent, phase, result, conversation, now) do
+    case refetch_claimed_intent(intent, Atom.to_string(phase)) do
       {:ok, current_intent} ->
-        record_outcome(repo, phase, result, current_intent, conversation, now)
+        record_outcome(phase, result, current_intent, conversation, now)
 
       {:stale, current_intent} ->
         {:ok, current_intent}
@@ -736,35 +728,33 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  defp record_outcome(repo, _phase, {:ok, result}, intent, conversation, now),
+  defp record_outcome(_phase, {:ok, result}, intent, conversation, now),
     do:
       Ankole.Conversations.Delivery.Mirror.finalize_successful_intent(
-        repo,
         intent,
         conversation,
         result,
         now
       )
 
-  defp record_outcome(repo, :send, {:error, reason}, intent, _conversation, now),
-    do: Ankole.Conversations.Delivery.Recovery.mark_intent_failed(repo, intent, reason, now)
+  defp record_outcome(:send, {:error, reason}, intent, _conversation, now),
+    do: Ankole.Conversations.Delivery.Recovery.mark_intent_failed(intent, reason, now)
 
-  defp record_outcome(repo, :reconcile, {:error, reason}, intent, _conversation, now) do
+  defp record_outcome(:reconcile, {:error, reason}, intent, _conversation, now) do
     detail = %{"reason" => "reconciliation adapter error", "error" => reason}
-    Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, detail, now)
+    Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(intent, detail, now)
   end
 
-  defp record_outcome(repo, _phase, {:unknown, detail}, intent, _conversation, now),
-    do: Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, detail, now)
+  defp record_outcome(_phase, {:unknown, detail}, intent, _conversation, now),
+    do: Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(intent, detail, now)
 
-  defp record_outcome(repo, phase, :unknown, intent, _conversation, now) do
+  defp record_outcome(phase, :unknown, intent, _conversation, now) do
     reason =
       if phase == :send,
         do: "adapter could not confirm provider delivery",
         else: "reconciliation could not confirm provider send"
 
     Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-      repo,
       intent,
       %{"reason" => reason},
       now
@@ -778,8 +768,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # and committed first, so the first committed outcome wins and the late
   # result becomes a logged no-op. Without this fence a late error could turn
   # a delivered succeeded row back into a retryable one and post a duplicate.
-  defp refetch_claimed_intent(repo, %Intent{} = intent, phase) do
-    case Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(repo, intent) do
+  defp refetch_claimed_intent(%Intent{} = intent, phase) do
+    case Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(intent) do
       %Intent{} = current_intent ->
         if current_intent.status == :pending and
              current_intent.attempt_count == intent.attempt_count and

@@ -203,10 +203,9 @@ defmodule Ankole.ConversationsTest do
                event = Repo.one!(Signal)
 
                with {:ok, _} <-
-                      Ankole.ConversationsFixtures.post_statement_in_tx(Repo, event, "Answer"),
+                      Ankole.ConversationsFixtures.post_statement_in_tx(event, "Answer"),
                     {:ok, event} <-
                       Ankole.Sessions.Queue.mark_event_completed_in_tx(
-                        Repo,
                         event,
                         DateTime.utc_now(:microsecond)
                       ),
@@ -226,14 +225,12 @@ defmodule Ankole.ConversationsTest do
 
                with {:ok, _} <-
                       Ankole.ConversationsFixtures.post_statement_in_tx(
-                        Repo,
                         event,
                         "Work stopped",
                         kind: :notice
                       ),
                     {:ok, event} <-
                       Ankole.Sessions.Queue.mark_event_completed_in_tx(
-                        Repo,
                         event,
                         DateTime.utc_now(:microsecond)
                       ),
@@ -294,9 +291,9 @@ defmodule Ankole.ConversationsTest do
     end
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, {%{status: :disabled}, _ids}} =
-                        Ankole.Principals.delete_agent_in_tx(repo, agent.uid)
+                        Ankole.Principals.delete_agent_in_tx(agent.uid)
 
                {:error, :rollback}
              end)
@@ -313,9 +310,9 @@ defmodule Ankole.ConversationsTest do
     assert_receive {:conversation_event, ^second_id, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, {%{status: :active}, _ids}} =
-                        Ankole.Principals.enable_agent_in_tx(repo, agent.uid)
+                        Ankole.Principals.enable_agent_in_tx(agent.uid)
 
                {:error, :rollback}
              end)
@@ -323,9 +320,9 @@ defmodule Ankole.ConversationsTest do
     refute_receive {:conversation_event, _, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, {%{status: :disabled}, _ids}} =
-                        Ankole.Principals.delete_agent_in_tx(repo, agent.uid)
+                        Ankole.Principals.delete_agent_in_tx(agent.uid)
 
                {:error, :rollback}
              end)
@@ -437,9 +434,9 @@ defmodule Ankole.ConversationsTest do
     :ok = Conversations.Events.subscribe(attrs.conversation_id)
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, %{publications: [_]}} =
-                        Conversations.create_in_tx(repo, human.uid, attrs)
+                        Conversations.create_in_tx(human.uid, attrs)
 
                refute_received {:conversation_event, _, _}
                {:error, :rollback}
@@ -473,11 +470,11 @@ defmodule Ankole.ConversationsTest do
     event = Repo.one!(Signal)
 
     assert {:ok, %{messages: []}} =
-             in_tx(fn -> Ankole.ConversationsFixtures.post_statement_in_tx(Repo, event, nil) end)
+             in_tx(fn -> Ankole.ConversationsFixtures.post_statement_in_tx(event, nil) end)
 
     assert {:ok, %{messages: [message]}} =
              in_tx(fn ->
-               Ankole.ConversationsFixtures.post_statement_in_tx(Repo, event, "Answer")
+               Ankole.ConversationsFixtures.post_statement_in_tx(event, "Answer")
              end)
 
     assert message.seq == 2
@@ -489,14 +486,14 @@ defmodule Ankole.ConversationsTest do
 
     assert {:ok, %{messages: [repeated]}} =
              in_tx(fn ->
-               Ankole.ConversationsFixtures.post_statement_in_tx(Repo, event, "Answer")
+               Ankole.ConversationsFixtures.post_statement_in_tx(event, "Answer")
              end)
 
     assert_persisted_equal(repeated, message)
 
     assert {:error, :conversation_conflict} =
              in_tx(fn ->
-               Ankole.ConversationsFixtures.post_statement_in_tx(Repo, event, "Changed answer")
+               Ankole.ConversationsFixtures.post_statement_in_tx(event, "Changed answer")
              end)
 
     assert Repo.aggregate(Message, :count) == 2
@@ -594,7 +591,7 @@ defmodule Ankole.ConversationsTest do
             })
           end
         ] do
-      assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+      assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
         Repo.transact(fn _ -> operation.() end)
       end
     end
@@ -618,7 +615,7 @@ defmodule Ankole.ConversationsTest do
     assert {:error, :aborted} =
              Repo.transact(fn repo ->
                assert {:ok, %{publications: [_]}} =
-                        Conversations.create_in_tx(repo, human.uid, request)
+                        Conversations.create_in_tx(human.uid, request)
 
                refute_received {:conversation_event, _, _}
                refute_received {:session_event, _, _, _}
@@ -630,8 +627,8 @@ defmodule Ankole.ConversationsTest do
     assert Repo.aggregate(Message, :count) == 0
 
     assert {:ok, %{publications: publications, session_key: key}} =
-             Repo.transact(fn repo ->
-               Conversations.create_in_tx(repo, human.uid, request)
+             Repo.transact(fn ->
+               Conversations.create_in_tx(human.uid, request)
              end)
 
     refute_received {:conversation_event, _, _}
@@ -676,8 +673,8 @@ defmodule Ankole.ConversationsTest do
     input = Repo.get_by!(Signal, message_id: request.message_id)
 
     assert {:ok, %{job: job}} =
-             Repo.transact(fn repo ->
-               Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
+             Repo.transact(fn ->
+               Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
                  "source_signal_id" => input.id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => first.session_id,

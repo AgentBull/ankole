@@ -88,9 +88,8 @@ next to `models` and `provider_hosted`:
 | `limit_tokens` | Integer, at least 1 |
 
 An Agent without this object has no limit. `Ankole.AIAgent.TokenQuota`
-validates and writes the object in one transaction that locks the Agent row,
-in the same shape as model profiles. The generic actions of
-`Ankole.AIAgent.Operations` own these transactions.
+validates and writes the object in one `Repo.transact_top_level/2` transaction
+that locks the Agent row, in the same shape as model profiles.
 
 ## Periods
 

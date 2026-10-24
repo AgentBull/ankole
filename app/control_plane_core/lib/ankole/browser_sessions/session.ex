@@ -42,13 +42,8 @@ defmodule Ankole.BrowserSessions.Session do
   end
 
   validations do
-    validate(
-      fn changeset, _context ->
-        if Ash.Changeset.get_attribute(changeset, :logout_revision) <=
-             Ash.Changeset.get_attribute(changeset, :revision),
-           do: :ok,
-           else: {:error, field: :logout_revision, message: "cannot exceed the browser revision"}
-      end,
+    validate(compare(:logout_revision, less_than_or_equal_to: :revision),
+      message: "cannot exceed the browser revision",
       only_when_valid?: true
     )
   end
@@ -80,21 +75,6 @@ defmodule Ankole.BrowserSessions.Session do
 
     destroy :expire_in_tx do
       require_atomic?(true)
-    end
-
-    action :activate, :term do
-      argument(:browser_ref, :term)
-      argument(:authentication_ref, :term)
-      argument(:tenant_id, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :logout, :term do
-      argument(:browser_ref, :term)
-      argument(:expected_revision, :term)
-
-      run(__MODULE__.Actions)
     end
   end
 

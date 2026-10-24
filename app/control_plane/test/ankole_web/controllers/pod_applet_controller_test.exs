@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodAppletControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
   alias Ankole.Pod.{Files, Pages}
   alias Ankole.Files, as: Drive
@@ -14,7 +15,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
   } do
     {conn, uid} = console_conn_with_principal(conn)
     page = publish(uid)
-    url = "/.internal-apis/pod/pages/#{page.id}/routes/echo?tag=one&tag=two&a%5Bb%5D=flat"
+    url = "/api/v2/pod/pages/#{page.id}/routes/echo?tag=one&tag=two&a%5Bb%5D=flat"
     response = post(conn, url, "[1,true]")
     assert %{"error" => %{"code" => "invalid_request"}} = json_response(response, 400)
 
@@ -42,7 +43,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
       conn
       |> recycle_api()
       |> put_req_header("x-ankole-applet-revision", "1")
-      |> get("/.internal-apis/pod/pages/#{page.id}/routes/params/#{encoded}")
+      |> get("/api/v2/pod/pages/#{page.id}/routes/params/#{encoded}")
 
     assert json_response(parameter_response, 200) == "a/b 中%"
 
@@ -68,7 +69,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
        %{conn: conn} do
     {conn, uid} = console_conn_with_principal(conn)
     page = publish(uid)
-    url = "/.internal-apis/pod/pages/#{page.id}/routes/crash"
+    url = "/api/v2/pod/pages/#{page.id}/routes/crash"
 
     response =
       conn |> recycle_api() |> put_req_header("x-ankole-applet-revision", "1") |> get(url)
@@ -82,17 +83,18 @@ defmodule AnkoleWeb.PodAppletControllerTest do
       |> recycle_api()
       |> delete_req_header("x-csrf-token")
       |> put_req_header("x-ankole-applet-revision", "1")
-      |> post("/.internal-apis/pod/pages/#{page.id}/routes/echo", "{}")
+      |> post("/api/v2/pod/pages/#{page.id}/routes/echo", "{}")
     end
   end
 
-  test "ordinary Pod validation keeps its 422 status while Applet malformed JSON uses 400", %{
-    conn: conn
-  } do
+  test "JSON:API validates required sharing input while Applet malformed JSON uses its own protocol",
+       %{
+         conn: conn
+       } do
     {conn, uid} = console_conn_with_principal(conn)
     {:ok, page} = Pages.create(uid, %{private_owner_uid: uid})
-    response = conn |> recycle_api() |> put("/.internal-apis/pod/pages/#{page.id}/sharing", %{})
-    assert %{"error" => %{"code" => "invalid_request"}} = json_response(response, 422)
+    response = conn |> recycle_api() |> api_put("/api/v2/pod/pages/#{page.id}/sharing", %{})
+    assert %{"errors" => [%{"code" => "required"}]} = json_response(response, 400)
   end
 
   test "route invocation and publish return 503 when all Applet runtime slots are saturated", %{
@@ -126,7 +128,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
         conn
         |> recycle_api()
         |> put_req_header("x-ankole-applet-revision", "1")
-        |> get("/.internal-apis/pod/pages/#{page.id}/routes/params/test")
+        |> get("/api/v2/pod/pages/#{page.id}/routes/params/test")
 
       assert %{"error" => %{"code" => "applet_busy"}} =
                json_response(route_response, 503)
@@ -137,12 +139,12 @@ defmodule AnkoleWeb.PodAppletControllerTest do
       publish_response =
         conn
         |> recycle_api()
-        |> post("/.internal-apis/pod/pages/#{draft_page.id}/publish", %{
+        |> api_post("/api/v2/pod/pages/#{draft_page.id}/publish", %{
           "base_revision" => 0,
           "files" => manifest
         })
 
-      assert %{"error" => %{"code" => "applet_busy"}} =
+      assert %{"errors" => [%{"code" => "applet_busy"}]} =
                json_response(publish_response, 503)
     after
       Enum.each(active, fn {handle, run_id} ->

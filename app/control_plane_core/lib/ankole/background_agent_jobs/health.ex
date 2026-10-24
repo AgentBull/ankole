@@ -32,17 +32,19 @@ defmodule Ankole.BackgroundAgentJobs.Health do
 
     %{
       oldest_queued_seconds: oldest_queued_seconds(now),
-      queued_count: count(Ash.Query.filter(Job, status == :queued)),
-      running_count: count(Ash.Query.filter(Job, status == :running)),
+      queued_count: Ankole.Ash.count!(Ash.Query.filter(Job, status == :queued)),
+      running_count: Ankole.Ash.count!(Ash.Query.filter(Job, status == :running)),
       max_running_per_agent: cap,
       agents_at_running_cap: agents_at_cap,
       queued_behind_running_cap: queued_behind_cap,
       claims_24h: touched_sum(window_start, :attempts),
       execution_failures_24h: touched_sum(window_start, :execution_failures),
       succeeded_24h:
-        count(Ash.Query.filter(Job, status == :succeeded and completed_at >= ^window_start)),
+        Ankole.Ash.count!(
+          Ash.Query.filter(Job, status == :succeeded and completed_at >= ^window_start)
+        ),
       successor_seeded_24h:
-        count(
+        Ankole.Ash.count!(
           Ash.Query.filter(
             Job,
             inserted_at >= ^window_start and
@@ -83,11 +85,6 @@ defmodule Ankole.BackgroundAgentJobs.Health do
     |> Enum.reduce(%{agents: 0, queued: 0}, fn agent, acc ->
       %{agents: acc.agents + 1, queued: acc.queued + agent.queued}
     end)
-  end
-
-  defp count(query) do
-    %{count: count} = Ankole.Ash.aggregate!(query, {:count, :count})
-    count
   end
 
   defp touched_sum(window_start, field) do

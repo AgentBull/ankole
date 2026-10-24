@@ -69,7 +69,7 @@ defmodule Ankole.OIDC.ResourceActionsTest do
       Repo.transact(fn _repo -> Ankole.Ash.create(Client, :create_in_tx, attrs()) end)
 
     Repo.without_tenant(fn ->
-      assert_raise Ash.Error.Invalid, ~r/require a tenant/, fn ->
+      assert_raise Ankole.TenantContextMissing, fn ->
         OIDC.get_active_client(client.id)
       end
 

@@ -39,8 +39,8 @@ defmodule AnkoleWeb.JSONAPI.AutomationJobsTest do
     foreign_job = create_job!(other_agent.uid, source_event!(other_agent.uid), "Foreign")
 
     assert {:ok, %{automation_job_run: run}} =
-             Repo.transact(fn repo ->
-               AutomationJobs.enqueue_run_in_tx(repo, job.id, agent.uid, %{
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
                  "specversion" => "1.0",
                  "id" => "console-trigger",
                  "source" => "test://console",

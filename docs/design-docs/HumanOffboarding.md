@@ -143,8 +143,9 @@ A sync uses the exact saved configuration and cannot commit removal evidence
 if that configuration or revision changed during collection.
 
 Both directory records use Ash resources. Event admission, event processing,
-review, sync start, snapshot commit, and approval are generic actions of
-`DirectoryState` or `DirectoryEvent` that own their transactions. The
+review, sync start, snapshot commit, and approval run in
+`Repo.transact_top_level/2` in the `IdentityProviders` modules, and Console
+routes expose generic actions on `DirectoryState` and `DirectoryEvent`. The
 provider state row remains the serialization point for event admission,
 review, and snapshot commits. Only the owning actions advance its revision or
 change sync health. Configuration invalidation and a failed-ticket update use

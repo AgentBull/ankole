@@ -19,19 +19,19 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiLightbulbLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   approveBrainSuggestionMutation,
-  listBrainSuggestionsOptions,
+  listBrainSuggestionsInfiniteOptions,
   rejectBrainSuggestionMutation
 } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { ListBrainSuggestionsResponse } from '../../api/v2/generated/types.gen'
-import { fromDocument, type Flat } from '../../api/json-api'
+import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { ResourceListPage } from '../../console-list-page'
+import { LoadMore, ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
@@ -47,9 +47,11 @@ export function BrainSuggestionsPage() {
   const [slugPrefix, setSlugPrefix] = useState('')
   const [targetType, setTargetType] = useState('')
 
-  const suggestions = useQuery({
-    ...listBrainSuggestionsOptions({ query: { status } }),
-    select: document => fromDocument(document)
+  const suggestions = useInfiniteQuery({
+    ...listBrainSuggestionsInfiniteOptions({ query: { status } }),
+    initialPageParam: {},
+    getNextPageParam: nextPageParams,
+    select: data => data.pages.flatMap(document => fromDocument(document))
   })
   const rows = suggestions.data ?? []
 
@@ -94,6 +96,7 @@ export function BrainSuggestionsPage() {
         emptyDescription={t('console.brain.suggestions_empty_description')}
         emptyIcon={<RiLightbulbLine aria-hidden />}
         error={suggestions.error}
+        footer={<LoadMore query={suggestions} />}
         isFiltered={status !== 'pending'}
         onClearFilters={() => setStatus('pending')}
         toolbarCanRevealRows

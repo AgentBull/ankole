@@ -654,7 +654,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp case_openai_compaction_round_trip(agent) do
     definition = Ankole.AIGateway.CompactionPolicy.config_definition()
-    previous = Ankole.AppConfigure.get_global_by_key_in_tx(Ankole.Repo, definition.key)
+    previous = Ankole.AppConfigure.get_global_by_key_in_tx(definition.key)
     merged = Map.put(Ankole.AIGateway.CompactionPolicy.config(), "upstream", true)
     {:ok, _config} = Ankole.AppConfigure.put_global(definition, merged)
 

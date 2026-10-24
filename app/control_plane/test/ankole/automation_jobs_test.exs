@@ -502,7 +502,7 @@ defmodule Ankole.AutomationJobsTest do
     assert succeeded.status == :succeeded
 
     assert {:error, {:automation_job_not_active, :cancelled}} =
-             AutomationJobs.validate_bindable_in_tx(Repo, job.id, agent.uid)
+             AutomationJobs.validate_bindable_in_tx(job.id, agent.uid)
   end
 
   test "a nil owner session lists and reads jobs across every session of one agent" do
@@ -777,7 +777,7 @@ defmodule Ankole.AutomationJobsTest do
 
     for forbidden <- [%{status: :running}, %{attempts: 99}] do
       assert {:error, %Ash.Error.Invalid{}} =
-               Repo.transact(fn _repo ->
+               Repo.transact(fn ->
                  Ankole.Ash.create(Run, :enqueue, Map.merge(attrs, forbidden))
                end)
     end
@@ -787,7 +787,7 @@ defmodule Ankole.AutomationJobsTest do
     run = enqueue!(job, attrs.event)
 
     assert {:error, %Ash.Error.Invalid{}} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(run, :settle, %{status: :succeeded, finished_at: @now})
              end)
 
@@ -802,7 +802,7 @@ defmodule Ankole.AutomationJobsTest do
     assert running.attempts == 1
 
     assert {:error, %Ash.Error.Invalid{}} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(running, :start, %{
                  attempt_id: Ecto.UUID.generate(),
                  started_at: @now
@@ -820,7 +820,7 @@ defmodule Ankole.AutomationJobsTest do
              )
 
     assert {:error, %Ash.Error.Invalid{}} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                Ankole.Ash.update(finished, :retry, %{attempt_id: nil, error: "cannot resurrect"})
              end)
 
@@ -865,8 +865,8 @@ defmodule Ankole.AutomationJobsTest do
 
   defp enqueue!(job, event) do
     assert {:ok, %{status: :queued, automation_job_run: run}} =
-             Repo.transact(fn repo ->
-               AutomationJobs.enqueue_run_in_tx(repo, job.id, job.agent_uid, event, now: @now)
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, job.agent_uid, event, now: @now)
              end)
 
     run

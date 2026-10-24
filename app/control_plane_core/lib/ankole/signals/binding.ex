@@ -18,7 +18,6 @@ defmodule Ankole.Signals.Binding do
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Signals.BindingFilters
-  alias Ankole.Signals.Bindings
 
   @type t :: %__MODULE__{}
 
@@ -158,47 +157,12 @@ defmodule Ankole.Signals.Binding do
 
     destroy(:remove)
 
-    action :assign, :term do
-      argument(:assignment, :map, allow_nil?: false)
-      after_commit({Bindings, :cache_committed_assignment})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :reassign, :term do
-      argument(:assignment, :map, allow_nil?: false)
-      after_commit({Bindings, :cache_committed_assignment})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :put_cloud, :term do
-      argument(:binding, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :move_cloud, :term do
-      argument(:source, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:current_config, :map, allow_nil?: false)
-      argument(:binding, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     # The Console disables a binding of one Agent. An unknown Agent or binding
     # reads as not found.
     action :console_disable, :struct do
       constraints(instance_of: __MODULE__)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :disable_by_name, :term do
-      argument(:agent_uid, :term, allow_nil?: false)
-      argument(:name, :term, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

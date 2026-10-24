@@ -88,7 +88,7 @@ defmodule Ankole.Brain.Merge do
   @spec approve_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) ::
           {:ok, map()} | {:error, term()}
   def approve_in_tx(suggestion_id, decided_by, attrs) do
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          {:ok, suggestion} <- fetch_pending(suggestion_id),
          {:ok, target_slug} <- required_canonical(attrs),
          {:ok, first} <- resolve_live(suggestion.a_slug),
@@ -109,7 +109,7 @@ defmodule Ankole.Brain.Merge do
              {:ok, _alias} <- keep_duplicate_name(canonical, duplicate),
              {:ok, _duplicate} <- Ankole.Ash.destroy(duplicate, :merge_duplicate),
              {:ok, _redirect} <- insert_redirect(canonical, duplicate),
-             {:ok, canonical} <- Objects.refresh_content_hash_in_tx(Repo, canonical),
+             {:ok, canonical} <- Objects.refresh_content_hash_in_tx(canonical),
              {:ok, _object} <- Chunks.reconcile_in_tx(canonical),
              {:ok, _suggestion} <-
                Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
@@ -132,7 +132,7 @@ defmodule Ankole.Brain.Merge do
   @spec reject_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t()) ::
           {:ok, MergeSuggestion.t()} | {:error, term()}
   def reject_in_tx(suggestion_id, decided_by) do
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          {:ok, suggestion} <- fetch_pending(suggestion_id) do
       Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
     end
@@ -302,10 +302,10 @@ defmodule Ankole.Brain.Merge do
 
     case redirects do
       {:ok, redirects} ->
-        timelines = repoint_timelines(Repo, canon, dup)
-        aliases = repoint_unique_rows(Repo, "brain_object_aliases", "alias_norm", canon, dup)
-        tags = repoint_unique_rows(Repo, "brain_tags", "tag", canon, dup)
-        links = repoint_links(Repo, canon, dup)
+        timelines = repoint_timelines(canon, dup)
+        aliases = repoint_unique_rows("brain_object_aliases", "alias_norm", canon, dup)
+        tags = repoint_unique_rows("brain_tags", "tag", canon, dup)
+        links = repoint_links(canon, dup)
 
         {:ok,
          %{
@@ -323,10 +323,10 @@ defmodule Ankole.Brain.Merge do
     end
   end
 
-  defp repoint_timelines(repo, canon, dup) do
+  defp repoint_timelines(canon, dup) do
     # A row whose (date, summary, provenance) twin already exists on the
     # canonical page is the duplicate this merge removes.
-    repo.query!(
+    Repo.query!(
       """
       DELETE FROM brain_timelines AS moved
       WHERE moved.tenant_id = $3 AND moved.object_slug = $1
@@ -343,7 +343,7 @@ defmodule Ankole.Brain.Merge do
 
     # Event back-references follow their foreign key's nilify semantics when
     # repointing would collide with the one-event-per-day key.
-    repo.query!(
+    Repo.query!(
       """
       UPDATE brain_timelines AS moved SET event_object_slug = NULL
       WHERE moved.tenant_id = $3 AND moved.event_object_slug = $1
@@ -355,13 +355,13 @@ defmodule Ankole.Brain.Merge do
       [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
-    repo.query!(
+    Repo.query!(
       "UPDATE brain_timelines SET event_object_slug = $2 WHERE tenant_id = $3 AND event_object_slug = $1",
       [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     %{num_rows: moved} =
-      repo.query!(
+      Repo.query!(
         "UPDATE brain_timelines SET object_slug = $2 WHERE tenant_id = $3 AND object_slug = $1",
         [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
       )
@@ -369,8 +369,8 @@ defmodule Ankole.Brain.Merge do
     moved
   end
 
-  defp repoint_unique_rows(repo, table, value_column, canon, dup) do
-    repo.query!(
+  defp repoint_unique_rows(table, value_column, canon, dup) do
+    Repo.query!(
       """
       DELETE FROM #{table} AS moved
       WHERE moved.tenant_id = $3 AND moved.object_slug = $1
@@ -384,7 +384,7 @@ defmodule Ankole.Brain.Merge do
     )
 
     %{num_rows: moved} =
-      repo.query!(
+      Repo.query!(
         "UPDATE #{table} SET object_slug = $2 WHERE tenant_id = $3 AND object_slug = $1",
         [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
       )
@@ -394,10 +394,10 @@ defmodule Ankole.Brain.Merge do
 
   @link_key_columns ~w(from_object_slug to_object_slug link_type link_source origin_object_slug)
 
-  defp repoint_links(repo, canon, dup) do
+  defp repoint_links(canon, dup) do
     # Edges inside the merged pair would become self-links; they carry no
     # information once the pair is one page.
-    repo.query!(
+    Repo.query!(
       """
       DELETE FROM brain_links
       WHERE tenant_id = $3 AND ((from_object_slug = $1 AND to_object_slug IN ($1, $2))
@@ -407,19 +407,19 @@ defmodule Ankole.Brain.Merge do
     )
 
     Enum.reduce(@link_key_columns -- ~w(link_type link_source), 0, fn column, count ->
-      count + repoint_link_column(repo, column, canon, dup)
+      count + repoint_link_column(column, canon, dup)
     end)
   end
 
   # Repoints one slug column of the edge table, first dropping rows whose
   # full dedup-key twin (equal NULLs equal) already sits on the canonical
   # side.
-  defp repoint_link_column(repo, column, canon, dup) do
+  defp repoint_link_column(column, canon, dup) do
     twin_match =
       (@link_key_columns -- [column])
       |> Enum.map_join(" AND ", fn key -> "kept.#{key} IS NOT DISTINCT FROM moved.#{key}" end)
 
-    repo.query!(
+    Repo.query!(
       """
       DELETE FROM brain_links AS moved
       WHERE moved.tenant_id = $3 AND moved.#{column} = $1
@@ -432,7 +432,7 @@ defmodule Ankole.Brain.Merge do
     )
 
     %{num_rows: moved} =
-      repo.query!(
+      Repo.query!(
         "UPDATE brain_links SET #{column} = $2 WHERE tenant_id = $3 AND #{column} = $1",
         [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
       )

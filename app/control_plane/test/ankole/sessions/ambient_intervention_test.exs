@@ -200,10 +200,6 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
           Ankole.ExternalConversationsFixtures.external_conversation_id("lark:chat:other")
       })
 
-    context = %{
-      "ambient_work_candidates" => Ankole.Sessions.Ambient.candidates(event)
-    }
-
     assert %{
              "complete" => true,
              "jobs" => [
@@ -214,7 +210,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
                  "task_excerpt" => task_excerpt
                }
              ]
-           } = context["ambient_work_candidates"]
+           } = Ankole.Sessions.Ambient.candidates(event)
 
     assert job_id == Integer.to_string(matching.id)
     assert task_excerpt =~ "matching"

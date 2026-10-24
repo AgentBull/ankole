@@ -22,9 +22,8 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
     %{principal: human} = human_fixture()
 
     {:ok, room} =
-      Repo.transact(
-        &External.observe_conversation_in_tx(
-          &1,
+      Repo.transact(fn ->
+        External.observe_conversation_in_tx(
           %{agent_uid: agent.uid},
           %{
             provider_conversation_id: "generic-room",
@@ -34,12 +33,11 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
           },
           DateTime.utc_now(:microsecond)
         )
-      )
+      end)
 
     {:ok, %{message: message}} =
-      Repo.transact(
-        &External.observe_in_tx(
-          &1,
+      Repo.transact(fn ->
+        External.observe_in_tx(
           room.id,
           %{
             provider_message_id: "statement",
@@ -48,7 +46,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
           },
           DateTime.utc_now(:microsecond)
         )
-      )
+      end)
 
     %{agent: agent, human: human, room: room, message: message}
   end
@@ -95,7 +93,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
       })
 
     {:ok, model} =
-      Repo.transact(&AIGateway.ensure_conversation_in_tx(&1, c.agent.uid, event.session_id))
+      Repo.transact(fn -> AIGateway.ensure_conversation_in_tx(c.agent.uid, event.session_id) end)
 
     run = %{
       agent_uid: c.agent.uid,
@@ -110,10 +108,9 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
     assert Ankole.JSON.encode!(request["input"]) =~ "ACTUAL-ROOM-STATEMENT"
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                :ok =
                  Commands.prepare_new_in_tx(
-                   repo,
                    %{event | type: "command.new"},
                    DateTime.utc_now(:microsecond)
                  )
@@ -126,8 +123,8 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
 
   test "generic input.revised cannot fence, retract, or revise an active kernel request", c do
     {:ok, input} =
-      Repo.transact(
-        &Signals.accept_in_tx(&1, %{
+      Repo.transact(fn ->
+        Signals.accept_in_tx(%{
           producer: :kernel,
           source: "test:statement",
           id: "current",
@@ -137,7 +134,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
           message_id: c.message.id,
           data: %{"message_ids" => [c.message.id], "text" => c.message.text}
         })
-      )
+      end)
 
     {:ok, workspace} = Ankole.SessionsCase.ensure_workspace(c.agent.uid, input.session_id)
 
@@ -165,8 +162,8 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
     assert {:error, :revision_target_unavailable} = Revisions.apply(run, revision)
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo ->
-               :ok = Fence.check_in_tx(repo, run)
+             Repo.transact(fn ->
+               :ok = Fence.check_in_tx(run)
                {:ok, :ok}
              end)
 
@@ -177,8 +174,8 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
        c do
     for session <- ["job:123", "wf_task:#{Ecto.UUID.generate()}"] do
       {:ok, event} =
-        Repo.transact(
-          &Signals.accept_in_tx(&1, %{
+        Repo.transact(fn ->
+          Signals.accept_in_tx(%{
             producer: :external,
             source: "https://example.test/private",
             id: Ecto.UUID.generate(),
@@ -187,7 +184,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
             authorization: Ankole.Principals.WorkAccess.service(),
             data: nil
           })
-        )
+        end)
 
       key = %{agent_uid: c.agent.uid, session_id: session}
       assert Run.kind(event) == :main
@@ -226,10 +223,9 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
       run = %{agent_uid: c.agent.uid, signal_id: event.id}
 
       assert {:ok, result} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  with {:ok, [], commit} <-
                         Ankole.Sessions.Tools.Session.prepare_in_tx(
-                          repo,
                           run,
                           %{"name" => "set_channel_standing_orders"},
                           %{"orders" => "Only report material changes."}
@@ -249,9 +245,8 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
     %{principal: peer} = human_fixture()
 
     {:ok, dm} =
-      Repo.transact(
-        &External.observe_conversation_in_tx(
-          &1,
+      Repo.transact(fn ->
+        External.observe_conversation_in_tx(
           %{agent_uid: c.agent.uid},
           %{
             provider_conversation_id: "generic-dm",
@@ -262,7 +257,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
           },
           DateTime.utc_now(:microsecond)
         )
-      )
+      end)
 
     event =
       external(%{c | room: dm}, "com.example.changed", %{
@@ -272,9 +267,9 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
       })
 
     {:ok, model} =
-      Repo.transact(
-        &ModelHistory.ensure_and_lock_conversation_in_tx(&1, c.agent.uid, event.session_id, event)
-      )
+      Repo.transact(fn ->
+        ModelHistory.ensure_and_lock_conversation_in_tx(c.agent.uid, event.session_id, event)
+      end)
 
     assert model.metadata["origin"]["peer_uid"] == peer.uid
     refute model.metadata["origin"]["peer_uid"] == c.human.uid
@@ -282,8 +277,8 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
 
   defp external(c, type, data) do
     {:ok, signal} =
-      Repo.transact(
-        &Signals.accept_in_tx(&1, %{
+      Repo.transact(fn ->
+        Signals.accept_in_tx(%{
           producer: :external,
           source: "https://example.test/changed",
           id: Ecto.UUID.generate(),
@@ -294,7 +289,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
           sender: nil,
           data: data
         })
-      )
+      end)
 
     refute Ankole.Signals.Signal.produced_by_kernel?(signal)
     signal

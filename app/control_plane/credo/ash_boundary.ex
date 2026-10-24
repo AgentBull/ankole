@@ -22,6 +22,7 @@ defmodule Ankole.Credo.AshBoundary do
     :bulk_result,
     :error_class,
     :ash_error_match,
+    :ash_direct,
     :ash_bulk,
     :transaction_hook,
     :ecto_write,
@@ -33,12 +34,17 @@ defmodule Ankole.Credo.AshBoundary do
   @messages %{
     bulk_result: "Decode bulk results with Ankole.Ash.update_where/destroy_where/update_atomic.",
     error_class: "Give declared errors through Ankole.Errors; do not build Ash error classes.",
-    ash_error_match: "Get a domain reason with Ankole.Errors.reason/1 instead of matching Ash errors.",
+    ash_error_match:
+      "Get a domain reason with Ankole.Errors.reason/1 instead of matching Ash errors.",
+    ash_direct: "Execute Ash queries, changesets, and actions through Ankole.Ash.",
     ash_bulk: "Use Ankole.Ash for synchronous bulk actions.",
-    transaction_hook: "Let a generic action own transaction effects (after_commit/1).",
-    ecto_write: "Write a resource table through its Ash action; Ecto writes stay in exception modules.",
-    ecto_lock: "Lock a resource row with Ash.Query.lock/2 and Ankole.Ash.read(lock_identity: ...).",
-    repo_transact: "Let a generic action own the transaction; Repo.transact stays in exception modules.",
+    transaction_hook: "Let the top-level transaction own transaction effects (after_commit).",
+    ecto_write:
+      "Write a resource table through its Ash action; Ecto writes stay in exception modules.",
+    ecto_lock:
+      "Lock a resource row with Ash.Query.lock/2 and Ankole.Ash.read(lock_identity: ...).",
+    repo_transact:
+      "Own the transaction in the domain with Repo.transact_top_level or a generic action; Repo.transact stays in exception modules.",
     consumer_ash: "Call the owning domain's code interface instead of Ash from this layer."
   }
 

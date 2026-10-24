@@ -124,21 +124,6 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
       pagination(keyset?: true, default_limit: 100, max_page_size: 500, countable: false)
     end
 
-    action :create_job, :term do
-      argument(:attrs, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :cancel_job, :term do
-      argument(:agent_uid, :term, allow_nil?: false)
-      argument(:owner_session_id, :term, allow_nil?: false)
-      argument(:job_id, :integer, allow_nil?: false)
-      argument(:now, :utc_datetime_usec, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     create :create do
       primary?(true)
 

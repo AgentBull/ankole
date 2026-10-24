@@ -183,7 +183,7 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
 
     assert length(vectors) == 2
 
-    assert vectors |> hd() |> Pgvector.to_list() |> length() ==
+    assert vectors |> hd() |> Ash.Vector.to_list() |> length() ==
              4096
 
     assert is_binary(signature)

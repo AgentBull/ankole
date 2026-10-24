@@ -7,7 +7,7 @@ defmodule Ankole.Conversations.Target do
   @enforce_keys [:kind]
   defstruct [:conversation_id, :kind, :binding_name, :provider_thread_id, primary: true]
 
-  def for_reply(_repo, event) do
+  def for_reply(event) do
     id = event.conversation_id
 
     case id && Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!() do
@@ -33,9 +33,9 @@ defmodule Ankole.Conversations.Target do
     end
   end
 
-  def for_delivery_in_tx(repo, agent_uid, item) do
+  def for_delivery_in_tx(agent_uid, item) do
     with {:ok, conversation} <-
-           conversation_for_agent_in_tx(repo, agent_uid, Ankole.Attrs.get(item, :conversation_id)) do
+           conversation_for_agent_in_tx(agent_uid, Ankole.Attrs.get(item, :conversation_id)) do
       target = %__MODULE__{
         conversation_id: conversation.id,
         kind: conversation.kind,
@@ -51,7 +51,7 @@ defmodule Ankole.Conversations.Target do
   end
 
   @doc "Resolves a conversation for an Agent that is one of its declared participants."
-  def conversation_for_agent_in_tx(_repo, agent_uid, id) do
+  def conversation_for_agent_in_tx(agent_uid, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          %Conversation{} = conversation <-
            Conversation

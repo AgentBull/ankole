@@ -256,17 +256,15 @@ defmodule Ankole.Signals.CloudEventsTest do
     observation = %{provider_conversation_id: "mock:shared-room", external_kind: :im_group}
 
     assert {:ok, conversation} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                with {:ok, first} <-
                       External.observe_conversation_in_tx(
-                        repo,
                         %{agent_uid: context.first.uid},
                         observation,
                         now
                       ),
                     {:ok, second} <-
                       External.observe_conversation_in_tx(
-                        repo,
                         %{agent_uid: context.second.uid},
                         observation,
                         now

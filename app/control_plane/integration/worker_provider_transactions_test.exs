@@ -36,7 +36,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
   end
 
   test "independent non-default creates can commit at the same time", context do
-    first = hold(fn -> Providers.create_in_tx(Repo, attrs(context.first)) end)
+    first = hold(fn -> Providers.create_in_tx(attrs(context.first)) end)
     second = start(fn -> Providers.create(attrs(context.second)) end)
     assert {:ok, %{provider_id: id}} = finish(second)
     assert id == context.second
@@ -51,7 +51,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     legacy!(context.uid)
     seed!(context.seed, context.second)
 
-    first = hold(fn -> Providers.create_in_tx(Repo, attrs(context.first)) end)
+    first = hold(fn -> Providers.create_in_tx(attrs(context.first)) end)
     seed = start(fn -> Seed.import_file(context.seed) end)
     assert_blocked_by(seed, first)
     release(first)
@@ -68,7 +68,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
 
     seed =
       hold(fn ->
-        :ok = Seed.import_in_tx(Repo, context.seed)
+        :ok = Seed.import_in_tx(context.seed)
         {:ok, :imported}
       end)
 
@@ -88,7 +88,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
 
     first =
       hold(fn ->
-        Providers.create_in_tx(Repo, Map.put(attrs(context.first), :is_default, true))
+        Providers.create_in_tx(Map.put(attrs(context.first), :is_default, true))
       end)
 
     second = start(fn -> Providers.create(Map.put(attrs(context.second), :is_default, true)) end)
@@ -105,7 +105,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
   test "Plugin disable waits for assignment, then rejects the committed reference", context do
     plugin_provider!(context)
     legacy!(context.uid)
-    assignment = hold(fn -> Providers.assign_in_tx(Repo, context.uid, context.first) end)
+    assignment = hold(fn -> Providers.assign_in_tx(context.uid, context.first) end)
 
     disable =
       start(fn -> PluginConfig.put_configured_enabled("vercel-worker-provider", false) end)
@@ -127,7 +127,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
 
     disable =
       hold(fn ->
-        PluginConfig.put_configured_enabled_in_tx(Repo, "vercel-worker-provider", false)
+        PluginConfig.put_configured_enabled_in_tx("vercel-worker-provider", false)
       end)
 
     assignment = start(fn -> Providers.assign(context.uid, context.first) end)
@@ -148,7 +148,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
 
     update =
       hold(fn ->
-        Providers.configure_in_tx(Repo, context.first, %{display_name: "Held update"})
+        Providers.configure_in_tx(context.first, %{display_name: "Held update"})
       end)
 
     slack = Ankole.Plugins.SlackAdapter.plugin_id()
@@ -169,7 +169,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     telegram = Ankole.Plugins.TelegramAdapter.plugin_id()
     assert {:ok, _} = PluginConfig.put_configured_enabled(slack, false)
     assert {:ok, _} = PluginConfig.put_configured_enabled(telegram, false)
-    first = hold(fn -> PluginConfig.put_configured_enabled_in_tx(Repo, slack, true) end)
+    first = hold(fn -> PluginConfig.put_configured_enabled_in_tx(slack, true) end)
     second = start(fn -> PluginConfig.put_configured_enabled(telegram, true) end)
     assert_blocked_by(second, first)
     release(first)
@@ -177,7 +177,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     assert {:ok, _} = finish(second)
 
     assert {:ok, enabled} =
-             Ankole.AppConfigure.get_in_tx(Repo, PluginConfig.enabled_ids_definition())
+             Ankole.AppConfigure.get_in_tx(PluginConfig.enabled_ids_definition())
 
     assert slack in enabled
     assert telegram in enabled

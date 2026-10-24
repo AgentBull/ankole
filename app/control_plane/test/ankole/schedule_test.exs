@@ -1679,7 +1679,7 @@ defmodule Ankole.ScheduleTest do
 
       for action <- [:fire, :reschedule, :fail, :record_error] do
         assert {:ok, %Ash.Error.Invalid{errors: errors}} =
-                 Repo.transact(fn _repo ->
+                 Repo.transact(fn ->
                    {:error, error} = Ankole.Ash.update(cancelled, action, %{})
                    {:ok, error}
                  end)
@@ -2593,8 +2593,8 @@ defmodule Ankole.ScheduleTest do
     boundary_at = Keyword.get(opts, :boundary_at, now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
-    Repo.transact(fn repo ->
-      Ankole.Signals.accept_in_tx(repo, %{
+    Repo.transact(fn ->
+      Ankole.Signals.accept_in_tx(%{
         source: "control-plane://test",
         authorization: Ankole.Principals.WorkAccess.service(),
         id: source_event_id,
@@ -2672,9 +2672,8 @@ defmodule Ankole.ScheduleTest do
         end
 
       assert {:ok, _} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Conversations.External.observe_conversation_in_tx(
-                   repo,
                    binding,
                    %{
                      provider_conversation_id: conversation.provider_conversation_id,
@@ -2710,9 +2709,8 @@ defmodule Ankole.ScheduleTest do
         end
 
       assert {:ok, _} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Conversations.External.observe_conversation_in_tx(
-                   repo,
                    binding,
                    %{
                      provider_conversation_id: provider_id,

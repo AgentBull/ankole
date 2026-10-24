@@ -18,10 +18,9 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
   # Principal authority is never accepted through the public adapter ingress.
   defp record_existing_entry!(agent_uid, entry) do
     assert {:ok, result} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                with {:ok, conversation} <-
                       Ankole.Conversations.External.observe_conversation_in_tx(
-                        repo,
                         %{agent_uid: agent_uid},
                         %{
                           provider_conversation_id: entry.provider_conversation_id,
@@ -31,7 +30,6 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
                         base_time()
                       ) do
                  Ankole.Conversations.External.observe_in_tx(
-                   repo,
                    conversation.id,
                    %{
                      provider_message_id: entry.provider_message_id,

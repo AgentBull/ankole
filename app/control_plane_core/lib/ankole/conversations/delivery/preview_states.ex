@@ -10,6 +10,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   require Ash.Query
 
   alias Ankole.Conversations.Delivery.{InteractionState, PreviewAdapter, PreviewState}
+  alias Ankole.Repo
   alias Ankole.Signals.Signal
 
   @doc "Gives the preview state of a Signal, or an empty state when it has none."
@@ -28,14 +29,14 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   @doc "Reads a Signal with its preview state. The result is nil when the Signal is missing."
   def load_signal(signal_id), do: signal_id |> Ankole.Signals.get_signal!() |> load()
 
-  def lock_in_tx(repo, %Signal{} = signal) do
+  def lock_in_tx(%Signal{} = signal) do
     # Re-locking an already locked source is harmless. Every writer takes this
     # lock before creating or locking the child preview row.
-    Ankole.Signals.lock_signal_in_tx(repo, signal.id)
+    Ankole.Signals.lock_signal_in_tx(signal.id)
 
     case Ankole.Ash.create(PreviewState, :ensure, %{signal_id: signal.id}) do
       {:ok, _} -> :ok
-      {:error, error} -> repo.rollback(error)
+      {:error, error} -> Repo.rollback(error)
     end
 
     PreviewState
@@ -66,13 +67,9 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
       when is_binary(signal_id) and is_binary(provider_message_id) and provider_message_id != "" and
              (is_nil(provider_thread_id) or
                 (is_binary(provider_thread_id) and provider_thread_id != "")) do
-    signal_id
-    |> Ankole.Conversations.record_preview_provider_message(
-      provider_message_id,
-      provider_thread_id
-    )
-    |> Ankole.Errors.reason()
-    |> case do
+    case Repo.transact_top_level(fn ->
+           record_provider_message_in_tx(signal_id, provider_message_id, provider_thread_id)
+         end) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -82,45 +79,44 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
     do: {:error, :invalid_reply_preview_source_entry}
 
   @doc false
-  def record_provider_message_in_tx(repo, signal_id, provider_message_id, provider_thread_id) do
-    case Ankole.Signals.lock_signal_in_tx(repo, signal_id) do
+  def record_provider_message_in_tx(signal_id, provider_message_id, provider_thread_id) do
+    case Ankole.Signals.lock_signal_in_tx(signal_id) do
       %Signal{} = event ->
-        record_source_in_tx(repo, event, provider_message_id, provider_thread_id)
+        record_source_in_tx(event, provider_message_id, provider_thread_id)
 
       nil ->
         {:error, :signal_not_found}
     end
   end
 
-  defp record_source_in_tx(repo, event, provider_message_id, provider_thread_id)
+  defp record_source_in_tx(event, provider_message_id, provider_thread_id)
        when is_binary(provider_message_id) and provider_message_id != "" and
               (is_nil(provider_thread_id) or
                  (is_binary(provider_thread_id) and provider_thread_id != "")) do
-    case lock_in_tx(repo, event) do
+    case lock_in_tx(event) do
       %PreviewState{provider_message_id: nil} = preview ->
         preview
         |> Ankole.Ash.update(:update_preview, %{provider_message_id: provider_message_id})
         |> case do
-          {:ok, _preview} -> record_preview_thread(repo, event, provider_thread_id)
+          {:ok, _preview} -> record_preview_thread(event, provider_thread_id)
           {:error, _changeset} = error -> error
         end
 
       %PreviewState{provider_message_id: ^provider_message_id} ->
-        record_preview_thread(repo, event, provider_thread_id)
+        record_preview_thread(event, provider_thread_id)
 
       %PreviewState{} ->
         {:error, :reply_preview_source_entry_already_recorded}
     end
   end
 
-  defp record_source_in_tx(_repo, _event, _provider_message_id, _provider_thread_id),
+  defp record_source_in_tx(_event, _provider_message_id, _provider_thread_id),
     do: {:error, :invalid_reply_preview_source_entry}
 
-  defp record_preview_thread(_repo, %Signal{provider_thread_id: nil}, nil),
+  defp record_preview_thread(%Signal{provider_thread_id: nil}, nil),
     do: {:ok, :already_recorded}
 
   defp record_preview_thread(
-         _repo,
          %Signal{provider_thread_id: nil} = event,
          provider_thread_id
        ) do
@@ -133,15 +129,14 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   end
 
   defp record_preview_thread(
-         _repo,
          %Signal{provider_thread_id: provider_thread_id},
          provider_thread_id
        ),
        do: {:ok, :already_recorded}
 
-  defp record_preview_thread(_repo, %Signal{}, nil), do: {:ok, :already_recorded}
+  defp record_preview_thread(%Signal{}, nil), do: {:ok, :already_recorded}
 
-  defp record_preview_thread(_repo, %Signal{}, _provider_thread_id),
+  defp record_preview_thread(%Signal{}, _provider_thread_id),
     do: {:error, :reply_preview_provider_thread_already_recorded}
 
   @doc """
@@ -157,9 +152,9 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
 
   def put_checkpoint(signal_id, checkpoint, source)
       when is_binary(signal_id) and is_map(checkpoint) do
-    case signal_id
-         |> Ankole.Conversations.put_preview_checkpoint(checkpoint, source)
-         |> Ankole.Errors.reason() do
+    case Repo.transact_top_level(fn ->
+           put_checkpoint_by_id_in_tx(signal_id, checkpoint, source)
+         end) do
       {:ok, result} -> result
       {:error, _reason} = error -> error
     end
@@ -169,10 +164,10 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
     do: {:error, :invalid_reply_preview_checkpoint}
 
   @doc false
-  def put_checkpoint_by_id_in_tx(repo, signal_id, checkpoint, source) do
-    with %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(repo, signal_id),
-         {:ok, event} <- put_checkpoint_in_tx(repo, event, checkpoint) do
-      checkpoint_source_result(repo, event, source)
+  def put_checkpoint_by_id_in_tx(signal_id, checkpoint, source) do
+    with %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(signal_id),
+         {:ok, event} <- put_checkpoint_in_tx(event, checkpoint) do
+      checkpoint_source_result(event, source)
     else
       nil -> {:error, :signal_not_found}
       {:error, _reason} = error -> error
@@ -181,27 +176,27 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
 
   @doc "Updates a checkpoint under its source Signal lock."
   def update_checkpoint(signal_id, update) when is_function(update, 1) do
-    signal_id
-    |> Ankole.Conversations.update_preview_checkpoint(update)
-    |> Ankole.Errors.reason()
+    Repo.transact_top_level(fn ->
+      update_checkpoint_in_tx(signal_id, update)
+    end)
   end
 
   @doc false
-  def update_checkpoint_in_tx(repo, signal_id, update) do
-    with %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(repo, signal_id),
+  def update_checkpoint_in_tx(signal_id, update) do
+    with %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(signal_id),
          event = load(event),
          {:ok, checkpoint} <- update.(event) do
-      put_checkpoint_in_tx(repo, event, checkpoint)
+      put_checkpoint_in_tx(event, checkpoint)
     else
       nil -> {:error, :signal_not_found}
       {:error, _reason} = error -> error
     end
   end
 
-  defp checkpoint_source_result(_repo, event, nil), do: {:ok, {:ok, event}}
+  defp checkpoint_source_result(event, nil), do: {:ok, {:ok, event}}
 
-  defp checkpoint_source_result(repo, event, {provider_message_id, provider_thread_id}) do
-    case record_source_in_tx(repo, event, provider_message_id, provider_thread_id) do
+  defp checkpoint_source_result(event, {provider_message_id, provider_thread_id}) do
+    case record_source_in_tx(event, provider_message_id, provider_thread_id) do
       {:ok, _recorded} ->
         {:ok, {:ok, event}}
 
@@ -213,11 +208,11 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   end
 
   @doc false
-  @spec put_checkpoint_in_tx(module(), Signal.t(), map()) ::
+  @spec put_checkpoint_in_tx(Signal.t(), map()) ::
           {:ok, Signal.t()} | {:error, term()}
-  def put_checkpoint_in_tx(repo, %Signal{} = event, checkpoint)
+  def put_checkpoint_in_tx(%Signal{} = event, checkpoint)
       when is_map(checkpoint) do
-    preview = lock_in_tx(repo, event)
+    preview = lock_in_tx(event)
     existing = PreviewAdapter.adapter_checkpoint(preview.checkpoint)
     checkpoint = PreviewAdapter.adapter_checkpoint(checkpoint)
     checkpoint = preserve_reply_preview_owner_fence(existing, checkpoint)
@@ -247,7 +242,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
       with {:ok, updated} <-
              preview
              |> Ankole.Ash.update(:update_preview, %{checkpoint: checkpoint}),
-           :ok <- notify_preview_in_tx(repo, updated) do
+           :ok <- notify_preview_in_tx(updated) do
         {:ok, %{event | preview: updated}}
       end
     end
@@ -318,19 +313,19 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
       when is_binary(signal_id) and is_binary(purpose) and purpose != "" and
              is_binary(actions_digest) and actions_digest != "" and is_binary(uuid) and
              uuid != "" do
-    signal_id
-    |> Ankole.Conversations.prepare_preview_mutation(purpose, actions_digest, uuid)
-    |> Ankole.Errors.reason()
+    Repo.transact_top_level(fn ->
+      prepare_mutation_in_tx(signal_id, purpose, actions_digest, uuid)
+    end)
   end
 
   def prepare_mutation(_signal_id, _purpose, _actions_digest, _uuid),
     do: {:error, :invalid_reply_preview_mutation}
 
   @doc false
-  def prepare_mutation_in_tx(repo, signal_id, purpose, actions_digest, uuid) do
-    case Ankole.Signals.lock_signal_in_tx(repo, signal_id) do
+  def prepare_mutation_in_tx(signal_id, purpose, actions_digest, uuid) do
+    case Ankole.Signals.lock_signal_in_tx(signal_id) do
       %Signal{} = event ->
-        preview = lock_in_tx(repo, event)
+        preview = lock_in_tx(event)
         checkpoint = PreviewAdapter.adapter_checkpoint(preview.checkpoint)
 
         case checkpoint["pending_mutation"] do
@@ -351,7 +346,6 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
 
           _other ->
             case prepare_new_mutation(
-                   repo,
                    event,
                    checkpoint,
                    purpose,
@@ -375,14 +369,13 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   end
 
   defp prepare_new_mutation(
-         repo,
          event,
          checkpoint,
          purpose,
          actions_digest,
          uuid
        ) do
-    preview = lock_in_tx(repo, event)
+    preview = lock_in_tx(event)
     sequence = (preview.sequence_high_water || 0) + 1
 
     if sequence > 2_147_483_647 do
@@ -407,7 +400,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
                checkpoint: checkpoint,
                sequence_high_water: sequence
              }),
-           :ok <- notify_preview_in_tx(repo, updated) do
+           :ok <- notify_preview_in_tx(updated) do
         {:ok, mutation}
       end
     end
@@ -423,10 +416,9 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   @spec wake_blocked(String.t(), String.t()) :: :ok | {:error, term()}
   def wake_blocked(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
-    agent_uid
-    |> Ankole.Conversations.wake_blocked_previews(binding_name)
-    |> Ankole.Errors.reason()
-    |> case do
+    case Repo.transact_top_level(fn ->
+           wake_blocked_in_tx(agent_uid, binding_name)
+         end) do
       {:ok, _result} -> :ok
       {:error, _reason} = error -> error
     end
@@ -436,7 +428,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
     do: {:error, :invalid_signal_binding}
 
   @doc false
-  def wake_blocked_in_tx(repo, agent_uid, binding_name) do
+  def wake_blocked_in_tx(agent_uid, binding_name) do
     signal_ids =
       PreviewState
       |> Ash.Query.filter(
@@ -451,8 +443,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
       |> Ankole.Ash.read!()
       |> Enum.map(& &1.signal_id)
 
-    repo
-    |> Ankole.Signals.lock_signals_in_tx(
+    Ankole.Signals.lock_signals_in_tx(
       [id: [in: signal_ids], agent_uid: agent_uid, reply_binding_name: binding_name],
       sort: [id: :asc]
     )
@@ -460,7 +451,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
       checkpoint = get(event).checkpoint || %{}
 
       if get_in(checkpoint, ["recovery_state", "state"]) == "blocked" do
-        case put_checkpoint_in_tx(repo, event, Map.delete(checkpoint, "recovery_state")) do
+        case put_checkpoint_in_tx(event, Map.delete(checkpoint, "recovery_state")) do
           {:ok, _event} -> {:cont, acc}
           {:error, reason} -> {:halt, {:error, reason}}
         end
@@ -474,17 +465,15 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
   def cleanup_at(signal),
     do: parse_datetime(get(signal).checkpoint && get(signal).checkpoint["cleanup_at"])
 
-  defp notify_preview_in_tx(repo, event) do
+  defp notify_preview_in_tx(event) do
     with :ok <-
            Ankole.Conversations.Delivery.Jobs.PreviewCheckpoint.schedule_in_tx(
-             repo,
              %{signal_id: event.signal_id},
              DateTime.utc_now(:microsecond)
            ) do
       if cleanup_at = parse_datetime((event.checkpoint || %{})["cleanup_at"]),
         do:
           Ankole.Conversations.Delivery.Jobs.PreviewCleanup.schedule_in_tx(
-            repo,
             %{signal_id: event.signal_id},
             cleanup_at
           ),

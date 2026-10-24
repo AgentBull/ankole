@@ -61,13 +61,14 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- FactNormalizer.entry(binding, input, now),
          {:ok, fact} <- Observation.entry(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      fact = fact |> resolve_existing_conversation() |> then(&Reference.enrich(Repo, &1))
+      fact = fact |> resolve_existing_conversation() |> then(&Reference.enrich(&1))
 
       case admit_entry(binding, fact, now) do
         {:ok, fact} ->
-          binding
-          |> Ankole.Conversations.observe_entry(fact, now)
-          |> Ankole.Errors.reason()
+          Repo.transact_top_level(
+            fn -> accept_entry_in_tx(binding, fact, now) end,
+            after_commit: &__MODULE__.stop_retracted_previews/1
+          )
 
         {:held, fact, status, notice?} ->
           if notice?, do: notify_held_sender(fact, now)
@@ -120,9 +121,9 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- FactNormalizer.reaction(binding, input, now),
          {:ok, fact} <- Observation.reaction(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      binding
-      |> Ankole.Conversations.observe_reaction(fact, now)
-      |> Ankole.Errors.reason()
+      Repo.transact_top_level(fn ->
+        accept_reaction_in_tx(binding, fact, now)
+      end)
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -130,14 +131,13 @@ defmodule Ankole.Conversations.Observe do
   end
 
   @doc false
-  def accept_reaction_in_tx(repo, binding, fact, now) do
+  def accept_reaction_in_tx(binding, fact, now) do
     # Advisory lock on the entry key serializes concurrent reaction folds for
     # the same message so two simultaneous add/removes can't clobber the
     # reactions map.
-    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+    with {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          {:ok, ref} <-
            External.fold_reaction_in_tx(
-             repo,
              fact.conversation_id,
              fact.provider_message_id,
              fact,
@@ -159,9 +159,10 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- FactNormalizer.action(binding, input, now),
          {:ok, fact} <- Observation.action(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      binding
-      |> Ankole.Conversations.observe_action(fact, now)
-      |> Ankole.Errors.reason()
+      Repo.transact_top_level(
+        fn -> accept_action_in_tx(binding, fact, now) end,
+        after_commit: &__MODULE__.stop_retracted_previews/1
+      )
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -169,13 +170,13 @@ defmodule Ankole.Conversations.Observe do
   end
 
   @doc false
-  def accept_action_in_tx(repo, binding, fact, now) do
+  def accept_action_in_tx(binding, fact, now) do
     # Keep the same channel -> Session -> Signal lock order as
     # ordinary message ingress. Managed callbacks take the session lock so
     # an answer and a newer turn have one deterministic winner.
-    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+    with {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          {:ok, channel} <- conversation_in_tx(fact),
-         {:ok, acceptance} <- Interactions.accept_in_tx(repo, binding, fact, now) do
+         {:ok, acceptance} <- Interactions.accept_in_tx(binding, fact, now) do
       case acceptance do
         :duplicate ->
           {:ok, %{status: :duplicate_action}}
@@ -190,10 +191,10 @@ defmodule Ankole.Conversations.Observe do
               sender_key: Map.get(fact.action, "operator_principal_uid")
           }
 
-          append_action_event(repo, binding, fact, channel, now)
+          append_action_event(binding, fact, channel, now)
 
         :unmanaged ->
-          append_action_event(repo, binding, fact, channel, now)
+          append_action_event(binding, fact, channel, now)
       end
     end
   end
@@ -291,9 +292,10 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- constructor.(binding, input, now),
          {:ok, fact} <- Observation.lifecycle(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      binding
-      |> Ankole.Conversations.observe_lifecycle(fact, now)
-      |> Ankole.Errors.reason()
+      Repo.transact_top_level(
+        fn -> accept_lifecycle_in_tx(binding, fact, now) end,
+        after_commit: &__MODULE__.stop_retracted_previews/1
+      )
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -327,18 +329,18 @@ defmodule Ankole.Conversations.Observe do
   # check comes first: if the human already removed this entry, drop the
   # late receive before writing anything.
   @doc false
-  def accept_entry_in_tx(repo, binding, fact, now) do
-    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-         :ok <- lock_entry(repo, fact) do
-      case active_tombstone?(repo, fact, now) do
+  def accept_entry_in_tx(binding, fact, now) do
+    with {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
+         :ok <- lock_entry(fact) do
+      case active_tombstone?(fact, now) do
         true ->
           {:ok, %{status: :dropped_tombstoned}}
 
         false ->
-          with :ok <- InboundBatches.promote_reference_in_tx(repo, binding, fact, now),
-               fact = Reference.enrich(repo, fact),
+          with :ok <- InboundBatches.promote_reference_in_tx(binding, fact, now),
+               fact = Reference.enrich(fact),
                {:ok, policy} <- entry_policy(binding, fact),
-               {:ok, result} <- apply_entry_policy(repo, binding, fact, policy, now) do
+               {:ok, result} <- apply_entry_policy(binding, fact, policy, now) do
             {:ok, result}
           end
       end
@@ -360,27 +362,26 @@ defmodule Ankole.Conversations.Observe do
   # 2-4 cover committed and uncommitted internal work; step 5 records the
   # provider lifecycle edge without deriving a retraction note.
   @doc false
-  def accept_lifecycle_in_tx(repo, binding, fact, now) do
+  def accept_lifecycle_in_tx(binding, fact, now) do
     # Match ordinary IM ingress: entry, then batch, then channel row.
-    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-         :ok <- lock_entry(repo, fact),
-         :ok <- InboundBatches.lock_in_tx(repo, fact),
+    with {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
+         :ok <- lock_entry(fact),
+         :ok <- InboundBatches.lock_in_tx(fact),
          {:ok, channel} <- conversation_in_tx(fact),
-         {:ok, tombstone} <- upsert_tombstone(repo, fact, now),
-         {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(repo, fact, now),
-         {deleted_count, _rows} <- remove_message_in_tx(repo, fact),
+         {:ok, tombstone} <- upsert_tombstone(fact, now),
+         {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(fact, now),
+         {deleted_count, _rows} <- remove_message_in_tx(fact),
          completed_events <-
            Ankole.Signals.signals_for_entry_in_tx(
-             repo,
              fact.agent_uid,
              fact.binding_name,
              fact.conversation_id,
              fact.provider_message_id
            ),
          {:ok, runtime_retractions} <-
-           InputRevisions.retract_source_entry_in_tx(repo, fact, :removed, now),
+           InputRevisions.retract_source_entry_in_tx(fact, :removed, now),
          {:ok, lifecycle_events} <-
-           append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
+           append_lifecycle_events(binding, fact, completed_events, channel, now) do
       {:ok,
        %{
          status: :accepted,
@@ -446,23 +447,23 @@ defmodule Ankole.Conversations.Observe do
 
   defp command_event_type(command), do: "command.#{command["name"]}"
 
-  defp apply_entry_policy(repo, binding, fact, :ignore, now)
+  defp apply_entry_policy(binding, fact, :ignore, now)
        when fact.channel_kind == :im_group do
-    InboundBatches.apply_im_entry_policy(repo, binding, fact, :ignore, nil, now)
+    InboundBatches.apply_im_entry_policy(binding, fact, :ignore, nil, now)
   end
 
-  defp apply_entry_policy(_repo, _binding, _fact, :ignore, _now) do
+  defp apply_entry_policy(_binding, _fact, :ignore, _now) do
     {:ok, %{status: :ignored}}
   end
 
-  defp apply_entry_policy(repo, binding, fact, :record_only, now)
+  defp apply_entry_policy(binding, fact, :record_only, now)
        when fact.channel_kind in [:im_dm, :im_group] do
-    InboundBatches.apply_im_entry_policy(repo, binding, fact, :record_only, nil, now)
+    InboundBatches.apply_im_entry_policy(binding, fact, :record_only, nil, now)
   end
 
-  defp apply_entry_policy(repo, _binding, fact, :record_only, now) do
+  defp apply_entry_policy(_binding, fact, :record_only, now) do
     with {:ok, channel} <- conversation_in_tx(fact),
-         {:ok, entry} <- External.observe_entry_in_tx(repo, fact, now) do
+         {:ok, entry} <- External.observe_entry_in_tx(fact, now) do
       {:ok, %{status: :recorded, conversation: channel, message_observation: entry}}
     end
   end
@@ -470,7 +471,6 @@ defmodule Ankole.Conversations.Observe do
   # The direct accept path is for non-IM events and typed command events. IM text
   # and attachment traffic has already been diverted into pending inbound batches.
   defp apply_entry_policy(
-         repo,
          binding,
          fact,
          {:signal, "conversation.message.addressed", nil},
@@ -478,7 +478,6 @@ defmodule Ankole.Conversations.Observe do
        )
        when fact.channel_kind in [:im_dm, :im_group] do
     InboundBatches.apply_im_entry_policy(
-      repo,
       binding,
       fact,
       :ignore,
@@ -488,26 +487,25 @@ defmodule Ankole.Conversations.Observe do
   end
 
   defp apply_entry_policy(
-         repo,
          binding,
          fact,
          {:signal, "im.message.may_intervene", nil},
          now
        )
        when fact.channel_kind == :im_group do
-    InboundBatches.apply_im_entry_policy(repo, binding, fact, :may_intervene, nil, now)
+    InboundBatches.apply_im_entry_policy(binding, fact, :may_intervene, nil, now)
   end
 
-  defp apply_entry_policy(repo, binding, fact, {:signal, type, command_payload}, now) do
+  defp apply_entry_policy(binding, fact, {:signal, type, command_payload}, now) do
     {fact, command_payload} =
-      resolve_retry_target(repo, binding, fact, type, command_payload)
+      resolve_retry_target(binding, fact, type, command_payload)
 
     fact = Map.put(fact, :command_payload, command_payload)
 
     with {:ok, channel} <- conversation_in_tx(fact),
-         {:ok, entry} <- External.observe_entry_in_tx(repo, fact, now),
+         {:ok, entry} <- External.observe_entry_in_tx(fact, now),
          {:ok, append_result} <-
-           Envelope.accept(repo, binding, fact, type, channel, entry, now) do
+           Envelope.accept(binding, fact, type, channel, entry, now) do
       {:ok,
        signal_append_result(append_result, %{
          conversation: channel,
@@ -517,7 +515,6 @@ defmodule Ankole.Conversations.Observe do
   end
 
   defp resolve_retry_target(
-         repo,
          binding,
          fact,
          "command.retry",
@@ -528,17 +525,17 @@ defmodule Ankole.Conversations.Observe do
         {fact, command}
 
       {:explicit, signal_id} ->
-        resolve_explicit_retry_target(repo, binding, fact, command, signal_id)
+        resolve_explicit_retry_target(binding, fact, command, signal_id)
 
       {:reply, provider_provider_message_id} ->
-        resolve_reply_retry_target(repo, binding, fact, command, provider_provider_message_id)
+        resolve_reply_retry_target(binding, fact, command, provider_provider_message_id)
 
       :invalid ->
         unresolved_retry_target(fact, command)
     end
   end
 
-  defp resolve_retry_target(_repo, _binding, fact, _type, command), do: {fact, command}
+  defp resolve_retry_target(_binding, fact, _type, command), do: {fact, command}
 
   defp retry_target_request(args_text, reply_to_provider_message_id) do
     case String.trim(args_text) do
@@ -563,33 +560,31 @@ defmodule Ankole.Conversations.Observe do
 
   defp reply_retry_target_request(_reply_to_provider_message_id), do: :bare
 
-  defp resolve_explicit_retry_target(repo, binding, fact, command, signal_id) do
+  defp resolve_explicit_retry_target(binding, fact, command, signal_id) do
     case Delivery.durable_reply_surface_exists_in_tx?(
-           repo,
            binding.agent_uid,
            binding.name,
            fact.conversation_id,
            signal_id
          ) do
-      true -> resolved_retry_target(repo, fact, command, signal_id)
+      true -> resolved_retry_target(fact, command, signal_id)
       false -> unresolved_retry_target(fact, command)
     end
   end
 
-  defp resolve_reply_retry_target(repo, binding, fact, command, provider_provider_message_id) do
+  defp resolve_reply_retry_target(binding, fact, command, provider_provider_message_id) do
     case Delivery.resolve_durable_reply_signal_in_tx(
-           repo,
            binding.agent_uid,
            binding.name,
            fact.conversation_id,
            provider_provider_message_id
          ) do
-      {:ok, signal_id} -> resolved_retry_target(repo, fact, command, signal_id)
+      {:ok, signal_id} -> resolved_retry_target(fact, command, signal_id)
       {:error, :unresolved_reply_target} -> unresolved_retry_target(fact, command)
     end
   end
 
-  defp resolved_retry_target(_repo, fact, command, signal_id) do
+  defp resolved_retry_target(fact, command, signal_id) do
     case Ankole.Signals.get_signal!(signal_id) do
       %Signal{session_id: session_id} ->
         fact = Map.put(fact, :session_id, session_id)
@@ -610,10 +605,9 @@ defmodule Ankole.Conversations.Observe do
     |> Map.merge(%{status: :accepted, signal: signal})
   end
 
-  defp append_action_event(repo, binding, fact, channel, now) do
+  defp append_action_event(binding, fact, channel, now) do
     with {:ok, append_result} <-
            Envelope.accept(
-             repo,
              binding,
              fact,
              fact.signal_type,
@@ -635,9 +629,9 @@ defmodule Ankole.Conversations.Observe do
     |> Map.new()
   end
 
-  defp append_lifecycle_events(_repo, _binding, _fact, [], _channel, _now), do: {:ok, []}
+  defp append_lifecycle_events(_binding, _fact, [], _channel, _now), do: {:ok, []}
 
-  defp append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
+  defp append_lifecycle_events(binding, fact, completed_events, channel, now) do
     completed_events
     |> Enum.map(fn completed_event ->
       lifecycle_fact =
@@ -651,7 +645,6 @@ defmodule Ankole.Conversations.Observe do
         |> Map.put(:action, nil)
 
       Envelope.accept(
-        repo,
         binding,
         lifecycle_fact,
         "conversation.message.removed",
@@ -665,10 +658,9 @@ defmodule Ankole.Conversations.Observe do
 
   @tombstone_ttl_seconds 86_400
 
-  defp bind_conversation_in_tx(repo, binding, fact, now) do
+  defp bind_conversation_in_tx(binding, fact, now) do
     with {:ok, conversation} <-
            External.observe_conversation_in_tx(
-             repo,
              binding,
              %{
                provider_conversation_id: fact.provider_conversation_id,
@@ -697,15 +689,15 @@ defmodule Ankole.Conversations.Observe do
   defp conversation_in_tx(%{conversation_id: id}),
     do: {:ok, Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()}
 
-  defp remove_message_in_tx(repo, fact) do
-    case External.remove_in_tx(repo, fact.conversation_id, fact.provider_message_id) do
+  defp remove_message_in_tx(fact) do
+    case External.remove_in_tx(fact.conversation_id, fact.provider_message_id) do
       {:ok, nil} -> {0, []}
       {:ok, message} -> {1, [message]}
-      {:error, reason} -> repo.rollback(reason)
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
-  defp upsert_tombstone(_repo, fact, now) do
+  defp upsert_tombstone(fact, now) do
     attrs = %{
       conversation_id: fact.conversation_id,
       provider_message_id: fact.provider_message_id,
@@ -715,7 +707,7 @@ defmodule Ankole.Conversations.Observe do
     Ankole.Ash.create(InputTombstone, :record, attrs)
   end
 
-  def active_tombstone?(_repo, fact, now) do
+  def active_tombstone?(fact, now) do
     case InputTombstone
          |> Ash.Query.filter(
            conversation_id == ^fact.conversation_id and
@@ -733,19 +725,19 @@ defmodule Ankole.Conversations.Observe do
     end
   end
 
-  def lock_entry(repo, fact) do
+  def lock_entry(fact) do
     key =
       Enum.join(
         [fact.conversation_id, fact.provider_message_id],
         "|"
       )
 
-    Ankole.AdvisoryLock.lock!(repo, key)
+    Ankole.AdvisoryLock.lock!(Repo, key)
     :ok
   end
 
   defp resolve_existing_conversation(fact) do
-    case External.get_conversation(Repo, fact.provider_conversation_id) do
+    case External.get_conversation(fact.provider_conversation_id) do
       %Conversation{id: id} -> %{fact | conversation_id: id}
       nil -> fact
     end
@@ -754,7 +746,7 @@ defmodule Ankole.Conversations.Observe do
   # The notice needs a channel mirror row to route the reply; the held entry
   # itself is never mirrored.
   defp notify_held_sender(fact, now) do
-    case fact |> Ankole.Conversations.notify_held_sender(now) |> Ankole.Errors.reason() do
+    case Repo.transact_top_level(fn -> notify_held_sender_in_tx(fact, now) end) do
       {:ok, _intent} ->
         :ok
 
@@ -770,10 +762,10 @@ defmodule Ankole.Conversations.Observe do
   end
 
   @doc false
-  def notify_held_sender_in_tx(repo, fact, now) do
+  def notify_held_sender_in_tx(fact, now) do
     with {:ok, binding} <- Bindings.get_binding(fact.agent_uid, fact.binding_name),
-         {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now) do
-      Delivery.commit_in_tx(repo, held_notice_attrs(fact))
+         {:ok, fact} <- bind_conversation_in_tx(binding, fact, now) do
+      Delivery.commit_in_tx(held_notice_attrs(fact))
     end
   end
 

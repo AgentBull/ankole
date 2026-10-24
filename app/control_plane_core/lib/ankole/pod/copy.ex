@@ -2,14 +2,15 @@ defmodule Ankole.Pod.Copy do
   @moduledoc """
   Copies a Database table, its schema, records, and attachments to a new page.
 
-  The copy runs the `:copy_table` generic action of `Ankole.Pod.DbTable`. The
-  records move in one bounded SQL statement, so no record structs load.
+  The copy runs in one top-level transaction. The records move in one bounded
+  SQL statement, so no record structs load.
   """
   require Ash.Query
   alias Ankole.{Files, Repo}
   alias Ankole.Pod.Database.Write
 
   alias Ankole.Pod.{
+    Access,
     Config,
     Database,
     DbField,
@@ -21,13 +22,7 @@ defmodule Ankole.Pod.Copy do
   }
 
   def table(uid, id, attrs, authority \\ nil),
-    do:
-      Ankole.Ash.run_action(DbTable, :copy_table, %{
-        uid: uid,
-        id: id,
-        attrs: attrs,
-        authority: authority
-      })
+    do: Access.write(authority, fn -> table_in_tx(uid, id, attrs) end, after_commit: &committed/1)
 
   @doc "Publishes a committed copy: the tree changed and the new page exists."
   def committed(%{page: page}) do
@@ -281,7 +276,7 @@ defmodule Ankole.Pod.Copy do
                  source: "pod"
                }
              end),
-           {:ok, _} <- Files.commit(Repo, :pod, upserts, []) do
+           {:ok, _} <- Files.commit_in_tx(:pod, upserts, []) do
         {:cont, :ok}
       else
         false -> {:halt, {:error, :not_found}}

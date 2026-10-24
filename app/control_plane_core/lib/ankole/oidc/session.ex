@@ -115,15 +115,6 @@ defmodule Ankole.OIDC.Session do
     destroy :expire_in_tx do
       require_atomic?(true)
     end
-
-    action :ensure, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:client_id, :term)
-      argument(:auth, :term)
-      argument(:scope, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

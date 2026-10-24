@@ -76,13 +76,13 @@ test('title saves keep edit order and a failed save protects navigation until re
     const values: string[] = []
     let failNext = false
     let failReadNext = false
-    await owner.route(`**/.internal-apis/pod/pages/${id}`, async route => {
+    await owner.route(`**/api/v2/pod/pages/${id}`, async route => {
       if (route.request().method() === 'GET' && failReadNext) {
         failReadNext = false
         return route.fulfill({ status: 503, json: { error: 'Page refresh unavailable' } })
       }
       if (route.request().method() !== 'PATCH') return route.continue()
-      values.push(route.request().postDataJSON().title)
+      values.push(route.request().postDataJSON().data.title)
       if (values.length === 1) {
         await new Promise<void>(resolve => {
           release = resolve
@@ -356,7 +356,7 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
     await owner.keyboard.press('Escape')
     await owner.getByRole('button', { name: '分享', exact: true }).click()
     await expect(inherit).toBeChecked()
-    await owner.route(`**/.internal-apis/pod/pages/${source}/sharing`, async (route: Route) => {
+    await owner.route(`**/api/v2/pod/pages/${source}/sharing`, async (route: Route) => {
       if (route.request().method() === 'PUT') {
         await new Promise<void>(resolve => {
           held = resolve

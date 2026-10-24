@@ -465,7 +465,7 @@ shared keys and the default `advanced: false` value.
 `observe_module` converts provider events and calls `Ankole.Conversations.Observe`.
 It provides `chat_consumer/2` and the callbacks for its declared inbound
 capabilities. Observation records a shared Conversation, public Message, and
-`ExternalMessageRef`; work then enters the sole `Ankole.Signals.accept_in_tx/2`
+`ExternalMessageRef`; work then enters the sole `Ankole.Signals.accept_in_tx/1`
 intake. The adapter supplies `provider_conversation_id` and
 `provider_message_id`. Public `conversation_id` and `message_id` are UUIDs
 assigned by Conversations.

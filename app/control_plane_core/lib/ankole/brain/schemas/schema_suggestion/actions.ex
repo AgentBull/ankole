@@ -9,12 +9,6 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion.Actions do
   @impl true
   def run(input, _opts, context), do: action(input.action.name, input, context)
 
-  defp action(:approve_promotion, %{arguments: args}, _context) do
-    args.suggestion_id
-    |> Ankole.Brain.Promotion.approve_in_tx(args.decided_by, args.attrs)
-    |> Ankole.Errors.wrap()
-  end
-
   defp action(:console_approve, %{arguments: args}, context) do
     attrs = Map.take(args, [:primitive, :slug_prefix, :target_type, :extractable])
     decided_by = Ankole.Brain.Console.actor_ref(context)
@@ -31,11 +25,5 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion.Actions do
     args.suggestion_id
     |> Ankole.Brain.Promotion.reject_in_tx(Ankole.Brain.Console.actor_ref(context))
     |> Ankole.Brain.Console.result(SchemaSuggestion)
-  end
-
-  defp action(:reject_promotion, %{arguments: args}, _context) do
-    args.suggestion_id
-    |> Ankole.Brain.Promotion.reject_in_tx(args.decided_by)
-    |> Ankole.Errors.wrap()
   end
 end

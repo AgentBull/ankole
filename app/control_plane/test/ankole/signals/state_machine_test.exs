@@ -19,16 +19,16 @@ defmodule Ankole.Signals.StateMachineTest do
 
   test "intake owns the initial state and preserves source identity", %{agent: agent} do
     attrs = intake(agent)
-    assert {:ok, first} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs))
+    assert {:ok, first} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs) end)
     assert first.status == :queued
     assert first.attempt_count == 0
     assert first.last_attempt_at == nil
-    assert {:ok, duplicate} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs))
+    assert {:ok, duplicate} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs) end)
     assert duplicate.id == first.id
     assert duplicate.queue_sequence == first.queue_sequence
 
     assert {:error, :signal_producer_conflict} =
-             Repo.transact(&Ankole.Signals.accept_in_tx(&1, %{attrs | producer: :external}))
+             Repo.transact(fn -> Ankole.Signals.accept_in_tx(%{attrs | producer: :external}) end)
   end
 
   test "admission, capacity defer and refund preserve the distinct attempt budgets", %{
@@ -110,8 +110,8 @@ defmodule Ankole.Signals.StateMachineTest do
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, completed} =
-             Repo.transact(fn repo ->
-               Queue.mark_turn_event_completed_in_tx(repo, signal, now, nil, "silent")
+             Repo.transact(fn ->
+               Queue.mark_turn_event_completed_in_tx(signal, now, nil, "silent")
              end)
 
     assert %{status: :completed, last_attempt_at: nil, attempt_count: 0} = completed
@@ -126,8 +126,8 @@ defmodule Ankole.Signals.StateMachineTest do
     assert {:error, %Ash.Error.Invalid{}} = transition(dead, :defer, %{available_at: now})
 
     assert {:error, :signal_already_dead_lettered} =
-             Repo.transact(fn repo ->
-               Queue.mark_turn_event_completed_in_tx(repo, dead, now, nil, "silent")
+             Repo.transact(fn ->
+               Queue.mark_turn_event_completed_in_tx(dead, now, nil, "silent")
              end)
   end
 
@@ -189,8 +189,8 @@ defmodule Ankole.Signals.StateMachineTest do
     {:ok, admitted} = transition(admitted, :admit, %{last_attempt_at: now})
 
     assert {:ok, {1, nil}} =
-             Repo.transact(fn repo ->
-               Ankole.Signals.stop_human_work_in_tx(repo, human_uid, 2, now) |> then(&{:ok, &1})
+             Repo.transact(fn ->
+               Ankole.Signals.stop_human_work_in_tx(human_uid, 2, now) |> then(&{:ok, &1})
              end)
 
     assert Repo.reload!(queued).status == :dead_letter
@@ -203,7 +203,7 @@ defmodule Ankole.Signals.StateMachineTest do
     do: Repo.transact(fn _ -> Ankole.Ash.update(signal, action, attrs) end)
 
   defp signal(agent) do
-    {:ok, signal} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, intake(agent)))
+    {:ok, signal} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(intake(agent)) end)
     signal
   end
 

@@ -11,14 +11,12 @@ defmodule Ankole.Conversations.Delivery.Queries do
 
   @doc false
   @spec resolve_durable_reply_signal_in_tx(
-          module(),
           String.t(),
           String.t(),
           String.t(),
           String.t()
         ) :: {:ok, Ecto.UUID.t()} | {:error, :unresolved_reply_target}
   def resolve_durable_reply_signal_in_tx(
-        _repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -47,14 +45,12 @@ defmodule Ankole.Conversations.Delivery.Queries do
 
   @doc false
   @spec durable_reply_surface_exists_in_tx?(
-          module(),
           String.t(),
           String.t(),
           String.t(),
           Ecto.UUID.t()
         ) :: boolean()
   def durable_reply_surface_exists_in_tx?(
-        _repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -65,8 +61,7 @@ defmodule Ankole.Conversations.Delivery.Queries do
     agent_uid
     |> durable_reply_surface_query(binding_name, conversation_id)
     |> Ash.Query.filter(source_signal_id == ^signal_id)
-    |> Ash.Query.limit(1)
-    |> Ankole.Ash.read!() != []
+    |> Ankole.Ash.exists?()
   end
 
   @doc """
@@ -114,15 +109,15 @@ defmodule Ankole.Conversations.Delivery.Queries do
     )
   end
 
-  def fetch_delivery_for_update(_repo, agent_uid, binding_name, outbound_key) do
+  def fetch_delivery_for_update(agent_uid, binding_name, outbound_key) do
     agent_uid
     |> delivery_query(binding_name, outbound_key)
     |> Ash.Query.lock(:for_update)
     |> Ankole.Ash.read_one!()
   end
 
-  def fetch_delivery_for_update(repo, %Intent{} = intent) do
-    fetch_delivery_for_update(repo, intent.agent_uid, intent.binding_name, intent.outbound_key)
+  def fetch_delivery_for_update(%Intent{} = intent) do
+    fetch_delivery_for_update(intent.agent_uid, intent.binding_name, intent.outbound_key)
   end
 
   def fetch_delivery(agent_uid, binding_name, outbound_key) do

@@ -65,14 +65,12 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   @doc false
   @spec ambient_candidates_in_tx(
-          module(),
           String.t(),
           String.t(),
           String.t(),
           String.t()
         ) :: %{complete: boolean(), jobs: [map()]}
   def ambient_candidates_in_tx(
-        _repo,
         agent_uid,
         owner_session_id,
         conversation_id,

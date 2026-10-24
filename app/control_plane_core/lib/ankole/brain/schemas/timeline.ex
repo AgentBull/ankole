@@ -77,16 +77,6 @@ defmodule Ankole.Brain.Schemas.Timeline do
 
       upsert_identity(:event)
     end
-
-    # The operation owns its transaction; Ankole.Brain.Timelines gives the steps.
-    action :write_timeline, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:writer, :term, allow_nil?: false)
-      argument(:options, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
   end
 
   relationships do

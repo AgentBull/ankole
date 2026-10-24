@@ -87,8 +87,8 @@ defmodule Ankole.Workflow.RecoveryTest do
     wait_for_idle_server(run.id, server)
 
     assert {:ok, %{run: %Run{status: :cancelled}}} =
-             Repo.transact(fn repo ->
-               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             Repo.transact(fn ->
+               Workflow.Lifecycle.cancel_in_tx(run.id, agent.uid)
              end)
 
     assert %AgentCall{status: :cancelled} = Repo.get!(AgentCall, call.id)

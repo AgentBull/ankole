@@ -45,13 +45,13 @@ defmodule Ankole.Conversations.InboundBatches do
   def finalize_inbound_batch_by_id(batch_id, opts \\ []) when is_binary(batch_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    batch_id
-    |> Ankole.Conversations.finalize_inbound_batch(now)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      finalize_due_in_tx(batch_id, now)
+    end)
   end
 
   @doc false
-  def finalize_due_in_tx(repo, batch_id, now) do
+  def finalize_due_in_tx(batch_id, now) do
     case lock_inbound_batch_by_id(batch_id) do
       nil ->
         {:error, :inbound_batch_not_found}
@@ -59,16 +59,15 @@ defmodule Ankole.Conversations.InboundBatches do
       %InboundBatch{batch_state: :open} = batch ->
         if DateTime.after?(batch.available_at, now),
           do: {:ok, %{status: :not_due, available_at: batch.available_at}},
-          else: finalize_inbound_batch_in_tx(repo, batch, now)
+          else: finalize_inbound_batch_in_tx(batch, now)
 
       batch ->
         {:ok, %{status: :already_finalized, inbound_batch: batch}}
     end
   end
 
-  @spec entry_snapshot(module(), String.t(), String.t(), String.t(), String.t()) :: map() | nil
+  @spec entry_snapshot(String.t(), String.t(), String.t(), String.t()) :: map() | nil
   def entry_snapshot(
-        _repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -84,13 +83,11 @@ defmodule Ankole.Conversations.InboundBatches do
 
   # A previously ignored but actually observed quote becomes part of the
   # shared history before the replying message links to it.
-  def promote_reference_in_tx(repo, binding, fact, now) do
+  def promote_reference_in_tx(binding, fact, now) do
     provider_id = Map.get(fact, :reply_to_provider_message_id)
 
     if is_binary(provider_id) and
-         is_nil(
-           Ankole.Conversations.External.get_message(repo, fact.conversation_id, provider_id)
-         ) do
+         is_nil(Ankole.Conversations.External.get_message(fact.conversation_id, provider_id)) do
       case observed_entry_batch(
              binding.agent_uid,
              binding.name,
@@ -99,7 +96,7 @@ defmodule Ankole.Conversations.InboundBatches do
            ) do
         %InboundBatch{} = batch ->
           entry = find_entry(batch.entries, provider_id)
-          with {:ok, _} <- mirror_batch_entry(repo, batch, binding, entry, now), do: :ok
+          with {:ok, _} <- mirror_batch_entry(batch, binding, entry, now), do: :ok
 
         nil ->
           :ok
@@ -125,19 +122,18 @@ defmodule Ankole.Conversations.InboundBatches do
     |> Ankole.Ash.read_one!()
   end
 
-  def apply_im_entry_policy(repo, binding, fact, policy, type, now) do
-    with :ok <- lock_in_tx(repo, fact),
+  def apply_im_entry_policy(binding, fact, policy, type, now) do
+    with :ok <- lock_in_tx(fact),
          %Conversation{} = channel <- conversation(fact.conversation_id) do
       batch = open_inbound_batch(fact)
 
       case mirrored_outside_open_batch?(fact, batch) do
         true ->
-          with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
+          with {:ok, mirror_entry} <- maybe_mirror_im_entry(fact, policy, type, now),
                source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
                {:ok, supplement} <-
                  maybe_apply_live_attachment_supplement(
                    batch,
-                   repo,
                    fact,
                    source_entry,
                    now
@@ -146,7 +142,6 @@ defmodule Ankole.Conversations.InboundBatches do
                  route_finalized_duplicate_or_attachment_supplement(
                    supplement,
                    batch,
-                   repo,
                    binding,
                    channel,
                    fact,
@@ -162,12 +157,11 @@ defmodule Ankole.Conversations.InboundBatches do
           end
 
         false ->
-          with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
+          with {:ok, mirror_entry} <- maybe_mirror_im_entry(fact, policy, type, now),
                source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
                {:ok, supplement} <-
                  maybe_apply_live_attachment_supplement(
                    batch,
-                   repo,
                    fact,
                    source_entry,
                    now
@@ -176,7 +170,6 @@ defmodule Ankole.Conversations.InboundBatches do
                  route_after_live_attachment_supplement(
                    supplement,
                    batch,
-                   repo,
                    binding,
                    channel,
                    fact,
@@ -204,7 +197,7 @@ defmodule Ankole.Conversations.InboundBatches do
         conversation_id == ^fact.conversation_id and
           provider_message_id == ^fact.provider_message_id
       )
-      |> exists?() and
+      |> Ankole.Ash.exists?() and
       finalized_batch_contains_source_entry?(fact)
   end
 
@@ -219,10 +212,8 @@ defmodule Ankole.Conversations.InboundBatches do
           ^fact.provider_message_id
         )
     )
-    |> exists?()
+    |> Ankole.Ash.exists?()
   end
-
-  defp exists?(query), do: query |> Ash.Query.limit(1) |> Ankole.Ash.read!() != []
 
   defp batch_contains_source_entry?(%InboundBatch{entries: entries}, provider_message_id) do
     Enum.any?(entries, &(&1["provider_message_id"] == provider_message_id))
@@ -238,28 +229,25 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp maybe_apply_live_attachment_supplement(
          nil,
-         repo,
          fact,
          source_entry,
          now
        ) do
-    InputRevisions.merge_attachment_supplement_in_tx(repo, fact, source_entry, now)
+    InputRevisions.merge_attachment_supplement_in_tx(fact, source_entry, now)
   end
 
   defp maybe_apply_live_attachment_supplement(
          %InboundBatch{},
-         repo,
          fact,
          source_entry,
          now
        ) do
-    InputRevisions.refresh_attachment_supplement_in_tx(repo, fact, source_entry, now)
+    InputRevisions.refresh_attachment_supplement_in_tx(fact, source_entry, now)
   end
 
   defp route_finalized_duplicate_or_attachment_supplement(
          :not_supplement,
          batch,
-         _repo,
          _binding,
          _channel,
          _fact,
@@ -274,7 +262,6 @@ defmodule Ankole.Conversations.InboundBatches do
   defp route_finalized_duplicate_or_attachment_supplement(
          supplement,
          batch,
-         repo,
          binding,
          channel,
          fact,
@@ -286,7 +273,6 @@ defmodule Ankole.Conversations.InboundBatches do
     route_after_live_attachment_supplement(
       supplement,
       batch,
-      repo,
       binding,
       channel,
       fact,
@@ -300,7 +286,6 @@ defmodule Ankole.Conversations.InboundBatches do
   defp route_after_live_attachment_supplement(
          :not_supplement,
          batch,
-         repo,
          binding,
          channel,
          fact,
@@ -310,10 +295,9 @@ defmodule Ankole.Conversations.InboundBatches do
          now
        ) do
     batch
-    |> maybe_finalize_due_batch(repo, now)
-    |> maybe_finalize_reply_boundary(repo, fact, now)
+    |> maybe_finalize_due_batch(now)
+    |> maybe_finalize_reply_boundary(fact, now)
     |> route_inbound_batch_entry(
-      repo,
       binding,
       channel,
       fact,
@@ -327,7 +311,6 @@ defmodule Ankole.Conversations.InboundBatches do
   defp route_after_live_attachment_supplement(
          {:consumed, result},
          _batch,
-         repo,
          _binding,
          _channel,
          fact,
@@ -336,7 +319,7 @@ defmodule Ankole.Conversations.InboundBatches do
          _type,
          now
        ) do
-    with {:ok, mirror_entry} <- Ankole.Conversations.External.observe_entry_in_tx(repo, fact, now) do
+    with {:ok, mirror_entry} <- Ankole.Conversations.External.observe_entry_in_tx(fact, now) do
       {:ok, Map.put(result, :message_observation, mirror_entry)}
     end
   end
@@ -344,7 +327,6 @@ defmodule Ankole.Conversations.InboundBatches do
   defp route_after_live_attachment_supplement(
          {:next_turn, reason},
          nil,
-         repo,
          binding,
          channel,
          fact,
@@ -358,7 +340,6 @@ defmodule Ankole.Conversations.InboundBatches do
     with {:ok, result} <-
            append_addressed_inbound_entry(
              nil,
-             repo,
              binding,
              channel,
              fact,
@@ -373,7 +354,6 @@ defmodule Ankole.Conversations.InboundBatches do
   defp route_after_live_attachment_supplement(
          {:next_turn, reason},
          %InboundBatch{} = batch,
-         repo,
          binding,
          channel,
          fact,
@@ -384,11 +364,10 @@ defmodule Ankole.Conversations.InboundBatches do
        ) do
     source_entry = Map.put(source_entry, "explicit", true)
 
-    with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+    with {:ok, closed} <- finalize_inbound_batch_in_tx(batch, now),
          {:ok, result} <-
            append_addressed_inbound_entry(
              nil,
-             repo,
              binding,
              channel,
              fact,
@@ -403,9 +382,9 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp maybe_mirror_im_entry(repo, fact, policy, type, now) do
+  defp maybe_mirror_im_entry(fact, policy, type, now) do
     case should_mirror_im_entry?(policy, type) do
-      true -> Ankole.Conversations.External.observe_entry_in_tx(repo, fact, now)
+      true -> Ankole.Conversations.External.observe_entry_in_tx(fact, now)
       false -> {:ok, nil}
     end
   end
@@ -415,17 +394,17 @@ defmodule Ankole.Conversations.InboundBatches do
   defp should_mirror_im_entry?(:may_intervene, _type), do: true
   defp should_mirror_im_entry?(_policy, _type), do: false
 
-  defp maybe_finalize_due_batch(nil, _repo, _now) do
+  defp maybe_finalize_due_batch(nil, _now) do
     {:ok, %{inbound_batch: nil, finalized_signals: []}}
   end
 
-  defp maybe_finalize_due_batch(%InboundBatch{available_at: available_at} = batch, repo, now) do
+  defp maybe_finalize_due_batch(%InboundBatch{available_at: available_at} = batch, now) do
     case DateTime.compare(available_at, now) do
       :gt ->
         {:ok, %{inbound_batch: batch, finalized_signals: []}}
 
       _ready ->
-        with {:ok, result} <- finalize_inbound_batch_in_tx(repo, batch, now) do
+        with {:ok, result} <- finalize_inbound_batch_in_tx(batch, now) do
           {:ok, %{inbound_batch: nil, finalized_signals: finalized_signals(result)}}
         end
     end
@@ -433,7 +412,6 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp maybe_finalize_reply_boundary(
          {:ok, %{inbound_batch: nil} = state},
-         _repo,
          _fact,
          _now
        ),
@@ -441,7 +419,6 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp maybe_finalize_reply_boundary(
          {:ok, %{inbound_batch: %InboundBatch{} = batch} = state},
-         repo,
          fact,
          now
        ) do
@@ -450,7 +427,7 @@ defmodule Ankole.Conversations.InboundBatches do
     if batch.reply_to_provider_message_id == reply_to_provider_message_id do
       {:ok, state}
     else
-      with {:ok, finalized} <- finalize_inbound_batch_in_tx(repo, batch, now) do
+      with {:ok, finalized} <- finalize_inbound_batch_in_tx(batch, now) do
         events =
           (state.finalized_signals ++ finalized_signals(finalized))
           |> Enum.uniq_by(& &1.id)
@@ -460,12 +437,11 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp maybe_finalize_reply_boundary({:error, _reason} = error, _repo, _fact, _now),
+  defp maybe_finalize_reply_boundary({:error, _reason} = error, _fact, _now),
     do: error
 
   defp route_inbound_batch_entry(
          {:ok, %{inbound_batch: batch, finalized_signals: finalized_events}},
-         repo,
          binding,
          channel,
          fact,
@@ -477,7 +453,6 @@ defmodule Ankole.Conversations.InboundBatches do
     with {:ok, result} <-
            route_inbound_batch_entry(
              batch,
-             repo,
              binding,
              channel,
              fact,
@@ -492,7 +467,6 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp route_inbound_batch_entry(
          batch,
-         repo,
          binding,
          channel,
          fact,
@@ -501,22 +475,21 @@ defmodule Ankole.Conversations.InboundBatches do
          "conversation.message.addressed",
          now
        ) do
-    append_addressed_inbound_entry(batch, repo, binding, channel, fact, entry, policy, now)
+    append_addressed_inbound_entry(batch, binding, channel, fact, entry, policy, now)
   end
 
-  defp route_inbound_batch_entry(batch, repo, binding, channel, fact, entry, policy, _type, now) do
-    append_neutral_inbound_entry(batch, repo, binding, channel, fact, entry, policy, now)
+  defp route_inbound_batch_entry(batch, binding, channel, fact, entry, policy, _type, now) do
+    append_neutral_inbound_entry(batch, binding, channel, fact, entry, policy, now)
   end
 
-  defp append_addressed_inbound_entry(nil, repo, _binding, _channel, fact, entry, policy, now)
+  defp append_addressed_inbound_entry(nil, _binding, _channel, fact, entry, policy, now)
        when is_map(entry) do
-    create_inbound_batch(repo, fact, policy, :addressed, [entry], now)
+    create_inbound_batch(fact, policy, :addressed, [entry], now)
     |> inbound_result(:accepted)
   end
 
   defp append_addressed_inbound_entry(
          %InboundBatch{mode: :addressed} = batch,
-         repo,
          binding,
          channel,
          fact,
@@ -527,15 +500,14 @@ defmodule Ankole.Conversations.InboundBatches do
     cond do
       batch.requester_sender_key == fact.sender_key and not non_bot_mention?(entry) and
           not addressed_batch_full?(batch.entries, entry) ->
-        update_inbound_batch(batch, repo, [entry], now)
+        update_inbound_batch(batch, [entry], now)
         |> inbound_result(:accepted)
 
       true ->
-        with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+        with {:ok, closed} <- finalize_inbound_batch_in_tx(batch, now),
              {:ok, result} <-
                append_addressed_inbound_entry(
                  nil,
-                 repo,
                  binding,
                  channel,
                  fact,
@@ -550,7 +522,6 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp append_addressed_inbound_entry(
          %InboundBatch{mode: :neutral} = batch,
-         repo,
          binding,
          channel,
          fact,
@@ -564,16 +535,15 @@ defmodule Ankole.Conversations.InboundBatches do
     case prefix do
       [] ->
         batch
-        |> upgrade_neutral_batch_to_addressed(repo, addressed_entries, policy, now)
+        |> upgrade_neutral_batch_to_addressed(addressed_entries, policy, now)
         |> inbound_result(:accepted)
 
       [_ | _] ->
         with {:ok, closed_prefix} <-
-               close_or_replace_neutral_prefix(repo, batch, prefix, tail, now),
+               close_or_replace_neutral_prefix(batch, prefix, tail, now),
              {:ok, result} <-
                append_addressed_inbound_entry(
                  nil,
-                 repo,
                  binding,
                  channel,
                  fact,
@@ -588,7 +558,6 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp append_addressed_inbound_entry(
          nil,
-         repo,
          _binding,
          _channel,
          fact,
@@ -597,18 +566,17 @@ defmodule Ankole.Conversations.InboundBatches do
          now
        )
        when is_list(entries) do
-    create_inbound_batch(repo, fact, policy, :addressed, entries, now)
+    create_inbound_batch(fact, policy, :addressed, entries, now)
     |> inbound_result(:accepted)
   end
 
-  defp append_neutral_inbound_entry(nil, repo, _binding, _channel, fact, entry, policy, now) do
-    create_inbound_batch(repo, fact, policy, :neutral, [entry], now)
+  defp append_neutral_inbound_entry(nil, _binding, _channel, fact, entry, policy, now) do
+    create_inbound_batch(fact, policy, :neutral, [entry], now)
     |> inbound_result(neutral_status(policy))
   end
 
   defp append_neutral_inbound_entry(
          %InboundBatch{mode: :neutral} = batch,
-         repo,
          _binding,
          _channel,
          _fact,
@@ -617,13 +585,12 @@ defmodule Ankole.Conversations.InboundBatches do
          now
        ) do
     batch
-    |> update_inbound_batch(repo, [entry], now)
+    |> update_inbound_batch([entry], now)
     |> inbound_result(neutral_status(policy))
   end
 
   defp append_neutral_inbound_entry(
          %InboundBatch{mode: :addressed} = batch,
-         repo,
          binding,
          channel,
          fact,
@@ -639,31 +606,31 @@ defmodule Ankole.Conversations.InboundBatches do
       same_sender? and addressable_neutral_entry?(entry) and
           not addressed_batch_full?(batch.entries, entry) ->
         batch
-        |> update_inbound_batch(repo, [entry], now)
+        |> update_inbound_batch([entry], now)
         |> inbound_result(:accepted)
 
       same_sender? and addressable_neutral_entry?(entry) ->
-        with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+        with {:ok, closed} <- finalize_inbound_batch_in_tx(batch, now),
              {:ok, result} <-
-               create_inbound_batch(repo, fact, policy, :addressed, [entry], now)
+               create_inbound_batch(fact, policy, :addressed, [entry], now)
                |> inbound_result(:accepted) do
           {:ok, merge_finalized_signals(result, closed)}
         end
 
       true ->
-        with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+        with {:ok, closed} <- finalize_inbound_batch_in_tx(batch, now),
              {:ok, result} <-
-               append_neutral_inbound_entry(nil, repo, binding, channel, fact, entry, policy, now) do
+               append_neutral_inbound_entry(nil, binding, channel, fact, entry, policy, now) do
           {:ok, merge_finalized_signals(result, closed)}
         end
     end
   end
 
-  defp close_or_replace_neutral_prefix(repo, batch, prefix, [] = _tail, now) do
+  defp close_or_replace_neutral_prefix(batch, prefix, [] = _tail, now) do
     Ankole.Ash.update(batch, :replace_prefix, %{entries: prefix})
     |> case do
       {:ok, updated} ->
-        with {:ok, result} <- finalize_inbound_batch_in_tx(repo, updated, now) do
+        with {:ok, result} <- finalize_inbound_batch_in_tx(updated, now) do
           {:ok, %{tail: [], finalized_signals: finalized_signals(result)}}
         end
 
@@ -672,10 +639,10 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp close_or_replace_neutral_prefix(repo, batch, prefix, tail, now) do
+  defp close_or_replace_neutral_prefix(batch, prefix, tail, now) do
     Ankole.Ash.update(batch, :replace_prefix, %{entries: prefix})
     |> case do
-      {:ok, updated} -> finalize_inbound_batch_in_tx(repo, updated, now)
+      {:ok, updated} -> finalize_inbound_batch_in_tx(updated, now)
       {:error, _reason} = error -> error
     end
     |> case do
@@ -723,23 +690,23 @@ defmodule Ankole.Conversations.InboundBatches do
     |> Ankole.Ash.read_one!()
   end
 
-  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{entries: []} = batch, _now) do
-    cancel_inbound_batch(repo, batch)
+  defp finalize_inbound_batch_in_tx(%InboundBatch{entries: []} = batch, _now) do
+    cancel_inbound_batch(batch)
   end
 
-  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: :addressed} = batch, now) do
+  defp finalize_inbound_batch_in_tx(%InboundBatch{mode: :addressed} = batch, now) do
     with {:ok, append_result} <-
-           append_batch_signal(repo, batch, "conversation.message.addressed", now) do
-      finalize_batch_signal_append(repo, batch, append_result)
+           append_batch_signal(batch, "conversation.message.addressed", now) do
+      finalize_batch_signal_append(batch, append_result)
     end
   end
 
-  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: :neutral} = batch, now) do
+  defp finalize_inbound_batch_in_tx(%InboundBatch{mode: :neutral} = batch, now) do
     case batch.policy do
       :may_intervene ->
         with {:ok, append_result} <-
-               append_batch_signal(repo, batch, "im.message.may_intervene", now) do
-          finalize_batch_signal_append(repo, batch, append_result)
+               append_batch_signal(batch, "im.message.may_intervene", now) do
+          finalize_batch_signal_append(batch, append_result)
         end
 
       _no_signal ->
@@ -751,7 +718,6 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp finalize_batch_signal_append(
-         _repo,
          %InboundBatch{} = batch,
          %Signal{} = signal
        ) do
@@ -761,16 +727,16 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp cancel_inbound_batch(_repo, batch, extra_attrs \\ %{}) do
+  defp cancel_inbound_batch(batch, extra_attrs \\ %{}) do
     with {:ok, closed} <- Ankole.Ash.update(batch, :cancel, extra_attrs) do
       {:ok, %{status: :canceled, inbound_batch: closed}}
     end
   end
 
-  def remove_pending_inbound_entry(repo, fact, now) do
+  def remove_pending_inbound_entry(fact, now) do
     fact
     |> pending_inbound_batches_for_lifecycle()
-    |> Enum.map(&remove_entry_from_inbound_batch(repo, &1, fact, now))
+    |> Enum.map(&remove_entry_from_inbound_batch(&1, fact, now))
     |> collect_results()
     |> case do
       {:ok, results} -> {:ok, Enum.reject(results, &is_nil/1)}
@@ -797,7 +763,7 @@ defmodule Ankole.Conversations.InboundBatches do
     Ash.Query.filter(query, provider_thread_id == ^thread)
   end
 
-  defp remove_entry_from_inbound_batch(repo, %InboundBatch{} = batch, fact, now) do
+  defp remove_entry_from_inbound_batch(%InboundBatch{} = batch, fact, now) do
     entries =
       batch.entries
       |> Enum.reject(&(&1["provider_message_id"] == fact.provider_message_id))
@@ -809,7 +775,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
       entries == [] ->
         with {:ok, %{inbound_batch: closed}} <-
-               cancel_inbound_batch(repo, batch, %{entries: []}) do
+               cancel_inbound_batch(batch, %{entries: []}) do
           {:ok, closed}
         end
 
@@ -823,16 +789,16 @@ defmodule Ankole.Conversations.InboundBatches do
           requester_sender_key: requester_sender_key(mode, entries),
           available_at: inbound_due_at(mode, batch.policy, entries, batch, now)
         })
-        |> notify_inbound_batch_deadline(repo)
+        |> notify_inbound_batch_deadline()
     end
   end
 
-  defp append_batch_signal(repo, batch, type, now) do
+  defp append_batch_signal(batch, type, now) do
     with {:ok, binding} <- batch_binding(batch),
          {:ok, channel} <- batch_channel(batch),
-         :ok <- mirror_unmirrored_batch_entries(repo, batch, binding, now) do
-      fact = batch_signal_fact(repo, batch, channel, type, now)
-      Envelope.accept(repo, binding, fact, type, channel, nil, now)
+         :ok <- mirror_unmirrored_batch_entries(batch, binding, now) do
+      fact = batch_signal_fact(batch, channel, type, now)
+      Envelope.accept(binding, fact, type, channel, nil, now)
     end
   end
 
@@ -856,7 +822,7 @@ defmodule Ankole.Conversations.InboundBatches do
   defp conversation(id),
     do: Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 
-  defp create_inbound_batch(repo, fact, policy, mode, entries, now) do
+  defp create_inbound_batch(fact, policy, mode, entries, now) do
     entries = normalize_batch_entries(entries)
 
     attrs = %{
@@ -875,10 +841,10 @@ defmodule Ankole.Conversations.InboundBatches do
     }
 
     Ankole.Ash.create(InboundBatch, :open, attrs)
-    |> notify_inbound_batch_deadline(repo)
+    |> notify_inbound_batch_deadline()
   end
 
-  defp update_inbound_batch(%InboundBatch{} = batch, repo, new_entries, now) do
+  defp update_inbound_batch(%InboundBatch{} = batch, new_entries, now) do
     existing_entries = normalize_batch_entries(batch.entries)
     entries = normalize_batch_entries(existing_entries ++ new_entries)
 
@@ -890,11 +856,11 @@ defmodule Ankole.Conversations.InboundBatches do
         requester_sender_key: requester_sender_key(batch.mode, entries),
         available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now)
       })
-      |> notify_inbound_batch_deadline(repo)
+      |> notify_inbound_batch_deadline()
     end
   end
 
-  defp upgrade_neutral_batch_to_addressed(%InboundBatch{} = batch, repo, entries, policy, now) do
+  defp upgrade_neutral_batch_to_addressed(%InboundBatch{} = batch, entries, policy, now) do
     entries = normalize_batch_entries(entries)
 
     Ankole.Ash.update(batch, :revise, %{
@@ -904,13 +870,12 @@ defmodule Ankole.Conversations.InboundBatches do
       requester_sender_key: requester_sender_key(:addressed, entries),
       available_at: inbound_due_at(:addressed, policy, entries, batch, now)
     })
-    |> notify_inbound_batch_deadline(repo)
+    |> notify_inbound_batch_deadline()
   end
 
-  defp notify_inbound_batch_deadline({:ok, %InboundBatch{} = batch}, repo) do
+  defp notify_inbound_batch_deadline({:ok, %InboundBatch{} = batch}) do
     with :ok <-
            Ankole.Conversations.Jobs.InboundBatchFinalize.schedule_in_tx(
-             repo,
              %{batch_id: batch.id},
              batch.available_at
            ) do
@@ -918,7 +883,7 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp notify_inbound_batch_deadline(result, _repo), do: result
+  defp notify_inbound_batch_deadline(result), do: result
 
   defp open_inbound_batch(fact) do
     thread = thread_key(fact.provider_thread_id)
@@ -1066,7 +1031,7 @@ defmodule Ankole.Conversations.InboundBatches do
     |> Map.new()
   end
 
-  defp batch_signal_fact(repo, %InboundBatch{} = batch, channel, type, now) do
+  defp batch_signal_fact(%InboundBatch{} = batch, channel, type, now) do
     entries = batch.entries
     last_entry = List.last(entries) || %{}
 
@@ -1096,7 +1061,6 @@ defmodule Ankole.Conversations.InboundBatches do
           Enum.map(entries, fn entry ->
             %{message: %{id: message_id}} =
               Ankole.Conversations.External.get_message(
-                repo,
                 batch.conversation_id,
                 entry["provider_message_id"]
               )
@@ -1117,15 +1081,15 @@ defmodule Ankole.Conversations.InboundBatches do
     }
   end
 
-  defp unmirrored_batch_entry_results(batch, binding, repo, now) do
+  defp unmirrored_batch_entry_results(batch, binding, now) do
     for entry <- batch.entries,
         entry["mirrored"] in [nil, false],
-        do: mirror_batch_entry(repo, batch, binding, entry, now)
+        do: mirror_batch_entry(batch, binding, entry, now)
   end
 
-  defp mirror_unmirrored_batch_entries(repo, batch, binding, now) do
+  defp mirror_unmirrored_batch_entries(batch, binding, now) do
     batch
-    |> unmirrored_batch_entry_results(binding, repo, now)
+    |> unmirrored_batch_entry_results(binding, now)
     |> collect_results()
     |> case do
       {:ok, _entries} -> :ok
@@ -1133,7 +1097,7 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp mirror_batch_entry(repo, batch, binding, entry, now) do
+  defp mirror_batch_entry(batch, binding, entry, now) do
     attrs = %{
       agent_uid: batch.agent_uid,
       binding_name: batch.binding_name,
@@ -1157,7 +1121,7 @@ defmodule Ankole.Conversations.InboundBatches do
     }
 
     with {:ok, fact} <- Observation.entry(attrs) do
-      Ankole.Conversations.External.observe_entry_in_tx(repo, fact, now)
+      Ankole.Conversations.External.observe_entry_in_tx(fact, now)
     end
   end
 
@@ -1398,7 +1362,7 @@ defmodule Ankole.Conversations.InboundBatches do
     |> Enum.sum()
   end
 
-  def lock_in_tx(repo, %InboundBatch{} = batch) do
+  def lock_in_tx(%InboundBatch{} = batch) do
     key =
       Enum.join(
         [
@@ -1411,11 +1375,11 @@ defmodule Ankole.Conversations.InboundBatches do
         "|"
       )
 
-    Ankole.AdvisoryLock.lock!(repo, key)
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, key)
     :ok
   end
 
-  def lock_in_tx(repo, fact) do
+  def lock_in_tx(fact) do
     key =
       Enum.join(
         [
@@ -1428,7 +1392,7 @@ defmodule Ankole.Conversations.InboundBatches do
         "|"
       )
 
-    Ankole.AdvisoryLock.lock!(repo, key)
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, key)
     :ok
   end
 

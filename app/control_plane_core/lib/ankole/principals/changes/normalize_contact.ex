@@ -5,17 +5,7 @@ defmodule Ankole.Principals.Changes.NormalizeContact do
   @impl true
   def change(changeset, _opts, _context) do
     changeset =
-      case Ash.Changeset.fetch_change(changeset, :email) do
-        {:ok, email} ->
-          Ash.Changeset.change_attribute(
-            changeset,
-            :email,
-            Ankole.Principals.normalize_email(email)
-          )
-
-        :error ->
-          changeset
-      end
+      Ash.Changeset.update_change(changeset, :email, &Ankole.Principals.normalize_email/1)
 
     case Ash.Changeset.fetch_change(changeset, :mobile) do
       {:ok, nil} ->

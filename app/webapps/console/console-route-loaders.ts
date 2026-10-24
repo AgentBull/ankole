@@ -26,6 +26,7 @@ import { listAiGatewayProvidersOptions } from './api/v2-site/generated/@tanstack
 import { automationJobListOptions } from './pages/automation-jobs'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
 import { conversationListOptions } from './pages/conversations'
+import { principalListOptions } from './pages/principals'
 import { resourceID } from './console-primitives'
 import { checkbackListOptions, cronScheduleListOptions } from './pages/schedules'
 import { webhookEndpointListOptions } from './pages/webhooks'
@@ -75,7 +76,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(listPrincipalGroupsOptions())),
     identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),
     principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),
-    principals: () => ensure(listPrincipalsOptions()).then(() => null),
+    principals: () => ensure(principalListOptions()).then(() => null),
     signals: ({ location }: ConsoleRouteLoaderContext) =>
       all(ensure(agentListOptions()), ensure(listSignalBindingsOptions({ query: { agent: agentFilter(location) } }))),
     schedules: ({ location }: ConsoleRouteLoaderContext) =>

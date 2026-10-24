@@ -658,12 +658,11 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     assert {:ok, _updated} = PreviewStates.put_checkpoint(event.id, checkpoint)
 
     assert {:ok, _} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                :ok =
-                 Ankole.Sessions.Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id)
+                 Ankole.Sessions.Queue.lock_session_in_tx(event.agent_uid, event.session_id)
 
                Ankole.Conversations.Delivery.Interactions.open_in_tx(
-                 repo,
                  event,
                  presentation,
                  @now
@@ -722,7 +721,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     case Keyword.get(opts, :repo) do
       nil -> Signals.accept(attrs)
-      repo -> Signals.accept_in_tx(repo, attrs)
+      repo -> Signals.accept_in_tx(attrs)
     end
   end
 

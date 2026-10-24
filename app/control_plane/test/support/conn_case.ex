@@ -147,7 +147,7 @@ defmodule AnkoleWeb.ConnCase do
 
     Ankole.Repo.with_tenant(tenant.id, fn ->
       {conn, uid} = active_admin_conn_with_principal(conn)
-      conn = conn |> with_console_csrf() |> get(~p"/.internal-apis/session") |> recycle_api()
+      conn = conn |> with_console_csrf() |> get(~p"/api/v2/browser/session") |> recycle_api()
       {conn, uid}
     end)
   end

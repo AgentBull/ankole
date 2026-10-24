@@ -233,44 +233,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       run(__MODULE__.Actions)
     end
 
-    action :create_check_back_later, :term do
-      argument(:attrs, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_checkback, :term do
-      argument(:scheduled_event_id, :integer, allow_nil?: false)
-      argument(:attrs, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :cancel_checkback, :term do
-      argument(:scheduled_event_id, :integer, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :fire_due_event, :term do
-      argument(:scheduled_event_id, :integer, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :record_fire_error, :term do
-      allow_nil?(true)
-      argument(:scheduled_event_id, :integer, allow_nil?: false)
-      argument(:reason, :term)
-      argument(:terminal, :boolean, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end

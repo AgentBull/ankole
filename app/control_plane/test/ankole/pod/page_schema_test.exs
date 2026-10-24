@@ -196,6 +196,33 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
   end
 
+  test "editor batches report each missing field while resets reject each supplied field" do
+    page = new_page()
+    payload = %{client_id: "editor", client_seq: 0, changes: []}
+
+    for kind <- [:change, :reset],
+        fields <- [[], [:client_id], [:client_seq], [:changes], Map.keys(payload)] do
+      attrs =
+        change_attrs(page.id, :reset)
+        |> Map.put(:kind, kind)
+        |> Map.merge(Map.take(payload, fields))
+
+      rejected_fields = if kind == :change, do: Map.keys(payload) -- fields, else: fields
+      message = if kind == :change, do: "is required", else: "is not part of a reset entry"
+
+      if rejected_fields != [] do
+        assert {:error, error} =
+                 Repo.transact(fn -> Ankole.Ash.create(PageChange, :append, attrs) end)
+
+        assert Enum.sort(Ankole.Ash.validation_details(error)) ==
+                 Enum.sort(Enum.map(rejected_fields, &%{path: to_string(&1), message: message}))
+      end
+    end
+
+    assert Repo.aggregate(PageChange, :count) == 0
+    assert insert!(PageChange, Map.merge(change_attrs(page.id, :change), payload)).client_seq == 0
+  end
+
   test "the database rejects a non-array change payload", %{tenant: tenant} do
     page = new_page()
     insert!(PageChange, change_attrs(page.id, :change))

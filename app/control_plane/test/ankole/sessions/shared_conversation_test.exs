@@ -80,7 +80,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
       })
 
     {:ok, _} = ResponseCommit.commit_complete(response, [])
-    assert {:ok, _} = Repo.transact(&External.remove_in_tx(&1, c.conversation.id, "tail"))
+    assert {:ok, _} = Repo.transact(fn -> External.remove_in_tx(c.conversation.id, "tail") end)
     next = observe(c.conversation.id, "next", c.second.uid, "After removal")
     assert next.seq > tail.seq
     assert observe(c.conversation.id, "next", c.second.uid, "After removal").seq == next.seq
@@ -194,9 +194,9 @@ defmodule Ankole.Sessions.SharedConversationTest do
     assert Repo.reload!(input).data == input.data
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo ->
-               with :ok <- Ankole.Sessions.Fence.check_in_tx(repo, active),
-                    :ok <- Ankole.Sessions.Queue.ensure_event_source_live_in_tx(repo, input, @now),
+             Repo.transact(fn ->
+               with :ok <- Ankole.Sessions.Fence.check_in_tx(active),
+                    :ok <- Ankole.Sessions.Queue.ensure_event_source_live_in_tx(input, @now),
                     do: {:ok, :ok}
              end)
 
@@ -277,7 +277,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
     assert Repo.get_by!(Ankole.Conversations.Message, id: second_reply.id).text == "Agent B reply"
 
     assert %{message: %{id: id}, external_ref: %{provider_message_id: "first"}} =
-             External.get_message(Repo, room.id, "first")
+             External.get_message(room.id, "first")
 
     assert id == first_reply.id
 
@@ -306,8 +306,8 @@ defmodule Ankole.Sessions.SharedConversationTest do
 
   test "service event data cannot select another Human's Brain context", c do
     {:ok, signal} =
-      Repo.transact(
-        &Signals.accept_in_tx(&1, %{
+      Repo.transact(fn ->
+        Signals.accept_in_tx(%{
           source: "https://service.test",
           id: Ecto.UUID.generate(),
           type: "service.changed",
@@ -319,7 +319,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
             "entry" => %{"author" => %{"principal_uid" => c.human.uid}}
           }
         })
-      )
+      end)
 
     assert {:ok, context} =
              Ankole.Brain.RequestContext.build(c.first.uid, %{"signal_id" => signal.id})
@@ -331,9 +331,8 @@ defmodule Ankole.Sessions.SharedConversationTest do
 
   defp observe_room(agent) do
     {:ok, conversation} =
-      Repo.transact(
-        &External.observe_conversation_in_tx(
-          &1,
+      Repo.transact(fn ->
+        External.observe_conversation_in_tx(
           %{agent_uid: agent.uid},
           %{
             provider_conversation_id: "lark:shared",
@@ -343,16 +342,15 @@ defmodule Ankole.Sessions.SharedConversationTest do
           },
           @now
         )
-      )
+      end)
 
     conversation
   end
 
   defp observe(id, provider_id, uid, text, signal \\ nil) do
     {:ok, %{message: message}} =
-      Repo.transact(
-        &External.observe_in_tx(
-          &1,
+      Repo.transact(fn ->
+        External.observe_in_tx(
           id,
           %{
             provider_message_id: provider_id,
@@ -364,7 +362,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
           },
           @now
         )
-      )
+      end)
 
     message
   end
@@ -375,7 +373,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
       "message_id" => c.human_message.id,
       "entries" => [%{"message_id" => c.human_message.id, "time" => DateTime.to_iso8601(@now)}],
       "ambient_batch" => %{
-        "scene_fingerprint" => Context.ambient_scene_fingerprint(Repo, c.conversation.id),
+        "scene_fingerprint" => Context.ambient_scene_fingerprint(c.conversation.id),
         "expires_at" =>
           DateTime.to_iso8601(DateTime.add(DateTime.utc_now(:microsecond), 60, :second)),
         "as_of" => DateTime.to_iso8601(@now)
@@ -383,8 +381,8 @@ defmodule Ankole.Sessions.SharedConversationTest do
     }
 
     {:ok, signal} =
-      Repo.transact(
-        &Signals.accept_in_tx(&1, %{
+      Repo.transact(fn ->
+        Signals.accept_in_tx(%{
           producer: :kernel,
           source: "lark:shared",
           id: Ecto.UUID.generate(),
@@ -396,20 +394,19 @@ defmodule Ankole.Sessions.SharedConversationTest do
           data: data,
           time: @now
         })
-      )
+      end)
 
     signal
   end
 
   defp run(c, agent, signal) do
     {:ok, model} =
-      Repo.transact(
-        &AIGateway.ensure_conversation_in_tx(
-          &1,
+      Repo.transact(fn ->
+        AIGateway.ensure_conversation_in_tx(
           agent.uid,
           Ankole.Sessions.Key.conversation(c.conversation.id)
         )
-      )
+      end)
 
     %{
       agent_uid: agent.uid,

@@ -2,16 +2,17 @@ defmodule Ankole.Tenants do
   @moduledoc """
   Durable tenant lifecycle and the single site-administration assignment.
 
-  This module is the Tenants domain. A lifecycle change locks the site
-  administration and the tenant row, so it is a generic action of
-  `Ankole.Tenants.Tenant` that owns its transaction. The `_in_tx` functions
-  let another domain's action do the same steps in its own transaction.
+  This module is the Tenants domain. Each lifecycle operation locks the site
+  administration and the tenant row in a top-level transaction
+  (`Repo.transact_top_level/2`), and `Ankole.Tenants.Tenant` exposes generic
+  actions for the `/api/v2/site` routes. The `_in_tx` functions run the same
+  steps in the caller's transaction.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
-  alias Ankole.{AppConfigure, Errors, Principals, Repo}
+  alias Ankole.{AppConfigure, Principals, Repo}
   alias Ankole.AuthZ.Grants
   alias Ankole.AuthZ.Root
   alias Ankole.AuthZ.Store
@@ -81,7 +82,7 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def privileged_id, do: AppConfigure.get_global_by_key_in_tx(Repo, @privileged_key)
+  def privileged_id, do: AppConfigure.get_global_by_key_in_tx(@privileged_key)
 
   def list, do: Ankole.Ash.read!(Ash.Query.for_read(Tenant, :list))
 
@@ -196,7 +197,7 @@ defmodule Ankole.Tenants do
   end
 
   @doc "Serializes new attempt admission with tenant suspension and deletion."
-  def check_work_admission_in_tx(_repo, id) do
+  def check_work_admission_in_tx(id) do
     case Tenant
          |> Ash.Query.filter(id == ^id)
          |> Ash.Query.lock("FOR SHARE")
@@ -207,20 +208,21 @@ defmodule Ankole.Tenants do
     end
   end
 
-  def create(attrs), do: Ankole.Ash.run_action(Tenant, :create, attrs)
+  def create(attrs) when is_map(attrs),
+    do: Repo.transact_top_level(fn -> create_in_tx(attrs) end)
 
   @doc false
-  def create_in_tx(repo, attrs) do
+  def create_in_tx(attrs) do
+    slug = Ankole.Attrs.get(attrs, :slug)
+    display_name = Ankole.Attrs.get(attrs, :display_name)
+    brain_packs = Ankole.Attrs.get(attrs, :brain_packs, []) || []
+
     with {:ok, tenant} <-
-           Ankole.Ash.create(Tenant, :create_in_tx, Map.take(attrs, [:slug, :display_name])) do
+           Ankole.Ash.create(Tenant, :create_in_tx, %{slug: slug, display_name: display_name}) do
       Repo.with_tenant(tenant.id, fn ->
-        with :ok <- ensure_scaffold_in_tx(repo, tenant),
-             :ok <- Ankole.Pod.Access.initialize_space(repo),
-             {:ok, _} <-
-               Ankole.Brain.SchemaPacks.install_packs_in_tx(
-                 repo,
-                 Map.get(attrs, :brain_packs, [])
-               ) do
+        with :ok <- ensure_scaffold_in_tx(tenant),
+             :ok <- Ankole.Pod.Access.initialize_space(),
+             {:ok, _} <- Ankole.Brain.SchemaPacks.install_packs_in_tx(brain_packs) do
           {:ok, tenant}
         end
       end)
@@ -228,25 +230,25 @@ defmodule Ankole.Tenants do
   end
 
   def ensure_scaffold(%Tenant{} = tenant),
-    do: Ankole.Ash.run_action(Tenant, :ensure_scaffold, %{tenant: tenant})
+    do: Repo.transact_top_level(fn -> ensure_scaffold_in_tx(tenant) end)
 
   @doc false
-  def ensure_scaffold_in_tx(repo, %Tenant{} = tenant) do
+  def ensure_scaffold_in_tx(%Tenant{} = tenant) do
     Repo.with_tenant(tenant.id, fn ->
-      with {:ok, _} <- lock_administration(repo),
-           {:ok, _} <- Root.ensure_all_humans_group(repo),
-           {:ok, _} <- Principals.ensure_system_principal_in_tx(repo),
-           :ok <- ensure_privileged_group(repo, tenant) do
+      with {:ok, _} <- lock_administration(),
+           {:ok, _} <- Root.ensure_all_humans_group(),
+           {:ok, _} <- Principals.ensure_system_principal_in_tx(),
+           :ok <- ensure_privileged_group(tenant) do
         :ok
       end
     end)
   end
 
-  defp ensure_privileged_group(repo, tenant) do
+  defp ensure_privileged_group(tenant) do
     case privileged() do
       {:ok, %Tenant{id: id}} when id == tenant.id ->
-        with {:ok, group} <- Root.ensure_site_admin_group(repo),
-             {:ok, _} <- Grants.upsert_console_admin_grants(repo, group),
+        with {:ok, group} <- Root.ensure_site_admin_group(),
+             {:ok, _} <- Grants.upsert_console_admin_grants(group),
              do: :ok
 
       {:ok, _} ->
@@ -258,20 +260,20 @@ defmodule Ankole.Tenants do
   end
 
   def update(%Tenant{id: id}, attrs),
-    do: lifecycle(:change_profile, attrs |> Map.take([:slug, :display_name]) |> Map.put(:id, id))
+    do: Repo.transact_top_level(fn -> change_profile_in_tx(id, attrs) end)
 
-  def suspend(%Tenant{id: id}), do: lifecycle(:suspend, %{id: id})
-  def resume(%Tenant{id: id}), do: lifecycle(:resume, %{id: id})
-  def delete(%Tenant{id: id}), do: lifecycle(:begin_delete, %{id: id})
+  def suspend(%Tenant{id: id}),
+    do: Repo.transact_top_level(fn -> suspend_in_tx(id) end)
 
-  # A missing tenant is `Ankole.Errors.Invalid.NotFound` in the action (404 in
-  # the JSON:API); domain callers get `:not_found`.
-  defp lifecycle(action, arguments),
-    do: Tenant |> Ankole.Ash.run_action(action, arguments) |> Errors.reason()
+  def resume(%Tenant{id: id}),
+    do: Repo.transact_top_level(fn -> resume_in_tx(id) end)
+
+  def delete(%Tenant{id: id}),
+    do: Repo.transact_top_level(fn -> begin_delete_in_tx(id) end)
 
   @doc false
-  def change_profile_in_tx(repo, id, attrs) do
-    with {:ok, _} <- lock_administration(repo),
+  def change_profile_in_tx(id, attrs) do
+    with {:ok, _} <- lock_administration(),
          {:ok, tenant} <- lock_tenant(id),
          :ok <- not_deleting(tenant) do
       Ankole.Ash.update(tenant, :profile_in_tx, Map.take(attrs, [:slug, :display_name]))
@@ -279,8 +281,8 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def suspend_in_tx(repo, id) do
-    with {:ok, privileged_id} <- lock_administration(repo),
+  def suspend_in_tx(id) do
+    with {:ok, privileged_id} <- lock_administration(),
          {:ok, tenant} <- lock_tenant(id),
          :ok <- not_deleting(tenant),
          :ok <- not_privileged(tenant, privileged_id) do
@@ -289,8 +291,8 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def resume_in_tx(repo, id) do
-    with {:ok, _} <- lock_administration(repo),
+  def resume_in_tx(id) do
+    with {:ok, _} <- lock_administration(),
          {:ok, tenant} <- lock_tenant(id),
          :ok <- not_deleting(tenant) do
       Ankole.Ash.update(tenant, :resume_in_tx, %{})
@@ -298,8 +300,8 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def begin_delete_in_tx(repo, id) do
-    with {:ok, privileged_id} <- lock_administration(repo),
+  def begin_delete_in_tx(id) do
+    with {:ok, privileged_id} <- lock_administration(),
          {:ok, tenant} <- lock_tenant(id),
          :ok <- not_privileged(tenant, privileged_id),
          {:ok, tenant} <- Ankole.Ash.update(tenant, :begin_delete_in_tx, %{}),
@@ -308,29 +310,33 @@ defmodule Ankole.Tenants do
     end
   end
 
-  def transfer_site_administration(%Tenant{id: id}, uid),
-    do: lifecycle(:transfer_site_administration, %{tenant_id: id, site_admin_uid: uid})
+  def transfer_site_administration(%Tenant{id: id}, uid) do
+    Repo.transact_top_level(
+      fn -> transfer_site_administration_in_tx(id, uid) end,
+      after_commit: &publish_site_administration/1
+    )
+  end
 
   @doc false
-  def transfer_site_administration_in_tx(repo, id, uid) do
-    with {:ok, privileged_id} <- lock_administration(repo),
+  def transfer_site_administration_in_tx(id, uid) do
+    with {:ok, privileged_id} <- lock_administration(),
          {:ok, target} <- lock_tenant(id),
          :ok <- not_privileged(target, privileged_id),
          true <- accepting_work?(target),
          {:ok, _} <-
            Repo.with_tenant(target.id, fn ->
-             with {:ok, group} <- Root.ensure_site_admin_group(repo),
-                  {:ok, _} <- Store.lock_group(repo, group.id),
-                  {:ok, principal} <- Store.fetch_principal_for_update(repo, uid),
+             with {:ok, group} <- Root.ensure_site_admin_group(),
+                  {:ok, _} <- Store.lock_group(group.id),
+                  {:ok, principal} <- Store.fetch_principal_for_update(uid),
                   :ok <- Store.ensure_active_human(principal),
-                  {:ok, _} <- Store.insert_membership(repo, group.id, principal.uid),
-                  {:ok, _} <- Grants.upsert_console_admin_grants(repo, group),
+                  {:ok, _} <- Store.insert_membership(group.id, principal.uid),
+                  {:ok, _} <- Grants.upsert_console_admin_grants(group),
                   do: {:ok, group}
            end),
          {:ok, _write} <-
-           AppConfigure.put_global_by_key_in_tx(repo, @privileged_key, target.id),
+           AppConfigure.put_global_by_key_in_tx(@privileged_key, target.id),
          :ok <-
-           Repo.with_tenant(privileged_id, fn -> Root.delete_site_admin_group_in_tx(repo) end) do
+           Repo.with_tenant(privileged_id, fn -> Root.delete_site_admin_group_in_tx() end) do
       {:ok, target}
     else
       false -> {:error, :tenant_not_active}
@@ -346,23 +352,23 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def lock_administration(repo) do
-    case AppConfigure.lock_global_by_key_in_tx(repo, @privileged_key) do
+  def lock_administration do
+    case AppConfigure.lock_global_by_key_in_tx(@privileged_key) do
       :error -> {:error, :privileged_tenant_missing}
       result -> result
     end
   end
 
-  defp lock_tenant(id), do: lock_tenant_in_tx(Repo, id)
+  defp lock_tenant(id), do: lock_tenant_in_tx(id)
 
   @doc """
   Locks one tenant row in the caller's transaction.
 
   The mode is `:update` (the default), `:share`, or `:key_share`.
   """
-  @spec lock_tenant_in_tx(module(), String.t(), :update | :share | :key_share) ::
+  @spec lock_tenant_in_tx(String.t(), :update | :share | :key_share) ::
           {:ok, Tenant.t()} | {:error, term()}
-  def lock_tenant_in_tx(_repo, id, mode \\ :update) do
+  def lock_tenant_in_tx(id, mode \\ :update) do
     case Tenant
          |> Ash.Query.filter(id == ^id)
          |> Ash.Query.lock(row_lock(mode))

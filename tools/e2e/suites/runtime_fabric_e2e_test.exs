@@ -513,8 +513,8 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              })
 
     assert {:ok, %{job: job, dispatch_event: dispatch}} =
-             Repo.transact(fn repo ->
-               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
+             Repo.transact(fn ->
+               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
                  source_signal_id: input.id,
                  agent_uid: uid,
                  owner_session_id: input.session_id,
@@ -568,7 +568,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert Repo.aggregate(Ankole.Principals.Principal, :count) == principal_count
     assert length(FakeOpenAIState.requests()) == before_requests
 
-    conversation = Ankole.Conversations.External.get_conversation(Repo, "lark:oc_chaos_ignore")
+    conversation = Ankole.Conversations.External.get_conversation("lark:oc_chaos_ignore")
     assert conversation
 
     [batch] =

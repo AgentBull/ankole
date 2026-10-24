@@ -22,9 +22,8 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
              })
 
     assert {:ok, external} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Ankole.Conversations.External.observe_conversation_in_tx(
-                 repo,
                  %{agent_uid: agent.uid},
                  %{
                    provider_conversation_id: "mock:mixed-report",
@@ -75,7 +74,7 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
     assert event.conversation_id == native.conversation.id
     assert Scheduled.produced_signal?(event)
     refute Preview.channel_reply_eligible?(event)
-    assert {:ok, [primary, secondary]} = Presentation.targets_in_tx(Repo, event)
+    assert {:ok, [primary, secondary]} = Presentation.targets_in_tx(event)
     assert primary.kind == :native
     assert secondary.kind == :external
     assert secondary.binding_name == "secondary"

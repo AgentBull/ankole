@@ -19,22 +19,22 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInboxArchiveLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   archiveBrainSourceMutation,
   createBrainSourceMutation,
   learnBrainSourceMutation,
-  listBrainSourcesOptions,
+  listBrainSourcesInfiniteOptions,
   updateBrainSourceMutation
 } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { ListBrainSourcesResponse } from '../../api/v2/generated/types.gen'
-import { fromDocument, type Flat } from '../../api/json-api'
+import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
-import { ResourceListPage } from '../../console-list-page'
+import { LoadMore, ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SOURCE_KINDS = ['file', 'url'] as const
@@ -52,7 +52,12 @@ export function BrainSourcesPage() {
   const [scopeTarget, setScopeTarget] = useState<BrainSource>()
   const [sourceScope, setSourceScope] = useState('')
 
-  const sources = useQuery({ ...listBrainSourcesOptions(), select: document => fromDocument(document) })
+  const sources = useInfiniteQuery({
+    ...listBrainSourcesInfiniteOptions(),
+    initialPageParam: {},
+    getNextPageParam: nextPageParams,
+    select: data => data.pages.flatMap(document => fromDocument(document))
+  })
   const rows = sources.data ?? []
 
   const registerDirty = kind !== 'file' || Boolean(upstreamID.trim() || name.trim() || scope.trim())
@@ -128,6 +133,7 @@ export function BrainSourcesPage() {
         emptyDescription={t('console.brain.sources_empty_description')}
         emptyIcon={<RiInboxArchiveLine aria-hidden />}
         error={sources.error}
+        footer={<LoadMore query={sources} />}
         createAction={
           <Button size="sm" type="button" onClick={openRegister}>
             {t('console.brain.register_source')}

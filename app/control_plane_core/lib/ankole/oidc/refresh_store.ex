@@ -63,13 +63,9 @@ defmodule Ankole.OIDC.RefreshStore do
 
     with {:ok, ciphertext} <-
            OIDC.seal(Ankole.JSON.encode!(successor), "refresh_successor", digest) do
-      Ankole.Ash.run_action(RefreshToken, :rotate, %{
-        digest: digest,
-        child: child,
-        successor: successor,
-        ciphertext: ciphertext,
-        now: now
-      })
+      Repo.transact_top_level(fn ->
+        rotate_in_tx(digest, child, successor, ciphertext, now)
+      end)
       |> result()
     else
       _ -> {:error, :retry_state_unavailable}
@@ -154,7 +150,7 @@ defmodule Ankole.OIDC.RefreshStore do
   def revoke_family(nil), do: :ok
 
   def revoke_family(id) do
-    {:ok, :ok} = Ankole.Ash.run_action(RefreshTokenFamily, :revoke_family, %{id: id})
+    {:ok, :ok} = Repo.transact_top_level(fn -> {:ok, revoke_family_in_tx(id)} end)
     :ok
   end
 

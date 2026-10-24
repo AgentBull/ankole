@@ -4,15 +4,19 @@ defmodule Ankole.Workflow.Slot do
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run
 
-  def enforce_capacity(_repo, run, max_running_per_agent) do
+  def enforce_capacity(run, max_running_per_agent) do
     run_id = run.id
     agent_uid = run.agent_uid
 
     run_running =
-      AgentCall |> Ash.Query.filter(run_id == ^run_id and status == :running) |> count()
+      AgentCall
+      |> Ash.Query.filter(run_id == ^run_id and status == :running)
+      |> Ankole.Ash.count!()
 
     agent_running =
-      AgentCall |> Ash.Query.filter(agent_uid == ^agent_uid and status == :running) |> count()
+      AgentCall
+      |> Ash.Query.filter(agent_uid == ^agent_uid and status == :running)
+      |> Ankole.Ash.count!()
 
     if run_running < run.concurrency and agent_running < max_running_per_agent do
       :ok
@@ -21,17 +25,17 @@ defmodule Ankole.Workflow.Slot do
     end
   end
 
-  def lock_agent_slots(repo, agent_uid) do
-    Ankole.AgentWorkers.SlotLock.lock(repo, :workflow, agent_uid)
+  def lock_agent_slots(agent_uid) do
+    Ankole.AgentWorkers.SlotLock.lock(:workflow, agent_uid)
   end
 
-  def lock_session_work_in_tx(repo, agent_uid, session_id) do
+  def lock_session_work_in_tx(agent_uid, session_id) do
     with {:ok, call_id} <- Ankole.Workflow.Queries.parse_task_session_id(session_id),
-         :ok <- lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- lock_call(repo, call_id, run_id, agent_uid) do
-      lock_run_calls(repo, run_id)
+         :ok <- lock_agent_slots(agent_uid),
+         {:ok, run_id} <- call_run_id(call_id, agent_uid),
+         %Run{} = run <- lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- lock_call(call_id, run_id, agent_uid) do
+      lock_run_calls(run_id)
       {:ok, %{run: run, call: call}}
     else
       nil -> {:error, :workflow_task_not_found}
@@ -39,7 +43,7 @@ defmodule Ankole.Workflow.Slot do
     end
   end
 
-  def call_run_id(_repo, call_id, agent_uid) do
+  def call_run_id(call_id, agent_uid) do
     AgentCall
     |> Ash.Query.filter(id == ^call_id and agent_uid == ^agent_uid)
     |> Ash.Query.select([:run_id])
@@ -61,35 +65,35 @@ defmodule Ankole.Workflow.Slot do
     |> one()
   end
 
-  def lock_run(_repo, run_id) do
+  def lock_run(run_id) do
     Run
     |> Ash.Query.filter(id == ^run_id)
     |> Ash.Query.lock(:for_update)
     |> one(lock_identity: {"workflow_runs", run_id})
   end
 
-  def lock_run(_repo, run_id, agent_uid) do
+  def lock_run(run_id, agent_uid) do
     Run
     |> Ash.Query.filter(id == ^run_id and agent_uid == ^agent_uid)
     |> Ash.Query.lock(:for_update)
     |> one(lock_identity: {"workflow_runs", run_id})
   end
 
-  def lock_call(_repo, call_id, run_id, agent_uid) do
+  def lock_call(call_id, run_id, agent_uid) do
     AgentCall
     |> Ash.Query.filter(id == ^call_id and run_id == ^run_id and agent_uid == ^agent_uid)
     |> Ash.Query.lock(:for_update)
     |> one(lock_identity: {"workflow_agent_calls", call_id})
   end
 
-  def lock_run_calls(_repo, run_id) do
+  def lock_run_calls(run_id) do
     AgentCall
     |> Ash.Query.filter(run_id == ^run_id)
     |> Ash.Query.sort(id: :asc)
     |> lock_calls()
   end
 
-  def lock_run_calls_by_sequence(_repo, run_id) do
+  def lock_run_calls_by_sequence(run_id) do
     AgentCall
     |> Ash.Query.filter(run_id == ^run_id)
     |> Ash.Query.sort(call_seq: :asc)
@@ -110,6 +114,4 @@ defmodule Ankole.Workflow.Slot do
     {:ok, record} = Ankole.Ash.read_one(query, opts)
     record
   end
-
-  defp count(query), do: Ankole.Ash.aggregate!(query, {:count, :count}).count
 end

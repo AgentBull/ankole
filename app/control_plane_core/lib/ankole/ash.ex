@@ -36,6 +36,15 @@ defmodule Ankole.Ash do
       |> Ash.create(options(resource, opts))
       |> Ankole.Errors.boundary_result()
 
+  def create!(%Ash.Changeset{} = changeset),
+    do: Ash.create!(changeset, options(changeset.resource, tenant: changeset.tenant))
+
+  def create!(resource, action, attrs, opts \\ []),
+    do:
+      resource
+      |> for_create(action, attrs, opts)
+      |> Ash.create!(options(resource, opts))
+
   def update(%Ash.Changeset{} = changeset) do
     changeset
     |> Ash.update(options(changeset.resource, tenant: changeset.tenant))
@@ -70,7 +79,7 @@ defmodule Ankole.Ash do
 
     locked_read(identity, fn ->
       query
-      |> Ash.read(options(query_resource(query), opts))
+      |> Ash.read(query_options(query, opts))
       |> Ankole.Errors.boundary_result()
     end)
   end
@@ -79,7 +88,7 @@ defmodule Ankole.Ash do
     {identity, opts} = Keyword.pop(opts, :lock_identity)
 
     locked_read(identity, fn ->
-      Ash.read!(query, options(query_resource(query), opts))
+      Ash.read!(query, query_options(query, opts))
     end)
   end
 
@@ -88,7 +97,7 @@ defmodule Ankole.Ash do
 
     locked_read(identity, fn ->
       query
-      |> Ash.read_one(options(query_resource(query), opts))
+      |> Ash.read_one(query_options(query, opts))
       |> Ankole.Errors.boundary_result()
     end)
   end
@@ -97,7 +106,7 @@ defmodule Ankole.Ash do
     {identity, opts} = Keyword.pop(opts, :lock_identity)
 
     locked_read(identity, fn ->
-      Ash.read_one!(query, options(query_resource(query), opts))
+      Ash.read_one!(query, query_options(query, opts))
     end)
   end
 
@@ -109,18 +118,33 @@ defmodule Ankole.Ash do
   `lock_identity:` option works as in `read/2`. A failed read raises.
   """
   def read_across_tenants!(%Ash.Query{} = query, opts \\ []) do
-    {identity, opts} = Keyword.pop(opts, :lock_identity)
-
-    Ankole.Repo.across_tenants(fn ->
-      locked_read(identity, fn -> Ash.read!(query, Keyword.put(opts, :authorize?, false)) end)
-    end)
+    Ankole.Repo.across_tenants(fn -> read!(query, opts) end)
   end
 
+  def count!(query, opts \\ []),
+    do: Ash.count!(query, query_options(query, opts))
+
+  def exists?(query, opts \\ []),
+    do: Ash.exists?(query, query_options(query, opts))
+
   def aggregate!(query, aggregates, opts \\ []),
-    do: Ash.aggregate!(query, aggregates, options(query_resource(query), opts))
+    do: Ash.aggregate!(query, aggregates, query_options(query, opts))
 
   def max!(query, field, opts \\ []),
-    do: Ash.max!(query, field, options(query_resource(query), opts))
+    do: Ash.max!(query, field, query_options(query, opts))
+
+  def load!(record_or_records, fields, opts \\ [])
+  def load!([] = records, _fields, _opts), do: records
+
+  def load!(record_or_records, fields, opts) do
+    resource =
+      case record_or_records do
+        [%mod{} | _] -> mod
+        %mod{} -> mod
+      end
+
+    Ash.load!(record_or_records, fields, options(resource, opts))
+  end
 
   def run_action(resource, action, args, opts \\ []) do
     options = options(resource, opts)
@@ -341,6 +365,19 @@ defmodule Ankole.Ash do
 
     Keyword.merge([tenant: tenant, authorize?: false], opts)
   end
+
+  defp query_options(%Ash.Query{action: %{multitenancy: :allow_global}} = query, opts) do
+    if Ankole.Repo.across_tenants?() do
+      if not is_nil(Keyword.get(opts, :tenant)),
+        do: raise(ArgumentError, "action tenant does not match the selected resource scope")
+
+      Keyword.merge([tenant: nil, authorize?: false], opts)
+    else
+      options(query.resource, opts)
+    end
+  end
+
+  defp query_options(query, opts), do: options(query_resource(query), opts)
 
   defp query_resource(%Ash.Query{resource: resource}), do: resource
   defp query_resource(resource) when is_atom(resource), do: resource

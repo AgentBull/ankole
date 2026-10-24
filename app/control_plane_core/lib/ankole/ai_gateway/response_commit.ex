@@ -52,12 +52,14 @@ defmodule Ankole.AIGateway.ResponseCommit do
 
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, message_id} <- decode_response_id(response_id) do
-      Ankole.Ash.run_action(Message, :renew_lease, %{
-        subject_uid: subject_uid,
-        message_id: message_id,
-        metadata: metadata,
-        now: DateTime.utc_now(:microsecond)
-      })
+      Repo.transact_top_level(fn ->
+        renew_lease(%{
+          subject_uid: subject_uid,
+          message_id: message_id,
+          metadata: metadata,
+          now: DateTime.utc_now(:microsecond)
+        })
+      end)
     else
       _invalid -> {:error, :not_found}
     end
@@ -119,13 +121,17 @@ defmodule Ankole.AIGateway.ResponseCommit do
       when is_map(error_details) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, message_id} <- decode_response_id(response_id) do
-      Message
-      |> Ankole.Ash.run_action(:fail_generating, %{
-        subject_uid: subject_uid,
-        message_id: message_id,
-        error_details: error_details,
-        now: DateTime.utc_now(:microsecond)
-      })
+      Repo.transact_top_level(
+        fn ->
+          fail_generating(%{
+            subject_uid: subject_uid,
+            message_id: message_id,
+            error_details: error_details,
+            now: DateTime.utc_now(:microsecond)
+          })
+        end,
+        after_commit: &publish_committed/1
+      )
       |> published()
     else
       _invalid -> {:error, :not_found}
@@ -137,7 +143,6 @@ defmodule Ankole.AIGateway.ResponseCommit do
   def fail_generating(%{error_details: error_details} = arguments) do
     with {:ok, %Message{} = message} <-
            fail_generating_response_in_tx(
-             Repo,
              arguments.subject_uid,
              arguments.message_id,
              error_details,
@@ -151,9 +156,9 @@ defmodule Ankole.AIGateway.ResponseCommit do
   Transactional variant of `fail_generating_response/3` for callers that own a
   wider transaction. It has no domain-specific side effects.
   """
-  @spec fail_generating_response_in_tx(module(), String.t(), binary(), map(), DateTime.t()) ::
+  @spec fail_generating_response_in_tx(String.t(), binary(), map(), DateTime.t()) ::
           {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
-  def fail_generating_response_in_tx(_repo, subject_uid, response_id, error_details, now)
+  def fail_generating_response_in_tx(subject_uid, response_id, error_details, now)
       when is_map(error_details) do
     transition_generating_response(
       subject_uid,
@@ -171,13 +176,12 @@ defmodule Ankole.AIGateway.ResponseCommit do
   excluding it from future history after its input was superseded.
   """
   @spec retract_generating_response_in_tx(
-          module(),
           String.t(),
           binary(),
           String.t(),
           DateTime.t()
         ) :: {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
-  def retract_generating_response_in_tx(_repo, subject_uid, response_id, reason, now)
+  def retract_generating_response_in_tx(subject_uid, response_id, reason, now)
       when is_binary(reason) do
     transition_generating_response(
       subject_uid,
@@ -213,12 +217,16 @@ defmodule Ankole.AIGateway.ResponseCommit do
           {:ok, :failed | :live | :already_terminal} | {:error, term()}
   def reconcile_orphaned_response(response_id, opts \\ []) do
     with {:ok, message_id} <- decode_response_id(response_id) do
-      Message
-      |> Ankole.Ash.run_action(:reconcile_orphan, %{
-        message_id: message_id,
-        now: Keyword.get(opts, :now, DateTime.utc_now(:microsecond)),
-        force: Keyword.get(opts, :force, false)
-      })
+      Repo.transact_top_level(
+        fn ->
+          reconcile_orphan(%{
+            message_id: message_id,
+            now: Keyword.get(opts, :now, DateTime.utc_now(:microsecond)),
+            force: Keyword.get(opts, :force, false)
+          })
+        end,
+        after_commit: &publish_committed/1
+      )
       |> case do
         {:ok, {:publish, %Message{}, :response_failed, _payload}} -> {:ok, :failed}
         other -> other
@@ -229,7 +237,7 @@ defmodule Ankole.AIGateway.ResponseCommit do
   @doc false
   # Runs the `:reconcile_orphan` action.
   def reconcile_orphan(%{message_id: message_id, now: now, force: force}) do
-    case reconcile_orphaned_response_in_tx(Repo, message_id, now: now, force: force) do
+    case reconcile_orphaned_response_in_tx(message_id, now: now, force: force) do
       {:ok, {:failed, message, error}} ->
         {:ok, {:publish, message, :response_failed, %{error: error}}}
 
@@ -239,7 +247,7 @@ defmodule Ankole.AIGateway.ResponseCommit do
   end
 
   @doc false
-  def reconcile_orphaned_response_in_tx(repo, response_id, opts) do
+  def reconcile_orphaned_response_in_tx(response_id, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, message_id} <- decode_response_id(response_id) do
@@ -255,7 +263,6 @@ defmodule Ankole.AIGateway.ResponseCommit do
 
             with {:ok, %Message{} = failed} <-
                    fail_generating_response_in_tx(
-                     repo,
                      message.subject_uid,
                      message.id,
                      error,
@@ -309,13 +316,17 @@ defmodule Ankole.AIGateway.ResponseCommit do
         {:ok, :already_terminal}
 
       %Message{id: message_id} ->
-        Message
-        |> Ankole.Ash.run_action(:commit_terminal, %{
-          message_id: message_id,
-          transition: action,
-          output: output,
-          metadata: metadata
-        })
+        Repo.transact_top_level(
+          fn ->
+            commit_terminal_locked(%{
+              message_id: message_id,
+              transition: action,
+              output: output,
+              metadata: metadata
+            })
+          end,
+          after_commit: &publish_committed/1
+        )
         |> published()
     end
   end
@@ -379,7 +390,6 @@ defmodule Ankole.AIGateway.ResponseCommit do
   @doc false
   def notify_ai_message_deadline(%Message{} = message) do
     Ankole.AIGateway.Jobs.ReconcileOrphanedResponse.schedule_in_tx(
-      Repo,
       %{message_id: message.id},
       ai_message_orphan_at(message)
     )

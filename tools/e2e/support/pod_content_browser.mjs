@@ -61,12 +61,12 @@ async function sendMessage() {
   const responsePromise = page.waitForResponse(
     response =>
       response.request().method() === 'POST' &&
-      /\/\.internal-apis\/pod\/conversations(?:\/[^/]+\/messages)?$/.test(new URL(response.url()).pathname)
+      /\/api\/v2\/pod\/conversations(?:\/[^/]+\/messages)?$/.test(new URL(response.url()).pathname)
   )
   await composer.getByRole('button', { name: 'Send message', exact: true }).click()
   const response = await responsePromise
-  expect(response.status()).toBe(200)
-  const submitted = response.request().postDataJSON()
+  expect(response.status()).toBe(201)
+  const submitted = response.request().postDataJSON().data
   const detail = await response.json()
   await expect(input).toHaveValue('')
   const submittedBubble = composer.locator('div.whitespace-pre-wrap').filter({ hasText: state.text })
@@ -170,7 +170,7 @@ async function inventory() {
   const directRecordWrites = []
   page.on('request', request => {
     const pathname = new URL(request.url()).pathname
-    if (request.method() === 'POST' && /^\/\.internal-apis\/pod\/tables\/[^/]+\/records$/.test(pathname)) {
+    if (request.method() === 'POST' && /^\/api\/v2\/pod\/tables\/[^/]+\/records$/.test(pathname)) {
       directRecordWrites.push(pathname)
     }
   })
@@ -295,7 +295,7 @@ async function document() {
   await expect(editor).toContainText(state.edit_marker)
   await expect
     .poll(async () => {
-      const response = await page.request.get(`${state.base_url}/.internal-apis/pod/pages/${state.report_id}`)
+      const response = await page.request.get(`${state.base_url}/api/v2/pod/pages/${state.report_id}`)
       expect(response.ok()).toBe(true)
       return (await response.json()).content.plain_text
     })

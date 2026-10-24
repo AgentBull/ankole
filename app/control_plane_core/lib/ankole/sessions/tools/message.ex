@@ -66,10 +66,10 @@ defmodule Ankole.Sessions.Tools.Message do
   # every adapter delivers all of them. The text post keeps the call's key and
   # attachment posts extend it.
   @impl true
-  def prepare_in_tx(repo, run, call, args),
-    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+  def prepare_in_tx(run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(run, call, args) end}
 
-  defp commit_tool_in_tx(repo, run, call, args) do
+  defp commit_tool_in_tx(run, call, args) do
     destination = args["destination"]
     key = "tool:#{Run.response_id(run.model_response)}:#{Run.call_id(call)}"
 
@@ -77,10 +77,10 @@ defmodule Ankole.Sessions.Tools.Message do
            Ankole.Signals.Bindings.get_binding(run.agent_uid, destination["binding"]),
          {:ok, adapter} <- Adapters.fetch_delivery(binding.adapter),
          true <- MapSet.member?(adapter.capabilities, :post_entry),
-         {:ok, channel} <- conversation_in_tx(repo, run, binding, adapter, destination),
+         {:ok, channel} <- conversation_in_tx(run, binding, adapter, destination),
          {:ok, attachments} <- attachment_refs(run.agent_uid, args["attachments"] || []),
          :ok <-
-           commit_posts_in_tx(repo, run, binding, channel, [
+           commit_posts_in_tx(run, binding, channel, [
              {key, %{"text" => args["text"]}, args["text"]}
              | Enum.with_index(attachments, &{"#{key}:#{&2}", %{"attachments" => [&1]}, nil})
            ]) do
@@ -98,9 +98,9 @@ defmodule Ankole.Sessions.Tools.Message do
     end
   end
 
-  defp commit_posts_in_tx(repo, run, binding, channel, posts) do
+  defp commit_posts_in_tx(run, binding, channel, posts) do
     Enum.reduce_while(posts, :ok, fn {key, payload, text}, :ok ->
-      case Delivery.commit_in_tx(repo, %{
+      case Delivery.commit_in_tx(%{
              agent_uid: run.agent_uid,
              binding_name: binding.name,
              outbound_key: key,
@@ -167,7 +167,7 @@ defmodule Ankole.Sessions.Tools.Message do
     end
   end
 
-  defp conversation_in_tx(_repo, run, binding, _adapter, %{"conversation_id" => id}) do
+  defp conversation_in_tx(run, binding, _adapter, %{"conversation_id" => id}) do
     with [_signal] <-
            Ankole.Signals.list_signals!(
              query: [
@@ -189,10 +189,10 @@ defmodule Ankole.Sessions.Tools.Message do
     end
   end
 
-  defp conversation_in_tx(repo, run, binding, adapter, %{"principal_uid" => uid}) do
+  defp conversation_in_tx(run, binding, adapter, %{"principal_uid" => uid}) do
     with {:ok, %Conversation{kind: :external, external_kind: :im_dm, id: id}} <-
            Adapter.open_conversation(adapter, binding, uid) do
-      conversation_in_tx(repo, run, binding, adapter, %{"conversation_id" => id})
+      conversation_in_tx(run, binding, adapter, %{"conversation_id" => id})
     end
   end
 

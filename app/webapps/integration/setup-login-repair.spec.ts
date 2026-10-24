@@ -10,7 +10,7 @@ test('Setup freezes pending choices and back navigation restores the acknowledge
   const gate = new Promise<void>(resolve => {
     release = resolve
   })
-  await page.route('**/.internal-apis/setup/**', async route => {
+  await page.route('**/api/v2/browser/setup/**', async route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/state')) {
       return route.fulfill({
@@ -42,7 +42,7 @@ test('Setup freezes pending choices and back navigation restores the acknowledge
           }
         })
       }
-      selected = route.request().postDataJSON().packs
+      selected = route.request().postDataJSON().data.packs
       started()
       await gate
       return route.fulfill({ json: { packs: selected } })
@@ -86,11 +86,18 @@ test('an in-flight login freezes account inputs and a late lockout cannot follow
   const gate = new Promise<void>(resolve => {
     release = resolve
   })
-  await page.route('**/.internal-apis/sessions/local-password', async route => {
-    expect(route.request().postDataJSON().email).toBe('account-a@example.test')
+  await page.route('**/api/v2/browser/sessions/local-password', async route => {
+    expect(route.request().postDataJSON().data.email).toBe('account-a@example.test')
     started()
     await gate
-    return route.fulfill({ status: 429, json: { error: 'retry_locked', retryAfterSeconds: 60 } })
+    return route.fulfill({
+      status: 429,
+      json: {
+        errors: [
+          { status: '429', code: 'retry_locked', detail: 'retry_locked', meta: { details: { retryAfterSeconds: 60 } } }
+        ]
+      }
+    })
   })
   try {
     await page.goto('/login-repair')

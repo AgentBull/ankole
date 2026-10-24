@@ -245,7 +245,7 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ]
 
-  config :ankole, Ankole.TokenSigning, issuer: "https://#{host}"
+  config :ankole, Ankole.OIDC.Config, issuer: "https://#{host}"
 end
 
 for {application, values} <- edition_runtime do

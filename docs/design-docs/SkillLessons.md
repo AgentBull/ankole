@@ -33,12 +33,12 @@ writing verdicts; Human retirement locks the same row. A stale resource action
 cannot renew a retired row or replace its retirement reason. Enum attributes
 use atoms in memory and text in PostgreSQL and JSON responses.
 
-Each lesson write is a generic action of the Lesson resource that owns its
-transaction: `apply_adds` (the reflection adds), `teach` (an operator lesson),
-`apply_reviews` (the review verdicts), and `revoke` (a human retirement).
-`apply_adds` and `teach` synchronize the Skill catalog in the same
-transaction. `Ankole.AIAgent` is the Ash domain of the library resources;
-other domains read the lesson rows through its defines.
+Each lesson write (`apply_adds` for reflection adds, `teach` for an operator
+lesson, `apply_reviews` for review verdicts, and `revoke` for human retirement)
+runs in `Repo.transact_top_level/2`, and the Console `/api/v2` routes expose
+generic actions on `Lesson`. `apply_adds` and `teach` synchronize the Skill
+catalog in the same transaction. `Ankole.AIAgent` is the Ash domain of the
+library resources; other domains read lesson rows through its functions.
 
 A lesson outlives its Skill's enablement: rows stay listed when the Skill is
 disabled or removed.

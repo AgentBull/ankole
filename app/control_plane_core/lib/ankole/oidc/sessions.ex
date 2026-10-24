@@ -8,7 +8,7 @@ defmodule Ankole.OIDC.Sessions do
   alias Ankole.Principals.HumanAccess
 
   def ensure(client_id, auth, scope),
-    do: Ankole.Ash.run_action(Session, :ensure, %{client_id: client_id, auth: auth, scope: scope})
+    do: Repo.transact_top_level(fn -> ensure_in_tx(client_id, auth, scope) end)
 
   @doc """
   Inserts or extends the Session of one browser authentication and Client.
@@ -102,35 +102,31 @@ defmodule Ankole.OIDC.Sessions do
     with {:ok, session} <- get(id), do: Ankole.Ash.update(session, :revoke_in_tx, %{})
   end
 
-  def end_authentication_in_tx(_repo, id, revision) do
-    Repo.across_tenants(fn ->
-      Session
-      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
-      |> Ash.Query.filter(
-        authentication_id == ^id and authentication_revision == ^revision and is_nil(ended_at)
-      )
-      |> lock_sessions()
-      |> Ash.read!(authorize?: false)
-    end)
+  def end_authentication_in_tx(id, revision) do
+    Session
+    |> Ash.Query.for_read(:lookup_across_tenants)
+    |> Ash.Query.filter(
+      authentication_id == ^id and authentication_revision == ^revision and is_nil(ended_at)
+    )
+    |> lock_sessions()
+    |> Ankole.Ash.read_across_tenants!(lock_identity: {:rows, "oidc_sessions", :id})
     |> terminate_sessions(:browser)
   end
 
-  def end_browser_in_tx(_repo, browser_id) do
-    Repo.across_tenants(fn ->
-      Session
-      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
-      |> Ash.Query.filter(browser_id == ^browser_id)
-      |> lock_sessions()
-      |> Ash.read!(authorize?: false)
-    end)
+  def end_browser_in_tx(browser_id) do
+    Session
+    |> Ash.Query.for_read(:lookup_across_tenants)
+    |> Ash.Query.filter(browser_id == ^browser_id)
+    |> lock_sessions()
+    |> Ankole.Ash.read_across_tenants!(lock_identity: {:rows, "oidc_sessions", :id})
     |> terminate_sessions(:browser)
   end
 
-  def revoke_human_in_tx(_repo, principal_uid, access_version) do
+  def revoke_human_in_tx(principal_uid, access_version) do
     Session
     |> Ash.Query.filter(principal_uid == ^principal_uid and access_version < ^access_version)
     |> lock_sessions()
-    |> Ankole.Ash.read!()
+    |> Ankole.Ash.read!(lock_identity: {:rows, "oidc_sessions", :id})
     |> terminate_sessions(:human)
   end
 
@@ -145,7 +141,7 @@ defmodule Ankole.OIDC.Sessions do
       Repo.with_tenant(session.tenant_id, fn ->
         with {:ok, session} <- Ankole.Ash.update(session, action, %{at: now}),
              %Client{} = client <- read_client(session.client_id),
-             :ok <- Ankole.OIDC.Logout.enqueue_in_tx(Repo, session, client) do
+             :ok <- Ankole.OIDC.Logout.enqueue_in_tx(session, client) do
           {:cont, :ok}
         else
           {:error, _} = error -> {:halt, error}
@@ -166,7 +162,7 @@ defmodule Ankole.OIDC.Sessions do
              id == ^session_id and client_id == ^client_id and principal_uid == ^subject
            )
            |> Ash.Query.lock(:for_update)
-           |> Ankole.Ash.read_one!() do
+           |> Ankole.Ash.read_one!(lock_identity: {"oidc_sessions", session_id}) do
       :ok
     else
       _ -> {:error, :context_unavailable}
@@ -175,7 +171,7 @@ defmodule Ankole.OIDC.Sessions do
 
   # FOR KEY SHARE keeps the tenant while a credential refers to it.
   defp lock_tenant do
-    case Ankole.Tenants.lock_tenant_in_tx(Repo, Repo.tenant_id!(), :key_share) do
+    case Ankole.Tenants.lock_tenant_in_tx(Repo.tenant_id!(), :key_share) do
       {:ok, _tenant} -> :ok
       {:error, :not_found} -> {:error, :context_unavailable}
     end
@@ -183,7 +179,7 @@ defmodule Ankole.OIDC.Sessions do
 
   # FOR KEY SHARE keeps the Human while a credential refers to it.
   defp lock_principal(uid) do
-    case Ankole.Principals.lock_principal_in_tx(Repo, uid, :key_share) do
+    case Ankole.Principals.lock_principal_in_tx(uid, :key_share) do
       {:ok, principal} -> principal
       {:error, _reason} -> nil
     end

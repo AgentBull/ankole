@@ -51,6 +51,10 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
   actions do
     defaults([:read])
 
+    read :list_page do
+      pagination(offset?: true, max_page_size: 10_000, countable: false)
+    end
+
     create :upload do
       accept([:subject_uid, :filename, :purpose, :mime_type, :payload, :expires_at])
       change(set_attribute(:kind, :uploaded_file))
@@ -111,14 +115,6 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
           )
         )
       )
-    end
-
-    action :persist_output, :term do
-      argument(:subject_uid, :term, allow_nil?: false)
-      argument(:output, :term, allow_nil?: false)
-      argument(:options, :term, allow_nil?: false, default: [])
-
-      run(__MODULE__.Actions)
     end
   end
 

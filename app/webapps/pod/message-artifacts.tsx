@@ -5,9 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
-import type { ConversationAttachment } from '../common/api/generated/types.gen'
+import type { ConversationAttachment } from './api'
 import { podLocation } from '../common/browser-context'
-import { podFileCopy } from '../common/api/generated/sdk.gen'
+import { podFileCopy } from './api/generated/sdk.gen'
 import { contentKeys, pageAPI, pageQuery, pagesQuery, type Page } from './content-api'
 import { Choice, ContentError, TextField } from './content-primitives'
 import { MessageAttachments } from './chat-attachments'
@@ -115,9 +115,11 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
         await podFileCopy({
           path: { id: page.id },
           body: {
-            message_id: message.id,
-            path: attachment.path,
-            base_revision: page.revision
+            data: {
+              message_id: message.id,
+              path: attachment.path,
+              base_revision: page.revision
+            }
           }
         })
       } else await pageAPI.write(page.id, page.revision, xml!)

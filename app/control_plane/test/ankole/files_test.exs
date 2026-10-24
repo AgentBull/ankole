@@ -14,6 +14,33 @@ defmodule Ankole.FilesTest do
     %{agent_uid: agent.uid}
   end
 
+  test "content presence follows paths in one drive and tenant", %{agent_uid: agent_uid} do
+    {:ok, stored} = Files.store("shared content presence")
+    refute Files.drive_has_content?(agent_uid, stored.sha256)
+    refute Files.drive_has_content?(agent_uid, "not a digest")
+
+    assert {:ok, _} =
+             Files.commit(agent_uid, [
+               %{path: "first.txt", sha256: stored.sha256, source: "agent"},
+               %{path: "second.txt", sha256: stored.sha256, source: "agent"}
+             ])
+
+    assert Files.drive_has_content?(agent_uid, stored.sha256)
+    assert Files.drive_has_content?(agent_uid, String.upcase(stored.sha256))
+    refute Files.drive_has_content?(:pod, stored.sha256)
+
+    other_tenant = create_tenant()
+
+    refute Repo.with_tenant(other_tenant.id, fn ->
+             Files.drive_has_content?(agent_uid, stored.sha256)
+           end)
+
+    assert {:ok, 1} = Files.delete(agent_uid, "first.txt")
+    assert Files.drive_has_content?(agent_uid, stored.sha256)
+    assert {:ok, 1} = Files.delete(agent_uid, "second.txt")
+    refute Files.drive_has_content?(agent_uid, stored.sha256)
+  end
+
   describe "Pod drive" do
     test "keeps Agent and Pod paths separate and replaces a nullable drive key", %{
       agent_uid: agent_uid
@@ -315,6 +342,14 @@ defmodule Ankole.FilesTest do
 
       assert {:ok, %{files: [%DriveFile{path: "skills/b/SKILL.md"}], next_after: nil}} =
                Files.list(agent_uid, "skills", limit: 2, after: "skills/a/x.py")
+
+      assert {:ok, 1} = Files.delete(agent_uid, "skills/a/x.py")
+
+      assert {:ok, %{files: [%DriveFile{path: "skills/b/SKILL.md"}], next_after: nil}} =
+               Files.list(agent_uid, "skills", limit: 2, after: "skills/a/x.py")
+
+      assert {:ok, %{files: [], next_after: nil}} =
+               Files.list(agent_uid, "skills", limit: 2, after: "skills/b/SKILL.md")
     end
 
     test "keeps drives of different Agents apart", %{agent_uid: agent_uid} do
@@ -526,9 +561,8 @@ defmodule Ankole.FilesTest do
       {:ok, %{sha256: sha256}} = Files.store("shared attachment #{uid}")
 
       {:ok, c} =
-        Repo.transact(fn repo ->
+        Repo.transact(fn ->
           Ankole.Conversations.External.observe_conversation_in_tx(
-            repo,
             %{agent_uid: uid},
             %{
               provider_conversation_id: "mock:#{uid}",
@@ -541,9 +575,8 @@ defmodule Ankole.FilesTest do
         end)
 
       {:ok, %{message: message}} =
-        Repo.transact(fn repo ->
+        Repo.transact(fn ->
           Ankole.Conversations.External.observe_in_tx(
-            repo,
             c.id,
             %{
               agent_uid: uid,

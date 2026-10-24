@@ -509,7 +509,7 @@ defmodule Ankole.E2E.WaitHelpers do
   defp primary_final_entry(%Intent{} = intent) do
     case intent.created_provider_message_id || intent.target_provider_message_id do
       provider_message_id when is_binary(provider_message_id) ->
-        External.get_message(Repo, intent.conversation_id, provider_message_id)
+        External.get_message(intent.conversation_id, provider_message_id)
 
       nil ->
         Repo.all(

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { client } from './api/generated/client.gen'
-import { createSetupSession, localPasswordLogin, podAgents, conversationDetail } from './api/generated/sdk.gen'
+import { createSetupSession, localPasswordLogin } from './api/generated/sdk.gen'
+import { podAgents, conversationDetail } from '../pod/api/generated/sdk.gen'
+import { client as podClient } from '../pod/api/generated/client.gen'
 import { InternalAPIError } from './internal-api-client'
 import { classifyLoginError } from '../auth/state/login-model'
 import { conversationNotFound } from '../pod/api'
@@ -11,6 +13,7 @@ let token: string | undefined
 beforeEach(() => {
   token = 'first-token'
   client.setConfig({ baseUrl: 'https://ankole.test' })
+  podClient.setConfig({ baseUrl: 'https://ankole.test' })
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
     value: {
@@ -30,16 +33,18 @@ test('generated operations return payloads and read the current CSRF token for e
     requests.push(request)
     return Response.json({ ok: true })
   }) as typeof fetch
-  expect(await createSetupSession({ body: { activation_code: 'CODE', locale: 'en-US' } })).toEqual({ ok: true })
+  expect(await createSetupSession({ body: { data: { activation_code: 'CODE', locale: 'en-US' } } })).toEqual({
+    ok: true
+  })
   token = 'second-token'
   await podAgents()
   expect(
     requests.map(request => [new URL(request.url).pathname, request.method, request.headers.get('x-csrf-token')])
   ).toEqual([
-    ['/.internal-apis/setup/sessions', 'POST', 'first-token'],
-    ['/.internal-apis/pod/agents', 'GET', 'second-token']
+    ['/api/v2/browser/setup/sessions', 'POST', 'first-token'],
+    ['/api/v2/pod/agents', 'GET', 'second-token']
   ])
-  expect(await requests[0]!.json()).toEqual({ activation_code: 'CODE', locale: 'en-US' })
+  expect(await requests[0]!.json()).toEqual({ data: { activation_code: 'CODE', locale: 'en-US' } })
   expect(client.getConfig().credentials).toBe('same-origin')
   expect(requests.every(request => request.headers.get('x-ankole-tenant') === null)).toBe(true)
   token = undefined
@@ -48,9 +53,9 @@ test('generated operations return payloads and read the current CSRF token for e
 })
 
 test.each([
-  [401, { error: 'invalid_credentials' }],
-  [403, { error: 'not_an_admin' }],
-  [429, { error: 'retry_locked', retryAfterSeconds: 30 }],
+  [401, { errors: [{ code: 'invalid_credentials' }] }],
+  [403, { errors: [{ code: 'not_an_admin' }] }],
+  [429, { errors: [{ code: 'retry_locked', meta: { details: { retryAfterSeconds: 30 } } }] }],
   [404, { error: { code: 'conversation_not_found', message: 'Conversation not found' } }]
 ])(
   'HTTP %s preserves InternalAPIError status, payload, rejection and product classification',
@@ -82,7 +87,9 @@ test.each([
 ])('empty and non-JSON error bodies preserve payloads', async (body, payload) => {
   globalThis.fetch = (async (_request: Request) =>
     new Response(body, { status: 503, statusText: 'Unavailable' })) as typeof fetch
-  await expect(localPasswordLogin({ body: { email: 'user@example.test', password: 'secret' } })).rejects.toMatchObject({
+  await expect(
+    localPasswordLogin({ body: { data: { email: 'user@example.test', password: 'secret', flow: 'login-flow' } } })
+  ).rejects.toMatchObject({
     name: 'InternalAPIError',
     status: 503,
     payload

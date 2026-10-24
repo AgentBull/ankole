@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.23 (2026-10-23)
+
+- Move Pod content and chat, setup, and browser account JSON operations to
+  `/api/v2/pod`, `/api/v2/browser/setup`, and `/api/v2/browser`. Update direct callers
+  from the generated OpenAPI documents. JSON requests use
+  `application/vnd.api+json` and the documented `data` envelope.
+- Move native file transfers, Pod event streams, and Applet HTTP routes to
+  `/api/v2`. Their media types and streaming protocols stay the same.
+- Load every page of Brain lists and object versions in the Console instead
+  of stopping at the first 100 records.
+- Resolve percent-encoded, case-variant, and UUID target aliases once before
+  `/api/v2` permission checks so authorization and execution use the same
+  target.
+- Keep the caret position and active formatting when typing immediately
+  after a keyboard move in the document editor.
+
 ## Version 2.0.0-alpha.22 (2026-10-23)
 
 - Reject a Background Agent Job list cursor from an earlier version. Request

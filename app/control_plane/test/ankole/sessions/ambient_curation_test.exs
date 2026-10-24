@@ -752,11 +752,11 @@ defmodule Ankole.Sessions.AmbientCurationTest do
   end
 
   defp conversation_id do
-    Ankole.Conversations.External.get_conversation(Repo, @channel_id).id
+    Ankole.Conversations.External.get_conversation(@channel_id).id
   end
 
   defp message_id(provider_id) do
-    case Ankole.Conversations.External.get_message(Repo, conversation_id(), provider_id) do
+    case Ankole.Conversations.External.get_message(conversation_id(), provider_id) do
       %{message: message} ->
         message.id
 

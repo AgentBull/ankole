@@ -34,8 +34,8 @@ defmodule Ankole.SessionsCase do
   alias Ankole.Conversations.ExternalMessageRef
 
   def ensure_workspace(agent_uid, session_id) do
-    Repo.transact(fn repo ->
-      Ankole.Sessions.Workspaces.ensure_in_tx(repo, agent_uid, session_id)
+    Repo.transact(fn ->
+      Ankole.Sessions.Workspaces.ensure_in_tx(agent_uid, session_id)
     end)
   end
 
@@ -549,8 +549,8 @@ defmodule Ankole.SessionsCase do
     now = Keyword.fetch!(opts, :now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
-    Repo.transact(fn repo ->
-      Ankole.Signals.accept_in_tx(repo, %{
+    Repo.transact(fn ->
+      Ankole.Signals.accept_in_tx(%{
         producer: :kernel,
         sender: agent_uid,
         target: %{agent_uid: agent_uid, session_id: session_id},
@@ -585,7 +585,6 @@ defmodule Ankole.SessionsCase do
       case repo.lock_all(query, "signals") do
         [%Signal{} = signal] ->
           Queue.complete_signal_in_tx(
-            repo,
             signal,
             Keyword.put(opts, :completed_at, completed_at)
           )

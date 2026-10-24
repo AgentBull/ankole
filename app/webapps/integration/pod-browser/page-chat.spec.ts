@@ -50,8 +50,7 @@ test('page chat sends through the real API and reopens the same conversation in 
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(message)
     const response = page.waitForResponse(
       response =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/.internal-apis/pod/conversations'
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
     )
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
     const submitted = await (await response).json()
@@ -257,9 +256,9 @@ test('a failed first send retries the same request after the panel closes', asyn
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   const requests: { conversationID: string; messageID: string; text: string }[] = []
-  await page.route('**/.internal-apis/pod/conversations', async route => {
+  await page.route('**/api/v2/pod/conversations', async route => {
     if (route.request().method() !== 'POST') return route.continue()
-    requests.push(route.request().postDataJSON())
+    requests.push(route.request().postDataJSON().data)
     if (requests.length === 1) return route.abort('failed')
     return route.continue()
   })
@@ -292,7 +291,7 @@ test('a successful first send is visible while its following history read is del
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   const history = Promise.withResolvers<void>()
-  await page.route('**/.internal-apis/pod/conversations/*', async route => {
+  await page.route('**/api/v2/pod/conversations/*', async route => {
     if (
       route.request().method() === 'GET' &&
       /\/conversations\/[0-9a-f-]+$/.test(new URL(route.request().url()).pathname)
@@ -323,7 +322,7 @@ test('closing during the first send keeps its completion attached to the same co
   const page = await context.newPage()
   const posted = Promise.withResolvers<{ conversation: { id: string } }>()
   const acknowledgement = Promise.withResolvers<void>()
-  await page.route('**/.internal-apis/pod/conversations', async route => {
+  await page.route('**/api/v2/pod/conversations', async route => {
     if (route.request().method() !== 'POST') return route.continue()
     const response = await route.fetch()
     posted.resolve(await response.json())
@@ -370,7 +369,7 @@ test('a list refresh failure keeps the open chat and its draft while another tab
     ).toBeVisible()
     const draft = '列表刷新失败时仍保留的草稿'
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(draft)
-    await page.route('**/.internal-apis/pod/conversations?*', async route => {
+    await page.route('**/api/v2/pod/conversations?*', async route => {
       if (new URL(route.request().url()).searchParams.get('pageID') === state.report_id) {
         failedLists++
         return route.fulfill({

@@ -1,16 +1,16 @@
 defmodule Ankole.Brain do
   @moduledoc """
-  The Brain domain: the code interface of the knowledge space.
+  The Brain domain: the Ash domain and top-level write entrypoints of the
+  knowledge space.
 
-  Each read define gives one resource in the tenant of the calling process.
-  Each operation define runs a generic action that owns its transaction: the
-  action locks its rows, runs the write steps, and commits them together. A
-  caller outside the Brain directory uses only these defines. Brain modules
-  run the same actions with `Ankole.Ash.run_action/4`, and an action of
-  another domain composes the `_in_tx` functions of the Brain modules.
+  Each top-level operation owns its transaction through
+  `Ankole.Repo.transact_top_level/2`, locks its rows, runs the write steps,
+  and commits them together. A caller in an outer transaction composes the
+  `_in_tx` functions of the Brain modules directly.
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  alias Ankole.Brain.{Chunks, Claims, Dreaming, Links, Merge, Objects, Promotion, Sources}
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.MergeSuggestion
@@ -18,6 +18,7 @@ defmodule Ankole.Brain do
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.Source
+  alias Ankole.Repo
 
   # The Console API (`AnkoleWeb.JSONAPI.ConsoleRouter`). An Object slug can
   # contain `/`, so an Object operation takes the slug in the query or in the
@@ -114,132 +115,126 @@ defmodule Ankole.Brain do
 
   resources do
     resource(Ankole.Brain.ConsoleViews)
+    resource(Ankole.Brain.Schemas.Object)
+    resource(Ankole.Brain.Schemas.Chunk)
+    resource(Ankole.Brain.Schemas.ObjectVersion)
+    resource(Ankole.Brain.Schemas.Claim)
+    resource(Ankole.Brain.Schemas.Source)
+    resource(Ankole.Brain.Schemas.Timeline)
+    resource(Ankole.Brain.Schemas.Link)
+    resource(Ankole.Brain.Schemas.Tag)
+    resource(Ankole.Brain.Schemas.ObjectAlias)
+    resource(Ankole.Brain.Schemas.SlugAlias)
+    resource(Ankole.Brain.Schemas.SchemaSuggestion)
+    resource(Ankole.Brain.Schemas.MergeSuggestion)
+    resource(Ankole.Brain.Schemas.Contradiction)
+    resource(Ankole.Brain.Schemas.SchemaPack)
+    resource(Ankole.Brain.Schemas.SchemaType)
+    resource(Ankole.Brain.Schemas.SchemaLinkType)
+    resource(Ankole.Brain.Schemas.SchemaCalibrationDomain)
+    resource(Ankole.Brain.Schemas.TakeDomainAssignment)
+  end
 
-    resource Ankole.Brain.Schemas.Object do
-      define(:get_object, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_objects, action: :read)
-      define(:create_object, args: [:attrs, :writer])
-      define(:update_object, args: [:slug, :attrs, :writer])
-      define(:upsert_source_projection, args: [:source, :attrs])
-      define(:upsert_library_projection, args: [:source, :page])
-      define(:soft_delete_object, args: [:slug])
-      define(:rollback_object, args: [:slug, :version_id, :writer])
-      define(:fork_library_page, args: [:slug])
-      define(:restore_object, args: [:slug])
-      define(:reconcile_chunks, args: [:object])
-      define(:reconcile_object_links, args: [:slug])
-    end
+  def create_object(attrs, writer),
+    do: Repo.transact_top_level(fn -> Objects.create_object_in_tx(attrs, writer) end)
 
-    resource Ankole.Brain.Schemas.Chunk do
-      define(:get_chunk, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_chunks, action: :read)
-    end
+  def update_object(slug, attrs, writer, opts \\ %{}) do
+    Repo.transact_top_level(fn ->
+      Objects.update_object_in_tx(slug, attrs, writer, author: opts[:author])
+    end)
+  end
 
-    resource Ankole.Brain.Schemas.ObjectVersion do
-      define(:get_object_version, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_object_versions, action: :read)
-    end
+  def upsert_source_projection(source, attrs),
+    do: Repo.transact_top_level(fn -> Objects.upsert_source_projection_in_tx(source, attrs) end)
 
-    resource Ankole.Brain.Schemas.Claim do
-      define(:get_claim, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_claims, action: :read)
-      define(:write_fact, args: [:attrs, :writer])
-      define(:supersede_claim, args: [:claim_id, :attrs, :writer])
-      define(:expire_fact, action: :expire_fact_by_id, args: [:claim_id])
-      define(:deactivate_take, action: :deactivate_take_by_id, args: [:claim_id])
+  def soft_delete_object(slug, opts \\ %{}) do
+    Repo.transact_top_level(fn ->
+      Objects.soft_delete_in_tx(slug, reason: opts[:reason], by: opts[:by])
+    end)
+  end
 
-      define(:resolve_take,
-        action: :resolve_take_by_id,
-        args: [:claim_id, :resolution, :resolved_by]
+  def rollback_object(slug, version_id, writer, opts \\ %{}) do
+    Repo.transact_top_level(fn ->
+      Objects.rollback_in_tx(slug, version_id, writer, author: opts[:author])
+    end)
+  end
+
+  def fork_library_page(slug),
+    do: Repo.transact_top_level(fn -> Objects.fork_library_page_in_tx(slug) end)
+
+  def restore_object(slug),
+    do: Repo.transact_top_level(fn -> Objects.restore_in_tx(slug) end)
+
+  def reconcile_chunks(object, opts \\ %{}),
+    do:
+      Repo.transact_top_level(fn -> Chunks.reconcile_in_tx(object, chunking: opts[:chunking]) end)
+
+  def reconcile_object_links(slug),
+    do: Repo.transact_top_level(fn -> Links.reconcile_object_links_in_tx(slug) end)
+
+  def write_fact(attrs, writer, opts \\ %{}),
+    do: Claims.write_fact(attrs, writer, opts[:options] || [])
+
+  def supersede_claim(claim_id, attrs, writer, opts \\ %{}),
+    do: Claims.supersede_claim(claim_id, attrs, writer, author: opts[:author])
+
+  def expire_fact(claim_id),
+    do: Repo.transact_top_level(fn -> Claims.expire_fact_in_tx(claim_id) end)
+
+  def deactivate_take(claim_id),
+    do: Repo.transact_top_level(fn -> Claims.deactivate_take_in_tx(claim_id) end)
+
+  def resolve_take(claim_id, resolution, resolved_by),
+    do:
+      Repo.transact_top_level(fn ->
+        Claims.resolve_take_in_tx(claim_id, resolution, resolved_by)
+      end)
+
+  def attach_claim_embedding(claim, embedding, signature, opts \\ %{}) do
+    Repo.transact_top_level(fn ->
+      Claims.attach_embedding_in_tx(
+        claim,
+        embedding,
+        signature,
+        opts[:now] || DateTime.utc_now(:microsecond)
       )
+    end)
+  end
 
-      define(:attach_claim_embedding, args: [:claim, :embedding, :signature])
-    end
+  def archive_source(source_id),
+    do: Repo.transact_top_level(fn -> Sources.archive_in_tx(source_id) end)
 
-    resource Ankole.Brain.Schemas.Source do
-      define(:get_source, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_sources, action: :read)
-      define(:archive_source, args: [:source_id])
+  def update_source_default_scope(source_id, scope),
+    do: Repo.transact_top_level(fn -> Sources.update_default_scope_in_tx(source_id, scope) end)
 
-      define(:update_source_default_scope,
-        action: :update_default_scope,
-        args: [:source_id, :scope]
-      )
-    end
+  def approve_promotion(suggestion_id, decided_by, opts \\ %{}) do
+    Repo.transact_top_level(fn ->
+      Promotion.approve_in_tx(suggestion_id, decided_by, opts[:attrs] || %{})
+    end)
+  end
 
-    resource Ankole.Brain.Schemas.Timeline do
-      define(:get_timeline, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_timelines, action: :read)
-    end
+  def reject_promotion(suggestion_id, decided_by),
+    do: Repo.transact_top_level(fn -> Promotion.reject_in_tx(suggestion_id, decided_by) end)
 
-    resource Ankole.Brain.Schemas.Link do
-      define(:get_link, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_links, action: :read)
-    end
+  def approve_merge(suggestion_id, decided_by, opts \\ %{}) do
+    Repo.transact_top_level(fn ->
+      Merge.approve_in_tx(suggestion_id, decided_by, opts[:attrs] || %{})
+    end)
+  end
 
-    resource Ankole.Brain.Schemas.Tag do
-      define(:get_tag, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_tags, action: :read)
-    end
+  def reject_merge(suggestion_id, decided_by),
+    do: Repo.transact_top_level(fn -> Merge.reject_in_tx(suggestion_id, decided_by) end)
 
-    resource Ankole.Brain.Schemas.ObjectAlias do
-      define(:get_object_alias, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_object_aliases, action: :read)
-    end
+  def decide_contradiction(contradiction_id, status, opts \\ %{}) do
+    status =
+      case status do
+        "resolved" -> :resolved
+        "dismissed" -> :dismissed
+        atom when atom in [:resolved, :dismissed] -> atom
+      end
 
-    resource Ankole.Brain.Schemas.SlugAlias do
-      define(:get_slug_alias, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_slug_aliases, action: :read)
-    end
-
-    resource Ankole.Brain.Schemas.SchemaSuggestion do
-      define(:get_schema_suggestion, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_schema_suggestions, action: :read)
-      define(:approve_promotion, args: [:suggestion_id, :decided_by])
-      define(:reject_promotion, args: [:suggestion_id, :decided_by])
-    end
-
-    resource Ankole.Brain.Schemas.MergeSuggestion do
-      define(:get_merge_suggestion, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_merge_suggestions, action: :read)
-      define(:approve_merge, args: [:suggestion_id, :decided_by])
-      define(:reject_merge, args: [:suggestion_id, :decided_by])
-    end
-
-    resource Ankole.Brain.Schemas.Contradiction do
-      define(:get_contradiction, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_contradictions, action: :read)
-      define(:decide_contradiction, action: :decide, args: [:contradiction_id, :status])
-    end
-
-    resource Ankole.Brain.Schemas.SchemaPack do
-      define(:get_schema_pack, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_schema_packs, action: :read)
-    end
-
-    resource Ankole.Brain.Schemas.SchemaType do
-      define(:get_schema_type, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_schema_types, action: :read)
-    end
-
-    resource Ankole.Brain.Schemas.SchemaLinkType do
-      define(:get_schema_link_type, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_schema_link_types, action: :read)
-    end
-
-    resource Ankole.Brain.Schemas.SchemaCalibrationDomain do
-      define(:get_schema_calibration_domain,
-        action: :read,
-        get_by: [:id],
-        not_found_error?: false
-      )
-
-      define(:list_schema_calibration_domains, action: :read)
-    end
-
-    resource Ankole.Brain.Schemas.TakeDomainAssignment do
-      define(:get_take_domain_assignment, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_take_domain_assignments, action: :read)
-    end
+    Repo.transact_top_level(fn ->
+      Dreaming.decide_contradiction_in_tx(contradiction_id, status, opts[:resolution_note])
+    end)
   end
 end

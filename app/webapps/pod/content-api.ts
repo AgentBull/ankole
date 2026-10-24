@@ -1,7 +1,16 @@
 import { authenticationRef, podID } from '../common/browser-context'
 import { createClientConfig } from '../common/internal-api-client'
 
-import type { PodPage, PodPageDetail, PodPageListData, PodSharingWrite } from '../common/api/generated/types.gen'
+import type {
+  PodPageType,
+  PodPageReadResponse,
+  PodPageListData,
+  PodPageSharingWriteData,
+  PodPageCreateData,
+  PodPageUpdateData,
+  PodPageMoveData,
+  PodPageUserStateData
+} from './api/generated/types.gen'
 import {
   podPageList,
   podPageRead,
@@ -15,14 +24,15 @@ import {
   podPageSharing,
   podPageSharingWrite,
   podDocumentWrite
-} from '../common/api/generated/sdk.gen'
+} from './api/generated/sdk.gen'
 
-export type Page = PodPage
+export type Page = PodPageType
 export type PageType = Page['type']
-export type PageRole = PodPageDetail['role']
+export type PageRole = PodPageReadResponse['role']
 export type PageScope = NonNullable<NonNullable<PodPageListData['query']>['scope']>
-export type PageDetail = PodPageDetail
-export type PageSharing = PodSharingWrite
+export type PageDetail = PodPageReadResponse
+export type PageSharing = PodPageSharingWriteData['body']['data']
+export type PageMove = NonNullable<PodPageMoveData['body']>['data']
 
 export const contentKeys = {
   get all() {
@@ -40,15 +50,15 @@ export const contentKeys = {
 const transport = createClientConfig({}).fetch!
 export async function podRequest<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const multipart = body instanceof FormData
-  const response = await transport(`/.internal-apis/pod${path}`, {
+  const response = await transport(`/api/v2/pod${path}`, {
     method,
     credentials: 'same-origin',
     signal,
     headers: {
-      accept: 'application/json',
-      ...(!multipart && body !== undefined ? { 'content-type': 'application/json' } : {})
+      accept: 'application/vnd.api+json',
+      ...(!multipart && body !== undefined ? { 'content-type': 'application/vnd.api+json' } : {})
     },
-    body: body === undefined ? undefined : multipart ? body : JSON.stringify(body)
+    body: body === undefined ? undefined : multipart ? body : JSON.stringify({ data: body })
   })
   const payload = response.status === 204 ? undefined : await response.json()
   return payload as T
@@ -59,17 +69,19 @@ export const pageAPI = {
   list: (scope: PageScope, query = '', signal?: AbortSignal) =>
     podPageList({ query: { scope, ...(query ? { query } : {}) }, signal }),
   read: (id: string, signal?: AbortSignal) => podPageRead({ path: { id }, signal }),
-  create: (body: Parameters<typeof podPageCreate>[0]['body']) => podPageCreate({ body }),
-  update: (id: string, body: Parameters<typeof podPageUpdate>[0]['body']) => podPageUpdate({ path: { id }, body }),
-  move: (id: string, body: Parameters<typeof podPageMove>[0]['body']) => podPageMove({ path: { id }, body }),
+  create: (body: NonNullable<PodPageCreateData['body']>['data']) => podPageCreate({ body: { data: body } }),
+  update: (id: string, body: NonNullable<PodPageUpdateData['body']>['data']) =>
+    podPageUpdate({ path: { id }, body: { data: body } }),
+  move: (id: string, body: PageMove) => podPageMove({ path: { id }, body: { data: body } }),
   remove: (id: string) => podPageDelete({ path: { id } }),
   removeEmbed: (id: string, ref: string) => podEmbedDelete({ path: { id, ref } }),
   restore: (id: string) => podPageRestore({ path: { id } }),
   write: (id: string, base_revision: number, xml: string) =>
-    podDocumentWrite({ path: { id }, body: { base_revision, xml } }),
-  state: (id: string, body: Parameters<typeof podPageUserState>[0]['body']) => podPageUserState({ path: { id }, body }),
+    podDocumentWrite({ path: { id }, body: { data: { base_revision, xml } } }),
+  state: (id: string, body: NonNullable<PodPageUserStateData['body']>['data']) =>
+    podPageUserState({ path: { id }, body: { data: body } }),
   sharing: (id: string) => podPageSharing({ path: { id } }),
-  share: (id: string, body: PageSharing) => podPageSharingWrite({ path: { id }, body })
+  share: (id: string, body: PageSharing) => podPageSharingWrite({ path: { id }, body: { data: body } })
 }
 
 export const pagesQuery = (scope: PageScope, query = '') => ({
@@ -84,7 +96,7 @@ export const pageQuery = (id: string) => ({
 
 export function fileURL(id: string, path: string, sha256?: string): string {
   const params = new URLSearchParams({ path, ...(sha256 ? { sha256 } : {}), ...identityQuery() })
-  return `/.internal-apis/pod${pagePath(id)}/files/content?${params}`
+  return `/api/v2/pod${pagePath(id)}/files/content?${params}`
 }
 
 export function identityQuery(): Record<string, string> {

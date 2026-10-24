@@ -167,12 +167,12 @@ defmodule Ankole.AppConfigureTest do
     on_exit(fn ->
       try do
         assert {:ok, %{"value" => "before"}} =
-                 AppConfigure.get_global_by_key_in_tx(Repo, changed.key)
+                 AppConfigure.get_global_by_key_in_tx(changed.key)
 
         assert {:ok, %{"value" => "before"}} =
-                 AppConfigure.get_global_by_key_in_tx(Repo, deleted.key)
+                 AppConfigure.get_global_by_key_in_tx(deleted.key)
 
-        assert :error = AppConfigure.get_global_by_key_in_tx(Repo, created.key)
+        assert :error = AppConfigure.get_global_by_key_in_tx(created.key)
       after
         Enum.each(definitions, &delete_unboxed_global_row(&1.key))
         Cache.clear_for_test()
@@ -186,12 +186,12 @@ defmodule Ankole.AppConfigureTest do
     assert {:ok, _} = AppConfigure.put_global(created, %{"value" => "new"})
 
     assert {:ok, %{"value" => "after"}} =
-             AppConfigure.get_global_by_key_in_tx(Repo, changed.key)
+             AppConfigure.get_global_by_key_in_tx(changed.key)
 
-    assert :error = AppConfigure.get_global_by_key_in_tx(Repo, deleted.key)
+    assert :error = AppConfigure.get_global_by_key_in_tx(deleted.key)
 
     assert {:ok, %{"value" => "new"}} =
-             AppConfigure.get_global_by_key_in_tx(Repo, created.key)
+             AppConfigure.get_global_by_key_in_tx(created.key)
   end
 
   @tag timeout: 15_000
@@ -520,13 +520,13 @@ defmodule Ankole.AppConfigureTest do
     assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, first_write} =
-             Repo.transact(fn repo ->
-               AppConfigure.put_global_by_key_in_tx(repo, definition.key, %{"alpha" => false})
+             Repo.transact(fn ->
+               AppConfigure.put_global_by_key_in_tx(definition.key, %{"alpha" => false})
              end)
 
     assert {:ok, second_write} =
-             Repo.transact(fn repo ->
-               AppConfigure.put_global_by_key_in_tx(repo, definition.key, %{
+             Repo.transact(fn ->
+               AppConfigure.put_global_by_key_in_tx(definition.key, %{
                  "alpha" => false,
                  "beta" => false
                })
@@ -558,8 +558,8 @@ defmodule Ankole.AppConfigureTest do
     assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, committed_write} =
-             Repo.transact(fn repo ->
-               AppConfigure.put_global_by_key_in_tx(repo, definition.key, %{"stored" => true})
+             Repo.transact(fn ->
+               AppConfigure.put_global_by_key_in_tx(definition.key, %{"stored" => true})
              end)
 
     Repo.delete_all(

@@ -81,14 +81,6 @@ defmodule Ankole.AppConfigure.AppConfig do
     destroy :remove do
       require_atomic?(true)
     end
-
-    action :update_tenant, :term do
-      argument(:definition, :term, allow_nil?: false)
-      argument(:updater, :function, allow_nil?: false, constraints: [arity: 1])
-      after_commit({Ankole.AppConfigure, :refresh_committed})
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

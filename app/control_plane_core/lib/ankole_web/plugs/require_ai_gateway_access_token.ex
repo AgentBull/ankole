@@ -11,14 +11,13 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.Grant
   alias Ankole.Principals
-  alias Ankole.TokenSigning
+  alias Ankole.OIDC.Config
 
   @behaviour Plug
 
   @application_protocol "ankole.responses.v1"
   @audience "ankole.ai_gateway"
   @credential_prefix "base64url.bearer.phx."
-  @token_type "at+jwt"
 
   @impl Plug
   def init(opts), do: opts
@@ -26,7 +25,7 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   @impl Plug
   def call(conn, _opts) do
     with {:ok, token, source} <- bearer_token(conn) do
-      case TokenSigning.verify(token, @audience, @token_type) do
+      case Attesto.Token.verify(Config.get(@audience), token) do
         {:ok, claims} -> authenticate_claims(conn, token, source, claims)
         {:error, _reason} -> unauthorized(conn, "invalid_token", "bearer token is invalid")
       end

@@ -5,11 +5,13 @@ defmodule AnkoleWeb.PodSocket do
   channel "table:*", AnkoleWeb.PodRoomChannel
   channel "applet:*", AnkoleWeb.PodRoomChannel
 
-  def token(conn) do
+  def token(conn), do: token(conn.assigns.current_principal_uid, AnkoleWeb.Session.authentication_reference(conn))
+
+  def token(uid, authentication) do
     Phoenix.Token.sign(AnkoleWeb.Endpoint, "pod-socket", %{
       tenant_id: Ankole.Repo.tenant_id!(),
-      uid: conn.assigns.current_principal_uid,
-      authentication: AnkoleWeb.Session.authentication_reference(conn)
+      uid: uid,
+      authentication: authentication
     })
   end
 

@@ -24,7 +24,7 @@ defmodule Ankole.Brain.Sources do
   @doc "Archives one Source in the caller's transaction and withdraws its Library pages."
   @spec archive_in_tx(Ecto.UUID.t()) :: {:ok, Source.t()} | {:error, term()}
   def archive_in_tx(source_id) do
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          {:ok, source} <- mark_archived(source_id) do
       if source.kind == "library",
         do: Objects.withdraw_library_projection(source, [])
@@ -38,9 +38,9 @@ defmodule Ankole.Brain.Sources do
   yet, in the caller's transaction.
   """
   def update_default_scope_in_tx(source_id, scope) do
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          :ok <- if(is_nil(scope), do: :ok, else: Scope.validate(scope)),
-         {:ok, source} <- lock_active(Repo, %Source{id: source_id}),
+         {:ok, source} <- lock_active(%Source{id: source_id}),
          true <- source.kind == "oidc_client" do
       Ankole.Ash.update(source, :set_default_scope, %{default_audience_scope: scope})
     else
@@ -66,8 +66,8 @@ defmodule Ankole.Brain.Sources do
   def ensure_active(%Source{archived_at: nil}), do: :ok
   def ensure_active(%Source{}), do: {:error, :source_archived}
 
-  @spec lock_active(module(), Source.t()) :: {:ok, Source.t()} | {:error, term()}
-  def lock_active(_repo, %Source{id: source_id}) do
+  @spec lock_active(Source.t()) :: {:ok, Source.t()} | {:error, term()}
+  def lock_active(%Source{id: source_id}) do
     case lock_source(source_id) do
       %Source{} = source ->
         case ensure_active(source) do
@@ -80,8 +80,8 @@ defmodule Ankole.Brain.Sources do
     end
   end
 
-  @spec record_revision(module(), Source.t(), String.t()) :: {:ok, Source.t()} | {:error, term()}
-  def record_revision(_repo, %Source{} = source, revision) when is_binary(revision),
+  @spec record_revision(Source.t(), String.t()) :: {:ok, Source.t()} | {:error, term()}
+  def record_revision(%Source{} = source, revision) when is_binary(revision),
     do: Ankole.Ash.update(source, :record_revision, %{upstream_revision: revision})
 
   @spec extraction_watermark(Source.t()) :: non_neg_integer() | nil
@@ -97,7 +97,7 @@ defmodule Ankole.Brain.Sources do
   end
 
   @doc "Rewinds learning when a previously covered public Message changes."
-  def invalidate_conversation_message_in_tx(repo, message, now) do
+  def invalidate_conversation_message_in_tx(message, now) do
     conversation_id = message.conversation_id
 
     case Source
@@ -105,7 +105,7 @@ defmodule Ankole.Brain.Sources do
          |> Ash.Query.lock(:for_update)
          |> Ankole.Ash.read_one!() do
       %Source{extracted_through_seq: seq} = source when is_integer(seq) and seq >= message.seq ->
-        :ok = Ankole.Brain.Claims.withdraw_source_claims_in_tx(repo, source.id, now)
+        :ok = Ankole.Brain.Claims.withdraw_source_claims_in_tx(source.id, now)
 
         {:ok, _} =
           Ankole.Ash.update(source, :invalidate_extraction, %{})
@@ -122,7 +122,7 @@ defmodule Ankole.Brain.Sources do
   end
 
   @doc "Records a sequence boundary while the caller holds the Source row lock."
-  def record_extraction_watermark(_repo, %Source{} = source, {%DateTime{} = at, seq})
+  def record_extraction_watermark(%Source{} = source, {%DateTime{} = at, seq})
       when is_integer(seq) and seq >= 0 do
     {:ok, _} =
       Ankole.Ash.update(source, :record_watermark, %{

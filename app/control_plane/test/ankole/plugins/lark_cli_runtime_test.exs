@@ -464,10 +464,9 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     config_key = Config.binding_config_key(agent.uid, "lark-main")
 
     assert {:error, :forced_rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, _committed_write} =
                         AppConfigure.put_global_by_key_in_tx(
-                          repo,
                           config_key,
                           lark_config("cli_rollback")
                         )

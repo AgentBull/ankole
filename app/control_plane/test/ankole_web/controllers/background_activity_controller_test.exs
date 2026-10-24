@@ -50,9 +50,8 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     admitted = claimed_call(revoked)
 
     assert {:ok, _} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Workflow.Lifecycle.stop_human_work_in_tx(
-                 repo,
                  human.uid,
                  human.access_version + 1,
                  DateTime.utc_now(:microsecond)
@@ -79,9 +78,8 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
              })
 
     assert {:ok, %{call: sleeping}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Workflow.TaskLifecycle.sleep_task_in_tx(
-                 repo,
                  sleeping.id,
                  agent.uid,
                  Workflow.task_session_id(sleeping.id),
@@ -96,7 +94,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     cleanup = workflow(agent.uid, source, "Cleanup after cancellation")
 
     assert {:ok, %{run: %{cleanup_completed_at: nil}}} =
-             Repo.transact(&Workflow.Lifecycle.cancel_in_tx(&1, cleanup.id, agent.uid))
+             Repo.transact(fn -> Workflow.Lifecycle.cancel_in_tx(cleanup.id, agent.uid) end)
 
     capacity_run = workflow(agent.uid, source, "Waiting for Agent capacity")
     capacity_call = queued_call(capacity_run)
@@ -220,7 +218,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     run = workflow(agent.uid, source, "Two live calls")
 
     {:ok, %{new_calls: calls}} =
-      Workflow.commit_replay_pending(
+      Workflow.Replay.commit_replay_pending(
         run.id,
         for(
           n <- 1..2,
@@ -387,8 +385,8 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
       })
 
     {:ok, %{automation_job_run: run}} =
-      Repo.transact(fn repo ->
-        AutomationJobs.enqueue_run_in_tx(repo, job.id, agent_uid, %{
+      Repo.transact(fn ->
+        AutomationJobs.enqueue_run_in_tx(job.id, agent_uid, %{
           "specversion" => "1.0",
           "source" => "test://activity",
           "id" => suffix,
@@ -422,14 +420,14 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     call = queued_call(run)
 
     {:ok, %{call: call}} =
-      Repo.transact(&Workflow.TaskLifecycle.claim_task_in_tx(&1, call.id, run.agent_uid, 8))
+      Repo.transact(fn -> Workflow.TaskLifecycle.claim_task_in_tx(call.id, run.agent_uid, 8) end)
 
     call
   end
 
   defp queued_call(run) do
     {:ok, %{new_calls: [call]}} =
-      Workflow.commit_replay_pending(
+      Workflow.Replay.commit_replay_pending(
         run.id,
         [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Inspect evidence"}}],
         0

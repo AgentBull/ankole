@@ -310,7 +310,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
 
   defp prepare_and_commit(run, response_id) do
     with {:ok, images} <- Presentation.prepare_generated_images(run, response_id) do
-      Repo.transact(&Presentation.load_completion_in_tx(&1, run, response_id, images))
+      Repo.transact(fn -> Presentation.load_completion_in_tx(run, response_id, images) end)
     end
   end
 

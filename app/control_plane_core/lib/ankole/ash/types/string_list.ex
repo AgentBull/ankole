@@ -1,21 +1,17 @@
 defmodule Ankole.Ash.Types.StringList do
-  @moduledoc "A JSON array whose elements are strings."
+  @moduledoc "Stores an Ash-validated string array in one JSONB value for atomic SQL updates."
   use Ash.Type
 
   @impl true
   def storage_type(_constraints), do: :map
+
   @impl true
   def cast_input(nil, _constraints), do: {:ok, nil}
 
-  def cast_input(value, constraints) do
-    case Ankole.Ash.Types.JSONList.cast_input(value, constraints) do
-      {:ok, list} when is_list(list) ->
-        if Enum.all?(list, &is_binary/1), do: {:ok, list}, else: :error
+  def cast_input(value, _constraints) when is_list(value),
+    do: Ash.Type.cast_input({:array, :string}, value, items: [trim?: false, allow_empty?: true])
 
-      _ ->
-        :error
-    end
-  end
+  def cast_input(_value, _constraints), do: :error
 
   @impl true
   def cast_atomic(value, constraints) do

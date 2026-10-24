@@ -15,37 +15,37 @@ defmodule Ankole.AuthZ.Grants do
   @console_admin_resource_pattern "**"
   @console_admin_actions ~w(read update delete reset decrypt sync)
 
-  def create_permission_grant(repo, attrs) do
-    :ok = Ankole.Repo.require_transaction(repo)
+  def create_permission_grant(attrs) do
+    :ok = Ankole.Repo.require_transaction()
     Ankole.Pod.Pages.lock_tree()
 
-    with {:ok, attrs} <- grant_attrs(repo, attrs) do
+    with {:ok, attrs} <- grant_attrs(attrs) do
       Ankole.Ash.create(Grant, :create_in_tx, attrs)
     end
   end
 
-  def upsert_permission_grant(repo, attrs) do
-    :ok = Ankole.Repo.require_transaction(repo)
+  def upsert_permission_grant(attrs) do
+    :ok = Ankole.Repo.require_transaction()
     Ankole.Pod.Pages.lock_tree()
 
-    with {:ok, attrs} <- grant_attrs(repo, attrs) do
+    with {:ok, attrs} <- grant_attrs(attrs) do
       Ankole.Ash.create(Grant, :upsert_in_tx, attrs,
         upsert_identity: permission_grant_identity(attrs)
       )
     end
   end
 
-  def update_permission_grant(repo, %Grant{} = grant, attrs) do
-    :ok = Ankole.Repo.require_transaction(repo)
+  def update_permission_grant(%Grant{} = grant, attrs) do
+    :ok = Ankole.Repo.require_transaction()
     Ankole.Pod.Pages.lock_tree()
 
-    with {:ok, attrs} <- grant_attrs(repo, attrs) do
+    with {:ok, attrs} <- grant_attrs(attrs) do
       Ankole.Ash.update(grant, :update_in_tx, attrs)
     end
   end
 
-  def delete_permission_grant(repo, id) do
-    :ok = Ankole.Repo.require_transaction(repo)
+  def delete_permission_grant(id) do
+    :ok = Ankole.Repo.require_transaction()
     Ankole.Pod.Pages.lock_tree()
 
     with {:ok, id} <- Ecto.UUID.cast(id),
@@ -60,9 +60,9 @@ defmodule Ankole.AuthZ.Grants do
   Creates a grant for the Console operator. The Pod writes the grants of its
   page actions, so the operator cannot create one.
   """
-  def create_operator_grant(repo, attrs) do
+  def create_operator_grant(attrs) do
     with :ok <- refuse_page_action(Map.get(attrs, :action)) do
-      create_permission_grant(repo, attrs)
+      create_permission_grant(attrs)
     end
   end
 
@@ -71,26 +71,26 @@ defmodule Ankole.AuthZ.Grants do
   pattern, the action, and the condition that the Pod wrote; only its
   description can change.
   """
-  def update_operator_grant(repo, id, attrs) do
+  def update_operator_grant(id, attrs) do
     with {:ok, grant} <- fetch_grant(id),
          :ok <- refuse_page_action(Map.get(attrs, :action)),
          :ok <- keep_page_grant(grant, attrs) do
-      update_permission_grant(repo, grant, attrs)
+      update_permission_grant(grant, attrs)
     end
   end
 
   @doc "Deletes a grant for the Console operator. A Pod page grant is refused."
-  def delete_operator_grant(repo, id) do
+  def delete_operator_grant(id) do
     with {:ok, grant} <- fetch_grant(id) do
       if page_action?(grant.action),
         do: {:error, :page_grant},
-        else: delete_permission_grant(repo, grant.id)
+        else: delete_permission_grant(grant.id)
     end
   end
 
-  def upsert_console_admin_grants(repo, %Group{} = admin_group) do
+  def upsert_console_admin_grants(%Group{} = admin_group) do
     Enum.reduce_while(@console_admin_actions, {:ok, []}, fn action, {:ok, acc} ->
-      case upsert_permission_grant(repo, %{
+      case upsert_permission_grant(%{
              group_id: admin_group.id,
              resource_pattern: @console_admin_resource_pattern,
              action: action,
@@ -107,12 +107,12 @@ defmodule Ankole.AuthZ.Grants do
     end
   end
 
-  defp grant_attrs(repo, attrs) do
+  defp grant_attrs(attrs) do
     attrs = Input.grant_attrs(attrs)
 
     case Input.fetch_attr(attrs, :group_name) do
       {:ok, group_name} ->
-        with {:ok, group} <- Store.fetch_group(repo, group_name) do
+        with {:ok, group} <- Store.fetch_group(group_name) do
           {:ok, attrs |> Map.delete(:group_name) |> Map.put(:group_id, group.id)}
         end
 

@@ -27,14 +27,12 @@ belongs to its tenant and requires an explicit Repo context. A Principal belongs
 to one tenant. Its UID remains globally unique and opaque.
 
 The four records are Ash resources of the root domain `Ankole.BrowserSessions`.
-Each public write runs one generic action on the record that it changes, and that
-action owns the transaction: `Session` (`activate`, `logout`), `LoginTransaction`
-(`begin_login`, `bind_provider`, `put_password_ticket`, `complete_login`,
-`complete_site_login`, `select_authorization`, `consume_authorization`,
-`consume_login`), and `Authentication` (`revoke`, `create_pod_access`,
-`connect_pod_access`). The public functions keep their arguments and results.
-A generic action is always the top-level call. Code that already runs in a
-transaction calls the `_in_tx` function of the same step: `activate_in_tx/3`,
+Each public write (`activate`, `logout`, `begin_login`, `bind_provider`,
+`put_password_ticket`, `complete_login`, `complete_site_login`,
+`select_authorization`, `consume_authorization`, `consume_login`, `revoke`,
+`create_pod_access`, and `connect_pod_access`) owns one top-level transaction
+through `Repo.transact_top_level/2`. Code that already runs in a transaction
+calls the `_in_tx` function of the same step: `activate_in_tx/3`,
 `begin_login_in_tx/4`, `bind_provider_in_tx/5`, `complete_site_login_in_tx/4`,
 `select_authorization_in_tx/3`, `logout_in_tx/2`, and `authorize_in_tx/2`. These
 functions raise `Ankole.Errors.Framework.TransactionRequired` outside a
@@ -100,9 +98,9 @@ The core also accepts `mode: :add` to preserve other authentications. A trusted
 HTTP entry can assign `browser_login_mode: :add` before it calls the public
 Router. This applies to public OAuth continuations as well as private login
 routes. Request parameters cannot set this mode. FOSS does not provide a site
-account product or a multi-Pod account center. `GET /.internal-apis/session`
+account product or a multi-Pod account center. `GET /api/v2/browser/session`
 lists the Pod identities that this browser group has proved, one for each
-person and tenant. `PUT /.internal-apis/sessions/active` makes one of them the
+person and tenant. `PUT /api/v2/browser/sessions/active` makes one of them the
 browser default. It does not change an open document's pinned identity.
 
 Setup state remains separate. It cannot complete a normal login or replace a
@@ -144,7 +142,7 @@ the selected proof and check its current server state each time.
 The shell emits `ankole-authentication` and `ankole-pod` metadata. Browser API
 requests send `x-ankole-authentication` and `x-ankole-pod`. EventSource and file
 subresources cannot send these headers, so Pod conversation event URLs and
-`GET /.internal-apis/pod/pages/:id/files/content` carry the same references in
+`GET /api/v2/pod/pages/:id/files/content` carry the same references in
 their query. These requests still require the selected proof cookie and browser
 group, so an open document keeps its identity when another account becomes
 active. Other API, navigation and OIDC authorization URLs cannot select another

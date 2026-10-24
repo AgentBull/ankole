@@ -350,10 +350,12 @@ from the durable payload, so the outcome reaches the user without the Agent
 runtime that failed to relay it.
 
 After a running call sleeps, succeeds, or reaches a terminal failure, the
-post-commit work starts the separate `AgentCall.release_capacity` generic action
-(`Mail.release_capacity/1`). The watchdog action `reconcile_stale_tasks`
-declares it with `after_commit`; a Sessions transaction that composes a task
-transition calls `Ankole.Workflow.cleanup_terminal_transition/1` after its
+post-commit work runs `Mail.release_capacity/1` in its own top-level
+transaction. `Recovery.reconcile_stale_tasks/3` registers this
+work with `Repo.transact_top_level/2` through `after_commit`, then runs terminal
+cleanup. A failed capacity wake is logged and does not prevent that cleanup;
+the deferred task keeps its retry time. A Sessions transaction that composes a
+task transition calls `Ankole.Workflow.cleanup_terminal_transition/1` after its
 commit. It advances the oldest queued call across the Agent's running workflows
 that waits for capacity. A workflow at its own concurrency limit is not
 eligible. The wake transaction locks the Agent slot scope, run, call, Session,
@@ -368,8 +370,10 @@ the control plane appends idempotent `command.stop` events for cancelled task
 sessions in one transaction and stops live Jobs owned by any task session in
 the run. The run
 records one cleanup completion time only after all stop operations succeed.
-Startup recovery includes terminal runs without that time and repeats the
-idempotent cleanup before it marks them complete.
+The replay and watchdog owner functions return the run with this time, or with
+cleanup errors that require another attempt. `RunServer` uses this result to
+stop or retry. Startup recovery includes terminal runs without that time and
+repeats the idempotent cleanup before it marks them complete.
 
 Cancellation uses the same durable call cleanup. After the transaction commits,
 cleanup tells the active `RunServer` to stop. On normal exit, that owner
@@ -433,25 +437,28 @@ single busy count. See [Background Agent Job](BackgroundAgentJob.md) and
 
 ## Module Owners
 
-`Ankole.Workflow` is the domain module and the boundary API: reads, the
-post-commit `cleanup_terminal_transition/1`, and the write operations. Each
-write operation (`create_with_dispatch`, `send_task_message`,
-`defer_task_event`, the three replay commits, and `reconcile_stale_tasks`) is a
-generic action on `Run` or `AgentCall` that owns its transaction and must be
-the top-level call. The module does not expose `_in_tx` functions. A Sessions
-or Background Agent Job transaction composes the `_in_tx` functions of
-`TaskLifecycle`, `Lifecycle`, and `Slot` directly.
+`Ankole.Workflow` declares the resources and cross-domain interfaces, including
+reads, `cleanup_terminal_transition/1`, `create_with_dispatch`,
+`send_task_message`, and `defer_task_event`. A Sessions or Background Agent Job
+transaction composes the `_in_tx` functions of `TaskLifecycle`, `Lifecycle`,
+and `Slot` directly, then performs cleanup after its own commit.
+
+`RunServer` calls `Replay.commit_replay_pending/3`, `Replay.complete_replay/3`,
+`Replay.fail_replay/4`, and `Recovery.reconcile_stale_tasks/3` directly. These
+private domain operations use `Repo.transact_top_level/2` and reject a caller
+transaction before they write. Each operation owns the cleanup that follows
+its commit. The watchdog also releases committed capacity before cleanup.
 
 `Queries` reads projections; `Lifecycle` creates and ends runs;
 `TaskLifecycle` owns task transitions; `Replay` commits the durable memo;
 `Mail` appends events and releases capacity; `Slot` owns the slot, run, and
 call lock order; `Recovery` restores lost wakeups. `RunServer` coordinates
-replay and keeps its waiting-period watchdog; it calls the generic actions.
+replay and keeps its waiting-period watchdog.
 Reads and row locks use Ash queries. `Queries.capacity_candidate/2` is a
 registered read model: it selects the next capacity waiter across calls, runs,
 and Signals and gives only identifiers. The resource actions own legal
-transitions through `AshStateMachine`; each action uses the caller's tenant and
-the transaction of its generic action. `TaskLifecycle` uses one
+transitions through `AshStateMachine`; each action uses the caller's tenant
+and transaction. `TaskLifecycle` uses one
 compensation function when a stopped run has a running call. It cancels
 the call and notifies its Session in the same transaction. A retry that queues a
 running call releases its slot and wakes capacity waiters after commit, just as

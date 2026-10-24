@@ -261,6 +261,59 @@ defmodule Ankole.AshTest do
     assert DateTime.compare(Repo.now!(), before) in [:gt, :eq]
   end
 
+  test "count!, exists?, and create! execute through Ankole.Ash" do
+    assert Ankole.Ash.count!(Probe) == 0
+    refute Ankole.Ash.exists?(Probe)
+
+    created = Ankole.Ash.create!(Probe, :upsert_global, %{global_key: "bang"})
+    assert created.global_key == "bang"
+    assert Ankole.Ash.count!(Probe) == 1
+    assert Ankole.Ash.exists?(Probe)
+  end
+
+  test "transact_top_level commits, rolls back, runs after_commit, and rejects nesting" do
+    test_pid = self()
+
+    assert {:ok, %Probe{global_key: "top"}} =
+             Repo.transact_top_level(
+               fn -> Ankole.Ash.create(Probe, :upsert_global, %{global_key: "top"}) end,
+               after_commit: fn row ->
+                 send(test_pid, {:after_commit, row.global_key, Repo.in_transaction?()})
+               end
+             )
+
+    assert_received {:after_commit, "top", false}
+    assert Repo.get_by(Probe, global_key: "top")
+
+    assert :ok =
+             Repo.transact_top_level(
+               fn -> :ok end,
+               after_commit: fn value ->
+                 send(test_pid, {:bare_ok, value, Repo.in_transaction?()})
+               end
+             )
+
+    assert_received {:bare_ok, nil, false}
+
+    assert {:error, :rejected} =
+             Repo.transact_top_level(
+               fn ->
+                 {:ok, _row} =
+                   Ankole.Ash.create(Probe, :upsert_global, %{global_key: "rolled_back"})
+
+                 {:error, :rejected}
+               end,
+               after_commit: fn _row -> send(test_pid, :unexpected_commit) end
+             )
+
+    refute Repo.get_by(Probe, global_key: "rolled_back")
+    refute_received :unexpected_commit
+
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
+      Repo.transact(fn -> Repo.transact_top_level(fn -> {:ok, :nested} end) end)
+    end
+  end
+
   defp capture_sql(fun) do
     test = self()
     handler = "ash-test-sql-#{System.unique_integer([:positive])}"

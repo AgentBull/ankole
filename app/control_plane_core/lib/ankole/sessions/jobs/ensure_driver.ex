@@ -14,8 +14,8 @@ defmodule Ankole.Sessions.Jobs.EnsureDriver do
   def enqueue(key, due_at \\ DateTime.utc_now(:microsecond)),
     do: Ankole.Job.schedule(__MODULE__, key, due_at || now(), only_earlier: true)
 
-  def enqueue_in_tx(repo, key, due_at),
-    do: Ankole.Job.schedule_in_tx(repo, __MODULE__, key, due_at || now(), only_earlier: true)
+  def enqueue_in_tx(key, due_at \\ DateTime.utc_now(:microsecond)),
+    do: Ankole.Job.schedule_in_tx(__MODULE__, key, due_at || now(), only_earlier: true)
 
   defp now, do: DateTime.utc_now(:microsecond)
 

@@ -11,7 +11,7 @@ defmodule Ankole.SignalsTest do
   end
 
   test "the public intake rejects a caller-owned transaction", context do
-    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
       Repo.transact(fn _ -> Signals.accept(attrs(context)) end)
     end
 
@@ -193,7 +193,7 @@ defmodule Ankole.SignalsTest do
        context do
     attrs = attrs(context)
     assert {:ok, original} = accept_in_tx(attrs)
-    assert {:ok, duplicate} = Repo.transact(fn repo -> Signals.accept_in_tx(repo, attrs) end)
+    assert {:ok, duplicate} = Repo.transact(fn -> Signals.accept_in_tx(attrs) end)
     assert duplicate.id == original.id
     other_target = %{attrs.target | session_id: "other-session"}
 
@@ -243,7 +243,7 @@ defmodule Ankole.SignalsTest do
 
   test "revocation does not roll back a producer's terminal fact or replace its historical authorizer",
        context do
-    snapshot = Ankole.Principals.WorkAccess.from_sender(Repo, context.human.uid)
+    snapshot = Ankole.Principals.WorkAccess.from_sender(context.human.uid)
 
     assert {:ok, _} =
              Ankole.Principals.HumanAccess.disable(
@@ -263,8 +263,8 @@ defmodule Ankole.SignalsTest do
     attrs = attrs(context)
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
-               assert {:ok, _} = Signals.accept_in_tx(repo, attrs)
+             Repo.transact(fn ->
+               assert {:ok, _} = Signals.accept_in_tx(attrs)
                {:error, :rollback}
              end)
 
@@ -321,7 +321,7 @@ defmodule Ankole.SignalsTest do
 
     assert {:error, :rollback} =
              Repo.transact(fn _ ->
-               assert {:ok, _} = Signals.accept_in_tx(Repo, attrs)
+               assert {:ok, _} = Signals.accept_in_tx(attrs)
                {:error, :rollback}
              end)
 
@@ -374,10 +374,10 @@ defmodule Ankole.SignalsTest do
     assert Repo.aggregate(Signal, :count) == 4
   end
 
-  defp accept_in_tx(attrs), do: Repo.transact(fn repo -> Signals.accept_in_tx(repo, attrs) end)
+  defp accept_in_tx(attrs), do: Repo.transact(fn -> Signals.accept_in_tx(attrs) end)
 
   defp accept_all_in_tx(attrs_list),
-    do: Repo.transact(fn repo -> Signals.accept_all_in_tx(repo, attrs_list) end)
+    do: Repo.transact(fn -> Signals.accept_all_in_tx(attrs_list) end)
 
   defp attrs(context) do
     %{

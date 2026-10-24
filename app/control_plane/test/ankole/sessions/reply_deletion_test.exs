@@ -9,7 +9,6 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
   import Ankole.SignalsFixtures
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.Repo
   alias Ankole.Conversations.Delivery.Deletion
 
   test "dingtalk page card instances become deletion targets" do
@@ -25,8 +24,7 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
       })
 
     targets =
-      Repo
-      |> Deletion.intents(event.id)
+      Deletion.intents(event.id)
       |> Enum.map(&{&1.operation, &1.target_provider_message_id})
 
     assert targets == [
@@ -51,8 +49,7 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
       })
 
     targets =
-      Repo
-      |> Deletion.intents(event.id)
+      Deletion.intents(event.id)
       |> Enum.map(& &1.target_provider_message_id)
 
     assert targets == ["om_a", "om_b"]

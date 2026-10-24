@@ -20,7 +20,6 @@ defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
       Ankole.AuthZ,
       Ankole.BackgroundAgentJobs,
       Ankole.AIAgent,
-      Ankole.AIAgent.Library,
       Ankole.AgentWorkers,
       Ankole.AIGateway
     ]

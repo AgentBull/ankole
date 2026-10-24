@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 test('bootstrap validates on submit and then on input', async ({ page }) => {
-  let submitted: { activationCode: string; locale: string } | undefined
-  await page.route('**/.internal-apis/setup/**', async route => {
+  let submitted: { activation_code: string; locale: string } | undefined
+  await page.route('**/api/v2/browser/setup/**', async route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/state')) {
       return route.fulfill({
@@ -16,7 +16,7 @@ test('bootstrap validates on submit and then on input', async ({ page }) => {
       })
     }
     if (path.endsWith('/sessions') && route.request().method() === 'POST') {
-      submitted = route.request().postDataJSON()
+      submitted = route.request().postDataJSON().data
       return route.fulfill({ json: {} })
     }
     return route.fulfill({ status: 404, json: {} })
@@ -33,12 +33,12 @@ test('bootstrap validates on submit and then on input', async ({ page }) => {
   await code.fill('abc')
   await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  await expect.poll(() => submitted).toEqual({ activationCode: 'ABC', locale: 'en-US' })
+  await expect.poll(() => submitted).toEqual({ activation_code: 'ABC', locale: 'en-US' })
 })
 
 test('the first administrator form reports field errors and a password mismatch', async ({ page }) => {
   let created: { email: string; password: string; display_name?: string } | undefined
-  await page.route('**/.internal-apis/setup/**', async route => {
+  await page.route('**/api/v2/browser/setup/**', async route => {
     const url = new URL(route.request().url())
     const path = url.pathname
     if (path.endsWith('/state')) {
@@ -76,7 +76,7 @@ test('the first administrator form reports field errors and a password mismatch'
       return route.fulfill({ json: {} })
     }
     if (path.endsWith('/local-admin') && route.request().method() === 'POST') {
-      created = route.request().postDataJSON()
+      created = route.request().postDataJSON().data
       return route.fulfill({ json: { returnTo: '/sessions/new' } })
     }
     return route.fulfill({ status: 404, json: {} })

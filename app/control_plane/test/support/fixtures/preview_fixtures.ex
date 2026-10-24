@@ -8,8 +8,8 @@ defmodule Ankole.PreviewFixtures do
       Map.split(attrs, [:checkpoint, :provider_message_id, :sequence_high_water])
 
     {:ok, updated} =
-      Repo.transact(fn repo ->
-        locked = Ankole.Signals.lock_signal_in_tx(repo, signal.id)
+      Repo.transact(fn ->
+        locked = Ankole.Signals.lock_signal_in_tx(signal.id)
 
         action =
           cond do
@@ -19,7 +19,7 @@ defmodule Ankole.PreviewFixtures do
           end
 
         {:ok, signal} = Ankole.Ash.update(locked, action, Map.delete(signal_attrs, :status))
-        preview = PreviewStates.lock_in_tx(repo, signal)
+        preview = PreviewStates.lock_in_tx(signal)
         {:ok, preview} = Ankole.Ash.update(preview, :update_preview, preview_attrs)
         {:ok, %{signal | preview: preview}}
       end)

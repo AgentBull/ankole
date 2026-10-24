@@ -50,9 +50,8 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       assert {:ok, unknown} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-                   repo,
                    intent,
                    %{"reason" => "uncertain"},
                    @base_time
@@ -73,9 +72,8 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       assert is_binary(requeued.possible_duplicate_notice)
 
       assert {:ok, failed} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Conversations.Delivery.Recovery.mark_intent_failed(
-                   repo,
                    requeued,
                    {:reply_delivery, :permanent, %{"code" => "provider_rejected"}},
                    @base_time
@@ -108,7 +106,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(unknown_seed, :start_attempt, %{platform_send_started_at: @base_time})
         end)
 
@@ -159,7 +157,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(reconcile_seed, :start_attempt, %{
             platform_send_started_at: @base_time
           })
@@ -208,7 +206,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(seed, :start_attempt, %{platform_send_started_at: @base_time})
         end)
 
@@ -257,7 +255,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(seed, :start_attempt, %{platform_send_started_at: @base_time})
         end)
 
@@ -385,7 +383,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(seed, :start_attempt, %{platform_send_started_at: @base_time})
         end)
 
@@ -487,7 +485,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       due_now = DateTime.add(@base_time, 61, :second)
 
       {:ok, sending} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(stale_seed, :start_attempt, %{platform_send_started_at: @base_time})
         end)
 
@@ -509,7 +507,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, fresh} =
-        Repo.transact(fn _repo ->
+        Repo.transact(fn ->
           Ankole.Ash.update(fresh_seed, :start_attempt, %{
             platform_send_started_at: DateTime.add(due_now, -30, :second)
           })
@@ -665,6 +663,26 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       assert requeued.inserted_at == failed.inserted_at
       assert requeued.next_attempt_at == requeue_at
       assert requeued.recovery_state == %{}
+
+      assert {:error, error} =
+               Repo.transact(fn ->
+                 Ankole.Ash.update(requeued, :requeue, %{
+                   next_attempt_at: DateTime.add(requeue_at, 60)
+                 })
+               end)
+
+      assert %{path: "next_attempt_at", message: "automatic recovery is already scheduled"} in Ankole.Ash.validation_details(
+               error
+             )
+
+      assert_persisted_equal(
+        Repo.get_by!(Intent,
+          agent_uid: requeued.agent_uid,
+          binding_name: requeued.binding_name,
+          outbound_key: requeued.outbound_key
+        ),
+        requeued
+      )
 
       assert {:error, :intent_not_requeueable} =
                Ankole.Conversations.Delivery.requeue(
@@ -1138,7 +1156,6 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
   defp schedule_recovery(intent) do
     :ok =
       Ankole.Conversations.Delivery.Jobs.Dispatch.schedule_in_tx(
-        Repo,
         %{
           agent_uid: intent.agent_uid,
           binding_name: intent.binding_name,

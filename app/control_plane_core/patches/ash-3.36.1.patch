@@ -13,3 +13,14 @@
  
            :error ->
              Logger.warning("""
+--- a/lib/ash/domain/dsl.ex
++++ b/lib/ash/domain/dsl.ex
+@@ -142,7 +142,7 @@
+       definitions: [@define, @define_calculation]
+     ],
+     args: [:resource],
+-    modules: [],
++    modules: [:resource],
+     schema: [
+       resource: [
+         type: {:spark, Ash.Resource},

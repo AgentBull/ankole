@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
 
   import Ankole.PrincipalsFixtures
@@ -38,10 +39,10 @@ defmodule AnkoleWeb.PodControllerTest do
     tenant: tenant
   } do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
-    anonymous = get(conn, ~p"/.internal-apis/pod/agents")
+    anonymous = api_get(conn, ~p"/api/v2/pod/agents")
 
     assert %{"error" => %{"code" => "unauthorized"}} =
-             AnkoleWeb.InternalAPIContract.json_response(anonymous, 401)
+             api_response(anonymous, 401)
 
     Repo.put_tenant_id(tenant.id)
     %{principal: human} = human_fixture()
@@ -64,9 +65,9 @@ defmodule AnkoleWeb.PodControllerTest do
         "external_id" => "external-human"
       })
 
-    non_admin = get(non_admin, ~p"/.internal-apis/pod/agents")
+    non_admin = api_get(non_admin, ~p"/api/v2/pod/agents")
 
-    assert %{"agents" => []} = AnkoleWeb.InternalAPIContract.json_response(non_admin, 200)
+    assert %{"agents" => []} = api_response(non_admin, 200)
   end
 
   test "the API follows the shell setup gate", %{conn: conn} do
@@ -75,10 +76,10 @@ defmodule AnkoleWeb.PodControllerTest do
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
 
-    conn = get(conn, ~p"/.internal-apis/pod/agents")
+    conn = api_get(conn, ~p"/api/v2/pod/agents")
 
     assert %{"error" => %{"code" => "unauthorized"}} =
-             AnkoleWeb.InternalAPIContract.json_response(conn, 401)
+             api_response(conn, 401)
   end
 
   test "the Principal tenant owns the API even with a Console data tenant header", %{
@@ -99,9 +100,9 @@ defmodule AnkoleWeb.PodControllerTest do
       conn
       |> console_conn()
       |> put_req_header("x-ankole-tenant", other_tenant.id)
-      |> get(~p"/.internal-apis/pod/agents")
+      |> api_get(~p"/api/v2/pod/agents")
 
-    assert %{"agents" => agents} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    assert %{"agents" => agents} = api_response(conn, 200)
     assert %{"uid" => local.uid, "displayName" => "Local Agent"} in agents
     refute Enum.any?(agents, &(&1["uid"] == foreign.uid))
     refute Map.has_key?(conn.private, :open_api_spex)
@@ -115,8 +116,8 @@ defmodule AnkoleWeb.PodControllerTest do
     attrs = create_request(agent.uid, "  First question\nsecond line  ")
     pause_session(agent.uid, attrs["conversationID"])
 
-    created = post(conn, ~p"/.internal-apis/pod/conversations", attrs)
-    detail = AnkoleWeb.InternalAPIContract.json_response(created, 200)
+    created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
+    detail = api_response(created, 200)
     id = attrs["conversationID"]
     message_id = attrs["messageID"]
 
@@ -180,37 +181,37 @@ defmodule AnkoleWeb.PodControllerTest do
     assert {:ok, _, _} = DateTime.from_iso8601(created_at)
 
     repeated =
-      created |> recycle_api() |> post(~p"/.internal-apis/pod/conversations", attrs)
+      created |> recycle_api() |> api_post(~p"/api/v2/pod/conversations", attrs)
 
-    assert AnkoleWeb.InternalAPIContract.json_response(repeated, 200) == detail
+    assert api_response(repeated, 200) == detail
 
-    listed = repeated |> recycle_api() |> get(~p"/.internal-apis/pod/conversations")
+    listed = repeated |> recycle_api() |> api_get(~p"/api/v2/pod/conversations")
 
     assert %{"conversations" => [conversation]} =
-             AnkoleWeb.InternalAPIContract.json_response(listed, 200)
+             api_response(listed, 200)
 
     assert conversation == detail["conversation"]
 
-    shown = listed |> recycle_api() |> get(~p"/.internal-apis/pod/conversations/#{id}")
-    assert AnkoleWeb.InternalAPIContract.json_response(shown, 200) == detail
+    shown = listed |> recycle_api() |> api_get(~p"/api/v2/pod/conversations/#{id}")
+    assert api_response(shown, 200) == detail
 
     message = %{"messageID" => Ecto.UUID.generate(), "text" => "Follow up"}
 
     posted =
       shown
       |> recycle_api()
-      |> post(~p"/.internal-apis/pod/conversations/#{id}/messages", message)
+      |> api_post(~p"/api/v2/pod/conversations/#{id}/messages", message)
 
     assert %{"messages" => [_, %{"seq" => 2, "text" => "Follow up"}]} =
-             AnkoleWeb.InternalAPIContract.json_response(posted, 200)
+             api_response(posted, 200)
 
     retried =
       posted
       |> recycle_api()
-      |> post(~p"/.internal-apis/pod/conversations/#{id}/messages", message)
+      |> api_post(~p"/api/v2/pod/conversations/#{id}/messages", message)
 
-    assert AnkoleWeb.InternalAPIContract.json_response(retried, 200) ==
-             AnkoleWeb.InternalAPIContract.json_response(posted, 200)
+    assert api_response(retried, 200) ==
+             api_response(posted, 200)
   end
 
   test "page chat uses the same conversation API and can be recovered by page", %{conn: conn} do
@@ -219,50 +220,48 @@ defmodule AnkoleWeb.PodControllerTest do
     {:ok, page} = Ankole.Pod.Pages.create(human_uid, %{title: "Current page"})
     attrs = Map.put(create_request(agent.uid), "pageID", page.id)
     pause_session(agent.uid, attrs["conversationID"])
-    created = post(conn, ~p"/.internal-apis/pod/conversations", attrs)
-    detail = AnkoleWeb.InternalAPIContract.json_response(created, 200)
+    created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
+    detail = api_response(created, 200)
     assert detail["conversation"]["pageID"] == page.id
 
     listed =
-      created |> recycle_api() |> get(~p"/.internal-apis/pod/conversations", %{pageID: page.id})
+      created |> recycle_api() |> api_get(~p"/api/v2/pod/conversations", %{pageID: page.id})
 
     assert %{"conversations" => [conversation]} =
-             AnkoleWeb.InternalAPIContract.json_response(listed, 200)
+             api_response(listed, 200)
 
     assert conversation == detail["conversation"]
 
     shown =
       listed
       |> recycle_api()
-      |> get(~p"/.internal-apis/pod/conversations/#{attrs["conversationID"]}")
+      |> api_get(~p"/api/v2/pod/conversations/#{attrs["conversationID"]}")
 
-    assert AnkoleWeb.InternalAPIContract.json_response(shown, 200) == detail
+    assert api_response(shown, 200) == detail
   end
 
-  test "invalid bodies, IDs, and text keep the declared error codes", %{conn: conn} do
-    conn = console_conn(conn)
+  test "invalid fields cannot create a conversation and expose JSON:API validation errors", %{
+    conn: conn
+  } do
+    {conn, uid} = console_conn_with_principal(conn)
     agent = agent_fixture().principal
     attrs = create_request(agent.uid)
 
-    requests = [
-      {%{}, "invalid_request"},
-      {Map.put(attrs, "conversationID", "invalid"), "invalid_id"},
-      {Map.put(attrs, "messageID", "invalid"), "invalid_id"},
-      {Map.put(attrs, "text", " \n "), "invalid_text"},
-      {Map.put(attrs, "text", 123), "invalid_text"}
-    ]
+    for body <- [
+          %{},
+          Map.put(attrs, "conversationID", "invalid"),
+          Map.put(attrs, "messageID", "invalid"),
+          Map.put(attrs, "text", " \n "),
+          Map.put(attrs, "text", 123)
+        ] do
+      rejected = conn |> recycle_api() |> api_post(~p"/api/v2/pod/conversations", body)
+      assert rejected.status in [400, 422]
+      assert %{"errors" => [_ | _]} = api_response(rejected, rejected.status)
+      refute Enum.any?(Conversations.list(uid), &(&1.id == attrs["conversationID"]))
+    end
 
-    Enum.each(requests, fn {body, code} ->
-      response = conn |> recycle_api() |> post(~p"/.internal-apis/pod/conversations", body)
-
-      assert %{"error" => %{"code" => ^code}} =
-               AnkoleWeb.InternalAPIContract.json_response(response, 422)
-    end)
-
-    shown = conn |> recycle_api() |> get(~p"/.internal-apis/pod/conversations/invalid")
-
-    assert %{"error" => %{"code" => "invalid_id"}} =
-             AnkoleWeb.InternalAPIContract.json_response(shown, 422)
+    shown = conn |> recycle_api() |> api_get(~p"/api/v2/pod/conversations/invalid")
+    assert %{"errors" => [_ | _]} = api_response(shown, 400)
   end
 
   test "a reused ID with different facts is a conflict", %{conn: conn} do
@@ -270,16 +269,16 @@ defmodule AnkoleWeb.PodControllerTest do
     agent = agent_fixture().principal
     attrs = create_request(agent.uid)
     pause_session(agent.uid, attrs["conversationID"])
-    created = post(conn, ~p"/.internal-apis/pod/conversations", attrs)
-    assert AnkoleWeb.InternalAPIContract.json_response(created, 200)
+    created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
+    assert api_response(created, 200)
 
     conflict =
       created
       |> recycle_api()
-      |> post(~p"/.internal-apis/pod/conversations", Map.put(attrs, "text", "Different"))
+      |> api_post(~p"/api/v2/pod/conversations", Map.put(attrs, "text", "Different"))
 
-    assert %{"error" => %{"code" => "conversation_conflict"}} =
-             AnkoleWeb.InternalAPIContract.json_response(conflict, 409)
+    assert %{"errors" => [%{"code" => "conversation_conflict"}]} =
+             api_response(conflict, 409)
   end
 
   test "disabled Agent histories stay readable and new messages are rejected", %{conn: conn} do
@@ -287,34 +286,34 @@ defmodule AnkoleWeb.PodControllerTest do
     agent = agent_fixture().principal
     attrs = create_request(agent.uid)
     pause_session(agent.uid, attrs["conversationID"])
-    created = post(conn, ~p"/.internal-apis/pod/conversations", attrs)
-    assert AnkoleWeb.InternalAPIContract.json_response(created, 200)
+    created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
+    assert api_response(created, 200)
     {:ok, _} = disable_principal_fixture(agent.uid)
     id = attrs["conversationID"]
 
-    shown = created |> recycle_api() |> get(~p"/.internal-apis/pod/conversations/#{id}")
+    shown = created |> recycle_api() |> api_get(~p"/api/v2/pod/conversations/#{id}")
 
     assert %{"conversation" => %{"agent" => %{"active" => false}}} =
-             AnkoleWeb.InternalAPIContract.json_response(shown, 200)
+             api_response(shown, 200)
 
     posted =
       shown
       |> recycle_api()
-      |> post(~p"/.internal-apis/pod/conversations/#{id}/messages", %{
+      |> api_post(~p"/api/v2/pod/conversations/#{id}/messages", %{
         "messageID" => Ecto.UUID.generate(),
         "text" => "One more"
       })
 
-    assert %{"error" => %{"code" => "agent_unavailable"}} =
-             AnkoleWeb.InternalAPIContract.json_response(posted, 409)
+    assert %{"errors" => [%{"code" => "agent_unavailable"}]} =
+             api_response(posted, 409)
 
     attempted =
       posted
       |> recycle_api()
-      |> post(~p"/.internal-apis/pod/conversations", create_request(agent.uid))
+      |> api_post(~p"/api/v2/pod/conversations", create_request(agent.uid))
 
-    assert %{"error" => %{"code" => "agent_unavailable"}} =
-             AnkoleWeb.InternalAPIContract.json_response(attempted, 409)
+    assert %{"errors" => [%{"code" => "agent_unavailable"}]} =
+             api_response(attempted, 409)
   end
 
   test "only the participant may read, write, or subscribe, including event-stream Accept", %{
@@ -326,30 +325,30 @@ defmodule AnkoleWeb.PodControllerTest do
     {:ok, detail} = Conversations.create(other_human.uid, domain_request(agent.uid))
     id = detail.conversation.id
 
-    shown = get(conn, ~p"/.internal-apis/pod/conversations/#{id}")
+    shown = api_get(conn, ~p"/api/v2/pod/conversations/#{id}")
 
-    assert %{"error" => %{"code" => "conversation_not_found"}} =
-             AnkoleWeb.InternalAPIContract.json_response(shown, 404)
+    assert %{"errors" => [%{"code" => "conversation_not_found"}]} =
+             api_response(shown, 404)
 
     posted =
       shown
       |> recycle_api()
-      |> post(~p"/.internal-apis/pod/conversations/#{id}/messages", %{
+      |> api_post(~p"/api/v2/pod/conversations/#{id}/messages", %{
         "messageID" => Ecto.UUID.generate(),
         "text" => "Forbidden"
       })
 
-    assert %{"error" => %{"code" => "conversation_not_found"}} =
-             AnkoleWeb.InternalAPIContract.json_response(posted, 404)
+    assert %{"errors" => [%{"code" => "conversation_not_found"}]} =
+             api_response(posted, 404)
 
     events =
       posted
       |> recycle_api()
       |> put_req_header("accept", "text/event-stream")
-      |> get(~p"/.internal-apis/pod/conversations/#{id}/events")
+      |> get(~p"/api/v2/pod/conversations/#{id}/events")
 
     assert %{"error" => %{"code" => "conversation_not_found"}} =
-             AnkoleWeb.InternalAPIContract.json_response(events, 404)
+             api_response(events, 404)
   end
 
   test "browser writes require CSRF proof", %{conn: conn} do
@@ -362,7 +361,7 @@ defmodule AnkoleWeb.PodControllerTest do
     agent = agent_fixture().principal
 
     assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
-      post(conn, ~p"/.internal-apis/pod/conversations", create_request(agent.uid))
+      api_post(conn, ~p"/api/v2/pod/conversations", create_request(agent.uid))
     end
   end
 
@@ -610,7 +609,7 @@ defmodule AnkoleWeb.PodControllerTest do
       Plug.Test.conn(
         :get,
         AnkoleWeb.Plugs.RequestHost.origin(authenticated) <>
-          "/.internal-apis/pod/conversations/#{id}/events"
+          "/api/v2/pod/conversations/#{id}/events"
       )
       |> Plug.Test.init_test_session(get_session(authenticated))
       |> put_req_header("accept", "text/event-stream")

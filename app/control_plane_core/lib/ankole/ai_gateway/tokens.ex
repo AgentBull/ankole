@@ -6,8 +6,7 @@ defmodule Ankole.AIGateway.Tokens do
   RuntimeFabric for a new token when the current one is absent or expired.
   """
 
-  alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.TokenSigning
+  alias Ankole.OIDC.Config
 
   @audience "ankole.ai_gateway"
   @scope "ai_gateway"
@@ -31,23 +30,18 @@ defmodule Ankole.AIGateway.Tokens do
     now = now_seconds()
     expires_at = now + @ttl_seconds
 
-    claims = %{
-      aud: @audience,
-      exp: expires_at,
-      iat: now,
-      iss: TokenSigning.issuer(),
-      jti: NativeKernel.gen_uuid_v7(),
-      nbf: now,
-      scope: @scope,
+    principal = %{
+      kind: "agent",
       sub: agent_uid,
-      subject_type: "agent",
-      token_use: @token_use
+      scopes: [@scope],
+      claims: %{"token_use" => @token_use}
     }
 
-    with {:ok, token} <- TokenSigning.sign(claims, "at+jwt") do
+    with {:ok, result} <-
+           Attesto.Token.mint(Config.get(@audience, @ttl_seconds), principal, now: now) do
       {:ok,
        %{
-         api_key: token,
+         api_key: result.access_token,
          token_type: "Bearer",
          expires_in: @ttl_seconds,
          expires_at: expires_at,
@@ -62,7 +56,7 @@ defmodule Ankole.AIGateway.Tokens do
   def mint_for_agent(_agent_uid), do: {:error, :invalid_agent_uid}
 
   @doc """
-  Validates Agent API key claims after `TokenSigning` verifies the token.
+  Validates Agent API key claims after `Attesto.Token` verifies the token.
 
   This function does not verify a token signature or registered JWT claims.
   """

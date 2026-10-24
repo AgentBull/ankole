@@ -2,8 +2,8 @@ defmodule Ankole.Workflow.Lifecycle do
   @moduledoc """
   Owns workflow creation, completion, and revocation.
 
-  The `_in_tx` functions run in the transaction of their caller. The
-  `Ankole.Workflow` generic actions and the Sessions transactions call them.
+  The `_in_tx` functions run in the transaction of their caller: a Workflow
+  domain action, a replay or recovery owner function, or a Sessions transaction.
   """
   require Ash.Query
   alias Ankole.BackgroundAgentJobs
@@ -224,7 +224,7 @@ defmodule Ankole.Workflow.Lifecycle do
   end
 
   @doc "Creates or finds the run of one Workflow tool call and wakes its owner process."
-  def create_with_dispatch_in_tx(repo, attrs) when is_map(attrs) do
+  def create_with_dispatch_in_tx(attrs) when is_map(attrs) do
     with :ok <- validate_string_keys(attrs),
          :ok <- reject_unsupported_fields(attrs),
          {:ok, agent_uid} <-
@@ -247,19 +247,19 @@ defmodule Ankole.Workflow.Lifecycle do
         |> Map.put_new("args", %{})
         |> Map.put("error", %{})
 
-      persist_in_tx(repo, attrs)
+      persist_in_tx(attrs)
     end
   end
 
-  defp persist_in_tx(repo, attrs) do
-    attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+  defp persist_in_tx(attrs) do
+    attrs = Ankole.Principals.WorkAccess.inherit(attrs)
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
-         :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
-         :ok <- lock_idempotency(repo, attrs) do
+         :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+         :ok <- lock_idempotency(attrs) do
       case find_existing(attrs) do
         {:ok, %Run{status: :running} = run} ->
-          with :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+          with :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
             {:ok, %{run: run}}
           end
 
@@ -268,7 +268,7 @@ defmodule Ankole.Workflow.Lifecycle do
 
         {:ok, nil} ->
           with {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
-               :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+               :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
             {:ok, %{run: run}}
           end
 
@@ -287,7 +287,7 @@ defmodule Ankole.Workflow.Lifecycle do
     |> Ankole.Ash.read_one()
   end
 
-  defp lock_idempotency(repo, attrs) do
+  defp lock_idempotency(attrs) do
     key =
       [
         "workflow:create",
@@ -297,7 +297,7 @@ defmodule Ankole.Workflow.Lifecycle do
       ]
       |> Enum.join(":")
 
-    case Ankole.AdvisoryLock.lock(repo, key) do
+    case Ankole.AdvisoryLock.lock(Repo, key) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -376,13 +376,12 @@ defmodule Ankole.Workflow.Lifecycle do
   end
 
   defp complete_terminal_cleanup(run_id, %DateTime{} = completed_at),
-    do:
-      Ankole.Ash.run_action(Run, :complete_cleanup, %{run_id: run_id, completed_at: completed_at})
+    do: Repo.transact_top_level(fn -> complete_cleanup_in_tx(run_id, completed_at) end)
 
   @doc false
-  def complete_cleanup_in_tx(repo, run_id, %DateTime{} = completed_at)
+  def complete_cleanup_in_tx(run_id, %DateTime{} = completed_at)
       when is_integer(run_id) and run_id > 0 do
-    case Ankole.Workflow.Slot.lock_run(repo, run_id) do
+    case Ankole.Workflow.Slot.lock_run(run_id) do
       %Run{cleanup_completed_at: %DateTime{}} = run ->
         {:ok, run}
 
@@ -397,16 +396,16 @@ defmodule Ankole.Workflow.Lifecycle do
     end
   end
 
-  def cancel_in_tx(repo, run_id, agent_uid) do
-    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid) do
+  def cancel_in_tx(run_id, agent_uid) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid) do
       if run.status == :running do
         completed_at = DateTime.utc_now()
 
-        with {:ok, running_ids} <- cancel_live_calls_in_tx(repo, run.id, completed_at),
+        with {:ok, running_ids} <- cancel_live_calls_in_tx(run.id, completed_at),
              {:ok, run} <-
                Ankole.Ash.update(run, :stop, %{completed_at: completed_at, error: %{}}),
-             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
           {:ok, %{run: run, running_session_ids: running_ids}}
         end
       else
@@ -418,22 +417,22 @@ defmodule Ankole.Workflow.Lifecycle do
     end
   end
 
-  def conclude_run_in_tx(repo, run, status, result_text, error, completed_at) do
-    with {:ok, running_ids} <- cancel_live_calls_in_tx(repo, run.id, completed_at),
+  def conclude_run_in_tx(run, status, result_text, error, completed_at) do
+    with {:ok, running_ids} <- cancel_live_calls_in_tx(run.id, completed_at),
          {:ok, run} <-
            Ankole.Ash.update(run, run_action(status), %{
              result_text: result_text,
              error: error,
              completed_at: completed_at
            }),
-         {:ok, wakeup_event} <- Ankole.Workflow.Mail.append_wakeup_event(repo, run, completed_at),
-         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+         {:ok, wakeup_event} <- Ankole.Workflow.Mail.append_wakeup_event(run, completed_at),
+         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
       {:ok, %{run: run, wakeup_event: wakeup_event, running_session_ids: running_ids}}
     end
   end
 
-  defp cancel_live_calls_in_tx(repo, run_id, _updated_at) do
-    calls = Ankole.Workflow.Slot.lock_run_calls(repo, run_id)
+  defp cancel_live_calls_in_tx(run_id, _updated_at) do
+    calls = Ankole.Workflow.Slot.lock_run_calls(run_id)
 
     running_ids =
       for %AgentCall{status: :running, id: id} <- calls do
@@ -460,16 +459,16 @@ defmodule Ankole.Workflow.Lifecycle do
     :stop
   end
 
-  def update_run_memo_bytes(_repo, %Run{memo_bytes: memo_bytes} = run, memo_bytes) do
+  def update_run_memo_bytes(%Run{memo_bytes: memo_bytes} = run, memo_bytes) do
     {:ok, run}
   end
 
-  def update_run_memo_bytes(_repo, run, memo_bytes) do
+  def update_run_memo_bytes(run, memo_bytes) do
     Ankole.Ash.update(run, :update_metadata, %{memo_bytes: memo_bytes})
   end
 
   @doc "Stops a running run whose Human access was revoked, in the caller's transaction."
-  def revoke_run_in_tx(_repo, %Run{} = run) do
+  def revoke_run_in_tx(%Run{} = run) do
     run_id = run.id
     stop_runs_in_tx(Ash.Query.filter(Run, id == ^run_id), DateTime.utc_now())
     {:ok, %Run{} = run} = Run |> Ash.Query.filter(id == ^run_id) |> Ankole.Ash.read_one()
@@ -477,7 +476,7 @@ defmodule Ankole.Workflow.Lifecycle do
   end
 
   @doc "Stops the runs of a Human whose access version is older than `version`."
-  def stop_human_work_in_tx(_repo, uid, version, now) do
+  def stop_human_work_in_tx(uid, version, now) do
     Run
     |> Ash.Query.filter(human_uid == ^uid and human_access_version < ^version)
     |> stop_runs_in_tx(now)

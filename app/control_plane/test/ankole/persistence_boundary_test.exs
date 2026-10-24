@@ -61,9 +61,11 @@ defmodule Ankole.PersistenceBoundaryTest do
 
       def run(repo) do
         Repo.transact(fn -> :ok end)
+        Repo.transact_top_level(fn -> {:ok, :done} end)
         repo.update_all(from(s in Signal, where: s.id == ^1), set: [status: :queued])
         Tenant |> Ash.Query.filter(id == ^1) |> Ankole.Ash.read()
         Signal |> Ash.Query.filter(id == ^1) |> Ankole.Ash.read()
+        Ash.read!(Signal)
         Repo.one(from(s in Signal, lock: "FOR UPDATE"))
         Ankole.Tenants.get_tenant!(1, query: [lock: "FOR KEY SHARE"])
         Repo.query!("SELECT * FROM signals")
@@ -85,6 +87,7 @@ defmodule Ankole.PersistenceBoundaryTest do
              "raw_sql_tenant:#{path}" => 1,
              "bulk_result:#{path}" => 1,
              "error_class:#{path}" => 1,
+             "ash_direct:#{path}" => 1,
              "ecto_resource:#{path}" => 2,
              "cross_domain_ash:#{path}" => 1
            }
@@ -92,7 +95,8 @@ defmodule Ankole.PersistenceBoundaryTest do
     consumer = "../control_plane_core/lib/ankole_web/controllers/probe_controller.ex"
     found = source |> Code.string_to_quoted!() |> PersistenceBoundary.occurrences(consumer)
     kinds = crossings({consumer, found}, resources) |> Enum.frequencies()
-    assert kinds["consumer_ash:#{consumer}"] == 5
+    assert kinds["consumer_ash:#{consumer}"] == 6
+    assert kinds["repo_transact:#{consumer}"] == 2
     refute Map.has_key?(kinds, "cross_domain_ash:#{consumer}")
   end
 

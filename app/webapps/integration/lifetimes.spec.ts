@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 import type { ConversationDetail } from '../pod/api'
 import { conversationRoute } from './pod-browser/routes'
 
-const base = '/.internal-apis/pod'
+const base = '/api/v2/pod'
 const oldID = '00112233-4455-6677-8899-aabbccddeeff'
 const agent = { uid: 'agent-one', displayName: 'Research Agent' }
 function detail(id = oldID, text = 'Existing history'): ConversationDetail {
@@ -98,7 +98,7 @@ async function pod(page: Page) {
     },
     async complete(index = 0) {
       const route = writes[index]!
-      const body = route.request().postDataJSON()
+      const body = route.request().postDataJSON().data
       saved = detail(body.conversationID ?? oldID, body.text)
       saved.messages[0] = { ...saved.messages[0]!, id: body.messageID, authorType: 'human' }
       await route.fulfill({ json: saved })
@@ -146,11 +146,11 @@ test('a create that stays on its page still navigates, and retry preserves the s
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('First message')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
-  const original = server.writes[0]!.request().postDataJSON()
+  const original = server.writes[0]!.request().postDataJSON().data
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'temporarily unavailable' } })
   await page.getByRole('button', { name: 'Retry sending', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  expect(server.writes[1]!.request().postDataJSON()).toEqual(original)
+  expect(server.writes[1]!.request().postDataJSON().data).toEqual(original)
   const saved = await server.complete(1)
   await expect(page).toHaveURL(url => url.pathname === conversationRoute(saved.conversation.id))
   await expect(page.getByText('First message', { exact: true })).toBeVisible()
@@ -164,7 +164,7 @@ test('a failed first create remains reachable from New and retries its original 
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Recover this first create')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
-  const original = server.writes[0]!.request().postDataJSON()
+  const original = server.writes[0]!.request().postDataJSON().data
   await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await page.getByRole('link', { name: 'New conversation', exact: true }).click()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Newer local draft')
@@ -175,7 +175,7 @@ test('a failed first create remains reachable from New and retries its original 
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Recover this first create')
   await page.getByRole('button', { name: 'Retry sending', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  expect(server.writes[1]!.request().postDataJSON()).toMatchObject({
+  expect(server.writes[1]!.request().postDataJSON().data).toMatchObject({
     conversationID: original.conversationID,
     messageID: original.messageID,
     text: original.text
@@ -272,7 +272,7 @@ test('SSE confirmation keeps POST pending and a late failure does not revive the
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Already committed')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
-  const body = server.writes[0]!.request().postDataJSON()
+  const body = server.writes[0]!.request().postDataJSON().data
   const snapshot = detail(oldID, 'Already committed')
   snapshot.messages[0] = { ...snapshot.messages[0]!, id: body.messageID, authorType: 'human' }
   server.setDetail(snapshot)
@@ -294,7 +294,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   await composer.fill('Same text')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(1)
-  const first = server.writes[0]!.request().postDataJSON()
+  const first = server.writes[0]!.request().postDataJSON().data
   const snapshot = detail(oldID, first.text)
   snapshot.messages[0] = { ...snapshot.messages[0]!, id: first.messageID, authorType: 'human' }
   server.setDetail(snapshot)
@@ -307,7 +307,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   await composer.fill('Same text')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  const second = server.writes[1]!.request().postDataJSON()
+  const second = server.writes[1]!.request().postDataJSON().data
   expect(second.messageID).not.toBe(first.messageID)
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'lost first acknowledgement' } })
   await expect(composer).toBeDisabled()
@@ -316,7 +316,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   await server.writes[1]!.fulfill({ status: 503, json: { error: 'lost second acknowledgement' } })
   await page.getByRole('button', { name: 'Retry sending', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(3)
-  expect(server.writes[2]!.request().postDataJSON()).toEqual(second)
+  expect(server.writes[2]!.request().postDataJSON().data).toEqual(second)
 })
 
 test('a precise GET gone response hides history and composer and closes the mounted stream', async ({ page }) => {
@@ -471,7 +471,8 @@ test('an in-flight detail cannot restore unavailable activity, while a fresh rec
   const hold = (route: Route) => {
     held = route
   }
-  await page.route(`**${base}/conversations/${oldID}`, hold)
+  const detailURL = (url: URL) => url.pathname === `${base}/conversations/${oldID}`
+  await page.route(detailURL, hold)
   await page.evaluate(() => {
     const stream = (window as unknown as { testStreams: EventSource[] }).testStreams.at(-1)!
     stream.onerror?.call(stream, new Event('error'))
@@ -487,7 +488,7 @@ test('an in-flight detail cannot restore unavailable activity, while a fresh rec
   )
   await held!.fulfill({ json: { ...detail(), status: { ...detail().status, activity: snapshot } } })
   await expect(page.getByText('Still waiting for computer capacity', { exact: true })).not.toBeVisible()
-  await page.unroute(`**${base}/conversations/${oldID}`, hold)
+  await page.unroute(detailURL, hold)
   await page.evaluate(value => {
     const stream = (window as unknown as { testStreams: EventSource[] }).testStreams.at(-1)!
     stream.onopen?.call(stream, new Event('open'))

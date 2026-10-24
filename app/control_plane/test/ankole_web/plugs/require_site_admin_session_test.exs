@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
 
   alias Ankole.AuthZ
   alias Ankole.Principals.HumanAccess
@@ -54,7 +55,7 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
 
   test "logout ends the cookie session", %{conn: conn} do
     conn = conn |> console_conn() |> readiness()
-    conn = conn |> recycle_api() |> delete(~p"/.internal-apis/session")
+    conn = conn |> recycle_api() |> api_delete(~p"/api/v2/browser/session")
     assert response(conn, 200)
 
     assert %{"error" => %{"code" => "unauthorized"}} =

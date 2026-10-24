@@ -2,9 +2,8 @@ defmodule Ankole.Pod.Pages do
   @moduledoc """
   Owns the tenant's page tree, page permissions, and navigation.
 
-  Each operation that changes the tree or reads under a page lock runs a
-  generic action of `Ankole.Pod.Page`, which owns the transaction. The
-  `*_in_tx` functions are the action bodies. They run in the caller's
+  Each operation that changes the tree or reads under a page lock runs in a
+  top-level transaction. The `*_in_tx` functions run in the caller's
   transaction and do not publish.
   """
   require Ash.Query
@@ -24,7 +23,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   def create(uid, attrs, authority \\ nil) when is_map(attrs),
-    do: run(:create_page, %{uid: uid, attrs: attrs, authority: authority})
+    do: Access.write(authority, fn -> create_in_tx(uid, attrs) end, after_commit: &committed/1)
 
   @doc "Creates a page in the caller's transaction."
   def create_in_tx(uid, attrs) when is_map(attrs) do
@@ -70,7 +69,10 @@ defmodule Ankole.Pod.Pages do
   end
 
   def update(uid, id, attrs, authority \\ nil),
-    do: run(:update_page, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do:
+      Access.write(authority, fn -> update_in_tx(uid, id, attrs) end,
+        after_commit: &committed_page/1
+      )
 
   @doc false
   def update_in_tx(uid, id, attrs) do
@@ -89,7 +91,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   def move(uid, id, attrs, authority \\ nil),
-    do: run(:move_page, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do: Access.write(authority, fn -> move_in_tx(uid, id, attrs) end, after_commit: &committed/1)
 
   @doc false
   def move_in_tx(uid, id, attrs) do
@@ -183,7 +185,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   def delete(uid, id, authority \\ nil),
-    do: run(:delete_page, %{uid: uid, id: id, authority: authority})
+    do: Access.write(authority, fn -> delete_in_tx(uid, id) end, after_commit: &committed/1)
 
   @doc false
   def delete_in_tx(uid, id) do
@@ -199,12 +201,11 @@ defmodule Ankole.Pod.Pages do
 
   def delete_embed(uid, parent_id, child_id, authority \\ nil),
     do:
-      run(:delete_embedded_page, %{
-        uid: uid,
-        parent_id: parent_id,
-        child_id: child_id,
-        authority: authority
-      })
+      Access.write(
+        authority,
+        fn -> delete_embed_in_tx(uid, parent_id, child_id) end,
+        after_commit: &committed/1
+      )
 
   @doc false
   def delete_embed_in_tx(uid, parent_id, child_id) do
@@ -229,7 +230,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   def restore(uid, id, authority \\ nil),
-    do: run(:restore_page, %{uid: uid, id: id, authority: authority})
+    do: Access.write(authority, fn -> restore_in_tx(uid, id) end, after_commit: &committed/1)
 
   @doc false
   def restore_in_tx(uid, id) do
@@ -299,7 +300,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   def get(uid, id) do
-    with {:ok, detail} <- run(:read_page, %{uid: uid, id: id}) do
+    with {:ok, detail} <- Repo.transact_top_level(fn -> get_in_tx(uid, id) end) do
       {:ok, Map.put(detail, :source_conversation, source_status(uid, detail.page))}
     end
   end
@@ -334,11 +335,7 @@ defmodule Ankole.Pod.Pages do
                |> Ankole.Ash.read_one(),
              do: {:ok, state || %PageUserState{principal_uid: uid, page_id: id}}
       else
-        Ankole.Ash.run_action(PageUserState, :save, %{
-          principal_uid: uid,
-          page_id: id,
-          changes: changes
-        })
+        Repo.transact_top_level(fn -> save_state_in_tx(uid, id, changes) end)
       end
     end
   end
@@ -392,7 +389,10 @@ defmodule Ankole.Pod.Pages do
   end
 
   def set_sharing(uid, id, attrs, authority \\ nil),
-    do: run(:set_page_sharing, %{uid: uid, id: id, attrs: attrs, authority: authority})
+    do:
+      Access.write(authority, fn -> set_sharing_in_tx(uid, id, attrs) end,
+        after_commit: &committed/1
+      )
 
   @doc false
   def set_sharing_in_tx(uid, id, attrs) do
@@ -439,7 +439,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   def set_space(uid, role, authority \\ nil),
-    do: run(:set_space_role, %{uid: uid, role: role, authority: authority})
+    do: Access.write(authority, fn -> set_space_in_tx(uid, role) end, after_commit: &committed/1)
 
   @doc false
   def set_space_in_tx(uid, role) do
@@ -452,7 +452,10 @@ defmodule Ankole.Pod.Pages do
   end
 
   def space_agent(uid, agent_uid, role, authority \\ nil),
-    do: run(:set_space_agent, %{uid: uid, agent_uid: agent_uid, role: role, authority: authority})
+    do:
+      Access.write(authority, fn -> space_agent_in_tx(uid, agent_uid, role) end,
+        after_commit: &committed/1
+      )
 
   @doc false
   def space_agent_in_tx(uid, agent_uid, role) do
@@ -469,7 +472,10 @@ defmodule Ankole.Pod.Pages do
   end
 
   def remove_space_agent(uid, agent_uid, authority \\ nil),
-    do: run(:remove_space_agent, %{uid: uid, agent_uid: agent_uid, authority: authority})
+    do:
+      Access.write(authority, fn -> remove_space_agent_in_tx(uid, agent_uid) end,
+        after_commit: &committed/1
+      )
 
   @doc false
   def remove_space_agent_in_tx(uid, agent_uid) do
@@ -563,8 +569,6 @@ defmodule Ankole.Pod.Pages do
   def committed_page(%Page{id: id}), do: broadcast(id)
   def committed_page(_result), do: :ok
 
-  defp run(action, arguments), do: Ankole.Ash.run_action(Page, action, arguments)
-
   defp destination(uid, parent, owner, initialize_private \\ true)
 
   defp destination(uid, nil, nil, _initialize_private) do
@@ -611,11 +615,7 @@ defmodule Ankole.Pod.Pages do
     last =
       Page
       |> in_destination(parent, owner)
-      |> Ash.Query.sort(position: :desc)
-      |> Ash.Query.select([:position])
-      |> Ash.Query.limit(1)
-      |> Ankole.Ash.read_one!()
-      |> then(&(&1 && &1.position))
+      |> Ankole.Ash.max!(:position)
 
     case Position.between(last, nil) do
       {:ok, position} -> position
@@ -802,7 +802,7 @@ defmodule Ankole.Pod.Pages do
   defp source_conversation(uid, id) do
     with {:ok, principal} <- Access.principal(uid) do
       if principal.type == :agent do
-        Ankole.Conversations.Target.conversation_for_agent_in_tx(Repo, uid, id)
+        Ankole.Conversations.Target.conversation_for_agent_in_tx(uid, id)
       else
         Ankole.Conversations.visible_native_conversation(uid, id)
       end
@@ -813,7 +813,6 @@ defmodule Ankole.Pod.Pages do
     case Ankole.Pod.Config.trash_retention_days() do
       {:ok, days} ->
         Ankole.Job.schedule_in_tx(
-          Repo,
           Ankole.Pod.Jobs.PurgePage,
           %{tenant_id: Repo.tenant_id!(), page_id: page.id},
           DateTime.add(page.deleted_at, days * 86_400, :second)

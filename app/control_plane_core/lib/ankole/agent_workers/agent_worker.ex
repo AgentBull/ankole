@@ -6,7 +6,6 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     extensions: [AshStateMachine, AshJsonApi.Resource]
 
   alias Ankole.AgentWorkers.ReconcileJob
-  alias Ankole.AgentWorkers.WorkerAdmission
 
   # The fields that the Console shows for each Worker.
   @console_fields [
@@ -439,65 +438,8 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       multitenancy(:allow_global)
     end
 
-    # Each generic action owns one transaction. It locks the row before it
-    # changes it, and its publish function runs after the commit.
-
-    action :admit_connection, :term do
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:generation, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:capacity, :map, allow_nil?: false)
-      after_commit({WorkerAdmission, :publish_admission})
-      run(__MODULE__.Actions)
-    end
-
-    action :renew_connection, :term do
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:capacity, :map, allow_nil?: false)
-      argument(:load, :map, allow_nil?: false)
-      after_commit({WorkerAdmission, :publish_renewal})
-      run(__MODULE__.Actions)
-    end
-
-    action :drain_connection, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:reason, :string, allow_nil?: false, constraints: [trim?: false])
-      after_commit({WorkerAdmission, :publish_worker})
-      run(__MODULE__.Actions)
-    end
-
-    action :release_route, :struct do
-      constraints(instance_of: __MODULE__)
-      allow_nil?(true)
-      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
-      after_commit({WorkerAdmission, :publish_worker})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :expire_connection, :term do
-      allow_nil?(true)
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      after_commit({WorkerAdmission, :publish_expiry})
-      run(__MODULE__.Actions)
-    end
-
     read :console_list do
       prepare(build(sort: [agent_uid: :asc]))
-    end
-
-    action :assign_provider_once, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:provider_id, :string, allow_nil?: true, constraints: [trim?: false])
-      after_commit({ReconcileJob, :enqueue})
-
-      run(__MODULE__.Actions)
     end
 
     # The Console assignment keeps the v1 answers: a missing Agent or provider
@@ -508,41 +450,6 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({ReconcileJob, :enqueue})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :decide_reconcile_step, :term do
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:seen, :term, allow_nil?: false)
-      argument(:previous, :term)
-      argument(:prepared, :term)
-      run(__MODULE__.Actions)
-    end
-
-    action :record_reconcile_result, :term do
-      argument(:call, :term, allow_nil?: false)
-      argument(:facts, :term, allow_nil?: false)
-      argument(:result, :term)
-      run(__MODULE__.Actions)
-    end
-
-    action :record_prepare_error, :struct do
-      constraints(instance_of: __MODULE__)
-      allow_nil?(true)
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:reason, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:kind, :string, allow_nil?: false)
-      after_commit({WorkerAdmission, :publish_worker})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :authorize_turn do
-      argument(:ref, :term, allow_nil?: false)
-      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:effect, :atom, allow_nil?: false)
 
       run(__MODULE__.Actions)
     end

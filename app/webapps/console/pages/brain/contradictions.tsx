@@ -19,18 +19,18 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiScales3Line, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   decideBrainContradictionMutation,
-  listBrainContradictionsOptions
+  listBrainContradictionsInfiniteOptions
 } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { ListBrainContradictionsResponse } from '../../api/v2/generated/types.gen'
-import { fromDocument, type Flat } from '../../api/json-api'
+import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { ResourceListPage } from '../../console-list-page'
+import { LoadMore, ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const CONTRADICTION_STATUSES = ['open', 'resolved', 'dismissed'] as const
@@ -46,9 +46,11 @@ export function BrainContradictionsPage() {
   }>()
   const [note, setNote] = useState('')
 
-  const contradictions = useQuery({
-    ...listBrainContradictionsOptions({ query: { status } }),
-    select: document => fromDocument(document)
+  const contradictions = useInfiniteQuery({
+    ...listBrainContradictionsInfiniteOptions({ query: { status } }),
+    initialPageParam: {},
+    getNextPageParam: nextPageParams,
+    select: data => data.pages.flatMap(document => fromDocument(document))
   })
   const rows = contradictions.data ?? []
 
@@ -86,6 +88,7 @@ export function BrainContradictionsPage() {
         emptyDescription={t('console.brain.contradictions_empty_description')}
         emptyIcon={<RiScales3Line aria-hidden />}
         error={contradictions.error}
+        footer={<LoadMore query={contradictions} />}
         isFiltered={status !== 'open'}
         onClearFilters={() => setStatus('open')}
         toolbarCanRevealRows

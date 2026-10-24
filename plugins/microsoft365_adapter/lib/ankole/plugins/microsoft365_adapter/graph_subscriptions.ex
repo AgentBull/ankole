@@ -401,8 +401,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   defp fresh_desired(provider_id, key) do
     activation_key = Ankole.IdentityProviders.Config.active_definition().key
 
-    with {:ok, providers} <- AppConfigure.get_tenant_by_key_in_tx(Repo, activation_key),
-         {:ok, config} <- AppConfigure.get_tenant_by_key_in_tx(Repo, key) do
+    with {:ok, providers} <- AppConfigure.get_tenant_by_key_in_tx(activation_key),
+         {:ok, config} <- AppConfigure.get_tenant_by_key_in_tx(key) do
       provider =
         Enum.find(
           providers,
@@ -418,7 +418,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   end
 
   defp fresh_state(provider_id) do
-    case AppConfigure.get_tenant_by_key_in_tx(Repo, Config.subscription_state_key(provider_id)) do
+    case AppConfigure.get_tenant_by_key_in_tx(Config.subscription_state_key(provider_id)) do
       {:ok, %{"subscriptions" => subscriptions}} when is_list(subscriptions) ->
         {:ok, subscriptions}
 

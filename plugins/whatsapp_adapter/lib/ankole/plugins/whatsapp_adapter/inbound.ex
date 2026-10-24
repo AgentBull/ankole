@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   alias Ankole.Conversations.Delivery.PreviewState
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Logging, Principals}
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.Client
@@ -271,7 +271,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
   defp put_interactive_reply_time(conversation_id, tapped_at) do
     result =
-      case External.get_conversation(Repo, conversation_id) do
+      case External.get_conversation(conversation_id) do
         %{id: id} -> External.update_metadata(id, &newest_interactive_reply(&1, tapped_at))
         nil -> {:error, :conversation_not_found}
       end

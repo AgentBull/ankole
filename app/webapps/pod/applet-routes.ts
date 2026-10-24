@@ -19,19 +19,16 @@ export function createAppletRoutes(pageID: string, revision: number, onRevisionC
       }
       const suffix = query.size ? `?${query}` : ''
       try {
-        const response = await transport(
-          `/.internal-apis/pod/pages/${encodeURIComponent(pageID)}/routes${path}${suffix}`,
-          {
-            method,
-            signal: request.signal,
-            headers: {
-              accept: 'application/json',
-              'x-ankole-applet-revision': String(revision),
-              ...(request.body !== undefined ? { 'content-type': 'application/json' } : {})
-            },
-            body: request.body === undefined ? undefined : JSON.stringify(request.body)
-          }
-        )
+        const response = await transport(`/api/v2/pod/pages/${encodeURIComponent(pageID)}/routes${path}${suffix}`, {
+          method,
+          signal: request.signal,
+          headers: {
+            accept: 'application/json',
+            'x-ankole-applet-revision': String(revision),
+            ...(request.body !== undefined ? { 'content-type': 'application/json' } : {})
+          },
+          body: request.body === undefined ? undefined : JSON.stringify(request.body)
+        })
         return (response.status === 204 ? undefined : await response.json()) as T
       } catch (error) {
         if (

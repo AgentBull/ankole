@@ -1165,9 +1165,9 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     enable_export(self(), "opentelemetry")
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, _} =
-                        Ankole.Signals.accept_in_tx(repo, %{
+                        Ankole.Signals.accept_in_tx(%{
                           producer: :kernel,
                           target: %{agent_uid: agent.uid, session_id: "trace-rollback"},
                           sender: agent.uid,

@@ -8,24 +8,22 @@ defmodule Ankole.Principals.AgentConsole do
   commit; a deletion also reconciles the Worker.
   """
 
-  alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.Providers
   alias Ankole.Errors.Invalid.NotFound
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Principals.Principal
-  alias Ankole.Repo
 
   @doc false
   def create_in_tx(arguments, %Principal{} = operator) do
     attrs =
       Map.merge(arguments, %{
-        uid: Ankole.Kernel.gen_uuid_v7(),
+        uid: Ash.UUIDv7.generate(),
         created_by: Ankole.ActorRef.from_principal(operator)
       })
 
     with {:ok, %{principal: principal, agent: agent}} <-
-           Principals.create_agent_in_tx(Repo, attrs) do
+           Principals.create_agent_in_tx(attrs) do
       {:ok, present(agent, principal)}
     end
   end
@@ -35,14 +33,14 @@ defmodule Ankole.Principals.AgentConsole do
     {uid, attrs} = Map.pop!(arguments, :uid)
 
     with {:ok, %{principal: principal, agent: agent}} <-
-           Principals.update_agent_in_tx(Repo, uid, attrs) do
+           Principals.update_agent_in_tx(uid, attrs) do
       {:ok, present(agent, principal)}
     end
   end
 
   @doc false
   def enable_in_tx(uid) do
-    with {:ok, {principal, conversation_ids}} <- Principals.enable_agent_in_tx(Repo, uid) do
+    with {:ok, {principal, conversation_ids}} <- Principals.enable_agent_in_tx(uid) do
       {:ok, Principals.get_agent_record!(uid) |> present(principal, conversation_ids)}
     end
   end
@@ -51,7 +49,7 @@ defmodule Ankole.Principals.AgentConsole do
   @doc false
   def delete_in_tx(uid) do
     with %Agent{} = agent <- Principals.get_agent_record!(uid),
-         {:ok, {principal, conversation_ids}} <- Principals.delete_agent_in_tx(Repo, uid) do
+         {:ok, {principal, conversation_ids}} <- Principals.delete_agent_in_tx(uid) do
       {:ok, present(agent, principal, conversation_ids)}
     else
       nil -> {:error, :not_found}
@@ -60,26 +58,16 @@ defmodule Ankole.Principals.AgentConsole do
   end
 
   @doc "Publishes the conversation status of an enabled Agent after the commit."
-  def publish_enable(%Agent{} = agent), do: publish_conversations(agent)
+  def publish_enable(%Agent{} = agent),
+    do: Principals.publish_agent_changes({agent, agent.__metadata__[:conversation_ids]})
 
   @doc "Publishes the conversation status and reconciles the Worker after a deletion."
-  def publish_delete(%Agent{} = agent) do
-    publish_conversations(agent)
-    :ok = AgentWorkers.reconcile(agent.uid)
-  end
-
-  defp publish_conversations(agent) do
-    Repo.with_tenant(agent.tenant_id, fn ->
-      Enum.each(
-        agent.__metadata__[:conversation_ids],
-        &Ankole.Conversations.Events.publish_status/1
-      )
-    end)
-  end
+  def publish_delete(%Agent{} = agent),
+    do: Principals.publish_agent_deletion({agent, agent.__metadata__[:conversation_ids]})
 
   @doc """
   Gives the answer of a rejected Agent write for `Ankole.Errors.wrap/2`: a
-  missing Agent is not found, as in the v1 Console API.
+  missing Agent is not found.
   """
   def rejection(reason) when reason in [:not_found, :not_agent],
     do: NotFound.exception(resource: Agent)

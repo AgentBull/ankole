@@ -5,7 +5,7 @@ defmodule AnkoleWeb.Plugs.AppletRouteBody do
 
   def init(opts), do: opts
 
-  def call(%{path_info: [".internal-apis", "pod", "pages", _id, "routes" | _]} = conn, _opts) do
+  def call(%{path_info: ["api", "v2", "pod", "pages", _id, "routes" | _]} = conn, _opts) do
     case read_all(conn, []) do
       {:ok, raw, conn} ->
         parsed =

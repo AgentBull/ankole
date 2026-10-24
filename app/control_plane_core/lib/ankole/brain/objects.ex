@@ -58,11 +58,8 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  @console_list_limit 100
-
   @doc """
-  Prepares the `:console_list` read of Objects: the first 100 Objects in slug
-  order that match the slug prefix and the title or slug search, live or
+  Prepares the `:console_list` read of Objects: Objects in slug order that match the slug prefix and the title or slug search, live or
   soft-deleted.
   """
   @spec console_list(Ash.Query.t(), map()) :: Ash.Query.t()
@@ -72,12 +69,10 @@ defmodule Ankole.Brain.Objects do
     |> maybe_console_search(Ash.Query.get_argument(query, :search))
     |> filter_console_deleted(Ash.Query.get_argument(query, :deleted))
     |> Ash.Query.sort(slug: :asc)
-    |> Ash.Query.limit(@console_list_limit)
   end
 
   @doc """
-  Prepares the `:console_list` read of Object versions: the last 100
-  versions of the Object that the slug or its alias names. An unknown slug
+  Prepares the `:console_list` read of Object versions: versions of the Object that the slug or its alias names. An unknown slug
   gives `Ankole.Errors.Invalid.NotFound`.
   """
   @spec console_versions(Ash.Query.t(), map()) :: Ash.Query.t()
@@ -86,8 +81,7 @@ defmodule Ankole.Brain.Objects do
       {:ok, object} ->
         query
         |> Ash.Query.filter(object_id == ^object.id)
-        |> Ash.Query.sort(snapshot_at: :desc)
-        |> Ash.Query.limit(@console_list_limit)
+        |> Ash.Query.sort(snapshot_at: :desc, id: :desc)
 
       {:error, :not_found} ->
         Ash.Query.add_error(query, Ankole.Errors.Invalid.NotFound.exception(resource: Object))
@@ -211,7 +205,7 @@ defmodule Ankole.Brain.Objects do
     body = attrs[:body] || ""
     meta = attrs[:meta] || %{}
 
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          :ok <- validate_slug(slug),
          {:ok, tags} <- Links.normalize_tags(Map.get(attrs, :tags, [])),
          {:ok, type} <- validate_type(attrs[:type]),
@@ -232,7 +226,7 @@ defmodule Ankole.Brain.Objects do
         |> content_changes(%{}, tags)
 
       with {:ok, object} <- Ankole.Ash.create(Object, :create, object),
-           :ok <- Links.replace_tags_in_tx(Repo, object.slug, tags) do
+           :ok <- Links.replace_tags_in_tx(object.slug, tags) do
         Chunks.reconcile_in_tx(object)
       end
     end
@@ -254,8 +248,8 @@ defmodule Ankole.Brain.Objects do
     author = Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
     expected_hash = attrs[:expected_content_hash]
 
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, object} <- lock_object_in_tx(Repo, slug),
+    with :ok <- Repo.require_transaction(),
+         {:ok, object} <- lock_object_in_tx(slug),
          :ok <- guard_editable(object),
          :ok <- Object.verify_content_hash(object, expected_hash),
          {:ok, tags} <- updated_tags(attrs, object),
@@ -282,7 +276,7 @@ defmodule Ankole.Brain.Objects do
                :edit,
                Map.put(changes, :expected_content_hash, expected_hash)
              ),
-           :ok <- Links.replace_tags_in_tx(Repo, object.slug, tags) do
+           :ok <- Links.replace_tags_in_tx(object.slug, tags) do
         Chunks.reconcile_in_tx(object)
       end
     end
@@ -299,12 +293,12 @@ defmodule Ankole.Brain.Objects do
     slug = attrs[:slug]
     body = attrs[:body] || ""
 
-    with :ok <- Repo.require_transaction(Repo),
+    with :ok <- Repo.require_transaction(),
          :ok <- validate_slug(slug),
          {:ok, type} <- validate_type("media"),
          :ok <- validate_body_scopes(body, :system),
-         {:ok, source} <- Sources.lock_active(Repo, source) do
-      case lock_object_in_tx(Repo, slug) do
+         {:ok, source} <- Sources.lock_active(source) do
+      case lock_object_in_tx(slug) do
         {:error, :not_found} ->
           insert_source_projection(source, attrs, type.name, body)
 
@@ -330,9 +324,9 @@ defmodule Ankole.Brain.Objects do
   @spec upsert_library_projection_in_tx(Source.t(), map()) ::
           {:ok, :projected | :unchanged | :shadowed | :conflicted} | {:error, term()}
   def upsert_library_projection_in_tx(%Source{kind: "library"} = source, page) do
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, source} <- Sources.lock_active(Repo, source) do
-      case lock_object_in_tx(Repo, page.slug) do
+    with :ok <- Repo.require_transaction(),
+         {:ok, source} <- Sources.lock_active(source) do
+      case lock_object_in_tx(page.slug) do
         {:error, :not_found} ->
           with {:ok, _object} <-
                  insert_source_projection(source, page, page.type, page.body) do
@@ -403,8 +397,8 @@ defmodule Ankole.Brain.Objects do
   def soft_delete_in_tx(slug, opts \\ []) do
     reason = Keyword.get(opts, :reason)
 
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, object} <- lock_object_in_tx(Repo, slug),
+    with :ok <- Repo.require_transaction(),
+         {:ok, object} <- lock_object_in_tx(slug),
          :ok <- guard_unmanaged(object) do
       meta =
         case reason do
@@ -435,8 +429,8 @@ defmodule Ankole.Brain.Objects do
   def rollback_in_tx(slug, version_id, writer, opts \\ []) do
     author = Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
 
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, object} <- lock_object_in_tx(Repo, slug),
+    with :ok <- Repo.require_transaction(),
+         {:ok, object} <- lock_object_in_tx(slug),
          :ok <- guard_editable(object),
          %ObjectVersion{} = version <-
            Ankole.Ash.read_one!(Ash.Query.filter(ObjectVersion, id == ^version_id)),
@@ -472,8 +466,8 @@ defmodule Ankole.Brain.Objects do
   """
   @spec fork_library_page_in_tx(String.t()) :: {:ok, Object.t()} | {:error, term()}
   def fork_library_page_in_tx(slug) do
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, object} <- lock_object_in_tx(Repo, slug) do
+    with :ok <- Repo.require_transaction(),
+         {:ok, object} <- lock_object_in_tx(slug) do
       case object do
         %Object{managed_by_source_id: nil} ->
           {:error, :not_library_managed}
@@ -497,8 +491,8 @@ defmodule Ankole.Brain.Objects do
   """
   @spec restore_in_tx(String.t()) :: {:ok, Object.t()} | {:error, term()}
   def restore_in_tx(slug) do
-    with :ok <- Repo.require_transaction(Repo),
-         {:ok, object} <- lock_object_in_tx(Repo, slug),
+    with :ok <- Repo.require_transaction(),
+         {:ok, object} <- lock_object_in_tx(slug),
          :ok <- guard_unmanaged(object) do
       meta = Map.drop(object.meta, ["forgotten_reason", "forgotten_by"])
 
@@ -514,12 +508,12 @@ defmodule Ankole.Brain.Objects do
   Ensures the canonical Object of one Principal exists, inside a caller
   transaction. Humans use `people/<uid>`, Agents use `agents/<uid>`.
   """
-  @spec ensure_canonical_object_in_tx(module(), String.t(), :human | :agent, String.t() | nil) ::
+  @spec ensure_canonical_object_in_tx(String.t(), :human | :agent, String.t() | nil) ::
           :ok | {:error, term()}
-  def ensure_canonical_object_in_tx(repo, principal_uid, principal_type, display_name) do
+  def ensure_canonical_object_in_tx(principal_uid, principal_type, display_name) do
     case Ankole.Principals.get_principal(principal_uid) do
       {:ok, %Principal{type: ^principal_type}} when principal_type in [:human, :agent] ->
-        insert_canonical_object(repo, principal_uid, principal_type, display_name)
+        insert_canonical_object(principal_uid, principal_type, display_name)
 
       _principal ->
         {:error, :invalid_canonical_principal}
@@ -540,7 +534,7 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp insert_canonical_object(_repo, principal_uid, principal_type, display_name) do
+  defp insert_canonical_object(principal_uid, principal_type, display_name) do
     slug = Scope.principal_page_slug(principal_type, principal_uid)
     type = if principal_type == :human, do: "person", else: "agent"
 
@@ -622,8 +616,8 @@ defmodule Ankole.Brain.Objects do
   end
 
   @doc false
-  def refresh_content_hash_in_tx(repo, object) do
-    with :ok <- Repo.require_transaction(repo) do
+  def refresh_content_hash_in_tx(object) do
+    with :ok <- Repo.require_transaction() do
       Ankole.Ash.update(
         object,
         :refresh_hash,
@@ -646,14 +640,11 @@ defmodule Ankole.Brain.Objects do
 
   defp validate_slug_available(slug) do
     taken =
-      present?(Ash.Query.filter(Object, slug == ^slug)) or
-        present?(Ash.Query.filter(SlugAlias, alias_slug == ^slug))
+      Ankole.Ash.exists?(Ash.Query.filter(Object, slug == ^slug)) or
+        Ankole.Ash.exists?(Ash.Query.filter(SlugAlias, alias_slug == ^slug))
 
     if taken, do: {:error, {:slug_taken, slug}}, else: :ok
   end
-
-  defp present?(query),
-    do: query |> Ash.Query.select([]) |> Ash.Query.limit(1) |> Ankole.Ash.read!() != []
 
   defp maybe_console_prefix(query, prefix) when is_binary(prefix) and prefix != "" do
     Ash.Query.filter(query, fragment("? LIKE ?", slug, ^(prefix <> "%")))
@@ -888,8 +879,8 @@ defmodule Ankole.Brain.Objects do
   end
 
   @doc false
-  @spec lock_object_in_tx(module(), String.t()) :: {:ok, Object.t()} | {:error, :not_found}
-  def lock_object_in_tx(_repo, slug) do
+  @spec lock_object_in_tx(String.t()) :: {:ok, Object.t()} | {:error, :not_found}
+  def lock_object_in_tx(slug) do
     Object
     |> Ash.Query.filter(slug == ^slug)
     |> Ash.Query.lock(:for_update)

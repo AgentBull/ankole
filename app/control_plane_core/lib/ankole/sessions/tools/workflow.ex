@@ -319,9 +319,9 @@ defmodule Ankole.Sessions.Tools.Workflow do
   end
 
   @impl true
-  def prepare_in_tx(repo, run, call, args) do
+  def prepare_in_tx(run, call, args) do
     with {:ok, sessions, commit} <-
-           Ankole.Workflow.ToolAdmission.prepare_in_tx(repo, run, call, args) do
+           Ankole.Workflow.ToolAdmission.prepare_in_tx(run, call, args) do
       {:ok, sessions,
        fn ->
          with {:ok, value} <- commit.(), do: prepared_result(call["name"], value)

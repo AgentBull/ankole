@@ -92,8 +92,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
         })
 
       assert {:ok, %{intents: [intent]}} =
-               Repo.transact(fn repo ->
-                 Ankole.Sessions.Notices.post_in_tx(repo, event, :stopped, "已停止。", %{
+               Repo.transact(fn ->
+                 Ankole.Sessions.Notices.post_in_tx(event, :stopped, "已停止。", %{
                    "reason" => "command.new"
                  })
                end)
@@ -139,8 +139,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
         })
 
       assert {:ok, %{intents: [intent]}} =
-               Repo.transact(fn repo ->
-                 Ankole.Sessions.Notices.post_in_tx(repo, event, :stopped, "任务已停止。", %{
+               Repo.transact(fn ->
+                 Ankole.Sessions.Notices.post_in_tx(event, :stopped, "任务已停止。", %{
                    "reason" => "command.new"
                  })
                end)
@@ -394,9 +394,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
       preview_pid = replace_with_late_preview(event, "quota-preview")
 
       assert {:ok, %{intents: [intent]}} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Sessions.Notices.post_in_tx(
-                   repo,
                    event,
                    :token_quota_exceeded,
                    "quota notice"
@@ -437,9 +436,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
       preview_pid = replace_with_late_preview(event, preview_provider_message_id)
 
       assert {:ok, %{intents: [intent]}} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Sessions.Notices.post_in_tx(
-                   repo,
                    event,
                    :token_quota_exceeded,
                    "quota notice"
@@ -510,9 +508,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
       refute event.id == preview_event.id
 
       assert {:ok, %{intents: [intent]}} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  Ankole.Sessions.Notices.post_in_tx(
-                   repo,
                    event,
                    :tenant_suspended,
                    "suspended notice"

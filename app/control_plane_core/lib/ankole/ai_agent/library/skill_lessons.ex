@@ -35,26 +35,22 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   def apply_skill_lesson_reviews(agent_uid, reviews, docket_ids, context, opts \\ [])
       when is_list(reviews) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      Ankole.Ash.run_action(AgentSkillLesson, :apply_reviews, %{
-        agent_uid: agent_uid,
-        reviews: reviews,
-        docket_ids: docket_ids,
-        context: context,
-        now: Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-      })
+      Ankole.Repo.transact_top_level(fn ->
+        apply_reviews_in_tx(agent_uid, reviews, docket_ids, context, now)
+      end)
     end
   end
 
-  @doc false
-  # Runs the `:apply_reviews` action.
-  def apply_reviews(%{agent_uid: agent_uid, reviews: reviews} = arguments) do
+  defp apply_reviews_in_tx(agent_uid, reviews, docket_ids, context, now) do
     lock_review_lessons(agent_uid, reviews)
 
     state = %{
-      now: arguments.now,
-      context: arguments.context,
-      docket_ids: arguments.docket_ids,
+      now: now,
+      context: context,
+      docket_ids: docket_ids,
       renewed: 0,
       retired_skills: [],
       lapsed: 0,
@@ -103,10 +99,15 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   def retire_skill_lesson(agent_uid, lesson_id) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          :ok <- ensure_agent(agent_uid) do
-      Ankole.Ash.run_action(AgentSkillLesson, :revoke, %{
-        agent_uid: agent_uid,
-        lesson_id: lesson_id
-      })
+      case Ecto.UUID.cast(lesson_id) do
+        {:ok, lesson_id} ->
+          Ankole.Repo.transact_top_level(fn ->
+            revoke(%{agent_uid: agent_uid, lesson_id: lesson_id})
+          end)
+
+        :error ->
+          {:error, :skill_lesson_not_found}
+      end
     end
   end
 
@@ -133,7 +134,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   @doc """
   Gives the answer of a rejected lesson write for `Ankole.Errors.wrap/2`: an
-  unknown skill or lesson is not found, as in the v1 Console API.
+  unknown skill or lesson is not found.
   """
   def rejection(:skill_not_found),
     do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkill)

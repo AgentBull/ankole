@@ -84,7 +84,7 @@ test('cell drafts survive another person’s edit, require explicit conflict ret
   try {
     await cell.fill('17')
     const remoteUpdate = owner.waitForResponse(async response => {
-      if (!response.url().includes(`/tables/${table.id}/query`) || response.status() !== 200) return false
+      if (!response.url().includes(`/tables/${table.id}/query`) || response.status() !== 201) return false
       const body = (await response.json()) as { records: DatabaseRecord[] }
       return body.records.some(record => record.data[revenue.id] === 22)
     })

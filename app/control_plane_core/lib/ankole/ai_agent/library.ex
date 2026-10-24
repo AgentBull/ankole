@@ -9,64 +9,6 @@ defmodule Ankole.AIAgent.Library do
   registry semantics, and manifest hashes; it is not a file content table.
   """
 
-  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
-
-  json_api do
-    authorize?(false)
-    log_errors?(true)
-    show_raised_errors?(false)
-
-    routes do
-      base_route "/agent-library", Ankole.AIAgent.Library.Console do
-        route(:get, "/capabilities", :global_capabilities,
-          name: "get_global_library_capabilities",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/agent-plugins/:id", :set_global_plugin,
-          name: "set_global_library_plugin",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/skills/:id", :set_global_skill,
-          name: "set_global_library_skill",
-          wrap_in_result?: false
-        )
-      end
-
-      base_route "/agents/:agent_uid", Ankole.AIAgent.Library.Console do
-        route(:get, "/library-capabilities", :agent_capabilities,
-          name: "get_agent_library_capabilities",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/library-capabilities/agent-plugins/:id", :set_agent_plugin,
-          name: "set_agent_library_plugin",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/library-capabilities/skills/:id", :set_agent_skill,
-          name: "set_agent_library_skill",
-          wrap_in_result?: false
-        )
-
-        route(:get, "/library-documents", :documents,
-          name: "list_agent_library_documents",
-          wrap_in_result?: false
-        )
-
-        route(:put, "/library-documents/:document_kind", :replace_document,
-          name: "replace_agent_library_document",
-          wrap_in_result?: false
-        )
-      end
-    end
-  end
-
-  resources do
-    resource(Ankole.AIAgent.Library.Console)
-  end
-
   require Ash.Query
 
   alias Ankole.AIAgent.Library.AgentPlugins
@@ -124,22 +66,12 @@ defmodule Ankole.AIAgent.Library do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- shipped_skill_sources(opts) do
       # A Job transition reads the catalog inside its own transaction; the
-      # sync then joins that transaction. A top-level read runs the action.
+      # sync then joins that transaction. A top-level read opens its own.
       if Repo.in_transaction?(),
         do: sync_agent_skills_in_tx(agent_uid, sources, now),
-        else:
-          Ankole.Ash.run_action(AgentSkill, :sync_catalog, %{
-            agent_uid: agent_uid,
-            sources: sources,
-            now: now
-          })
+        else: Repo.transact_top_level(fn -> sync_agent_skills_in_tx(agent_uid, sources, now) end)
     end
   end
-
-  @doc false
-  # Runs the `:sync_catalog` action.
-  def sync_catalog(%{agent_uid: agent_uid, sources: sources, now: now}),
-    do: sync_agent_skills_in_tx(agent_uid, sources, now)
 
   @doc """
   Sets or clears one Agent-specific Skill enablement override.
@@ -244,8 +176,8 @@ defmodule Ankole.AIAgent.Library do
   @doc """
   Seeds writable library state inside a caller-owned transaction.
   """
-  @spec seed_agent_library_in_tx(module(), String.t()) :: :ok | {:error, term()}
-  def seed_agent_library_in_tx(_repo, agent_uid) do
+  @spec seed_agent_library_in_tx(String.t()) :: :ok | {:error, term()}
+  def seed_agent_library_in_tx(agent_uid) do
     now = DateTime.utc_now(:microsecond)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
@@ -300,23 +232,12 @@ defmodule Ankole.AIAgent.Library do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
-      Ankole.Ash.run_action(AgentSkillLesson, :apply_adds, %{
-        agent_uid: agent_uid,
-        adds: adds,
-        context: context,
-        sources: sources,
-        catalog_options: opts,
-        now: now
-      })
-    end
-  end
-
-  @doc false
-  # Runs the `:apply_adds` action.
-  def apply_adds(%{agent_uid: agent_uid, now: now} = arguments) do
-    with {:ok, _result} <- sync_agent_skills_in_tx(agent_uid, arguments.sources, now) do
-      catalog = skill_lesson_catalog(agent_uid, arguments.catalog_options)
-      SkillLessons.apply_adds_in_tx(agent_uid, arguments.adds, arguments.context, now, catalog)
+      Repo.transact_top_level(fn ->
+        with {:ok, _result} <- sync_agent_skills_in_tx(agent_uid, sources, now) do
+          catalog = skill_lesson_catalog(agent_uid, opts)
+          SkillLessons.apply_adds_in_tx(agent_uid, adds, context, now, catalog)
+        end
+      end)
     end
   end
 
@@ -353,14 +274,9 @@ defmodule Ankole.AIAgent.Library do
           {:ok, AgentSkillLesson.t()} | {:error, term()}
   def create_skill_lesson(agent_uid, skill_name, content, author, opts \\ []) do
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
-      Ankole.Ash.run_action(AgentSkillLesson, :teach, %{
-        agent_uid: agent_uid,
-        skill_name: skill_name,
-        content: content,
-        author: author,
-        sources: sources,
-        catalog_options: opts
-      })
+      Repo.transact_top_level(fn ->
+        teach_in_tx(agent_uid, skill_name, content, author, sources, opts)
+      end)
     end
   end
 
@@ -368,24 +284,27 @@ defmodule Ankole.AIAgent.Library do
   # Runs the `:console_teach` action: an operator lesson from the Console.
   def console_teach(%{agent_uid: agent_uid} = arguments) do
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, []) do
-      arguments
-      |> Map.merge(%{agent_uid: agent_uid, sources: sources, catalog_options: opts})
-      |> teach()
+      teach_in_tx(
+        agent_uid,
+        arguments.skill_name,
+        arguments.content,
+        arguments.author,
+        sources,
+        opts
+      )
     end
   end
 
-  @doc false
-  # Runs the `:teach` action.
-  def teach(%{agent_uid: agent_uid} = arguments) do
+  defp teach_in_tx(agent_uid, skill_name, content, author, sources, catalog_options) do
     with {:ok, _result} <-
-           sync_agent_skills_in_tx(agent_uid, arguments.sources, DateTime.utc_now(:microsecond)),
-         {:ok, skill_name} <- SourceReader.normalize_skill_name(arguments.skill_name),
-         {:ok, _skill} <- enabled_skill(agent_uid, skill_name, arguments.catalog_options) do
+           sync_agent_skills_in_tx(agent_uid, sources, DateTime.utc_now(:microsecond)),
+         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+         {:ok, _skill} <- enabled_skill(agent_uid, skill_name, catalog_options) do
       Ankole.Ash.create(AgentSkillLesson, :teach_human, %{
         agent_uid: agent_uid,
         skill_name: skill_name,
-        content: arguments.content,
-        author: arguments.author
+        content: content,
+        author: author
       })
     end
   end
@@ -451,33 +370,23 @@ defmodule Ankole.AIAgent.Library do
         ) :: {:ok, agent_document()} | {:error, term()}
   def replace_agent_document(agent_uid, kind, content, expected_content_hash)
       when is_binary(kind) and is_binary(content) and is_binary(expected_content_hash) do
-    with {:ok, _spec} <- agent_document_spec(kind) do
-      Ankole.Ash.run_action(AgentLibraryContainerEntry, :replace_document, %{
-        agent_uid: agent_uid,
-        kind: kind,
-        content: content,
-        expected_content_hash: expected_content_hash
-      })
+    with {:ok, spec} <- agent_document_spec(kind) do
+      Repo.transact_top_level(fn ->
+        with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+             :ok <- ensure_agent(agent_uid),
+             :ok <- lock_agent_document(agent_uid, spec.kind),
+             current = read_agent_document(agent_uid, spec),
+             :ok <- verify_agent_document_hash(current, expected_content_hash),
+             {:ok, entry} <-
+               upsert_agent_document_in_tx(agent_uid, spec, content, %{"source" => "console"}) do
+          {:ok, agent_document_payload(entry, spec)}
+        end
+      end)
     end
   end
 
   def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash),
     do: {:error, :invalid_agent_document}
-
-  @doc false
-  # Runs the `:replace_document` action.
-  def replace_document(%{kind: kind, content: content} = arguments) do
-    with {:ok, spec} <- agent_document_spec(kind),
-         {:ok, agent_uid} <- Principals.normalize_uid(arguments.agent_uid),
-         :ok <- ensure_agent(agent_uid),
-         :ok <- lock_agent_document(agent_uid, spec.kind),
-         current = read_agent_document(agent_uid, spec),
-         :ok <- verify_agent_document_hash(current, arguments.expected_content_hash),
-         {:ok, entry} <-
-           upsert_agent_document_in_tx(agent_uid, spec, content, %{"source" => "console"}) do
-      {:ok, agent_document_payload(entry, spec)}
-    end
-  end
 
   @doc "Returns one coherent Agent Plugin and Skill catalog for an Agent runtime."
   @spec runtime_catalog_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -578,7 +487,7 @@ defmodule Ankole.AIAgent.Library do
   end
 
   defp sync_agent_skills_in_tx(agent_uid, sources, now) do
-    with :ok <- Files.lock_drive(Repo, agent_uid),
+    with :ok <- Files.lock_drive(agent_uid),
          {:ok, installed} <- SourceReader.read_installed_skill_sources(agent_uid) do
       source_rows =
         Enum.map(sources, &source_attrs(&1, :builtin, now)) ++

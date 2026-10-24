@@ -8,37 +8,37 @@ defmodule Ankole.Conversations.Delivery.Reference do
   alias Ankole.Conversations.InboundBatches
   alias Ankole.Conversations.Delivery
 
-  @spec enrich(module(), map()) :: map()
-  def enrich(repo, fact) when is_map(fact) do
+  @spec enrich(map()) :: map()
+  def enrich(fact) when is_map(fact) do
     case Ankole.Attrs.optional_text(Map.get(fact, :reply_to_provider_message_id)) do
       nil ->
         fact
 
       provider_message_id ->
-        reply_to = resolve(repo, fact, provider_message_id)
+        reply_to = resolve(fact, provider_message_id)
 
         fact
         |> Map.put(:reply_to_provider_message_id, provider_message_id)
         |> Map.put(:reply_to, reply_to)
         |> maybe_mark_explicit(reply_to)
-        |> maybe_mark_durable_agent_reply_explicit(repo, reply_to)
-        |> maybe_mark_agent_thread_explicit(repo)
+        |> maybe_mark_durable_agent_reply_explicit(reply_to)
+        |> maybe_mark_agent_thread_explicit()
     end
   end
 
-  defp resolve(repo, fact, provider_message_id) do
-    case mirror_snapshot(repo, fact, provider_message_id) do
+  defp resolve(fact, provider_message_id) do
+    case mirror_snapshot(fact, provider_message_id) do
       %{"resolution" => "resolved"} = snapshot ->
         # Provider file handles remain scoped to the observing binding. The
         # canonical message supplies identity and current text; another Agent
         # must not borrow this binding's unmaterialized attachment handles.
-        case binding_snapshot(repo, fact, provider_message_id) do
+        case binding_snapshot(fact, provider_message_id) do
           %{} = entry -> Map.put(snapshot, "attachments", entry["attachments"] || [])
           nil -> snapshot
         end
 
       unresolved ->
-        case binding_snapshot(repo, fact, provider_message_id) do
+        case binding_snapshot(fact, provider_message_id) do
           %{} = entry ->
             resolved_snapshot(provider_message_id, entry, entry["attachments"] || [])
 
@@ -48,12 +48,11 @@ defmodule Ankole.Conversations.Delivery.Reference do
     end
   end
 
-  defp binding_snapshot(repo, fact, provider_message_id) do
+  defp binding_snapshot(fact, provider_message_id) do
     with agent_uid when is_binary(agent_uid) <- Map.get(fact, :agent_uid),
          binding_name when is_binary(binding_name) <- Map.get(fact, :binding_name),
          conversation_id when is_binary(conversation_id) <- Map.get(fact, :conversation_id) do
       InboundBatches.entry_snapshot(
-        repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -64,11 +63,11 @@ defmodule Ankole.Conversations.Delivery.Reference do
     end
   end
 
-  defp mirror_snapshot(_repo, %{conversation_id: nil}, provider_message_id),
+  defp mirror_snapshot(%{conversation_id: nil}, provider_message_id),
     do: %{"provider_message_id" => provider_message_id, "resolution" => "unresolved"}
 
-  defp mirror_snapshot(repo, fact, provider_message_id) do
-    case External.get_message(repo, Map.get(fact, :conversation_id), provider_message_id) do
+  defp mirror_snapshot(fact, provider_message_id) do
+    case External.get_message(Map.get(fact, :conversation_id), provider_message_id) do
       %{message: message, external_ref: ref} ->
         author = ref.author || %{}
 
@@ -130,7 +129,6 @@ defmodule Ankole.Conversations.Delivery.Reference do
 
   defp maybe_mark_durable_agent_reply_explicit(
          %{explicit?: false} = fact,
-         repo,
          %{"resolution" => "unresolved", "provider_message_id" => provider_message_id}
        ) do
     with :im_group <- Map.get(fact, :channel_kind),
@@ -142,7 +140,6 @@ defmodule Ankole.Conversations.Delivery.Reference do
            Ankole.Attrs.optional_text(Map.get(fact, :conversation_id)),
          {:ok, _signal_id} <-
            Delivery.resolve_durable_reply_signal_in_tx(
-             repo,
              agent_uid,
              binding_name,
              conversation_id,
@@ -154,11 +151,11 @@ defmodule Ankole.Conversations.Delivery.Reference do
     end
   end
 
-  defp maybe_mark_durable_agent_reply_explicit(fact, _repo, _reply_to), do: fact
+  defp maybe_mark_durable_agent_reply_explicit(fact, _reply_to), do: fact
 
-  defp maybe_mark_agent_thread_explicit(%{explicit?: true} = fact, _repo), do: fact
+  defp maybe_mark_agent_thread_explicit(%{explicit?: true} = fact), do: fact
 
-  defp maybe_mark_agent_thread_explicit(fact, _repo) do
+  defp maybe_mark_agent_thread_explicit(fact) do
     with :im_group <- Map.get(fact, :channel_kind),
          provider_thread_id when is_binary(provider_thread_id) <-
            Ankole.Attrs.optional_text(Map.get(fact, :provider_thread_id)),
@@ -183,8 +180,7 @@ defmodule Ankole.Conversations.Delivery.Reference do
       conversation_id == ^conversation_id and provider_thread_id == ^provider_thread_id and
         fragment("lower(?->>'agent_uid') = ?", author, ^agent_uid)
     )
-    |> Ash.Query.limit(1)
-    |> Ankole.Ash.read!() != []
+    |> Ankole.Ash.exists?()
   end
 
   defp author_role(author) do

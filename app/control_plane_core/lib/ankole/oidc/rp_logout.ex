@@ -58,7 +58,7 @@ defmodule Ankole.OIDC.RPLogout do
   def confirm(ref, id) do
     with {:ok, request} <- confirmation(ref, id) do
       Repo.with_tenant(request.tenant_id, fn ->
-        Ankole.Ash.run_action(LogoutRequest, :confirm, %{browser_ref: ref, id: id})
+        Repo.transact_top_level(fn -> confirm_in_tx(ref, id) end)
       end)
     end
   end
@@ -91,9 +91,9 @@ defmodule Ankole.OIDC.RPLogout do
   defp find_request(id) do
     Repo.across_tenants(fn ->
       LogoutRequest
-      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.for_read(:lookup_across_tenants)
       |> Ash.Query.filter(id == ^id)
-      |> Ash.read_one!(authorize?: false)
+      |> Ankole.Ash.read_one!()
     end)
   end
 

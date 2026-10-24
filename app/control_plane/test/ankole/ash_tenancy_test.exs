@@ -254,6 +254,9 @@ defmodule Ankole.AshTenancyTest do
              Ankole.Ash.create(Probe, :upsert_global, %{global_key: "same", value: "own"})
 
     assert row.tenant_id == Repo.tenant_id!()
+    assert {:ok, <<_timestamp::48, 7::4, _::12, 2::2, _::62>>} = Ecto.UUID.dump(row.id)
+    assert Repo.get!(Probe, row.id).value == "own"
+    assert row.id |> Ankole.Kernel.uuid_shorten() |> Ankole.Kernel.uuid_expand() == row.id
 
     assert_raise Ankole.TenantContextMissing, fn ->
       Repo.without_tenant(fn -> Ankole.Ash.read!(Probe) end)

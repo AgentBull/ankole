@@ -60,7 +60,6 @@ defmodule Ankole.Files.RPCBrokerTest do
       Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid)
       |> then(fn signal ->
         Ankole.Conversations.External.get_message(
-          Ankole.Repo,
           signal.conversation_id,
           signal.provider_message_id
         )

@@ -546,8 +546,8 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             Repo.transact(fn repo ->
-               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
+             Repo.transact(fn ->
+               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
                  "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                  "agent_uid" => agent_uid,
                  "owner_session_id" => "parent-session-#{suffix}",
@@ -599,7 +599,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
       )
 
     assert {:ok, turn} =
-             Repo.transact(fn repo -> Turns.upsert_from_worker_in_tx(repo, job, worker_attrs) end)
+             Repo.transact(fn -> Turns.upsert_from_worker_in_tx(job, worker_attrs) end)
 
     turn
   end

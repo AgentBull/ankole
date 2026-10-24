@@ -1,4 +1,32 @@
+import { existsSync } from 'node:fs'
+
+const saas = existsSync('../../internals/webapps/openapi/saas-v2.json')
+  ? [
+      {
+        input: '../../internals/webapps/openapi/saas-v2.json',
+        output: { path: '../../internals/webapps/api/generated' },
+        plugins: [
+          {
+            name: '@hey-api/client-fetch',
+            runtimeConfigPath: '../../internals/webapps/api/client',
+            throwOnError: true
+          },
+          { name: '@hey-api/sdk', responseStyle: 'data' }
+        ]
+      }
+    ]
+  : []
+
 export default [
+  ...saas,
+  {
+    input: './openapi/pod-v2.json',
+    output: { path: './pod/api/generated' },
+    plugins: [
+      { name: '@hey-api/client-fetch', runtimeConfigPath: './pod/api/client', throwOnError: true },
+      { name: '@hey-api/sdk', responseStyle: 'data' }
+    ]
+  },
   {
     input: './openapi/console-v2.json',
     output: { path: './console/api/v2/generated' },
@@ -10,7 +38,7 @@ export default [
     plugins: ['@hey-api/client-fetch', '@tanstack/react-query']
   },
   {
-    input: './openapi/internal.json',
+    input: './openapi/browser-v2.json',
     output: { path: './common/api/generated' },
     plugins: [
       { name: '@hey-api/client-fetch', runtimeConfigPath: './common/internal-api-client', throwOnError: true },

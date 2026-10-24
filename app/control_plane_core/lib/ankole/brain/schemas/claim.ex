@@ -127,7 +127,7 @@ defmodule Ankole.Brain.Schemas.Claim do
     attribute(:resolved_by, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:superseded_by, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:provenance, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
-    attribute(:embedding, Ankole.Ash.Types.Vector)
+    attribute(:embedding, :vector)
     attribute(:embedding_signature, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:embedding_error, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:embedded_at, :utc_datetime_usec)
@@ -138,9 +138,11 @@ defmodule Ankole.Brain.Schemas.Claim do
   actions do
     defaults([:read])
 
-    # The Console list: the first 100 Claims, newest first, of one Object,
+    # The Console list: Claims, newest first, of one Object,
     # one Claim type, the current state, and a text search.
     read :console_list do
+      pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
+
       argument(:object_slug, :string, constraints: [trim?: false])
       argument(:claim_type, :atom, constraints: [one_of: [:fact, :take]])
       argument(:status, :atom, constraints: [one_of: [:current]])
@@ -308,95 +310,6 @@ defmodule Ankole.Brain.Schemas.Claim do
       accept([:holder])
     end
 
-    # Each operation owns its transaction; Ankole.Brain.Claims gives the steps.
-    # A claim text gets its embedding from the network before the transaction.
-    action :write_fact, :map do
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:writer, :term, allow_nil?: false)
-      argument(:options, :term, default: [])
-      argument(:embedding, :term, public?: false)
-
-      prepare(__MODULE__.Preparations)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :supersede_claim, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:claim_id, :uuid, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:writer, :term, allow_nil?: false)
-      argument(:author, Ankole.Ash.Types.ActorRef)
-      argument(:embedding, :term, public?: false)
-
-      prepare(__MODULE__.Preparations)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :expire_fact_by_id, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:claim_id, :uuid, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :deactivate_take_by_id, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:claim_id, :uuid, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :resolve_take_by_id, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:claim_id, :uuid, allow_nil?: false)
-      argument(:resolution, :map, allow_nil?: false)
-
-      argument(:resolved_by, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      run(__MODULE__.Actions)
-    end
-
-    action :attach_claim_embedding, :atom do
-      argument(:claim, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-      argument(:embedding, :term, allow_nil?: false)
-
-      argument(:signature, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:now, :utc_datetime_usec)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :commit_grade, :atom do
-      argument(:take_id, :uuid, allow_nil?: false)
-      argument(:input_hash, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:output, :map, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :forget_claim, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:claim_id, :uuid, allow_nil?: false)
-
-      argument(:reason, :string,
-        allow_nil?: false,
-        constraints: [trim?: false, allow_empty?: true]
-      )
-
-      argument(:caller, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     # The Console operations. The operator is the actor of the action
     # (Ankole.Brain.Console); a Console administrator can forget and resolve
     # each Claim.
@@ -433,15 +346,6 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:resolved_value, :float)
       argument(:resolved_unit, :string)
       argument(:resolution_provenance, :string)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :consolidate_facts, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:take, :map, allow_nil?: false)
-      argument(:fact_ids, {:array, :uuid}, allow_nil?: false)
-      argument(:embedding, :term)
 
       run(__MODULE__.Actions)
     end

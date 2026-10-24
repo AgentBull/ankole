@@ -82,7 +82,17 @@ defmodule Ankole.BrowserSessions.Authentication do
   end
 
   validations do
-    validate(Ankole.BrowserSessions.Validations.TargetScope, only_when_valid?: true)
+    validate(attribute_equals(:tenant_id, nil),
+      where: [attribute_equals(:purpose, :site)],
+      message: "must match the login purpose",
+      only_when_valid?: true
+    )
+
+    validate(attribute_does_not_equal(:tenant_id, nil),
+      where: [attribute_does_not_equal(:purpose, :site)],
+      message: "must match the login purpose",
+      only_when_valid?: true
+    )
   end
 
   actions do
@@ -100,29 +110,6 @@ defmodule Ankole.BrowserSessions.Authentication do
     update :revoke_in_tx do
       accept([:revision])
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
-    end
-
-    action :revoke, :term do
-      argument(:browser_ref, :term)
-      argument(:authentication_ref, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :create_pod_access, :term do
-      argument(:authentication_ref, :term)
-      argument(:create, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :connect_pod_access, :term do
-      argument(:authentication_ref, :term)
-      argument(:verified_ref, :term)
-      argument(:tenant_id, :term)
-      argument(:connect, :term)
-
-      run(__MODULE__.Actions)
     end
   end
 

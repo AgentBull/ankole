@@ -143,7 +143,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
     setSearch(next.search, { replace: true, preventScrollReset: true, flushSync })
   }
   const model = useModel(PageDraftModel)
-  model.load(page.id, detail.content?.xml ?? '<page/>', page.revision, page.title)
+  model.load(page.id, detail.content?.content ?? '<page/>', page.revision, page.title)
   const dirty = model.hasUnsavedChanges.value
   const blocker = useBlocker({
     shouldBlockFn: ({ current, next }) => dirty && current.pathname !== next.pathname,
@@ -463,7 +463,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
   const { i18n } = useTranslation()
   const labels = useMemo(() => editorLabels(i18n.language), [i18n.language])
   const [generation, setGeneration] = useState(0)
-  const [initialXML, setInitialXML] = useState(detail.content?.xml ?? '<page/>')
+  const [initialXML, setInitialXML] = useState(detail.content?.content ?? '<page/>')
   const initialDocument = useMemo(() => parseXml(initialXML), [initialXML])
   const editor = useRef<Editor | null>(null)
   const session = useRef<PageSession | null>(null)
@@ -518,7 +518,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
   const reload = async () => {
     const xml = await model.reload(async () => {
       const latest = await pageAPI.read(detail.page.id)
-      return { xml: latest.content?.xml ?? '<page/>', revision: latest.page.revision }
+      return { xml: latest.content?.content ?? '<page/>', revision: latest.page.revision }
     })
     if (xml === undefined) return
     setInitialXML(xml)

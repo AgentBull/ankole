@@ -487,10 +487,18 @@ export type DeleteAiGatewayProviderError = DeleteAiGatewayProviderErrors[keyof D
 
 export type DeleteAiGatewayProviderResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeleteAiGatewayProviderResponse = DeleteAiGatewayProviderResponses[keyof DeleteAiGatewayProviderResponses]
 
 export type GetAiGatewayProviderData = {
   body?: never
@@ -973,10 +981,19 @@ export type DeleteAiGatewayCredentialError = DeleteAiGatewayCredentialErrors[key
 
 export type DeleteAiGatewayCredentialResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeleteAiGatewayCredentialResponse =
+  DeleteAiGatewayCredentialResponses[keyof DeleteAiGatewayCredentialResponses]
 
 export type PutAiGatewayCredentialData = {
   /**
@@ -1678,10 +1695,18 @@ export type DeleteTenantError = DeleteTenantErrors[keyof DeleteTenantErrors]
 
 export type DeleteTenantResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeleteTenantResponse = DeleteTenantResponses[keyof DeleteTenantResponses]
 
 export type UpdateTenantData = {
   /**
@@ -1781,10 +1806,18 @@ export type ResumeTenantError = ResumeTenantErrors[keyof ResumeTenantErrors]
 
 export type ResumeTenantResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type ResumeTenantResponse = ResumeTenantResponses[keyof ResumeTenantResponses]
 
 export type SuspendTenantData = {
   /**
@@ -2179,10 +2212,18 @@ export type DeleteWorkerProviderError = DeleteWorkerProviderErrors[keyof DeleteW
 
 export type DeleteWorkerProviderResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: WorkerProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeleteWorkerProviderResponse = DeleteWorkerProviderResponses[keyof DeleteWorkerProviderResponses]
 
 export type UpdateWorkerProviderData = {
   /**

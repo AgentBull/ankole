@@ -465,9 +465,9 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
   end
 
   defp complete_with_intents(input, intents) do
-    Repo.transact(fn repo ->
-      Ankole.Sessions.Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id)
-      input = Ankole.Signals.lock_signal_in_tx(repo, input.id)
+    Repo.transact(fn ->
+      Ankole.Sessions.Queue.lock_session_in_tx(input.agent_uid, input.session_id)
+      input = Ankole.Signals.lock_signal_in_tx(input.id)
 
       results =
         Enum.map(intents, fn attrs ->
@@ -481,12 +481,12 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
             },
             attrs
           )
-          |> then(&Ankole.Conversations.Delivery.commit_in_tx(repo, &1))
+          |> then(&Ankole.Conversations.Delivery.commit_in_tx(&1))
         end)
 
       with {:ok, _} <- Ankole.Attrs.collect_results(results),
            do:
-             Ankole.Sessions.Queue.complete_signal_in_tx(repo, input,
+             Ankole.Sessions.Queue.complete_signal_in_tx(input,
                completed_at: DateTime.add(@base_time, 1, :second)
              )
     end)

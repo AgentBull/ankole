@@ -131,8 +131,7 @@ defmodule Ankole.Brain.ContextPack do
           Link
           |> Ash.Query.filter(to_object_slug == ^card.slug)
           |> LazySkillVisibility.filter_links(visibility)
-          |> Ankole.Ash.aggregate!({:count, :count})
-          |> Map.fetch!(:count)
+          |> Ankole.Ash.count!()
 
         Map.merge(card, %{aka: aka, edges: outgoing, backlink_count: backlinks})
     end

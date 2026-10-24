@@ -77,16 +77,16 @@ defmodule Ankole.Principals.WorkCleanup do
   end
 
   def cleanup(uid, version),
-    do: Ankole.Ash.run_action(Principal, :cleanup_work, %{uid: uid, version: version})
+    do: Repo.transact_top_level(fn -> cleanup_in_tx(uid, version) end)
 
   @doc false
-  def cleanup_in_tx(repo, uid, version) do
-    with {:ok, principal} <- Ankole.Principals.lock_principal_in_tx(repo, uid) do
+  def cleanup_in_tx(uid, version) do
+    with {:ok, principal} <- Ankole.Principals.lock_principal_in_tx(uid) do
       now = DateTime.utc_now()
 
       results =
         Repo.across_tenants(fn ->
-          Ankole.Work.Owner.revoke_human_work_in_tx(repo, uid, version, now)
+          Ankole.Work.Owner.revoke_human_work_in_tx(uid, version, now)
         end)
 
       running =

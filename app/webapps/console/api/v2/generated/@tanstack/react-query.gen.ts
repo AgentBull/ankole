@@ -279,13 +279,16 @@ import type {
   DeleteAgentWorkerEnvResponse,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestError,
+  DeleteIdentityMappingRequestResponse,
   DeleteOidcClientData,
   DeleteOidcClientError,
   DeleteOidcClientResponse,
   DeletePermissionGrantData,
   DeletePermissionGrantError,
+  DeletePermissionGrantResponse,
   DeletePrincipalGroupData,
   DeletePrincipalGroupError,
+  DeletePrincipalGroupResponse,
   DeleteWorkerEnvData,
   DeleteWorkerEnvError,
   DeleteWorkerEnvResponse,
@@ -659,9 +662,13 @@ import type {
  */
 export const deleteIdentityMappingRequestMutation = (
   options?: Partial<Options<DeleteIdentityMappingRequestData>>
-): UseMutationOptions<unknown, DeleteIdentityMappingRequestError, Options<DeleteIdentityMappingRequestData>> => {
+): UseMutationOptions<
+  DeleteIdentityMappingRequestResponse,
+  DeleteIdentityMappingRequestError,
+  Options<DeleteIdentityMappingRequestData>
+> => {
   const mutationOptions: UseMutationOptions<
-    unknown,
+    DeleteIdentityMappingRequestResponse,
     DeleteIdentityMappingRequestError,
     Options<DeleteIdentityMappingRequestData>
   > = {
@@ -1167,8 +1174,16 @@ export const cancelCheckbackMutation = (
  */
 export const deletePermissionGrantMutation = (
   options?: Partial<Options<DeletePermissionGrantData>>
-): UseMutationOptions<unknown, DeletePermissionGrantError, Options<DeletePermissionGrantData>> => {
-  const mutationOptions: UseMutationOptions<unknown, DeletePermissionGrantError, Options<DeletePermissionGrantData>> = {
+): UseMutationOptions<
+  DeletePermissionGrantResponse,
+  DeletePermissionGrantError,
+  Options<DeletePermissionGrantData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeletePermissionGrantResponse,
+    DeletePermissionGrantError,
+    Options<DeletePermissionGrantData>
+  > = {
     mutationFn: async fnOptions => {
       const { data } = await deletePermissionGrant({
         ...options,
@@ -1284,6 +1299,53 @@ export const listBrainObjectVersionsOptions = (options: Options<ListBrainObjectV
     },
     queryKey: listBrainObjectVersionsQueryKey(options)
   })
+
+export const listBrainObjectVersionsInfiniteQueryKey = (
+  options: Options<ListBrainObjectVersionsData>
+): QueryKey<Options<ListBrainObjectVersionsData>> => createQueryKey('listBrainObjectVersions', options, true)
+
+/**
+ * list_brain_object_versions operation on brain_object_version resource
+ */
+export const listBrainObjectVersionsInfiniteOptions = (options: Options<ListBrainObjectVersionsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainObjectVersionsResponse,
+    ListBrainObjectVersionsError,
+    InfiniteData<ListBrainObjectVersionsResponse>,
+    QueryKey<Options<ListBrainObjectVersionsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainObjectVersionsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainObjectVersionsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainObjectVersions({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainObjectVersionsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 /**
  * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
@@ -1617,8 +1679,12 @@ export const previewBrainSearchMutation = (
  */
 export const deletePrincipalGroupMutation = (
   options?: Partial<Options<DeletePrincipalGroupData>>
-): UseMutationOptions<unknown, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> => {
-  const mutationOptions: UseMutationOptions<unknown, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> = {
+): UseMutationOptions<DeletePrincipalGroupResponse, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeletePrincipalGroupResponse,
+    DeletePrincipalGroupError,
+    Options<DeletePrincipalGroupData>
+  > = {
     mutationFn: async fnOptions => {
       const { data } = await deletePrincipalGroup({
         ...options,
@@ -2111,6 +2177,53 @@ export const listBrainClaimsOptions = (options?: Options<ListBrainClaimsData>) =
     },
     queryKey: listBrainClaimsQueryKey(options)
   })
+
+export const listBrainClaimsInfiniteQueryKey = (
+  options?: Options<ListBrainClaimsData>
+): QueryKey<Options<ListBrainClaimsData>> => createQueryKey('listBrainClaims', options, true)
+
+/**
+ * list_brain_claims operation on brain_claim resource
+ */
+export const listBrainClaimsInfiniteOptions = (options?: Options<ListBrainClaimsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainClaimsResponse,
+    ListBrainClaimsError,
+    InfiniteData<ListBrainClaimsResponse>,
+    QueryKey<Options<ListBrainClaimsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainClaimsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainClaimsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainClaims({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainClaimsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 /**
  * delete_agent_model_profile operation on agent_model_configuration resource
@@ -3529,6 +3642,53 @@ export const listBrainObjectsOptions = (options?: Options<ListBrainObjectsData>)
     queryKey: listBrainObjectsQueryKey(options)
   })
 
+export const listBrainObjectsInfiniteQueryKey = (
+  options?: Options<ListBrainObjectsData>
+): QueryKey<Options<ListBrainObjectsData>> => createQueryKey('listBrainObjects', options, true)
+
+/**
+ * list_brain_objects operation on brain_object resource
+ */
+export const listBrainObjectsInfiniteOptions = (options?: Options<ListBrainObjectsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainObjectsResponse,
+    ListBrainObjectsError,
+    InfiniteData<ListBrainObjectsResponse>,
+    QueryKey<Options<ListBrainObjectsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainObjectsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainObjectsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainObjects({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainObjectsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
 /**
  * update_brain_object operation on brain_object resource
  */
@@ -4611,6 +4771,53 @@ export const listBrainSuggestionsOptions = (options?: Options<ListBrainSuggestio
     queryKey: listBrainSuggestionsQueryKey(options)
   })
 
+export const listBrainSuggestionsInfiniteQueryKey = (
+  options?: Options<ListBrainSuggestionsData>
+): QueryKey<Options<ListBrainSuggestionsData>> => createQueryKey('listBrainSuggestions', options, true)
+
+/**
+ * list_brain_suggestions operation on brain_schema_suggestion resource
+ */
+export const listBrainSuggestionsInfiniteOptions = (options?: Options<ListBrainSuggestionsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainSuggestionsResponse,
+    ListBrainSuggestionsError,
+    InfiniteData<ListBrainSuggestionsResponse>,
+    QueryKey<Options<ListBrainSuggestionsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainSuggestionsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainSuggestionsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainSuggestions({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainSuggestionsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
 export const listBrainContradictionsQueryKey = (options?: Options<ListBrainContradictionsData>) =>
   createQueryKey('listBrainContradictions', options)
 
@@ -4635,6 +4842,53 @@ export const listBrainContradictionsOptions = (options?: Options<ListBrainContra
     },
     queryKey: listBrainContradictionsQueryKey(options)
   })
+
+export const listBrainContradictionsInfiniteQueryKey = (
+  options?: Options<ListBrainContradictionsData>
+): QueryKey<Options<ListBrainContradictionsData>> => createQueryKey('listBrainContradictions', options, true)
+
+/**
+ * list_brain_contradictions operation on brain_contradiction resource
+ */
+export const listBrainContradictionsInfiniteOptions = (options?: Options<ListBrainContradictionsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainContradictionsResponse,
+    ListBrainContradictionsError,
+    InfiniteData<ListBrainContradictionsResponse>,
+    QueryKey<Options<ListBrainContradictionsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainContradictionsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainContradictionsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainContradictions({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainContradictionsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 /**
  * cancel_webhook_endpoint operation on webhook_endpoint resource
@@ -4741,6 +4995,53 @@ export const listBrainMergeSuggestionsOptions = (options?: Options<ListBrainMerg
     },
     queryKey: listBrainMergeSuggestionsQueryKey(options)
   })
+
+export const listBrainMergeSuggestionsInfiniteQueryKey = (
+  options?: Options<ListBrainMergeSuggestionsData>
+): QueryKey<Options<ListBrainMergeSuggestionsData>> => createQueryKey('listBrainMergeSuggestions', options, true)
+
+/**
+ * list_brain_merge_suggestions operation on brain_merge_suggestion resource
+ */
+export const listBrainMergeSuggestionsInfiniteOptions = (options?: Options<ListBrainMergeSuggestionsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainMergeSuggestionsResponse,
+    ListBrainMergeSuggestionsError,
+    InfiniteData<ListBrainMergeSuggestionsResponse>,
+    QueryKey<Options<ListBrainMergeSuggestionsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainMergeSuggestionsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainMergeSuggestionsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainMergeSuggestions({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainMergeSuggestionsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 export const getConversationStandingOrdersQueryKey = (options: Options<GetConversationStandingOrdersData>) =>
   createQueryKey('getConversationStandingOrders', options)
@@ -5031,6 +5332,53 @@ export const listBrainSourcesOptions = (options?: Options<ListBrainSourcesData>)
     },
     queryKey: listBrainSourcesQueryKey(options)
   })
+
+export const listBrainSourcesInfiniteQueryKey = (
+  options?: Options<ListBrainSourcesData>
+): QueryKey<Options<ListBrainSourcesData>> => createQueryKey('listBrainSources', options, true)
+
+/**
+ * list_brain_sources operation on brain_source resource
+ */
+export const listBrainSourcesInfiniteOptions = (options?: Options<ListBrainSourcesData>) => {
+  const opts = infiniteQueryOptions<
+    ListBrainSourcesResponse,
+    ListBrainSourcesError,
+    InfiniteData<ListBrainSourcesResponse>,
+    QueryKey<Options<ListBrainSourcesData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBrainSourcesData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBrainSourcesData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBrainSources({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBrainSourcesInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 /**
  * create_brain_source operation on brain_source resource

@@ -100,7 +100,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
 
       assert {:ok, %{"auth_time" => ^auth_time, "nonce" => "rp-nonce"}} =
                AttestoClient.IDToken.verify(tokens["id_token"],
-                 issuer: Ankole.TokenSigning.issuer(),
+                 issuer: Ankole.OIDC.Config.issuer(),
                  client_id: client.id,
                  jwks: %{"keys" => [jwk]},
                  nonce: "rp-nonce"

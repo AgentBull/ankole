@@ -165,19 +165,6 @@ defmodule Ankole.OIDC.LogoutDelivery do
       change(transition_state(:pending))
       change(set_attribute(:updated_at, arg(:at)))
     end
-
-    action :retry, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:id, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :claim, :term do
-      argument(:id, :term)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

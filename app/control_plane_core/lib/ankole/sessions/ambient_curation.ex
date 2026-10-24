@@ -46,8 +46,9 @@ defmodule Ankole.Sessions.AmbientCuration do
       handoff_job_id: Map.get(attrs, :handoff_job_id)
     }
 
-    key
-    |> Ankole.Sessions.record_ambient_judgment(signal_id, route, attrs)
+    Ankole.Repo.transact_top_level(fn ->
+      record_judgment_in_tx(key, signal_id, route, attrs)
+    end)
     |> Ankole.Errors.reason()
     |> case do
       {:ok, result} -> {:ok, Map.delete(result, :command_event)}
@@ -56,23 +57,23 @@ defmodule Ankole.Sessions.AmbientCuration do
   end
 
   @doc false
-  def record_judgment_in_tx(repo, key, signal_id, route, attrs) do
+  def record_judgment_in_tx(key, signal_id, route, attrs) do
     with %Signal{} = event <- Ankole.Signals.get_signal!(signal_id),
-         :ok <- Ankole.Sessions.Admission.authorize_new_work_in_tx(repo, event) do
-      lock_and_commit_judgment(repo, key, signal_id, route, attrs)
+         :ok <- Ankole.Sessions.Admission.authorize_new_work_in_tx(event) do
+      lock_and_commit_judgment(key, signal_id, route, attrs)
     else
       nil -> {:error, :signal_not_found}
       error -> error
     end
   end
 
-  defp lock_and_commit_judgment(repo, key, signal_id, route, attrs) do
-    locked_handoff_job = lock_handoff_job(repo, key, route)
+  defp lock_and_commit_judgment(key, signal_id, route, attrs) do
+    locked_handoff_job = lock_handoff_job(key, route)
 
     sessions = [{key.agent_uid, key.session_id}] ++ handoff_session(locked_handoff_job)
 
-    with :ok <- Queue.lock_sessions_in_tx(repo, sessions),
-         {:ok, event} <- locked_ambient_event(repo, key, signal_id) do
+    with :ok <- Queue.lock_sessions_in_tx(sessions),
+         {:ok, event} <- locked_ambient_event(key, signal_id) do
       case AmbientJudgment
            |> Ash.Query.filter(signal_id == ^event.id)
            |> Ankole.Ash.read_one!() do
@@ -81,7 +82,6 @@ defmodule Ankole.Sessions.AmbientCuration do
 
         nil when event.status in [:queued, :running] ->
           commit_new_judgment(
-            repo,
             event,
             route,
             locked_handoff_job,
@@ -99,7 +99,7 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp handoff_session(nil), do: []
 
   @doc "Preserves judgment progress before its accepted message anchor is removed."
-  def message_removed_in_tx(_repo, %Message{} = message) do
+  def message_removed_in_tx(%Message{} = message) do
     {:ok, _degraded} =
       AmbientJudgment
       |> Ash.Query.filter(conversation_id == ^message.conversation_id)
@@ -120,13 +120,16 @@ defmodule Ankole.Sessions.AmbientCuration do
   @spec set_standing_orders(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def set_standing_orders(agent_uid, signal_id, orders) do
-    agent_uid
-    |> Ankole.Sessions.set_standing_orders(signal_id, orders, DateTime.utc_now(:microsecond))
+    now = DateTime.utc_now(:microsecond)
+
+    Ankole.Repo.transact_top_level(fn ->
+      set_standing_orders_in_tx(agent_uid, signal_id, orders, now)
+    end)
     |> Ankole.Errors.reason()
   end
 
   @doc "Replaces the standing orders inside the caller's transaction. See `set_standing_orders/3`."
-  def set_standing_orders_in_tx(_repo, agent_uid, signal_id, orders, now) do
+  def set_standing_orders_in_tx(agent_uid, signal_id, orders, now) do
     with {:ok, orders} <- normalize_orders(orders),
          {:ok, event} <- channel_event(agent_uid, signal_id),
          set_by = entry_author_name(event) || agent_uid,
@@ -206,25 +209,23 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp binding_may_intervene?(_event), do: false
 
   defp lock_handoff_job(
-         repo,
          %{agent_uid: agent_uid},
          %{action: "HANDOFF", handoff_job_id: job_id}
        ) do
-    BackgroundAgentJobs.lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id)
+    BackgroundAgentJobs.lock_ambient_handoff_target_in_tx(agent_uid, job_id)
   end
 
-  defp lock_handoff_job(_repo, _event, _route), do: nil
+  defp lock_handoff_job(_event, _route), do: nil
 
-  defp commit_new_judgment(repo, event, route, locked_handoff_job, attrs, now) do
-    with :ok <- Ambient.ensure_fresh_in_tx(repo, event, now),
-         {asked_by_id, asked_by_state, authorization} <- resolve_asked_by(repo, event, attrs),
-         route <- enforce_authority(repo, event, route, asked_by_state),
+  defp commit_new_judgment(event, route, locked_handoff_job, attrs, now) do
+    with :ok <- Ambient.ensure_fresh_in_tx(event, now),
+         {asked_by_id, asked_by_state, authorization} <- resolve_asked_by(event, attrs),
+         route <- enforce_authority(event, route, asked_by_state),
          {:ok, {handoff_job_id, command_event}} <-
-           commit_handoff(repo, event, route, locked_handoff_job, now),
+           commit_handoff(event, route, locked_handoff_job, now),
          judged_until = batch_watermark(event) || now,
          {:ok, judgment} <-
            insert_judgment(
-             repo,
              event,
              %{route | handoff_job_id: handoff_job_id},
              attrs,
@@ -232,22 +233,21 @@ defmodule Ankole.Sessions.AmbientCuration do
              asked_by_state,
              judged_until
            ),
-         :ok <- apply_asked_anchor(repo, event, asked_by_id, asked_by_state, authorization),
-         :ok <- settle_in_tx(repo, event, judgment, now) do
+         :ok <- apply_asked_anchor(event, asked_by_id, asked_by_state, authorization),
+         :ok <- settle_in_tx(event, judgment, now) do
       {:ok, Map.put(judgment_result(judgment), :command_event, command_event)}
     end
   end
 
-  defp settle_in_tx(repo, event, %{action: action}, now) when action in ["NOOP", "HANDOFF"] do
+  defp settle_in_tx(event, %{action: action}, now) when action in ["NOOP", "HANDOFF"] do
     with {:ok, _event} <-
-           Queue.complete_signal_in_tx(repo, event, completed_at: now, turn_outcome: "silent"),
+           Queue.complete_signal_in_tx(event, completed_at: now, turn_outcome: "silent"),
          do: :ok
   end
 
-  defp settle_in_tx(_repo, _event, _judgment, _now), do: :ok
+  defp settle_in_tx(_event, _judgment, _now), do: :ok
 
   defp enforce_authority(
-         _repo,
          event,
          %{action: "NEW_WORK", authority: "STANDING_ORDER"} = route,
          _asked_by_state
@@ -267,7 +267,6 @@ defmodule Ankole.Sessions.AmbientCuration do
   end
 
   defp enforce_authority(
-         _repo,
          _event,
          %{action: "NEW_WORK", authority: "EXPLICIT_REQUEST"} = route,
          "accepted"
@@ -275,17 +274,15 @@ defmodule Ankole.Sessions.AmbientCuration do
        do: route
 
   defp enforce_authority(
-         _repo,
          _event,
          %{action: "NEW_WORK", authority: "EXPLICIT_REQUEST"} = route,
          _asked_by_state
        ),
        do: %{route | authority: "NONE"}
 
-  defp enforce_authority(_repo, _event, route, _asked_by_state), do: route
+  defp enforce_authority(_event, route, _asked_by_state), do: route
 
   defp commit_handoff(
-         repo,
          event,
          %{action: "HANDOFF", handoff_job_id: job_id},
          %Job{id: job_id} = job,
@@ -294,7 +291,6 @@ defmodule Ankole.Sessions.AmbientCuration do
     with {:ok, message} <- ambient_handoff_message(event),
          {:ok, %{command_event: command_event}} <-
            BackgroundAgentJobs.handoff_ambient_message_in_tx(
-             repo,
              event,
              job,
              message,
@@ -305,7 +301,6 @@ defmodule Ankole.Sessions.AmbientCuration do
   end
 
   defp commit_handoff(
-         _repo,
          _event,
          %{action: "HANDOFF"},
          _locked_handoff_job,
@@ -313,7 +308,7 @@ defmodule Ankole.Sessions.AmbientCuration do
        ),
        do: {:error, :job_not_found}
 
-  defp commit_handoff(_repo, _event, _route, _locked_handoff_job, _now), do: {:ok, {nil, nil}}
+  defp commit_handoff(_event, _route, _locked_handoff_job, _now), do: {:ok, {nil, nil}}
 
   defp ambient_handoff_message(%Signal{data: payload}) do
     messages =
@@ -364,8 +359,8 @@ defmodule Ankole.Sessions.AmbientCuration do
     }
   end
 
-  defp locked_ambient_event(repo, %{agent_uid: agent_uid, session_id: session_id}, signal_id) do
-    case Ankole.Signals.lock_signal_in_tx(repo, signal_id) do
+  defp locked_ambient_event(%{agent_uid: agent_uid, session_id: session_id}, signal_id) do
+    case Ankole.Signals.lock_signal_in_tx(signal_id) do
       %Signal{
         producer: :kernel,
         agent_uid: ^agent_uid,
@@ -411,7 +406,7 @@ defmodule Ankole.Sessions.AmbientCuration do
     end
   end
 
-  defp resolve_asked_by(repo, event, attrs) do
+  defp resolve_asked_by(event, attrs) do
     proposed = Map.get(attrs, :asked_by_message_id)
 
     cond do
@@ -423,7 +418,7 @@ defmodule Ankole.Sessions.AmbientCuration do
 
       observed_human_entry?(event, proposed) and
           entry_exists?(event.conversation_id, proposed) ->
-        authorization = asked_authorization(repo, event, proposed)
+        authorization = asked_authorization(event, proposed)
 
         if Ankole.Principals.WorkAccess.valid_now?(authorization),
           do: {proposed, "accepted", authorization},
@@ -457,7 +452,6 @@ defmodule Ankole.Sessions.AmbientCuration do
   end
 
   defp insert_judgment(
-         _repo,
          event,
          route,
          attrs,
@@ -479,7 +473,7 @@ defmodule Ankole.Sessions.AmbientCuration do
     })
   end
 
-  defp apply_asked_anchor(_repo, event, asked_by_id, "accepted", authorization)
+  defp apply_asked_anchor(event, asked_by_id, "accepted", authorization)
        when is_binary(asked_by_id) do
     with {:ok, event} <-
            Ankole.Signals.update_metadata_signal(event, %{ambient_asked_message_id: asked_by_id}),
@@ -487,7 +481,7 @@ defmodule Ankole.Sessions.AmbientCuration do
          do: :ok
   end
 
-  defp apply_asked_anchor(_repo, _event, _asked_by_id, _state, _authorization), do: :ok
+  defp apply_asked_anchor(_event, _asked_by_id, _state, _authorization), do: :ok
 
   @doc "Returns the progress of one Agent in a shared conversation."
   def judged_until(agent_uid, conversation_id) do
@@ -563,9 +557,9 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp map_value(map, key) when is_map(map), do: Map.get(map, key)
   defp map_value(_value, _key), do: nil
 
-  defp asked_authorization(repo, event, message_id) do
+  defp asked_authorization(event, message_id) do
     entries = get_in(event.data, ["entries"]) || []
     entry = Enum.find(entries, &((&1["message_id"] || &1["id"]) == message_id))
-    Ankole.Principals.WorkAccess.from_observation(repo, entry && entry["author"])
+    Ankole.Principals.WorkAccess.from_observation(entry && entry["author"])
   end
 end

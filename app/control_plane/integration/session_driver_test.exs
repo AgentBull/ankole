@@ -184,7 +184,7 @@ defmodule Ankole.Sessions.DriverTest do
           from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)
         )
 
-        :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+        :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(agent.uid)
         Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
         # The first deletion disables the provider; the second removes it.
         {:ok, _} = ProviderConfigs.delete_provider(profile["provider_id"])
@@ -206,7 +206,7 @@ defmodule Ankole.Sessions.DriverTest do
   test "the durable wakeup recovers input published before subscription and later hints wake the Driver",
        %{key: key, script: script} do
     assert :undefined = Ankole.Sessions.driver_pid(key)
-    assert {:ok, first} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    assert {:ok, first} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     :ok = Ankole.Sessions.Events.publish_input(key.agent_uid, key.session_id, first.id)
     assert :undefined = Ankole.Sessions.driver_pid(key)
 
@@ -216,7 +216,7 @@ defmodule Ankole.Sessions.DriverTest do
     _ = await_request(key)
     assert wait_for_completion(first.id).turn_outcome == "loop_finished"
 
-    assert {:ok, second} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    assert {:ok, second} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     :ok = Ankole.Sessions.Events.publish_input(key.agent_uid, key.session_id, second.id)
     :ok = Ankole.Sessions.Events.publish_input(key.agent_uid, key.session_id, second.id)
     _ = await_request(key)
@@ -318,7 +318,7 @@ defmodule Ankole.Sessions.DriverTest do
     script: script
   }) do
     Agent.update(script, &%{&1 | rounds: List.duplicate({:error, 503}, 20)})
-    {:ok, event} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    {:ok, event} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     {:ok, driver} = Ankole.Sessions.ensure_driver(key)
     send(driver, :reconcile_inbox)
     _ = await_request(key)
@@ -383,7 +383,7 @@ defmodule Ankole.Sessions.DriverTest do
     %{key: key}
   ) do
     alias Ankole.Sessions.Run
-    {:ok, event} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    {:ok, event} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     now = DateTime.add(DateTime.utc_now(:microsecond), 1)
 
     {event, now} =
@@ -426,7 +426,7 @@ defmodule Ankole.Sessions.DriverTest do
     key: key
   }) do
     alias Ankole.Sessions.Run
-    {:ok, event} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    {:ok, event} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     now = DateTime.add(DateTime.utc_now(:microsecond), 1)
     {:ok, run} = Admission.admit(key, event, now: now)
     deadline = DateTime.add(now, 600)
@@ -449,7 +449,7 @@ defmodule Ankole.Sessions.DriverTest do
     profile: profile
   }) do
     alias Ankole.AIGateway.CredentialPool
-    {:ok, event} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    {:ok, event} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     {:ok, provider} = ProviderConfigs.fetch_provider(profile["provider_id"])
     deadline = DateTime.add(DateTime.utc_now(:second), 600)
 
@@ -486,7 +486,7 @@ defmodule Ankole.Sessions.DriverTest do
     script: script
   }) do
     Agent.update(script, &%{&1 | rounds: List.duplicate({:error, 503}, 20)})
-    {:ok, event} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    {:ok, event} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     {:ok, driver} = Ankole.Sessions.ensure_driver(key)
     send(driver, :reconcile_inbox)
     _ = await_request(key)
@@ -1235,7 +1235,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert_receive {:model_waiting, second_model}, 10000
 
     assert {:error, :stale_driver} =
-             Repo.transact(fn repo -> Ankole.Sessions.Fence.check_in_tx(repo, old_run) end)
+             Repo.transact(fn -> Ankole.Sessions.Fence.check_in_tx(old_run) end)
 
     assert :ok = :rpc.call(remote, Application, :stop, [:ankole], 30000)
     assert Repo.reload!(input).attempt_count == 0
@@ -1444,7 +1444,11 @@ defmodule Ankole.Sessions.DriverTest do
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{reconciled: 0}} =
-             Ankole.Workflow.reconcile_stale_tasks(call.run_id, DateTime.add(now, -3600), now)
+             Ankole.Workflow.Recovery.reconcile_stale_tasks(
+               call.run_id,
+               DateTime.add(now, -3600),
+               now
+             )
 
     assert %AgentCall{status: :running, attempts: 1} = Repo.reload!(call)
     send(second_model, :release_model)
@@ -1469,8 +1473,8 @@ defmodule Ankole.Sessions.DriverTest do
     cancel =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn repo ->
-            Ankole.Workflow.Lifecycle.cancel_in_tx(repo, call.run_id, key.agent_uid)
+          Repo.transact(fn ->
+            Ankole.Workflow.Lifecycle.cancel_in_tx(call.run_id, key.agent_uid)
           end)
         end)
       )
@@ -1503,7 +1507,6 @@ defmodule Ankole.Sessions.DriverTest do
           Repo.transact(fn repo ->
             assert {:ok, %{reconciled: 1}} =
                      Ankole.Workflow.Recovery.reconcile_stale_tasks_in_tx(
-                       repo,
                        call.run_id,
                        DateTime.add(now, -3600),
                        now
@@ -1511,7 +1514,6 @@ defmodule Ankole.Sessions.DriverTest do
 
             assert {:ok, %{call: %{attempts: 2} = current}} =
                      Ankole.Workflow.TaskLifecycle.claim_task_in_tx(
-                       repo,
                        call.id,
                        key.agent_uid,
                        8
@@ -1980,10 +1982,9 @@ defmodule Ankole.Sessions.DriverTest do
       )
 
     {:ok, source} =
-      Repo.transact(fn repo ->
-        with {:ok, source} <- Ankole.Signals.accept_in_tx(repo, attrs(owner)) do
+      Repo.transact(fn ->
+        with {:ok, source} <- Ankole.Signals.accept_in_tx(attrs(owner)) do
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
-            repo,
             source,
             DateTime.utc_now(:microsecond)
           )
@@ -2003,7 +2004,7 @@ defmodule Ankole.Sessions.DriverTest do
         "args" => %{}
       })
 
-    result = Ankole.Workflow.commit_replay_pending(workflow.id, arguments, 0)
+    result = Ankole.Workflow.Replay.commit_replay_pending(workflow.id, arguments, 0)
 
     {:ok, %{new_calls: [call | _]}} = result
 
@@ -2684,13 +2685,13 @@ defmodule Ankole.Sessions.DriverTest do
       stop =
         if boundary == :pending_stop do
           {:ok, stop} =
-            Repo.transact(
-              &Ankole.Signals.accept_in_tx(&1, %{
+            Repo.transact(fn ->
+              Ankole.Signals.accept_in_tx(%{
                 attrs(key)
                 | type: "command.stop",
                   data: %{"command" => %{"name" => "stop", "argsText" => ""}}
               })
-            )
+            end)
 
           stop
         end
@@ -2827,9 +2828,8 @@ defmodule Ankole.Sessions.DriverTest do
     channel_id = "mock:b01:" <> Ecto.UUID.generate()
 
     {:ok, conversation} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         Ankole.Conversations.External.observe_conversation_in_tx(
-          repo,
           %{agent_uid: key.agent_uid},
           %{
             provider_conversation_id: channel_id,
@@ -3851,7 +3851,7 @@ defmodule Ankole.Sessions.DriverTest do
     key: key
   }) do
     now = DateTime.utc_now(:microsecond)
-    {:ok, event} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    {:ok, event} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(key)) end)
     {:ok, run} = Ankole.Sessions.Admission.admit(key, event, now: DateTime.add(now, -10))
 
     Repo.update!(
@@ -3869,7 +3869,7 @@ defmodule Ankole.Sessions.DriverTest do
           session_id: "site-recovery-#{Ecto.UUID.generate()}"
         }
 
-        assert {:ok, _} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(other_key)))
+        assert {:ok, _} = Repo.transact(fn -> Ankole.Signals.accept_in_tx(attrs(other_key)) end)
         other_key
       end)
 
@@ -4166,9 +4166,8 @@ defmodule Ankole.Sessions.DriverTest do
 
   defp job_reply_route(key, suffix) do
     {:ok, conversation} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         Ankole.Conversations.External.observe_conversation_in_tx(
-          repo,
           %{agent_uid: key.agent_uid},
           %{
             provider_conversation_id: "mock:driver-job:" <> suffix,

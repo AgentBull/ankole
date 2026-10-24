@@ -208,7 +208,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     deleting =
       start_unboxed(fn ->
         assert {:ok, :ok} =
-                 Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+                 Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
         :ok
       end)
@@ -236,7 +236,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     deleting =
       start_unboxed(fn ->
         assert {:ok, :ok} =
-                 Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+                 Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
         :ok
       end)
@@ -269,7 +269,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
 
     assert {:ok, :ok} =
              Sandbox.unboxed_run(Repo, fn ->
-               Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+               Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
              end)
 
     assert Repo.get!(AgentWorker, uid).generation == generation

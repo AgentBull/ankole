@@ -9,10 +9,10 @@ defmodule Ankole.OIDC.Logout do
   alias Ankole.OIDC.Session
   alias Ankole.Repo
 
-  def enqueue_in_tx(_repo, _session, %Client{backchannel_logout_uri: uri}) when uri in [nil, ""],
+  def enqueue_in_tx(_session, %Client{backchannel_logout_uri: uri}) when uri in [nil, ""],
     do: :ok
 
-  def enqueue_in_tx(_repo, session, client) do
+  def enqueue_in_tx(session, client) do
     case LogoutDelivery
          |> Ash.Query.filter(session_id == ^session.id)
          |> Ankole.Ash.read_one!() do
@@ -43,8 +43,7 @@ defmodule Ankole.OIDC.Logout do
       %LogoutDelivery{} ->
         case retry_in_tx(id) do
           {:ok, delivery} ->
-            {:ok,
-             Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
+            {:ok, Ankole.Ash.load!(delivery, [:principal_uid])}
 
           error ->
             Ankole.Errors.not_found(error, [:not_found], LogoutDelivery)
@@ -55,7 +54,7 @@ defmodule Ankole.OIDC.Logout do
     end
   end
 
-  def retry(id), do: Ankole.Ash.run_action(LogoutDelivery, :retry, %{id: id})
+  def retry(id), do: Repo.transact_top_level(fn -> retry_in_tx(id) end)
 
   @doc false
   def retry_in_tx(id) do
@@ -86,15 +85,15 @@ defmodule Ankole.OIDC.Logout do
       Repo.across_tenants(fn ->
         session_ids =
           Session
-          |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+          |> Ash.Query.for_read(:lookup_across_tenants)
           |> Ash.Query.filter(browser_id == ^browser_id)
-          |> Ash.read!(authorize?: false)
+          |> Ankole.Ash.read!()
           |> Enum.map(& &1.id)
 
         LogoutDelivery
-        |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+        |> Ash.Query.for_read(:lookup_across_tenants)
         |> Ash.Query.filter(session_id in ^session_ids and status in [:pending, :delivering])
-        |> Ash.read!(authorize?: false)
+        |> Ankole.Ash.read!()
       end)
 
     Enum.each(deliveries, fn delivery ->
@@ -105,7 +104,7 @@ defmodule Ankole.OIDC.Logout do
   end
 
   def deliver(id) do
-    case Ankole.Ash.run_action(LogoutDelivery, :claim, %{id: id}) do
+    case Repo.transact_top_level(fn -> claim_in_tx(id) end) do
       {:ok, :complete} ->
         :ok
 

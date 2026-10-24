@@ -244,6 +244,11 @@ jobs:
           MIX_ENV: prod
       - run: mix ankole.openapi.check
         working-directory: app/control_plane
+      - name: Verify generated browser SDKs
+        run: |
+          bun run --filter @ankole/webapps openapi:generate
+          git diff --exit-code -- app/webapps/openapi app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated
+          test -z "$(git ls-files --others --exclude-standard -- app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated)"
       - run: mix test
         working-directory: app/control_plane
       - run: mix test integration/subtraction_upgrade_test.exs integration/fake_feishu_standalone_e2e_test.exs

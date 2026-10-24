@@ -22,7 +22,7 @@ async function publication(page: Page, mode: 'current' | 'changed' | 'denied') {
   )
   let manifests = 0
   let changed = false
-  await page.route('**/.internal-apis/pod/pages/publication-fixture/files**', async route => {
+  await page.route('**/api/v2/pod/pages/publication-fixture/files**', async route => {
     const url = new URL(route.request().url())
     if (!url.pathname.endsWith('/content')) {
       manifests++

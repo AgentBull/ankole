@@ -213,8 +213,8 @@ defmodule Ankole.Brain.Config do
   The site row and the row of each tenant are read in the caller's
   transaction.
   """
-  @spec model_provider_references(module(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
-  def model_provider_references(_repo, provider_id) do
+  @spec model_provider_references(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def model_provider_references(provider_id) do
     query = [query: [filter: [key: [in: [@embedding_model_key, @rerank_model_key]]]]]
 
     reads =

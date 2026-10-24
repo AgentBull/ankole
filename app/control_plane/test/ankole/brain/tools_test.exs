@@ -923,9 +923,8 @@ defmodule Ankole.Brain.ToolsTest do
     now = DateTime.utc_now(:microsecond)
 
     {:ok, %{message: message}} =
-      Repo.transact(
-        &Ankole.Conversations.External.observe_in_tx(
-          &1,
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_in_tx(
           conversation_id,
           %{
             provider_message_id: "entry-#{System.unique_integer([:positive])}",
@@ -935,7 +934,7 @@ defmodule Ankole.Brain.ToolsTest do
           },
           now
         )
-      )
+      end)
 
     message
   end
@@ -964,7 +963,7 @@ defmodule Ankole.Brain.ToolsTest do
     attrs =
       Ankole.Principals.WorkAccess.merge(
         attrs,
-        Ankole.Principals.WorkAccess.from_sender(Repo, sender_uid)
+        Ankole.Principals.WorkAccess.from_sender(sender_uid)
       )
 
     {:ok, signal} =

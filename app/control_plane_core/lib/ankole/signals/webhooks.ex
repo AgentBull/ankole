@@ -41,15 +41,25 @@ defmodule Ankole.Signals.Webhooks do
 
   def create_endpoint(attrs, opts) when is_map(attrs) do
     with {:ok, attrs, token} <- prepare_endpoint(attrs, opts) do
-      attrs |> Ankole.Signals.create_webhook_endpoint(token) |> Ankole.Errors.reason()
+      Repo.transact_top_level(fn -> create_endpoint_in_tx(attrs, token) end)
     end
   end
 
   def create_endpoint(_attrs, _opts), do: {:error, :invalid_webhook_endpoint}
 
+  @doc "Returns one WebhookEndpoint by ID, or nil."
+  def get_endpoint(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> WebhookEndpoint |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
+      :error -> nil
+    end
+  end
+
+  def get_endpoint(_id), do: nil
+
   @doc false
   # The Console creates a standing CloudEvents endpoint for an operator.
-  def create_operator_endpoint_in_tx(repo, %{label: label, expires_at: expires_at}) do
+  def create_operator_endpoint_in_tx(%{label: label, expires_at: expires_at}) do
     with {:ok, attrs, token} <-
            prepare_endpoint(
              %{
@@ -61,7 +71,7 @@ defmodule Ankole.Signals.Webhooks do
              },
              []
            ) do
-      create_endpoint_in_tx(repo, attrs, token)
+      create_endpoint_in_tx(attrs, token)
     end
   end
 
@@ -77,10 +87,9 @@ defmodule Ankole.Signals.Webhooks do
   end
 
   @doc false
-  def create_endpoint_in_tx(repo, attrs, token) do
+  def create_endpoint_in_tx(attrs, token) do
     with :ok <-
            AutomationJobs.validate_bindable_in_tx(
-             repo,
              Map.get(attrs, "automation_job_id"),
              Map.fetch!(attrs, "agent_uid")
            ),
@@ -133,9 +142,9 @@ defmodule Ankole.Signals.Webhooks do
              is_binary(endpoint_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    agent_uid
-    |> Ankole.Signals.cancel_webhook_endpoint(session_id, endpoint_id, now)
-    |> Ankole.Errors.reason()
+    Repo.transact_top_level(fn ->
+      cancel_endpoint_in_tx(agent_uid, session_id, endpoint_id, now)
+    end)
   end
 
   def cancel_endpoint(_agent_uid, _session_id, _endpoint_id, _opts),
@@ -143,15 +152,15 @@ defmodule Ankole.Signals.Webhooks do
 
   @doc false
   # The Console cancels an endpoint of any Agent and gives the endpoint.
-  def cancel_operator_endpoint_in_tx(repo, endpoint_id) do
-    case cancel_endpoint_in_tx(repo, nil, nil, endpoint_id, DateTime.utc_now(:microsecond)) do
+  def cancel_operator_endpoint_in_tx(endpoint_id) do
+    case cancel_endpoint_in_tx(nil, nil, endpoint_id, DateTime.utc_now(:microsecond)) do
       {:ok, %{webhook_endpoint: endpoint}} -> {:ok, endpoint}
       error -> Ankole.Errors.not_found(error, [:webhook_endpoint_not_found], WebhookEndpoint)
     end
   end
 
   @doc false
-  def cancel_endpoint_in_tx(_repo, agent_uid, session_id, endpoint_id, now) do
+  def cancel_endpoint_in_tx(agent_uid, session_id, endpoint_id, now) do
     case lock_endpoint(endpoint_id, agent_uid && String.downcase(agent_uid), session_id) do
       %WebhookEndpoint{} = endpoint -> cancel_locked_endpoint(endpoint, now)
       nil -> {:error, :webhook_endpoint_not_found}
@@ -187,9 +196,9 @@ defmodule Ankole.Signals.Webhooks do
     with :ok <- validate_token(token),
          %WebhookEndpoint{tenant_id: tenant_id} <- endpoint_across_tenants(token) do
       Repo.with_tenant(tenant_id, fn ->
-        token
-        |> Ankole.Signals.receive_webhook(format, input, now)
-        |> Ankole.Errors.reason()
+        Repo.transact_top_level(fn ->
+          receive_in_tx(token, format, input, now)
+        end)
       end)
     else
       _ -> {:error, :webhook_endpoint_not_found}
@@ -202,17 +211,17 @@ defmodule Ankole.Signals.Webhooks do
 
     Repo.across_tenants(fn ->
       WebhookEndpoint
-      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.for_read(:lookup_across_tenants)
       |> Ash.Query.filter(token_digest == ^digest)
-      |> Ash.read_one!(authorize?: false)
+      |> Ankole.Ash.read_one!()
     end)
   end
 
   @doc false
-  def receive_in_tx(repo, token, format, input, now) do
+  def receive_in_tx(token, format, input, now) do
     case lock_endpoint_by_token(token) do
       %WebhookEndpoint{event_format: ^format} = endpoint ->
-        receive_locked(repo, endpoint, input, now)
+        receive_locked(endpoint, input, now)
 
       %WebhookEndpoint{} ->
         {:error, :webhook_endpoint_not_found}
@@ -335,7 +344,7 @@ defmodule Ankole.Signals.Webhooks do
     end
   end
 
-  defp receive_locked(repo, endpoint, input, now) do
+  defp receive_locked(endpoint, input, now) do
     cond do
       not Ankole.Tenants.accepting_work?(endpoint.tenant_id) ->
         {:ok, %{status: :ignored, webhook_endpoint: endpoint}}
@@ -350,19 +359,19 @@ defmodule Ankole.Signals.Webhooks do
 
       true ->
         case input do
-          {:raw, headers, body} -> append_receipt(repo, endpoint, headers, body, now)
-          {:cloudevents, event} -> append_cloudevent(repo, endpoint, event, now)
+          {:raw, headers, body} -> append_receipt(endpoint, headers, body, now)
+          {:cloudevents, event} -> append_cloudevent(endpoint, event, now)
         end
     end
   end
 
-  defp append_cloudevent(repo, endpoint, event, now) do
-    case Ankole.Signals.CloudEvents.accept_in_tx(repo, endpoint, event, now) do
+  defp append_cloudevent(endpoint, event, now) do
+    case Ankole.Signals.CloudEvents.accept_in_tx(endpoint, event, now) do
       {:ok, []} ->
         {:ok, %{status: :ignored, webhook_endpoint: endpoint, signals: []}}
 
       {:ok, signals} ->
-        with {:ok, endpoint} <- maybe_mark_fired(repo, endpoint, now) do
+        with {:ok, endpoint} <- maybe_mark_fired(endpoint, now) do
           {:ok, %{status: :accepted, webhook_endpoint: endpoint, signals: signals}}
         end
 
@@ -371,18 +380,18 @@ defmodule Ankole.Signals.Webhooks do
     end
   end
 
-  defp append_receipt(repo, endpoint, headers, body, now) do
+  defp append_receipt(endpoint, headers, body, now) do
     source_event_id = "webhook:#{endpoint.id}:#{UUIDv7.autogenerate()}"
     payload = receipt_payload(endpoint, source_event_id, headers, body, now)
 
-    with {:ok, delivery} <- deliver_receipt(repo, endpoint, source_event_id, payload, now),
-         {:ok, endpoint} <- maybe_mark_fired(repo, endpoint, now) do
+    with {:ok, delivery} <- deliver_receipt(endpoint, source_event_id, payload, now),
+         {:ok, endpoint} <- maybe_mark_fired(endpoint, now) do
       {:ok, receipt_result(endpoint, delivery)}
     end
   end
 
-  defp deliver_receipt(repo, endpoint, source_event_id, payload, now) do
-    Ankole.Signals.Trigger.deliver_in_tx(repo, endpoint, payload, now, fn ->
+  defp deliver_receipt(endpoint, source_event_id, payload, now) do
+    Ankole.Signals.Trigger.deliver_in_tx(endpoint, payload, now, fn ->
       with {:ok, owner} <- Route.long_lived_owner(endpoint.agent_uid, endpoint.session_id),
            attrs <- receipt_signal_attrs(endpoint, source_event_id, payload, now),
            attrs <-
@@ -390,7 +399,7 @@ defmodule Ankole.Signals.Webhooks do
                target: %{agent_uid: endpoint.agent_uid, session_id: owner.session_id},
                reply_route: owner.reply_route || attrs.reply_route
              }) do
-        Ankole.Signals.accept_in_tx(repo, attrs)
+        Ankole.Signals.accept_in_tx(attrs)
       end
     end)
   end
@@ -463,10 +472,10 @@ defmodule Ankole.Signals.Webhooks do
     }
   end
 
-  defp maybe_mark_fired(_repo, %WebhookEndpoint{mode: "one_shot"} = endpoint, now),
+  defp maybe_mark_fired(%WebhookEndpoint{mode: "one_shot"} = endpoint, now),
     do: Ankole.Ash.update(endpoint, :fire, %{fired_at: now})
 
-  defp maybe_mark_fired(_repo, %WebhookEndpoint{mode: "standing"} = endpoint, _now),
+  defp maybe_mark_fired(%WebhookEndpoint{mode: "standing"} = endpoint, _now),
     do: {:ok, endpoint}
 
   defp lock_endpoint(endpoint_id, agent_uid, session_id) do

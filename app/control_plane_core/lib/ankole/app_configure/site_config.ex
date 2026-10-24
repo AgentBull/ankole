@@ -71,21 +71,6 @@ defmodule Ankole.AppConfigure.SiteConfig do
     destroy :remove do
       require_atomic?(true)
     end
-
-    action :ensure_generated_global, :term do
-      argument(:definition, :term, allow_nil?: false)
-      after_commit({Ankole.AppConfigure, :refresh_committed})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_global, :term do
-      argument(:definition, :term, allow_nil?: false)
-      argument(:updater, :function, allow_nil?: false, constraints: [arity: 1])
-      after_commit({Ankole.AppConfigure, :refresh_committed})
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

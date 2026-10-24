@@ -89,34 +89,25 @@ are repaired by EnsureDriver and the Reconciler.
 `Ankole.Sessions` is the Sessions Ash domain. Its resources are
 `SessionWorkspace`, `RoundState`, `Receipt`, and `AmbientJudgment`.
 
-A Session operation is a generic action of `SessionWorkspace` (the Session).
-`Ankole.Sessions.Operations` declares these actions, and `Ankole.Sessions`
-defines one function for each of them: for example `admit_input`,
-`finalize_run`, `record_run_round`, `defer_run_retry`, `apply_command`,
-`execute_receipt`, and `reset_session`. Each operation owns its transaction.
-`Ankole.Sessions.Operations.Actions` runs the operations. Each one calls the
-`*_in_tx` function of the owning module (`Admission`,
-`Run`, `Commands`, `Notices`, `CodexJob`, `Receipts`, and others), so the lock
-order and the compensation writes stay in one readable function. A domain
-reason (an atom or a tuple) leaves the action as
-`Ankole.Errors.Invalid.Rejected`; the module function (for example
-`Run.finalize/3`) gives it back with `Ankole.Errors.reason/1`.
+Each multi-step Session operation (`admit_input`, `finalize_run`,
+`record_run_round`, `defer_run_retry`, `apply_command`, `execute_receipt`,
+`reset_session`, and others) runs in `Repo.transact_top_level/2` in its owning
+module (`Admission`, `Run`, `Commands`, `Notices`, `CodexJob`, `Receipts`), so
+the lock order and compensation writes stay in one readable function.
 
-An operation is a top-level call. Inside `Repo.transact` or another generic
-action it raises `Ankole.Errors.Framework.NestedOperation`. Work that already
-runs in a transaction, such as a tool commit in a receipt or another domain's
-operation, calls the `*_in_tx` function. Post-commit publication that needs
-only the result is declared with `after_commit`: `defer_run_retry` publishes
-the Session status, `record_run_round` publishes tool result events,
-`reclaim_run` publishes failed responses, and `execute_receipt` runs the
-receipt notifications. Work that needs more than the result, such as
-`Run.after_finalization/1`, runs in the module function after the define
-returns.
+Each operation is a top-level call. Inside `Repo.transact` or a generic action
+it raises `Ankole.Errors.Framework.NestedOperation`. Work that already runs in a
+transaction, such as a tool commit in a receipt or another domain's operation,
+calls the `*_in_tx` function. Post-commit publication runs through the
+`after_commit` option of `Repo.transact_top_level/2` or after the transaction
+returns: `defer_retry` publishes the Session status, `record_round` publishes
+tool result events, `reclaim_stale` publishes failed responses, `execute_receipt`
+runs receipt notifications, and `Run.finalize/3` runs `Run.after_finalization/1`.
 
 Sessions reads and changes Signals only through `Ankole.Signals`: queue reads
 (`session_queue/3`, `session_status_signal/3`), row locks
-(`lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`, `lock_signals_in_tx/3`),
-state changes (`transition_in_tx/4`, `reset_attempts_in_tx/3`), and the Signal
+(`lock_signal_in_tx/1`, `lock_session_signal_in_tx/2`, `lock_signals_in_tx/2`),
+state changes (`transition_in_tx/3`, `reset_attempts_in_tx/2`), and the Signal
 defines. Rows of other domains are read through their domain defines; a locked
 read gives its lock identity to `Ankole.LockOrder`. Allocation locks the
 workspace owner with `FOR KEY SHARE` through the owner domain.
@@ -419,9 +410,9 @@ contracts; the native display projection does not filter its payloads.
 
 Retryable execution failure backs off through a committed Signal deadline and
 EnsureDriver job. EnsureDriver moves its pending wakeup only to an earlier time
-(`Ankole.Job.schedule_in_tx/5` with `only_earlier: true`). Admission uses
-`Run.defer_retry_in_tx/4` inside its transaction; the `defer_run_retry`
-operation publishes the resulting status after commit. A rollback
+(`Ankole.Job.schedule_in_tx/4` with `only_earlier: true`). Admission uses
+`Run.defer_retry_in_tx/3` inside its transaction; `Run.defer_retry/3`
+publishes the resulting status after commit. A rollback
 publishes nothing. Provider-capacity waits keep their own accounting. Startup
 reconciliation resumes due Sessions and pending deliveries. A stale epoch, a
 closed run, or withdrawn authorization rejects late writes.

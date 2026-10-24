@@ -25,7 +25,7 @@ defmodule Ankole.Brain.Chunks do
   def reconcile_in_tx(%Object{} = object, opts \\ []) do
     chunking = Keyword.get(opts, :chunking) || Config.chunking()
 
-    with :ok <- Repo.require_transaction(Repo) do
+    with :ok <- Repo.require_transaction() do
       Object
       |> Ash.Query.filter(id == ^object.id)
       |> Ash.Query.lock(:for_update)
@@ -40,7 +40,7 @@ defmodule Ankole.Brain.Chunks do
   @doc "Records a vector result only while the text and prior embedding state still match."
   @spec record_embedding(
           Chunk.t(),
-          {:ok, Pgvector.t(), String.t()} | {:error, String.t(), String.t()},
+          {:ok, Ash.Vector.t(), String.t()} | {:error, String.t(), String.t()},
           keyword()
         ) :: {:ok, :updated | :stale} | {:error, term()}
   def record_embedding(%Chunk{} = chunk, result, opts \\ []) do

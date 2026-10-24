@@ -120,8 +120,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     writer =
       hold_transaction(fn ->
-        Files.commit(
-          Repo,
+        Files.commit_in_tx(
           ctx.agent_uid,
           [
             %{path: "script/main.ts", sha256: ctx.updated_sha256, source: "agent"},
@@ -190,7 +189,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
   # A held transaction runs the commit body, because a commit action owns its
   # own transaction.
   defp commit_in_tx(ctx, path) do
-    Files.commit(Repo, ctx.agent_uid, [%{path: path, sha256: ctx.sha256, source: "agent"}], [])
+    Files.commit_in_tx(ctx.agent_uid, [%{path: path, sha256: ctx.sha256, source: "agent"}], [])
   end
 
   defp start_unboxed(fun) do

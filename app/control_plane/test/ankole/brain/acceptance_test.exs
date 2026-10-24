@@ -147,10 +147,13 @@ defmodule Ankole.Brain.AcceptanceTest do
     } do
       base_vector = fn seed ->
         # Nearly identical vectors cluster; the orthogonal one stays out.
-        List.duplicate(0.0, 4096)
-        |> List.replace_at(0, 1.0)
-        |> List.replace_at(1, seed)
-        |> Pgvector.new()
+        {:ok, vector} =
+          List.duplicate(0.0, 4096)
+          |> List.replace_at(0, 1.0)
+          |> List.replace_at(1, seed)
+          |> Ash.Vector.new()
+
+        vector
       end
 
       old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
@@ -223,7 +226,7 @@ defmodule Ankole.Brain.AcceptanceTest do
       human: human,
       object: object
     } do
-      vector = Pgvector.new([1.0 | List.duplicate(0.0, 4095)])
+      {:ok, vector} = Ash.Vector.new([1.0 | List.duplicate(0.0, 4095)])
       old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
 
       for {text, signature} <- [
@@ -256,7 +259,7 @@ defmodule Ankole.Brain.AcceptanceTest do
       human: human,
       object: object
     } do
-      vector = Pgvector.new([1.0 | List.duplicate(0.0, 4095)])
+      {:ok, vector} = Ash.Vector.new([1.0 | List.duplicate(0.0, 4095)])
       old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
 
       for index <- 1..3 do
@@ -307,7 +310,6 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       :ok =
         Sources.record_extraction_watermark(
-          Repo,
           source,
           {last.message.created_at, last.message.seq}
         )
@@ -342,7 +344,7 @@ defmodule Ankole.Brain.AcceptanceTest do
           name: channel.id
         })
 
-      :ok = Sources.record_extraction_watermark(Repo, source, {shared_at, 2})
+      :ok = Sources.record_extraction_watermark(source, {shared_at, 2})
 
       assert Enum.map(
                ConversationsLearning.pending_slice(channel.id),
@@ -363,7 +365,7 @@ defmodule Ankole.Brain.AcceptanceTest do
         })
 
       :ok =
-        Sources.record_extraction_watermark(Repo, source, {~U[2026-08-20 10:00:00.000000Z], 1})
+        Sources.record_extraction_watermark(source, {~U[2026-08-20 10:00:00.000000Z], 1})
 
       # The provider sent this message before the watermark instant, but it
       # arrived after: the watermark compares arrival order only, so the
@@ -529,9 +531,8 @@ defmodule Ankole.Brain.AcceptanceTest do
 
   defp insert_entry!(conversation_id, provider_message_id, text, seen_at, opts \\ []) do
     {:ok, result} =
-      Repo.transact(
-        &Ankole.Conversations.External.observe_in_tx(
-          &1,
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_in_tx(
           conversation_id,
           %{
             provider_message_id: provider_message_id,
@@ -541,7 +542,7 @@ defmodule Ankole.Brain.AcceptanceTest do
           },
           seen_at
         )
-      )
+      end)
 
     result
   end

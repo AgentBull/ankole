@@ -29,20 +29,19 @@ test('a model choice reaches the first real input, survives reload and a failed 
     await input.fill('Model preference browser story')
     const accepted = page.waitForResponse(
       response =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/.internal-apis/pod/conversations'
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
     )
     await page.getByRole('button', { name: '发送消息', exact: true }).click()
     const response = await accepted
-    expect(response.status()).toBe(200)
-    expect(response.request().postDataJSON().modelProfile).toBe('careful')
+    expect(response.status()).toBe(201)
+    expect(response.request().postDataJSON().data.modelProfile).toBe('careful')
     conversationID = (await response.json()).conversation.id
     await expect(page).toHaveURL(state.base_url + conversationRoute(conversationID!))
     await page.reload()
     const picker = page.getByRole('combobox', { name: '模型', exact: true })
     await expect(picker).toHaveText('careful')
     await input.fill('Keep this unsent draft after a failed model change')
-    const endpoint = `**/.internal-apis/pod/conversations/${conversationID}/model-profile`
+    const endpoint = `**/api/v2/pod/conversations/${conversationID}/model-profile`
     await page.route(endpoint, route =>
       route.request().method() === 'PUT'
         ? route.fulfill({ status: 503, json: { error: 'temporary failure' } })
@@ -72,7 +71,7 @@ test('a model choice reaches the first real input, survives reload and a failed 
     page.on('request', request => {
       if (
         request.method() === 'POST' &&
-        new URL(request.url()).pathname === `/.internal-apis/pod/conversations/${conversationID}/messages`
+        new URL(request.url()).pathname === `/api/v2/pod/conversations/${conversationID}/messages`
       ) {
         followups++
       }
@@ -92,11 +91,11 @@ test('a model choice reaches the first real input, survives reload and a failed 
       const stopped = page.waitForResponse(
         response =>
           response.request().method() === 'POST' &&
-          new URL(response.url()).pathname === `/.internal-apis/pod/conversations/${conversationID}/queue` &&
-          response.request().postDataJSON().action === 'stop'
+          new URL(response.url()).pathname === `/api/v2/pod/conversations/${conversationID}/queue` &&
+          response.request().postDataJSON().data.action === 'stop'
       )
       await stop.click()
-      expect((await stopped).status()).toBe(200)
+      expect((await stopped).status()).toBe(201)
       await expect(input).toBeEnabled()
       await expect(send).toBeDisabled()
       expect(followups).toBe(0)

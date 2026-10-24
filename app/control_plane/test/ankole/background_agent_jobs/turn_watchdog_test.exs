@@ -37,8 +37,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     assert %DateTime{} = turn.completed_at
 
     assert {:error, :background_agent_job_attempt_changed} =
-             Repo.transact(fn repo ->
-               WorkerRouteAuth.authorize_turn_in_tx(repo, ref, agent.uid, :write)
+             Repo.transact(fn ->
+               WorkerRouteAuth.authorize_turn_in_tx(ref, agent.uid, :write)
              end)
 
     # The Job keeps its retry budget: the event is still open and rescheduled.
@@ -123,8 +123,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     assert {:ok, _worker} = admit_worker(route, %{worker_id: agent.uid})
 
     assert {:ok, %{job: job, dispatch_event: event}} =
-             Repo.transact(fn repo ->
-               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
+             Repo.transact(fn ->
+               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
                  "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "owner-session-stall-#{suffix}",

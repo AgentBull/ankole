@@ -75,11 +75,12 @@ actions own field validation, native constraint errors, and persistence.
 Group conditions and grant rules use the Kernel syntax validators.
 Metadata uses the durable JSON object type.
 
-Each aggregate write that locks a group, a Principal, or the Pod tree is a
-generic action of `Group`, `Membership`, `Grant`, or `ExternalBinding` that owns
-its transaction. `Store` and `Grants` keep the steps and the lock contracts for
-the caller's transaction: another domain's action calls them, for example
-`Store.replace_static_group_members/4` or `Grants.upsert_permission_grant/2`.
+Each aggregate write that locks a group, a Principal, or the Pod tree runs in
+`Repo.transact_top_level/2`, and the `/api/v2` Console routes use generic
+actions on `Group`, `Membership`, and `Grant`. `Store` and `Grants` run the
+steps and lock contracts inside the caller's transaction: another domain calls
+them, for example `Store.replace_static_group_members/3` or
+`Grants.upsert_permission_grant/1`.
 They protect the last administrator and distinguish operator groups from
 groups owned by directory and conversation synchronization. Grant writes
 hold the Pod tree lock. `AuthZ.add_synced_group_member/3` and
@@ -328,7 +329,7 @@ The setup bootstrap can repair these grants after root setup completes.
 
 AuthZ prevents manual removal or disabling of the last active Human
 administrator. Confirmed provider departure can disable that Human. The public
-setup remains closed. `recover_admin_in_tx/2` permits the audited operator
+setup remains closed. `recover_admin_in_tx/1` permits the audited operator
 recovery described in [Human Offboarding](HumanOffboarding.md) only when no
 active administrator remains.
 

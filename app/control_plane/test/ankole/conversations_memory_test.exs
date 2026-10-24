@@ -120,7 +120,6 @@ defmodule Ankole.ConversationsMemoryTest do
 
     assert :ok =
              Sources.record_extraction_watermark(
-               Repo,
                learned.source,
                {original.created_at, original.seq}
              )
@@ -173,7 +172,7 @@ defmodule Ankole.ConversationsMemoryTest do
              )
 
     assert :ok =
-             Sources.record_extraction_watermark(Repo, source, {message.created_at, message.seq})
+             Sources.record_extraction_watermark(source, {message.created_at, message.seq})
 
     %{source: source, fact: fact, take: take}
   end

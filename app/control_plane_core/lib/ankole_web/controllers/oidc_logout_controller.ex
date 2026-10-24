@@ -1,11 +1,7 @@
 defmodule AnkoleWeb.OIDCLogoutController do
   @moduledoc false
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
-  alias AnkoleWeb.Schemas.InternalAPI
 
-  operation(:request, false)
-  operation(:confirm, false)
   alias Ankole.OIDC.Logout
   alias Ankole.OIDC.RPLogout
   alias AnkoleWeb.Session, as: WebSession
@@ -31,64 +27,6 @@ defmodule AnkoleWeb.OIDCLogoutController do
     case RPLogout.prepare(WebSession.browser_reference(conn), params) do
       {:ok, request} -> redirect(conn, to: "/oauth/logout/confirm?request=" <> request.id)
       {:error, _} -> conn |> put_status(400) |> AnkoleWeb.SpaController.logout_error(%{})
-    end
-  end
-
-  operation(:confirmation,
-    operation_id: "logoutConfirmation",
-    summary: "logoutConfirmation",
-    parameters: [id: [in: :path, type: :string, required: true]],
-    responses: %{
-      200 => {"Success", "application/json", InternalAPI.LogoutConfirmation},
-      401 => {"Error", "application/json", InternalAPI.InternalError}
-    }
-  )
-
-  def confirmation(conn, %{"id" => id}) do
-    with {:ok, request} <-
-           Ankole.Repo.across_tenants(fn ->
-             RPLogout.confirmation(WebSession.browser_reference(conn), id)
-           end),
-         :ok <- Ankole.Repo.put_tenant_id(request.tenant_id) do
-      auth = WebSession.oauth_session(conn) || WebSession.admin_session(conn)
-
-      identity =
-        case auth do
-          %{"principal_uid" => uid} ->
-            identity =
-              with {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(uid),
-                   do:
-                     Ankole.Repo.with_tenant(tenant_id, fn ->
-                       Ankole.Principals.get_principal(uid)
-                     end)
-
-            case identity do
-              {:ok, principal} ->
-                %{
-                  principalUID: uid,
-                  displayName: principal.display_name || uid,
-                  providerID: auth["provider_id"]
-                }
-
-              {:error, :not_found} ->
-                nil
-            end
-
-          nil ->
-            nil
-        end
-
-      client_name =
-        if request.client_id do
-          case Ankole.OIDC.get_active_client(request.client_id) do
-            {:ok, client} -> client.name
-            _ -> nil
-          end
-        end
-
-      json(conn, %{identity: identity, clientName: client_name})
-    else
-      {:error, _} -> conn |> put_status(401) |> json(%{error: "logout_request_expired"})
     end
   end
 

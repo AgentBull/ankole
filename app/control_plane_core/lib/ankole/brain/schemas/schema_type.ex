@@ -61,7 +61,11 @@ defmodule Ankole.Brain.Schemas.SchemaType do
     update :add_subtypes do
       require_atomic?(true)
       accept([])
-      argument(:subtypes, Ankole.Ash.Types.StringList, allow_nil?: false)
+
+      argument(:subtypes, {:array, :string},
+        allow_nil?: false,
+        constraints: [items: [trim?: false, allow_empty?: true]]
+      )
 
       change(
         atomic_update(

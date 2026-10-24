@@ -37,22 +37,4 @@ defmodule Ankole.Brain.Schemas.Source.Actions do
     |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:scope])
     |> Ankole.Brain.Console.result(Source)
   end
-
-  defp action(:commit_learning_run, %{arguments: args}, _context),
-    do: Ankole.Errors.wrap(Ankole.Brain.SourceLearning.commit_run_in_tx(args.run))
-
-  defp action(:learn_oidc_conversation, %{arguments: args}, _context),
-    do: Ankole.Errors.wrap(Ankole.Brain.OIDCClientLearning.learn_conversation_in_tx(args.run))
-
-  defp action(:finalize_conversation_slice, %{arguments: args}, _context),
-    do: Ankole.Errors.wrap(Ankole.Brain.ConversationsLearning.finalize_in_tx(args.slice))
-
-  defp action(:finish_library_projection, %{arguments: args}, _context) do
-    args.source
-    |> Ankole.Brain.LibraryKnowledge.finish_projection_in_tx(
-      args.live_slugs,
-      args.fingerprint
-    )
-    |> Ankole.Errors.wrap()
-  end
 end

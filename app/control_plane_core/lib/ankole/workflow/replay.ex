@@ -2,8 +2,8 @@ defmodule Ankole.Workflow.Replay do
   @moduledoc """
   Commits deterministic program replay under its memo fence.
 
-  The `Ankole.Workflow` replay actions run these functions in their own
-  transaction.
+  Each replay commit owns a top-level transaction and the terminal cleanup
+  that follows its commit.
   """
   require Ash.Query
   alias Ankole.Repo
@@ -20,10 +20,10 @@ defmodule Ankole.Workflow.Replay do
   A run whose Human access was revoked stops here. The result tells the owner
   process to replay, to clean up a terminal run, or to stop.
   """
-  def replay_input_in_tx(repo, run_id) do
+  def replay_input_in_tx(run_id) do
     case Run |> Ash.Query.filter(id == ^run_id) |> Ankole.Ash.read_one() do
       {:ok, %Run{status: :running} = run} ->
-        with :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, run),
+        with :ok <- Ankole.Principals.WorkAccess.check_in_tx(run),
              {:ok, program} <- Program.source(run) do
           {:ok, calls} =
             AgentCall
@@ -35,7 +35,7 @@ defmodule Ankole.Workflow.Replay do
           {:ok, %{program: program, memo: memo, memo_length: memo_length}}
         else
           {:error, :human_access_revoked} ->
-            run = Ankole.Workflow.Lifecycle.revoke_run_in_tx(repo, run)
+            run = Ankole.Workflow.Lifecycle.revoke_run_in_tx(run)
             {:ok, {:terminal, run.status}}
 
           {:error, _reason} = error ->
@@ -56,38 +56,47 @@ defmodule Ankole.Workflow.Replay do
     end
   end
 
-  @doc false
-  def commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
+  @doc "Commits new Agent calls and cleans up a terminal run after the commit."
+  def commit_replay_pending(run_id, pending_calls, expected_memo_length)
       when is_integer(run_id) and run_id > 0 and is_list(pending_calls) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
-    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id) do
-      commit_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
-    end
+    Repo.transact_top_level(fn ->
+      with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Run, run_id) do
+        commit_pending_in_tx(run_id, pending_calls, expected_memo_length)
+      end
+    end)
+    |> Ankole.Workflow.Lifecycle.cleanup_terminal_transition()
   end
 
-  @doc false
-  def complete_replay_in_tx(repo, run_id, result_text, expected_memo_length)
+  @doc "Completes a run and cleans up its tasks after the commit."
+  def complete_replay(run_id, result_text, expected_memo_length)
       when is_integer(run_id) and run_id > 0 and is_binary(result_text) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
-    conclude_replay_in_tx(repo, run_id, expected_memo_length, :completed, result_text, %{})
+    Repo.transact_top_level(fn ->
+      conclude_replay_in_tx(run_id, expected_memo_length, :completed, result_text, %{})
+    end)
+    |> Ankole.Workflow.Lifecycle.cleanup_terminal_transition()
   end
 
-  @doc false
-  def fail_replay_in_tx(repo, run_id, code, summary, expected_memo_length)
+  @doc "Fails a run and cleans up its tasks after the commit."
+  def fail_replay(run_id, code, summary, expected_memo_length)
       when is_integer(run_id) and run_id > 0 and is_binary(code) and is_binary(summary) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
     error = %{"code" => Text.utf8_prefix(code, 128), "summary" => Text.utf8_prefix(summary, 2000)}
-    conclude_replay_in_tx(repo, run_id, expected_memo_length, :failed, nil, error)
+
+    Repo.transact_top_level(fn ->
+      conclude_replay_in_tx(run_id, expected_memo_length, :failed, nil, error)
+    end)
+    |> Ankole.Workflow.Lifecycle.cleanup_terminal_transition()
   end
 
-  defp conclude_replay_in_tx(repo, run_id, expected_memo_length, status, result_text, error) do
-    case Ankole.Workflow.Slot.lock_run(repo, run_id) do
+  defp conclude_replay_in_tx(run_id, expected_memo_length, status, result_text, error) do
+    case Ankole.Workflow.Slot.lock_run(run_id) do
       %Run{status: :running} = run ->
-        calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(repo, run.id)
+        calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(run.id)
 
         with :ok <- ensure_replay_snapshot(calls, expected_memo_length) do
           Ankole.Workflow.Lifecycle.conclude_run_in_tx(
-            repo,
             run,
             status,
             result_text,
@@ -104,13 +113,13 @@ defmodule Ankole.Workflow.Replay do
     end
   end
 
-  defp commit_pending_in_tx(repo, run_id, pending_calls, expected_memo_length) do
-    case Ankole.Workflow.Slot.lock_run(repo, run_id) do
+  defp commit_pending_in_tx(run_id, pending_calls, expected_memo_length) do
+    case Ankole.Workflow.Slot.lock_run(run_id) do
       %Run{status: :running} = run ->
-        calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(repo, run.id)
+        calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(run.id)
 
         with :ok <- ensure_replay_snapshot(calls, expected_memo_length) do
-          prepare_and_commit_pending(repo, run, calls, pending_calls)
+          prepare_and_commit_pending(run, calls, pending_calls)
         end
 
       %Run{} = run ->
@@ -121,7 +130,7 @@ defmodule Ankole.Workflow.Replay do
     end
   end
 
-  defp prepare_and_commit_pending(repo, run, calls, pending_calls) do
+  defp prepare_and_commit_pending(run, calls, pending_calls) do
     prepared =
       with {:ok, %{new_calls: new_calls}} <-
              Program.stall_diff(calls, pending_calls, run.max_agent_calls) do
@@ -136,13 +145,13 @@ defmodule Ankole.Workflow.Replay do
                   [_ | _] -> Ankole.Tenants.check_work_admission(Repo.tenant_id!())
                 end),
              {:ok, calls, dispatch_events} <-
-               insert_and_dispatch_calls(repo, run, call_inputs, DateTime.utc_now()),
-             {:ok, run} <- Ankole.Workflow.Lifecycle.update_run_memo_bytes(repo, run, memo_bytes) do
+               insert_and_dispatch_calls(run, call_inputs, DateTime.utc_now()),
+             {:ok, run} <- Ankole.Workflow.Lifecycle.update_run_memo_bytes(run, memo_bytes) do
           {:ok, %{run: run, new_calls: calls, dispatch_events: dispatch_events}}
         end
 
       {:error, reason} ->
-        fail_pending_commit(repo, run, reason)
+        fail_pending_commit(run, reason)
     end
   end
 
@@ -196,10 +205,10 @@ defmodule Ankole.Workflow.Replay do
     is_binary(route["binding_name"]) or match?({:ok, _}, Ecto.UUID.cast(route["conversation_id"]))
   end
 
-  defp insert_and_dispatch_calls(repo, run, call_inputs, inserted_at) do
+  defp insert_and_dispatch_calls(run, call_inputs, inserted_at) do
     with {:ok, calls} <- create_calls(call_inputs),
          {:ok, events} <-
-           Ankole.Workflow.Mail.append_dispatch_events(repo, run, calls, inserted_at) do
+           Ankole.Workflow.Mail.append_dispatch_events(run, calls, inserted_at) do
       {:ok, calls, events}
     end
   end
@@ -223,13 +232,12 @@ defmodule Ankole.Workflow.Replay do
     end
   end
 
-  defp fail_pending_commit(repo, run, reason) do
+  defp fail_pending_commit(run, reason) do
     {code, summary} = pending_failure(reason)
     error = %{"code" => code, "summary" => summary}
 
     with {:ok, result} <-
            Ankole.Workflow.Lifecycle.conclude_run_in_tx(
-             repo,
              run,
              :failed,
              nil,

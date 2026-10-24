@@ -22,22 +22,19 @@ defmodule Ankole.Pod.Access do
   def actions(_role), do: :error
 
   @doc """
-  Runs one Pod write in the transaction of the calling generic action.
+  Runs one Pod write in a top-level transaction.
 
   An Agent write first checks and locks the Agent's current turn, so a delayed
-  write cannot commit after that turn closes. The result uses the declared
-  errors of `Ankole.Errors`.
+  write cannot commit after that turn closes.
   """
-  def write(authority, fun) when is_function(fun, 0),
-    do: Ankole.Errors.wrap(with(:ok <- writer_in_tx(authority), do: fun.()))
+  def write(authority, fun, opts \\ []) when is_function(fun, 0),
+    do: Repo.transact_top_level(fn -> with :ok <- writer_in_tx(authority), do: fun.() end, opts)
 
   defp writer_in_tx(nil), do: :ok
 
   defp writer_in_tx({ref, uid})
        when (is_struct(ref, RunRef) or is_struct(ref, JobTurnRef)) and ref.agent_uid == uid do
-    case Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(Repo, ref, uid, :write,
-           lock: true
-         ) do
+    case Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(ref, uid, :write, lock: true) do
       {:ok, :authorized} -> :ok
       error -> error
     end
@@ -55,9 +52,9 @@ defmodule Ankole.Pod.Access do
   def space_group, do: AuthZ.get_principal_group("all_humans")
 
   @doc "Sets the initial policy inside the new tenant's creation transaction."
-  def initialize_space(repo) do
-    with :ok <- Repo.require_transaction(repo),
-         {:ok, group} <- Root.ensure_all_humans_group(repo) do
+  def initialize_space do
+    with :ok <- Repo.require_transaction(),
+         {:ok, group} <- Root.ensure_all_humans_group() do
       put_role(%{group_id: group.id}, "pod:space:**", "manage")
     end
   end
@@ -532,7 +529,6 @@ defmodule Ankole.Pod.Access do
 
       Enum.reduce_while(wanted, :ok, fn action, :ok ->
         case Grants.upsert_permission_grant(
-               Repo,
                Map.merge(owner, %{resource_pattern: pattern, action: action, condition: "true"})
              ) do
           {:ok, _} -> {:cont, :ok}

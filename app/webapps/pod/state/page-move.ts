@@ -1,4 +1,4 @@
-import type { PodPageMove } from '../../common/api/generated/types.gen'
+import type { PageMove as PodPageMove } from '../content-api'
 import type { Page } from '../content-api'
 import { moveDestinations } from './page-location'
 

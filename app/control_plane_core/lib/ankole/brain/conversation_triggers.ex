@@ -12,7 +12,7 @@ defmodule Ankole.Brain.ConversationTriggers do
   alias Ankole.Conversations.Conversation
 
   @doc "Enqueues learning in the transaction that ends Session model history."
-  def conversation_ended_in_tx(_repo, key) do
+  def conversation_ended_in_tx(key) do
     with {:conversation, id} <- Ankole.Sessions.Key.parse(key),
          true <- Config.enabled?(),
          {:ok, %Conversation{} = conversation} <- Ankole.Conversations.get_conversation(id),

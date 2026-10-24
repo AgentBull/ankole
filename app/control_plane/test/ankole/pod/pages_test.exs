@@ -140,6 +140,28 @@ defmodule Ankole.Pod.PagesTest do
     assert order.() == ~w(C Other B A)
   end
 
+  test "creating and moving without an anchor appends within the destination", ctx do
+    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
+    first = create_child(ctx.owner.uid, root.id, "First")
+    second = create_child(ctx.owner.uid, root.id, "Second")
+    assert first.position < second.position
+
+    {:ok, private} =
+      Pages.create(ctx.owner.uid, %{title: "Private", private_owner_uid: ctx.owner.uid})
+
+    assert private.position == root.position
+    {:ok, other} = Pages.create(ctx.owner.uid, %{title: "Other"})
+    only_child = create_child(ctx.owner.uid, other.id, "Only child")
+    assert only_child.position == first.position
+
+    assert {:ok, moved} = Pages.move(ctx.owner.uid, only_child.id, %{parent_id: root.id})
+    assert moved.position > second.position
+
+    assert {:ok, pages} = Pages.list(ctx.owner.uid)
+    children = Enum.filter(pages, &(&1.parent_id == root.id))
+    assert Enum.map(children, & &1.title) == ["First", "Second", "Only child"]
+  end
+
   test "a move renumbers siblings whose keys cannot be ordered", ctx do
     {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
     [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)

@@ -13,7 +13,6 @@ defmodule Ankole.Brain.Forget do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -26,18 +25,13 @@ defmodule Ankole.Brain.Forget do
   @spec forget_claim(Ecto.UUID.t(), String.t(), caller()) :: {:ok, Claim.t()} | {:error, term()}
   def forget_claim(claim_id, reason, caller) when is_binary(reason) do
     with {:ok, claim_id} <- cast_claim_id(claim_id) do
-      Ankole.Ash.run_action(Claim, :forget_claim, %{
-        claim_id: claim_id,
-        reason: reason,
-        caller: caller
-      })
+      Repo.transact_top_level(fn -> forget_claim_in_tx(claim_id, reason, caller) end)
     end
   end
 
   @doc false
-  # The state change and the reason commit together in the transaction of
-  # the `:forget_claim` action: a crash between them must not leave a
-  # forgotten claim without its required reason.
+  # The state change and the reason commit together in one transaction: a crash
+  # between them must not leave a forgotten claim without its required reason.
   def forget_claim_in_tx(claim_id, reason, caller) do
     with :ok <- validate_reason(reason),
          {:ok, claim} <- fetch_claim(claim_id),
@@ -63,11 +57,12 @@ defmodule Ankole.Brain.Forget do
   @spec forget_object(String.t(), String.t(), caller()) :: {:ok, map()} | {:error, term()}
   def forget_object(slug, reason, caller) when is_binary(reason) do
     with {:ok, object} <- forget_object_target(slug, reason, caller) do
-      Ankole.Ash.run_action(Object, :soft_delete_object, %{
-        slug: object.slug,
-        reason: String.trim(reason),
-        by: caller_label(caller)
-      })
+      trimmed = String.trim(reason)
+      by = caller_label(caller)
+
+      Repo.transact_top_level(fn ->
+        Objects.soft_delete_in_tx(object.slug, reason: trimmed, by: by)
+      end)
     end
   end
 

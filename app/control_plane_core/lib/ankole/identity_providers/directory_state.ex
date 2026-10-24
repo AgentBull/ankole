@@ -153,51 +153,6 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       change(set_attribute(:last_error, nil))
       change(transition_state(:healthy))
     end
-
-    action :save_configuration, :term do
-      argument(:activation, :map, allow_nil?: false)
-      argument(:config, :map, allow_nil?: false)
-      argument(:application, :term)
-      after_commit({Ankole.IdentityProviders.Config, :publish_saved_configuration})
-
-      run(__MODULE__.Actions)
-    end
-
-    action :upsert_user, :map do
-      argument(:provider_id, :term, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
-      argument(:opts, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :begin_sync, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:provider_id, :term, allow_nil?: false)
-      argument(:expected_config, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :finish_sync, :term do
-      argument(:ticket, :term, allow_nil?: false)
-      argument(:scope, :term)
-      argument(:observations, :term, allow_nil?: false)
-      argument(:opts, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :approve_snapshot, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:provider_id, :term, allow_nil?: false)
-      argument(:fingerprint, :term)
-      argument(:actor, :term)
-      argument(:reason, :term)
-      argument(:confirm_removals, :boolean, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

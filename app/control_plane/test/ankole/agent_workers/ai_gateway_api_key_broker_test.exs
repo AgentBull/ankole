@@ -28,7 +28,7 @@ defmodule Ankole.AgentWorkers.AIGatewayAPIKeyBrokerTest do
     assert response.base_url == "https://gateway.example.test/api/v1/ai-gateway"
 
     assert {:ok, claims} =
-             Ankole.TokenSigning.verify(response.api_key, "ankole.ai_gateway", "at+jwt")
+             Attesto.Token.verify(Ankole.OIDC.Config.get("ankole.ai_gateway"), response.api_key)
 
     assert claims["sub"] == agent.uid
     assert claims["scope"] == "ai_gateway"

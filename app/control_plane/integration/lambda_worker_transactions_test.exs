@@ -254,7 +254,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     api = install_storage_platform(provider)
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+             Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
     ref = Repo.get!(AgentWorker, uid).storage_ref
@@ -282,7 +282,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     api = install_storage_platform(provider)
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+             Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
     ref = Repo.get!(AgentWorker, uid).storage_ref
@@ -307,7 +307,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     api = install_storage_platform(provider)
 
     assert {:ok, :ok} =
-             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+             Repo.transact(fn -> {:ok, AgentWorkers.mark_deleting_in_tx(uid)} end)
 
     assert :ok = reconcile(uid)
     first_ref = Repo.get!(AgentWorker, uid).storage_ref

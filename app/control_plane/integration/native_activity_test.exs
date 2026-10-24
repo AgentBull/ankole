@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.NativeActivityTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag sandbox: false
   import Ecto.Query
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
@@ -34,7 +35,7 @@ defmodule AnkoleWeb.NativeActivityTest do
   setup %{conn: conn, tenant: tenant} do
     site_config =
       for key <- ["setup.completed", "tenants.privileged_tenant_id"],
-          do: {key, Ankole.AppConfigure.get_global_by_key_in_tx(Repo, key)}
+          do: {key, Ankole.AppConfigure.get_global_by_key_in_tx(key)}
 
     restore_site_config = fn ->
       for {key, value} <- site_config do
@@ -80,7 +81,7 @@ defmodule AnkoleWeb.NativeActivityTest do
             from j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid
           )
 
-          :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+          :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(agent.uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
 
           # The provider owner first disables an active row, then deletes it.
@@ -103,14 +104,14 @@ defmodule AnkoleWeb.NativeActivityTest do
     :ok = Sessions.Events.subscribe(agent.uid, Sessions.Key.conversation(id))
 
     conn =
-      post(conn, ~p"/.internal-apis/pod/conversations", %{
+      api_post(conn, ~p"/api/v2/pod/conversations", %{
         "conversationID" => id,
         "agentUID" => agent.uid,
         "messageID" => Ecto.UUID.generate(),
         "text" => "Check the report."
       })
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    assert Phoenix.ConnTest.json_response(conn, 200)
     assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
     assert_receive {:activity_model_request, _}, 5_000
     assert_receive {:actor_lane, %Proto.Envelope{body: {:workspace_open, opened}}}, 5_000
@@ -154,8 +155,8 @@ defmodule AnkoleWeb.NativeActivityTest do
     assert second == first
     assert first["epoch"] == waiting.epoch
     assert first["revision"] == waiting.revision
-    shown = conn |> recycle_api() |> get(~p"/.internal-apis/pod/conversations/#{id}")
-    assert AnkoleWeb.InternalAPIContract.json_response(shown, 200)["status"]["activity"] == first
+    shown = conn |> recycle_api() |> api_get(~p"/api/v2/pod/conversations/#{id}")
+    assert Phoenix.ConnTest.json_response(shown, 200)["status"]["activity"] == first
 
     :ok = :sys.suspend(driver)
 
@@ -220,14 +221,14 @@ defmodule AnkoleWeb.NativeActivityTest do
     id = Ecto.UUID.generate()
 
     conn =
-      post(conn, ~p"/.internal-apis/pod/conversations", %{
+      api_post(conn, ~p"/api/v2/pod/conversations", %{
         "conversationID" => id,
         "agentUID" => agent.uid,
         "messageID" => Ecto.UUID.generate(),
         "text" => "Start a wait."
       })
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    assert Phoenix.ConnTest.json_response(conn, 200)
     assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
     assert_receive {:actor_lane, %Proto.Envelope{body: {:workspace_open, _}}}, 5_000
     key = %{agent_uid: agent.uid, session_id: Sessions.Key.conversation(id)}
@@ -264,14 +265,14 @@ defmodule AnkoleWeb.NativeActivityTest do
     id = Ecto.UUID.generate()
 
     conn =
-      post(conn, ~p"/.internal-apis/pod/conversations", %{
+      api_post(conn, ~p"/api/v2/pod/conversations", %{
         "conversationID" => id,
         "agentUID" => agent.uid,
         "messageID" => Ecto.UUID.generate(),
         "text" => "Read both reports."
       })
 
-    assert AnkoleWeb.InternalAPIContract.json_response(conn, 200)
+    assert Phoenix.ConnTest.json_response(conn, 200)
     assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
     assert_receive {:actor_lane, %Proto.Envelope{body: {:workspace_open, opened}}}, 5_000
 
@@ -395,7 +396,7 @@ defmodule AnkoleWeb.NativeActivityTest do
     Task.async(
       Repo.bind_tenant(fn ->
         request =
-          Plug.Test.conn(:get, "/.internal-apis/pod/conversations/#{id}/events")
+          Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}/events")
           |> Plug.Test.init_test_session(get_session(conn))
           |> copy_authentication_cookies(conn)
           |> put_req_header("accept", "text/event-stream")
@@ -407,7 +408,7 @@ defmodule AnkoleWeb.NativeActivityTest do
 
   defp sse_snapshot(conn, id) do
     request =
-      Plug.Test.conn(:get, "/.internal-apis/pod/conversations/#{id}/events")
+      Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}/events")
       |> Plug.Test.init_test_session(get_session(conn))
       |> copy_authentication_cookies(conn)
       |> put_req_header("accept", "text/event-stream")

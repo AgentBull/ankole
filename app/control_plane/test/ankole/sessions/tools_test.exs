@@ -235,22 +235,19 @@ defmodule Ankole.Sessions.ToolsTest do
       key = %{agent_uid: agent.uid, session_id: "tools:#{Ecto.UUID.generate()}"}
 
       {:ok, event} =
-        Repo.transact(fn repo ->
-          Ankole.Signals.accept_in_tx(
-            repo,
-            %{
-              producer: :kernel,
-              target: key,
-              source: "test:tools",
-              reply_route: %{binding_name: "bot"},
-              authorization: Ankole.Principals.WorkAccess.service(),
-              sender: agent.uid,
-              id: Ecto.UUID.generate(),
-              type: "conversation.message.addressed",
-              data: %{},
-              available_at: DateTime.utc_now(:microsecond)
-            }
-          )
+        Repo.transact(fn ->
+          Ankole.Signals.accept_in_tx(%{
+            producer: :kernel,
+            target: key,
+            source: "test:tools",
+            reply_route: %{binding_name: "bot"},
+            authorization: Ankole.Principals.WorkAccess.service(),
+            sender: agent.uid,
+            id: Ecto.UUID.generate(),
+            type: "conversation.message.addressed",
+            data: %{},
+            available_at: DateTime.utc_now(:microsecond)
+          })
         end)
 
       {:ok, run} = Ankole.Sessions.Admission.admit(key, event)
@@ -773,7 +770,7 @@ defmodule Ankole.Sessions.ToolsTest do
 
   defp task_run(parent, workflow_id, schema \\ %{"type" => "boolean"}) do
     {:ok, %{new_calls: [call]}} =
-      Ankole.Workflow.commit_replay_pending(
+      Ankole.Workflow.Replay.commit_replay_pending(
         workflow_id,
         [
           %{

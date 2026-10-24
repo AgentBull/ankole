@@ -21,8 +21,8 @@ defmodule Ankole.Sessions.RetryCommandTest do
     session_id = "cron:#{Ecto.UUID.generate()}"
 
     {:ok, source} =
-      Repo.transact(fn repo ->
-        Ankole.Signals.accept_in_tx(repo, %{
+      Repo.transact(fn ->
+        Ankole.Signals.accept_in_tx(%{
           producer: :kernel,
           target: %{agent_uid: agent.uid, session_id: session_id},
           source: "test:runtime",
@@ -41,11 +41,11 @@ defmodule Ankole.Sessions.RetryCommandTest do
       end)
 
     {:ok, %{intents: [notice]}} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         {:ok, source} =
-          Queue.mark_event_dead_letter_in_tx(repo, source, @base_time, "cron_failed")
+          Queue.mark_event_dead_letter_in_tx(source, @base_time, "cron_failed")
 
-        Ankole.Sessions.Notices.post_in_tx(repo, source, :dead_letter, "Cron failed")
+        Ankole.Sessions.Notices.post_in_tx(source, :dead_letter, "Cron failed")
       end)
 
     complete_input(unrelated)
@@ -136,7 +136,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
       })
 
     %{message: quote} =
-      Ankole.Conversations.External.get_message(Repo, source.conversation_id, quoted_source_id)
+      Ankole.Conversations.External.get_message(source.conversation_id, quoted_source_id)
 
     assert get_in(source.data, ["entry", "reply_to", "message_id"]) == quote.id
 
@@ -199,7 +199,6 @@ defmodule Ankole.Sessions.RetryCommandTest do
 
     assert %{message: %{id: id}} =
              Ankole.Conversations.External.get_message(
-               Repo,
                source.conversation_id,
                quoted_source_id
              )
@@ -293,8 +292,8 @@ defmodule Ankole.Sessions.RetryCommandTest do
     source = input(agent, "/steer Use the correction")
 
     {:ok, source} =
-      Repo.transact(fn repo ->
-        Queue.mark_event_dead_letter_in_tx(repo, source, @base_time, "steer_failed")
+      Repo.transact(fn ->
+        Queue.mark_event_dead_letter_in_tx(source, @base_time, "steer_failed")
       end)
 
     command = targeted_retry(agent, source.id)
@@ -320,7 +319,6 @@ defmodule Ankole.Sessions.RetryCommandTest do
              )
 
     refute Ankole.Conversations.External.get_message(
-             Repo,
              source.conversation_id,
              source.provider_message_id
            )
@@ -556,7 +554,6 @@ defmodule Ankole.Sessions.RetryCommandTest do
              )
 
     refute Ankole.Conversations.External.get_message(
-             Repo,
              source.conversation_id,
              "completed-tool-reply"
            )
@@ -626,7 +623,6 @@ defmodule Ankole.Sessions.RetryCommandTest do
              )
 
     refute Ankole.Conversations.External.get_message(
-             Repo,
              source.conversation_id,
              "completed-reply"
            )
@@ -690,8 +686,8 @@ defmodule Ankole.Sessions.RetryCommandTest do
 
   defp complete_input(input),
     do:
-      Repo.transact(fn repo ->
-        Queue.complete_signal_in_tx(repo, input, completed_at: @base_time)
+      Repo.transact(fn ->
+        Queue.complete_signal_in_tx(input, completed_at: @base_time)
       end)
 
   defp key(event), do: %{agent_uid: event.agent_uid, session_id: event.session_id}
@@ -735,6 +731,6 @@ defmodule Ankole.Sessions.RetryCommandTest do
   end
 
   defp prepare_operation(operation) do
-    fn repo -> {:ok, [], fn -> operation.(repo) end} end
+    fn -> {:ok, [], fn -> operation.(Repo) end} end
   end
 end

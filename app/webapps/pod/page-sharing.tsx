@@ -6,7 +6,7 @@ import { useContent } from './content-context'
 import { contentKeys, pageAPI, type PageRole, type PageSharing } from './content-api'
 import { Choice, ContentError, roleLabels } from './content-primitives'
 
-import type { PodSharing as Sharing } from '../common/api/generated/types.gen'
+import type { PodPageSharingResponse as Sharing } from './api/generated/types.gen'
 
 export function PageSharingButton({ pageID }: { pageID: string }) {
   const [open, setOpen] = useState(false)
@@ -82,6 +82,8 @@ function SharingForm({
     const subject = subjects.find(subject => subjectKey(subject) === selected)
     if (!subject) return
     const grant = {
+      kind: subject.kind,
+      name: subject.name,
       principal_uid: subject.principal_uid ?? null,
       group_id: subject.group_id ?? null,
       role

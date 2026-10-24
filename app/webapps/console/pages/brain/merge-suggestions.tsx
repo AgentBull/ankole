@@ -18,19 +18,19 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiGitMergeLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   approveBrainMergeSuggestionMutation,
-  listBrainMergeSuggestionsOptions,
+  listBrainMergeSuggestionsInfiniteOptions,
   rejectBrainMergeSuggestionMutation
 } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { ListBrainMergeSuggestionsResponse } from '../../api/v2/generated/types.gen'
-import { fromDocument, type Flat } from '../../api/json-api'
+import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { ResourceListPage } from '../../console-list-page'
+import { LoadMore, ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
@@ -57,9 +57,11 @@ export function BrainMergeSuggestionsPage() {
   const [rejectTarget, setRejectTarget] = useState<BrainMergeSuggestion>()
   const [canonicalSlug, setCanonicalSlug] = useState('')
 
-  const suggestions = useQuery({
-    ...listBrainMergeSuggestionsOptions({ query: { status } }),
-    select: document => fromDocument(document)
+  const suggestions = useInfiniteQuery({
+    ...listBrainMergeSuggestionsInfiniteOptions({ query: { status } }),
+    initialPageParam: {},
+    getNextPageParam: nextPageParams,
+    select: data => data.pages.flatMap(document => fromDocument(document))
   })
   const rows = suggestions.data ?? []
 
@@ -101,6 +103,7 @@ export function BrainMergeSuggestionsPage() {
         emptyDescription={t('console.brain.merge_suggestions_empty_description')}
         emptyIcon={<RiGitMergeLine aria-hidden />}
         error={suggestions.error}
+        footer={<LoadMore query={suggestions} />}
         isFiltered={status !== 'pending'}
         onClearFilters={() => setStatus('pending')}
         toolbarCanRevealRows

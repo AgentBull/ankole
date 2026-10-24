@@ -296,9 +296,8 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
 
   defp conversation!(agent_uid, provider_id) do
     assert {:ok, conversation} =
-             Ankole.Repo.transact(fn repo ->
+             Ankole.Repo.transact(fn ->
                Ankole.Conversations.External.observe_conversation_in_tx(
-                 repo,
                  %{agent_uid: agent_uid},
                  %{
                    provider_conversation_id: provider_id,

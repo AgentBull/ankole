@@ -13,9 +13,8 @@ defmodule Ankole.AgentWorkers do
   the Agent's row at send time (`target/1`), so a reconnected Worker is reached
   on its new connection.
 
-  This module is also the Ash domain of the Worker resources. Each operation
-  that locks or changes more than one row is a generic action of its subject
-  resource, defined here; the action owns its transaction.
+  This module is also the Ash domain of the Worker resources. Each top-level
+  write owns its transaction and after-commit notifications.
   """
 
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
@@ -34,47 +33,6 @@ defmodule Ankole.AgentWorkers do
     resource Ankole.AgentWorkers.AgentWorker do
       define(:get_agent_worker, action: :read, get_by: [:agent_uid], not_found_error?: false)
       define(:list_agent_workers, action: :read)
-      define(:list_agent_workers_across_tenants, action: :across_tenants)
-
-      define(:admit_worker,
-        action: :admit_connection,
-        args: [:agent_uid, :generation, :route, :incarnation, :capacity]
-      )
-
-      define(:renew_worker_connection,
-        action: :renew_connection,
-        args: [:agent_uid, :route, :incarnation, :capacity, :load]
-      )
-
-      define(:drain_worker_connection,
-        action: :drain_connection,
-        args: [:agent_uid, :route, :reason]
-      )
-
-      define(:release_worker_route, action: :release_route, args: [:route])
-      define(:expire_worker_connection, action: :expire_connection, args: [:agent_uid])
-
-      define(:assign_worker_provider,
-        action: :assign_provider_once,
-        args: [:agent_uid, :provider_id]
-      )
-
-      define(:decide_reconcile_step,
-        action: :decide_reconcile_step,
-        args: [:agent_uid, :seen, :previous, :prepared]
-      )
-
-      define(:record_reconcile_result,
-        action: :record_reconcile_result,
-        args: [:call, :facts, :result]
-      )
-
-      define(:record_prepare_error,
-        action: :record_prepare_error,
-        args: [:agent_uid, :provider_id, :reason, :kind]
-      )
-
-      define(:authorize_worker_turn, action: :authorize_turn, args: [:ref, :agent_uid, :effect])
     end
 
     resource(Ankole.AgentWorkers.WorkerEnv.EnvVar)
@@ -132,11 +90,15 @@ defmodule Ankole.AgentWorkers do
   @spec provider_workers(String.t() | nil) :: [AgentWorker.t()]
   def provider_workers(provider_id) do
     query =
-      if provider_id,
-        do: Ash.Query.filter(AgentWorker, provider_id == ^provider_id),
-        else: Ash.Query.filter(AgentWorker, is_nil(provider_id))
+      AgentWorker
+      |> Ash.Query.for_read(:across_tenants)
+      |> then(fn q ->
+        if provider_id,
+          do: Ash.Query.filter(q, provider_id == ^provider_id),
+          else: Ash.Query.filter(q, is_nil(provider_id))
+      end)
 
-    Repo.across_tenants(fn -> list_agent_workers_across_tenants!(query: query) end)
+    Ankole.Ash.read_across_tenants!(query)
   end
 
   @doc "Counts the Worker rows of one provider in every tenant."
@@ -146,7 +108,7 @@ defmodule Ankole.AgentWorkers do
       AgentWorker
       |> Ash.Query.for_read(:across_tenants)
       |> Ash.Query.filter(provider_id == ^provider_id)
-      |> Ash.count!(authorize?: false)
+      |> Ankole.Ash.count!()
     end)
   end
 
@@ -157,11 +119,11 @@ defmodule Ankole.AgentWorkers do
   """
   @spec assigned_worker([String.t()]) :: AgentWorker.t() | nil
   def assigned_worker(provider_ids) do
-    Repo.across_tenants(fn ->
-      list_agent_workers_across_tenants!(
-        query: [filter: [provider_id: [in: provider_ids]], limit: 1]
-      )
-    end)
+    AgentWorker
+    |> Ash.Query.for_read(:across_tenants)
+    |> Ash.Query.filter(provider_id in ^provider_ids)
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read_across_tenants!()
     |> List.first()
   end
 
@@ -203,12 +165,12 @@ defmodule Ankole.AgentWorkers do
     * `:agent_worker_unavailable` when its Worker is not ready;
     * `:no_worker_capacity` when its ready Worker has no free slot.
   """
-  @spec reserve_slot_in_tx(module(), String.t()) ::
+  @spec reserve_slot_in_tx(String.t()) ::
           {:ok, AgentWorker.t()}
           | {:error, :agent_not_active | :agent_worker_unavailable | :no_worker_capacity}
-  def reserve_slot_in_tx(repo, agent_uid) when is_binary(agent_uid) do
+  def reserve_slot_in_tx(agent_uid) when is_binary(agent_uid) do
     with :ok <- agent_active(agent_uid),
-         worker = lock_in_tx(repo, agent_uid),
+         worker = lock_in_tx(agent_uid),
          true <- ready?(worker) do
       if AgentWorker.available_slots(worker) > 0,
         do: Ankole.Ash.update(worker, :reserve_slot, %{}),
@@ -224,8 +186,8 @@ defmodule Ankole.AgentWorkers do
 
   Codex attempt admission locks this row before the Agent's Job slots.
   """
-  @spec lock_in_tx(module(), String.t()) :: AgentWorker.t() | nil
-  def lock_in_tx(_repo, agent_uid) when is_binary(agent_uid) do
+  @spec lock_in_tx(String.t()) :: AgentWorker.t() | nil
+  def lock_in_tx(agent_uid) when is_binary(agent_uid) do
     AgentWorker
     |> Ash.Query.filter(agent_uid == ^agent_uid)
     |> Ash.Query.lock(:for_update)
@@ -415,8 +377,8 @@ defmodule Ankole.AgentWorkers do
       ])
 
   @doc "Records and enqueues initial Worker startup in the Agent's creation transaction."
-  @spec insert_in_tx(module(), String.t(), String.t()) :: :ok
-  def insert_in_tx(repo, agent_uid, provider_id)
+  @spec insert_in_tx(String.t(), String.t()) :: :ok
+  def insert_in_tx(agent_uid, provider_id)
       when is_binary(agent_uid) and is_binary(provider_id) do
     case Ankole.Ash.create(AgentWorker, :register, %{
            agent_uid: agent_uid,
@@ -427,7 +389,7 @@ defmodule Ankole.AgentWorkers do
         :ok
 
       {:error, reason} ->
-        repo.rollback(reason)
+        Repo.rollback(reason)
     end
   end
 
@@ -436,24 +398,23 @@ defmodule Ankole.AgentWorkers do
   transaction. The credential stops working at once; `ReconcileJob` deletes
   the backend objects and then the row.
   """
-  @spec mark_deleting_in_tx(module(), String.t()) :: :ok
-  def mark_deleting_in_tx(repo, agent_uid) when is_binary(agent_uid) do
+  @spec mark_deleting_in_tx(String.t()) :: :ok
+  def mark_deleting_in_tx(agent_uid) when is_binary(agent_uid) do
     case AgentWorker
          |> Ash.Query.filter(agent_uid == ^agent_uid)
          |> Ankole.Ash.update_where(:mark_deleting) do
       {:ok, _workers} -> :ok
-      {:error, error} -> repo.rollback(error)
+      {:error, error} -> Repo.rollback(error)
     end
   end
 
   @doc "Clears rejected launch diagnostics after the site provider changes."
   @spec clear_provider_rejections_in_tx(String.t()) :: :ok | {:error, term()}
   def clear_provider_rejections_in_tx(provider_id) do
-    Repo.across_tenants(fn ->
-      list_agent_workers_across_tenants!(
-        query: [filter: [provider_id: provider_id, last_error_kind: "rejected"]]
-      )
-    end)
+    AgentWorker
+    |> Ash.Query.for_read(:across_tenants)
+    |> Ash.Query.filter(provider_id == ^provider_id and last_error_kind == "rejected")
+    |> Ankole.Ash.read_across_tenants!()
     |> Enum.map(& &1.tenant_id)
     |> Enum.uniq()
     |> Enum.reduce_while(:ok, fn tenant, :ok ->

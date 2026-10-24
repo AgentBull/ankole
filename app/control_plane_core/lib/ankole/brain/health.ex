@@ -201,9 +201,9 @@ defmodule Ankole.Brain.Health do
   end
 
   defp embedding_status do
-    chunk_failures = Chunk |> Ash.Query.filter(embedding_failed? == true) |> count()
-    claim_failures = Claim |> Ash.Query.filter(embedding_failed? == true) |> count()
-    pending_chunks = Chunk |> Ash.Query.filter(is_nil(embedded_at)) |> count()
+    chunk_failures = Chunk |> Ash.Query.filter(embedding_failed? == true) |> Ankole.Ash.count!()
+    claim_failures = Claim |> Ash.Query.filter(embedding_failed? == true) |> Ankole.Ash.count!()
+    pending_chunks = Chunk |> Ash.Query.filter(is_nil(embedded_at)) |> Ankole.Ash.count!()
 
     recent_error =
       Chunk
@@ -221,8 +221,6 @@ defmodule Ankole.Brain.Health do
       recent_error: recent_embedding_error(recent_error)
     }
   end
-
-  defp count(query), do: Ankole.Ash.aggregate!(query, {:count, :count}).count
 
   defp recent_embedding_error(nil), do: nil
 

@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodURLTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
 
   alias Ankole.{Kernel, Repo}
@@ -138,7 +139,7 @@ defmodule AnkoleWeb.PodURLTest do
       conn = recycle(conn)
       conn = if proof == :header, do: put_req_header(conn, "x-ankole-pod", foreign.id), else: conn
       query = if proof == :query, do: %{tenant_id: foreign.id}, else: %{}
-      denied = get(conn, "/.internal-apis/pod/pages", query)
+      denied = api_get(conn, "/api/v2/pod/pages", query)
       assert %{"error" => %{"code" => "unauthorized"}} = json_response(denied, 401)
     end
 
@@ -182,7 +183,7 @@ defmodule AnkoleWeb.PodURLTest do
             "/site-admin-console",
             "/sessions/new?return_to=%2Fcontent%2Fspace",
             "/sessions/new?flow=old-bound-flow",
-            "/.internal-apis/pod/agents"
+            "/api/v2/pod/agents"
           ] do
         response = get(build_conn(), "http://127.0.0.1:4002" <> path)
         assert response(response, 400) == "Invalid host"
@@ -229,7 +230,7 @@ defmodule AnkoleWeb.PodURLTest do
       stale = get(build_conn(), "http://127.0.0.1:4002/sessions/new?flow=old-bound-flow")
       assert response(stale, 401) =~ "sign-in address changed"
       assert get_resp_header(stale, "location") == []
-      api = get(build_conn(), "http://127.0.0.1:4002/.internal-apis/pod/agents")
+      api = get(build_conn(), "http://127.0.0.1:4002/api/v2/pod/agents")
       assert api.status == 401
       assert get_resp_header(api, "location") == []
     end

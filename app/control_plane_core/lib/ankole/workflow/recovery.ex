@@ -17,20 +17,18 @@ defmodule Ankole.Workflow.Recovery do
     terminal = Run.terminal_statuses()
 
     runs =
-      Repo.across_tenants(fn ->
-        Run
-        |> Ash.Query.for_read(:work_across_tenants, %{}, authorize?: false)
-        |> Ash.Query.filter(
-          status == :running or (status in ^terminal and is_nil(cleanup_completed_at))
-        )
-        |> Ash.read!(authorize?: false)
-      end)
+      Run
+      |> Ash.Query.for_read(:work_across_tenants)
+      |> Ash.Query.filter(
+        status == :running or (status in ^terminal and is_nil(cleanup_completed_at))
+      )
+      |> Ankole.Ash.read_across_tenants!()
 
     runs
     |> Enum.reject(&RunServer.whereis(&1.id))
     |> Enum.reduce_while(:ok, fn run, :ok ->
       case Repo.with_tenant(run.tenant_id, fn ->
-             Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(Repo, run.id)
+             Ankole.Workflow.Jobs.PokeRun.enqueue(run.id)
            end) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
@@ -38,15 +36,30 @@ defmodule Ankole.Workflow.Recovery do
     end)
   end
 
+  @doc """
+  Requeues or fails stale tasks, then releases capacity and cleans up after commit.
+
+  A failed capacity wake does not prevent terminal cleanup. The result includes
+  the cleanup completion time or the cleanup errors for the next retry.
+  """
+  def reconcile_stale_tasks(run_id, %DateTime{} = cutoff, %DateTime{} = reconciled_at)
+      when is_integer(run_id) and run_id > 0 do
+    Repo.transact_top_level(
+      fn -> reconcile_stale_tasks_in_tx(run_id, cutoff, reconciled_at) end,
+      after_commit: {Ankole.Workflow.Mail, :release_committed_capacity}
+    )
+    |> Ankole.Workflow.Lifecycle.cleanup_committed()
+  end
+
   @doc false
-  def reconcile_stale_tasks_in_tx(repo, run_id, %DateTime{} = cutoff, %DateTime{} = reconciled_at)
+  def reconcile_stale_tasks_in_tx(run_id, %DateTime{} = cutoff, %DateTime{} = reconciled_at)
       when is_integer(run_id) and run_id > 0 do
     with {:ok, %Run{} = snapshot} <-
            Run |> Ash.Query.filter(id == ^run_id) |> Ankole.Ash.read_one(),
-         :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, snapshot.agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, snapshot.agent_uid) do
+         :ok <- Ankole.Workflow.Slot.lock_agent_slots(snapshot.agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, snapshot.agent_uid) do
       if run.status == :running do
-        reconcile_running_tasks_in_tx(repo, run, cutoff, reconciled_at)
+        reconcile_running_tasks_in_tx(run, cutoff, reconciled_at)
       else
         {:ok, %{run: run, reconciled: 0, running_session_ids: []}}
       end
@@ -57,12 +70,12 @@ defmodule Ankole.Workflow.Recovery do
     end
   end
 
-  defp reconcile_overdue_sleeping(_repo, %Run{status: status} = run, _cutoff, _now)
+  defp reconcile_overdue_sleeping(%Run{status: status} = run, _cutoff, _now)
        when status != :running do
     {:ok, 0, run}
   end
 
-  defp reconcile_overdue_sleeping(repo, run, cutoff, now) do
+  defp reconcile_overdue_sleeping(run, cutoff, now) do
     run_id = run.id
 
     calls =
@@ -72,7 +85,7 @@ defmodule Ankole.Workflow.Recovery do
       |> Ankole.Workflow.Slot.lock_calls()
 
     Enum.reduce_while(calls, {:ok, 0, run}, fn call, {:ok, count, current_run} ->
-      case recover_overdue_sleeping(repo, current_run, call, now) do
+      case recover_overdue_sleeping(current_run, call, now) do
         :notified ->
           {:cont, {:ok, count + 1, current_run}}
 
@@ -91,9 +104,9 @@ defmodule Ankole.Workflow.Recovery do
     end)
   end
 
-  defp recover_overdue_sleeping(repo, run, call, now) do
-    if open_task_event?(repo, call) do
-      case Ankole.Workflow.TaskLifecycle.notify_task_ready(repo, call, now) do
+  defp recover_overdue_sleeping(run, call, now) do
+    if open_task_event?(call) do
+      case Ankole.Workflow.TaskLifecycle.notify_task_ready(call, now) do
         :ok -> :notified
         {:error, _reason} = error -> error
       end
@@ -104,16 +117,16 @@ defmodule Ankole.Workflow.Recovery do
         "retryable" => false
       }
 
-      Ankole.Workflow.TaskLifecycle.commit_failure(repo, run, call, failure, false, now)
+      Ankole.Workflow.TaskLifecycle.commit_failure(run, call, failure, false, now)
     end
   end
 
-  defp open_task_event?(repo, call) do
+  defp open_task_event?(call) do
     session_id = Ankole.Workflow.Queries.task_session_id(call.id)
-    not is_nil(Ankole.Sessions.Queue.oldest_open(repo, call.agent_uid, session_id))
+    not is_nil(Ankole.Sessions.Queue.oldest_open(call.agent_uid, session_id))
   end
 
-  defp reconcile_running_tasks_in_tx(repo, run, cutoff, reconciled_at) do
+  defp reconcile_running_tasks_in_tx(run, cutoff, reconciled_at) do
     run_id = run.id
 
     calls =
@@ -133,7 +146,6 @@ defmodule Ankole.Workflow.Recovery do
       }
 
       case Ankole.Workflow.TaskLifecycle.commit_failure(
-             repo,
              current_run,
              call,
              failure,
@@ -158,7 +170,7 @@ defmodule Ankole.Workflow.Recovery do
     |> case do
       {:ok, count, current_run, running_ids, released?} ->
         with {:ok, overdue_count, current_run} <-
-               reconcile_overdue_sleeping(repo, current_run, cutoff, reconciled_at) do
+               reconcile_overdue_sleeping(current_run, cutoff, reconciled_at) do
           {:ok,
            %{
              run: current_run,

@@ -15,10 +15,10 @@ defmodule Ankole.Credo.PersistenceBoundary do
       error-class construction, and a pattern or guard that names an
       `Ash.Error` module outside `Ankole.Ash`, `Ankole.Errors`, and
       `AnkoleWeb.ConsoleErrors`.
-    * `:ash_bulk`, `:transaction_hook` - a direct `Ash.bulk_*` call and an
-      `Ash.Changeset` transaction hook outside those owners. `Ankole.Ash` runs
-      bulk actions in the tenant context, and a generic action owns the
-      transaction effects.
+    * `:ash_direct`, `:ash_bulk`, `:transaction_hook` - a direct `Ash.*`
+      execution or `Ash.bulk_*` call, and an `Ash.Changeset` transaction hook
+      outside those owners. `Ankole.Ash` runs actions in the tenant context, and
+      top-level operations own transaction effects.
     * `:ecto_write`, `:ecto_lock`, `:repo_transact` - an Ecto write, an Ecto row
       lock, or a `Repo` transaction outside the registered exception modules.
       A `lock:` keyword is an Ecto lock only in an Ecto `from` query; in a
@@ -37,7 +37,10 @@ defmodule Ankole.Credo.PersistenceBoundary do
 
   @data Path.expand("../test/ankole/persistence_boundary.exs", __DIR__)
   # A private checkout keeps the counts of its own files beside its sources.
-  @private_data Path.expand("../../../internals/control_plane/test/persistence_boundary.exs", __DIR__)
+  @private_data Path.expand(
+                  "../../../internals/control_plane/test/persistence_boundary.exs",
+                  __DIR__
+                )
   @owners ["/lib/ankole/ash.ex", "/lib/ankole/errors.ex", "/lib/ankole_web/console_errors.ex"]
   @owner_dirs ["/lib/ankole/ash/", "/lib/ankole/errors/"]
   @consumer_paths ["/lib/ankole_web/", "../../plugins/", "../../internals/plugins/"]
@@ -75,12 +78,43 @@ defmodule Ankole.Credo.PersistenceBoundary do
   @sql_modules [Ecto.Adapters.SQL, Postgrex]
   @table_reference ~r/\b(FROM|JOIN|INTO|UPDATE|TABLE|INDEX)\b/i
   @exemptible [:ecto_write, :ecto_lock, :repo_transact, :ecto_source, :consumer_ash, :ash_call]
+  @direct_actions [
+    :read,
+    :read!,
+    :read_one,
+    :read_one!,
+    :count,
+    :count!,
+    :exists,
+    :exists?,
+    :first,
+    :first!,
+    :aggregate,
+    :aggregate!,
+    :max,
+    :max!,
+    :min,
+    :min!,
+    :sum,
+    :sum!,
+    :create,
+    :create!,
+    :update,
+    :update!,
+    :destroy,
+    :destroy!,
+    :run_action,
+    :run_action!,
+    :load,
+    :load!
+  ]
   @bulk_actions [:bulk_create, :bulk_update, :bulk_destroy]
   @transaction_hooks [:before_transaction, :after_transaction, :around_transaction]
   @enforced [
     :bulk_result,
     :error_class,
     :ash_error_match,
+    :ash_direct,
     :ash_bulk,
     :transaction_hook,
     :ecto_write,
@@ -255,12 +289,28 @@ defmodule Ankole.Credo.PersistenceBoundary do
 
   # Nodes that are not calls: struct patterns, keyword lock options, and `in` sources.
   defp classify_node({:%, meta, [name, _fields]}, context, acc),
-    do: add(acc, :bulk_result, meta, context, nil, resolve(name, context) == Ash.BulkResult and not context.owner?)
+    do:
+      add(
+        acc,
+        :bulk_result,
+        meta,
+        context,
+        nil,
+        resolve(name, context) == Ash.BulkResult and not context.owner?
+      )
 
   # A struct pattern or a guard list that names an Ash error module. A call
   # such as `Ash.Error.Changes.InvalidAttribute.exception/1` is not a match.
   defp classify_node({:__aliases__, meta, _parts} = name, context, acc),
-    do: add(acc, :ash_error_match, meta, context, nil, ash_error?(resolve(name, context)) and not context.owner?)
+    do:
+      add(
+        acc,
+        :ash_error_match,
+        meta,
+        context,
+        nil,
+        ash_error?(resolve(name, context)) and not context.owner?
+      )
 
   defp classify_node({:lock, value}, context, acc) when is_binary(value),
     do: add(acc, :ecto_lock, [], context, nil, context.ecto_query? and lock_clause?(value))
@@ -284,11 +334,20 @@ defmodule Ankole.Credo.PersistenceBoundary do
     first = args |> List.first() |> resolve(context)
 
     cond do
-      repo?(target, module) -> repo_call(acc, function, args, meta, context, first)
-      module in @sql_modules and function in [:query, :query!, :stream] -> raw_call(acc, Enum.at(args, 1), meta, context)
-      module == Ecto.Query and function == :from -> add(acc, :ecto_source, meta, context, first, module?(first))
-      module == Ecto.Query and function == :lock -> add(acc, :ecto_lock, meta, context, nil, lock_argument?(args))
-      true -> ash_call(acc, module, function, meta, context, first)
+      repo?(target, module) ->
+        repo_call(acc, function, args, meta, context, first)
+
+      module in @sql_modules and function in [:query, :query!, :stream] ->
+        raw_call(acc, Enum.at(args, 1), meta, context)
+
+      module == Ecto.Query and function == :from ->
+        add(acc, :ecto_source, meta, context, first, module?(first))
+
+      module == Ecto.Query and function == :lock ->
+        add(acc, :ecto_lock, meta, context, nil, lock_argument?(args))
+
+      true ->
+        ash_call(acc, module, function, meta, context, first)
     end
   end
 
@@ -324,7 +383,18 @@ defmodule Ankole.Credo.PersistenceBoundary do
         acc
         |> add(:persistence, meta, context, nil, true)
         |> add(:ecto_write, meta, context, nil, true)
-        |> add(:ecto_source, meta, context, first, source? and function in [:update_all, :delete_all, :insert_all])
+        |> add(
+          :ecto_source,
+          meta,
+          context,
+          first,
+          source? and function in [:update_all, :delete_all, :insert_all]
+        )
+
+      function == :transact_top_level ->
+        acc
+        |> add(:persistence, meta, context, nil, true)
+        |> add(:repo_transact, meta, context, nil, context.consumer?)
 
       function in [:transact, :transaction] ->
         acc
@@ -350,7 +420,20 @@ defmodule Ankole.Credo.PersistenceBoundary do
       acc
       |> add(:consumer_ash, meta, context, nil, context.consumer? and not context.owner?)
       |> add(:error_class, meta, context, nil, function == :to_error_class and not context.owner?)
-      |> add(:ash_bulk, meta, context, nil, module == Ash and function in @bulk_actions and not context.owner?)
+      |> add(
+        :ash_direct,
+        meta,
+        context,
+        nil,
+        module == Ash and function in @direct_actions and not context.owner?
+      )
+      |> add(
+        :ash_bulk,
+        meta,
+        context,
+        nil,
+        module == Ash and function in @bulk_actions and not context.owner?
+      )
       |> add(
         :transaction_hook,
         meta,
@@ -459,7 +542,11 @@ defmodule Ankole.Credo.PersistenceBoundary do
   defp put_aliases(target, as, context) do
     case resolve(target, context) do
       module when is_atom(module) and not is_nil(module) ->
-        name = if as, do: last_alias(as), else: module |> Module.split() |> List.last() |> String.to_atom()
+        name =
+          if as,
+            do: last_alias(as),
+            else: module |> Module.split() |> List.last() |> String.to_atom()
+
         %{context | aliases: Map.put(context.aliases, name, module)}
 
       _other ->

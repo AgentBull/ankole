@@ -68,15 +68,6 @@ defmodule Ankole.AuthZ.Membership do
     destroy :remove_in_tx do
       require_atomic?(true)
     end
-
-    action :sync_external_directory_memberships, :map do
-      argument(:provider, :term, allow_nil?: false)
-      argument(:principal_uid, :term, allow_nil?: false)
-      argument(:external_ids, {:array, :term}, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

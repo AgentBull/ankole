@@ -9,7 +9,7 @@ defmodule Ankole.Signals.CloudEvents do
   alias Ankole.Signals.{Binding, BindingFilters}
 
   @doc "Routes a validated CloudEvent to each matching subscription in one transaction."
-  def accept_in_tx(repo, endpoint, event, now) do
+  def accept_in_tx(endpoint, event, now) do
     with {:ok, event} <- normalize(event) do
       reference = "webhook-endpoint://#{endpoint.id}"
 
@@ -28,7 +28,7 @@ defmodule Ankole.Signals.CloudEvents do
           :match ->
             with {:ok, target} <- target(binding, event),
                  {:ok, signal} <-
-                   Signals.accept_in_tx(repo, %{
+                   Signals.accept_in_tx(%{
                      producer: :external,
                      source: event["source"],
                      id: event["id"],

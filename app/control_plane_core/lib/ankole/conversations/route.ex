@@ -7,7 +7,6 @@ defmodule Ankole.Conversations.Route do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Conversations.Conversation
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Workflow
   alias Ankole.Workflow.Schemas.AgentCall
@@ -317,7 +316,7 @@ defmodule Ankole.Conversations.Route do
         {:ok, %{session_id: session_id, reply_route: route}}
 
       %{"binding_name" => binding_name} when is_binary(binding_name) and binding_name != "" ->
-        if AIGateway.conversation_exists_by_key?(Repo, agent_uid, session_id) do
+        if AIGateway.conversation_exists_by_key?(agent_uid, session_id) do
           {:ok, %{session_id: session_id, reply_route: route}}
         else
           {:error, :long_lived_reply_owner_not_found}

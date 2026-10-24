@@ -41,18 +41,20 @@ defmodule Ankole.LockOrder do
 
   if @enabled do
     @row_ranks %{
-      "principals" => 1,
-      "agent_workers" => 2,
-      "background_agent_jobs" => 4,
-      "workflow_runs" => 4,
-      "automation_jobs" => 4,
-      "cron_schedules" => 4,
-      "scheduled_events" => 5,
-      "background_agent_job_turns" => 5,
-      "workflow_agent_calls" => 5,
-      "automation_job_runs" => 5,
-      "sessions" => 7,
-      "signals" => 8
+      "browser_sessions" => 1,
+      "principals" => 2,
+      "oidc_sessions" => 3,
+      "agent_workers" => 4,
+      "background_agent_jobs" => 6,
+      "workflow_runs" => 6,
+      "automation_jobs" => 6,
+      "cron_schedules" => 6,
+      "scheduled_events" => 7,
+      "background_agent_job_turns" => 7,
+      "workflow_agent_calls" => 7,
+      "automation_job_runs" => 7,
+      "sessions" => 9,
+      "signals" => 10
     }
     # A trigger references its consumer. Lock the consumer before its cron rule,
     # including when both belong to the parent-work rank.
@@ -85,12 +87,12 @@ defmodule Ankole.LockOrder do
     end
 
     def check_advisory({agent_uid, session_id}),
-      do: check(6, {:session, agent_uid, session_id})
+      do: check(8, {:session, agent_uid, session_id})
 
     def check_advisory(keys) when is_list(keys), do: Enum.each(keys, &check_advisory/1)
 
     def check_advisory(key) when is_binary(key) do
-      if String.contains?(key, ":running_slots:"), do: check(3, {:slots, key}), else: :ok
+      if String.contains?(key, ":running_slots:"), do: check(5, {:slots, key}), else: :ok
     end
 
     defp check(rank, lock) do

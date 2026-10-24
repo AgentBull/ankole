@@ -747,7 +747,7 @@ export type AgentWorkerType = {
   /**
    * Field included by default.
    */
-  agent_uid?: string | null
+  agent_uid: string
   /**
    * Field included by default.
    */
@@ -1037,7 +1037,7 @@ export type ExternalIdentityType = {
   /**
    * Field included by default.
    */
-  id?: string | null
+  id: string
   /**
    * Field included by default.
    */
@@ -1177,7 +1177,7 @@ export type BackgroundAgentJobType = {
   /**
    * Field included by default.
    */
-  id?: number | null
+  id: number
   /**
    * Field included by default.
    */
@@ -1679,7 +1679,7 @@ export type AgentSkillLessonType = {
   /**
    * Field included by default.
    */
-  id?: string | null
+  id: string
   /**
    * Field included by default.
    */
@@ -1793,7 +1793,7 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  id?: string | null
+  id: string
   /**
    * Field included by default.
    */
@@ -1988,7 +1988,7 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  id?: string | null
+  id: string
   /**
    * Field included by default.
    */
@@ -2325,7 +2325,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  id?: number | null
+  id: number
   /**
    * Field included by default.
    */
@@ -2682,7 +2682,7 @@ export type OidcClientType = {
   /**
    * Field included by default.
    */
-  id?: string | null
+  id: string
   /**
    * Field included by default.
    */
@@ -2975,7 +2975,7 @@ export type OidcLogoutDeliveryType = {
   /**
    * Field included by default.
    */
-  id?: string | null
+  id: string
   /**
    * Field included by default.
    */
@@ -3106,7 +3106,7 @@ export type AgentType = {
   /**
    * Field included by default.
    */
-  uid?: string | null
+  uid: string
   /**
    * Field included by default.
    */
@@ -3229,10 +3229,19 @@ export type DeleteIdentityMappingRequestError =
 
 export type DeleteIdentityMappingRequestResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: IdentityMappingRequest
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeleteIdentityMappingRequestResponse =
+  DeleteIdentityMappingRequestResponses[keyof DeleteIdentityMappingRequestResponses]
 
 export type GetAiGatewayConversationData = {
   body?: never
@@ -3998,10 +4007,18 @@ export type DeletePermissionGrantError = DeletePermissionGrantErrors[keyof Delet
 
 export type DeletePermissionGrantResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeletePermissionGrantResponse = DeletePermissionGrantResponses[keyof DeletePermissionGrantResponses]
 
 export type GetPermissionGrantData = {
   body?: never
@@ -4164,6 +4181,14 @@ export type ListBrainObjectVersionsData = {
   body?: never
   path?: never
   query: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
     /**
      * Relationship paths to include in the response
      */
@@ -4812,10 +4837,18 @@ export type DeletePrincipalGroupError = DeletePrincipalGroupErrors[keyof DeleteP
 
 export type DeletePrincipalGroupResponses = {
   /**
-   * Deleted successfully
+   * Success
    */
-  200: unknown
+  200: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
+
+export type DeletePrincipalGroupResponse = DeletePrincipalGroupResponses[keyof DeletePrincipalGroupResponses]
 
 export type GetPrincipalGroupData = {
   body?: never
@@ -5655,6 +5688,14 @@ export type ListBrainClaimsData = {
   body?: never
   path?: never
   query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
     /**
      * Relationship paths to include in the response
      */
@@ -8133,6 +8174,14 @@ export type ListBrainObjectsData = {
   path?: never
   query?: {
     /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
      * Relationship paths to include in the response
      */
     include?: string
@@ -8939,7 +8988,22 @@ export type DeleteOidcClientData = {
   path: {
     id: string
   }
-  query?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_client
+       */
+      oidc_client?: string
+      [key: string]: unknown
+    }
+  }
   url: '/api/v2/oidc-clients/{id}'
 }
 
@@ -8956,7 +9020,13 @@ export type DeleteOidcClientResponses = {
   /**
    * Success
    */
-  200: OidcClientType
+  200: {
+    data?: OidcClient
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
 
 export type DeleteOidcClientResponse = DeleteOidcClientResponses[keyof DeleteOidcClientResponses]
@@ -9015,25 +9085,47 @@ export type UpdateOidcClientData = {
    */
   body?: {
     data: {
-      allow_insecure_local_logout?: boolean | null
-      allowed_group_ids?: Array<string> | null
-      allowed_identity_provider_ids?: Array<string> | null
-      backchannel_logout_session_required?: boolean | null
-      backchannel_logout_uri?: string | null
-      enabled?: boolean | null
-      model_aliases?: {
-        [key: string]: unknown
-      } | null
-      name?: string | null
-      post_logout_redirect_uris?: Array<string> | null
-      redirect_uris?: Array<string> | null
-      scopes?: Array<string> | null
+      attributes?: {
+        allow_insecure_local_logout?: boolean | null
+        allowed_group_ids?: Array<string> | null
+        allowed_identity_provider_ids?: Array<string> | null
+        backchannel_logout_session_required?: boolean | null
+        backchannel_logout_uri?: string | null
+        enabled?: boolean | null
+        model_aliases?: {
+          [key: string]: unknown
+        } | null
+        name?: string | null
+        post_logout_redirect_uris?: Array<string> | null
+        redirect_uris?: Array<string> | null
+        scopes?: Array<string> | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'oidc_client'
     }
   }
   path: {
     id: string
   }
-  query?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_client
+       */
+      oidc_client?: string
+      [key: string]: unknown
+    }
+  }
   url: '/api/v2/oidc-clients/{id}'
 }
 
@@ -9050,7 +9142,13 @@ export type UpdateOidcClientResponses = {
   /**
    * Success
    */
-  200: OidcClientType
+  200: {
+    data?: OidcClient
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
 
 export type UpdateOidcClientResponse = UpdateOidcClientResponses[keyof UpdateOidcClientResponses]
@@ -10027,6 +10125,14 @@ export type ListBrainSuggestionsData = {
   path?: never
   query?: {
     /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
      * Relationship paths to include in the response
      */
     include?: string
@@ -10076,6 +10182,14 @@ export type ListBrainContradictionsData = {
   body?: never
   path?: never
   query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
     /**
      * Relationship paths to include in the response
      */
@@ -10216,6 +10330,14 @@ export type ListBrainMergeSuggestionsData = {
   body?: never
   path?: never
   query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
     /**
      * Relationship paths to include in the response
      */
@@ -10680,6 +10802,14 @@ export type ListBrainSourcesData = {
   body?: never
   path?: never
   query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
     /**
      * Relationship paths to include in the response
      */

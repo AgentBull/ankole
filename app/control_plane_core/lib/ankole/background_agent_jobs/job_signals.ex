@@ -49,9 +49,9 @@ defmodule Ankole.BackgroundAgentJobs.JobSignals do
   end
 
   @doc "Locks one Signal while it is open, inside the caller's transaction."
-  @spec lock_open_signal_in_tx(module(), Ecto.UUID.t()) :: Signal.t() | nil
-  def lock_open_signal_in_tx(repo, signal_id) do
-    case Ankole.Signals.lock_signal_in_tx(repo, signal_id) do
+  @spec lock_open_signal_in_tx(Ecto.UUID.t()) :: Signal.t() | nil
+  def lock_open_signal_in_tx(signal_id) do
+    case Ankole.Signals.lock_signal_in_tx(signal_id) do
       %Signal{status: status} = signal when status in @open_statuses -> signal
       _closed_or_missing -> nil
     end

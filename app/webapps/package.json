@@ -12,7 +12,7 @@
     "lint": "bun run type-check",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
-    "openapi:generate": "bun run --filter @ankole/openapi-client-generator generate && oxfmt console/api/v2/generated console/api/v2-site/generated common/api/generated",
+    "openapi:generate": "bun run --filter @ankole/openapi-client-generator generate && oxfmt console/api/v2/generated console/api/v2-site/generated common/api/generated pod/api/generated && if [ -d ../../internals/webapps/api/generated ]; then cd ../../internals && oxfmt webapps/api/generated; fi",
     "build:garfish": "bun run integration/garfish/build.ts",
     "test:garfish": "bun run build:garfish && bun --bun playwright test --config playwright.garfish.config.ts",
     "test:pod": "bun --bun playwright test --config playwright.pod.config.ts"

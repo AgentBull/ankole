@@ -148,7 +148,6 @@ defmodule Ankole.Conversations.Delivery.ReplyAttachmentTest do
   test "intent commits reject attachments before route lookup when schema is invalid" do
     assert {:error, {:reply_attachment_required_text_missing, "path"}} =
              Delivery.commit_reply_attachments_in_tx(
-               Ankole.Repo,
                %Signal{},
                "message-1",
                [%{"blob_ref" => @blob_ref, "name" => "report.txt", "size" => 1}]

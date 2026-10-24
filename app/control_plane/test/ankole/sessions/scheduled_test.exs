@@ -26,8 +26,8 @@ defmodule Ankole.Sessions.ScheduledTest do
         )
 
       {:ok, external} =
-        Repo.transact(fn repo ->
-          Ankole.Signals.accept_in_tx(repo, %{
+        Repo.transact(fn ->
+          Ankole.Signals.accept_in_tx(%{
             source: "control-plane://schedule/check_back_later",
             id: "check_back_later:#{scheduled.id}:wakeup",
             type: "check_back_later.wakeup",
@@ -66,8 +66,8 @@ defmodule Ankole.Sessions.ScheduledTest do
 
       for result <- [cron, checkback], data <- [result.signal.data, false, ["external"]] do
         {:ok, external} =
-          Repo.transact(fn repo ->
-            Ankole.Signals.accept_in_tx(repo, %{
+          Repo.transact(fn ->
+            Ankole.Signals.accept_in_tx(%{
               source: result.signal.source,
               id: Ecto.UUID.generate(),
               type: result.signal.type,

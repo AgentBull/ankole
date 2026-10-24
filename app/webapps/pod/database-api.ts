@@ -33,28 +33,30 @@ import {
   podDatabaseViewCreate,
   podDatabaseViewUpdate,
   podDatabaseViewDelete
-} from '../common/api/generated/sdk.gen'
+} from './api/generated/sdk.gen'
 
 export const databaseHTTP = {
   tables: (pageID: string) => podDatabaseTables({ path: { page_id: pageID } }),
-  createTable: (pageID: string, name: string) => podDatabaseTableCreate({ path: { page_id: pageID }, body: { name } }),
+  createTable: (pageID: string, name: string) =>
+    podDatabaseTableCreate({ path: { page_id: pageID }, body: { data: { name } } }),
   schema: (tableID: string): Promise<TableSchema> => podDatabaseSchema({ path: { id: tableID } }),
   query: (tableID: string, body: RecordQuery): Promise<RecordsResult> =>
-    podDatabaseQuery({ path: { id: tableID }, body }),
+    podDatabaseQuery({ path: { id: tableID }, body: { data: body } }),
   aggregate: (tableID: string, body: AggregateQuery): Promise<AggregateResult> =>
-    podDatabaseAggregate({ path: { id: tableID }, body }),
+    podDatabaseAggregate({ path: { id: tableID }, body: { data: body } }),
   write: (tableID: string, body: RecordWrite): Promise<WriteResult> =>
-    podDatabaseWrite({ path: { id: tableID }, body }),
+    podDatabaseWrite({ path: { id: tableID }, body: { data: body } }),
   createField: (tableID: string, body: Partial<DatabaseField>) =>
-    podDatabaseFieldCreate({ path: { id: tableID }, body }),
+    podDatabaseFieldCreate({ path: { id: tableID }, body: { data: body } }),
   updateField: (fieldID: string, patch: Partial<DatabaseField> & { clear_invalid?: boolean }, version: number) =>
-    podDatabaseFieldUpdate({ path: { id: fieldID }, body: { ...patch, version } }),
+    podDatabaseFieldUpdate({ path: { id: fieldID }, body: { data: { ...patch, version } } }),
   removeField: (fieldID: string, version: number) =>
-    podDatabaseFieldDelete({ path: { id: fieldID }, body: { version } }),
-  createView: (tableID: string, body: Partial<DatabaseView>) => podDatabaseViewCreate({ path: { id: tableID }, body }),
+    podDatabaseFieldDelete({ path: { id: fieldID }, query: { version } }),
+  createView: (tableID: string, body: Partial<DatabaseView>) =>
+    podDatabaseViewCreate({ path: { id: tableID }, body: { data: body } }),
   updateView: (viewID: string, patch: Partial<DatabaseView>, version: number) =>
-    podDatabaseViewUpdate({ path: { id: viewID }, body: { ...patch, version } }),
-  removeView: (viewID: string, version: number) => podDatabaseViewDelete({ path: { id: viewID }, body: { version } })
+    podDatabaseViewUpdate({ path: { id: viewID }, body: { data: { ...patch, version } } }),
+  removeView: (viewID: string, version: number) => podDatabaseViewDelete({ path: { id: viewID }, query: { version } })
 }
 
 export function createDatabaseAPI(client: QueryClient, realtime: PodRealtime): DatabaseAPI {

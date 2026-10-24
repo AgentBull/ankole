@@ -405,7 +405,7 @@ defmodule Ankole.Sessions.CodexJobTest do
 
     job =
       Repo.update!(
-        Ecto.Changeset.change(job, Ankole.Principals.WorkAccess.from_sender(Repo, human.uid))
+        Ecto.Changeset.change(job, Ankole.Principals.WorkAccess.from_sender(human.uid))
       )
 
     key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
@@ -472,8 +472,8 @@ defmodule Ankole.Sessions.CodexJobTest do
     events =
       for type <- ["command.steer"] do
         {:ok, event} =
-          Repo.transact(
-            &Ankole.Signals.accept_in_tx(&1, %{
+          Repo.transact(fn ->
+            Ankole.Signals.accept_in_tx(%{
               producer: :kernel,
               target: %{agent_uid: agent.uid, session_id: key.session_id},
               source: "test:runtime",
@@ -484,7 +484,7 @@ defmodule Ankole.Sessions.CodexJobTest do
               type: type,
               available_at: DateTime.utc_now(:microsecond)
             })
-          )
+          end)
 
         event
       end
@@ -612,7 +612,6 @@ defmodule Ankole.Sessions.CodexJobTest do
              Repo.transact(fn repo ->
                assert {:ok, :authorized} =
                         Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(
-                          repo,
                           first.job_ref,
                           agent.uid,
                           :terminal
@@ -622,7 +621,6 @@ defmodule Ankole.Sessions.CodexJobTest do
                assert {:error, _} = Ankole.Ash.update(running, :claim_attempt, %{})
 
                CodexJob.abort_in_tx(
-                 repo,
                  first.job_ref,
                  agent.uid,
                  error,
@@ -762,7 +760,8 @@ defmodule Ankole.Sessions.CodexJobTest do
         type: "background_agent_job.dispatch"
       )
 
-    {:ok, _} = Repo.transact(&Ankole.Sessions.Queue.mark_event_completed_in_tx(&1, dispatch, t0))
+    {:ok, _} =
+      Repo.transact(fn -> Ankole.Sessions.Queue.mark_event_completed_in_tx(dispatch, t0) end)
 
     Repo.update!(
       Ecto.Changeset.change(job,
@@ -952,8 +951,8 @@ defmodule Ankole.Sessions.CodexJobTest do
     [allowed_event, revoked_event] =
       for human <- [allowed, revoked] do
         assert {:ok, event} =
-                 Repo.transact(
-                   &Ankole.Signals.accept_in_tx(&1, %{
+                 Repo.transact(fn ->
+                   Ankole.Signals.accept_in_tx(%{
                      producer: :kernel,
                      target: key,
                      source: "test:runtime",
@@ -964,7 +963,7 @@ defmodule Ankole.Sessions.CodexJobTest do
                      type: "command.steer",
                      available_at: DateTime.utc_now(:microsecond)
                    })
-                 )
+                 end)
 
         assert event.authorization_kind == "human"
         assert event.last_attempt_at == nil

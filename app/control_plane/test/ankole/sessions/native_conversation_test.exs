@@ -123,13 +123,13 @@ defmodule Ankole.Sessions.NativeConversationTest do
     error = %{"code" => "temporary_failure"}
     now = DateTime.utc_now(:microsecond)
 
-    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+    assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
       Repo.transact(fn _repo -> Run.defer_retry(run, error, now) end)
     end
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
-               assert {:ok, _} = Run.defer_retry_in_tx(repo, run, error, now)
+             Repo.transact(fn ->
+               assert {:ok, _} = Run.defer_retry_in_tx(run, error, now)
                refute_receive {:conversation_event, _, _}
                refute_receive {:session_event, _, _, _}
                {:error, :rollback}
@@ -140,7 +140,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     refute_receive {:session_event, _, _, _}
 
     assert {:ok, retried} =
-             Repo.transact(fn repo -> Run.defer_retry_in_tx(repo, run, error, now) end)
+             Repo.transact(fn -> Run.defer_retry_in_tx(run, error, now) end)
 
     refute_receive {:conversation_event, _, _}
     refute_receive {:session_event, _, _, _}
@@ -182,8 +182,8 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert_receive {:session_event, _, _, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
-               assert {:ok, _} = Run.finalize_in_tx(repo, run, :loop_finished, nil)
+             Repo.transact(fn ->
+               assert {:ok, _} = Run.finalize_in_tx(run, :loop_finished, nil)
                refute_receive {:conversation_event, _, _}
                refute_receive {:session_event, _, _, _}
                {:error, :rollback}
@@ -272,9 +272,9 @@ defmodule Ankole.Sessions.NativeConversationTest do
     suspend_tenant()
 
     assert {:error, :rollback} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                assert {:ok, {[], [_]}} =
-                        Run.inject_in_tx(repo, run, [followup], DateTime.utc_now(:microsecond))
+                        Run.inject_in_tx(run, [followup], DateTime.utc_now(:microsecond))
 
                refute_receive {:conversation_event, _, _}
                refute_receive {:session_event, _, _, _}
@@ -363,7 +363,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert {:ok, result} = Run.finalize(%{run | model_response: response, anchor: response.id})
     assert [%Message{text: nil, attachments: [^attachment]}] = result.posted.messages
 
-    {:ok, target} = Ankole.Conversations.Target.for_reply(Repo, context.event)
+    {:ok, target} = Ankole.Conversations.Target.for_reply(context.event)
 
     statement = %Ankole.Conversations.Statement{
       signal: context.event,
@@ -371,7 +371,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     }
 
     assert {:ok, %{messages: [%Message{text: nil, attachments: [^attachment]}]}} =
-             Repo.transact(fn repo -> Conversations.post_in_tx(repo, target, statement) end)
+             Repo.transact(fn -> Conversations.post_in_tx(target, statement) end)
 
     assert Repo.aggregate(Message, :count) == 2
     assert_no_adapter_rows()
@@ -394,7 +394,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
       "mime_type" => "application/pdf"
     }
 
-    {:ok, target} = Ankole.Conversations.Target.for_reply(Repo, context.event)
+    {:ok, target} = Ankole.Conversations.Target.for_reply(context.event)
 
     statement = %Ankole.Conversations.Statement{
       signal: context.event,
@@ -402,8 +402,8 @@ defmodule Ankole.Sessions.NativeConversationTest do
     }
 
     assert {:error, {:reply_attachment_not_in_drive, "sent/missing.pdf"}} =
-             Repo.transact(fn repo ->
-               Conversations.post_in_tx(repo, target, statement)
+             Repo.transact(fn ->
+               Conversations.post_in_tx(target, statement)
              end)
 
     assert Repo.aggregate(Message, :count) == 1
@@ -436,7 +436,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
              Ankole.ConversationsFixtures.create(other.uid, %{attrs | conversation_id: new_id})
 
     fresh =
-      Ankole.AIGateway.Conversations.list_active_conversations(Repo,
+      Ankole.AIGateway.Conversations.list_active_conversations(
         subject_uid: context.agent.uid,
         conversation_key: Ankole.Sessions.Key.conversation(new_id)
       )
@@ -500,16 +500,15 @@ defmodule Ankole.Sessions.NativeConversationTest do
                "result_summary" => "A private report that arrived late"
              })
 
-    assert {:error, _} = Ankole.Conversations.Target.for_reply(Repo, dispatch)
+    assert {:error, _} = Ankole.Conversations.Target.for_reply(dispatch)
     assert Repo.aggregate(Message, :count) == 0
   end
 
   test "retired native identity remains protected by Signal facts before its first model turn",
        context do
     assert {:ok, _} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                Ankole.Sessions.Queue.mark_event_completed_in_tx(
-                 repo,
                  context.event,
                  DateTime.utc_now(:microsecond)
                )

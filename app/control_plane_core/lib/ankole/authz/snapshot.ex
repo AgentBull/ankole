@@ -19,7 +19,7 @@ defmodule Ankole.AuthZ.Snapshot do
   def build_authorization_snapshot(principal_uid, resource, action, context \\ %{}) do
     with {:ok, [action]} <- Input.normalize_actions([action]),
          {:ok, snapshot} <-
-           load_authorization_snapshot(Repo, principal_uid, resource, [action], context) do
+           load_authorization_snapshot(principal_uid, resource, [action], context) do
       {:ok, Map.put(snapshot, "action", action)}
     end
   end
@@ -27,7 +27,7 @@ defmodule Ankole.AuthZ.Snapshot do
   def build_authorization_batch_snapshot(principal_uid, resource, actions, context \\ %{}) do
     with {:ok, actions} <- Input.normalize_actions(actions),
          {:ok, snapshot} <-
-           load_authorization_snapshot(Repo, principal_uid, resource, actions, context) do
+           load_authorization_snapshot(principal_uid, resource, actions, context) do
       {:ok, Map.put(snapshot, "actions", actions)}
     end
   end
@@ -45,16 +45,16 @@ defmodule Ankole.AuthZ.Snapshot do
     }
   end
 
-  defp load_authorization_snapshot(repo, principal_uid, resource, actions, context) do
+  defp load_authorization_snapshot(principal_uid, resource, actions, context) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, resource} <- Input.normalize_resource(resource),
          {:ok, context} <- Input.normalize_context(context),
          {:ok, principal} <- fetch_principal(principal_uid) do
       Repo.with_tenant(principal.tenant_id, fn ->
-        static_group_ids = static_group_ids(repo, principal.uid)
-        computed_groups = computed_group_snapshots(repo)
+        static_group_ids = static_group_ids(principal.uid)
+        computed_groups = computed_group_snapshots()
         candidate_group_ids = static_group_ids ++ Enum.map(computed_groups, & &1["id"])
-        grants = grant_snapshots(repo, principal.uid, candidate_group_ids, actions)
+        grants = grant_snapshots(principal.uid, candidate_group_ids, actions)
 
         {:ok,
          %{
@@ -88,17 +88,17 @@ defmodule Ankole.AuthZ.Snapshot do
     }
   end
 
-  defp computed_group_snapshots(repo) do
+  defp computed_group_snapshots() do
     Group
     |> where([group], group.kind == :computed)
     |> select([group], %{id: group.id, computed_condition: group.computed_condition})
-    |> repo.all()
+    |> Repo.all()
     |> Enum.map(fn group ->
       %{"id" => group.id, "condition" => group.computed_condition || "false"}
     end)
   end
 
-  defp static_group_ids(repo, principal_uid) do
+  defp static_group_ids(principal_uid) do
     Membership
     |> join(:inner, [membership], group in Group, on: group.id == membership.group_id)
     |> where(
@@ -106,18 +106,18 @@ defmodule Ankole.AuthZ.Snapshot do
       membership.principal_uid == ^principal_uid and group.kind == :static
     )
     |> select([membership, _group], membership.group_id)
-    |> repo.all()
+    |> Repo.all()
   end
 
-  defp grant_snapshots(repo, principal_uid, [], actions) do
+  defp grant_snapshots(principal_uid, [], actions) do
     Grant
     |> where([grant], grant.action in ^actions)
     |> where([grant], grant.principal_uid == ^principal_uid)
     |> select_grant_snapshot()
-    |> repo.all()
+    |> Repo.all()
   end
 
-  defp grant_snapshots(repo, principal_uid, candidate_group_ids, actions) do
+  defp grant_snapshots(principal_uid, candidate_group_ids, actions) do
     Grant
     |> where([grant], grant.action in ^actions)
     |> where(
@@ -125,7 +125,7 @@ defmodule Ankole.AuthZ.Snapshot do
       grant.principal_uid == ^principal_uid or grant.group_id in ^candidate_group_ids
     )
     |> select_grant_snapshot()
-    |> repo.all()
+    |> Repo.all()
   end
 
   defp select_grant_snapshot(query) do

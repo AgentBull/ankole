@@ -30,20 +30,39 @@ defmodule Ankole.AuthZ.ResourceActionsTest do
 
     count = Repo.aggregate(Grant, :count)
 
-    for {attrs, field} <- [
-          {%{principal_uid: human.uid, group_id: group.id, action: "read"}, :group_id},
-          {%{action: "read"}, :principal_uid},
-          {%{principal_uid: human.uid, action: "page:view"}, :action}
+    for {attrs, field, message} <- [
+          {%{principal_uid: human.uid, group_id: group.id, action: "read"}, :group_id,
+           "must be blank"},
+          {%{action: "read"}, :principal_uid, "or group_id is required"},
+          {%{principal_uid: human.uid, action: "page:view"}, :action, "must not contain colon"}
         ] do
       assert {:error, error} =
                Repo.transact(fn _repo ->
                  Ankole.Ash.create(Grant, :create_in_tx, Map.put(attrs, :resource_pattern, "**"))
                end)
 
-      assert [_ | _] = Map.fetch!(errors_on(error), field)
+      assert Map.fetch!(errors_on(error), field) == [message]
     end
 
     assert Repo.aggregate(Grant, :count) == count
+  end
+
+  test "static group membership counts unique canonical UIDs within its tenant" do
+    human = human_fixture().principal
+    other = human_fixture().principal
+
+    {:ok, group} =
+      AuthZ.create_principal_group(%{name: unique_uid("count"), display_name: "Count"})
+
+    {:ok, _} = AuthZ.add_principal_to_group(human.uid, group.name)
+
+    assert AuthZ.all_in_group?([], group)
+    assert AuthZ.all_in_group?([human.uid, String.upcase(human.uid)], group)
+    refute AuthZ.all_in_group?([human.uid, other.uid], group)
+    refute AuthZ.all_in_group?([human.uid, ""], group)
+
+    foreign = create_tenant()
+    refute Repo.with_tenant(foreign.id, fn -> AuthZ.all_in_group?([human.uid], group) end)
   end
 
   test "membership and external binding upserts preserve their actual keys and first admission" do

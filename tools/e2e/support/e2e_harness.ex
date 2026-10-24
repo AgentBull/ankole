@@ -55,9 +55,8 @@ defmodule Ankole.E2E.Harness do
     {:ok, binding} = Bindings.get_binding(agent_uid, binding_name)
 
     {:ok, conversation} =
-      Repo.transact(fn repo ->
+      Repo.transact(fn ->
         External.observe_conversation_in_tx(
-          repo,
           binding,
           %{provider_conversation_id: provider_id, external_kind: :im_group, reply_mode: :entry},
           DateTime.utc_now(:microsecond)
@@ -129,7 +128,7 @@ defmodule Ankole.E2E.Harness do
     global_config =
       Repo.all(from(c in Ankole.AppConfigure.AppConfig.for_scope("global"), select: c.key))
       |> Map.new(fn key ->
-        assert {:ok, value} = Ankole.AppConfigure.get_global_by_key_in_tx(Repo, key)
+        assert {:ok, value} = Ankole.AppConfigure.get_global_by_key_in_tx(key)
         {key, value}
       end)
 
@@ -884,8 +883,8 @@ defmodule Ankole.E2E.Harness do
   end
 
   def message_observation(provider_conversation_id, provider_message_id) do
-    case External.get_conversation(Repo, provider_conversation_id) do
-      %Conversation{id: id} -> External.get_message(Repo, id, provider_message_id)
+    case External.get_conversation(provider_conversation_id) do
+      %Conversation{id: id} -> External.get_message(id, provider_message_id)
       nil -> nil
     end
   end

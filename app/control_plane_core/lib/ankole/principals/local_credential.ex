@@ -39,24 +39,6 @@ defmodule Ankole.Principals.LocalCredential do
     update :set_password_in_tx do
       accept([:password_hash, :must_change_password])
     end
-
-    action :complete_forced_password_change, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:uid, :term, allow_nil?: false)
-      argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
-      argument(:credential_version, :integer, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :put_password, :struct do
-      constraints(instance_of: __MODULE__)
-      argument(:uid, :term, allow_nil?: false)
-      argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
-      argument(:must_change_password, :boolean, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
   end
 
   @type t :: %__MODULE__{}

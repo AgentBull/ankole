@@ -1,7 +1,7 @@
 defmodule AnkoleWeb.PodPageControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
-  import OpenApiSpex.TestAssertions
   alias Ankole.Pod.Pages
   alias Ankole.Repo
 
@@ -50,12 +50,11 @@ defmodule AnkoleWeb.PodPageControllerTest do
     }
 
     for scope <- ~w(all space private shared recent favorites) do
-      response = conn |> recycle_api() |> get("/.internal-apis/pod/pages", %{scope: scope})
-      assert %{"pages" => pages} = json_response(response, 200)
+      response = conn |> recycle_api() |> api_get("/api/v2/pod/pages", %{scope: scope})
+      assert %{"pages" => pages} = api_response(response, 200)
       refute Enum.any?(pages, &(&1["id"] == hidden.id))
 
       for page <- pages do
-        assert_schema(page, "PodPage", AnkoleWeb.InternalAPISpec.spec())
         assert page["role"] == Map.fetch!(expected, page["id"])
         assert {:ok, %{role: role}} = Pages.get(uid, page["id"])
         assert page["role"] == role
@@ -63,14 +62,14 @@ defmodule AnkoleWeb.PodPageControllerTest do
     end
 
     {:ok, _} = Pages.delete(uid, space.id)
-    response = conn |> recycle_api() |> get("/.internal-apis/pod/pages", %{scope: "trash"})
-    assert %{"pages" => [%{"id" => id, "role" => "manage"}]} = json_response(response, 200)
+    response = conn |> recycle_api() |> api_get("/api/v2/pod/pages", %{scope: "trash"})
+    assert %{"pages" => [%{"id" => id, "role" => "manage"}]} = api_response(response, 200)
     assert id == space.id
   end
 
   test "browser writes retain the newer document when a stale save conflicts", %{conn: conn} do
     {conn, _uid} = console_conn_with_principal(conn)
-    created = post(conn, "/.internal-apis/pod/pages", %{})
+    created = api_post(conn, "/api/v2/pod/pages", %{})
 
     assert %{
              "page" => %{
@@ -81,30 +80,34 @@ defmodule AnkoleWeb.PodPageControllerTest do
                "created_at" => timestamp
              }
            } =
-             json_response(created, 200)
+             api_response(created, 200)
 
     assert {:ok, _, _} = DateTime.from_iso8601(timestamp)
 
     saved =
       created
       |> recycle_api()
-      |> put("/.internal-apis/pod/pages/#{id}/content", %{
+      |> api_put("/api/v2/pod/pages/#{id}/content", %{
         base_revision: 0,
         xml: "<page><p>new</p></page>"
       })
 
-    assert %{"page" => %{"revision" => 1}} = json_response(saved, 200)
+    assert %{"page" => %{"revision" => 1}} = api_response(saved, 200)
 
     stale =
       saved
       |> recycle_api()
-      |> put("/.internal-apis/pod/pages/#{id}/content", %{base_revision: 0, xml: "<page />"})
+      |> api_put("/api/v2/pod/pages/#{id}/content", %{base_revision: 0, xml: "<page />"})
 
-    assert %{"error" => %{"code" => "revision_conflict"}, "revision" => 1} =
-             json_response(stale, 409)
+    assert %{
+             "errors" => [
+               %{"code" => "revision_conflict", "meta" => %{"details" => %{"revision" => 1}}}
+             ]
+           } =
+             api_response(stale, 409)
 
-    read = stale |> recycle_api() |> get("/.internal-apis/pod/pages/#{id}")
-    assert %{"content" => %{"xml" => "<page><p>new</p></page>"}} = json_response(read, 200)
+    read = stale |> recycle_api() |> api_get("/api/v2/pod/pages/#{id}")
+    assert %{"content" => %{"content" => "<page><p>new</p></page>"}} = api_response(read, 200)
   end
 
   test "deleting database references returns no target metadata for visible, hidden or missing targets",
@@ -115,15 +118,15 @@ defmodule AnkoleWeb.PodPageControllerTest do
     {:ok, parent} = Pages.create(uid, %{})
     {:ok, target} = Pages.create(other.uid, %{type: "database", private_owner_uid: other.uid})
 
-    hidden = post(conn, "/.internal-apis/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
-    assert %{} == json_response(hidden, 200)
+    hidden = api_post(conn, "/api/v2/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
+    assert true == api_response(hidden, 200)
 
     missing =
       hidden
       |> recycle_api()
-      |> post("/.internal-apis/pod/pages/#{parent.id}/embeds/#{Ecto.UUID.generate()}/delete", %{})
+      |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/#{Ecto.UUID.generate()}/delete", %{})
 
-    assert %{} == json_response(missing, 200)
+    assert true == api_response(missing, 200)
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(other.uid, target.id, %{
@@ -135,9 +138,9 @@ defmodule AnkoleWeb.PodPageControllerTest do
     removed =
       missing
       |> recycle_api()
-      |> post("/.internal-apis/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
+      |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
 
-    assert %{} == json_response(removed, 200)
+    assert true == api_response(removed, 200)
     assert {:ok, %{page: %{deleted_at: nil}}} = Pages.get(other.uid, target.id)
   end
 
@@ -152,29 +155,29 @@ defmodule AnkoleWeb.PodPageControllerTest do
     {:ok, _} = Pages.space_agent(uid, agent.uid, "edit")
 
     state =
-      put(conn, "/.internal-apis/pod/pages/#{page.id}/user-state", %{
+      api_put(conn, "/api/v2/pod/pages/#{page.id}/user-state", %{
         favorite: true,
         visited: true
       })
 
     assert %{"user_state" => %{"favorited_at" => favorite, "visited_at" => visited}} =
-             json_response(state, 200)
+             api_response(state, 200)
 
     assert {:ok, _, _} = DateTime.from_iso8601(favorite)
     assert {:ok, _, _} = DateTime.from_iso8601(visited)
 
-    subjects = state |> recycle_api() |> get("/.internal-apis/pod/subjects")
-    assert %{"subjects" => candidates} = json_response(subjects, 200)
+    subjects = state |> recycle_api() |> api_get("/api/v2/pod/subjects")
+    assert %{"subjects" => candidates} = api_response(subjects, 200)
     assert Enum.any?(candidates, &(&1["principal_uid"] == agent.uid and &1["kind"] == "agent"))
 
-    sharing = subjects |> recycle_api() |> get("/.internal-apis/pod/pages/#{page.id}/sharing")
-    assert %{"subjects" => subjects} = json_response(sharing, 200)
+    sharing = subjects |> recycle_api() |> api_get("/api/v2/pod/pages/#{page.id}/sharing")
+    assert %{"subjects" => subjects} = api_response(sharing, 200)
     assert Enum.any?(subjects, &(&1["principal_uid"] == agent.uid and &1["kind"] == "agent"))
 
-    space = sharing |> recycle_api() |> get("/.internal-apis/pod/space")
+    space = sharing |> recycle_api() |> api_get("/api/v2/pod/space")
 
     assert %{"agents" => [%{"principal_uid" => agent_uid, "kind" => "agent", "role" => "edit"}]} =
-             json_response(space, 200)
+             api_response(space, 200)
 
     assert agent_uid == agent.uid
   end
@@ -188,17 +191,17 @@ defmodule AnkoleWeb.PodPageControllerTest do
     {:ok, hidden} = Pages.create(other.uid, %{private_owner_uid: other.uid})
 
     versions =
-      post(conn, "/.internal-apis/pod/versions", %{pages: [visible.id, hidden.id], tables: []})
+      api_post(conn, "/api/v2/pod/versions", %{pages: [visible.id, hidden.id], tables: []})
 
     assert %{"pages" => [%{"id" => id, "revision" => 0}], "tables" => []} =
-             json_response(versions, 200)
+             api_response(versions, 200)
 
     assert id == visible.id
-    token = versions |> recycle_api() |> get("/.internal-apis/pod/realtime-token")
-    assert %{"principal" => %{"uid" => ^uid}, "token" => signed} = json_response(token, 200)
+    token = versions |> recycle_api() |> api_get("/api/v2/pod/realtime-token")
+    assert %{"principal" => %{"uid" => ^uid}, "token" => signed} = api_response(token, 200)
     assert is_binary(signed)
-    denied = token |> recycle_api() |> get("/.internal-apis/pod/pages/#{hidden.id}")
-    assert %{"error" => %{"code" => "forbidden"}} = json_response(denied, 403)
+    denied = token |> recycle_api() |> api_get("/api/v2/pod/pages/#{hidden.id}")
+    assert %{"errors" => [%{"code" => "forbidden"}]} = api_response(denied, 403)
   end
 
   test "deleting a completed conversation through the browser keeps its saved Page", %{
@@ -212,41 +215,40 @@ defmodule AnkoleWeb.PodPageControllerTest do
     message = Ankole.Kernel.gen_uuid_v7()
 
     created =
-      post(conn, "/.internal-apis/pod/conversations", %{
+      api_post(conn, "/api/v2/pod/conversations", %{
         conversationID: id,
         messageID: message,
         agentUID: agent.uid,
         text: "Save this research"
       })
 
-    assert json_response(created, 200)
+    assert api_response(created, 200)
 
     saved =
       created
       |> recycle_api()
-      |> post("/.internal-apis/pod/pages", %{saved_from_message_id: message})
+      |> api_post("/api/v2/pod/pages", %{saved_from_message_id: message})
 
-    assert %{"page" => %{"id" => page_id}} = json_response(saved, 200)
-    busy = saved |> recycle_api() |> delete("/.internal-apis/pod/conversations/#{id}")
-    assert %{"error" => %{"code" => "conversation_busy"}} = json_response(busy, 409)
+    assert %{"page" => %{"id" => page_id}} = api_response(saved, 200)
+    busy = saved |> recycle_api() |> api_delete("/api/v2/pod/conversations/#{id}")
+    assert %{"errors" => [%{"code" => "conversation_busy"}]} = api_response(busy, 409)
 
     Repo.with_tenant(tenant.id, fn ->
       import Ecto.Query
       event = Repo.one!(from event in Ankole.Signals.Signal, where: event.conversation_id == ^id)
 
       {:ok, _} =
-        Repo.transact(fn repo ->
+        Repo.transact(fn ->
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
-            repo,
             event,
             DateTime.utc_now(:microsecond)
           )
         end)
     end)
 
-    removed = busy |> recycle_api() |> delete("/.internal-apis/pod/conversations/#{id}")
-    assert response(removed, 204) == ""
-    retained = removed |> recycle_api() |> get("/.internal-apis/pod/pages/#{page_id}")
-    assert %{"source_conversation" => %{"deleted" => true}} = json_response(retained, 200)
+    removed = busy |> recycle_api() |> api_delete("/api/v2/pod/conversations/#{id}")
+    assert api_response(removed, 200) == true
+    retained = removed |> recycle_api() |> api_get("/api/v2/pod/pages/#{page_id}")
+    assert %{"source_conversation" => %{"deleted" => true}} = api_response(retained, 200)
   end
 end

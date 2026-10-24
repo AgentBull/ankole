@@ -98,9 +98,9 @@ defmodule Ankole.Sessions.GeneratedImageFinalizationIntegrationTest do
     assert {:ok, :locks_available} =
              Repo.transact(fn repo ->
                repo.query!("SET LOCAL lock_timeout = '1s'")
-               :ok = Queue.lock_session_in_tx(repo, agent.uid, event.session_id)
-               assert Fence.lock_workspace_in_tx(repo, key)
-               assert Ankole.Signals.lock_signal_in_tx(repo, event.id)
+               :ok = Queue.lock_session_in_tx(agent.uid, event.session_id)
+               assert Fence.lock_workspace_in_tx(key)
+               assert Ankole.Signals.lock_signal_in_tx(event.id)
                {:ok, :locks_available}
              end)
 

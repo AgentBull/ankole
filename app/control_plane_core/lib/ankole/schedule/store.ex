@@ -8,10 +8,10 @@ defmodule Ankole.Schedule.Store do
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
-  @spec insert_idempotent_event_and_wake_in_tx(module(), map(), keyword()) ::
+  @spec insert_idempotent_event_and_wake_in_tx(map(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  def insert_idempotent_event_and_wake_in_tx(_repo, attrs, opts) do
+  def insert_idempotent_event_and_wake_in_tx(attrs, opts) do
     with {:ok, persisted} <- create_event(attrs, :schedule_event) do
       case Ash.Resource.get_metadata(persisted, :upsert_action) do
         :insert ->
@@ -29,14 +29,14 @@ defmodule Ankole.Schedule.Store do
     do: Ankole.Ash.create(ScheduledEvent, action, attrs, touch_update_defaults?: false)
 
   @doc "Locks the scheduled events that a query selects and cancels them."
-  @spec cancel_matching_in_tx(module(), Ash.Query.t(), DateTime.t(), String.t()) ::
+  @spec cancel_matching_in_tx(Ash.Query.t(), DateTime.t(), String.t()) ::
           {:ok, [ScheduledEvent.t()]} | {:error, term()}
-  def cancel_matching_in_tx(_repo, query, now, reason),
+  def cancel_matching_in_tx(query, now, reason),
     do: query |> lock_events() |> cancel_scheduled_events(now, reason)
 
-  @spec cancel_pending_cron_events(module(), CronSchedule.t(), DateTime.t()) ::
+  @spec cancel_pending_cron_events(CronSchedule.t(), DateTime.t()) ::
           {:ok, [ScheduledEvent.t()]} | {:error, term()}
-  def cancel_pending_cron_events(_repo, %CronSchedule{id: schedule_id}, now) do
+  def cancel_pending_cron_events(%CronSchedule{id: schedule_id}, now) do
     ScheduledEvent
     |> Ash.Query.filter(
       kind == "cron_fire" and cron_schedule_id == ^schedule_id and status == :scheduled
@@ -70,9 +70,9 @@ defmodule Ankole.Schedule.Store do
     |> Attrs.collect_results()
   end
 
-  @spec lock_cron_by_idempotency(module(), map()) ::
+  @spec lock_cron_by_idempotency(map()) ::
           {:ok, CronSchedule.t()} | {:error, :cron_schedule_not_found}
-  def lock_cron_by_idempotency(repo, attrs) do
+  def lock_cron_by_idempotency(attrs) do
     query =
       Ash.Query.filter(
         CronSchedule,
@@ -81,7 +81,7 @@ defmodule Ankole.Schedule.Store do
       )
 
     with %CronSchedule{id: id} <- read_one(query),
-         %CronSchedule{} = schedule <- lock_cron_schedule(repo, id, attrs.automation_job_id) do
+         %CronSchedule{} = schedule <- lock_cron_schedule(id, attrs.automation_job_id) do
       {:ok, schedule}
     else
       nil -> {:error, :cron_schedule_not_found}
@@ -96,9 +96,9 @@ defmodule Ankole.Schedule.Store do
   When the current binding changes before the lock, the result is
   `{:error, :cron_schedule_changed}`.
   """
-  @spec lock_cron_schedule(module(), Ecto.UUID.t(), :current | pos_integer() | nil) ::
+  @spec lock_cron_schedule(Ecto.UUID.t(), :current | pos_integer() | nil) ::
           CronSchedule.t() | nil | {:error, :cron_schedule_changed}
-  def lock_cron_schedule(repo, cron_schedule_id, automation_job_id \\ :current) do
+  def lock_cron_schedule(cron_schedule_id, automation_job_id \\ :current) do
     case get_cron_schedule(cron_schedule_id) do
       nil ->
         nil
@@ -109,7 +109,7 @@ defmodule Ankole.Schedule.Store do
             do: snapshot.automation_job_id,
             else: automation_job_id
 
-        if consumer, do: Ankole.AutomationJobs.lock_job_in_tx(repo, consumer)
+        if consumer, do: Ankole.AutomationJobs.lock_job_in_tx(consumer)
         schedule = lock_cron_row(cron_schedule_id)
 
         if automation_job_id == :current and not is_nil(schedule) and
@@ -134,8 +134,8 @@ defmodule Ankole.Schedule.Store do
     |> read_one(lock_identity: {"cron_schedules", cron_schedule_id})
   end
 
-  @spec lock_scheduled_event(module(), pos_integer()) :: ScheduledEvent.t() | nil
-  def lock_scheduled_event(_repo, scheduled_event_id) do
+  @spec lock_scheduled_event(pos_integer()) :: ScheduledEvent.t() | nil
+  def lock_scheduled_event(scheduled_event_id) do
     ScheduledEvent
     |> Ash.Query.filter(id == ^scheduled_event_id)
     |> Ash.Query.lock(:for_update)
@@ -156,16 +156,15 @@ defmodule Ankole.Schedule.Store do
   outside the recurrence and do not count. This is what an occurrence `count`
   bound measures.
   """
-  @spec count_consumed_cron_slots(module(), Ecto.UUID.t()) :: non_neg_integer()
-  def count_consumed_cron_slots(_repo, cron_schedule_id) do
+  @spec count_consumed_cron_slots(Ecto.UUID.t()) :: non_neg_integer()
+  def count_consumed_cron_slots(cron_schedule_id) do
     ScheduledEvent
     |> Ash.Query.filter(
       kind == "cron_fire" and cron_schedule_id == ^cron_schedule_id and
         status in [:fired, :failed] and
         fragment("COALESCE(?->>'trigger', 'scheduled') = 'scheduled'", wake_payload)
     )
-    |> Ankole.Ash.aggregate!({:count, :count})
-    |> Map.fetch!(:count)
+    |> Ankole.Ash.count!()
   end
 
   @spec cron_source_event_id(Ecto.UUID.t(), DateTime.t()) :: String.t()

@@ -1307,8 +1307,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
   defp record_tool_results(attrs) do
     {:ok, result} =
-      Ankole.Repo.transact(fn repo ->
-        {:ok, ToolResultJournal.record_tool_results_in_tx(repo, attrs)}
+      Ankole.Repo.transact(fn ->
+        {:ok, ToolResultJournal.record_tool_results_in_tx(attrs)}
       end)
 
     case result do

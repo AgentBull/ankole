@@ -211,66 +211,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       run(__MODULE__.Actions)
     end
 
-    action :create_cron_schedule, :term do
-      argument(:attrs, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :update_cron_schedule, :term do
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:attrs, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :pause_cron_schedule, :term do
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :resume_cron_schedule, :term do
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :remove_cron_schedule, :term do
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :run_cron_schedule, :term do
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:opts, :term, default: [])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :fire_cron, :term do
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:now, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :record_fire_failure, :term do
-      allow_nil?(true)
-      argument(:cron_schedule_id, :term, allow_nil?: false)
-      argument(:slot, :term, allow_nil?: false)
-      argument(:reason, :term)
-      argument(:now, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
     create :create do
       primary?(true)
       upsert?(true)

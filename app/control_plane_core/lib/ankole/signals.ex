@@ -77,41 +77,22 @@ defmodule Ankole.Signals do
     resource Ankole.Signals.Signal do
       define(:get_signal, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_signals, action: :read)
-      define(:refund_attempt_signal, action: :refund_attempt)
       define(:revise_input_signal, action: :revise_input)
       define(:update_metadata_signal, action: :update_metadata)
       define(:reauthorize_signal, action: :reauthorize)
       define(:remove_signal, action: :remove)
-      define(:intake, action: :intake, args: [:attrs])
-      define(:intake_all, action: :intake_all, args: [:attrs_list])
     end
 
     resource Ankole.Signals.Binding do
       define(:get_binding, action: :read, get_by: [:agent_uid, :name], not_found_error?: false)
       define(:list_bindings, action: :read)
-      define(:assign_binding, action: :assign, args: [:assignment])
-      define(:reassign_binding, action: :reassign, args: [:assignment])
-      define(:put_cloud_binding, action: :put_cloud, args: [:binding])
-      define(:move_cloud_binding, action: :move_cloud, args: [:source, :current_config, :binding])
-      define(:disable_binding, action: :disable_by_name, args: [:agent_uid, :name])
     end
 
-    resource Ankole.Signals.WebhookEndpoint do
-      define(:get_webhook_endpoint, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_webhook_endpoints, action: :read)
-      define(:create_webhook_endpoint, action: :create_endpoint, args: [:attrs, :token])
-
-      define(:cancel_webhook_endpoint,
-        action: :cancel_endpoint,
-        args: [:agent_uid, :session_id, :endpoint_id, :now]
-      )
-
-      define(:receive_webhook, action: :receive, args: [:token, :format, :input, :now])
-    end
+    resource(Ankole.Signals.WebhookEndpoint)
   end
 
   @doc "Locks a Signal row inside the caller-owned transaction."
-  def lock_signal_in_tx(_repo, signal_id) do
+  def lock_signal_in_tx(signal_id) do
     Signal
     |> Ash.Query.filter(id == ^signal_id)
     |> Ash.Query.lock(:for_update)
@@ -119,7 +100,7 @@ defmodule Ankole.Signals do
   end
 
   @doc "Locks a Signal of one Session queue inside the caller-owned transaction."
-  def lock_session_signal_in_tx(_repo, %{agent_uid: uid, session_id: session}, signal_id) do
+  def lock_session_signal_in_tx(%{agent_uid: uid, session_id: session}, signal_id) do
     Signal
     |> Ash.Query.filter(id == ^signal_id and agent_uid == ^uid and session_id == ^session)
     |> Ash.Query.lock(:for_update)
@@ -127,7 +108,7 @@ defmodule Ankole.Signals do
   end
 
   @doc "Reads a Binding with a share lock inside the caller-owned transaction."
-  def share_binding_in_tx(_repo, agent_uid, binding_name) do
+  def share_binding_in_tx(agent_uid, binding_name) do
     Ankole.Signals.Binding
     |> Ash.Query.filter(agent_uid == ^agent_uid and name == ^binding_name)
     |> Ash.Query.lock("FOR SHARE")
@@ -141,7 +122,7 @@ defmodule Ankole.Signals do
   The rows come in queue order. `sort:` gives another order and `limit:` keeps
   only the first rows.
   """
-  def lock_signals_in_tx(_repo, filter, opts \\ []) do
+  def lock_signals_in_tx(filter, opts \\ []) do
     Signal
     |> Ash.Query.do_filter(filter)
     |> Ash.Query.sort(Keyword.get(opts, :sort, queue_sequence: :asc))
@@ -212,15 +193,13 @@ defmodule Ankole.Signals do
 
   @doc "Gives the Sessions of every tenant that have due open input."
   def due_sessions_across_tenants(now) do
-    Ankole.Repo.across_tenants(fn ->
-      Signal
-      |> Ash.Query.for_read(:work_across_tenants, %{}, authorize?: false)
-      |> Ash.Query.filter(status in [:queued, :running] and available_at <= ^now)
-      |> Ash.Query.distinct([:agent_uid, :session_id])
-      |> Ash.Query.select([:agent_uid, :session_id, :tenant_id])
-      |> Ash.read!(authorize?: false)
-      |> Enum.map(&Map.take(&1, [:agent_uid, :session_id, :tenant_id]))
-    end)
+    Signal
+    |> Ash.Query.for_read(:work_across_tenants)
+    |> Ash.Query.filter(status in [:queued, :running] and available_at <= ^now)
+    |> Ash.Query.distinct([:agent_uid, :session_id])
+    |> Ash.Query.select([:agent_uid, :session_id, :tenant_id])
+    |> Ankole.Ash.read_across_tenants!()
+    |> Enum.map(&Map.take(&1, [:agent_uid, :session_id, :tenant_id]))
   end
 
   @doc """
@@ -231,12 +210,12 @@ defmodule Ankole.Signals do
   def count_admitted_attempts_for_human(uid, version) do
     Ankole.Repo.across_tenants(fn ->
       Signal
-      |> Ash.Query.for_read(:work_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.for_read(:work_across_tenants)
       |> Ash.Query.filter(
         human_uid == ^uid and human_access_version < ^version and
           status in [:queued, :running] and not is_nil(last_attempt_at)
       )
-      |> Ash.count!(authorize?: false)
+      |> Ankole.Ash.count!()
     end)
   end
 
@@ -254,19 +233,19 @@ defmodule Ankole.Signals do
   Moves a locked Signal through one queue action inside the caller-owned
   transaction. The Signal state machine accepts or refuses the move.
   """
-  def transition_in_tx(_repo, %Signal{} = signal, action, input \\ %{})
+  def transition_in_tx(%Signal{} = signal, action, input \\ %{})
       when action in @transitions,
       do: Ankole.Ash.update(signal, action, input)
 
   @doc "Gives the Signals back their failure budget and makes them due at `available_at`."
-  def reset_attempts_in_tx(_repo, ids, available_at) do
+  def reset_attempts_in_tx(ids, available_at) do
     Signal
     |> Ash.Query.filter(id in ^ids)
     |> Ankole.Ash.update_where(:reset_attempts, %{available_at: available_at})
   end
 
   @doc "Dead-letters the unstarted Signals of a Human whose work access ended."
-  def stop_human_work_in_tx(_repo, uid, version, now) do
+  def stop_human_work_in_tx(uid, version, now) do
     {:ok, revoked} =
       Signal
       |> Ash.Query.filter(
@@ -282,21 +261,19 @@ defmodule Ankole.Signals do
   end
 
   @doc "Locks an already resolved execution target before its public Conversation row."
-  def lock_target_in_tx(repo, %{agent_uid: uid, session_id: key}),
-    do: Ankole.Sessions.Queue.lock_session_in_tx(repo, uid, key)
+  def lock_target_in_tx(%{agent_uid: uid, session_id: key}),
+    do: Ankole.Sessions.Queue.lock_session_in_tx(uid, key)
 
   @doc """
   Returns completed Signals for a provider entry inside a caller-owned transaction.
   """
   @spec signals_for_entry_in_tx(
-          module(),
           String.t(),
           String.t(),
           String.t(),
           String.t()
         ) :: [Signal.t()]
   def signals_for_entry_in_tx(
-        _repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -327,7 +304,6 @@ defmodule Ankole.Signals do
   end
 
   def signals_for_entry_in_tx(
-        _repo,
         _agent_uid,
         _binding_name,
         _conversation_id,
@@ -340,7 +316,13 @@ defmodule Ankole.Signals do
 
   A rejected stimulus gives its domain reason.
   """
-  def accept(attrs) when is_map(attrs), do: attrs |> intake() |> Ankole.Errors.reason()
+  def accept(attrs) when is_map(attrs) do
+    Ankole.Repo.transact_top_level(
+      fn -> Intake.accept(attrs) end,
+      after_commit: &publish_committed/1
+    )
+  end
+
   def accept(_attrs), do: {:error, :invalid_request}
 
   @doc """
@@ -349,8 +331,16 @@ defmodule Ankole.Signals do
 
   A rejected stimulus rejects the full list and gives its domain reason.
   """
-  def accept_all(attrs_list) when is_list(attrs_list),
-    do: attrs_list |> intake_all() |> Ankole.Errors.reason()
+  def accept_all(attrs_list) when is_list(attrs_list) do
+    Ankole.Repo.transact_top_level(
+      fn ->
+        if Enum.all?(attrs_list, &is_map/1),
+          do: Intake.accept_all(attrs_list),
+          else: {:error, :invalid_request}
+      end,
+      after_commit: &publish_committed/1
+    )
+  end
 
   @doc "Publishes one Signal or a list of Signals that a transaction committed."
   def publish_committed(signals) do
@@ -391,11 +381,11 @@ defmodule Ankole.Signals do
   def reply_anchor_provider_message_id(%Signal{} = event), do: event.provider_message_id
 
   @doc "Accepts a stimulus with a durable EnsureDriver job in the caller's transaction."
-  def accept_in_tx(repo, attrs) when is_map(attrs) do
-    with :ok <- Ankole.Repo.require_transaction(repo), do: Intake.accept(repo, attrs)
+  def accept_in_tx(attrs) when is_map(attrs) do
+    with :ok <- Ankole.Repo.require_transaction(), do: Intake.accept(attrs)
   end
 
-  def accept_in_tx(_repo, _attrs), do: {:error, :invalid_request}
+  def accept_in_tx(_attrs), do: {:error, :invalid_request}
 
   @doc """
   Accepts a list of stimuli in the caller's transaction.
@@ -403,10 +393,10 @@ defmodule Ankole.Signals do
   One query reads the existing Signals and one bulk insert writes the new
   Signals. The result has one Signal for each input, in the input order.
   """
-  def accept_all_in_tx(repo, attrs_list) when is_list(attrs_list) do
-    with :ok <- Ankole.Repo.require_transaction(repo) do
+  def accept_all_in_tx(attrs_list) when is_list(attrs_list) do
+    with :ok <- Ankole.Repo.require_transaction() do
       if Enum.all?(attrs_list, &is_map/1),
-        do: Intake.accept_all(repo, attrs_list),
+        do: Intake.accept_all(attrs_list),
         else: {:error, :invalid_request}
     end
   end

@@ -2,17 +2,17 @@ defmodule Ankole.Pod.Files do
   @moduledoc """
   Page-owned files on the Pod drive, with page authorization and revision checks.
 
-  A manifest read and a file commit run generic actions of `Ankole.Pod.Page`
-  under the page row lock.
+  A manifest read and a file commit run in top-level transactions under the page
+  row lock.
   """
 
   alias Ankole.Files, as: Drive
-  alias Ankole.Pod.{Page, Pages}
+  alias Ankole.Pod.{Access, Pages}
   alias Ankole.Repo
 
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
   def manifest(uid, page_id),
-    do: Ankole.Ash.run_action(Page, :read_page_files, %{uid: uid, id: page_id})
+    do: Repo.transact_top_level(fn -> manifest_in_tx(uid, page_id) end)
 
   @doc false
   def manifest_in_tx(uid, page_id) do
@@ -106,13 +106,9 @@ defmodule Ankole.Pod.Files do
 
   def publish(uid, page_id, base_revision, files, authority) when is_list(files) do
     with {:ok, upserts} <- publish_files(page_id, files) do
-      Ankole.Ash.run_action(Page, :publish_applet, %{
-        uid: uid,
-        id: page_id,
-        base_revision: base_revision,
-        upserts: upserts,
-        authority: authority
-      })
+      Access.write(authority, fn -> publish_in_tx(uid, page_id, base_revision, upserts) end,
+        after_commit: &committed/1
+      )
     end
   end
 
@@ -141,7 +137,7 @@ defmodule Ankole.Pod.Files do
            :ok <- own_publish_contents(uid, page.id, upserts),
            {:ok, routes} <- inspect_backend(page.id, upserts),
            {:ok, result} <-
-             Drive.commit(Repo, :pod, upserts, [
+             Drive.commit_in_tx(:pod, upserts, [
                prefix(page.id) <> "/src",
                prefix(page.id) <> "/dist",
                prefix(page.id) <> "/server"
@@ -159,18 +155,17 @@ defmodule Ankole.Pod.Files do
   end
 
   defp commit_upload(uid, page_id, role, base_revision, name, digest, content_type, authority) do
-    Ankole.Ash.run_action(Page, :commit_page_file, %{
-      uid: uid,
-      id: page_id,
-      upload: %{
-        role: role,
-        base_revision: base_revision,
-        name: name,
-        digest: digest,
-        content_type: content_type
-      },
-      authority: authority
-    })
+    upload = %{
+      role: role,
+      base_revision: base_revision,
+      name: name,
+      digest: digest,
+      content_type: content_type
+    }
+
+    Access.write(authority, fn -> commit_upload_in_tx(uid, page_id, upload) end,
+      after_commit: &committed/1
+    )
   end
 
   @doc false
@@ -183,8 +178,7 @@ defmodule Ankole.Pod.Files do
            {:ok, path} <- upload_path(page.id, role, digest, name),
            deletes = if(role == "file", do: [prefix(page.id)], else: []),
            {:ok, %{files: [file]}} <-
-             Drive.commit(
-               Repo,
+             Drive.commit_in_tx(
                :pod,
                [%{path: path, sha256: digest, source: "pod", content_type: upload.content_type}],
                deletes

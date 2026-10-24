@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodMovePermissionsControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import AnkoleWeb.PodAPI
   @moduletag host: :pod
   alias Ankole.Pod.Pages
 
@@ -24,8 +25,8 @@ defmodule AnkoleWeb.PodMovePermissionsControllerTest do
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, right.id, %{grants: grants})
     {:ok, page} = Pages.create(owner.uid, %{parent_id: left.id})
 
-    rejected = post(conn, "/.internal-apis/pod/pages/#{page.id}/move", %{parent_id: right.id})
-    assert %{"error" => %{"code" => "move_requires_manage"}} = json_response(rejected, 403)
+    rejected = api_post(conn, "/api/v2/pod/pages/#{page.id}/move", %{parent_id: right.id})
+    assert %{"errors" => [%{"code" => "move_requires_manage"}]} = api_response(rejected, 403)
     assert {:ok, %{parent_id: original}} = Pages.fetch(page.id)
     assert original == left.id
 
@@ -34,9 +35,9 @@ defmodule AnkoleWeb.PodMovePermissionsControllerTest do
     moved =
       rejected
       |> recycle_api()
-      |> post("/.internal-apis/pod/pages/#{page.id}/move", %{parent_id: right.id})
+      |> api_post("/api/v2/pod/pages/#{page.id}/move", %{parent_id: right.id})
 
-    assert %{"page" => %{"id" => id, "parent_id" => destination}} = json_response(moved, 200)
+    assert %{"page" => %{"id" => id, "parent_id" => destination}} = api_response(moved, 200)
     assert id == page.id
     assert destination == right.id
     assert {:error, :forbidden} = Pages.authorize(uid, page.id, "page_manage")

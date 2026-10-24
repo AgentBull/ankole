@@ -116,7 +116,7 @@ test('shared sample reservations use the real backend, retain failed work, and n
     const saved = await request(owner, `/tables/${state.backend_table_id}/query`, 'POST', {
       ids: [state.backend_record_id]
     })
-    expect(saved.status).toBe(200)
+    expect(saved.status).toBe(201)
     expect(saved.body.records[0].data[state.backend_stock_field_id]).toBe(1)
 
     const previous = await request(owner, `/pages/${state.backend_applet_id}`)
@@ -126,7 +126,7 @@ test('shared sample reservations use the real backend, retain failed work, and n
       base_revision: oldRevision,
       files: state.backend_publish_v2_files
     })
-    expect(publication.status).toBe(200)
+    expect(publication.status).toBe(201)
     expect(publication.body.routes).toEqual(['GET /stock', 'POST /reserve'])
     const oldRequest = await request(
       owner,
@@ -213,7 +213,7 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
       parent_id: state.backend_report_id,
       title: 'Revision recovery check'
     })
-    expect(created.status).toBe(200)
+    expect(created.status).toBe(201)
     id = created.body.page.id
     const publish = () =>
       request(control, `/pages/${id}/publish`, 'POST', {
@@ -222,17 +222,17 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
       })
     let revision = 0
     const initial = await publish()
-    expect(initial.status).toBe(200)
+    expect(initial.status).toBe(201)
     revision = initial.body.revision
     const stockRevisions: string[] = []
     const reserveRevisions: string[] = []
     page.on('request', outgoing => {
-      if (new URL(outgoing.url()).pathname === `/.internal-apis/pod/pages/${id}/routes/stock`) {
+      if (new URL(outgoing.url()).pathname === `/api/v2/pod/pages/${id}/routes/stock`) {
         stockRevisions.push(outgoing.headers()['x-ankole-applet-revision'])
       }
       if (
         outgoing.method() === 'POST' &&
-        new URL(outgoing.url()).pathname === `/.internal-apis/pod/pages/${id}/routes/reserve`
+        new URL(outgoing.url()).pathname === `/api/v2/pod/pages/${id}/routes/reserve`
       ) {
         reserveRevisions.push(outgoing.headers()['x-ankole-applet-revision'])
       }
@@ -256,7 +256,7 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
       let reads = 0
       const before = revision
       const priorReserves = reserveRevisions.length
-      const pageURL = (url: URL) => url.pathname === `/.internal-apis/pod/pages/${id}`
+      const pageURL = (url: URL) => url.pathname === `/api/v2/pod/pages/${id}`
       await page.route(pageURL, async route => {
         if (route.request().method() !== 'GET') return route.continue()
         reads++
@@ -306,13 +306,13 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
         await title.press('Enter')
         await oldReady.promise
         const published = await publish()
-        expect(published.status).toBe(200)
+        expect(published.status).toBe(201)
         revision = published.body.revision
         expect(revision).toBe(before + 1)
         const staleResponse = page.waitForResponse(
           response =>
             response.request().method() === 'POST' &&
-            new URL(response.url()).pathname === `/.internal-apis/pod/pages/${id}/routes/reserve`
+            new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/routes/reserve`
         )
         await workspace.getByRole('button', { name: 'Reserve samples', exact: true }).click()
         const rejected = await staleResponse

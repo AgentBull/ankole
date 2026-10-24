@@ -12,11 +12,11 @@ defmodule Ankole.AIAgent.TokenQuota do
   current window at once and starts an empty one. No change touches the ledger.
   """
 
-  alias Ankole.AIAgent.Operations
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Attrs
   alias Ankole.Principals
   alias Ankole.Principals.Agent
+  alias Ankole.Repo
 
   @seconds_per_day 86_400
 
@@ -47,23 +47,24 @@ defmodule Ankole.AIAgent.TokenQuota do
   """
   @spec put(String.t(), map()) :: {:ok, quota()} | {:error, term()}
   def put(agent_uid, attrs),
-    do: run(:put_token_quota, agent_uid, %{attrs: attrs})
+    do: run(agent_uid, &put_in_tx(&1, attrs))
 
   @doc """
   Removes the token quota of one Agent, which leaves it without a limit.
   """
   @spec delete(String.t()) :: {:ok, nil} | {:error, term()}
-  def delete(agent_uid), do: run(:delete_token_quota, agent_uid, %{})
+  def delete(agent_uid), do: run(agent_uid, &delete_locked/1)
 
   @doc """
   Starts a new period at this instant.
   """
   @spec reset(String.t()) :: {:ok, quota()} | {:error, term()}
-  def reset(agent_uid), do: run(:reset_token_quota, agent_uid, %{})
+  def reset(agent_uid), do: run(agent_uid, &reset_locked/1)
 
   @doc false
-  # Runs the `:put_token_quota` action of `Ankole.AIAgent.Operations`.
-  def put_locked(%{agent_uid: agent_uid, attrs: attrs}) do
+  def put_in_tx(agent_uid, attrs) do
+    :ok = Repo.require_transaction()
+
     with %Agent{} = agent <- lock_agent(agent_uid),
          {:ok, quota} <- normalize(attrs, quota_from_agent(agent)),
          {:ok, _agent} <- write_quota(agent, quota) do
@@ -74,9 +75,7 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  @doc false
-  # Runs the `:delete_token_quota` action of `Ankole.AIAgent.Operations`.
-  def delete_locked(%{agent_uid: agent_uid}) do
+  defp delete_locked(agent_uid) do
     with %Agent{} = agent <- lock_agent(agent_uid),
          {:ok, _agent} <- write_quota(agent, nil) do
       {:ok, nil}
@@ -86,19 +85,17 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  @doc false
-  # Runs the `:reset_token_quota` action of `Ankole.AIAgent.Operations`.
-  def reset_locked(%{agent_uid: agent_uid}) do
+  defp reset_locked(agent_uid) do
     case lock_agent(agent_uid) do
       %Agent{} = agent -> reset_locked_agent(agent)
       nil -> {:error, :agent_not_found}
     end
   end
 
-  defp run(action, agent_uid, arguments) do
+  defp run(agent_uid, fun) do
     case Principals.normalize_uid(agent_uid) do
       {:ok, agent_uid} ->
-        Ankole.Ash.run_action(Operations, action, Map.put(arguments, :agent_uid, agent_uid))
+        Repo.transact_top_level(fn -> fun.(agent_uid) end)
 
       {:error, _reason} ->
         {:error, :agent_not_found}
@@ -229,7 +226,7 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  defp lock_agent(agent_uid), do: Principals.lock_agent_in_tx(Ankole.Repo, agent_uid)
+  defp lock_agent(agent_uid), do: Principals.lock_agent_in_tx(agent_uid)
 
   defp write_quota(%Agent{} = agent, quota) do
     agent

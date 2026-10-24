@@ -11,9 +11,9 @@ defmodule Ankole.Plugins.Contracts do
     * `refresh` publishes the subsystem view of the boot snapshot. A function
       of arity 1 receives the active declarations of the contract. A function
       of arity 2 receives the discovered and the active Plugin specs.
-    * `veto_disable` receives the repo, the previous enabled Plugin ids, and the
-      next enabled Plugin ids, inside the transaction that writes the enable
-      list. It returns `:ok` or `{:error, reason}` to stop the write.
+    * `veto_disable` receives the previous enabled Plugin ids and the next
+      enabled Plugin ids, inside the transaction that writes the enable list.
+      It returns `:ok` or `{:error, reason}` to stop the write.
 
   `Ankole.Plugins.Registry` and `Ankole.Plugins.Config` use only this table. A
   new contract adds one entry here. A declaration of a contract without an
@@ -47,11 +47,11 @@ defmodule Ankole.Plugins.Contracts do
 
   The caller holds the transaction and the key lock of the enable list.
   """
-  @spec veto_disable(module(), [String.t()], [String.t()]) :: :ok | {:error, term()}
-  def veto_disable(repo, previous_ids, enabled_ids) do
+  @spec veto_disable([String.t()], [String.t()]) :: :ok | {:error, term()}
+  def veto_disable(previous_ids, enabled_ids) do
     Enum.reduce_while(contracts(), :ok, fn
       {_contract_id, %{veto_disable: veto}}, :ok ->
-        case veto.(repo, previous_ids, enabled_ids) do
+        case veto.(previous_ids, enabled_ids) do
           :ok -> {:cont, :ok}
           {:error, _reason} = error -> {:halt, error}
         end
@@ -87,7 +87,7 @@ defmodule Ankole.Plugins.Contracts do
       "agent_workers.provider_kind" => %{
         validate: &Ankole.AgentWorkers.ProviderKind.validate_adapter_declaration/1,
         refresh: &Ankole.AgentWorkers.ProviderKind.refresh_from_specs/2,
-        veto_disable: &Ankole.AgentWorkers.Providers.veto_disable_in_tx/3
+        veto_disable: &Ankole.AgentWorkers.Providers.veto_disable_in_tx/2
       }
     }
   end

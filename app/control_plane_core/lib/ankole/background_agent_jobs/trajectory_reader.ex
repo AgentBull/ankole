@@ -83,23 +83,20 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
       when is_integer(limit) and limit > 0 do
     with {:ok, cursor} <- decode_cursor(cursor),
          {:ok, boundary} <- lineage_cursor_boundary(job, cursor) do
-      rows =
+      page =
         job
         |> lineage_query()
         |> lineage_after(boundary)
         |> Ash.Query.sort(walk_order(:asc))
-        |> Ash.Query.limit(limit + 1)
-        |> Ankole.Ash.read!()
-        |> Enum.map(&lineage_row/1)
+        |> Ankole.Ash.read!(action: :replay_page, page: [limit: limit])
 
-      {delivered, rest} = Enum.split(rows, limit)
+      delivered = Enum.map(page.results, &lineage_row/1)
 
       {:ok,
        %{
          units: Enum.map(delivered, &lineage_unit/1),
          turn_ids: delivered |> Enum.map(& &1.turn_id) |> Enum.uniq(),
-         next_cursor:
-           if(rest == [], do: nil, else: delivered |> List.last() |> encode_lineage_cursor())
+         next_cursor: if(page.more?, do: delivered |> List.last() |> encode_lineage_cursor())
        }}
     end
   end

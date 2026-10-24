@@ -1,8 +1,7 @@
 defmodule Ankole.OIDC.Tokens do
   @moduledoc false
 
-  alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.TokenSigning
+  alias Ankole.OIDC.Config
 
   @access_ttl_seconds 30 * 60
   @userinfo_audience "ankole.oidc_userinfo"
@@ -19,23 +18,24 @@ defmodule Ankole.OIDC.Tokens do
     now = System.system_time(:second)
     expires_at = now + @access_ttl_seconds
 
-    claims = %{
-      aud: audiences(scope),
-      client_id: client_id,
-      exp: expires_at,
-      iat: now,
-      iss: TokenSigning.issuer(),
-      jti: NativeKernel.gen_uuid_v7(),
-      nbf: now,
-      scope: scope,
-      sid: session_id,
+    principal = %{
+      kind: "human",
       sub: principal_uid,
-      subject_type: "human",
-      token_use: @access_token_use
+      scopes: String.split(scope, " ", trim: true),
+      claims: %{"client_id" => client_id, "sid" => session_id, "token_use" => @access_token_use}
     }
 
-    with {:ok, token} <- TokenSigning.sign(claims, "at+jwt") do
-      {:ok, %{token: token, expires_at: expires_at, inserted_at: DateTime.from_unix!(now)}}
+    with {:ok, result} <-
+           Attesto.Token.mint(Config.get(), principal,
+             audience: audiences(scope),
+             now: now
+           ) do
+      {:ok,
+       %{
+         token: result.access_token,
+         expires_at: expires_at,
+         inserted_at: DateTime.from_unix!(now)
+       }}
     end
   end
 
@@ -47,12 +47,12 @@ defmodule Ankole.OIDC.Tokens do
   def verify_access(_token, _audience), do: {:error, :invalid_token}
 
   def verify_access_context(token, audience) do
-    with {:ok, claims} <- TokenSigning.verify(token, audience, "at+jwt"),
+    with {:ok, claims} <- Attesto.Token.verify(Config.get(audience), token),
          do: access_context(claims)
   end
 
   @doc """
-  Validates OIDC access-token claims after `TokenSigning` verifies the token.
+  Validates OIDC access-token claims after `Attesto.Token` verifies the token.
 
   This function does not verify a token signature or registered JWT claims.
   """

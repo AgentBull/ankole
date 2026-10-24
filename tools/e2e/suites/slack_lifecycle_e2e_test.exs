@@ -203,7 +203,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
              Channels.sync_binding(agent.uid, binding_name)
 
     assert %Conversation{principal_group_id: group_id} =
-             External.get_conversation(Repo, "slack:C1")
+             External.get_conversation("slack:C1")
 
     assert {:ok, group} = AuthZ.get_principal_group(group_id)
     assert BindingMembership.joined?(group.metadata, agent.uid, binding_name)

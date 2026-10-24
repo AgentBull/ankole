@@ -15,7 +15,7 @@ test('an operator uploads, renames, downloads, and deletes an Agent file', async
           json: { data: { id: 'agent-one', type: 'agent', attributes: { display_name: 'Files Agent' } } }
         })
       }
-      if (path === '/api/v1/agents/agent-one/files' && request.method() === 'POST') {
+      if (path === '/api/v2/agents/agent-one/files' && request.method() === 'POST') {
         const form = await new Response(new Uint8Array(request.postDataBuffer()!).buffer, {
           headers: request.headers()
         }).formData()
@@ -23,7 +23,7 @@ test('an operator uploads, renames, downloads, and deletes an Agent file', async
         bytes.set(String(form.get('path')), Buffer.from(await file.arrayBuffer()))
         return route.fulfill({ json: { uploaded_file: { path: form.get('path') } } })
       }
-      if (path === '/api/v1/agents/agent-one/files/content') {
+      if (path === '/api/v2/agents/agent-one/files/content') {
         const body = bytes.get(url.searchParams.get('path')!)
         return body ? route.fulfill({ body, contentType: 'text/plain' }) : route.fulfill({ status: 404 })
       }

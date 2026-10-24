@@ -1,5 +1,5 @@
 Postgrex.Types.define(
   Ankole.PostgrexTypes,
-  Pgvector.extensions() ++ Ecto.Adapters.Postgres.extensions(),
+  [AshPostgres.Extensions.Vector] ++ Ecto.Adapters.Postgres.extensions(),
   []
 )

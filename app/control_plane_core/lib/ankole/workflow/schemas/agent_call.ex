@@ -130,28 +130,8 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
   actions do
     defaults([:read])
 
-    action :send_task_message, :term do
-      argument(:run_id, :integer, allow_nil?: false)
-      argument(:call_seq, :integer, allow_nil?: false)
-      argument(:agent_uid, :term, allow_nil?: false)
-      argument(:message, :term, allow_nil?: false)
-      argument(:source_tool_call_id, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :defer_task_event, :term do
-      argument(:signal, :term, allow_nil?: false)
-      argument(:available_at, :utc_datetime_usec, allow_nil?: false)
-      argument(:reason, :atom, allow_nil?: false, constraints: [one_of: [:agent_capacity]])
-
-      run(__MODULE__.Actions)
-    end
-
-    action :release_capacity, :term do
-      argument(:agent_uid, :term, allow_nil?: false)
-
-      run(__MODULE__.Actions)
+    read :list_page do
+      pagination(offset?: true, max_page_size: 100, countable: false)
     end
 
     create :create_call do

@@ -1,0 +1,102 @@
+--- a/lib/attesto/principal_kind.ex
++++ b/lib/attesto/principal_kind.ex
+@@ -18,7 +18,8 @@
+       verifier requires `sub` to start with the prefix of the kind named
+       in the principal-kind claim; a mismatch fails verification. This is
+       defense-in-depth against a token whose kind claim and subject
+-      disagree.
++      disagree. Use `:opaque` for subjects in a shared, globally unique
++      namespace. The host then owns the relationship between subject and kind.
+ 
+     * **`required_claims`** - extra claims this kind MUST carry, each with
+       a shape. A client carries `client_id`; a user-session token might
+@@ -49,7 +50,7 @@
+ 
+   @type t :: %__MODULE__{
+           claim_value: String.t(),
+-          sub_prefix: String.t(),
++          sub_prefix: String.t() | :opaque,
+           required_claims: [{String.t(), shape()}]
+         }
+ 
+@@ -62,17 +63,17 @@
+         required_claims: [{"client_id", :non_empty_string}]
+       )
+ 
+-  Raises `ArgumentError` if `claim_value`/`sub_prefix` are not non-empty
+-  binaries or any required-claim shape is unknown - this is configuration,
++  Raises `ArgumentError` if `claim_value` is empty, `sub_prefix` is neither
++  a non-empty string nor `:opaque`, or any required-claim shape is unknown - this is configuration,
+   evaluated once at boot, so a malformed kind should fail loudly rather
+   than at the first token operation.
+   """
+-  @spec new(String.t(), String.t(), keyword()) :: t()
++  @spec new(String.t(), String.t() | :opaque, keyword()) :: t()
+   def new(claim_value, sub_prefix, opts \\ []) do
+     required_claims = Keyword.get(opts, :required_claims, [])
+ 
+     validate_binary!(:claim_value, claim_value)
+-    validate_binary!(:sub_prefix, sub_prefix)
++    if sub_prefix != :opaque, do: validate_binary!(:sub_prefix, sub_prefix)
+     validate_required_claims!(required_claims)
+ 
+     %__MODULE__{
+--- a/lib/attesto/config.ex
++++ b/lib/attesto/config.ex
+@@ -17,7 +17,7 @@
+     * `:keystore` - a module implementing `Attesto.Keystore`.
+     * `:principal_kinds` - the non-empty list of `Attesto.PrincipalKind`
+       structs this issuer serves. Their `claim_value`s must be distinct,
+-      and their `sub_prefix`es must be distinct, so the kind a token
++      and their non-opaque `sub_prefix`es must be distinct, so the kind a token
+       claims and the subject it carries map unambiguously.
+     * `:principal_kind_claim` - the JWT claim name that carries the
+       principal kind's `claim_value`. Defaults to `"principal_kind"`.
+@@ -252,7 +252,7 @@
+     end)
+ 
+     assert_unique!(kinds, & &1.claim_value, "claim_value")
+-    assert_unique!(kinds, & &1.sub_prefix, "sub_prefix")
++    assert_unique!(Enum.reject(kinds, &(&1.sub_prefix == :opaque)), & &1.sub_prefix, "sub_prefix")
+     :ok
+   end
+ 
+--- a/lib/attesto/token.ex
++++ b/lib/attesto/token.ex
+@@ -300,7 +300,7 @@
+        future-dated reports `:invalid_claims`.
+     7. **`iat` not meaningfully in the future**, else `:not_yet_valid`.
+     8. **Principal.** The principal-kind claim names a configured kind AND
+-       `sub` begins with that kind's `sub_prefix`; otherwise
++       `sub` matches that kind's subject policy; otherwise
+        `:invalid_principal`.
+     9. **Per-kind claims.** The kind's `required_claims` are all present
+        with the right shape; otherwise `:invalid_claims`.
+@@ -466,6 +466,9 @@
+ 
+   defp fetch_kind(_config, _principal), do: {:error, :unknown_principal_kind}
+ 
++  defp check_sub(%PrincipalKind{sub_prefix: :opaque}, %{sub: sub}) when is_binary(sub) and sub != "",
++    do: :ok
++
+   defp check_sub(%PrincipalKind{sub_prefix: prefix}, %{sub: sub}) when is_binary(sub) and sub != "" do
+     if String.starts_with?(sub, prefix), do: :ok, else: {:error, :invalid_sub}
+   end
+@@ -845,7 +848,7 @@
+   end
+ 
+   # The principal-kind claim MUST name a configured kind AND `sub` MUST
+-  # carry that kind's namespace prefix. We never default to a kind on a
++  # match that kind's subject policy. We never default to a kind on a
+   # missing or unknown value: a mismatch fails verify, so a token can
+   # never be silently routed down the wrong principal path.
+   defp check_principal(config, claims) do
+@@ -853,7 +856,7 @@
+     sub = Map.get(claims, "sub")
+ 
+     with %PrincipalKind{} = kind <- Config.principal_kind(config, kind_value),
+-         true <- is_binary(sub) and String.starts_with?(sub, kind.sub_prefix) do
++         :ok <- check_sub(kind, %{sub: sub}) do
+       {:ok, kind}
+     else
+       _ -> {:error, :invalid_principal}

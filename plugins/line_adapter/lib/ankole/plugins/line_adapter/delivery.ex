@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
 
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Bindings
-  alias Ankole.{Logging, Repo}
+  alias Ankole.Logging
   alias Ankole.Plugins.LineAdapter.Client
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.LineAdapter.ErrorPolicy
@@ -186,7 +186,7 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
          %{chat_type: chat_type}
        )
        when is_binary(provider_message_id) and chat_type in ["group", "room"] do
-    case External.get_message(Repo, channel_id, provider_message_id) do
+    case External.get_message(channel_id, provider_message_id) do
       %{external_ref: %{metadata: %{"quote_token" => token}}} when is_binary(token) -> token
       _missing -> nil
     end

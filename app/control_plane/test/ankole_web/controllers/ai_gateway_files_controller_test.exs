@@ -83,6 +83,47 @@ defmodule AnkoleWeb.AIGatewayFilesControllerTest do
              json_response(missing_conn, 404)
   end
 
+  test "files can be read across pages in either requested order" do
+    agent = agent_fixture()
+    assert {:ok, token} = Tokens.mint_for_agent(agent.principal.uid)
+
+    ids =
+      for name <- ["first.png", "second.png", "third.png"] do
+        build_conn()
+        |> authorize(token.api_key)
+        |> post("/api/v1/ai-gateway/files", %{
+          "file" => upload_fixture(name, @png, "image/png"),
+          "purpose" => "vision"
+        })
+        |> json_response(200)
+        |> Map.fetch!("id")
+      end
+
+    for {order, expected} <- [{"asc", ids}, {"desc", Enum.reverse(ids)}] do
+      first =
+        build_conn()
+        |> authorize(token.api_key)
+        |> get("/api/v1/ai-gateway/files", %{"limit" => 2, "order" => order})
+        |> json_response(200)
+
+      assert first["has_more"]
+      assert Enum.map(first["data"], & &1["id"]) == Enum.take(expected, 2)
+
+      last =
+        build_conn()
+        |> authorize(token.api_key)
+        |> get("/api/v1/ai-gateway/files", %{
+          "limit" => 2,
+          "order" => order,
+          "after" => first["last_id"]
+        })
+        |> json_response(200)
+
+      refute last["has_more"]
+      assert Enum.map(first["data"] ++ last["data"], & &1["id"]) == expected
+    end
+  end
+
   test "files are indistinguishable from missing across subjects", %{conn: conn} do
     owner = agent_fixture()
     other = agent_fixture()

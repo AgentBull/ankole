@@ -37,19 +37,20 @@ defmodule Ankole.CredoTest do
              """)
   end
 
-  test "Ash mutations execute their filters and bulk actions and hooks stay in the owners" do
+  test "Ash mutations execute their filters and direct Ash, bulk actions, and hooks stay in the owners" do
     source = """
     defmodule Sample do
       update :finish do
         require_atomic?(true)
         filter(expr(status == :queued))
       end
+      def direct(query), do: Ash.read!(query)
       def bulk(query), do: Ash.bulk_update(query, :finish, %{})
       def hook(changeset), do: Ash.Changeset.after_transaction(changeset, fn _, r -> r end)
     end
     """
 
-    assert [_, _, _] = check(Ankole.Credo.AshBoundary, source, "sample.ex")
+    assert [_, _, _, _] = check(Ankole.Credo.AshBoundary, source, "sample.ex")
 
     assert [] ==
              check(
@@ -63,6 +64,7 @@ defmodule Ankole.CredoTest do
                  read :queued do
                    filter(expr(status == :queued))
                  end
+                 def direct(query), do: Ankole.Ash.read!(query)
                  def bulk(query), do: Ankole.Ash.bulk_update(query, :finish, %{})
                end
                """,
@@ -85,6 +87,13 @@ defmodule Ankole.CredoTest do
     assert [_, _, _] = check(Ankole.Credo.AshBoundary, source, "sample.ex")
 
     assert [_] =
+             check(
+               Ankole.Credo.AshBoundary,
+               "defmodule Sample, do: def(f(q), do: Ankole.Ash.read!(q))",
+               "../control_plane_core/lib/ankole_web/sample.ex"
+             )
+
+    assert [_, _] =
              check(
                Ankole.Credo.AshBoundary,
                "defmodule Sample, do: def(f(q), do: Ash.read!(q))",

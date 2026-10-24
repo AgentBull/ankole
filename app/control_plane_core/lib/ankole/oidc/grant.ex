@@ -42,7 +42,7 @@ defmodule Ankole.OIDC.Grant do
 
   The caller must obtain these claims by verifying this access token's
   signature, type, issuer, lifetime, and AIGateway audience through
-  `Ankole.TokenSigning`.
+  `Attesto.Token`.
   """
   @spec authorize_claims(String.t(), map(), String.t() | nil) ::
           {:ok, t()} | {:error, term()}

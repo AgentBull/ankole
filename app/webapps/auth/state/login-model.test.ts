@@ -4,31 +4,43 @@ import { classifyLoginError, formatRetryDelay, LoginModel, tickLockout } from '.
 
 describe('classifyLoginError', () => {
   test('maps the sign-in endpoint contract onto inline form errors', () => {
-    expect(classifyLoginError(new InternalAPIError(401, 'Unauthorized', { error: 'invalid_credentials' }))).toEqual({
+    expect(
+      classifyLoginError(new InternalAPIError(401, 'Unauthorized', { errors: [{ code: 'invalid_credentials' }] }))
+    ).toEqual({
       kind: 'invalid_credentials'
     })
-    expect(classifyLoginError(new InternalAPIError(403, 'Forbidden', { error: 'not_an_admin' }))).toEqual({
+    expect(classifyLoginError(new InternalAPIError(403, 'Forbidden', { errors: [{ code: 'not_an_admin' }] }))).toEqual({
       kind: 'not_admin'
     })
-    expect(classifyLoginError(new InternalAPIError(403, 'Forbidden', { error: 'account_disabled' }))).toEqual({
+    expect(
+      classifyLoginError(new InternalAPIError(403, 'Forbidden', { errors: [{ code: 'account_disabled' }] }))
+    ).toEqual({
       kind: 'account_disabled'
     })
     expect(
       classifyLoginError(
-        new InternalAPIError(429, 'Too Many Requests', { error: 'retry_locked', retryAfterSeconds: 42 })
+        new InternalAPIError(429, 'Too Many Requests', {
+          errors: [{ code: 'retry_locked', meta: { details: { retryAfterSeconds: 42 } } }]
+        })
       )
     ).toEqual({ kind: 'locked', remainingSeconds: 42 })
     expect(
-      classifyLoginError(new InternalAPIError(429, 'Too Many Requests', { error: 'retry_busy', retryAfterSeconds: 1 }))
+      classifyLoginError(
+        new InternalAPIError(429, 'Too Many Requests', {
+          errors: [{ code: 'retry_busy', meta: { details: { retryAfterSeconds: 1 } } }]
+        })
+      )
     ).toEqual({ kind: 'busy', remainingSeconds: 1 })
   })
 
   test('leaves unrecognized failures to the generic error surface', () => {
     expect(classifyLoginError(new Error('network down'))).toBeUndefined()
-    expect(classifyLoginError(new InternalAPIError(404, 'Not Found', { error: 'no_local_provider' }))).toBeUndefined()
+    expect(
+      classifyLoginError(new InternalAPIError(404, 'Not Found', { errors: [{ code: 'no_local_provider' }] }))
+    ).toBeUndefined()
     expect(classifyLoginError(new InternalAPIError(500, 'Internal Server Error', {}))).toBeUndefined()
     expect(
-      classifyLoginError(new InternalAPIError(429, 'Too Many Requests', { error: 'retry_locked' }))
+      classifyLoginError(new InternalAPIError(429, 'Too Many Requests', { errors: [{ code: 'retry_locked' }] }))
     ).toBeUndefined()
   })
 })
@@ -60,13 +72,15 @@ describe('LoginModel', () => {
   test('stores classified failures and keeps a lockout across form edits', () => {
     const model = new LoginModel()
 
-    model.reportLoginError(new InternalAPIError(401, 'Unauthorized', { error: 'invalid_credentials' }))
+    model.reportLoginError(new InternalAPIError(401, 'Unauthorized', { errors: [{ code: 'invalid_credentials' }] }))
     expect(model.formError.value).toEqual({ kind: 'invalid_credentials' })
     model.clearFormError()
     expect(model.formError.value).toBeUndefined()
 
     model.reportLoginError(
-      new InternalAPIError(429, 'Too Many Requests', { error: 'retry_locked', retryAfterSeconds: 30 })
+      new InternalAPIError(429, 'Too Many Requests', {
+        errors: [{ code: 'retry_locked', meta: { details: { retryAfterSeconds: 30 } } }]
+      })
     )
     model.clearFormError()
     expect(model.formError.value).toEqual({ kind: 'locked', remainingSeconds: 30 })
@@ -77,7 +91,9 @@ describe('LoginModel', () => {
     const model = new LoginModel()
 
     model.reportLoginError(
-      new InternalAPIError(429, 'Too Many Requests', { error: 'retry_locked', retryAfterSeconds: 30 })
+      new InternalAPIError(429, 'Too Many Requests', {
+        errors: [{ code: 'retry_locked', meta: { details: { retryAfterSeconds: 30 } } }]
+      })
     )
     // The lock belongs to one account on the server; editing the email means
     // another account, so the form must not stay frozen for it.
@@ -89,7 +105,7 @@ describe('LoginModel', () => {
   test('switches views and drops stale errors on each transition', () => {
     const model = new LoginModel()
 
-    model.reportLoginError(new InternalAPIError(401, 'Unauthorized', { error: 'invalid_credentials' }))
+    model.reportLoginError(new InternalAPIError(401, 'Unauthorized', { errors: [{ code: 'invalid_credentials' }] }))
     model.enterChangePassword()
     expect(model.view.value).toBe('change_password')
     expect(model.formError.value).toBeUndefined()

@@ -415,17 +415,16 @@ attachment =
   )
 
 {:ok, %{messages: [chat_message]}} =
-  Repo.transact(fn repo ->
-    with :ok <- Ankole.Sessions.Queue.lock_session_in_tx(repo, agent.uid, input.session_id),
-         {:ok, target} <- Ankole.Conversations.Target.for_reply(repo, input),
+  Repo.transact(fn ->
+    with :ok <- Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, input.session_id),
+         {:ok, target} <- Ankole.Conversations.Target.for_reply(input),
          {:ok, result} <-
-           Ankole.Conversations.post_in_tx(repo, target, %Ankole.Conversations.Statement{
+           Ankole.Conversations.post_in_tx(target, %Ankole.Conversations.Statement{
              signal: input,
              completion: %{final_text: chat_text, clarify_prompt: nil, attachments: [attachment]}
            }),
          {:ok, _input} <-
            Ankole.Sessions.Queue.mark_event_completed_in_tx(
-             repo,
              input,
              DateTime.utc_now(:microsecond)
            ) do
@@ -442,9 +441,9 @@ control_material = fn text ->
   id = Ankole.Ecto.UUIDv7.autogenerate()
 
   {:ok, reply} =
-    Repo.transact(fn repo ->
+    Repo.transact(fn ->
       with {:ok, %{event: event}} <-
-             Ankole.Conversations.create_in_tx(repo, owner.uid, %{
+             Ankole.Conversations.create_in_tx(owner.uid, %{
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -452,13 +451,11 @@ control_material = fn text ->
              }),
            {:ok, %{messages: [reply]}} <-
              Ankole.ConversationsFixtures.post_statement_in_tx(
-               repo,
                event,
                "Completed UI material.\n\n```typescript\nconst total = 42\nconsole.log(total)\n```"
              ),
            {:ok, _} <-
              Ankole.Sessions.Queue.mark_event_completed_in_tx(
-               repo,
                event,
                DateTime.utc_now(:microsecond)
              ),
@@ -502,9 +499,9 @@ history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
 {:ok, :history_material_ready} =
   Repo.transact(
-    fn repo ->
+    fn ->
       {:ok, %{event: first}} =
-        Ankole.Conversations.create_in_tx(repo, owner.uid, %{
+        Ankole.Conversations.create_in_tx(owner.uid, %{
           conversation_id: history_conversation_id,
           agent_uid: agent.uid,
           message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -513,21 +510,19 @@ history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
       {:ok, _} =
         Ankole.Sessions.Queue.mark_event_completed_in_tx(
-          repo,
           first,
           DateTime.utc_now(:microsecond)
         )
 
       for sequence <- 2..1006 do
         {:ok, %{event: event}} =
-          Ankole.Conversations.post_in_tx(repo, owner.uid, history_conversation_id, %{
+          Ankole.Conversations.post_in_tx(owner.uid, history_conversation_id, %{
             message_id: Ankole.Ecto.UUIDv7.autogenerate(),
             text: "History item " <> String.pad_leading(Integer.to_string(sequence), 4, "0")
           })
 
         {:ok, _} =
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
-            repo,
             event,
             DateTime.utc_now(:microsecond)
           )
@@ -553,11 +548,10 @@ recovery_message_id = Ankole.Ecto.UUIDv7.autogenerate()
 recovery_input = Repo.get_by!(Ankole.Signals.Signal, message_id: recovery_message_id)
 
 {:ok, _} =
-  Repo.transact(fn repo ->
+  Repo.transact(fn ->
     with :ok <-
-           Ankole.Sessions.Queue.lock_session_in_tx(repo, agent.uid, recovery_input.session_id) do
+           Ankole.Sessions.Queue.lock_session_in_tx(agent.uid, recovery_input.session_id) do
       Ankole.Sessions.Queue.mark_event_completed_in_tx(
-        repo,
         recovery_input,
         DateTime.utc_now(:microsecond)
       )

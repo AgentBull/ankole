@@ -16,9 +16,8 @@ defmodule Ankole.AIGatewayCase do
   def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    repo.transact(fn repo ->
+    repo.transact(fn ->
       Ankole.AIGateway.Conversations.ensure_conversation_in_tx(
-        repo,
         subject_uid,
         conversation_key,
         Keyword.get(opts, :metadata, %{})
@@ -166,8 +165,8 @@ defmodule Ankole.AIGatewayCase do
     attrs
     |> Map.delete(:round_state)
     |> start_response_run(
-      Keyword.put(opts, :record_response_in_tx, fn repo, message ->
-        Ankole.Sessions.RoundState.put_in_tx(repo, run, message)
+      Keyword.put(opts, :record_response_in_tx, fn message ->
+        Ankole.Sessions.RoundState.put_in_tx(run, message)
       end)
     )
   end
@@ -442,7 +441,7 @@ defmodule Ankole.AIGatewayCase do
       })
 
     {:ok, signal} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Ash.create(
           Signal,
           :accept,
@@ -465,7 +464,7 @@ defmodule Ankole.AIGatewayCase do
       end)
 
     {:ok, _message} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Ash.create(Message, :start, %{
           subject_uid: agent_uid,
           conversation_id: conversation.id,

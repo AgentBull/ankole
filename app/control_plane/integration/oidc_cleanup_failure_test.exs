@@ -112,7 +112,7 @@ defmodule Ankole.OIDCCleanupFailureIntegrationTest do
 
   defp tenant(slug) do
     {:ok, tenant} =
-      Repo.transact(fn _repo ->
+      Repo.transact(fn ->
         Ankole.Ash.create(Tenant, :create_in_tx, %{slug: slug, display_name: slug})
       end)
 

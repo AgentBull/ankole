@@ -141,7 +141,7 @@ defmodule Ankole.PrincipalsTest do
 
       assert {:error, :cancelled} =
                Repo.transact(fn repo ->
-                 {:ok, %{principal: principal}} = Principals.create_agent_in_tx(repo, attrs)
+                 {:ok, %{principal: principal}} = Principals.create_agent_in_tx(attrs)
                  assert repo.get!(AgentWorker, principal.uid).initial_start_pending
                  assert_enqueued(worker: ReconcileJob, args: %{agent_uid: principal.uid})
                  {:error, :cancelled}
@@ -781,15 +781,15 @@ defmodule Ankole.PrincipalsTest do
       uid = human.uid
 
       assert {:ok, {:ok, %{principal: %{uid: ^uid}, human_user: %{principal_uid: ^uid}}}} =
-               Repo.transact(fn repo -> {:ok, Principals.lock_active_human_in_tx(repo, uid)} end)
+               Repo.transact(fn -> {:ok, Principals.lock_active_human_in_tx(uid)} end)
 
       for {subject, reason} <- [
             {agent.uid, :human_access_revoked},
             {Ankole.Kernel.gen_uuid_v7(), :not_found}
           ] do
         assert {:ok, {:error, ^reason}} =
-                 Repo.transact(fn repo ->
-                   {:ok, Principals.lock_active_human_in_tx(repo, subject)}
+                 Repo.transact(fn ->
+                   {:ok, Principals.lock_active_human_in_tx(subject)}
                  end)
       end
     end
@@ -802,10 +802,7 @@ defmodule Ankole.PrincipalsTest do
         %{principal: principal} = human_fixture()
 
         {:ok, _identity} =
-          Principals.bind_external_identity(
-            Repo,
-            Map.put(subject, :principal_uid, principal.uid)
-          )
+          Principals.bind_external_identity(Map.put(subject, :principal_uid, principal.uid))
 
         principal.uid
       end

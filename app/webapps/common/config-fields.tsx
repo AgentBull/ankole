@@ -24,39 +24,10 @@ import { requestErrorCode, requestErrorDetails } from './request-errors'
 
 export type LocalizedText = Record<string, string> | null | undefined
 
-export type ConfigFieldRequirement = {
-  path: string
-  value: unknown
-}
+import type { SetupIdentityProviderAdaptersResponse } from './api/generated/types.gen'
 
-export type ConfigFieldValidation =
-  | {
-      kind: 'json_object'
-      message: Record<string, string>
-      requiredStringProperties?: string[]
-      stringPrefixes?: Record<string, string>
-    }
-  | {
-      kind: 'pattern'
-      message: Record<string, string>
-      pattern: string
-    }
-
-export type ConfigFieldDefinition = {
-  advanced?: boolean
-  default?: unknown
-  description?: LocalizedText
-  encrypted?: boolean
-  label?: LocalizedText
-  max?: number
-  min?: number
-  options?: Array<{ description?: LocalizedText; label?: LocalizedText; value: string }>
-  path: string
-  required?: boolean
-  requiredWhen?: ConfigFieldRequirement[]
-  type: string
-  validation?: ConfigFieldValidation
-}
+// The adapter's public vocabulary is derived from the Ash action, including nullable options.
+export type ConfigFieldDefinition = SetupIdentityProviderAdaptersResponse['adapters'][number]['fields'][number]
 
 export function ConfigFields({
   advancedLabel = i18n.t('common.advanced_settings'),
@@ -267,8 +238,8 @@ export function ConfigField({
         aria-describedby={describedBy || undefined}
         aria-invalid={showValidationError && validationError ? true : undefined}
         autoComplete={secret ? 'new-password' : undefined}
-        max={field.max}
-        min={field.min}
+        max={field.max ?? undefined}
+        min={field.min ?? undefined}
         placeholder={placeholder}
         required={required}
         spellCheck={secret ? false : undefined}

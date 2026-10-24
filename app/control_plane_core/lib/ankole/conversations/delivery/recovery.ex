@@ -44,26 +44,25 @@ defmodule Ankole.Conversations.Delivery.Recovery do
              is_list(options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    agent_uid
-    |> Ankole.Conversations.requeue_intent(binding_name, outbound_key, now)
-    |> Ankole.Errors.reason()
+    Ankole.Repo.transact_top_level(fn ->
+      requeue_in_tx(agent_uid, binding_name, outbound_key, now)
+    end)
   end
 
   def requeue(_agent_uid, _binding_name, _outbound_key, _options),
     do: {:error, :invalid_intent_key}
 
   @doc false
-  def requeue_in_tx(repo, agent_uid, binding_name, outbound_key, now) do
+  def requeue_in_tx(agent_uid, binding_name, outbound_key, now) do
     with %Intent{} = intent <-
            Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
-             repo,
              agent_uid,
              binding_name,
              outbound_key
            ),
          {:ok, attrs} <- explicit_requeue_attrs(intent, now),
          {:ok, intent} <- Ankole.Ash.update(intent, :requeue, attrs),
-         :ok <- notify_intent_deadline(repo, intent) do
+         :ok <- notify_intent_deadline(intent) do
       {:ok, intent}
     else
       nil -> {:error, :intent_not_found}
@@ -75,12 +74,13 @@ defmodule Ankole.Conversations.Delivery.Recovery do
   @spec wake_blocked_for_binding(String.t(), String.t()) :: :ok | {:error, term()}
   def wake_blocked_for_binding(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
-    case agent_uid
-         |> Ankole.Conversations.wake_blocked_intents(
-           binding_name,
-           DateTime.utc_now(:microsecond)
-         )
-         |> Ankole.Errors.reason() do
+    case Ankole.Repo.transact_top_level(fn ->
+           wake_blocked_in_tx(
+             agent_uid,
+             binding_name,
+             DateTime.utc_now(:microsecond)
+           )
+         end) do
       {:ok, _rows} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -90,7 +90,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     do: {:error, :invalid_signal_binding}
 
   @doc false
-  def wake_blocked_in_tx(repo, agent_uid, binding_name, now) do
+  def wake_blocked_in_tx(agent_uid, binding_name, now) do
     agent_uid = Ankole.PrincipalKey.canonicalize(agent_uid)
 
     Intent
@@ -103,7 +103,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     |> Enum.reduce_while({:ok, []}, fn intent, {:ok, acc} ->
       with {:ok, attrs} <- explicit_requeue_attrs(intent, now),
            {:ok, intent} <- Ankole.Ash.update(intent, :requeue, attrs),
-           :ok <- notify_intent_deadline(repo, intent) do
+           :ok <- notify_intent_deadline(intent) do
         {:cont, {:ok, [intent | acc]}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -191,7 +191,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     DateTime.compare(started_at, cutoff) != :gt
   end
 
-  def mark_intent_failed(repo, intent, reason, now) do
+  def mark_intent_failed(intent, reason, now) do
     reason = delivery_failure(reason)
     {last_error, next_attempt_at, recovery_attrs} = failure_recovery(intent, reason, now)
 
@@ -204,7 +204,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
                next_attempt_at: next_attempt_at
              })
            ),
-         :ok <- notify_intent_deadline(repo, intent) do
+         :ok <- notify_intent_deadline(intent) do
       log_delivery_failure(intent, reason)
       {:ok, intent}
     end
@@ -326,7 +326,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
   defp encode_log_datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp encode_log_datetime(nil), do: nil
 
-  def mark_intent_unknown(repo, intent, reason, now) do
+  def mark_intent_unknown(intent, reason, now) do
     attrs =
       intent
       |> unknown_recovery_attrs(now)
@@ -335,7 +335,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
       })
 
     with {:ok, intent} <- Ankole.Ash.update(intent, :mark_unknown, attrs),
-         :ok <- notify_intent_deadline(repo, intent) do
+         :ok <- notify_intent_deadline(intent) do
       {:ok, intent}
     end
   end
@@ -463,9 +463,8 @@ defmodule Ankole.Conversations.Delivery.Recovery do
 
   defp retry_after_seconds(detail), do: Ankole.Attrs.reply_delivery_retry_after_seconds(detail)
 
-  def notify_intent_deadline(repo, %Intent{} = intent) do
+  def notify_intent_deadline(%Intent{} = intent) do
     Ankole.Conversations.Delivery.Jobs.Dispatch.schedule_in_tx(
-      repo,
       %{
         agent_uid: intent.agent_uid,
         binding_name: intent.binding_name,

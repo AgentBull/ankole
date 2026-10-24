@@ -16,7 +16,7 @@ defmodule Ankole.Workflow.ToolAdmission do
   alias Ankole.Workflow.Slot
   alias Ankole.Workflow.TaskLifecycle
 
-  def prepare_in_tx(repo, source, %{"name" => "workflow"} = tool_call, args) do
+  def prepare_in_tx(source, %{"name" => "workflow"} = tool_call, args) do
     attrs =
       args
       |> Map.take(~w(title script args concurrency max_agent_calls model_profile))
@@ -29,22 +29,21 @@ defmodule Ankole.Workflow.ToolAdmission do
         "reply_route" => Route.snapshot(source)
       })
 
-    with {:ok, value} <- Lifecycle.create_with_dispatch_in_tx(repo, attrs) do
+    with {:ok, value} <- Lifecycle.create_with_dispatch_in_tx(attrs) do
       {:ok, source_sessions(source), fn -> {:ok, value} end}
     end
   end
 
-  def prepare_in_tx(repo, source, %{"name" => "send_message_to_workflow_task"} = tool_call, args) do
-    with :ok <- Slot.lock_agent_slots(repo, source.agent_uid),
-         %Run{} = run <- Slot.lock_run(repo, args["run_id"], source.agent_uid),
+  def prepare_in_tx(source, %{"name" => "send_message_to_workflow_task"} = tool_call, args) do
+    with :ok <- Slot.lock_agent_slots(source.agent_uid),
+         %Run{} = run <- Slot.lock_run(args["run_id"], source.agent_uid),
          {:ok, %AgentCall{} = snapshot} <- call_by_sequence(run.id, args["call_seq"]),
-         %AgentCall{} = call <- Slot.lock_call(repo, snapshot.id, run.id, source.agent_uid) do
+         %AgentCall{} = call <- Slot.lock_call(snapshot.id, run.id, source.agent_uid) do
       sessions = work_sessions(source, run, [call])
 
       {:ok, sessions,
        fn ->
          Mail.send_task_message_in_tx(
-           repo,
            run.id,
            call.call_seq,
            source.agent_uid,
@@ -59,28 +58,28 @@ defmodule Ankole.Workflow.ToolAdmission do
     end
   end
 
-  def prepare_in_tx(repo, source, %{"name" => "cancel_workflow"}, args) do
-    with :ok <- Slot.lock_agent_slots(repo, source.agent_uid),
-         %Run{} = run <- Slot.lock_run(repo, args["run_id"], source.agent_uid) do
-      calls = Slot.lock_run_calls(repo, run.id)
+  def prepare_in_tx(source, %{"name" => "cancel_workflow"}, args) do
+    with :ok <- Slot.lock_agent_slots(source.agent_uid),
+         %Run{} = run <- Slot.lock_run(args["run_id"], source.agent_uid) do
+      calls = Slot.lock_run_calls(run.id)
 
       {:ok, work_sessions(source, run, calls),
-       fn -> Lifecycle.cancel_in_tx(repo, run.id, source.agent_uid) end}
+       fn -> Lifecycle.cancel_in_tx(run.id, source.agent_uid) end}
     else
       nil -> {:error, :workflow_not_found}
       error -> error
     end
   end
 
-  def prepare_in_tx(repo, source, %{"name" => "submit_result"}, args) do
+  def prepare_in_tx(source, %{"name" => "submit_result"}, args) do
     with {:ok, %{run: run, call: call}} <-
-           Slot.lock_session_work_in_tx(repo, source.agent_uid, source.session_id),
+           Slot.lock_session_work_in_tx(source.agent_uid, source.session_id),
          true <-
            call.id == source.spec.request_context["call_id"] ||
              {:error, :workflow_task_session_mismatch} do
       {:ok, work_sessions(source, run, [call]),
        fn ->
-         TaskLifecycle.submit_result_in_tx(repo, call.id, source.agent_uid, source.session_id, %{
+         TaskLifecycle.submit_result_in_tx(call.id, source.agent_uid, source.session_id, %{
            "ok" => true,
            "value" => args["result"]
          })
@@ -88,15 +87,15 @@ defmodule Ankole.Workflow.ToolAdmission do
     end
   end
 
-  def prepare_in_tx(repo, source, %{"name" => "sleep"}, args) do
+  def prepare_in_tx(source, %{"name" => "sleep"}, args) do
     with {:ok, %{run: run, call: call}} <-
-           Slot.lock_session_work_in_tx(repo, source.agent_uid, source.session_id),
+           Slot.lock_session_work_in_tx(source.agent_uid, source.session_id),
          true <-
            call.id == source.spec.request_context["call_id"] ||
              {:error, :workflow_task_session_mismatch} do
       {:ok, work_sessions(source, run, [call]),
        fn ->
-         TaskLifecycle.sleep_task_in_tx(repo, call.id, source.agent_uid, source.session_id, %{
+         TaskLifecycle.sleep_task_in_tx(call.id, source.agent_uid, source.session_id, %{
            wake_after_ms: args["wake_after_ms"],
            note: args["note"],
            attention: args["attention"] == true

@@ -137,8 +137,8 @@ defmodule Ankole.AuthZTest do
                })
 
       assert {:ok, _membership} =
-               Repo.transact(fn repo ->
-                 Ankole.AuthZ.Store.insert_membership(repo, group.id, principal.uid)
+               Repo.transact(fn ->
+                 Ankole.AuthZ.Store.insert_membership(group.id, principal.uid)
                end)
 
       assert {:ok, _grant} =
@@ -587,8 +587,8 @@ defmodule Ankole.AuthZTest do
       # satisfy the member-exists fast path either — the domain still
       # mismatches.
       assert {:ok, _membership} =
-               Repo.transact(fn repo ->
-                 Ankole.AuthZ.Store.insert_membership(repo, operator_group.id, principal.uid)
+               Repo.transact(fn ->
+                 Ankole.AuthZ.Store.insert_membership(operator_group.id, principal.uid)
                end)
 
       assert {:error, :group_domain_mismatch} =

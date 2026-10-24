@@ -37,8 +37,10 @@ export function PasswordChangeForm({ model }: { model: InstanceType<typeof Login
     mutationFn: (input: { newPassword: string }) =>
       localPasswordChange({
         body: {
-          ...input,
-          flow: new URLSearchParams(window.location.search).get('flow')
+          data: {
+            ...input,
+            flow: new URLSearchParams(window.location.search).get('flow') ?? ''
+          }
         }
       }),
     onSuccess: result => window.location.assign(result.returnTo),

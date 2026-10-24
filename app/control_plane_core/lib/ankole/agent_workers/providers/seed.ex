@@ -5,6 +5,7 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.YAML
   alias Ankole.Errors
+  alias Ankole.Repo
 
   def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
 
@@ -15,27 +16,30 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
     end
   end
 
-  def import_file(path), do: Errors.reason(Providers.import_providers(path))
+  def import_file(path) do
+    Repo.transact_top_level(fn -> import_in_tx(path) end)
+    |> Errors.reason()
+  end
 
   @doc "Imports the seed file in the caller's transaction when no provider exists."
-  def import_in_tx(repo, path) do
-    Providers.lock_registry(repo, :exclusive)
+  def import_in_tx(path) do
+    Providers.lock_registry(:exclusive)
 
     cond do
       Providers.list() != [] -> :ok
       is_nil(path) -> :ok
-      true -> import_entries(repo, path)
+      true -> import_entries(path)
     end
   end
 
-  defp import_entries(repo, path) do
+  defp import_entries(path) do
     with {:ok, text} <- File.read(path),
          {:ok, %{"providers" => entries} = data, _locations} when is_list(entries) <-
            YAML.parse(text),
          true <- Map.keys(data) == ["providers"],
          :ok <- validate_flags(entries),
-         {:ok, legacy_id} <- insert_all(repo, entries),
-         {:ok, ^legacy_id} <- select_legacy_provider(repo, legacy_id) do
+         {:ok, legacy_id} <- insert_all(entries),
+         {:ok, ^legacy_id} <- select_legacy_provider(legacy_id) do
       if legacy_id, do: AgentWorkers.assign_legacy_provider_in_tx(legacy_id), else: :ok
     else
       {:error, _reason} = error -> error
@@ -43,8 +47,8 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
     end
   end
 
-  defp select_legacy_provider(_repo, nil), do: {:ok, nil}
-  defp select_legacy_provider(repo, id), do: Providers.select_in_tx(repo, id)
+  defp select_legacy_provider(nil), do: {:ok, nil}
+  defp select_legacy_provider(id), do: Providers.select_in_tx(id)
 
   defp validate_flags(entries) do
     valid =
@@ -59,11 +63,11 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
        else: {:error, :invalid_worker_providers_seed_flags}
   end
 
-  defp insert_all(repo, entries) do
+  defp insert_all(entries) do
     Enum.reduce_while(entries, {:ok, nil}, fn entry, {:ok, legacy_id} ->
       with {:ok, credentials} <- credentials(Map.get(entry, "credentials", %{})),
            attrs = entry |> Map.delete("legacy_agents") |> Map.put("credentials", credentials),
-           {:ok, provider} <- Providers.create_in_tx(repo, attrs) do
+           {:ok, provider} <- Providers.create_in_tx(attrs) do
         {:cont, {:ok, if(entry["legacy_agents"], do: provider.provider_id, else: legacy_id)}}
       else
         error -> {:halt, error}

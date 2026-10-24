@@ -23,7 +23,7 @@ test('a long chat loads real earlier windows without losing messages or the read
     const loaded = page.waitForResponse(response => {
       const url = new URL(response.url())
       return (
-        url.pathname === `/.internal-apis/pod/conversations/${state.history_conversation_id}` &&
+        url.pathname === `/api/v2/pod/conversations/${state.history_conversation_id}` &&
         url.searchParams.has('beforeSeq')
       )
     })

@@ -98,9 +98,9 @@ defmodule Ankole.Sessions.ModelHistoryTest do
     session_key = %{agent_uid: subject.uid, session_id: conversation.conversation_key}
 
     assert {:ok, :checked} =
-             Repo.transact(fn repo ->
-               refute ModelHistory.exact_turn_retryable_in_tx(repo, session_key, "event-main")
-               refute ModelHistory.exact_turn_retryable_in_tx(repo, session_key, "event-steer")
+             Repo.transact(fn ->
+               refute ModelHistory.exact_turn_retryable_in_tx(session_key, "event-main")
+               refute ModelHistory.exact_turn_retryable_in_tx(session_key, "event-steer")
                {:ok, :checked}
              end)
   end
@@ -135,9 +135,8 @@ defmodule Ankole.Sessions.ModelHistoryTest do
     {:ok, second} = ResponseCommit.commit_complete(second, [])
 
     assert {:ok, %{status: :retracted, retracted_count: 2}} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                ModelHistory.retract_visible_turn_suffix_in_tx(
-                 repo,
                  subject.uid,
                  conversation.conversation_key,
                  "event-retry",
@@ -176,9 +175,8 @@ defmodule Ankole.Sessions.ModelHistoryTest do
               failed_generating_count: 0,
               deleted_message_ids: deleted_ids
             }} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                ModelHistory.delete_visible_turn_suffix_in_tx(
-                 repo,
                  subject.uid,
                  conversation.conversation_key,
                  "event-tail",
@@ -229,9 +227,8 @@ defmodule Ankole.Sessions.ModelHistoryTest do
       })
 
     assert {:ok, conversation} =
-             Repo.transact(fn repo ->
+             Repo.transact(fn ->
                ModelHistory.ensure_and_lock_conversation_in_tx(
-                 repo,
                  agent.uid,
                  signal.session_id,
                  signal
@@ -268,9 +265,8 @@ defmodule Ankole.Sessions.ModelHistoryTest do
         })
 
       assert {:ok, conversation} =
-               Repo.transact(fn repo ->
+               Repo.transact(fn ->
                  ModelHistory.ensure_and_lock_conversation_in_tx(
-                   repo,
                    agent.uid,
                    signal.session_id,
                    signal
@@ -299,12 +295,12 @@ defmodule Ankole.Sessions.ModelHistoryTest do
   end
 
   defp accept_signal(attrs),
-    do: Repo.transact(&Signals.accept_in_tx(&1, Map.put_new(attrs, :producer, :kernel)))
+    do: Repo.transact(fn -> Signals.accept_in_tx(Map.put_new(attrs, :producer, :kernel)) end)
 
   defp record_tool_results(attrs) do
     {:ok, result} =
-      Repo.transact(fn repo ->
-        {:ok, Ankole.AIGateway.ToolResultJournal.record_tool_results_in_tx(repo, attrs)}
+      Repo.transact(fn ->
+        {:ok, Ankole.AIGateway.ToolResultJournal.record_tool_results_in_tx(attrs)}
       end)
 
     case result do

@@ -31,9 +31,9 @@ defmodule Ankole.AIGateway.Conversations do
   @doc """
   Ensures the active conversation inside a caller-owned transaction.
   """
-  @spec ensure_conversation_in_tx(module(), String.t(), String.t(), map()) ::
+  @spec ensure_conversation_in_tx(String.t(), String.t(), map()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation_in_tx(_repo, subject_uid, conversation_key, metadata \\ %{})
+  def ensure_conversation_in_tx(subject_uid, conversation_key, metadata \\ %{})
       when is_map(metadata) do
     Ankole.Ash.create(Conversation, :ensure, %{
       subject_uid: normalize_uid(subject_uid),
@@ -48,8 +48,8 @@ defmodule Ankole.AIGateway.Conversations do
   Message writes call this so the Console lists and orders conversations by
   their last activity instead of the row's last direct change.
   """
-  @spec touch_conversation_in_tx(module(), String.t()) :: :ok
-  def touch_conversation_in_tx(_repo, conversation_id) do
+  @spec touch_conversation_in_tx(String.t()) :: :ok
+  def touch_conversation_in_tx(conversation_id) do
     case Conversation
          |> Ash.Query.filter(id == ^conversation_id)
          |> Ankole.Ash.update_where(:touch) do
@@ -61,8 +61,8 @@ defmodule Ankole.AIGateway.Conversations do
   @doc """
   Locks a conversation row for update.
   """
-  @spec lock_conversation(module(), term()) :: Conversation.t() | nil
-  def lock_conversation(_repo, conversation_id) do
+  @spec lock_conversation(term()) :: Conversation.t() | nil
+  def lock_conversation(conversation_id) do
     Conversation
     |> Ash.Query.filter(id == ^conversation_id)
     |> Ash.Query.lock(:for_update)
@@ -72,9 +72,9 @@ defmodule Ankole.AIGateway.Conversations do
   @doc """
   Locks the active conversation for one subject-local key inside a caller-owned transaction.
   """
-  @spec active_conversation_for_update(module(), String.t(), String.t()) ::
+  @spec active_conversation_for_update(String.t(), String.t()) ::
           Conversation.t() | nil
-  def active_conversation_for_update(_repo, subject_uid, conversation_key) do
+  def active_conversation_for_update(subject_uid, conversation_key) do
     Conversation
     |> Ash.Query.filter(subject_uid == ^normalize_uid(subject_uid))
     |> Ash.Query.filter(conversation_key == ^conversation_key)
@@ -84,10 +84,10 @@ defmodule Ankole.AIGateway.Conversations do
   end
 
   @doc false
-  @spec end_active_conversation_in_tx(module(), String.t(), String.t(), DateTime.t()) ::
+  @spec end_active_conversation_in_tx(String.t(), String.t(), DateTime.t()) ::
           {:ok, Conversation.t() | nil} | {:error, term()}
-  def end_active_conversation_in_tx(repo, subject_uid, conversation_key, %DateTime{} = now) do
-    case active_conversation_for_update(repo, subject_uid, conversation_key) do
+  def end_active_conversation_in_tx(subject_uid, conversation_key, %DateTime{} = now) do
+    case active_conversation_for_update(subject_uid, conversation_key) do
       %Conversation{} = conversation ->
         Ankole.Ash.update(conversation, :finish, %{ended_at: now})
 
@@ -97,15 +97,12 @@ defmodule Ankole.AIGateway.Conversations do
   end
 
   @doc "Checks whether the subject has retained model history for a key, including ended histories."
-  def conversation_exists_by_key?(_repo, subject_uid, conversation_key) do
+  def conversation_exists_by_key?(subject_uid, conversation_key) do
     Conversation
     |> Ash.Query.filter(
       subject_uid == ^normalize_uid(subject_uid) and conversation_key == ^conversation_key
     )
-    |> Ash.Query.limit(1)
-    |> Ash.Query.select([:id])
-    |> Ankole.Ash.read!()
-    |> Enum.any?()
+    |> Ankole.Ash.exists?()
   end
 
   @doc """
@@ -115,8 +112,8 @@ defmodule Ankole.AIGateway.Conversations do
   cutoff. Results are deterministic and may be locked when the caller owns a
   wider transaction.
   """
-  @spec list_active_conversations(module(), keyword()) :: [Conversation.t()]
-  def list_active_conversations(_repo, opts \\ []) when is_list(opts) do
+  @spec list_active_conversations(keyword()) :: [Conversation.t()]
+  def list_active_conversations(opts \\ []) when is_list(opts) do
     limit = normalize_limit(Keyword.get(opts, :limit, 1_000))
 
     Conversation

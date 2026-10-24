@@ -3,8 +3,8 @@ defmodule Ankole.AgentWorkers.SlotLock do
 
   @scopes [:background_agent_jobs, :workflow, :automation_jobs]
 
-  def lock(repo, scope, agent_uid) when scope in @scopes and is_binary(agent_uid) do
-    case Ankole.AdvisoryLock.lock(repo, "#{scope}:running_slots:#{agent_uid}") do
+  def lock(scope, agent_uid) when scope in @scopes and is_binary(agent_uid) do
+    case Ankole.AdvisoryLock.lock(Ankole.Repo, "#{scope}:running_slots:#{agent_uid}") do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end

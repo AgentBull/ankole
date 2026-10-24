@@ -4,10 +4,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused do
 
   @impl true
   def change(changeset, _opts, _context) do
-    case Ankole.AIGateway.ProviderConfigs.provider_references(
-           Ankole.Repo,
-           changeset.data.provider_id
-         ) do
+    case Ankole.AIGateway.ProviderConfigs.provider_references(changeset.data.provider_id) do
       [] ->
         changeset
 

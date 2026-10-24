@@ -113,23 +113,13 @@ defmodule Ankole.Tenants.Tenant do
     update :begin_delete_in_tx do
       accept([])
 
-      change(fn changeset, _context ->
-        Ash.Changeset.force_change_attribute(
-          changeset,
-          :deleting_at,
-          changeset.data.deleting_at || DateTime.utc_now()
-        )
-      end)
+      change(set_attribute(:deleting_at, &DateTime.utc_now/0),
+        where: [attribute_equals(:deleting_at, nil)]
+      )
     end
 
     destroy :delete_in_tx do
       validate(present(:deleting_at))
-    end
-
-    action :ensure_scaffold do
-      argument(:tenant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
-
-      run(__MODULE__.Actions)
     end
 
     action :create, :struct do

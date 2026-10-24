@@ -18,37 +18,36 @@ defmodule Ankole.Workflow.TaskLifecycle do
   @max_wake_after_ms 172_800_000
 
   def compensate_turn_error_in_tx(
-        repo,
         %{agent_uid: agent_uid, session_id: session_id},
         reason,
         %DateTime{} = now
       )
       when is_binary(agent_uid) and is_binary(session_id) and is_map(reason) do
     case Ankole.Workflow.Queries.parse_task_session_id(session_id) do
-      {:ok, call_id} -> compensate_call_in_tx(repo, call_id, agent_uid, reason, now)
+      {:ok, call_id} -> compensate_call_in_tx(call_id, agent_uid, reason, now)
       :error -> {:ok, nil}
     end
   end
 
-  def compensate_turn_error_in_tx(_repo, _event, _reason, %DateTime{}) do
+  def compensate_turn_error_in_tx(_event, _reason, %DateTime{}) do
     {:ok, nil}
   end
 
-  def authorize_delegated_job_owner_in_tx(repo, agent_uid, owner_session_id)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(owner_session_id) do
+  def authorize_delegated_job_owner_in_tx(agent_uid, owner_session_id)
+      when is_binary(agent_uid) and is_binary(owner_session_id) do
     case Ankole.Workflow.Queries.parse_task_session_id(owner_session_id) do
-      {:ok, call_id} -> authorize_delegated_job_in_tx(repo, call_id, agent_uid)
+      {:ok, call_id} -> authorize_delegated_job_in_tx(call_id, agent_uid)
       :error -> :ok
     end
   end
 
-  def lock_task_progress_in_tx(repo, call_id, agent_uid, session_id, attempt)
+  def lock_task_progress_in_tx(call_id, agent_uid, session_id, attempt)
       when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and is_binary(session_id) and
              is_integer(attempt) and attempt > 0 do
-    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid),
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid),
          :ok <- authorize_session(call, session_id) do
       current =
         if run.status == :running and call.status == :running and call.attempts == attempt do
@@ -62,21 +61,21 @@ defmodule Ankole.Workflow.TaskLifecycle do
     end
   end
 
-  def touch_running_task_in_tx(_repo, nil, _now) do
+  def touch_running_task_in_tx(nil, _now) do
     :ok
   end
 
-  def touch_running_task_in_tx(_repo, %AgentCall{status: :running} = call, now) do
+  def touch_running_task_in_tx(%AgentCall{status: :running} = call, now) do
     case Ankole.Ash.update(call, :update_metadata, %{progress_at: now}) do
       {:ok, _call} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  def claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent, opts \\ [])
-      when is_atom(repo) and is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
+  def claim_task_in_tx(call_id, agent_uid, max_running_per_agent, opts \\ [])
+      when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
              is_integer(max_running_per_agent) and max_running_per_agent > 0 do
-    with {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
+    with {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
          %Run{} = snapshot_run <- Ankole.Workflow.Slot.get_run(run_id, agent_uid),
          %AgentCall{} = snapshot_call <- Ankole.Workflow.Slot.get_call(call_id, run_id, agent_uid),
          :ok <- ensure_claimable_or_adopted(snapshot_run, snapshot_call, opts),
@@ -84,18 +83,18 @@ defmodule Ankole.Workflow.TaskLifecycle do
            (if snapshot_call.status == :running do
               :ok
             else
-              with :ok <- Ankole.Tenants.check_work_admission_in_tx(repo, Repo.tenant_id!()) do
-                Ankole.Principals.WorkAccess.check_in_tx(repo, snapshot_run)
+              with :ok <- Ankole.Tenants.check_work_admission_in_tx(Repo.tenant_id!()) do
+                Ankole.Principals.WorkAccess.check_in_tx(snapshot_run)
               end
             end),
-         :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid),
+         :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid),
          :ok <- ensure_claimable_or_adopted(run, call, opts) do
       if call.status == :running do
         {:ok, %{call: call, run: run}}
       else
-        with :ok <- Ankole.Workflow.Slot.enforce_capacity(repo, run, max_running_per_agent),
+        with :ok <- Ankole.Workflow.Slot.enforce_capacity(run, max_running_per_agent),
              {:ok, call} <-
                Ankole.Ash.update(call, :claim, %{
                  attempts: call.attempts + 1,
@@ -126,12 +125,12 @@ defmodule Ankole.Workflow.TaskLifecycle do
     ensure_claimable(run, call)
   end
 
-  defp authorize_delegated_job_in_tx(repo, call_id, agent_uid)
-       when is_atom(repo) and is_integer(call_id) and call_id > 0 and is_binary(agent_uid) do
-    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid),
+  defp authorize_delegated_job_in_tx(call_id, agent_uid)
+       when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid),
          :ok <- ensure_delegated_job_owner_running(run, call) do
       :ok
     else
@@ -140,42 +139,42 @@ defmodule Ankole.Workflow.TaskLifecycle do
     end
   end
 
-  def submit_result_in_tx(repo, call_id, agent_uid, session_id, outcome) do
-    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid),
+  def submit_result_in_tx(call_id, agent_uid, session_id, outcome) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid),
          :ok <- authorize_session(call, session_id) do
-      submit_locked(repo, run, call, outcome, DateTime.utc_now())
+      submit_locked(run, call, outcome, DateTime.utc_now())
     else
       nil -> {:error, :workflow_task_not_found}
       {:error, _reason} = error -> error
     end
   end
 
-  def sleep_task_in_tx(repo, call_id, agent_uid, session_id, params) do
+  def sleep_task_in_tx(call_id, agent_uid, session_id, params) do
     with {:ok, wake_after_ms} <- validate_wake_after(Map.get(params, :wake_after_ms)),
          {:ok, note} <- validate_sleep_note(Map.get(params, :note)),
-         :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid),
+         :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid),
          :ok <- authorize_session(call, session_id) do
-      sleep_locked(repo, run, call, wake_after_ms, note, Map.get(params, :attention) == true)
+      sleep_locked(run, call, wake_after_ms, note, Map.get(params, :attention) == true)
     else
       nil -> {:error, :workflow_task_not_found}
       {:error, _reason} = error -> error
     end
   end
 
-  def fail_unstarted_task_in_tx(repo, call_id, agent_uid, code, summary, available_at) do
-    with {:ok, {run, call}} <- lock_task_in_tx(repo, call_id, agent_uid) do
-      fail_unstarted_task_locked(repo, run, call, task_failure(code, summary), available_at)
+  def fail_unstarted_task_in_tx(call_id, agent_uid, code, summary, available_at) do
+    with {:ok, {run, call}} <- lock_task_in_tx(call_id, agent_uid) do
+      fail_unstarted_task_locked(run, call, task_failure(code, summary), available_at)
     end
   end
 
-  def model_unavailable_in_tx(repo, call_id, agent_uid, session_id, profile, reason, available_at) do
-    with {:ok, {run, call}} <- lock_task_in_tx(repo, call_id, agent_uid),
+  def model_unavailable_in_tx(call_id, agent_uid, session_id, profile, reason, available_at) do
+    with {:ok, {run, call}} <- lock_task_in_tx(call_id, agent_uid),
          :ok <- authorize_session(call, session_id) do
       failure =
         task_failure(
@@ -184,18 +183,18 @@ defmodule Ankole.Workflow.TaskLifecycle do
         )
 
       if call.status == :running do
-        submit_locked(repo, run, call, Map.put(failure, "ok", false), available_at)
+        submit_locked(run, call, Map.put(failure, "ok", false), available_at)
       else
-        fail_unstarted_task_locked(repo, run, call, failure, available_at)
+        fail_unstarted_task_locked(run, call, failure, available_at)
       end
     end
   end
 
-  def lock_task_in_tx(repo, call_id, agent_uid) do
-    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid) do
+  def lock_task_in_tx(call_id, agent_uid) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid) do
       {:ok, {run, call}}
     else
       nil -> {:error, :workflow_task_not_found}
@@ -211,13 +210,13 @@ defmodule Ankole.Workflow.TaskLifecycle do
     }
   end
 
-  defp fail_unstarted_task_locked(repo, run, call, failure, available_at) do
+  defp fail_unstarted_task_locked(run, call, failure, available_at) do
     cond do
       run.status != :running ->
         {:ok, %{accepted: false, call: call, run: run}}
 
       call.status in [:queued, :sleeping] ->
-        commit_failure(repo, run, call, failure, false, available_at)
+        commit_failure(run, call, failure, false, available_at)
 
       call.status in AgentCall.terminal_statuses() ->
         {:ok, %{accepted: false, call: call, run: run}}
@@ -227,19 +226,18 @@ defmodule Ankole.Workflow.TaskLifecycle do
     end
   end
 
-  defp sleep_locked(repo, %Run{status: status} = run, call, _wake_after_ms, _note, _attention?)
+  defp sleep_locked(%Run{status: status} = run, call, _wake_after_ms, _note, _attention?)
        when status != :running do
-    with {:ok, call} <- cancel_stopped_run_call(repo, call, DateTime.utc_now()),
+    with {:ok, call} <- cancel_stopped_run_call(call, DateTime.utc_now()),
          do: {:ok, %{call: call, run: run}}
   end
 
-  defp sleep_locked(_repo, %Run{}, %AgentCall{status: status}, _wake_after_ms, _note, _attention?)
+  defp sleep_locked(%Run{}, %AgentCall{status: status}, _wake_after_ms, _note, _attention?)
        when status != :running do
     {:error, {:workflow_task_not_running, status}}
   end
 
   defp sleep_locked(
-         _repo,
          %Run{},
          %AgentCall{wake_count: wake_count},
          _wake_after_ms,
@@ -250,11 +248,11 @@ defmodule Ankole.Workflow.TaskLifecycle do
     {:error, :workflow_task_wake_budget_exhausted}
   end
 
-  defp sleep_locked(repo, run, call, wake_after_ms, note, attention?) do
+  defp sleep_locked(run, call, wake_after_ms, note, attention?) do
     now = DateTime.utc_now()
 
     with :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx(repo, [
+           Ankole.Sessions.Queue.lock_sessions_in_tx([
              {call.agent_uid, Ankole.Workflow.Queries.task_session_id(call.id)},
              {run.agent_uid, run.owner_session_id}
            ]),
@@ -268,9 +266,9 @@ defmodule Ankole.Workflow.TaskLifecycle do
              attention: attention?,
              error: %{}
            }),
-         {:ok, _wake_event} <- Ankole.Workflow.Mail.append_wake_event(repo, run, call, now),
+         {:ok, _wake_event} <- Ankole.Workflow.Mail.append_wake_event(run, call, now),
          {:ok, attention_event} <-
-           Ankole.Workflow.Mail.maybe_append_attention_event(repo, run, call, attention?, now) do
+           Ankole.Workflow.Mail.maybe_append_attention_event(run, call, attention?, now) do
       {:ok, %{call: call, run: run, attention_event: attention_event, released_slot?: true}}
     end
   end
@@ -298,14 +296,14 @@ defmodule Ankole.Workflow.TaskLifecycle do
     {:error, :invalid_workflow_sleep_note}
   end
 
-  defp compensate_call_in_tx(repo, call_id, agent_uid, reason, now) do
-    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
-         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(repo, call_id, run.id, agent_uid) do
+  defp compensate_call_in_tx(call_id, agent_uid, reason, now) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
+         {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(call_id, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid),
+         %AgentCall{} = call <- Ankole.Workflow.Slot.lock_call(call_id, run.id, agent_uid) do
       cond do
         run.status != :running and call.status == :running ->
-          with {:ok, call} <- cancel_stopped_run_call(repo, call, now) do
+          with {:ok, call} <- cancel_stopped_run_call(call, now) do
             {:ok, %{accepted: false, call: call, run: run}}
           end
 
@@ -314,7 +312,7 @@ defmodule Ankole.Workflow.TaskLifecycle do
 
         true ->
           failure = failure_from_reason(reason)
-          commit_failure(repo, run, call, failure, call.attempts < 3, now)
+          commit_failure(run, call, failure, call.attempts < 3, now)
       end
     else
       nil -> {:ok, nil}
@@ -323,56 +321,55 @@ defmodule Ankole.Workflow.TaskLifecycle do
     end
   end
 
-  defp cancel_stopped_run_call(repo, %AgentCall{status: :running} = call, now) do
+  defp cancel_stopped_run_call(%AgentCall{status: :running} = call, now) do
     with {:ok, call} <- Ankole.Ash.update(call, :cancel, %{result: nil, error: %{}}),
-         :ok <- notify_task_ready(repo, call, now),
+         :ok <- notify_task_ready(call, now),
          do: {:ok, call}
   end
 
-  defp cancel_stopped_run_call(_repo, call, _now), do: {:ok, call}
+  defp cancel_stopped_run_call(call, _now), do: {:ok, call}
 
   defp submit_locked(
-         repo,
          %Run{status: :cancelled, error: %{"code" => "human_access_revoked"}} = run,
          %AgentCall{status: :running} = call,
          outcome,
          now
        ) do
     if outcome["ok"] == true do
-      commit_success(repo, run, call, outcome["value"], now)
+      commit_success(run, call, outcome["value"], now)
     else
       with {:ok, failure} <- validate_failure(outcome) do
-        commit_failure(repo, run, call, failure, false, now)
+        commit_failure(run, call, failure, false, now)
       end
     end
   end
 
-  defp submit_locked(repo, %Run{status: status} = run, call, _outcome, now)
+  defp submit_locked(%Run{status: status} = run, call, _outcome, now)
        when status != :running do
-    with {:ok, call} <- cancel_stopped_run_call(repo, call, now),
+    with {:ok, call} <- cancel_stopped_run_call(call, now),
          do: {:ok, %{accepted: false, call: call, run: run}}
   end
 
-  defp submit_locked(_repo, %Run{}, %AgentCall{status: status}, _outcome, _now)
+  defp submit_locked(%Run{}, %AgentCall{status: status}, _outcome, _now)
        when status != :running do
     {:error, {:workflow_task_not_running, status}}
   end
 
-  defp submit_locked(repo, run, call, outcome, now) do
+  defp submit_locked(run, call, outcome, now) do
     if outcome["ok"] == true do
-      commit_success(repo, run, call, outcome["value"], now)
+      commit_success(run, call, outcome["value"], now)
     else
       with {:ok, failure} <- validate_failure(outcome) do
-        commit_failure(repo, run, call, failure, failure["retryable"] and call.attempts < 3, now)
+        commit_failure(run, call, failure, failure["retryable"] and call.attempts < 3, now)
       end
     end
   end
 
-  defp commit_success(_repo, _run, _call, nil, _now) do
+  defp commit_success(_run, _call, nil, _now) do
     {:error, :workflow_result_null}
   end
 
-  defp commit_success(repo, run, call, value, now) do
+  defp commit_success(run, call, value, now) do
     schema = Map.get(call.arguments, "schema", %{"type" => "string"})
 
     with {:ok, encoded} <- Torque.encode(value),
@@ -382,19 +379,19 @@ defmodule Ankole.Workflow.TaskLifecycle do
          {:ok, envelope_encoded} <- Torque.encode(envelope),
          memo_bytes = run.memo_bytes + byte_size(envelope_encoded) do
       if memo_bytes > @memo_budget_bytes do
-        fail_memo_budget(repo, run, call, now)
+        fail_memo_budget(run, call, now)
       else
         with {:ok, call} <- Ankole.Ash.update(call, :complete, %{result: envelope, error: %{}}),
-             {:ok, run} <- Ankole.Workflow.Lifecycle.update_run_memo_bytes(repo, run, memo_bytes),
-             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id),
-             :ok <- notify_task_ready(repo, call, now) do
+             {:ok, run} <- Ankole.Workflow.Lifecycle.update_run_memo_bytes(run, memo_bytes),
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id),
+             :ok <- notify_task_ready(call, now) do
           {:ok, %{accepted: true, call: call, run: run, released_slot?: true}}
         end
       end
     end
   end
 
-  def commit_failure(repo, run, call, failure, true, available_at) do
+  def commit_failure(run, call, failure, true, available_at) do
     with {:ok, call} <-
            Ankole.Ash.update(call, :requeue_stale, %{
              wake_kind: nil,
@@ -402,20 +399,20 @@ defmodule Ankole.Workflow.TaskLifecycle do
              result: nil,
              error: Map.delete(failure, "retryable")
            }),
-         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id),
-         :ok <- notify_task_ready(repo, call, available_at) do
+         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id),
+         :ok <- notify_task_ready(call, available_at) do
       {:ok, %{accepted: true, call: call, run: run, released_slot?: true}}
     end
   end
 
-  def commit_failure(repo, run, call, failure, false, now) do
+  def commit_failure(run, call, failure, false, now) do
     released_slot? = call.status == :running
     envelope = failure |> Map.delete("retryable") |> Map.put("ok", false)
 
     with {:ok, envelope_encoded} <- Torque.encode(envelope),
          memo_bytes = run.memo_bytes + byte_size(envelope_encoded) do
       if memo_bytes > @memo_budget_bytes do
-        fail_memo_budget(repo, run, call, now)
+        fail_memo_budget(run, call, now)
       else
         with {:ok, call} <-
                Ankole.Ash.update(call, :fail, %{
@@ -424,16 +421,16 @@ defmodule Ankole.Workflow.TaskLifecycle do
                  result: envelope,
                  error: Map.delete(envelope, "ok")
                }),
-             {:ok, run} <- Ankole.Workflow.Lifecycle.update_run_memo_bytes(repo, run, memo_bytes),
-             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id),
-             :ok <- notify_task_ready(repo, call, now) do
+             {:ok, run} <- Ankole.Workflow.Lifecycle.update_run_memo_bytes(run, memo_bytes),
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id),
+             :ok <- notify_task_ready(call, now) do
           {:ok, %{accepted: true, call: call, run: run, released_slot?: released_slot?}}
         end
       end
     end
   end
 
-  defp fail_memo_budget(repo, run, call, now) do
+  defp fail_memo_budget(run, call, now) do
     error = %{
       "code" => "workflow_memo_budget_exceeded",
       "summary" =>
@@ -442,15 +439,14 @@ defmodule Ankole.Workflow.TaskLifecycle do
 
     with {:ok, call} <- Ankole.Ash.update(call, :fail, %{result: nil, error: error}),
          {:ok, terminal} <-
-           Ankole.Workflow.Lifecycle.conclude_run_in_tx(repo, run, :failed, nil, error, now),
-         :ok <- notify_task_ready(repo, call, now) do
+           Ankole.Workflow.Lifecycle.conclude_run_in_tx(run, :failed, nil, error, now),
+         :ok <- notify_task_ready(call, now) do
       {:ok, terminal |> Map.merge(%{accepted: true, call: call})}
     end
   end
 
-  def notify_task_ready(repo, call, available_at) do
+  def notify_task_ready(call, available_at) do
     Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
-      repo,
       %{agent_uid: call.agent_uid, session_id: Ankole.Workflow.Queries.task_session_id(call.id)},
       available_at
     )

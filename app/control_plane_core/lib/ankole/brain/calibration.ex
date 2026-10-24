@@ -19,7 +19,6 @@ defmodule Ankole.Brain.Calibration do
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.TakeDomainAssignment
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Kernel, as: NativeKernel
@@ -160,11 +159,7 @@ defmodule Ankole.Brain.Calibration do
              output["quality"],
            confidence when is_number(confidence) <- output["confidence"],
            {:ok, result} <-
-             Ankole.Ash.run_action(Claim, :commit_grade, %{
-               take_id: take.id,
-               input_hash: input.hash,
-               output: output
-             }) do
+             Repo.transact_top_level(fn -> commit_grade_in_tx(take.id, input.hash, output) end) do
         result
       else
         _invalid -> :skip
@@ -305,8 +300,7 @@ defmodule Ankole.Brain.Calibration do
     names
     |> Enum.filter(&Map.has_key?(domains, &1))
     |> Enum.each(fn domain ->
-      TakeDomainAssignment
-      |> Ankole.Ash.for_create(:assign_once, %{
+      Ankole.Ash.create!(TakeDomainAssignment, :assign_once, %{
         id: UUIDv7.autogenerate(),
         take_claim_id: take.id,
         domain: domain,
@@ -315,7 +309,6 @@ defmodule Ankole.Brain.Calibration do
         confidence: 1.0,
         assigned_at: DateTime.utc_now(:microsecond)
       })
-      |> Ash.create!(authorize?: false)
     end)
   end
 
@@ -401,11 +394,13 @@ defmodule Ankole.Brain.Calibration do
       if body == object.body do
         false
       else
-        case Ankole.Ash.run_action(Object, :update_object, %{
-               slug: object.slug,
-               attrs: %{body: body, expected_content_hash: object.content_hash},
-               writer: :system
-             }) do
+        case Repo.transact_top_level(fn ->
+               Objects.update_object_in_tx(
+                 object.slug,
+                 %{body: body, expected_content_hash: object.content_hash},
+                 :system
+               )
+             end) do
           {:ok, _object} -> true
           {:error, _reason} -> false
         end

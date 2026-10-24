@@ -40,10 +40,4 @@ defmodule Ankole.OIDC.Client.Actions do
 
   defp action(:console_delete, input, _context),
     do: Ankole.Errors.wrap(Ankole.OIDC.console_delete_in_tx(input.arguments.id))
-
-  defp action(:create_client, %{arguments: args}, _context),
-    do: Ankole.Errors.wrap(Ankole.OIDC.create_client_in_tx(args.attrs, args.group_ids))
-
-  defp action(:update_client, %{arguments: args}, _context),
-    do: Ankole.Errors.wrap(Ankole.OIDC.update_client_in_tx(args.id, args.attrs))
 end

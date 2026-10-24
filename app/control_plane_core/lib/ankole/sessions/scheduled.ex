@@ -98,10 +98,10 @@ defmodule Ankole.Sessions.Scheduled do
 
   def normalize("finish_scheduled", args), do: args
 
-  def prepare_in_tx(repo, run, call, args),
-    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+  def prepare_in_tx(run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(run, call, args) end}
 
-  defp commit_tool_in_tx(_repo, run, _call, args) do
+  defp commit_tool_in_tx(run, _call, args) do
     case {args["outcome"], args["reply"]} do
       {"reply", reply} when is_binary(reply) ->
         text = Text.normalize_visible_text(reply)

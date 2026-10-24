@@ -6,8 +6,9 @@ Client policy, browser authentication, durable sessions, access tokens, and
 PostgreSQL storage. The site has one issuer and one RSA signing key.
 
 `Ankole.OIDC` is the root Ash domain of the OIDC resources. Client registration
-and configuration change the Client and its group links in one generic action on
-`Client` (`create_client`, `update_client`); that action owns the transaction.
+and configuration change the Client and its group links in one
+`Repo.transact_top_level/2` transaction (`create_client`, `update_client`), and
+`/api/v2/oidc-clients` exposes the Console routes.
 Deletion, secret rotation, and signing key initialization are one statement each.
 Only secret rotation can change an existing confidential Client's secret.
 Ordinary configuration cannot replace its ID or public/confidential type. The
@@ -117,12 +118,12 @@ consent does not prove fresh authentication.
 
 ## Authorization and token issuance
 
-`Ankole.OIDC.Grants.authorize/2` runs the `authorize` generic action on
-`AuthorizationCode`. In its transaction, it creates or extends the OIDC session
-and calls `Attesto.AuthorizationCode.issue/3`. The `issue` callback of
-`BrowserSessions.consume_authorization/4` already runs in a transaction, so it
-calls `Grants.authorize_in_tx/2`. The code expires in 60 seconds. PostgreSQL
-stores its SHA-256 digest and PKCE challenge, never the plaintext code.
+`Ankole.OIDC.Grants.authorize/2` runs in `Repo.transact_top_level/2`: it creates
+or extends the OIDC session and calls `Attesto.AuthorizationCode.issue/3`. The
+`issue` callback of `BrowserSessions.consume_authorization/4` already runs in a
+transaction, so it calls `Grants.authorize_in_tx/2`. The code expires in 60
+seconds. PostgreSQL stores its SHA-256 digest and PKCE challenge, never the
+plaintext code.
 
 Authorization holds the tenant parent lock before the browser serializer and
 the live Human lock. It then locks the Client with `FOR KEY SHARE`. The tenant
@@ -137,11 +138,11 @@ waits before it can lock the session through its cascade.
 
 A code presentation calls `Attesto.AuthorizationCode.redeem/4` before the token
 issuance transaction. `CodeStore.take/1` atomically marks it consumed. Token
-issuance is the `exchange` generic action on `AuthorizationCode`, and a refresh
-response is the `refresh` generic action on `RefreshToken`. A wrong Client,
-redirect URI, verifier, or expired grant cannot restore the code. Token
-issuance then checks the Client, granted scopes, OIDC session, active Human, and
-AI Gateway policy. The Human row is held with `FOR SHARE` during issuance.
+issuance (`Grants.exchange/2`) and refresh responses (`Grants.refresh/2`) run
+in `Repo.transact_top_level/2`. A wrong Client, redirect URI, verifier, or
+expired grant cannot restore the code. Token issuance then checks the Client,
+granted scopes, OIDC session, active Human, and AI Gateway policy. The Human
+row is held with `FOR SHARE` during issuance.
 
 Ankole issues an RS256 `at+jwt` access token with a 30-minute lifetime, carrying
 the target audiences, `client_id`, `sid`, `sub`, `subject_type`, and `token_use`
@@ -160,11 +161,11 @@ spent and does not create a false completed-grant replay marker.
 
 `Attesto.RefreshToken` owns issuance, scope narrowing, rotation, retry recovery,
 and reuse detection. `Ankole.OIDC.RefreshStore` implements the PostgreSQL
-transaction boundary. Rotation runs the `rotate` generic action on
-`RefreshToken`, and family revocation runs the `revoke_family` generic action on
-`RefreshTokenFamily`; rotation calls the same revocation step in its own
-transaction. The first token of a family is inserted in the code exchange
-transaction, so `insert/1` raises `TransactionRequired` outside a transaction.
+transaction boundary. Rotation (`RefreshStore.rotate/2`) and family revocation
+(`RefreshStore.revoke_family/1`) run in `Repo.transact_top_level/2`; rotation
+calls the same revocation step inside its transaction. The first token of a
+family is inserted in the code exchange transaction, so `insert/1` raises
+`TransactionRequired` outside a transaction.
 The code store callbacks are single statements. The family row owns the
 absolute 30-day deadline and a sticky revocation marker. Each token has a
 digest, family ID, generation, canonical protocol context, expiry, and
@@ -248,11 +249,12 @@ Back-Channel Logout uses a durable Ankole delivery queue. Attesto signs each
 `logout+jwt` with `sub`, `sid`, and the required logout event. PostgreSQL stores
 delivery attempts, backoff, and deadlines.
 
-RP logout confirmation is the `confirm` generic action on `LogoutRequest`: it
-ends the browser login with `BrowserSessions.logout_in_tx/2` and confirms the
-request in one transaction. A delivery claim and an operator retry are the
-`claim` and `retry` generic actions on `LogoutDelivery`. The HTTP request runs
-after the claim commits, and the result is one atomic update.
+RP logout confirmation (`Logout.confirm/2`) ends the browser login with
+`BrowserSessions.logout_in_tx/2` and confirms the request in one
+`Repo.transact_top_level/2` transaction. Delivery claims and operator retries
+(`Logout.claim/1`, `Logout.retry/1`) also run in `Repo.transact_top_level/2`.
+The HTTP request runs after the claim commits, and the result is one atomic
+update.
 
 The confirmation action cannot change the browser ID or revision and only
 confirms an unconsumed request. Cleanup uses atomic resource deletes. Its

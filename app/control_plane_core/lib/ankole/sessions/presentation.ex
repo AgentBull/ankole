@@ -57,7 +57,9 @@ defmodule Ankole.Sessions.Presentation do
   end
 
   def start(run, driver) do
-    with {:ok, :linked} <- run |> Ankole.Sessions.link_run_input() |> Ankole.Errors.reason() do
+    with {:ok, :linked} <-
+           Ankole.Repo.transact_top_level(fn -> link_input_in_tx(run) end)
+           |> Ankole.Errors.reason() do
       with :ok <-
              Preview.maybe_start_for(run.event, run.agent_uid, run.conversation.id,
                driver: driver,
@@ -73,11 +75,10 @@ defmodule Ankole.Sessions.Presentation do
   end
 
   @doc false
-  def link_input_in_tx(repo, run) do
-    with :ok <- Ankole.Sessions.Fence.check_in_tx(repo, run, :share),
+  def link_input_in_tx(run) do
+    with :ok <- Ankole.Sessions.Fence.check_in_tx(run, :share),
          :ok <-
            Attachments.link_payload_in_tx(
-             repo,
              run.agent_uid,
              Signal.envelope(run.delivered_event),
              run.delivered_event.conversation_id
@@ -88,7 +89,7 @@ defmodule Ankole.Sessions.Presentation do
   def reply_event(events, fallback) do
     events
     |> Enum.filter(fn event ->
-      case StatementTarget.for_reply(Ankole.Repo, event) do
+      case StatementTarget.for_reply(event) do
         {:ok, target} -> StatementTarget.reply_eligible?(target, event)
         _ -> false
       end
@@ -208,10 +209,10 @@ defmodule Ankole.Sessions.Presentation do
   def stop(run), do: Preview.stop(run.event)
 
   @impl true
-  def prepare_in_tx(repo, run, call, args),
-    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+  def prepare_in_tx(run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(run, call, args) end}
 
-  defp commit_tool_in_tx(_repo, run, %{"name" => "reply_attachment"}, args) do
+  defp commit_tool_in_tx(run, %{"name" => "reply_attachment"}, args) do
     with {:ok, file} <- Ankole.Files.fetch(run.agent_uid, args["drive_path"]),
          :ok <- Ankole.Files.verify_delivery(file.path, run.event.conversation_id),
          digest = Base.encode16(file.sha256, case: :lower),
@@ -235,7 +236,7 @@ defmodule Ankole.Sessions.Presentation do
     end
   end
 
-  def targets_in_tx(repo, event) do
+  def targets_in_tx(event) do
     delivery =
       if event.type != "cron.fire" or Ankole.Sessions.Scheduled.produced_signal?(event),
         do: Signal.scheduled_delivery_snapshot(event)
@@ -246,7 +247,6 @@ defmodule Ankole.Sessions.Presentation do
         |> Enum.with_index()
         |> Enum.reduce_while({:ok, []}, fn {item, index}, {:ok, targets} ->
           case StatementTarget.for_delivery_in_tx(
-                 repo,
                  event.agent_uid,
                  Map.put(item, "primary", index == 0)
                ) do
@@ -261,20 +261,20 @@ defmodule Ankole.Sessions.Presentation do
         end
       end
     else
-      case StatementTarget.for_reply(repo, event) do
+      case StatementTarget.for_reply(event) do
         {:ok, target} -> {:ok, [target]}
         {:error, :reply_route_unavailable} -> {:ok, []}
       end
     end
   end
 
-  def post_in_tx(_repo, _event, %Ankole.Conversations.Statement{outcome: :silent}),
+  def post_in_tx(_event, %Ankole.Conversations.Statement{outcome: :silent}),
     do: {:ok, %Ankole.Conversations.PostResult{}}
 
-  def post_in_tx(repo, event, statement) do
-    :ok = Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id)
+  def post_in_tx(event, statement) do
+    :ok = Queue.lock_session_in_tx(event.agent_uid, event.session_id)
 
-    with {:ok, targets} <- targets_in_tx(repo, event) do
+    with {:ok, targets} <- targets_in_tx(event) do
       targets =
         Enum.filter(targets, fn target ->
           statement.notice != nil or StatementTarget.reply_eligible?(target, event)
@@ -282,7 +282,7 @@ defmodule Ankole.Sessions.Presentation do
 
       Enum.reduce_while(targets, {:ok, %Ankole.Conversations.PostResult{}}, fn target,
                                                                                {:ok, posted} ->
-        case Ankole.Conversations.post_in_tx(repo, target, statement) do
+        case Ankole.Conversations.post_in_tx(target, statement) do
           {:ok, result} ->
             {:cont, {:ok, Ankole.Conversations.PostResult.merge(posted, result)}}
 
@@ -336,11 +336,10 @@ defmodule Ankole.Sessions.Presentation do
   end
 
   @doc "Projects the current journal anchor and commits only prepared image references."
-  def load_completion_in_tx(repo, run, final_response_id, images) do
+  def load_completion_in_tx(run, final_response_id, images) do
     with {:ok, chain} <- ModelHistory.load_turn_chain(run, final_response_id),
          {:ok, projection} <-
            project_completion(
-             repo,
              run.agent_uid,
              chain.response_chain,
              chain.final_response,
@@ -351,7 +350,7 @@ defmodule Ankole.Sessions.Presentation do
     end
   end
 
-  defp project_completion(repo, subject_uid, turn_chain, final_response, origin, images) do
+  defp project_completion(subject_uid, turn_chain, final_response, origin, images) do
     source_items =
       turn_chain
       |> Enum.reverse()
@@ -363,7 +362,7 @@ defmodule Ankole.Sessions.Presentation do
     with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
          {:ok, attachments} <- Attachment.attachments_from_response_items(source_items),
          {:ok, generated_image_attachments} <-
-           materialize_generated_images(repo, subject_uid, turn_chain, origin, images),
+           materialize_generated_images(subject_uid, turn_chain, origin, images),
          attachments = attachments ++ generated_image_attachments do
       {:ok,
        %{
@@ -377,10 +376,10 @@ defmodule Ankole.Sessions.Presentation do
   defp message_items(%Message{content: content}) when is_list(content), do: content
   defp message_items(_message), do: []
 
-  defp materialize_generated_images(repo, subject_uid, turn_chain, origin, images) do
+  defp materialize_generated_images(subject_uid, turn_chain, origin, images) do
     with {:ok, image_ids} <- generated_image_ids(turn_chain) do
       Enum.reduce_while(image_ids, {:ok, []}, fn image_id, {:ok, attachments} ->
-        case materialize_generated_image(repo, subject_uid, image_id, origin, images) do
+        case materialize_generated_image(subject_uid, image_id, origin, images) do
           {:ok, attachment} -> {:cont, {:ok, [attachment | attachments]}}
           {:error, _reason} = error -> {:halt, error}
         end
@@ -433,14 +432,14 @@ defmodule Ankole.Sessions.Presentation do
   defp completed_generated_image?(_item), do: false
 
   # Retried completions keep the same path in the source channel's directory.
-  defp materialize_generated_image(repo, subject_uid, image_id, origin, images) do
+  defp materialize_generated_image(subject_uid, image_id, origin, images) do
     with {:ok, %Artifact{} = artifact} <- Artifacts.get_generated_image(subject_uid, image_id),
          %{artifact_id: id, sha256: sha256, filename: filename, mime_type: mime, size: size} <-
            Map.get(images, image_id),
          true <-
            artifact.id == id and Base.encode16(artifact.sha256, case: :lower) == sha256 and
              artifact.mime_type == mime and artifact.byte_size == size,
-         {:ok, file} <- commit_generated_image(repo, subject_uid, filename, sha256, mime, origin) do
+         {:ok, file} <- commit_generated_image(subject_uid, filename, sha256, mime, origin) do
       {:ok,
        %{
          "path" => file.path,
@@ -462,12 +461,11 @@ defmodule Ankole.Sessions.Presentation do
   defp generated_image_extension(image_id, mime_type),
     do: {:error, {:unsupported_generated_image_mime_type, image_id, mime_type}}
 
-  defp commit_generated_image(repo, agent_uid, filename, sha256, mime, origin) do
+  defp commit_generated_image(agent_uid, filename, sha256, mime, origin) do
     channel_id = if origin, do: origin.id
 
     with {:ok, %{files: [file]}} <-
-           Files.commit(
-             repo,
+           Files.commit_in_tx(
              agent_uid,
              [
                %{

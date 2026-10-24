@@ -409,7 +409,7 @@ declarations when it prepares the files. A Skill read alone needs no Worker.
 ### Run and Recover a Tool Call
 
 Control-plane tools commit durable effects and receipts in one transaction.
-`Tool.prepare_in_tx/4` acquires the domain's Principal, capacity, parent, and
+`Tool.prepare_in_tx/3` acquires the domain's Principal, capacity, parent, and
 child locks and returns the participating Session keys and a commit function.
 A new work owner can allocate and insert its identity during preparation; this
 row is not visible outside the transaction. Preparation does not emit a Signal.

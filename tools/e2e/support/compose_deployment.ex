@@ -124,7 +124,8 @@ defmodule Ankole.E2E.ComposeDeployment do
   end
 
   def upgrade!(deployment, opts \\ []) do
-    %{"principalUID" => principal_uid} = api!(deployment, :get, "/.internal-apis/session")
+    {session, deployment} = browser_request!(deployment, :get, "/session")
+    %{"principalUID" => principal_uid} = session.body
     compose!(deployment, ["stop", "control-plane"])
     seed = File.read!(Path.join(@root, "tools/deploy/docker-compose/worker-providers.yaml"))
 
@@ -203,8 +204,8 @@ defmodule Ankole.E2E.ComposeDeployment do
 
     deployment = login_admin!(deployment)
 
-    assert %{"authenticated" => true, "principalUID" => ^principal_uid} =
-             api!(deployment, :get, "/.internal-apis/session")
+    {session, deployment} = browser_request!(deployment, :get, "/session")
+    assert %{"authenticated" => true, "principalUID" => ^principal_uid} = session.body
 
     %{"data" => %{"id" => tenant_id}} = api!(deployment, :get, "/api/v2/site/privileged-tenant")
     %{deployment | tenant_id: tenant_id}
@@ -220,7 +221,7 @@ defmodule Ankole.E2E.ComposeDeployment do
     deployment = %{deployment | csrf: csrf}
 
     {login, deployment} =
-      request!(deployment, :post, "/.internal-apis/sessions/local-password", %{
+      browser_request!(deployment, :post, "/sessions/local-password", %{
         flow: flow,
         email: @admin_email,
         password: @admin_password
@@ -281,23 +282,23 @@ defmodule Ankole.E2E.ComposeDeployment do
     assert is_binary(code), "The control plane must print its setup activation code"
 
     {_response, deployment} =
-      request!(deployment, :post, "/.internal-apis/setup/sessions", %{activationCode: code})
+      browser_request!(deployment, :post, "/setup/sessions", %{activation_code: code})
 
     {_response, deployment} =
-      request!(deployment, :put, "/.internal-apis/setup/identity-providers/local-main", %{
+      browser_request!(deployment, :put, "/setup/identity-providers/local-main", %{
         adapterID: "local",
         config: %{},
         enabled: true
       })
 
     {setup, deployment} =
-      request!(deployment, :post, "/.internal-apis/setup/local-admin", %{
+      browser_request!(deployment, :post, "/setup/local-admin", %{
         email: @admin_email,
         password: @admin_password,
         display_name: "Compose test owner"
       })
 
-    {session, deployment} = request!(deployment, :get, "/.internal-apis/session")
+    {session, deployment} = browser_request!(deployment, :get, "/session")
 
     {response, deployment} = request!(deployment, :get, Map.fetch!(setup.body, "returnTo"))
 
@@ -359,6 +360,33 @@ defmodule Ankole.E2E.ComposeDeployment do
   end
 
   defp decode_json_api(response), do: response
+
+  # Upgrade tests also boot the pinned historical image. Only that fixture
+  # uses its historical browser protocol.
+  defp browser_path(%{compose: @compose}, path), do: "/api/v2/browser" <> path
+  defp browser_path(_deployment, path), do: "/.internal-apis" <> path
+
+  defp browser_request!(deployment, method, path, params \\ nil) do
+    if deployment.compose == @compose do
+      body = if is_nil(params), do: nil, else: %{data: params}
+
+      request!(
+        deployment,
+        method,
+        browser_path(deployment, path),
+        body,
+        if(method == :post, do: 201, else: 200)
+      )
+    else
+      params =
+        case params do
+          %{activation_code: code} -> %{activationCode: code}
+          params -> params
+        end
+
+      request!(deployment, method, browser_path(deployment, path), params)
+    end
+  end
 
   defp request!(deployment, method, path, body \\ nil, expected_status \\ 200) do
     headers = [{"origin", deployment.origin}]
@@ -430,7 +458,7 @@ defmodule Ankole.E2E.ComposeDeployment do
 
     assert {:ok, true} =
              wait_until(deadline(120_000), fn ->
-               case Req.get(deployment.origin <> "/.internal-apis/setup/state",
+               case Req.get(deployment.origin <> browser_path(deployment, "/setup/state"),
                       retry: false,
                       receive_timeout: 1_000
                     ) do

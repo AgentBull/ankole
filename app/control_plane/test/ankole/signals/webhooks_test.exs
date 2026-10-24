@@ -334,7 +334,7 @@ defmodule Ankole.Signals.WebhooksTest do
              )
 
     assert {:error, changeset} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn ->
                attrs =
                  Map.take(endpoint, Ash.Resource.Info.action(WebhookEndpoint, :create).accept)
 

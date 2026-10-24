@@ -303,55 +303,15 @@ defmodule Ankole.Conversations.Delivery.Intent do
       require_attributes([:next_attempt_at])
       validate(attribute_equals(:delivery_class, :durable_ai_reply))
 
-      validate(fn changeset, _context ->
-        if is_nil(changeset.data.next_attempt_at),
-          do: :ok,
-          else:
-            {:error, field: :next_attempt_at, message: "automatic recovery is already scheduled"}
-      end)
+      validate(data_one_of(:next_attempt_at, [nil]),
+        message: "automatic recovery is already scheduled"
+      )
 
       change(transition_state(:pending))
       change(atomic_update(:max_attempts, expr(attempt_count + 1)))
       change(set_attribute(:platform_send_started_at, nil))
       change(set_attribute(:recovery_status, nil))
       change(set_attribute(:recovery_reason, nil))
-    end
-
-    action :claim_dispatch, :term do
-      argument(:agent_uid, :term)
-      argument(:binding_name, :term)
-      argument(:outbound_key, :term)
-      argument(:adapter, :term)
-      argument(:now, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :finalize_attempt, :term do
-      argument(:intent, :term)
-      argument(:phase, :atom, constraints: [one_of: [:send, :reconcile]])
-      argument(:result, :term)
-      argument(:conversation, :term)
-      argument(:now, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :retry_stopped, :term do
-      argument(:agent_uid, :term)
-      argument(:binding_name, :term)
-      argument(:outbound_key, :term)
-      argument(:now, :term)
-
-      run(__MODULE__.Actions)
-    end
-
-    action :wake_blocked, :term do
-      argument(:agent_uid, :term)
-      argument(:binding_name, :term)
-      argument(:now, :term)
-
-      run(__MODULE__.Actions)
     end
   end
 

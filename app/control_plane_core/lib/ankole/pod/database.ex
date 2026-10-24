@@ -2,15 +2,14 @@ defmodule Ankole.Pod.Database do
   @moduledoc """
   Owns logical Database tables, schema changes, and record commits.
 
-  Each operation runs a generic action of `Ankole.Pod.DbTable`,
-  `Ankole.Pod.DbField`, or `Ankole.Pod.DbView`, which owns the transaction. The
-  `*_in_tx` functions are the action bodies. Record rows belong to the
+  Each operation runs in a top-level transaction. Record rows belong to the
   Database subsystem (`Ankole.Pod.DbRecord`).
   """
   require Ash.Query
   alias Ankole.Repo
 
   alias Ankole.Pod.{
+    Access,
     Config,
     DbField,
     DbTable,
@@ -42,13 +41,7 @@ defmodule Ankole.Pod.Database do
   end
 
   def create_table(uid, page_id, attrs, authority \\ nil),
-    do:
-      Ankole.Ash.run_action(DbTable, :create_table, %{
-        uid: uid,
-        page_id: page_id,
-        attrs: attrs,
-        authority: authority
-      })
+    do: Access.write(authority, fn -> create_table_in_tx(uid, page_id, attrs) end)
 
   @doc false
   def create_table_in_tx(uid, page_id, attrs) do
@@ -81,7 +74,7 @@ defmodule Ankole.Pod.Database do
     end
   end
 
-  def get_table(uid, id), do: Ankole.Ash.run_action(DbTable, :read_table, %{uid: uid, id: id})
+  def get_table(uid, id), do: Repo.transact_top_level(fn -> get_table_in_tx(uid, id) end)
 
   @doc false
   def get_table_in_tx(uid, id) do
@@ -110,7 +103,7 @@ defmodule Ankole.Pod.Database do
   end
 
   def query(uid, id, attrs),
-    do: Ankole.Ash.run_action(DbTable, :query_records, %{uid: uid, id: id, attrs: attrs})
+    do: Repo.transact_top_level(fn -> query_in_tx(uid, id, attrs) end)
 
   @doc false
   def query_in_tx(uid, id, attrs) do
@@ -148,7 +141,7 @@ defmodule Ankole.Pod.Database do
   end
 
   def aggregate(uid, id, attrs),
-    do: Ankole.Ash.run_action(DbTable, :aggregate_records, %{uid: uid, id: id, attrs: attrs})
+    do: Repo.transact_top_level(fn -> aggregate_in_tx(uid, id, attrs) end)
 
   @doc false
   def aggregate_in_tx(uid, id, attrs) do
@@ -172,12 +165,9 @@ defmodule Ankole.Pod.Database do
 
   def write_records(uid, id, attrs, authority \\ nil) do
     with {:ok, %{result: result}} <-
-           Ankole.Ash.run_action(DbTable, :write_records, %{
-             uid: uid,
-             id: id,
-             attrs: attrs,
-             authority: authority
-           }),
+           Access.write(authority, fn -> write_records_in_tx(uid, id, attrs) end,
+             after_commit: &committed_records/1
+           ),
          do: {:ok, result}
   end
 

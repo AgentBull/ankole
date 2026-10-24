@@ -17,7 +17,7 @@ import { databaseHTTP } from './database-api'
 import { DatabaseViewContent, RecordForm } from './database-views'
 import { QueryControls } from './database-query-controls'
 import { FieldEditorButton } from './database-fields'
-import { podDatabaseCopy } from '../common/api/generated/sdk.gen'
+import { podDatabaseCopy } from './api/generated/sdk.gen'
 import { pageAPI } from './content-api'
 import { DatabaseSummary } from './database-summary'
 import './database.css'
@@ -564,7 +564,8 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
   )
   const invalidTarget = !!parent && !targets.some(page => page.id === parent)
   const copy = useMutation({
-    mutationFn: () => podDatabaseCopy({ path: { id: tableID }, body: { parent_id: parent || null, title, filter } }),
+    mutationFn: () =>
+      podDatabaseCopy({ path: { id: tableID }, body: { data: { parent_id: parent || null, title, filter } } }),
     onSuccess: async ({ page }) => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
       setCreatedPage(page.id)

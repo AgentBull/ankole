@@ -89,7 +89,7 @@ test('copying a shared database selects an editable destination and opens an ind
     const copiedResponse = owner.waitForResponse(
       response =>
         response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === `/.internal-apis/pod/tables/${table.id}/copy`
+        new URL(response.url()).pathname === `/api/v2/pod/tables/${table.id}/copy`
     )
     await dialog.getByRole('button', { name: '复制', exact: true }).click()
     const response = await copiedResponse

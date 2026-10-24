@@ -28,6 +28,7 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   alias Ankole.Files.Schemas.Blob
   alias Ankole.Logging
   alias Ankole.ObjectStore
+  alias Ankole.Repo
 
   @batch_size 100
 
@@ -59,7 +60,7 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @doc false
   @spec remove_marked(non_neg_integer()) :: non_neg_integer()
   def remove_marked(removed) do
-    case Ankole.Ash.run_action(Blob, :collect_marked, %{}) do
+    case Repo.transact_top_level(fn -> remove_batch_in_tx() end) do
       {:ok, {0, _batch_removed}} -> removed
       {:ok, {_processed, batch_removed}} -> remove_marked(removed + batch_removed)
       {:error, reason} -> log_failure(reason, removed)

@@ -119,15 +119,17 @@ defmodule Ankole.Brain.Schemas.Contradiction do
   actions do
     defaults([:read])
 
-    # The Console list: the first 100 findings of one status, newest first.
+    # The Console list: findings of one status, newest first.
     read :console_list do
+      pagination(keyset?: true, default_limit: 100, max_page_size: 100, countable: false)
+
       argument(:status, :atom,
         default: :open,
         constraints: [one_of: [:open, :resolved, :dismissed]]
       )
 
       filter(expr(status == ^arg(:status)))
-      prepare(build(sort: [created_at: :desc], limit: 100))
+      prepare(build(sort: [created_at: :desc, id: :desc]))
     end
 
     create_if_absent :record_verdict do

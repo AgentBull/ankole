@@ -11,7 +11,7 @@ defmodule Ankole.SignalsFixtures do
     {provider_id, attrs} = Map.pop(attrs, :created_provider_message_id)
 
     {:ok, intent} =
-      Ankole.Repo.transact(fn _repo ->
+      Ankole.Repo.transact(fn ->
         with {:ok, intent} <- Ankole.Ash.create(Intent, :commit, attrs) do
           intent =
             if attempts == 1 or status in [:sent, :failed] or not is_nil(started_at) do
@@ -65,7 +65,7 @@ defmodule Ankole.SignalsFixtures do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   def commit_delivery(attrs) do
-    Ankole.Repo.transact(fn repo -> Ankole.Conversations.Delivery.commit_in_tx(repo, attrs) end)
+    Ankole.Repo.transact(fn -> Ankole.Conversations.Delivery.commit_in_tx(attrs) end)
   end
 
   def owner_status(server) do
@@ -117,10 +117,9 @@ defmodule Ankole.SignalsFixtures do
     provider_message_id = "test-source-#{unique}"
 
     {:ok, signal} =
-      Ankole.Repo.transact(fn repo ->
+      Ankole.Repo.transact(fn ->
         with {:ok, conversation} <-
                Ankole.Conversations.External.observe_conversation_in_tx(
-                 repo,
                  binding,
                  %{
                    provider_conversation_id: "mock:test-source-#{unique}",
@@ -131,7 +130,6 @@ defmodule Ankole.SignalsFixtures do
                ),
              {:ok, observation} <-
                Ankole.Conversations.External.observe_in_tx(
-                 repo,
                  conversation.id,
                  %{
                    provider_message_id: provider_message_id,
@@ -142,7 +140,7 @@ defmodule Ankole.SignalsFixtures do
                  },
                  now
                ) do
-          Ankole.Signals.accept_in_tx(repo, %{
+          Ankole.Signals.accept_in_tx(%{
             producer: :kernel,
             source: Keyword.get(opts, :source, "test://external-session"),
             id: "test-event-#{unique}",
@@ -219,7 +217,7 @@ defmodule Ankole.SignalsFixtures do
   # Seeds persisted state without configuration validation or post-save wakeups.
   # Use the production put/update operations for the behavior under test.
   def raw_binding_fixture(attrs) when is_map(attrs) do
-    Ankole.Repo.transact(fn _repo ->
+    Ankole.Repo.transact(fn ->
       Ankole.Ash.create(Ankole.Signals.Binding, :put, attrs)
     end)
   end
@@ -251,13 +249,13 @@ defmodule Ankole.SignalsFixtures do
     provider = Map.get(attrs, :provider, "signals-fixture")
 
     {:ok, _} =
-      Ankole.Repo.transact(
-        &Ankole.Principals.upsert_platform_subject_human_in_tx(&1, %{
+      Ankole.Repo.transact(fn ->
+        Ankole.Principals.upsert_platform_subject_human_in_tx(%{
           uid: principal_uid,
           provider: provider,
           external_id: external_id
         })
-      )
+      end)
 
     Map.merge(%{provider: provider, platform_subject: external_id, id: external_id}, attrs)
   end
