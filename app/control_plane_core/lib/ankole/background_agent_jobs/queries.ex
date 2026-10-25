@@ -78,7 +78,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       )
       when is_binary(agent_uid) and is_binary(owner_session_id) and
              is_binary(conversation_id) and is_binary(binding_name) do
-    rows =
+    page =
       Job
       |> Ash.Query.for_read(:ambient_candidates, %{
         agent_uid: agent_uid,
@@ -88,15 +88,13 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       })
       |> Ash.Query.select([:id, :title, :status])
       |> Ash.Query.load(:task_excerpt)
-      |> Ash.Query.limit(@ambient_candidate_limit + 1)
-      |> Ankole.Ash.read!()
+      |> Ankole.Ash.read!(page: [limit: @ambient_candidate_limit])
 
     %{
-      complete: length(rows) <= @ambient_candidate_limit,
+      complete: not page.more?,
       jobs:
-        rows
-        |> Enum.take(@ambient_candidate_limit)
-        |> Enum.map(
+        Enum.map(
+          page.results,
           &%{job_id: &1.id, title: &1.title, status: &1.status, task_excerpt: &1.task_excerpt}
         )
     }

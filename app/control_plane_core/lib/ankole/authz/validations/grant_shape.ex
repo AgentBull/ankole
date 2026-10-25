@@ -2,7 +2,7 @@ defmodule Ankole.AuthZ.Validations.GrantShape do
   @moduledoc false
   use Ash.Resource.Validation
 
-  @page_actions ~w(page_view page_edit page_manage)
+  @page_actions ~w(page_view page_write_records page_edit page_manage)
 
   @impl true
   def validate(changeset, _opts, _context) do

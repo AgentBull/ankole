@@ -21,7 +21,7 @@ import { contentKeys, pageAPI, type Page } from './content-api'
 import { useContent } from './content-context'
 import { contentError } from './content-errors'
 import { useCopyPageLink } from './page-sharing'
-import { stepRequest } from './state/page-move'
+import { canMovePage, stepRequest } from './state/page-move'
 
 const title = (page: Page) => page.title || t('pod.content.untitled')
 
@@ -109,9 +109,11 @@ export function PageMenuItems({
 }) {
   const { pageHref } = useContent()
   const copyLink = useCopyPageLink(page.id)
-  const edit = page.role !== 'view'
-  const up = edit ? stepRequest(pages, page, -1) : null
-  const down = edit ? stepRequest(pages, page, 1) : null
+  const canEdit = page.actions?.includes('page_edit') === true
+  const canManage = page.actions?.includes('page_manage') === true
+  const canMove = canMovePage(page)
+  const up = canMove ? stepRequest(pages, page, -1) : null
+  const down = canMove ? stepRequest(pages, page, 1) : null
   return (
     <>
       <DropdownMenuItem onClick={() => window.open(pageHref(page.id), '_blank', 'noopener')}>
@@ -126,19 +128,21 @@ export function PageMenuItems({
         {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}
         {favorited ? t('pod.sidebar.remove_favorite') : t('pod.sidebar.add_favorite')}
       </DropdownMenuItem>
-      {edit && (
+      {canMove && (
         <>
           <DropdownMenuSeparator />
-          {page.type === 'doc' && (
-            <DropdownMenuItem onClick={onCreateChild}>
-              <RiFileAddLine aria-hidden />
-              {t('pod.sidebar.new_subpage')}
-            </DropdownMenuItem>
+          {canEdit && (
+            <>
+              <DropdownMenuItem onClick={onCreateChild}>
+                <RiFileAddLine aria-hidden />
+                {t('pod.sidebar.new_subpage')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onRename}>
+                <RiPencilLine aria-hidden />
+                {t('pod.sidebar.rename')}
+              </DropdownMenuItem>
+            </>
           )}
-          <DropdownMenuItem onClick={onRename}>
-            <RiPencilLine aria-hidden />
-            {t('pod.sidebar.rename')}
-          </DropdownMenuItem>
           <DropdownMenuItem disabled={!up} onClick={() => up && move(page, up)}>
             <RiArrowUpLine aria-hidden />
             {t('pod.sidebar.move_up')}
@@ -153,7 +157,7 @@ export function PageMenuItems({
           </DropdownMenuItem>
         </>
       )}
-      {page.role === 'manage' && (
+      {canManage && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => trash(page)}>

@@ -27,7 +27,14 @@ const phoenixShutdownGraceMs = 2_000
 const phoenixRestartGuardKey = Symbol.for('ankole.vite.phoenix-restart-guard')
 let phoenixShutdownGuardInstalled = false
 
-const entries = webappEntries()
+const entries = {
+  ...webappEntries(),
+  ...Object.fromEntries(
+    ['react', 'react-jsx-runtime', 'react-jsx-dev-runtime', 'react-dom', 'react-dom-client', 'uikit', 'applet-sdk'].map(
+      name => [`applet-${name}`, path.join(dirname, `entrypoints/applet-vendor/${name}.ts`)]
+    )
+  )
+}
 const phoenixPort = process.env.PORT || '4000'
 const saasDomain = (process.env.ANKOLE_SAAS_DOMAIN || 'ankole.localhost').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const saasOrigins =
@@ -98,13 +105,6 @@ function manualChunks(moduleID: string): string | undefined {
   if (moduleID.includes('/json-edit-react/')) return 'vendor-json-editor'
   if (moduleID.includes('/xlsx/')) return 'vendor-spreadsheet'
   if (moduleID.includes('/@office-kit/') || moduleID.includes('/fflate/')) return 'vendor-presentation'
-  if (
-    packageName.startsWith('@garfish/') ||
-    packageName === '@alioth-org/es-module-lexer' ||
-    packageName === 'eventemitter2'
-  ) {
-    return 'vendor-applet'
-  }
   if (
     markdownPipelinePackages.has(packageName) ||
     markdownPipelinePrefixes.some(prefix => packageName.startsWith(prefix))
@@ -278,6 +278,7 @@ export default defineConfig(({ command }): UserConfig => ({
     outDir: outputPath,
     sourcemap: true,
     rolldownOptions: {
+      preserveEntrySignatures: 'strict',
       input: entries,
       output: {
         assetFileNames: info => {

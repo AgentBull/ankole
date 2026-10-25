@@ -31,11 +31,6 @@ mod atoms {
         private,
         public,
         invalid,
-        program_runner,
-        program_runner_busy,
-        applet_runtime,
-        applet_busy,
-        call,
     }
 }
 
@@ -192,206 +187,20 @@ pub fn page_apply_nif(source: Term<'_>, changes: Term<'_>) -> NIFResult<(String,
     Ok((page.xml, page.plain_text))
 }
 
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_diff_nif(old: Term<'_>, new: Term<'_>) -> NIFResult<String> {
+    let old = decode_string(old, "old")?;
+    let new = decode_string(new, "new")?;
+    stacker::grow(8 * 1024 * 1024, || crate::page_document::diff(&old, &new))
+        .map(|changes| changes.to_string())
+        .map_err(error_message)
+}
+
 #[cfg(feature = "markdown")]
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize)>> {
     let source = decode_string(source, "source")?;
     Ok(crate::markdown::code_ranges(&source))
-}
-
-pub struct ProgramRunHandle(pub crate::program_runner::Handle);
-
-#[rustler::resource_impl]
-impl rustler::Resource for ProgramRunHandle {
-    const IMPLEMENTS_DESTRUCTOR: bool = true;
-    const IMPLEMENTS_DOWN: bool = true;
-
-    fn destructor(self, _env: Env<'_>) {
-        self.0.cancel();
-    }
-
-    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
-        self.0.cancel();
-    }
-}
-
-/// Creates the cancellation authority before a task can start native execution.
-#[rustler::nif]
-pub fn program_handle_nif(env: Env<'_>, owner: LocalPid) -> ResourceArc<ProgramRunHandle> {
-    let resource = ResourceArc::new(ProgramRunHandle(crate::program_runner::Handle::default()));
-    if resource.monitor(Some(env), &owner).is_none() {
-        resource.0.cancel();
-    }
-    resource
-}
-
-/// Only retains the request binary and starts a native execution thread.
-#[rustler::nif]
-pub fn program_run_nif<'a>(
-    env: Env<'a>,
-    resource: ResourceArc<ProgramRunHandle>,
-    request: Binary<'a>,
-) -> NIFResult<Term<'a>> {
-    let request = NativeJSON::new(request.encode(env));
-    let owner = env.pid();
-    let message_resource = resource.clone();
-    let sink = move |result: Result<crate::program_runner::RunOutcome, String>| {
-        let mut owned_env = OwnedEnv::new();
-        let _ = owned_env.send_and_clear(&owner, |env| {
-            let result = match result {
-                Ok(outcome) => (atoms::ok(), serde_json::to_string(&outcome).unwrap()).encode(env),
-                Err(message) => (atoms::error(), message).encode(env),
-            };
-            (atoms::program_runner(), message_resource, result).encode(env)
-        });
-    };
-    match crate::program_runner::start_with(
-        &resource.0,
-        move || request.bytes(crate::program_runner::decode_request),
-        sink,
-    ) {
-        Ok(()) => {
-            let _ = resource.monitor(Some(env), &owner);
-            Ok(resource.encode(env))
-        }
-        Err(crate::program_runner::StartError::Busy(outcome)) => Ok((
-            atoms::error(),
-            atoms::program_runner_busy(),
-            serde_json::to_string(&outcome).unwrap(),
-        )
-            .encode(env)),
-        Err(crate::program_runner::StartError::AlreadyStarted) => {
-            Err(error_message("program handle has already started"))
-        }
-        Err(crate::program_runner::StartError::Spawn(error)) => {
-            Err(error_message(error.to_string()))
-        }
-    }
-}
-
-#[rustler::nif]
-pub fn program_cancel_nif(resource: ResourceArc<ProgramRunHandle>) -> bool {
-    resource.0.cancel();
-    true
-}
-
-#[rustler::nif]
-pub fn program_active_runs_nif() -> usize {
-    crate::program_runner::active_runs()
-}
-
-pub struct AppletRuntimeResource(pub crate::applet_runtime::Handle);
-
-#[rustler::resource_impl]
-impl rustler::Resource for AppletRuntimeResource {
-    const IMPLEMENTS_DESTRUCTOR: bool = true;
-    const IMPLEMENTS_DOWN: bool = true;
-
-    fn destructor(self, _env: Env<'_>) {
-        self.0.cancel();
-    }
-
-    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
-        self.0.cancel();
-    }
-}
-
-/// Retains transport binaries without copying their bytes on the scheduler.
-struct NativeJSON {
-    env: OwnedEnv,
-    term: SavedTerm,
-}
-
-impl NativeJSON {
-    fn new(term: Term<'_>) -> Self {
-        let env = OwnedEnv::new();
-        Self {
-            term: env.save(term),
-            env,
-        }
-    }
-
-    fn bytes<T>(self, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
-        self.env.run(|env| {
-            let binary: Binary<'_> = self
-                .term
-                .load(env)
-                .decode()
-                .map_err(|_| "Expected JSON binary".to_string())?;
-            decode(binary.as_slice())
-        })
-    }
-
-    fn decode<T: serde::de::DeserializeOwned>(self) -> Result<T, String> {
-        self.bytes(|bytes| serde_json::from_slice(bytes).map_err(|error| error.to_string()))
-    }
-}
-
-/// Only retains the BEAM binary and starts the invocation thread. JSON decode,
-/// isolate execution, and capability waits do not occupy any scheduler.
-#[rustler::nif]
-pub fn applet_start_nif<'a>(
-    env: Env<'a>,
-    run_id: String,
-    request_json: Binary<'a>,
-) -> NIFResult<Term<'a>> {
-    let request = NativeJSON::new(request_json.encode(env));
-    let owner = env.pid();
-    let sink = Arc::new(move |event| {
-        let mut owned_env = OwnedEnv::new();
-        let _ = owned_env.send_and_clear(&owner, |env| match event {
-            crate::applet_runtime::Event::Call {
-                id,
-                operation,
-                arguments,
-            } => (
-                atoms::applet_runtime(),
-                &run_id,
-                atoms::call(),
-                id,
-                operation,
-                arguments.to_string(),
-            )
-                .encode(env),
-            crate::applet_runtime::Event::Done(outcome) => (
-                atoms::applet_runtime(),
-                &run_id,
-                atoms::done(),
-                outcome.to_string(),
-            )
-                .encode(env),
-        });
-    });
-    let handle = match crate::applet_runtime::start_with(move || request.decode(), sink) {
-        Ok(handle) => handle,
-        Err(crate::applet_runtime::StartError::Busy(outcome)) => {
-            return Ok((atoms::error(), atoms::applet_busy(), outcome.to_string()).encode(env));
-        }
-        Err(crate::applet_runtime::StartError::Spawn(message)) => {
-            return Err(error_message(message));
-        }
-    };
-    let resource = ResourceArc::new(AppletRuntimeResource(handle));
-    let _ = resource.monitor(Some(env), &owner);
-    Ok(resource.encode(env))
-}
-
-/// Sends a retained binary to the same live invocation thread for decoding.
-#[rustler::nif]
-pub fn applet_reply_nif(
-    resource: ResourceArc<AppletRuntimeResource>,
-    call_id: u64,
-    reply: Term<'_>,
-) -> NIFResult<bool> {
-    let _ = decode_binary(reply, "reply")?;
-    let reply = NativeJSON::new(reply);
-    Ok(resource.0.reply_with(call_id, move || reply.decode()))
-}
-
-#[rustler::nif]
-pub fn applet_cancel_nif(resource: ResourceArc<AppletRuntimeResource>) -> bool {
-    resource.0.cancel();
-    true
 }
 
 // CEL's recursive parser needs more stack than BEAM's default dirty CPU stack.

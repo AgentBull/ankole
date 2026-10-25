@@ -6,7 +6,7 @@ const revisionPattern = /^[0-9a-f]{40}$/
 const protocolVersionPattern = /^[1-9][0-9]*$/
 const digestPattern = /^sha256:[0-9a-f]{64}$/
 
-export type RuntimeImageComponent = 'control-plane' | 'worker'
+export type RuntimeImageComponent = 'control-plane' | 'worker' | 'function-runtime'
 
 export type VerifiedRuntimeImage = {
   component: RuntimeImageComponent
@@ -21,6 +21,7 @@ export type RuntimeImagePair = {
   runtime_fabric_protocol_version: string
   control_plane: VerifiedRuntimeImage
   worker: VerifiedRuntimeImage
+  function_runtime: VerifiedRuntimeImage
 }
 
 export type RuntimeImagePairStatus =
@@ -32,6 +33,7 @@ export function runtimeImagePairStatus(input: {
   protocolVersion: string
   controlPlane?: { ref: string; metadata: unknown }
   worker?: { ref: string; metadata: unknown }
+  functionRuntime?: { ref: string; metadata: unknown }
 }): RuntimeImagePairStatus {
   assertRevision(input.revision)
   assertProtocolVersion(input.protocolVersion)
@@ -49,10 +51,21 @@ export function runtimeImagePairStatus(input: {
     ? verifyRuntimeImage('worker', input.worker.ref, input.worker.metadata, input.revision, input.protocolVersion)
     : undefined
 
-  if (!controlPlane || !worker) {
+  const functionRuntime = input.functionRuntime
+    ? verifyRuntimeImage(
+        'function-runtime',
+        input.functionRuntime.ref,
+        input.functionRuntime.metadata,
+        input.revision,
+        input.protocolVersion
+      )
+    : undefined
+
+  if (!controlPlane || !worker || !functionRuntime) {
     const missing: RuntimeImageComponent[] = []
     if (!controlPlane) missing.push('control-plane')
     if (!worker) missing.push('worker')
+    if (!functionRuntime) missing.push('function-runtime')
     return { ready: false, missing }
   }
 
@@ -63,7 +76,8 @@ export function runtimeImagePairStatus(input: {
       revision: input.revision,
       runtime_fabric_protocol_version: input.protocolVersion,
       control_plane: controlPlane,
-      worker
+      worker,
+      function_runtime: functionRuntime
     }
   }
 }
@@ -150,6 +164,8 @@ type CliOptions = {
   controlPlaneMetadata: string
   workerRef: string
   workerMetadata: string
+  functionRuntimeRef: string
+  functionRuntimeMetadata: string
 }
 
 async function runCli(args: string[]): Promise<void> {
@@ -167,6 +183,10 @@ async function runCli(args: string[]): Promise<void> {
     worker: {
       ref: options.workerRef,
       metadata: await Bun.file(options.workerMetadata).json()
+    },
+    functionRuntime: {
+      ref: options.functionRuntimeRef,
+      metadata: await Bun.file(options.functionRuntimeMetadata).json()
     }
   })
 
@@ -188,7 +208,9 @@ function parseCliOptions(args: string[]): CliOptions {
     controlPlaneRef: requiredOption(values, 'control-plane-ref'),
     controlPlaneMetadata: requiredOption(values, 'control-plane-metadata'),
     workerRef: requiredOption(values, 'worker-ref'),
-    workerMetadata: requiredOption(values, 'worker-metadata')
+    workerMetadata: requiredOption(values, 'worker-metadata'),
+    functionRuntimeRef: requiredOption(values, 'function-runtime-ref'),
+    functionRuntimeMetadata: requiredOption(values, 'function-runtime-metadata')
   }
 }
 

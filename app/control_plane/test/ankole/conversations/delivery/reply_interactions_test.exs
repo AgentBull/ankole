@@ -721,7 +721,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
     case Keyword.get(opts, :repo) do
       nil -> Signals.accept(attrs)
-      repo -> Signals.accept_in_tx(attrs)
+      _repo -> Signals.accept_in_tx(attrs)
     end
   end
 

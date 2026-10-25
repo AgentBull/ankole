@@ -13,7 +13,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     allow(:console_assign_provider, resource: "site_console:agent:{agent_uid}", action: "update")
   end
 
-  alias Ankole.AgentWorkers.ReconcileJob
+  alias Ankole.AgentWorkers.{Changes.StateClock, ReconcileJob}
 
   # The fields that the Console shows for each Worker.
   @console_fields [
@@ -262,14 +262,14 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       )
 
       change(transition_state(:starting))
-      change({Ankole.AgentWorkers.Changes.StateClock, target: :starting})
+      change(atomic_update(:state_changed_at, StateClock.expression(:starting)))
     end
 
     update :resume do
       require_atomic?(true)
       accept([])
       change(transition_state(:starting))
-      change({Ankole.AgentWorkers.Changes.StateClock, target: :starting})
+      change(atomic_update(:state_changed_at, StateClock.expression(:starting)))
     end
 
     update :pause do
@@ -278,7 +278,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change(transition_state(:paused))
       change(set_attribute(:drain_reason, nil))
       change(set_attribute(:transport_route, nil))
-      change({Ankole.AgentWorkers.Changes.StateClock, target: :paused})
+      change(atomic_update(:state_changed_at, StateClock.expression(:paused)))
     end
 
     update :drain do
@@ -293,7 +293,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
         )
       )
 
-      change({Ankole.AgentWorkers.Changes.StateClock, target: :draining})
+      change(atomic_update(:state_changed_at, StateClock.expression(:draining)))
     end
 
     # The caller locks the row and checks its generation and protocol. The
@@ -325,7 +325,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
         atomic_update(:instance_seen_at, expr(fragment("coalesce(?, now())", instance_seen_at)))
       )
 
-      change({Ankole.AgentWorkers.Changes.StateClock, target: :ready})
+      change(atomic_update(:state_changed_at, StateClock.expression(:ready)))
     end
 
     update :heartbeat do
@@ -352,8 +352,10 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change(set_attribute(:transport_route, nil))
 
       change(
-        {Ankole.AgentWorkers.Changes.StateClock,
-         target: expr(if state == :draining, do: :draining, else: :stale)},
+        atomic_update(
+          :state_changed_at,
+          StateClock.expression(expr(if state == :draining, do: :draining, else: :stale))
+        ),
         only_when_valid?: true
       )
     end
@@ -371,8 +373,10 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       end
 
       change(
-        {Ankole.AgentWorkers.Changes.StateClock,
-         target: expr(if state == :deleting, do: :deleting, else: :absent)},
+        atomic_update(
+          :state_changed_at,
+          StateClock.expression(expr(if state == :deleting, do: :deleting, else: :absent))
+        ),
         only_when_valid?: true
       )
     end

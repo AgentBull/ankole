@@ -3,8 +3,9 @@ import type { Stats } from 'node:fs'
 import { chmod, lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { nodeErrorCode } from '../common/errors'
+import type { AutomationAttemptRef } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { relativePathWithin } from '../core/path-boundary'
-import { type RPCRequester } from '../lanes/rpc_lane'
+import { type RPCRequester, type TurnRPCFrame } from '../lanes/rpc_lane'
 
 /**
  * Worker-side client for the Agent's drive in the control plane.
@@ -58,7 +59,13 @@ const maxDrivePathBytes = 1024
 const maxSegmentBytes = 255
 
 export class Drive {
-  constructor(private readonly opts: { agentHome: string; rpc: RPCRequester }) {}
+  constructor(
+    private readonly opts: {
+      agentHome: string
+      rpc: RPCRequester
+      automationAttempt?: Omit<AutomationAttemptRef, '$typeName'>
+    }
+  ) {}
 
   get agentHome(): string {
     return this.opts.agentHome
@@ -88,22 +95,32 @@ export class Drive {
     const prefixPath = prefix === '' ? '' : assertDrivePath(prefix)
     const response = await this.opts.rpc(
       'files.list',
-      { prefix: prefixPath, limit: opts.limit ?? listPageLimit, after: opts.after ?? '' },
+      {
+        prefix: prefixPath,
+        limit: opts.limit ?? listPageLimit,
+        after: opts.after ?? '',
+        automationAttempt: this.opts.automationAttempt
+      },
       undefined,
       { retryOnDisconnect: true }
     )
     return { files: response.files.map(driveFileFromWire), nextAfter: response.nextAfter, revision: response.revision }
   }
 
-  async get(path: string, localPath: string, opts: { pod?: boolean } = {}): Promise<DriveFile> {
+  async get(
+    path: string,
+    localPath: string,
+    opts: { pod?: boolean; frame?: TurnRPCFrame; automationAttempt?: Omit<AutomationAttemptRef, '$typeName'> } = {}
+  ): Promise<DriveFile> {
     const response = await this.opts.rpc(
       'files.get',
       {
         path: assertDrivePath(path),
         homeRelativePath: await this.homeRelativePath(localPath, { create: true }),
-        podDrive: opts.pod ?? false
+        podDrive: opts.pod ?? false,
+        automationAttempt: opts.automationAttempt ?? this.opts.automationAttempt
       },
-      undefined,
+      opts.frame,
       { timeoutMs: transferTimeoutMs, retryOnDisconnect: true }
     )
     if (!response.file) throw new Error(`files.get returned no file for ${path}`)
@@ -128,7 +145,7 @@ export class Drive {
     }
     const response = await this.opts.rpc(
       'files.commit',
-      { upserts: wireUpserts, deletes: deletes.map(assertDrivePath) },
+      { upserts: wireUpserts, deletes: deletes.map(assertDrivePath), automationAttempt: this.opts.automationAttempt },
       undefined,
       { timeoutMs: transferTimeoutMs }
     )

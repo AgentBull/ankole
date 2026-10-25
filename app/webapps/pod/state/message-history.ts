@@ -9,7 +9,7 @@ export function mergeMessageWindow(
   if (!current || current.conversation.id !== incoming.conversation.id) return incoming
   const range = incoming.messageRange
   if (!older && range.firstSeq > current.messageRange.lastSeq + 1) return incoming
-  const removed = new Set([...(current.removedMessageIDs ?? []), ...(incoming.removedMessageIDs ?? [])])
+  const removed = new Set([...current.removedMessageIDs, ...incoming.removedMessageIDs])
   const retained = current.messages.filter(
     message => !removed.has(message.id) && (message.seq < range.firstSeq || message.seq > range.lastSeq)
   )

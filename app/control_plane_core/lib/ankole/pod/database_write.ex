@@ -15,7 +15,7 @@ defmodule Ankole.Pod.Database.Write do
   ]
 
   def open(%Ankole.AuthZ.Actor{} = actor, id, intent \\ :write_records)
-      when intent in [:write_records, :manage_schema] do
+      when intent in [:write_records, :manage_schema, :delete_table] do
     with {:ok, table} <- Database.fetch_table(id),
          {:ok, limits} <- Config.limits() do
       tables =

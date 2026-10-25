@@ -1,5 +1,4 @@
 import { t } from 'i18next'
-import { Button } from '@ankole/uikit'
 import {
   Component,
   createContext,
@@ -57,19 +56,13 @@ export function usePod() {
 
 function useTableUpdates(tableID: string) {
   const runtime = usePod()
-  const client = useQueryClient()
   const [revoked, setRevoked] = useState(false)
   useEffect(() => {
     setRevoked(false)
     return runtime.database.subscribe(tableID, event => {
       if (event.access_revoked) setRevoked(true)
-      const key = runtime.database.key(tableID)
-      void client.invalidateQueries({
-        queryKey: key,
-        predicate: query => query.queryKey[key.length] === 'records' || query.queryKey[key.length] === 'aggregate'
-      })
     })
-  }, [runtime, tableID, client])
+  }, [runtime, tableID])
   return { runtime, revoked }
 }
 
@@ -84,31 +77,24 @@ function readDenied(error: unknown): boolean {
   )
 }
 
-// Exposure denial follows the cached Query across component lifetimes. Only an
-// actual read success clears it; a manual cache write is not new authorization.
-const readDenials = new WeakMap<QueryCache, WeakMap<object, unknown>>()
-function queryReadDenials(cache: QueryCache) {
-  let denials = readDenials.get(cache)
-  if (!denials) {
-    denials = new WeakMap()
-    readDenials.set(cache, denials)
-    const policy = denials
-    for (const query of cache.getAll()) {
-      const error = [query.state.error, query.state.fetchFailureReason].find(readDenied)
-      if (error) policy.set(query, error)
-    }
-    cache.subscribe(event => {
-      if (event.type === 'removed') policy.delete(event.query)
-      if (event.type !== 'updated') return
-      if (event.action.type === 'success' && !event.action.manual) {
-        policy.delete(event.query)
-      } else {
-        const error = [event.query.state.error, event.query.state.fetchFailureReason].find(readDenied)
-        if (error) policy.set(event.query, error)
-      }
-    })
+/** The host keeps read denials across Applet generations and disposes its cache subscription. */
+export function createReadDenials(cache: QueryCache) {
+  const denials = new WeakMap<object, unknown>()
+  for (const query of cache.getAll()) {
+    const error = [query.state.error, query.state.fetchFailureReason].find(readDenied)
+    if (error) denials.set(query, error)
   }
-  return denials
+  const dispose = cache.subscribe(event => {
+    if (event.type === 'removed') denials.delete(event.query)
+    if (event.type !== 'updated') return
+    if (event.action.type === 'success' && !event.action.manual) {
+      denials.delete(event.query)
+    } else {
+      const error = [event.query.state.error, event.query.state.fetchFailureReason].find(readDenied)
+      if (error) denials.set(event.query, error)
+    }
+  })
+  return { get: (query: object) => denials.get(query), dispose }
 }
 
 function useReadResult<Data, Error>(
@@ -116,9 +102,9 @@ function useReadResult<Data, Error>(
   queryKey: QueryKey,
   revokedError?: Error
 ): UseQueryResult<Data, Error> {
+  const { readDenial } = usePod()
   const cache = useQueryClient().getQueryCache()
   const query = cache.find({ queryKey, exact: true })!
-  const denials = queryReadDenials(cache)
   const subscribe = useCallback(
     (notify: () => void) =>
       cache.subscribe(event => {
@@ -126,7 +112,7 @@ function useReadResult<Data, Error>(
       }),
     [cache, query]
   )
-  const snapshot = useCallback(() => denials.get(query) as Error | undefined, [denials, query])
+  const snapshot = useCallback(() => readDenial(query) as Error | undefined, [readDenial, query])
   const denial = useSyncExternalStore(subscribe, snapshot, snapshot)
   const error = revokedError ?? denial ?? [result.error, result.failureReason].find(readDenied)
   if (error == null) return result
@@ -266,11 +252,9 @@ export function expectedVersions(record: DatabaseRecord, data: RecordData) {
 
 export function useRecordWrites(tableID: string) {
   const runtime = usePod()
-  const client = useQueryClient()
   const mutation = useMutation({
     mutationKey: [...runtime.database.key(tableID), 'write'],
-    mutationFn: (changes: RecordWrite) => runtime.database.write(tableID, changes),
-    onSettled: () => client.invalidateQueries({ queryKey: runtime.database.key(tableID) })
+    mutationFn: (changes: RecordWrite) => runtime.database.write(tableID, changes)
   })
   return {
     write: mutation,
@@ -325,34 +309,35 @@ class AppletBoundary extends Component<{ children: ReactNode }, { failed: boolea
   static getDerivedStateFromError() {
     return { failed: true }
   }
+  componentDidCatch(error: unknown) {
+    const host = parent as Window & {
+      __ANKOLE_APPLET_HOST__?: { error(frame: Window, error: unknown): void }
+    }
+    host.__ANKOLE_APPLET_HOST__?.error(window, error)
+  }
   render() {
     return this.state.failed ? (
-      <div className="space-y-2">
-        <p role="alert">{t('pod.content.the_applet_cannot_be_displayed_reload_it_to_continue')}</p>
-        <Button size="sm" variant="outline" onClick={() => this.setState({ failed: false })}>
-          {t('pod.content.reload_applet')}
-        </Button>
-      </div>
+      <p role="alert">{t('pod.content.the_applet_cannot_be_displayed_reload_it_to_continue')}</p>
     ) : (
       this.props.children
     )
   }
 }
 
-/** Export the returned value as `provider` from the applet CommonJS entry. */
+/** Export the returned value as `provider` from the applet ESM entry. */
 export function defineApplet(App: ComponentType) {
   const roots = new WeakMap<Element, { root: Root; node: HTMLDivElement }>()
   return {
     render({ dom, props }: { dom: Element; props: { runtime: AppletRuntime } }) {
-      const previous = roots.get(dom)
-      previous?.root.unmount()
-      previous?.node.remove()
-      const rootNode = document.createElement('div')
-      rootNode.className = 'ankole-applet'
-      dom.appendChild(rootNode)
-      const root = createRoot(rootNode)
-      roots.set(dom, { root, node: rootNode })
-      root.render(
+      let mounted = roots.get(dom)
+      if (!mounted) {
+        const rootNode = document.createElement('div')
+        rootNode.className = 'ankole-applet'
+        dom.appendChild(rootNode)
+        mounted = { root: createRoot(rootNode), node: rootNode }
+        roots.set(dom, mounted)
+      }
+      mounted.root.render(
         <QueryClientProvider client={props.runtime.queryClient}>
           <Runtime value={props.runtime}>
             <AppletBoundary>

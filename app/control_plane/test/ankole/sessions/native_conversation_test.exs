@@ -56,6 +56,191 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert_no_adapter_rows()
   end
 
+  test "only a kernel addressed signal can opt out of a visible reply", context do
+    run = prepare(context)
+    event = %{run.event | data: Map.put(run.event.data, "optional_reply", true)}
+    silent = %{run | event: event, outcome: :loop_finished, model_response: %{content: []}}
+
+    assert Ankole.Sessions.Main.instructions(silent) =~ "You are listening to a shared room."
+    assert Ankole.Sessions.Main.repair(silent, "") == nil
+    assert {:finalize, %{outcome: :silent}} = Ankole.Sessions.Main.finish(silent)
+
+    for untrusted <- [%{event | producer: :external}, %{event | type: "com.example.message"}] do
+      ordinary = %{silent | event: untrusted}
+      refute Ankole.Sessions.Main.instructions(ordinary) =~ "You are listening to a shared room."
+      assert {_repair, ^ordinary} = Ankole.Sessions.Main.repair(ordinary, "")
+      assert {:finalize, %{outcome: :loop_finished}} = Ankole.Sessions.Main.finish(ordinary)
+    end
+  end
+
+  test "native group standing orders persist through the tool and enter addressed and listening prompts",
+       context do
+    alias Ankole.Sessions.{AmbientCuration, Tools}
+    actor = Ankole.PrincipalsFixtures.actor_fixture(context.human.uid)
+    tool_run = %{agent_uid: context.agent.uid, signal_id: context.event.id, event: context.event}
+    names = fn -> Enum.map(Tools.Session.declarations(tool_run), & &1["name"]) end
+    refute "set_channel_standing_orders" in names.()
+
+    assert {:error, :standing_orders_require_group} =
+             AmbientCuration.set_standing_orders(context.agent.uid, context.event.id, "Orders")
+
+    colleague = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    assert {:ok, _} =
+             Conversations.manage_participants(actor, context.id, %{add_uids: [colleague.uid]})
+
+    assert "set_channel_standing_orders" in names.()
+
+    assert {:ok, %{details: %{"active" => true}}} =
+             Repo.transact(fn ->
+               with {:ok, [], commit} <-
+                      Tools.Session.prepare_in_tx(
+                        tool_run,
+                        %{"name" => "set_channel_standing_orders"},
+                        %{"orders" => "Only report material changes."}
+                      ),
+                    {:ok, result, []} <- commit.(),
+                    do: {:ok, result}
+             end)
+
+    room = Conversations.get_conversation!(context.id)
+    assert room.ambient_standing_orders == "Only report material changes."
+    assert room.ambient_standing_orders_set_by == context.human.display_name
+
+    run = prepare(context)
+    assert Ankole.JSON.encode!(Model.request(run)) =~ "<conversation_standing_orders>"
+
+    assert Ankole.Sessions.Prompt.Input.standing_orders(context.event) ==
+             room.ambient_standing_orders
+
+    listening = %{context.event | data: Map.put(context.event.data, "optional_reply", true)}
+    assert Ankole.Sessions.Prompt.Input.standing_orders(listening) == room.ambient_standing_orders
+
+    assert {:ok, _} =
+             Conversations.manage_participants(actor, context.id, %{
+               agent_uid: context.agent.uid,
+               may_intervene: false
+             })
+
+    assert Ankole.Sessions.Prompt.Input.standing_orders(listening) == nil
+
+    assert {:ok, %{active: false}} =
+             AmbientCuration.set_standing_orders(
+               context.agent.uid,
+               context.event.id,
+               "Stored but inactive"
+             )
+
+    assert {:ok, %{orders: nil}} =
+             AmbientCuration.set_standing_orders(context.agent.uid, context.event.id, " ")
+
+    assert Conversations.get_conversation!(context.id).ambient_standing_orders == nil
+  end
+
+  test "structured page and message references reach the first request and later room history",
+       context do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(context.human.uid)
+    assert {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Reference source"})
+    quote = hd(context.detail.messages)
+
+    links = [
+      %{"kind" => "page", "id" => page.id},
+      %{"kind" => "message", "id" => quote.id, "quote" => quote.text}
+    ]
+
+    message_id = Ash.UUIDv7.generate()
+
+    assert {:ok, detail} =
+             Conversations.create(actor, %{
+               conversation_id: Ash.UUIDv7.generate(),
+               message_id: message_id,
+               agent_uid: context.agent.uid,
+               text: "Review these references",
+               links: links
+             })
+
+    input = Repo.get_by!(Signal, message_id: message_id)
+    key = %{agent_uid: context.agent.uid, session_id: detail.session_id}
+    run = prepare(%{key: key, event: input})
+    first_request = Ankole.JSON.encode!(Model.request(run))
+    assert first_request =~ "ankole:page/#{page.id}"
+    assert first_request =~ quote.id
+    assert first_request =~ quote.text
+    assert {:ok, _} = run |> respond("References received") |> Run.finalize()
+
+    bob = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    assert {:ok, _} =
+             Conversations.manage_participants(actor, detail.conversation.id, %{
+               add_uids: [bob.uid]
+             })
+
+    assert {:ok, _} =
+             Conversations.manage_participants(actor, detail.conversation.id, %{
+               agent_uid: context.agent.uid,
+               may_intervene: false
+             })
+
+    note_id = Ash.UUIDv7.generate()
+
+    assert {:ok, _} =
+             Conversations.post(actor, detail.conversation.id, %{
+               message_id: note_id,
+               text: "Keep these references in the discussion",
+               links: links
+             })
+
+    refute Repo.get_by(Signal, message_id: note_id)
+
+    wake_id = Ash.UUIDv7.generate()
+
+    assert {:ok, _} =
+             Conversations.post(actor, detail.conversation.id, %{
+               message_id: wake_id,
+               text: "Summarize the discussion",
+               target_agent_uid: context.agent.uid
+             })
+
+    later = prepare(%{key: key, event: Repo.get_by!(Signal, message_id: wake_id)})
+    request = Ankole.JSON.encode!(Model.request(later))
+    assert request =~ "New statements in this conversation"
+    assert request =~ "Keep these references in the discussion"
+    assert request =~ "ankole:page/#{page.id}"
+    assert request =~ quote.id
+    assert request =~ quote.text
+  end
+
+  test "each Human's current statement identifies its speaker in the same native room", context do
+    first = prepare(context)
+
+    first_input =
+      first |> Model.request() |> Map.fetch!("input") |> List.last() |> Ankole.JSON.encode!()
+
+    assert first_input =~ "speaker: #{context.human.display_name}(#{context.human.uid})"
+    assert {:ok, _} = first |> respond("The project has one durable owner.") |> Run.finalize()
+
+    bob = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Bob"}).principal
+    Ankole.ConversationsFixtures.grant_chat(bob.uid, context.agent.uid)
+    owner = Ankole.PrincipalsFixtures.actor_fixture(context.human.uid)
+    assert {:ok, _} = Conversations.manage_participants(owner, context.id, %{add_uids: [bob.uid]})
+    message_id = Ash.UUIDv7.generate()
+
+    assert {:ok, _} =
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(bob.uid), context.id, %{
+               message_id: message_id,
+               text: "Explain the current project.",
+               target_agent_uid: context.agent.uid
+             })
+
+    second = prepare(%{key: context.key, event: Repo.get_by!(Signal, message_id: message_id)})
+
+    second_input =
+      second |> Model.request() |> Map.fetch!("input") |> List.last() |> Ankole.JSON.encode!()
+
+    assert second_input =~ "speaker: Bob(#{bob.uid})"
+    refute second_input =~ "speaker: #{context.human.display_name}(#{context.human.uid})"
+  end
+
   test "completion commits one public reply and emits message and idle status", context do
     run = context |> prepare() |> respond("The project has one durable owner.")
     assert_receive {:session_event, _, _, :status}
@@ -571,6 +756,54 @@ defmodule Ankole.Sessions.NativeConversationTest do
                message_id: Ecto.UUID.generate(),
                text: "Retry a retired identity"
              })
+  end
+
+  test "each Agent's last reply can be retried without selecting another Agent's session",
+       context do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(context.human.uid)
+    colleague = agent_fixture(%{owner_principal_uid: context.human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(context.human.uid, colleague.uid)
+
+    assert {:ok, _} =
+             Conversations.manage_participants(actor, context.id, %{add_uids: [colleague.uid]})
+
+    assert {:ok, posted} =
+             Repo.transact(fn ->
+               Conversations.post_in_tx(actor, context.id, %{
+                 message_id: Ash.UUIDv7.generate(),
+                 text: "Write the summary",
+                 target_agent_uid: colleague.uid
+               })
+             end)
+
+    event = posted.event
+    key = %{agent_uid: colleague.uid, session_id: event.session_id}
+    run = %{key: key, event: event} |> prepare() |> respond("The colleague's summary")
+    assert {:ok, completed} = Run.finalize(run)
+    reply = hd(completed.posted.messages)
+    assert {:ok, detail} = Conversations.get(actor, context.id)
+    assert detail.retryable_message_ids[colleague.uid] == reply.id
+    assert detail.retryable_message_id == reply.id
+    assert is_nil(detail.retryable_message_ids[context.agent.uid])
+    inputs = Enum.filter(detail.pending_inputs, &(&1.agent_uid == colleague.uid))
+
+    version =
+      Ankole.Conversations.NativeQueue.queue_version(detail.conversation, inputs, colleague.uid)
+
+    assert {:ok, result} =
+             Repo.transact(fn ->
+               Conversations.update_queue_in_tx(actor, context.id, %{
+                 agent_uid: colleague.uid,
+                 action: "regenerate",
+                 message_id: reply.id,
+                 command_id: Ash.UUIDv7.generate(),
+                 expected_version: version
+               })
+             end)
+
+    assert result.session_key.agent_uid == colleague.uid
+    assert is_nil(Conversations.get_message!(reply.id))
+    assert Repo.reload!(context.event).status == :queued
   end
 
   defp prepare(context) do

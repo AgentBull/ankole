@@ -49,6 +49,13 @@ defmodule AnkoleWeb.Router do
     plug :require_pod_session
   end
 
+  pipeline :applet_frame do
+    plug :fetch_session
+    plug :put_secure_browser_headers
+    plug :private_response
+    plug :require_pod_session
+  end
+
   pipeline :data_context do
     plug :put_data_context
   end
@@ -175,6 +182,14 @@ defmodule AnkoleWeb.Router do
   scope "/webhooks", AnkoleWeb do
     post "/v1/:handler_id/:instance_id/:kind", SignalWebhookController, :handle
     get "/v1/:handler_id/:instance_id/:kind", SignalWebhookController, :handle
+  end
+
+  scope "/", AnkoleWeb do
+    pipe_through :applet_frame
+
+    get "/pod/applet-frame/:authentication_ref/:id/:revision/*path",
+        PodAppletFrameController,
+        :show
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

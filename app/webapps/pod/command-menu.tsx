@@ -6,6 +6,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  commandFilter,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -88,6 +89,8 @@ export function PodCommandMenu({
           label={label}
           loop
           vimBindings={false}
+          // Page results already include title and body matches from the server.
+          filter={(value, search, keywords) => (value.startsWith('page:') ? 1 : commandFilter(value, search, keywords))}
           onKeyDownCapture={event => {
             if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) {
               event.stopPropagation()

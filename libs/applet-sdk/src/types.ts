@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query'
+import type { Query, QueryClient } from '@tanstack/react-query'
 
 export type Value = string | number | boolean | null | unknown[] | Record<string, unknown>
 export type RecordData = Record<string, Value>
@@ -110,6 +110,7 @@ export type DatabaseAPI = {
   schema(tableID: string): Promise<TableSchema>
   records(tableID: string, query: RecordQuery): Promise<RecordsResult>
   aggregate(tableID: string, query: AggregateQuery): Promise<AggregateResult>
+  /** The host refreshes the table cache after writes and live events. */
   write(tableID: string, changes: RecordWrite): Promise<WriteResult>
   subscribe(tableID: string, callback: (event: TableEvent) => void): () => void
   key(tableID: string): readonly unknown[]
@@ -130,9 +131,11 @@ export type RoutesAPI = {
 export type AppletRuntime = {
   pageID: string
   instanceID: string
+  actions: readonly ('page_view' | 'page_write_records' | 'page_edit' | 'page_manage')[]
   revision: number
   routes: RoutesAPI
   queryClient: QueryClient
+  readDenial(query: Query): unknown
   database: DatabaseAPI
   pod: PodAPI
   channel(name: string): EphemeralChannel

@@ -41,7 +41,7 @@ defmodule Ankole.Pod.Pages.Sharing do
     with {:ok, page} <- Pages.lock(id),
          {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_manage"),
          :ok <- sharing_cas(page, Ankole.Attrs.get(attrs, :sharing_version)),
-         {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged)),
+         {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged), page.id),
          {:ok, page} <-
            Access.update_anchor_in_tx(page, :sharing, %{
              inherit_permissions:
@@ -62,12 +62,16 @@ defmodule Ankole.Pod.Pages.Sharing do
          {:ok, subjects} <- sharing_subjects(actor),
          {:ok, group} <- Access.space_group(),
          {:ok, grants} <- AuthZ.list_group_grants(group.id) do
-      actions = for g <- grants, g.resource_pattern == "pod:space:**", do: g.action
+      actions =
+        for g <- grants,
+            g.resource_pattern == "pod:space:**" and g.condition == "true",
+            do: g.action
 
       role =
         cond do
           "page_manage" in actions -> "manage"
           "page_edit" in actions -> "edit"
+          "page_write_records" in actions -> "contribute"
           true -> "view"
         end
 
@@ -177,9 +181,9 @@ defmodule Ankole.Pod.Pages.Sharing do
     if expected == sharing_version(page), do: :ok, else: {:error, :sharing_conflict}
   end
 
-  defp normalize_grants(:unchanged), do: {:ok, :unchanged}
+  defp normalize_grants(:unchanged, _id), do: {:ok, :unchanged}
 
-  defp normalize_grants(grants) when is_list(grants) do
+  defp normalize_grants(grants, id) when is_list(grants) do
     Enum.reduce_while(grants, {:ok, []}, fn grant, {:ok, acc} ->
       if is_map(grant) do
         owner =
@@ -199,13 +203,18 @@ defmodule Ankole.Pod.Pages.Sharing do
              true <-
                not Map.has_key?(owner, :source_page_id) or source_action in Access.page_actions(),
              :ok <- eligible_collaborator(owner),
-             {:ok, _} <- Access.actions(Ankole.Attrs.get(grant, :role)) do
+             {:ok, actions} <- grant_actions(grant) do
           owner =
             if Map.has_key?(owner, :source_page_id),
               do: Map.put(owner, :source_action, source_action),
               else: owner
 
-          {:cont, {:ok, [{owner, Ankole.Attrs.get(grant, :role), scope, condition} | acc]}}
+          suffix = if scope == "container", do: "**", else: "page"
+
+          attrs =
+            Map.merge(owner, %{resource_pattern: "pod:**:#{id}:#{suffix}", condition: condition})
+
+          {:cont, {:ok, Enum.map(actions, &Map.put(attrs, :action, &1)) ++ acc}}
         else
           _ -> {:halt, {:error, :invalid_grants}}
         end
@@ -215,7 +224,37 @@ defmodule Ankole.Pod.Pages.Sharing do
     end)
   end
 
-  defp normalize_grants(_), do: {:error, :invalid_grants}
+  defp normalize_grants(_, _id), do: {:error, :invalid_grants}
+
+  defp grant_actions(grant) do
+    role = Ankole.Attrs.get(grant, :role)
+
+    case Ankole.Attrs.get(grant, :actions) do
+      nil ->
+        Access.actions(role)
+
+      [_ | _] = actions ->
+        actions =
+          Enum.map(actions, fn
+            action when is_atom(action) -> Atom.to_string(action)
+            action -> action
+          end)
+
+        role_matches? =
+          is_nil(role) or
+            case Access.actions(role) do
+              {:ok, expected} -> Enum.sort(Enum.uniq(actions)) == Enum.sort(expected)
+              :error -> false
+            end
+
+        if role_matches? and Enum.all?(actions, &(&1 in Access.page_actions())),
+          do: {:ok, Enum.uniq(actions)},
+          else: :error
+
+      _ ->
+        :error
+    end
+  end
 
   defp eligible_collaborator(%{principal_uid: uid}) do
     with {:ok, principal} <- Ankole.Principals.get_principal(uid),
@@ -229,11 +268,9 @@ defmodule Ankole.Pod.Pages.Sharing do
   defp replace_grants(id, grants) do
     Access.page_grants(id) |> Access.remove_grants()
 
-    Enum.reduce_while(grants, :ok, fn {owner, role, scope, condition}, :ok ->
-      suffix = if scope == "container", do: "**", else: "page"
-
-      case Access.put_role(owner, "pod:**:#{id}:#{suffix}", role, %{condition: condition}) do
-        :ok -> {:cont, :ok}
+    Enum.reduce_while(grants, :ok, fn attrs, :ok ->
+      case Ankole.AuthZ.Grants.create_permission_grant(attrs) do
+        {:ok, _} -> {:cont, :ok}
         error -> {:halt, error}
       end
     end)
@@ -348,6 +385,7 @@ defmodule Ankole.Pod.Pages.Sharing do
         source_action: source_action,
         target_scope: scope || "container",
         condition: condition,
+        actions: grants |> Enum.map(& &1.action) |> Enum.sort(),
         source_page: source_page,
         role: Access.role_for_actions(bits)
       })

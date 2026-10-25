@@ -4,7 +4,7 @@ defmodule Ankole.Pod.Access.Graph do
   alias Ankole.AuthZ.{Actor, Decision}
   alias Ankole.Repo
 
-  @actions ~w(page_view page_edit page_manage)
+  @actions ~w(page_view page_write_records page_edit page_manage)
 
   def page_bits(page, reachable) do
     case Map.get(reachable, page.acl_anchor_id) do
@@ -15,21 +15,30 @@ defmodule Ankole.Pod.Access.Graph do
 
   def role_for_actions(bits) do
     cond do
-      band(bits, 4) != 0 -> "manage"
-      band(bits, 2) != 0 -> "edit"
+      band(bits, 8) != 0 -> "manage"
+      band(bits, 4) != 0 -> "edit"
+      band(bits, 2) != 0 -> "contribute"
       band(bits, 1) != 0 -> "view"
       true -> nil
     end
   end
 
   def action_bit("page_view"), do: 1
-  def action_bit("page_edit"), do: 2
-  def action_bit("page_manage"), do: 4
+  def action_bit("page_write_records"), do: 2
+  def action_bit("page_edit"), do: 4
+  def action_bit("page_manage"), do: 8
 
-  def visibility_ids(reachable, bit \\ 1) do
+  def project_permissions(page, bits) do
+    actions = for action <- @actions, band(bits, action_bit(action)) != 0, do: action
+    %{page | role: role_for_actions(bits), actions: actions}
+  end
+
+  def visibility_ids(reachable, required_bits \\ 1) do
     Enum.reduce(reachable, {[], []}, fn {id, bits}, {containers, pages} ->
-      {if(band(bits.container_bits, bit) != 0, do: [id | containers], else: containers),
-       if(band(bits.self_bits, bit) != 0, do: [id | pages], else: pages)}
+      {if(band(bits.container_bits, required_bits) == required_bits,
+         do: [id | containers],
+         else: containers
+       ), if(band(bits.self_bits, required_bits) == required_bits, do: [id | pages], else: pages)}
     end)
   end
 
@@ -72,7 +81,7 @@ defmodule Ankole.Pod.Access.Graph do
       snapshot |> Map.put("resource", "tenant_console:pod_space") |> Map.put("action", "update")
 
     if match?(%{"status" => "allow"}, Ankole.Kernel.authz_authorize(admin)) do
-      7
+      15
     else
       satisfied = MapSet.new(evaluated["satisfiedGrantIDs"])
       groups = MapSet.new(evaluated["effectiveGroupIDs"])
@@ -160,7 +169,7 @@ defmodule Ankole.Pod.Access.Graph do
             JOIN pages source ON source.tenant_id = g.tenant_id AND source.id = g.source_page_id
             WHERE g.tenant_id = $1::text::uuid AND g.target_page_id = d.id
               AND g.source_page_id IS NOT NULL
-              AND g.action IN ('page_view', 'page_edit', 'page_manage')
+              AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage')
               AND (g.condition = 'true' OR g.id = ANY($2::text[]::uuid[]))
           ) dependency
         ),
@@ -195,36 +204,38 @@ defmodule Ankole.Pod.Access.Graph do
         grant_candidates AS (
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.principal_uid = $3::text
-            AND g.action IN ('page_view', 'page_edit', 'page_manage') AND g.condition = 'true'
+            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage') AND g.condition = 'true'
           UNION ALL
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.group_id = ANY($4::text[]::uuid[])
-            AND g.action IN ('page_view', 'page_edit', 'page_manage') AND g.condition = 'true'
+            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage') AND g.condition = 'true'
           UNION ALL
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.source_page_id IS NOT NULL
-            AND g.condition = 'true' AND g.action IN ('page_view', 'page_edit', 'page_manage')
+            AND g.condition = 'true' AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage')
             AND ((CASE WHEN $9::text[] IS NULL THEN $7::text[] ELSE ARRAY[candidate.trash_id] END) IS NULL
               OR g.target_page_id IN (SELECT id FROM dependencies))
           UNION ALL
           SELECT g.* FROM permission_grants g
           WHERE g.tenant_id = $1::text::uuid AND g.id = ANY($2::text[]::uuid[])
-            AND g.action IN ('page_view', 'page_edit', 'page_manage') AND g.condition <> 'true'
+            AND g.action IN ('page_view', 'page_write_records', 'page_edit', 'page_manage') AND g.condition <> 'true'
         ),
         active_grants AS (
           SELECT
             g.source_page_id,
             CASE g.source_action
               WHEN 'page_view' THEN 1
-              WHEN 'page_edit' THEN 2
-              WHEN 'page_manage' THEN 4
+              WHEN 'page_write_records' THEN 2
+              WHEN 'page_edit' THEN 4
+              WHEN 'page_manage' THEN 8
             END AS req_bit,
             g.target_page_id,
             (g.target_scope = 'container') AS is_container,
             CASE g.action
               WHEN 'page_view' THEN 1
-              WHEN 'page_edit' THEN 2
-              WHEN 'page_manage' THEN 4
+              WHEN 'page_write_records' THEN 2
+              WHEN 'page_edit' THEN 4
+              WHEN 'page_manage' THEN 8
             END AS grant_bit,
             g.resource_pattern
           FROM grant_candidates g
@@ -232,7 +243,7 @@ defmodule Ankole.Pod.Access.Graph do
         seeds (anchor_id, scope, bit) AS (
           SELECT la.id, s.scope, b.bit
           FROM live_anchors la
-          CROSS JOIN (VALUES (1), (2), (4)) AS b(bit)
+          CROSS JOIN (VALUES (1), (2), (4), (8)) AS b(bit)
           CROSS JOIN (VALUES ('container'), ('self')) AS s(scope)
           WHERE la.parent_anchor_id IS NULL
             AND la.private_owner_uid IS NULL
@@ -265,7 +276,7 @@ defmodule Ankole.Pod.Access.Graph do
         edges (src_anchor, src_scope, src_bit, dst_anchor, dst_scope, dst_bit) AS (
           SELECT la.parent_anchor_id, 'container', b.bit, la.id, s.scope, b.bit
           FROM live_anchors la
-          CROSS JOIN (VALUES (1), (2), (4)) AS b(bit)
+          CROSS JOIN (VALUES (1), (2), (4), (8)) AS b(bit)
           CROSS JOIN (VALUES ('container'), ('self')) AS s(scope)
           WHERE la.parent_anchor_id IS NOT NULL
             AND la.inherit_permissions = true

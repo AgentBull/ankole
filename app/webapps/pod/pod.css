@@ -295,8 +295,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   opacity: 0.45;
 }
 
-.pod-tree-toggle,
-.pod-tree-spacer {
+.pod-tree-toggle {
   display: grid;
   width: 20px;
   height: 20px;
@@ -531,8 +530,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
     align-items: center;
   }
 
-  .pod-tree-toggle,
-  .pod-tree-spacer {
+  .pod-tree-toggle {
     width: 32px;
     height: 32px;
   }

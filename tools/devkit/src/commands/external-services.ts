@@ -11,7 +11,7 @@ export function externalServicesCommand() {
     },
     command =>
       command.add(
-        defineCommand('start', { aliases: ['up'], description: 'Start Postgres.' }, child =>
+        defineCommand('start', { aliases: ['up'], description: 'Start Postgres and Function Runtime.' }, child =>
           child
             .flags(
               {
@@ -41,10 +41,12 @@ export function externalServicesCommand() {
               })
             )
         ),
-        defineCommand('stop', { description: 'Stop Postgres without removing containers.' }, child =>
-          child.action(() => runCompose(['stop']))
+        defineCommand(
+          'stop',
+          { description: 'Stop Postgres and Function Runtime without removing containers.' },
+          child => child.action(() => runCompose(['stop']))
         ),
-        defineCommand('restart', { description: 'Restart Postgres.' }, child =>
+        defineCommand('restart', { description: 'Restart Postgres and Function Runtime.' }, child =>
           child.action(() => runCompose(['restart']))
         ),
         defineCommand('remove', { aliases: ['down'], description: 'Stop and remove Compose containers.' }, child =>

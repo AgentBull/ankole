@@ -72,22 +72,24 @@ describe('Pod Agent CLI', () => {
   })
 
   it.each(['new', 'existing empty'])(
-    'builds an applet with a CommonJS provider and host-owned external dependencies (%s directory)',
+    'builds an applet with a ESM provider and host-owned external dependencies (%s directory)',
     async kind => {
       const root = await mkdtemp(join(tmpdir(), 'pod-applet-'))
       try {
         const app = kind === 'new' ? join(root, 'tracker') : root
         await initializeApplet(app)
         await buildApplet(app)
-        const js = await readFile(join(app, 'dist/app.js'), 'utf8')
+        const js = await readFile(join(app, 'dist/main.js'), 'utf8')
         const html = await readFile(join(app, 'dist/index.html'), 'utf8')
         expect(js).toContain('provider')
-        expect(js).toContain('require("@ankole/applet-sdk")')
+        expect(js).toContain('from "@ankole/applet-sdk"')
+        expect(js).toContain('__ANKOLE_APPLET_HOST__.mount')
         expect(js).not.toContain('ReactCurrentDispatcher')
         expect(js).not.toContain('jsxDEV')
         expect(js).toContain('react/jsx-runtime')
-        expect(html).toContain('./app.js')
-        expect(html).toContain('./app.css')
+        expect(html).toContain('./main.js')
+        expect(html).toContain('./main.css')
+        expect(await readFile(join(app, 'dist/main.css'), 'utf8')).toContain('.ankole-applet')
       } finally {
         await rm(root, { recursive: true, force: true })
       }
@@ -104,7 +106,7 @@ describe('Pod Agent CLI', () => {
       await buildApplet(app)
       await writeFile(join(app, 'dist/stale.js'), 'old source')
       await buildApplet(app)
-      const css = await readFile(join(app, 'dist/app.css'), 'utf8')
+      const css = await readFile(join(app, 'dist/main.css'), 'utf8')
       expect(css).toContain('.imported')
       expect(css).toContain('.ankole-applet')
       expect(await readdir(join(app, 'dist'))).not.toContain('stale.js')
@@ -113,7 +115,7 @@ describe('Pod Agent CLI', () => {
     }
   })
 
-  it('embeds imported media in JavaScript and nested CSS for publication Blob URLs', async () => {
+  it('embeds imported media in JavaScript and nested CSS', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-applet-assets-'))
     try {
       const app = join(root, 'app')
@@ -132,14 +134,13 @@ describe('Pod Agent CLI', () => {
         '.logo {background-image: url("../logo.png")} @font-face {font-family: test;src: url("../font.woff2")}'
       )
       await buildApplet(app)
-      const js = await readFile(join(app, 'dist/app.js'), 'utf8')
-      const css = await readFile(join(app, 'dist/app.css'), 'utf8')
-      const module = { exports: {} as { provider: { image: string } } }
-      new Function('module', 'exports', js)(module, module.exports)
-      expect(module.exports.provider.image).toBe(`data:image/png;base64,${bytes.toString('base64')}`)
-      expect(css).toContain(module.exports.provider.image)
+      const js = await readFile(join(app, 'dist/main.js'), 'utf8')
+      const css = await readFile(join(app, 'dist/main.css'), 'utf8')
+      const image = `data:image/png;base64,${bytes.toString('base64')}`
+      expect(js).toContain(image)
+      expect(css).toContain(image)
       expect(css).toContain('data:font/woff2;base64,AP8RgA==')
-      expect((await readdir(join(app, 'dist'))).sort()).toEqual(['app.css', 'app.js', 'index.html'])
+      expect((await readdir(join(app, 'dist'))).sort()).toEqual(['index.html', 'main.css', 'main.js'])
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -165,7 +166,7 @@ export const provider = defineApplet(() => <main>{Object.keys(unsupported).lengt
       )
       await expect(buildApplet(app)).rejects.toThrow(`Unsupported applet host import "${path}"`)
       expect(await Bun.file(join(app, 'dist/index.html')).exists()).toBe(false)
-      expect(await Bun.file(join(app, 'dist/app.js')).exists()).toBe(false)
+      expect(await Bun.file(join(app, 'dist/main.js')).exists()).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -181,7 +182,7 @@ export const provider = defineApplet(() => <main>{Object.keys(unsupported).lengt
         await writeFile(join(app, 'src/style.css'), `${css}\n.ankole-applet {padding: 1rem}`)
         await expect(buildApplet(app)).rejects.toThrow('the Pod host already loads those styles')
         expect(await Bun.file(join(app, 'dist/index.html')).exists()).toBe(false)
-        expect(await Bun.file(join(app, 'dist/app.css')).exists()).toBe(false)
+        expect(await Bun.file(join(app, 'dist/main.css')).exists()).toBe(false)
       } finally {
         await rm(root, { recursive: true, force: true })
       }
@@ -210,7 +211,7 @@ function App() {return <main><Label>Order</Label><Input/><Button>Save</Button></
 export const provider = defineApplet(App)`
       )
       await buildApplet(app)
-      const js = await readFile(join(app, 'dist/app.js'), 'utf8')
+      const js = await readFile(join(app, 'dist/main.js'), 'utf8')
       const imports = [...new Set(new Bun.Transpiler({ loader: 'js' }).scanImports(js).map(item => item.path))].sort()
       expect(imports).toEqual(
         [
@@ -228,6 +229,93 @@ export const provider = defineApplet(App)`
       expect(js).not.toContain('@ankole/applet-sdk/types')
       expect(js).not.toContain('@ankole/applet-sdk/server')
     } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['dependencies', 'devDependencies', 'peerDependencies'])(
+    'rejects host-only Ankole packages in applet %s before building',
+    async group => {
+      const root = await mkdtemp(join(tmpdir(), 'pod-applet-package-'))
+      try {
+        await initializeApplet(root)
+        for (const name of ['@ankole/applet-sdk', '@ankole/uikit']) {
+          await writeFile(join(root, 'package.json'), JSON.stringify({ [group]: { [name]: '*' } }))
+          await expect(buildApplet(root)).rejects.toThrow(`Remove ${name} from package.json ${group}`)
+          expect(await Bun.file(join(root, 'dist/index.html')).exists()).toBe(false)
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it('bundles third-party React subpaths while keeping Ankole subpaths restricted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pod-applet-dependency-'))
+    try {
+      await initializeApplet(root)
+      await mkdir(join(root, 'node_modules/widget'), { recursive: true })
+      await mkdir(join(root, 'node_modules/react'), { recursive: true })
+      await writeFile(join(root, 'node_modules/widget/package.json'), '{"name":"widget","main":"index.js"}')
+      await writeFile(
+        join(root, 'node_modules/react/package.json'),
+        '{"name":"react","exports":{"./compiler-runtime":"./compiler-runtime.js"}}'
+      )
+      await writeFile(join(root, 'node_modules/react/compiler-runtime.js'), 'export const compiled = "compiler-loaded"')
+      await writeFile(join(root, 'node_modules/widget/index.js'), 'export {compiled} from "react/compiler-runtime"')
+      await writeFile(join(root, 'src/main.tsx'), 'import {compiled} from "widget"; export const provider={compiled}')
+      await buildApplet(root)
+      expect(await readFile(join(root, 'dist/main.js'), 'utf8')).toContain('compiler-loaded')
+      await writeFile(join(root, 'node_modules/widget/index.js'), 'export * from "@ankole/uikit/components/button"')
+      await expect(buildApplet(root)).rejects.toThrow(
+        'Unsupported applet host import "@ankole/uikit/components/button"'
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('parses page sharing JSON and flags and forwards the write without retries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pod-sharing-cli-'))
+    const params = {
+      sharing_version: 'v1',
+      inherit_permissions: false,
+      grants: [{ principal_uid: 'member', role: 'view' }]
+    }
+    const calls: unknown[] = []
+    const rpc = (async (method, payload, _frame, options) => {
+      calls.push({
+        method,
+        payload: jsonObjectFromBytes((payload as { paramsJson: Uint8Array }).paramsJson, 'params'),
+        retry: options?.retryOnDisconnect
+      })
+      return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result: { id: 'page' } }) })
+    }) as RPCRequester
+    const bridge = startPodCLIBridge({ rpc, drive: new FakeDrive(root).drive(), socketRoot: root })
+    try {
+      const json = await commandFromArgs(['page', 'set-sharing', 'page', JSON.stringify(params)], root)
+      const flags = await commandFromArgs(
+        [
+          'page',
+          'set-sharing',
+          'page',
+          '--sharing-version',
+          'v1',
+          '--inherit-permissions',
+          'false',
+          '--grants',
+          JSON.stringify(params.grants)
+        ],
+        root
+      )
+      expect(flags).toEqual(json)
+      await requestSocketLineBridge(bridge.socketPath, JSON.stringify(flags), 'invalid sharing response')
+      expect(calls).toEqual([{ method: 'pod.write', payload: { ...params, id: 'page' }, retry: false }])
+      await expect(
+        commandFromArgs(['page', 'set-sharing', 'page', '--inherit-permissions', 'maybe'], root)
+      ).rejects.toThrow('true or false')
+    } finally {
+      bridge.close()
       await rm(root, { recursive: true, force: true })
     }
   })
@@ -305,7 +393,7 @@ export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.
     }
   })
 
-  it('rejects backend Node modules at build time', async () => {
+  it('keeps Node builtins external in the backend ESM', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-backend-node-'))
     try {
       const app = join(root, 'app')
@@ -315,8 +403,10 @@ export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.
         join(app, 'src/server/main.ts'),
         `import { readFileSync } from 'node:fs'; export default {'GET /': () => readFileSync('/secret')}`
       )
-      await expect(buildApplet(app)).rejects.toThrow('Applet backend build failed')
-      expect(await Bun.file(join(app, 'server/main.js')).exists()).toBe(false)
+      await buildApplet(app)
+      const source = await Bun.file(join(app, 'server/main.js')).text()
+      expect(source).toContain('node:fs')
+      expect(new Bun.Transpiler({ loader: 'js' }).scanImports(source).map(item => item.path)).toEqual(['node:fs'])
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -338,7 +428,7 @@ export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.
       await mkdir(join(app, 'src/server'))
       await writeFile(
         join(app, 'src/server/main.ts'),
-        `import { readFileSync } from 'node:fs'; export default {'GET /': () => readFileSync('/secret')}`
+        `import { missing } from './missing-module'; export default {'GET /': () => missing()}`
       )
       await expect(buildApplet(app)).rejects.toThrow('Applet backend build failed')
       // Frontend compilation finished before the backend failure. Its presence must not permit publication.

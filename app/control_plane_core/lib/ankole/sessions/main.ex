@@ -5,6 +5,40 @@ defmodule Ankole.Sessions.Main do
   alias Ankole.Sessions.Commands
   alias Ankole.Conversations.ModelPreferences
 
+  def instructions(run) do
+    if optional_reply?(run.event),
+      do:
+        super(run) <>
+          "\n\nYou are listening to a shared room. This message does not address you. Reply only when your contribution helps the discussion. You can finish with no visible reply.",
+      else: super(run)
+  end
+
+  def repair(run, text), do: if(optional_reply?(run.event), do: nil, else: super(run, text))
+
+  def finish(
+        %{
+          outcome: :loop_finished,
+          model_response: %{content: content}
+        } = run
+      ) do
+    text = Ankole.Conversations.Delivery.Text.visible_text(content) || ""
+
+    if optional_reply?(run.event) and String.trim(text) == "" and not run.visible_delivery?,
+      do: {:finalize, %{run | outcome: :silent}},
+      else: super(run)
+  end
+
+  def finish(run), do: super(run)
+
+  defp optional_reply?(%Ankole.Signals.Signal{
+         producer: :kernel,
+         type: "conversation.message.addressed",
+         data: %{"optional_reply" => true}
+       }),
+       do: true
+
+  defp optional_reply?(_event), do: false
+
   def plan(event, opts) do
     profile = Commands.profile(event) || ModelPreferences.for_event(event)
 

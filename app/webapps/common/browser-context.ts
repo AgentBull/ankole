@@ -5,6 +5,10 @@ export function authenticationRef(): string | undefined {
   return meta('ankole-authentication')
 }
 
+export function principalUID(): string | undefined {
+  return meta('ankole-principal')
+}
+
 /** A verified credential change replaces only this document's proof. */
 export function replaceAuthentication(reference: string, csrfToken: string): void {
   document.querySelector<HTMLMetaElement>('meta[name="ankole-authentication"]')!.content = reference

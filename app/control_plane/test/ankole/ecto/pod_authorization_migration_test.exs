@@ -11,6 +11,16 @@ defmodule Ankole.Ecto.PodAuthorizationMigrationTest do
     )
   end
 
+  @four_bit_migration Ankole.Repo.Migrations.ExpandPodFourBitPermissions
+  unless Code.ensure_loaded?(@four_bit_migration) do
+    Code.require_file(
+      Path.expand(
+        "../../../priv/repo/migrations/20261025010000_expand_pod_four_bit_permissions.exs",
+        __DIR__
+      )
+    )
+  end
+
   setup do
     schema = "pod_authz_upgrade_#{System.unique_integer([:positive])}"
     Repo.query!("CREATE SCHEMA #{schema}")
@@ -335,6 +345,141 @@ defmodule Ankole.Ecto.PodAuthorizationMigrationTest do
       "UPDATE permission_grants SET tenant_id='#{other_tenant}' WHERE id='#{id}'",
       "permission_grants_source_page_fkey",
       :foreign_key_violation
+    )
+  end
+
+  test "four-bit upgrade preserves conditional and Userset grants and backfills record writes",
+       ctx do
+    Repo.query!(
+      "UPDATE pages SET inherit_permissions=false WHERE id IN ($1::text::uuid,$2::text::uuid)",
+      [ctx.child, ctx.leaf]
+    )
+
+    grant(ctx, "pod:**:#{ctx.root}:**", "page_view", "true", :group)
+    grant(ctx, "pod:**:#{ctx.root}:**", "page_edit", "true", :group)
+    grant(ctx, "pod:**:#{ctx.child}:**", "page_view")
+    grant(ctx, "pod:**:#{ctx.child}:**", "page_edit", ~s(context.request.ip == "10.0.0.1"))
+    grant(ctx, "pod:**:#{ctx.leaf}:**", "page_view")
+    run_migration()
+
+    Repo.query!(
+      "CREATE TABLE page_contents (page_id uuid PRIMARY KEY, tenant_id uuid NOT NULL, plain_text text NOT NULL DEFAULT '')"
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO permission_grants (id,tenant_id,source_page_id,source_action,resource_pattern,action,condition,target_page_id,target_scope)
+      VALUES ($1::text::uuid,$2::text::uuid,$3::text::uuid,'page_edit',$4,'page_edit','true',$5::text::uuid,'container')
+      """,
+      [
+        Ankole.Ecto.UUIDv7.autogenerate(),
+        ctx.tenant_id,
+        ctx.root,
+        "pod:**:#{ctx.leaf}:**",
+        ctx.leaf
+      ]
+    )
+
+    signature =
+      "tenant_id,principal_uid,group_id,source_page_id,source_action,resource_pattern,condition,target_page_id,target_scope,inserted_at,updated_at"
+
+    old =
+      Repo.query!(
+        "SELECT #{signature} FROM permission_grants WHERE action='page_edit' ORDER BY resource_pattern,source_action NULLS FIRST"
+      ).rows
+
+    run_four_bit_migration()
+
+    assert Repo.query!(
+             "SELECT #{signature} FROM permission_grants WHERE action='page_write_records' ORDER BY resource_pattern,source_action NULLS FIRST"
+           ).rows == old
+
+    assert Repo.query!(
+             "SELECT count(*) FROM permission_grants WHERE action='page_write_records' AND substring(id::text,15,1)='7'"
+           ).rows == [[3]]
+
+    assert Repo.query!(
+             "SELECT count(*) FROM pg_indexes WHERE schemaname=current_schema() AND indexname='page_contents_plain_text_trgm_gin_index'"
+           ).rows == [[1]]
+
+    run_four_bit_migration()
+
+    assert Repo.query!("SELECT count(*) FROM permission_grants WHERE action='page_write_records'").rows ==
+             [[3]]
+
+    assert upgraded_bits(ctx, "10.0.0.1") == %{ctx.root => 7, ctx.child => 7, ctx.leaf => 7}
+    assert upgraded_bits(ctx, "10.0.0.2") == %{ctx.root => 7, ctx.child => 1, ctx.leaf => 7}
+
+    Repo.query!(
+      "DELETE FROM permission_grants WHERE target_page_id=$1::text::uuid AND action='page_edit'",
+      [ctx.root]
+    )
+
+    rights = upgraded_bits(ctx, "10.0.0.2")
+    assert rights[ctx.root] == 3
+    assert Ankole.Pod.Access.role_for_actions(rights[ctx.root]) == "contribute"
+    # An edit Userset still requires the edit bit, not merely record-write access.
+    assert rights[ctx.leaf] == 1
+  end
+
+  defp upgraded_bits(ctx, ip) do
+    rows =
+      Repo.query!(
+        "SELECT id::text,principal_uid,group_id::text,source_page_id::text,resource_pattern,action,condition FROM permission_grants"
+      ).rows
+
+    snapshot = %{
+      "principal" => %{
+        "uid" => "human",
+        "type" => "human",
+        "status" => "active",
+        "membership" => "member"
+      },
+      "staticGroupIDs" => [],
+      "computedGroups" => [
+        %{
+          "id" => ctx.group,
+          "condition" =>
+            ~s(principal.type == "human" && principal.membership == "member" && principal.status == "active")
+        }
+      ],
+      "context" => %{"ip" => ip},
+      "grants" =>
+        Enum.map(rows, fn [id, uid, group, source, pattern, action, condition] ->
+          %{
+            "id" => id,
+            "principalUID" => uid,
+            "groupID" => group,
+            "hasSourcePage" => not is_nil(source),
+            "resourcePattern" => pattern,
+            "action" => action,
+            "condition" => condition
+          }
+        end)
+    }
+
+    evaluated = Ankole.Kernel.authz_evaluate_pod_context(snapshot)
+    assert evaluated["status"] == "active"
+    actor = Ankole.AuthZ.Actor.new(%{uid: "human"})
+
+    Repo.with_tenant(ctx.tenant_id, fn ->
+      assert {:ok, reachable} =
+               Ankole.Pod.Access.reachable_anchors(actor, context: {snapshot, evaluated})
+
+      Map.new([ctx.root, ctx.child, ctx.leaf], fn id -> {id, reachable[id].self_bits} end)
+    end)
+  end
+
+  defp run_four_bit_migration do
+    Ecto.Migration.Runner.run(
+      Repo,
+      Repo.config(),
+      20_261_025_010_000,
+      @four_bit_migration,
+      :forward,
+      :up,
+      :up,
+      log: false
     )
   end
 

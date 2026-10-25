@@ -28,9 +28,13 @@ defmodule Ankole.Sessions.Notices do
       |> Ankole.Workflow.cleanup_terminal_transition()
 
     with {:ok, _} <- result do
-      complete_without_turn(event, now, :model_profile_unavailable, %{profile: profile}, fn _ ->
-        {:ok, nil}
-      end)
+      complete_without_turn(
+        event,
+        now,
+        :model_profile_unavailable,
+        %{profile: profile},
+        fn _event, _completion -> {:ok, nil} end
+      )
     end
   end
 
@@ -71,16 +75,20 @@ defmodule Ankole.Sessions.Notices do
         now,
         :model_profile_unavailable,
         %{profile: profile, profile_error: reason},
-        fn locked_event ->
+        fn locked_event, completion ->
           text =
             I18n.t("conversations.delivery.reply.model_profile_unavailable", %{
               "profile" => profile,
               "ref" => locked_event.id
             })
 
-          post_in_tx(locked_event, :model_profile_unavailable, text, %{
-            "profile" => profile
-          })
+          post_in_tx(
+            locked_event,
+            :model_profile_unavailable,
+            text,
+            %{"profile" => profile},
+            completion
+          )
         end
       )
     end
@@ -97,10 +105,10 @@ defmodule Ankole.Sessions.Notices do
       now,
       :agent_token_quota_exceeded,
       %{token_quota: window},
-      fn locked_event ->
+      fn locked_event, completion ->
         text = token_quota_notice_text(window, locked_event.id)
 
-        post_in_tx(locked_event, :token_quota_exceeded, text)
+        post_in_tx(locked_event, :token_quota_exceeded, text, %{}, completion)
       end
     )
   end
@@ -117,6 +125,7 @@ defmodule Ankole.Sessions.Notices do
 
   @doc false
   def reject_suspended_input_in_tx(event, now) do
+    :ok = Ankole.Conversations.lock_native_participants_in_tx(event, [event.human_uid])
     :ok = lock_work_in_tx(event)
     :ok = Queue.lock_session_in_tx(event.agent_uid, event.session_id)
 
@@ -230,7 +239,10 @@ defmodule Ankole.Sessions.Notices do
   def complete_without_turn_in_tx(signal, status, fields, commit_notice) do
     with {:ok, result} <- Run.reject_input_in_tx(signal, :stopped, status) do
       if result.status == :completed do
-        notice_result = maybe_commit_notice(result.reply_event, commit_notice)
+        notice_result =
+          maybe_commit_notice(result.reply_event, fn input ->
+            commit_notice.(input, result.completion)
+          end)
 
         {:ok,
          result
@@ -263,7 +275,7 @@ defmodule Ankole.Sessions.Notices do
   end
 
   @doc "Posts one runtime notice through the statement destination contract."
-  def post_in_tx(event, kind, text, params \\ %{}) do
+  def post_in_tx(event, kind, text, params \\ %{}, completion \\ nil) do
     {prefix, source, state, empty_error} =
       case kind do
         :dead_letter ->
@@ -289,6 +301,7 @@ defmodule Ankole.Sessions.Notices do
     statement = %Ankole.Conversations.Statement{
       signal: event,
       text: text,
+      completion: if(completion, do: Map.take(completion, [:execution])),
       notice: %{
         prefix: prefix,
         empty_error: empty_error,
@@ -356,11 +369,13 @@ defmodule Ankole.Sessions.Notices do
   end
 
   @doc false
-  def commit_dead_letter_notice_in_tx(%Signal{}, :human_access_revoked),
+  def commit_dead_letter_notice_in_tx(event, reason, completion \\ nil)
+
+  def commit_dead_letter_notice_in_tx(%Signal{}, :human_access_revoked, _completion),
     do: {:ok, %Ankole.Conversations.PostResult{}}
 
-  def commit_dead_letter_notice_in_tx(%Signal{} = event, reason),
-    do: post_in_tx(event, :dead_letter, dead_letter_notice_text(event, reason))
+  def commit_dead_letter_notice_in_tx(%Signal{} = event, reason, completion),
+    do: post_in_tx(event, :dead_letter, dead_letter_notice_text(event, reason), %{}, completion)
 
   defp dead_letter_notice_text(%Signal{} = event),
     do: I18n.t("conversations.delivery.reply.dead_letter", %{"ref" => event.id})

@@ -55,23 +55,25 @@ export function DatabasePage({
   inlineConfig?: ViewConfig
   configureInline?: (config: ViewConfig, table?: string) => void
 }) {
-  const { database, realtime } = useContent()
+  const { database, realtime, readDenial } = useContent()
   const client = useQueryClient()
   const runtime = useMemo<AppletRuntime>(
     () => ({
       pageID: detail.page.id,
       instanceID: `database-${detail.page.id}`,
       revision: detail.page.revision,
+      actions: detail.actions,
       routes: createAppletRoutes(detail.page.id, detail.page.revision, () => {
         void client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
       }),
       queryClient: client,
+      readDenial,
       database,
       pod: { request: podRequest },
       channel: name => realtime.channel(detail.page.id, name),
       principal: realtime.principal
     }),
-    [detail.page.id, detail.page.revision, client, database, realtime]
+    [detail.page.id, detail.page.revision, detail.actions, client, readDenial, database, realtime]
   )
   return (
     <AppletRuntimeProvider runtime={runtime}>
@@ -103,6 +105,7 @@ function DatabaseWorkspace({
   const [selected, setSelected] = useState(initialTable ?? '')
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const tableSaving = useRef(false)
   const client = useQueryClient()
   const create = useMutation({
@@ -118,6 +121,14 @@ function DatabaseWorkspace({
     }
   })
   const tableID = tables.data?.tables.some(table => table.id === selected) ? selected : tables.data?.tables[0]?.id
+  const remove = useMutation({
+    mutationFn: () => databaseHTTP.removeTable(tableID!),
+    onSuccess: async () => {
+      setDeleting(false)
+      setSelected('')
+      await client.invalidateQueries({ queryKey: contentKeys.all })
+    }
+  })
   return (
     <section className="pod-database min-w-0" data-inline={!!inline}>
       <div className="pod-database-sources" aria-label={t('pod.content.table')}>
@@ -135,9 +146,20 @@ function DatabaseWorkspace({
             {table.name}
           </Button>
         ))}
-        {detail.role !== 'view' && (
+        {detail.actions.includes('page_edit') && (
           <Button size="sm" variant="ghost" onClick={() => setCreating(true)}>
             {t('pod.content.table_2')}
+          </Button>
+        )}
+        {detail.actions.includes('page_manage') && tableID && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              remove.reset()
+              setDeleting(true)
+            }}>
+            {t('pod.content.delete_table')}
           </Button>
         )}
       </div>
@@ -158,6 +180,21 @@ function DatabaseWorkspace({
           {t('pod.content.no_tables_yet_create_one_to_manage_your_records')}
         </p>
       )}
+      <Dialog open={deleting} onOpenChange={next => !remove.isPending && setDeleting(next)}>
+        <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!remove.isPending}>
+          <DialogTitle>{t('pod.content.delete_table')}</DialogTitle>
+          <p>{t('pod.content.delete_table_confirmation')}</p>
+          <ContentError error={remove.error} />
+          <DialogFooter>
+            <Button variant="ghost" disabled={remove.isPending} onClick={() => setDeleting(false)}>
+              {t('pod.content.cancel')}
+            </Button>
+            <Button disabled={remove.isPending} onClick={() => remove.mutate()}>
+              {t('pod.content.delete_table')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={creating}
         onOpenChange={next => {
@@ -261,7 +298,8 @@ function TableWorkspace({
       viewSaving.current = false
     }
   })
-  const editable = page.role !== 'view'
+  const editable = page.actions.includes('page_write_records')
+  const schemaEditable = page.actions.includes('page_edit')
   const configure = (config: ViewConfig) => {
     if (viewSaving.current) return
     model.resetPages()
@@ -295,6 +333,7 @@ function TableWorkspace({
     records: records.data?.records ?? [],
     view: effective,
     editable,
+    schemaEditable,
     pending: records.write.isPending,
     update: records.update,
     remove: records.remove,
@@ -334,7 +373,7 @@ function TableWorkspace({
               )
             })}
           </nav>
-          {editable && (
+          {schemaEditable && (
             <CreateViewButton
               tableID={tableID}
               onCreated={id => {
@@ -353,15 +392,13 @@ function TableWorkspace({
             update={(filter, sort) => configure({ ...effective.config, filter, sort })}
           />
           {editable && (
-            <>
-              <Button variant="outline" size="sm" className="pod-database-new" onClick={() => setNewRecord(true)}>
-                <RiAddLine aria-hidden="true" />
-                {t('pod.content.new_record')}
-              </Button>
-              {effective.type !== 'grid' && (
-                <FieldEditorButton tableID={tableID} pageID={page.page.id} tables={tables} canManage />
-              )}
-            </>
+            <Button variant="outline" size="sm" className="pod-database-new" onClick={() => setNewRecord(true)}>
+              <RiAddLine aria-hidden="true" />
+              {t('pod.content.new_record')}
+            </Button>
+          )}
+          {schemaEditable && effective.type !== 'grid' && (
+            <FieldEditorButton tableID={tableID} pageID={page.page.id} tables={tables} canManage />
           )}
           <CopyTableButton tableID={tableID} parentID={page.page.parent_id ?? undefined} filter={query.filter} />
         </div>
@@ -369,11 +406,11 @@ function TableWorkspace({
       {draft && !inline && (
         <div className="pod-database-draft flex flex-wrap items-center gap-2 p-2 text-sm">
           <p role="status">
-            {editable
+            {schemaEditable
               ? t('pod.content.view_settings_have_not_been_saved')
               : t('pod.content.filters_and_layout_apply_only_to_this_preview')}
           </p>
-          {editable && (
+          {schemaEditable && (
             <Button
               variant="outline"
               size="sm"
@@ -463,6 +500,7 @@ function TableWorkspace({
           <RecordForm
             fields={props.fields}
             pageID={props.pageID}
+            editable={editable}
             close={() => setNewRecord(false)}
             create={async data => {
               newRecordSaving.current = true
@@ -550,27 +588,58 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
   const { pageHref } = useContent()
   const [open, setOpen] = useState(false),
     [title, setTitle] = useState(''),
-    [parent, setParent] = useState(parentID ?? ''),
+    [selectedParent, setParent] = useState<string>(),
     [createdPage, setCreatedPage] = useState<string>()
   const client = useQueryClient()
   const saving = useRef(false)
   const [destinationQuery, setDestinationQuery] = useState('')
   const [selectedTarget, setSelectedTarget] = useState<Page>()
-  const destinations = useQuery({ ...pageSearchQuery(destinationQuery), enabled: open })
+  const destinations = useQuery({
+    ...pageSearchQuery(destinationQuery, { required_action: 'page_edit' }),
+    enabled: open
+  })
   const initialTarget = useQuery({ ...pageQuery(parentID ?? ''), enabled: open && Boolean(parentID) })
   const targets = [
     ...new Map(
       [
         ...(destinations.data?.pages ?? []),
-        ...(initialTarget.data ? [{ ...initialTarget.data.page, role: initialTarget.data.role }] : []),
+        ...(initialTarget.data?.actions.includes('page_edit')
+          ? [{ ...initialTarget.data.page, role: initialTarget.data.role, actions: initialTarget.data.actions }]
+          : []),
         ...(selectedTarget ? [selectedTarget] : [])
       ].map(page => [page.id, page])
     ).values()
-  ].filter(page => page.type === 'doc' && (page.role === 'edit' || page.role === 'manage'))
-  const invalidTarget = !!parent && !targets.some(page => page.id === parent)
+  ]
+  const canCreateSpace = destinations.data?.can_create_space === true
+  const canCreatePrivate = destinations.data?.can_create_private === true && !!destinations.data.principal_uid
+  const parent =
+    selectedParent ??
+    (!canCreateSpace && canCreatePrivate
+      ? 'private'
+      : initialTarget.data?.actions.includes('page_edit')
+        ? parentID!
+        : canCreateSpace
+          ? 'space'
+          : '')
+  const invalidTarget =
+    parent === 'space'
+      ? !canCreateSpace
+      : parent === 'private'
+        ? !canCreatePrivate
+        : !targets.some(page => page.id === parent)
   const copy = useMutation({
     mutationFn: () =>
-      podDatabaseCopy({ path: { id: tableID }, body: { data: { parent_id: parent || null, title, filter } } }),
+      podDatabaseCopy({
+        path: { id: tableID },
+        body: {
+          data: {
+            parent_id: parent === 'space' || parent === 'private' ? null : parent,
+            private_owner_uid: parent === 'private' ? destinations.data!.principal_uid : null,
+            title: title.trim() || undefined,
+            filter
+          }
+        }
+      }),
     onSuccess: async ({ page }) => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
       setCreatedPage(page.id)
@@ -594,7 +663,7 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
           title={t('pod.content.copy_current_results')}
           onClick={() => {
             copy.reset()
-            setParent(parentID ?? '')
+            setParent(undefined)
             setOpen(true)
           }}>
           <RiFileCopyLine aria-hidden="true" />
@@ -635,8 +704,10 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
             }}
             disabled={copy.isPending || destinations.isPending}
             options={{
-              '': t('pod.content.space'),
-              ...(invalidTarget
+              ...(!parent ? { '': t('pod.content.choose_an_available_destination') } : {}),
+              ...(canCreateSpace ? { space: t('pod.content.space') } : {}),
+              ...(canCreatePrivate ? { private: 'Private' } : {}),
+              ...(invalidTarget && parent
                 ? {
                     [parent]: t('pod.content.the_original_destination_is_no_longer_editable_choose_another_destination')
                   }

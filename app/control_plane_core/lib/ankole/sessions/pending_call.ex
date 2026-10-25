@@ -3,7 +3,7 @@ defmodule Ankole.Sessions.PendingCall do
   @enforce_keys [:call]
   defstruct [
     :call,
-    :activity,
+    :started_at,
     :tool,
     :args,
     :wait,
@@ -45,7 +45,8 @@ defmodule Ankole.Sessions.PendingCall do
             tool: tool,
             args: args,
             sequential?: sequential?,
-            status: :running
+            status: :running,
+            started_at: System.monotonic_time(:millisecond)
         }
       )
 
@@ -82,7 +83,7 @@ defmodule Ankole.Sessions.PendingCall do
     do:
       map(pending, fn p ->
         if p.status in [:worker, :worker_wait],
-          do: %{p | status: :queued, probe?: p.probe? or p.status == :worker, activity: nil},
+          do: %{p | status: :queued, probe?: p.probe? or p.status == :worker},
           else: p
       end)
 

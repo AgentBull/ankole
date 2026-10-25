@@ -114,6 +114,169 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
   def supersede_for_session_reset_in_tx(%Signal{}, %DateTime{}), do: {:ok, []}
 
+  @doc "Projects a native card's durable result for the room timeline."
+  def native_interaction(signal_id, interaction_id) when is_binary(signal_id) do
+    checkpoint = PreviewStates.get(signal_id).checkpoint || %{}
+    native_interaction(signal_id, interaction_id, checkpoint)
+  end
+
+  def native_interaction(_signal_id, _interaction_id), do: %{"state" => "superseded"}
+
+  @doc "Projects native cards from one read of their durable checkpoints."
+  def native_interactions(messages) do
+    signal_ids = messages |> Enum.map(& &1.signal_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    checkpoints =
+      PreviewState
+      |> Ash.Query.filter(signal_id in ^signal_ids)
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.signal_id, &1.checkpoint || %{}})
+
+    Map.new(messages, fn message ->
+      id = get_in(message.rich_content, ["clarify", "interaction_id"])
+
+      value =
+        if is_binary(message.signal_id) and is_binary(id),
+          do:
+            native_interaction(
+              message.signal_id,
+              id,
+              Map.get(checkpoints, message.signal_id, %{})
+            ),
+          else: %{"state" => "superseded"}
+
+      {message.id, value}
+    end)
+  end
+
+  defp native_interaction(signal_id, interaction_id, checkpoint) do
+    id = String.replace_prefix(interaction_id, signal_id <> ":", "")
+
+    case InteractionState.interaction(checkpoint, id) do
+      nil ->
+        %{"state" => "superseded"}
+
+      interaction ->
+        interaction
+        |> Map.take([
+          "answered_by_uid",
+          "answered_by_name",
+          "answered_at",
+          "choice_id",
+          "answer_text"
+        ])
+        |> Map.put("state", interaction["state"])
+    end
+  end
+
+  @doc "Answers a native room question and publishes its committed message."
+  def answer_native(actor, conversation_id, interaction_id, attrs) do
+    Ankole.Repo.transact_top_level(
+      fn -> accept_native_in_tx(actor, conversation_id, interaction_id, attrs) end,
+      after_commit: &Ankole.Conversations.Native.publish_native_change/1
+    )
+    |> Ankole.Conversations.Native.committed(actor)
+  end
+
+  @doc "Records the first native room answer and submits it to the Agent that asked."
+  def accept_native_in_tx(actor, conversation_id, interaction_id, attrs) do
+    alias Ankole.Conversations.{Native, Queries}
+
+    with [signal_id, id] <- String.split(interaction_id, ":", parts: 2),
+         {:ok, signal_id} <- Ecto.UUID.cast(signal_id),
+         {:ok, %Signal{conversation_id: ^conversation_id} = source} <-
+           Ankole.Signals.get_signal(signal_id),
+         :ok <- Native.lock_participants_in_tx(actor, source.agent_uid, conversation_id),
+         :ok <-
+           Ankole.Signals.lock_target_in_tx(%{
+             agent_uid: source.agent_uid,
+             session_id: source.session_id
+           }),
+         true <- Native.visible_conversation?(actor, conversation_id),
+         %{} <- Queries.lock_conversation(conversation_id),
+         %Signal{} = source <- Ankole.Signals.lock_signal_in_tx(source.id),
+         preview = PreviewStates.lock_in_tx(source),
+         %{"state" => "pending"} <- InteractionState.interaction(preview.checkpoint || %{}, id),
+         {:ok, answer} <- native_answer(preview.checkpoint, id, attrs),
+         :ok <-
+           Ankole.AuthZ.authorize(
+             actor,
+             "agent:#{source.agent_uid}",
+             "chat",
+             Ankole.AuthZ.Actor.request_context(actor)
+           ),
+         resolution = native_resolution(actor, answer),
+         {:ok, checkpoint} <- InteractionState.resolve(preview.checkpoint, id, resolution),
+         {:ok, _source} <- PreviewStates.put_checkpoint_in_tx(source, checkpoint),
+         {:ok, result} <-
+           Native.post_in_tx(actor, conversation_id, %{
+             message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+             text: answer["value"],
+             links: Ankole.Attrs.get(attrs, :links) || [],
+             attachments: Ankole.Attrs.get(attrs, :attachments) || [],
+             mentions:
+               Enum.filter(Ankole.Attrs.get(attrs, :mentions) || [], fn mention ->
+                 Ankole.Attrs.get(mention, :type) in [:human, "human"]
+               end),
+             target_agent_uid: source.agent_uid,
+             delivery_mode: "steer"
+           }) do
+      {:ok, result}
+    else
+      false -> {:error, :conversation_not_found}
+      nil -> {:error, :interaction_not_pending}
+      %{} -> {:error, :interaction_not_pending}
+      :stale -> {:error, :interaction_not_pending}
+      {:error, _reason} = error -> error
+      _ -> {:error, :invalid_reply_interaction}
+    end
+  end
+
+  defp native_answer(checkpoint, id, attrs) do
+    presentation = ReplyPresentation.normalize(checkpoint["presentation"])
+    choice_id = Ankole.Attrs.get(attrs, :choice_id)
+
+    answer_text = Ankole.Attrs.get(attrs, :answer_text) || ""
+    has_attachments = (Ankole.Attrs.get(attrs, :attachments) || []) != []
+
+    actions = Enum.filter(presentation["actions"], &(&1["interaction_id"] == id))
+
+    cond do
+      is_binary(choice_id) ->
+        case Enum.find(
+               actions,
+               &(&1["type"] == "button" and &1["selected_option_id"] == choice_id)
+             ) do
+          nil ->
+            {:error, :invalid_reply_interaction}
+
+          action ->
+            {:ok,
+             %{"kind" => "choice", "option_id" => choice_id, "value" => action["option_value"]}}
+        end
+
+      is_binary(answer_text) and (String.trim(answer_text) != "" or has_attachments) ->
+        if Enum.any?(actions, &(&1["type"] == "form")),
+          do: {:ok, %{"kind" => "free_text", "value" => answer_text}},
+          else: {:error, :invalid_reply_interaction}
+
+      true ->
+        {:error, :invalid_reply_interaction}
+    end
+  end
+
+  defp native_resolution(actor, answer) do
+    %{
+      "state" => "answered",
+      "answer" => answer,
+      "answered_by_uid" => Ankole.AuthZ.Actor.uid(actor),
+      "answered_by_name" => actor.principal.display_name,
+      "answered_at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond)),
+      "choice_id" => answer["option_id"],
+      "answer_text" => answer["value"]
+    }
+  end
+
   @doc """
   Validates and records a managed reply action inside the ingress transaction.
 

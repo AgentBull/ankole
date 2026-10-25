@@ -2,7 +2,7 @@ defmodule Ankole.AIGateway.ProgramExecutionTest do
   use ExUnit.Case, async: false
 
   alias Ankole.AIGateway.ProgramExecution
-  alias Ankole.Kernel.ProgramRunner
+  alias Ankole.FunctionRuntime.ProgramRunner
 
   defp job(call_id, code \\ ~s|text("ok");|) do
     %{call_id: call_id, code: code, runtime_bindings: [], memo: []}
@@ -33,12 +33,12 @@ defmodule Ankole.AIGateway.ProgramExecutionTest do
              )
   end
 
-  test "an admitted native task carries native cancellation handles" do
+  test "an admitted function task carries cancellation handles" do
     {:ok, supervisor} = Task.Supervisor.start_link()
 
     assert {:ok, handle} = ProgramExecution.start(self(), [job("prog_1")], supervisor: supervisor)
-    assert [native_handle] = handle.native_handles
-    assert is_reference(native_handle)
+    assert [runtime_handle] = handle.runtime_handles
+    assert is_reference(runtime_handle)
     refute Map.has_key?(handle, :lease)
     refute Map.has_key?(handle, :guardian)
 

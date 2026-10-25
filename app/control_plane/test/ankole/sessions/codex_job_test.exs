@@ -80,6 +80,79 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert persisted.attempts == 1
   end
 
+  test "a steer claims a continuation beyond the execution-failure budget and adoption keeps it" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+    job = create_job!(agent.uid, "steer-continuation")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    now = DateTime.add(job.queued_at, 1, :second)
+    assert {:ok, %{event: dispatch}} = CodexJob.rebuild(key, now)
+
+    assert {:ok, _} =
+             Repo.transact(fn -> Queue.mark_event_completed_in_tx(dispatch, now) end)
+
+    Repo.update!(
+      Ecto.Changeset.change(job,
+        status: :waiting_on_user,
+        attempts: 1,
+        execution_failures: 5,
+        started_at: now,
+        runtime_thread_id: "thread-steer-continuation"
+      )
+    )
+
+    assert {:ok, %{command_event: steer}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "request_id" => "steer-continuation",
+               "message" => "Continue with this input."
+             })
+
+    now = DateTime.add(steer.available_at, 1, :second)
+    assert {:ok, run} = admit_job(key, now: now)
+    assert_receive {:actor_lane, started}
+    assert turn_start_payload!(started).mode == "start"
+    assert run.job_ref.signal_id == steer.id
+    assert %{status: :running, attempts: 2, execution_failures: 5} = run.job
+
+    assert {:ok, adopted} = admit_job(key, now: now)
+    assert_receive {:actor_lane, resumed}
+    assert turn_start_payload!(resumed).mode == "adopt"
+    assert adopted.job_ref == run.job_ref
+    assert adopted.job.attempts == 2
+  end
+
+  test "a repeated retryable abort settles the attempt only once" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+    job = create_job!(agent.uid, "repeated-abort")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    assert {:ok, run} = admit_job(key, now: DateTime.add(job.queued_at, 1, :second))
+    assert_receive {:actor_lane, _started}
+
+    error = %{
+      "code" => "worker_turn_failed",
+      "message" => "The provider has no capacity.",
+      "details_json" => %{"retryable" => true}
+    }
+
+    assert {:ok, event} = CodexJob.abort(run.job_ref, agent.uid, error)
+    assert %{status: :queued, attempts: 1, execution_failures: 1} = Repo.reload!(job)
+    assert event.status == :queued
+
+    assert {:ok, %{signal: repeated, compensation: nil}} =
+             CodexJob.abort(run.job_ref, agent.uid, error)
+
+    assert repeated.available_at == event.available_at
+    assert %{status: :queued, attempts: 1, execution_failures: 1} = Repo.reload!(job)
+  end
+
   test "a stopped Job closes its open trigger on readmission without starting another attempt" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
@@ -620,7 +693,7 @@ defmodule Ankole.Sessions.CodexJobTest do
                running = repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id)
                assert {:error, _} = Ankole.Ash.update(running, :claim_attempt, %{})
 
-               CodexJob.abort_in_tx(
+               BackgroundAgentJobs.abort_attempt_in_tx(
                  first.job_ref,
                  agent.uid,
                  error,

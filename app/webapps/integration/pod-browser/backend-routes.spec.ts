@@ -18,7 +18,7 @@ test('shared sample reservations use the real backend, retain failed work, and n
   const release = Promise.withResolvers<void>()
   try {
     await owner.goto(state.base_url + pageRoute(state.backend_report_id))
-    const workspace = owner.getByRole('region', { name: 'Sample reservations', exact: true })
+    const workspace = owner.frameLocator('iframe').getByRole('region', { name: 'Sample reservations', exact: true })
     const available = workspace.getByRole('status', { name: 'Available samples', exact: true })
     const quantity = workspace.getByRole('spinbutton', { name: 'Quantity', exact: true })
     const reserve = workspace.getByRole('button', { name: 'Reserve samples', exact: true })
@@ -48,20 +48,22 @@ test('shared sample reservations use the real backend, retain failed work, and n
     await expect(workspace.getByRole('status', { name: 'Available samples', exact: true })).toHaveText('5')
     await expect(workspace.getByRole('status').filter({ hasText: 'Saving your reservation…' })).toBeVisible()
     await member.goto(state.base_url + pageRoute(state.backend_applet_id))
-    await expect(member.getByRole('status', { name: 'Available samples', exact: true })).toHaveText('3')
+    await expect(
+      member.frameLocator('iframe').getByRole('status', { name: 'Available samples', exact: true })
+    ).toHaveText('3')
     // Document typography must not change an embedded application's layout.
     for (const heading of [
       workspace.getByRole('heading', { name: 'Reserve a sample', exact: true }),
-      member.getByRole('heading', { name: 'Reserve a sample', exact: true })
+      member.frameLocator('iframe').getByRole('heading', { name: 'Reserve a sample', exact: true })
     ]) {
       await expect(heading).toHaveCSS('margin-top', '0px')
       await expect(heading).toHaveCSS('margin-bottom', '0px')
     }
     for (const [inline, fullPage] of [
-      [workspace, member.getByRole('region', { name: 'Sample reservations', exact: true })],
+      [workspace, member.frameLocator('iframe').getByRole('region', { name: 'Sample reservations', exact: true })],
       [
         workspace.getByRole('button', { name: 'Reserving…', exact: true }),
-        member.getByRole('button', { name: 'Reserve samples', exact: true })
+        member.frameLocator('iframe').getByRole('button', { name: 'Reserve samples', exact: true })
       ]
     ] as const) {
       for (const property of ['font-size', 'line-height', 'font-weight']) {
@@ -90,16 +92,22 @@ test('shared sample reservations use the real backend, retain failed work, and n
     await expect(available).toHaveText('3')
 
     await viewer.goto(state.base_url + pageRoute(state.backend_applet_id))
-    const viewerQuantity = viewer.getByRole('spinbutton', { name: 'Quantity', exact: true })
-    await expect(viewer.getByRole('status', { name: 'Available samples', exact: true })).toHaveText('3')
+    const viewerQuantity = viewer.frameLocator('iframe').getByRole('spinbutton', { name: 'Quantity', exact: true })
+    await expect(
+      viewer.frameLocator('iframe').getByRole('status', { name: 'Available samples', exact: true })
+    ).toHaveText('3')
     await viewerQuantity.fill('1')
-    await viewer.getByRole('button', { name: 'Reserve samples', exact: true }).click()
-    await expect(viewer.getByRole('alert')).toHaveText('You can view this inventory. Ask an editor to reserve samples.')
+    await viewer.frameLocator('iframe').getByRole('button', { name: 'Reserve samples', exact: true }).click()
+    await expect(viewer.frameLocator('iframe').getByRole('alert')).toHaveText(
+      'You can view this inventory. Ask an editor to reserve samples.'
+    )
     await expect(viewerQuantity).toHaveValue('1')
-    await expect(viewer.getByRole('status', { name: 'Available samples', exact: true })).toHaveText('3')
+    await expect(
+      viewer.frameLocator('iframe').getByRole('status', { name: 'Available samples', exact: true })
+    ).toHaveText('3')
 
     await quantity.fill('2')
-    await member.getByRole('spinbutton', { name: 'Quantity', exact: true }).fill('2')
+    await member.frameLocator('iframe').getByRole('spinbutton', { name: 'Quantity', exact: true }).fill('2')
     const responseFor = (page: Page) =>
       page.waitForResponse(
         response =>
@@ -108,11 +116,16 @@ test('shared sample reservations use the real backend, retain failed work, and n
       )
     const ownerResponse = responseFor(owner),
       memberResponse = responseFor(member)
-    await Promise.all([reserve.click(), member.getByRole('button', { name: 'Reserve samples', exact: true }).click()])
+    await Promise.all([
+      reserve.click(),
+      member.frameLocator('iframe').getByRole('button', { name: 'Reserve samples', exact: true }).click()
+    ])
     const responses = await Promise.all([ownerResponse, memberResponse])
     expect(responses.map(response => response.status()).sort()).toEqual([200, 409])
     await expect(available).toHaveText('1')
-    await expect(member.getByRole('status', { name: 'Available samples', exact: true })).toHaveText('1')
+    await expect(
+      member.frameLocator('iframe').getByRole('status', { name: 'Available samples', exact: true })
+    ).toHaveText('1')
     const saved = await request(owner, `/tables/${state.backend_table_id}/query`, 'POST', {
       ids: [state.backend_record_id]
     })
@@ -167,10 +180,9 @@ test('an embedded Applet stays available after closing a responsive Page chat', 
   const page = await context.newPage()
   try {
     await page.goto(state.base_url + pageRoute(state.backend_report_id))
-    const embedded = page.locator('.editor-content .embed').filter({
-      has: page.getByRole('button', { name: 'Reserve samples', exact: true })
-    })
-    const available = embedded.getByRole('status', { name: 'Available samples', exact: true })
+    const embedded = page.locator('.editor-content .embed').filter({ has: page.locator('iframe') })
+    const application = embedded.frameLocator('iframe')
+    const available = application.getByRole('status', { name: 'Available samples', exact: true })
     await expect(available).toHaveText(/^\d+$/)
     const stock = await available.innerText()
     await page.getByRole('button', { name: '页面对话', exact: true }).click()
@@ -179,14 +191,19 @@ test('an embedded Applet stays available after closing a responsive Page chat', 
     const chat = page.getByRole('dialog', { name: '页面对话', exact: true })
     await expect(chat).toBeVisible()
     // The modal correctly removes the background Applet from the accessible tree.
-    await expect(embedded).toHaveCount(0)
+    await expect
+      .poll(() => embedded.locator('iframe').evaluate(element => !!element.closest('[aria-hidden="true"]')))
+      .toBe(true)
     await chat.getByRole('button', { name: '关闭页面对话', exact: true }).click()
     await expect(chat).toBeHidden()
+    await expect
+      .poll(() => embedded.locator('iframe').evaluate(element => !!element.closest('[aria-hidden="true"]')))
+      .toBe(false)
     await expect.poll(() => new URL(page.url()).searchParams.has('chat')).toBe(false)
     await available.scrollIntoViewIfNeeded()
     await expect(available).toHaveText(stock)
     await expect(available).toBeInViewport()
-    await expect(embedded.getByRole('button', { name: 'Reserve samples', exact: true })).toBeVisible()
+    await expect(application.getByRole('button', { name: 'Reserve samples', exact: true })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('applet-after-mobile-chat-close.png'), caret: 'initial' })
   } finally {
@@ -238,7 +255,7 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
       }
     })
     await page.goto(state.base_url + pageRoute(id!))
-    const workspace = page.getByRole('region', { name: 'Sample reservations', exact: true })
+    const workspace = page.frameLocator('iframe').getByRole('region', { name: 'Sample reservations', exact: true })
     const available = workspace.getByRole('status', { name: 'Available samples', exact: true })
     await expect(available).toHaveText(/^\d+$/)
     const initialStock = await available.textContent()

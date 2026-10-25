@@ -37,6 +37,18 @@ config :ankole,
        :site_admin_console_path,
        System.get_env("ANKOLE_SITE_ADMIN_CONSOLE_PATH", "/site-admin-console")
 
+config :ankole, :function_runtime,
+  url:
+    if(config_env() == :prod,
+      do: Ankole.Config.Bootstrap.env!("ANKOLE_FUNCTION_RUNTIME_URL"),
+      else: System.get_env("ANKOLE_FUNCTION_RUNTIME_URL", "http://127.0.0.1:5435")
+    ),
+  token:
+    if(config_env() == :prod,
+      do: Ankole.Config.Bootstrap.env!("ANKOLE_FUNCTION_RUNTIME_TOKEN"),
+      else: System.get_env("ANKOLE_FUNCTION_RUNTIME_TOKEN", "dev-function-runtime-token")
+    )
+
 # AppConfigure is the only owner of trace export. Remove standard exporter
 # variables before the OpenTelemetry application starts, or OS configuration
 # can override the default-off SDK configuration below the application layer.

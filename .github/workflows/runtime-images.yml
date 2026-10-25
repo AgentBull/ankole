@@ -25,6 +25,7 @@ env:
   BASE_IMAGE: ghcr.io/agentbull/ankole-agent-os-base
   CONTROL_PLANE_IMAGE: ghcr.io/agentbull/ankole-agent-control-plane
   WORKER_IMAGE: ghcr.io/agentbull/ankole-agent-computer-worker
+  FUNCTION_RUNTIME_IMAGE: ghcr.io/agentbull/ankole-function-runtime
   LATEST_TAG: main-latest
   # A `workflow_run` event runs on the default branch; the checked revision is
   # `head_sha`, not `github.sha`.
@@ -106,6 +107,7 @@ jobs:
       base_exists: ${{ steps.inspect.outputs.base_exists }}
       control_plane_exists: ${{ steps.inspect.outputs.control_plane_exists }}
       worker_exists: ${{ steps.inspect.outputs.worker_exists }}
+      function_runtime_exists: ${{ steps.inspect.outputs.function_runtime_exists }}
       protocol_version: ${{ steps.protocol.outputs.value }}
       release_version: ${{ steps.version.outputs.value }}
       release_is_prerelease: ${{ steps.version.outputs.is_prerelease }}
@@ -187,6 +189,7 @@ jobs:
           inspect_ref base_exists "${BASE_IMAGE}"
           inspect_ref control_plane_exists "${CONTROL_PLANE_IMAGE}"
           inspect_ref worker_exists "${WORKER_IMAGE}"
+          inspect_ref function_runtime_exists "${FUNCTION_RUNTIME_IMAGE}"
 
   build_base:
     name: Build OS base image (${{ matrix.arch }})
@@ -368,12 +371,98 @@ jobs:
       - name: Inspect immutable control-plane image
         run: docker buildx imagetools inspect "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}"
 
+  build_function_runtime:
+    name: Build function-runtime image (${{ matrix.arch }})
+    needs: inspect_existing
+    if: ${{ needs.inspect_existing.outputs.function_runtime_exists != 'true' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push staged function-runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: app/function_runtime/Dockerfile
+          push: true
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            RELEASE_REVISION=${{ env.RELEASE_REVISION }}
+            RUNTIME_FABRIC_PROTOCOL_VERSION=${{ needs.inspect_existing.outputs.protocol_version }}
+          tags: ${{ env.FUNCTION_RUNTIME_IMAGE }}:${{ env.STAGING_TAG }}-function-runtime-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ env.RELEASE_REVISION }}
+            org.opencontainers.image.version=v${{ needs.inspect_existing.outputs.release_version }}
+            io.ankole.runtime-fabric.protocol-version=${{ needs.inspect_existing.outputs.protocol_version }}
+          cache-from: type=registry,ref=${{ env.FUNCTION_RUNTIME_IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.FUNCTION_RUNTIME_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          provenance: false
+
+  publish_function_runtime:
+    name: Publish immutable function-runtime image
+    needs:
+      - inspect_existing
+      - build_function_runtime
+    if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.function_runtime_exists == 'true' || needs.build_function_runtime.result == 'success') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish immutable multi-platform function-runtime manifest
+        if: ${{ needs.inspect_existing.outputs.function_runtime_exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            --tag "${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}" \
+            "${FUNCTION_RUNTIME_IMAGE}:${STAGING_TAG}-function-runtime-amd64" \
+            "${FUNCTION_RUNTIME_IMAGE}:${STAGING_TAG}-function-runtime-arm64"
+
+      - name: Inspect immutable function-runtime image
+        run: docker buildx imagetools inspect "${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}"
+
   build_worker:
     name: Build Agent Computer worker image (${{ matrix.arch }})
     needs:
       - inspect_existing
       - publish_base
-    if: ${{ needs.inspect_existing.outputs.worker_exists != 'true' }}
+    # A reused OS base skips its build job. Check the direct publication result.
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.publish_base.result == 'success' && needs.inspect_existing.outputs.worker_exists != 'true' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -456,14 +545,15 @@ jobs:
         run: docker buildx imagetools inspect "${WORKER_IMAGE}:${RELEASE_REVISION}"
 
   verify_pair:
-    name: Publish verified RuntimeFabric image pair
+    name: Publish verified runtime images
     needs:
       - inspect_existing
       - publish_control_plane
       - publish_worker
+      - publish_function_runtime
     # Reused images skip build jobs. Check direct publication results so those
     # skipped ancestors do not suppress pair verification.
-    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.publish_control_plane.result == 'success' && needs.publish_worker.result == 'success' }}
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.publish_control_plane.result == 'success' && needs.publish_worker.result == 'success' && needs.publish_function_runtime.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -487,7 +577,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Inspect both immutable images
+      - name: Inspect all immutable images
         shell: bash
         run: |
           set -euo pipefail
@@ -498,6 +588,9 @@ jobs:
           docker buildx imagetools inspect \
             "${WORKER_IMAGE}:${RELEASE_REVISION}" \
             --format '{{json .}}' > "${RUNNER_TEMP}/worker-image.json"
+          docker buildx imagetools inspect \
+            "${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}" \
+            --format '{{json .}}' > "${RUNNER_TEMP}/function-runtime-image.json"
 
       - name: Verify pair labels
         shell: bash
@@ -510,7 +603,9 @@ jobs:
             --control-plane-ref "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}" \
             --control-plane-metadata "${RUNNER_TEMP}/control-plane-image.json" \
             --worker-ref "${WORKER_IMAGE}:${RELEASE_REVISION}" \
-            --worker-metadata "${RUNNER_TEMP}/worker-image.json"
+            --worker-metadata "${RUNNER_TEMP}/worker-image.json" \
+            --function-runtime-ref "${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}" \
+            --function-runtime-metadata "${RUNNER_TEMP}/function-runtime-image.json"
 
       - name: Publish latest RuntimeFabric image pair
         if: ${{ github.ref == 'refs/heads/main' }}
@@ -532,6 +627,11 @@ jobs:
             --tag "${WORKER_IMAGE}:${moving_tag}" \
             "${WORKER_IMAGE}:${RELEASE_REVISION}"
 
+          docker buildx imagetools create \
+            --tag "${FUNCTION_RUNTIME_IMAGE}:${moving_tag}" \
+            "${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}"
+
+          docker buildx imagetools inspect "${FUNCTION_RUNTIME_IMAGE}:${moving_tag}"
           docker buildx imagetools inspect "${CONTROL_PLANE_IMAGE}:${moving_tag}"
           docker buildx imagetools inspect "${WORKER_IMAGE}:${moving_tag}"
 
@@ -672,6 +772,7 @@ jobs:
 
           publish_version_tag "${CONTROL_PLANE_IMAGE}"
           publish_version_tag "${WORKER_IMAGE}"
+          publish_version_tag "${FUNCTION_RUNTIME_IMAGE}"
 
       - name: Create GitHub Release
         if: ${{ steps.existing.outputs.release_exists != 'true' }}

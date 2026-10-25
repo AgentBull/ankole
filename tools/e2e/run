@@ -42,8 +42,8 @@ Usage: tools/e2e/run [--gate|--perf|--chaos|--real-provider|--real-llm|--all]
 
 Runs the Ankole end-to-end suites from one entrypoint. Preflight resolves an
 immutable published Worker image when it matches the current inputs, or builds
-a content-addressed local image. It starts the devkit Postgres when the test
-database port is unreachable.
+a content-addressed local image. It starts the devkit Postgres and Function
+Runtime when either test service is unreachable.
 The gate also pulls the pinned pooled release and builds the current control
 plane for a real Compose upgrade. Set ANKOLE_E2E_CONTROL_PLANE_IMAGE only to
 a locally built image of the current source and resolved Worker image.
@@ -69,7 +69,7 @@ Options:
                    openrouter,jina,google,available
   --only=VALUE     Forwarded to mix test as --only VALUE (suite modes only).
   --no-build       Fail instead of building a Worker or control-plane image.
-  --no-services    Fail instead of starting the devkit Postgres.
+  --no-services    Fail instead of starting the devkit support services.
 
 Examples:
   tools/e2e/run
@@ -141,26 +141,28 @@ preflight_docker() {
 }
 
 preflight_postgres() {
-  if postgres_reachable; then
+  export ANKOLE_FUNCTION_RUNTIME_URL="${ANKOLE_FUNCTION_RUNTIME_URL:-http://127.0.0.1:5435}"
+  export ANKOLE_FUNCTION_RUNTIME_TOKEN="${ANKOLE_FUNCTION_RUNTIME_TOKEN:-dev-function-runtime-token}"
+  if postgres_reachable && curl -fsS "${ANKOLE_FUNCTION_RUNTIME_URL}/_internal/health" >/dev/null; then
     return
   fi
 
   if [[ "$allow_services" -ne 1 ]]; then
-    echo "[e2e] Postgres on port $POSTGRES_PORT is unreachable and --no-services was given." >&2
+    echo "[e2e] Postgres or Function Runtime is unreachable and --no-services was given." >&2
     exit 1
   fi
 
-  log "Postgres on port $POSTGRES_PORT unreachable; starting devkit services"
+  log "Starting devkit Postgres and Function Runtime"
   (cd "$ROOT_DIR" && bun run services:start)
 
   for _attempt in $(seq 1 30); do
-    if postgres_reachable; then
+    if postgres_reachable && curl -fsS "${ANKOLE_FUNCTION_RUNTIME_URL}/_internal/health" >/dev/null; then
       return
     fi
     sleep 1
   done
 
-  echo "[e2e] Postgres did not become reachable on port $POSTGRES_PORT." >&2
+  echo "[e2e] Postgres or Function Runtime did not become healthy." >&2
   exit 1
 }
 

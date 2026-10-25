@@ -5,6 +5,7 @@ metadata:
   labels:
     {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
 data:
+  ANKOLE_FUNCTION_RUNTIME_URL: {{ printf "http://%s-headless:9000" (include "ankole-agent.functionRuntimeName" .) | quote }}
   ANKOLE_AI_GATEWAY_BASE_URL: {{ printf "http://%s:%v/api/v1/ai-gateway" (include "ankole-agent.controlPlaneName" .) .Values.controlPlane.service.port | quote }}
   PHX_HOST: {{ .Values.controlPlane.publicHost | quote }}
   ANKOLE_SITE_ADMIN_CONSOLE_PATH: {{ .Values.controlPlane.siteAdminConsolePath | quote }}

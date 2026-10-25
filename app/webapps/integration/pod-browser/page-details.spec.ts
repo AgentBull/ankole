@@ -172,7 +172,15 @@ test('Trash searches deleted titles and restores a page through an explicit open
     await request(owner, `/pages/${alpha}`, 'DELETE')
     await request(owner, `/pages/${beta}`, 'DELETE')
     await owner.goto(state.base_url + listRoute('trash'))
+    const searched = owner.waitForResponse(
+      response =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === '/api/v2/pod/pages' &&
+        new URL(response.url()).searchParams.get('scope') === 'trash' &&
+        new URL(response.url()).searchParams.get('query') === `${prefix} Alpha`
+    )
     await owner.getByRole('textbox', { name: '搜索回收站', exact: true }).fill(`${prefix} Alpha`)
+    expect((await searched).status()).toBe(200)
     const main = owner.getByRole('main')
     await expect(main.getByRole('listitem')).toHaveCount(1)
     await expect(main.getByText(`${prefix} Beta`, { exact: true })).toHaveCount(0)

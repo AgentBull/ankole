@@ -271,7 +271,7 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
       when is_binary(value) and value != "" and is_binary(option_id) and option_id != "" ->
         answer
 
-      %{"kind" => "free_text", "value" => value} when is_binary(value) and value != "" ->
+      %{"kind" => "free_text", "value" => value} when is_binary(value) ->
         answer
 
       _stale ->

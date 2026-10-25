@@ -1,22 +1,25 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { isBuiltin } from 'node:module'
+import type { BunPlugin } from 'bun'
 import { POD_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage, nodeErrorCode } from '../../common/errors'
 
 export const POD_CLI_HELP = `ankole-pod — durable pages and data in your Pod
 
-Run only inside an active Ankole turn. Every operation uses your Agent's
+Run inside an active Ankole turn or AutomationJob attempt. Each operation uses the Agent's
 Principal permissions. If access is denied, ask a member to share the page
-or add your Agent to the space. Your caller's permissions are not inherited.
+or add your Agent to the space. Interactive access uses Human ∩ Agent permissions.
 
   ankole-pod <operation> '<JSON parameters>'
   ankole-pod <operation> --input <JSON file>
   ankole-pod applet init <directory>
   ankole-pod applet build <directory>
+  ankole-pod applet pull <directory> '<{"id":"page-id"}>'
   ankole-pod applet call '<{"id":"page-id","method":"GET","path":"/orders","query":{}}>'
   ankole-pod applet publish <directory> '<{"id":"page-id","base_revision":0}>'
+  ankole-pod page set-sharing <page-id> '<{"sharing_version":"...","inherit_permissions":false,"grants":[]}>'
 
 Read operations:
   pages.list       {scope?: space|private|shared|recent|favorites|trash, query?}
@@ -29,14 +32,18 @@ Read operations:
   database.aggregate {id, filter?, group_by?, metrics}
 
 Write operations:
+  pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
   pages.create     {type: doc|database|applet|file, title, parent_id?, private_owner_uid?}
   pages.update     {id, title?, icon?}
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
   pages.restore    {id}
   pages.write      {id, base_revision, markdown} — stale writes are rejected
+  pages.append     {id, base_revision, markdown}
+  pages.patch      {id, base_revision, edits:[{old_text,new_text,replace_all?}]}
   files.upload     {id, local_path, role: file|asset|attachment, base_revision?}
   database.create_table {id: database_page_id, name}
+  database.delete_table {id: table_id} — requires manage access
   database.create_field {id: table_id, name, type, config?}
   database.update_field {id: field_id, version, ...changes}
   database.delete_field {id: field_id, version}
@@ -74,13 +81,16 @@ Database parameter shapes:
   view type: grid|kanban|gallery
 
 Page access:
+  view reads page content and records. contribute also writes records and
+  uploads record attachments. edit changes documents, schemas, and Applet
+  source. manage also changes sharing, deletes tables, and uses the trash.
   Pass parent_id to pages.create to create a child directly. This requires
-  edit access to the parent document. The child inherits its permissions;
+  edit access to the parent page. The child inherits its permissions;
   creating a page does not grant its creator Full access (manage).
   Editing content, title, or icon requires edit access. An editor can move a
   page when its subtree's access stays unchanged. A move that changes access
-  requires Full access (manage) to the source page. Moving under a document
-  also requires edit access to that document. Deleting a page or changing its
+  requires Full access (manage) to the source page. Moving under a page
+  also requires edit access to that page. Deleting a page or changing its
   sharing requires Full access (manage) to that page.
 
 Always read before updating. A record patch carries versions for the fields
@@ -93,17 +103,25 @@ components and @ankole/applet-sdk hooks, and save business data in Database.
 Applet init accepts a new directory or an existing empty directory.
 The Worker includes the actual SDK at /repo/libs/applet-sdk/src/index.tsx
 and its query, aggregate, and record types at /repo/libs/applet-sdk/src/types.ts.
-Frontend build emits CommonJS and dist/index.html. Import components from the
+Frontend build emits browser ESM chunks and dist/index.html. Import components from the
 root "@ankole/uikit" export, and runtime APIs from "@ankole/applet-sdk".
 Do not import their runtime subpaths or UIKit styles; the Pod host supplies styles.
 SDK type subpaths remain available through "import type".
+Worker entries use src/**/*.worker.ts or .worker.js and build to matching
+relative dist/**/*.worker.js paths. Import a Worker URL with
+import workerURL from './calculation.worker.ts?url', then start it with
+new Worker(new URL(workerURL, import.meta.url), {type:'module'}).
+The imported URL works from nested modules and dynamic chunks.
 Optional src/server/main.ts
 exports a default route table typed with import type { Routes } from
-'@ankole/applet-sdk/server'. Build bundles it into server/main.js as browser ESM,
-with no external imports. The sandbox has AnkoleRuntime db, file, ai and HttpError;
-it has no network, Node, timers or secrets. GET handlers cannot write.
+'@ankole/applet-sdk/server'. Build bundles it into server/main.js as ESM with external node:* builtins.
+The runtime provides Node builtins, temporary /tmp files, fetch, process.env from
+applet.env.json, and AnkoleRuntime db, file, ai and HttpError. GET handlers cannot write.
+Applet pull restores source and package files, then runs bun install --ignore-scripts.
 Use useRoute/useRouteMutation in the frontend; route writes do not refresh queries
-unless the applet explicitly invalidates them. Publish checks base_revision and
+unless the applet explicitly invalidates them.
+Applet view access permits use. Record and file writes require access to the target resource.
+Publish checks base_revision and
 atomically replaces source, distribution and optional backend. Removing the backend
 source and rebuilding removes the previously published backend. A copied table is independent
 of its source; a page reference continues to read the referenced page.`
@@ -122,6 +140,11 @@ export async function initializeApplet(directory: string) {
     { flag: 'wx' }
   )
   await writeFile(join(directory, 'src/style.css'), '.ankole-applet { padding: 1rem; }\n', { flag: 'wx' })
+  await writeFile(
+    join(directory, 'src/applet.d.ts'),
+    `declare module '*.worker.ts?url' { const url: string; export default url }\ndeclare module '*.worker.js?url' { const url: string; export default url }\n`,
+    { flag: 'wx' }
+  )
   return { directory, entry: 'src/main.tsx' }
 }
 
@@ -142,8 +165,7 @@ function appletBuildError(stage: string, error: unknown) {
   return new Error(`${stage}:\n${errors.map(String).join('\n')}`)
 }
 
-// A publication mounts from a Blob URL. Embed imported media so JS and CSS do not
-// resolve asset paths against that URL or against a later publication.
+// Embed imported media in scripts and CSS; other ESM chunks use the versioned frame path.
 const appletAssetPattern =
   /\.(?:png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp3|mp4|webm|ogg|wav|pdf|wasm|bin)(?:[?#].*)?$/i
 
@@ -154,29 +176,92 @@ async function appletAssetURL(path: string) {
   return `data:${file.type};base64,${data}${fragment ? `#${fragment}` : ''}`
 }
 
+const appletAssets: BunPlugin = {
+  name: 'applet-assets',
+  setup(build) {
+    build.onResolve({ filter: appletAssetPattern }, async args => {
+      if (!args.importer.endsWith('.css') || /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(args.path)) return
+      return { path: await appletAssetURL(resolve(args.resolveDir, args.path)), external: true }
+    })
+    build.onLoad({ filter: appletAssetPattern, namespace: 'file' }, async args => ({
+      contents: `export default ${JSON.stringify(await appletAssetURL(args.path))}`,
+      loader: 'js'
+    }))
+  }
+}
+
 export async function buildApplet(directory: string) {
+  directory = resolve(directory)
+  const packageFile = Bun.file(join(directory, 'package.json'))
+  if (await packageFile.exists()) {
+    const manifest = await packageFile.json()
+    for (const group of ['dependencies', 'devDependencies', 'peerDependencies']) {
+      for (const name of ['@ankole/applet-sdk', '@ankole/uikit']) {
+        if (manifest[group]?.[name] !== undefined) {
+          throw new Error(`Remove ${name} from package.json ${group}; the Pod host supplies this package`)
+        }
+      }
+    }
+  }
   const outdir = join(directory, 'dist')
   const serverDirectory = join(directory, 'server')
   await rm(serverDirectory, { recursive: true, force: true })
   await rm(outdir, { recursive: true, force: true })
   await mkdir(outdir, { recursive: true })
+  const sourceDirectory = await realpath(join(directory, 'src'))
+  const workers = (await readdir(sourceDirectory, { recursive: true }))
+    .filter(name => /\.worker\.(?:ts|js)$/.test(name))
+    .map(name => join(sourceDirectory, name))
+  if (workers.length) {
+    const built = await Bun.build({
+      entrypoints: workers,
+      root: sourceDirectory,
+      naming: { entry: '[dir]/[name].js', asset: 'assets/[name]-[hash].[ext]' },
+      outdir,
+      target: 'browser',
+      format: 'esm',
+      splitting: false,
+      plugins: [appletAssets],
+      define: { 'process.env.NODE_ENV': '"production"' }
+    }).catch(async error => {
+      await rm(outdir, { recursive: true, force: true })
+      throw appletBuildError('Applet worker build failed', error)
+    })
+    if (!built.success) {
+      await rm(outdir, { recursive: true, force: true })
+      throw appletBuildError('Applet worker build failed', built.logs)
+    }
+  }
   const result = await Bun.build({
     entrypoints: ['ankole-applet-entry'],
     plugins: [
+      appletAssets,
       {
         name: 'applet-entry',
         setup(build) {
           build.onResolve({ filter: /^ankole-applet-entry$/ }, () => ({ path: 'app', namespace: 'applet' }))
-          build.onResolve({ filter: appletAssetPattern }, async args => {
-            if (!args.importer.endsWith('.css') || /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(args.path)) return
-            return { path: await appletAssetURL(resolve(args.resolveDir, args.path)), external: true }
+          build.onResolve({ filter: /\.worker\.(?:ts|js)\?url$/ }, args => {
+            const source = resolve(args.resolveDir, args.path.slice(0, -4))
+            if (!workers.includes(source)) {
+              throw new Error('Worker URL imports must refer to a Worker source under src/')
+            }
+            return {
+              path: join(outdir, source.slice(sourceDirectory.length + 1).replace(/\.ts$/, '.js')),
+              namespace: 'applet-worker-url'
+            }
           })
-          build.onLoad({ filter: appletAssetPattern, namespace: 'file' }, async args => ({
-            contents: `export default ${JSON.stringify(await appletAssetURL(args.path))}`,
-            loader: 'js'
+          build.onLoad({ filter: /.*/, namespace: 'applet-worker-url' }, async args => ({
+            contents: await readFile(args.path),
+            loader: 'file'
           }))
           build.onResolve({ filter: /^(?:react|react-dom|@ankole\/(?:uikit|applet-sdk))\// }, args => {
             if (appletHostModules.includes(args.path)) return
+            if (
+              /^(?:react|react-dom)\//.test(args.path) &&
+              args.importer.replaceAll('\\', '/').includes('/node_modules/')
+            ) {
+              return { path: Bun.resolveSync(args.path, args.resolveDir) }
+            }
             const guidance = args.path.startsWith('@ankole/uikit/')
               ? 'Import components from "@ankole/uikit". Remove UIKit stylesheet imports; the Pod host already loads those styles.'
               : args.path.startsWith('@ankole/applet-sdk/')
@@ -185,7 +270,7 @@ export async function buildApplet(directory: string) {
             throw new Error(`Unsupported applet host import "${args.path}". ${guidance}`)
           })
           build.onLoad({ filter: /.*/, namespace: 'applet' }, async () => ({
-            contents: `export * from ${JSON.stringify(join(directory, 'src/main.tsx'))};\n${
+            contents: `import { provider } from ${JSON.stringify(join(directory, 'src/main.tsx'))};\nexport { provider };\nparent.__ANKOLE_APPLET_HOST__.mount(window, provider);\n${
               (await Bun.file(join(directory, 'src/style.css')).exists())
                 ? `import ${JSON.stringify(join(directory, 'src/style.css'))};`
                 : ''
@@ -198,7 +283,9 @@ export async function buildApplet(directory: string) {
     ],
     outdir,
     target: 'browser',
-    format: 'cjs',
+    format: 'esm',
+    splitting: true,
+    naming: { entry: 'main.[ext]', chunk: 'chunks/[name]-[hash].[ext]', asset: 'assets/[name]-[hash].[ext]' },
     jsx: { runtime: 'automatic', development: false },
     define: { 'process.env.NODE_ENV': '"production"' },
     external: appletHostModules
@@ -211,20 +298,32 @@ export async function buildApplet(directory: string) {
     throw appletBuildError('Applet frontend build failed', result.logs)
   }
   for (const output of result.outputs) {
-    if (output.path.endsWith('.js')) await rename(output.path, join(outdir, 'app.js'))
-    else if (output.path.endsWith('.css')) await rename(output.path, join(outdir, 'app.css'))
+    if (
+      output.path.endsWith('.js') &&
+      /new\s+Worker\s*\(\s*new\s+URL\s*\(\s*["'][^"']+\.ts(?:[?#][^"']*)?["']/.test(await output.text())
+    ) {
+      await rm(outdir, { recursive: true, force: true })
+      throw new Error('Import the Worker URL with ?url and pass new URL(workerURL, import.meta.url) to new Worker')
+    }
   }
-  if (!(await Bun.file(join(outdir, 'app.css')).exists())) await writeFile(join(outdir, 'app.css'), '')
+  const stylesheets = (await readdir(outdir, { recursive: true }))
+    .sort()
+    .filter(name => name.endsWith('.css'))
+    .map(name => `<link rel="stylesheet" href="./${name}">`)
+    .join('')
   await writeFile(
     join(outdir, 'index.html'),
-    '<!doctype html><html><head><link rel="stylesheet" href="./app.css"><script src="./app.js"></script></head><body></body></html>'
+    `<!doctype html><html><head>${stylesheets}<script type="module" src="./main.js"></script></head><body></body></html>`
   )
-  const files = (await readdir(outdir)).map(name => `dist/${name}`)
+  const files: string[] = []
+  for (const name of await readdir(outdir, { recursive: true })) {
+    if ((await stat(join(outdir, name))).isFile()) files.push(`dist/${name}`)
+  }
   const serverEntry = join(directory, 'src/server/main.ts')
   if (await Bun.file(serverEntry).exists()) {
     const server = await Bun.build({
       entrypoints: [serverEntry],
-      target: 'browser',
+      target: 'node',
       format: 'esm',
       packages: 'bundle',
       splitting: false,
@@ -235,7 +334,9 @@ export async function buildApplet(directory: string) {
           name: 'applet-server-builtins',
           setup(build) {
             build.onResolve({ filter: /.*/ }, args => {
-              if (isBuiltin(args.path)) throw new Error(`Applet backend cannot import Node built-in: ${args.path}`)
+              if (isBuiltin(args.path)) {
+                return { path: args.path.startsWith('node:') ? args.path : `node:${args.path}`, external: true }
+              }
             })
           }
         }
@@ -249,9 +350,9 @@ export async function buildApplet(directory: string) {
       throw appletBuildError('Applet backend build failed', server.logs)
     }
     const output = await Bun.file(join(serverDirectory, 'main.js')).text()
-    if (new Bun.Transpiler({ loader: 'js' }).scanImports(output).length > 0) {
+    if (new Bun.Transpiler({ loader: 'js' }).scanImports(output).some(item => !item.path.startsWith('node:'))) {
       await rm(serverDirectory, { recursive: true, force: true })
-      throw new Error('Applet backend must bundle all imports; dynamic module loading is not supported')
+      throw new Error('Applet backend must bundle all imports except node:* builtins')
     }
     files.push('server/main.js')
   }
@@ -259,17 +360,51 @@ export async function buildApplet(directory: string) {
 }
 
 export async function commandFromArgs(args: string[], cwd = process.cwd()) {
+  if (args[0] === 'page' && args[1] === 'set-sharing') {
+    const id = args[2]
+    if (!id) throw new Error('Use page set-sharing <page-id> <JSON body> or sharing flags')
+    let params: Record<string, unknown> = {}
+    for (let index = 3; index < args.length; index++) {
+      const argument = args[index]!
+      if (argument === '--input') {
+        const path = args[++index]
+        if (!path) throw new Error('--input requires a JSON file')
+        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+      } else if (argument === '--sharing-version') {
+        const version = args[++index]
+        if (!version) throw new Error('--sharing-version requires a value')
+        params.sharing_version = version
+      } else if (argument === '--inherit-permissions') {
+        const value = args[++index]
+        if (value !== 'true' && value !== 'false') throw new Error('--inherit-permissions requires true or false')
+        params.inherit_permissions = value === 'true'
+      } else if (argument === '--grants') {
+        const value = args[++index]
+        if (!value) throw new Error('--grants requires a JSON array')
+        const grants: unknown = JSON.parse(value)
+        if (!Array.isArray(grants)) throw new Error('--grants requires a JSON array')
+        params.grants = grants
+      } else if (argument.trimStart().startsWith('{')) {
+        params = { ...params, ...parseParams(argument) }
+      } else throw new Error(`Unknown sharing argument: ${argument}`)
+    }
+    return { operation: 'pages.set_sharing', params: { ...params, id }, cwd }
+  }
   if (args[0] === 'applet') {
     const [, action, directory, json] = args
     if (action === 'call') {
       if (!directory || args.length !== 3) throw new Error('Use applet call <JSON parameters>')
       return { operation: 'applets.call', params: parseParams(directory), cwd }
     }
-    if (!directory || args.length > (action === 'publish' ? 4 : 3)) {
-      throw new Error('Use applet init|build|publish <directory> [JSON parameters]')
+    if (!directory || args.length > (['publish', 'pull'].includes(action ?? '') ? 4 : 3)) {
+      throw new Error('Use applet init|build|publish|pull <directory> [JSON parameters]')
     }
     if (action === 'init') return { local: await initializeApplet(resolve(cwd, directory)) }
     if (action === 'build') return { local: await buildApplet(resolve(cwd, directory)) }
+    if (action === 'pull') {
+      if (!json) throw new Error('applet pull requires page id in JSON')
+      return { operation: 'applets.pull', params: parseParams(json), cwd, pull_directory: directory }
+    }
     if (action !== 'publish' || !json) throw new Error('applet publish requires page id and base_revision in JSON')
     return { operation: 'applets.publish', params: parseParams(json), cwd, publish_directory: directory }
   }
@@ -298,7 +433,7 @@ if (import.meta.main) {
       if ('local' in command) process.stdout.write(`${JSON.stringify(command.local, null, 2)}\n`)
       else {
         const socket = process.env[POD_CLI_SOCKET_ENV]
-        if (!socket) throw new Error('ankole-pod is available only inside an active Ankole turn')
+        if (!socket) throw new Error('ankole-pod requires an active Ankole turn or AutomationJob attempt')
         const result = await requestSocketLineBridge(socket, JSON.stringify(command), 'Invalid Pod bridge response')
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
       }

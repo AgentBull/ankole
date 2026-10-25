@@ -8,10 +8,11 @@ defmodule Ankole.Pod.Pages.Queries do
     uid = Ankole.AuthZ.Actor.uid(actor)
 
     Repo.transact_repeatable_read_only(fn ->
-      with :ok <- visible_parent(actor, parent_id),
-           {:ok, cursor} <- decode_cursor(Ankole.Attrs.get(opts, :cursor)) do
+      with :ok <- visible_parent(actor, parent_id) do
         limit = Ankole.Attrs.get(opts, :limit, 200)
         limit = if is_integer(limit), do: max(1, min(limit, 200)), else: 200
+        cursor = Ankole.Attrs.get(opts, :cursor)
+        page_opts = if cursor, do: [limit: limit, after: cursor], else: [limit: limit]
 
         owner =
           if is_nil(parent_id) and to_string(Ankole.Attrs.get(opts, :scope, "space")) == "private",
@@ -31,21 +32,9 @@ defmodule Ankole.Pod.Pages.Queries do
             true -> Ash.Query.filter(query, is_nil(private_owner_uid))
           end
 
-        {position, id} = cursor
-
-        query =
-          if position,
-            do:
-              Ash.Query.filter(
-                query,
-                position > ^position or (position == ^position and id > ^id)
-              ),
-            else: query
-
         query =
           query
           |> Ash.Query.sort(position: :asc, id: :asc)
-          |> Ash.Query.limit(limit + 1)
           |> Ash.Query.select([
             :id,
             :tenant_id,
@@ -59,17 +48,16 @@ defmodule Ankole.Pod.Pages.Queries do
             :inherit_permissions
           ])
 
-        with {:ok, pages} <- read_pages(query, actor) do
-          more = length(pages) > limit
-          pages = Enum.take(pages, limit)
-          next = if more, do: encode_cursor(List.last(pages))
+        with {:ok, page} <- Ankole.Ash.read_authorized(query, actor, page: page_opts) do
+          next = if page.more?, do: List.last(page.results).__metadata__.keyset
 
           {:ok,
            %{
-             pages: pages,
+             pages: page.results,
              next_cursor: next,
              principal_uid: uid,
-             can_create_private: can_create_private?(actor)
+             can_create_private: can_create_private?(actor),
+             can_create_space: Pages.can_create_space?(actor)
            }}
         end
       end
@@ -85,8 +73,10 @@ defmodule Ankole.Pod.Pages.Queries do
 
     query =
       Page
-      |> Ash.Query.for_read(:search)
-      |> Ash.Query.filter(ilike(title, ^pattern))
+      |> Ash.Query.for_read(:search, %{
+        required_action: Ankole.Attrs.get(opts, :required_action, :page_view)
+      })
+      |> Ash.Query.filter(ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern)))
       |> Ash.Query.calculate(
         :relevance,
         :float,
@@ -108,7 +98,8 @@ defmodule Ankole.Pod.Pages.Queries do
             %{
               pages: pages,
               principal_uid: Ankole.AuthZ.Actor.uid(actor),
-              can_create_private: can_create_private?(actor)
+              can_create_private: can_create_private?(actor),
+              can_create_space: Pages.can_create_space?(actor)
             }}
   end
 
@@ -222,7 +213,11 @@ defmodule Ankole.Pod.Pages.Queries do
 
   defp filter_list_title(query, term) when is_binary(term) do
     pattern = "%#{Repo.escape_like(String.trim(term))}%"
-    Ash.Query.filter(query, ilike(title, ^pattern))
+
+    Ash.Query.filter(
+      query,
+      ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern))
+    )
   end
 
   defp filter_list_title(query, _term), do: query
@@ -237,10 +232,12 @@ defmodule Ankole.Pod.Pages.Queries do
       """
       SELECT p.id::text FROM page_user_states state
       JOIN pages p ON p.tenant_id = $1::text::uuid AND p.id = state.page_id
+      LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
       WHERE state.tenant_id = $1::text::uuid AND state.principal_uid = $2::text
         AND state.#{field} IS NOT NULL AND p.deleted_at IS NULL
         AND (p.acl_anchor_id = ANY($3::text[]::uuid[]) OR p.id = ANY($4::text[]::uuid[]))
-        AND ($5::text IS NULL OR p.title ILIKE ('%' || $5::text || '%'))
+        AND ($5::text IS NULL OR p.title ILIKE ('%' || $5::text || '%')
+          OR pc.plain_text ILIKE ('%' || $5::text || '%'))
       ORDER BY state.#{field} DESC, p.id LIMIT 200
       """,
       [Repo.tenant_id!(), uid, anchors, own, term]
@@ -254,20 +251,25 @@ defmodule Ankole.Pod.Pages.Queries do
 
     with {:ok, reachable} <- Access.reachable_trashed(actor, ids, context: context) do
       allowed =
-        Enum.filter(ids, fn id ->
+        Enum.flat_map(ids, fn id ->
           case Map.get(reachable, id) do
-            nil -> false
-            bits -> Bitwise.band(bits.self_bits, 4) != 0
+            nil -> []
+            bits -> if Bitwise.band(bits.self_bits, 8) != 0, do: [{id, bits.self_bits}], else: []
           end
         end)
 
       collected = collected ++ allowed
 
       if length(collected) >= 200 or length(candidates) < 200 do
-        ids = Enum.take(collected, 200)
+        allowed = Enum.take(collected, 200)
+        ids = Enum.map(allowed, &elem(&1, 0))
         pages = Page |> Ash.Query.filter(id in ^ids) |> Ankole.Ash.read!()
         by_id = Map.new(pages, &{&1.id, &1})
-        {:ok, Enum.map(ids, &%{Map.fetch!(by_id, &1) | role: "manage"})}
+
+        {:ok,
+         Enum.map(allowed, fn {id, bits} ->
+           Ankole.Pod.Access.Graph.project_permissions(Map.fetch!(by_id, id), bits)
+         end)}
       else
         [id, deleted_at] = List.last(candidates)
         list_trash(actor, term, context, {deleted_at, id}, collected)
@@ -290,11 +292,13 @@ defmodule Ankole.Pod.Pages.Queries do
         WHERE child.tenant_id = $1::text::uuid AND child.is_acl_anchor
       )
       SELECT p.id::text, p.deleted_at FROM pages p
+      LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
       WHERE p.tenant_id = $1::text::uuid AND p.deleted_at IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM hidden_anchors h WHERE h.id = p.id)
         AND ($2::timestamp IS NULL OR p.deleted_at < $2::timestamp
           OR (p.deleted_at = $2::timestamp AND p.id > $3::text::uuid))
-        AND ($4::text IS NULL OR p.title ILIKE ('%' || $4::text || '%'))
+        AND ($4::text IS NULL OR p.title ILIKE ('%' || $4::text || '%')
+          OR pc.plain_text ILIKE ('%' || $4::text || '%'))
       ORDER BY p.deleted_at DESC, p.id LIMIT 200
       """,
       [Repo.tenant_id!(), deleted_at, id, term]
@@ -326,22 +330,6 @@ defmodule Ankole.Pod.Pages.Queries do
   defp visible_parent(actor, id) do
     with {:ok, _} <- Pages.authorize(actor, id, "page_view"), do: :ok
   end
-
-  defp encode_cursor(page),
-    do: Base.url_encode64(Torque.encode!([page.position, page.id]), padding: false)
-
-  defp decode_cursor(nil), do: {:ok, {nil, nil}}
-
-  defp decode_cursor(cursor) when is_binary(cursor) do
-    with {:ok, json} <- Base.url_decode64(cursor, padding: false),
-         {:ok, [position, id]} <- Torque.decode(json),
-         true <- is_binary(position),
-         {:ok, id} <- Ecto.UUID.cast(id),
-         do: {:ok, {position, id}},
-         else: (_ -> {:error, :invalid_cursor})
-  end
-
-  defp decode_cursor(_), do: {:error, :invalid_cursor}
 
   def reconcile_versions(%Ankole.AuthZ.Actor{} = actor, page_ids, table_ids)
       when is_list(page_ids) and is_list(table_ids) do

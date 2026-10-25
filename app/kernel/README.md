@@ -28,18 +28,11 @@ The current surface is:
   S3, Azure Blob, D1, COS, PostgreSQL, OSS, TOS, GCS, SFTP, or WebDAV, with
   bounded retries and per-call timeouts. Large objects move through local
   files; writes use 8 MiB chunks. Some backends buffer the complete object.
-- `program_runner/` - one-shot AIGateway Programmatic Tool Calling execution
-  in a fresh `deno_core` isolate on a native thread. Handles own cancellation
-  before task launch and monitor the owner and execution processes. Replay
-  returns the first pending tool batch; no isolate survives that pause.
-- `applet_runtime/` - live Applet backend routes in a fresh capability-only
-  `deno_core` isolate, with asynchronous control-plane request and reply.
-- `isolate_control.rs` - shared V8 timeout, heap, and cancellation authority.
 - `brain_markdoc/` - analysis of Brain bodies over CommonMark.
 - `model_image/` - model image validation and conversion.
 - `signals/` - CEL routing-policy evaluation over a supplied context.
 - `page_document/` - page XML validation, canonical conversion, search text,
-  and prepared Wordgard change-set application. The complete
+  prepared Wordgard change-set application, and structural/UTF-16 document diff. The complete
   XML to editor document to XML chain shares its corpus with the block editor.
 
 ## Identifier Generation
@@ -129,32 +122,3 @@ ANKOLE_OBJECT_STORE_TEST_SPECS=/absolute/path/test-stores.json \
   cargo test --manifest-path app/kernel/Cargo.toml --no-default-features \
   --features object_store configured_remote_stores -- --ignored --nocapture
 ```
-
-## Applet Backend Runtime
-
-`Ankole.Kernel.AppletRuntime.start/3` starts a native thread for one request.
-The caller receives capability requests and sends each result with `reply/3`.
-The isolate remains alive while a request waits. It does not replay code or
-share globals with other requests. Owner process exit and `cancel/1` terminate
-that isolate. Normal scheduler NIFs retain BEAM binaries without copying their
-bytes. Request and capability reply JSON decoding runs on the invocation's
-native thread, as does the handler. Applet and ProgramRunner calls have separate
-limits of four native executions. No BEAM scheduler stays reserved while the
-isolate executes or waits. Cancellation stays on a normal scheduler so that it can
-interrupt active invocations. The timeout budget starts before thread creation
-and request decoding, and is not reset when execution starts.
-
-The runtime has no module loader, network, filesystem, environment, process,
-or timers. An AST check rejects static imports, re-exports from other modules,
-and dynamic imports anywhere in the bundle. Inspection and invocation use the
-same route validation and matching code. Inspection does not run handlers;
-any top-level capability attempt rejects the bundle, including a caught call.
-
-A wall-clock watchdog covers module evaluation, handler execution, and waits
-for capabilities. The shared V8 termination authority also owns cancellation
-and heap pressure. A custom ArrayBuffer allocator rejects external allocations
-that exceed the memory budget. V8 interrupts check the combined JS heap and
-external buffer allocation. This includes SharedArrayBuffer backing stores.
-Retained console logs and outstanding capability arguments share this memory
-budget. The isolate shares the host OS process, so a V8 vulnerability
-is outside this boundary. A committed capability write is not rolled back.

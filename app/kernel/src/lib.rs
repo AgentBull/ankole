@@ -47,19 +47,11 @@ pub mod object_store;
 #[cfg(feature = "model_image")]
 pub mod model_image;
 
-#[cfg(feature = "program_runner")]
-pub mod program_runner;
-
-#[cfg(feature = "program_runner")]
-mod isolate_control;
-
-#[cfg(feature = "applet_runtime")]
-pub mod applet_runtime;
-
 #[cfg(feature = "universal_ai_client")]
 pub mod universal_ai_client;
 
-#[cfg(feature = "nif")]
+// BEAM provides the NIF symbols. Rust test binaries run the host-neutral modules.
+#[cfg(all(feature = "nif", not(test)))]
 mod nif_exports;
 
 #[cfg(feature = "napi")]

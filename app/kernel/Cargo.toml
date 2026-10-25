@@ -30,7 +30,7 @@ print_stderr = "warn"
 
 [features]
 default = []
-nif = ["dep:rustler", "dep:stacker", "universal_ai_client", "program_runner", "applet_runtime", "brain_markdoc", "object_store", "model_image"]
+nif = ["dep:rustler", "dep:stacker", "universal_ai_client", "brain_markdoc", "object_store", "model_image"]
 # Node addon for browser URL policy, checked connections, and token estimates.
 # Do not combine with nif.
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "web_proxy"]
@@ -46,8 +46,6 @@ object_store = [
   "dep:rustls",
   "dep:tokio",
 ]
-program_runner = ["dep:deno_core", "dep:futures-util", "dep:tokio"]
-applet_runtime = ["program_runner", "dep:deno_ast"]
 universal_ai_client = [
   "dep:bytes",
   "dep:futures-util",
@@ -68,7 +66,6 @@ cel = "0.15.0"
 chacha20poly1305 = "0.11.0"
 comrak = { version = "0.57.0", default-features = false, optional = true }
 crc32fast = "1.5.3"
-deno_core = { version = "0.413.0", optional = true }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }
 globset = "0.4.20"
 hashcrew = { version = "0.3.0", default-features = false, features = ["std", "xxhash"] }
@@ -114,7 +111,6 @@ url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4", "v7", "fast-rng"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
 webp = { version = "0.3.1", default-features = false, optional = true }
-deno_ast = { version = "0.53.3", features = ["visit"], optional = true }
 
 [build-dependencies]
 napi-build = { version = "2.6.0", optional = true }

@@ -12,6 +12,10 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   Input,
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
   toast,
   TreeDropIndicator,
   useTreeAutoScroll,
@@ -30,13 +34,15 @@ import {
   RiHistoryLine,
   RiLockLine,
   RiMoreFill,
+  RiNodeTree,
   RiShareLine,
   RiStarLine
 } from '@remixicon/react'
 import { authenticationRef, podID, podLocation, podRouteID } from '../common/browser-context'
+import { useSearchParams } from '../common/router'
 import { requestErrorMessage } from '../common/request-errors'
 import { NavigationModel, type NavigationScope } from './state/navigation'
-import { dropAvailability, dropRequest, rootRequest } from './state/page-move'
+import { canMovePage, dropAvailability, dropRequest, rootRequest } from './state/page-move'
 import {
   contentKeys,
   pageAPI,
@@ -164,6 +170,63 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCreate: boolean }) {
+  const [panel, setPanel] = useState<'children' | 'create'>()
+  const children = useInfiniteQuery({ ...pageChildrenQuery('space', pageID), enabled: panel === 'children' })
+  const pages = children.data?.pages.flatMap(batch => batch.pages) ?? []
+  return (
+    <>
+      <Popover open={panel === 'children'} onOpenChange={open => setPanel(open ? 'children' : undefined)}>
+        <PopoverTrigger render={<Button size="sm" variant="ghost" />}>
+          <RiNodeTree aria-hidden className="size-4" />
+          {t('pod.content.child_pages')}
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="max-h-[min(70vh,var(--available-height))] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto">
+          <PopoverTitle>{t('pod.content.child_pages')}</PopoverTitle>
+          <ContentError error={children.error} retry={() => void children.refetch()} />
+          {children.isPending ? (
+            <p role="status">{t('pod.content.loading')}</p>
+          ) : (
+            <ul className="grid gap-1">
+              {pages.map(page => (
+                <li key={page.id}>
+                  <Link
+                    className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-foreground no-underline hover:bg-accent"
+                    to={podLocation(`/pages/${page.id}`).pathname}
+                    onClick={() => setPanel(undefined)}>
+                    <PageIcon page={page} />
+                    <span className="truncate">{page.title || t('pod.content.untitled')}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!children.isPending && !children.error && !pages.length && (
+            <p className="py-2 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
+          )}
+          {children.hasNextPage && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={children.isFetching}
+              onClick={() => void children.fetchNextPage()}>
+              {t('pod.content.load_more_pages')}
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="outline" size="sm" onClick={() => setPanel('create')}>
+              {t('pod.sidebar.new_subpage')}
+            </Button>
+          )}
+        </PopoverContent>
+      </Popover>
+      {panel === 'create' && <CreatePageDialog parentID={pageID} onClose={() => setPanel(undefined)} />}
+    </>
+  )
+}
+
 function NavigationTree({
   scope,
   open,
@@ -175,16 +238,17 @@ function NavigationTree({
 }) {
   const { actions, onNavigate } = usePageTree()
   const client = useQueryClient()
-  const pages = useInfiniteQuery({ ...pageChildrenQuery(scope), enabled: open })
+  const pages = useInfiniteQuery(pageChildrenQuery(scope))
   const known = pages.data?.pages.flatMap(batch => batch.pages) ?? []
   const owner = pages.data?.pages[0]?.principal_uid
   const canCreatePrivate = pages.data?.pages[0]?.can_create_private
+  const canCreateSpace = pages.data?.pages[0]?.can_create_space
   const drop = useTreeItemDrag<HTMLElement, HTMLDivElement>({
     tree: pageTree,
     id: `root:${scope}`,
     availability: (sourceID, operation) => {
       const source = cachedPages(client).find(page => page.id === sourceID)
-      return operation === 'inside' && source && source.role !== 'view' && (scope === 'space' || owner)
+      return operation === 'inside' && source && canMovePage(source) && (scope === 'space' ? canCreateSpace : owner)
         ? 'available'
         : 'not-available'
     },
@@ -212,7 +276,7 @@ function NavigationTree({
         </Link>
         <div className="pod-nav-actions flex items-center">
           {scope === 'space' && <SpaceSettingsButton />}
-          <CreatePageButton scope={scope} privateOwner={owner} compact />
+          {(scope === 'private' || canCreateSpace) && <CreatePageButton scope={scope} privateOwner={owner} compact />}
         </div>
         <TreeDropIndicator indication={drop.indication} />
       </div>
@@ -253,18 +317,12 @@ function PageTreeNode({ page, scope, siblings }: { page: Page; scope: Navigation
   const { expanded } = usePageTree()
   const { pageID: routePageID } = useParams({ strict: false })
   const open = expanded.has(page.id)
-  const children = useInfiniteQuery({ ...pageChildrenQuery(scope, page.id), enabled: open && page.type === 'doc' })
+  const children = useInfiniteQuery({ ...pageChildrenQuery(scope, page.id), enabled: open })
   const nested = children.data?.pages.flatMap(batch => batch.pages) ?? []
   return (
     <li className="min-w-0">
-      <PageTreeRow
-        page={page}
-        siblings={siblings}
-        hasChildren={page.type === 'doc'}
-        open={open}
-        active={podRouteID(routePageID) === page.id}
-      />
-      {open && page.type === 'doc' && (
+      <PageTreeRow page={page} siblings={siblings} open={open} active={podRouteID(routePageID) === page.id} />
+      {open && (
         <ul className="pod-tree-children">
           {children.isPending && <li role="status">{t('pod.content.loading')}</li>}
           {!!children.error && (
@@ -295,13 +353,11 @@ function PageTreeNode({ page, scope, siblings }: { page: Page; scope: Navigation
 function PageTreeRow({
   page,
   siblings,
-  hasChildren,
   open,
   active
 }: {
   page: Page
   siblings: Page[]
-  hasChildren: boolean
   open: boolean
   active: boolean
 }) {
@@ -317,12 +373,13 @@ function PageTreeRow({
     return restore
   }
   const label = page.title || t('pod.content.untitled')
-  const edit = page.role !== 'view'
+  const canEdit = page.actions?.includes('page_edit') === true
+  const canMove = canMovePage(page)
   const drag = useTreeItemDrag<HTMLAnchorElement, HTMLDivElement>({
     tree: pageTree,
     id: page.id,
     label,
-    canDrag: edit,
+    canDrag: canMove,
     availability: (sourceID, operation) =>
       dropAvailability(
         cachedPages(client),
@@ -334,10 +391,10 @@ function PageTreeRow({
       const moving = cachedPages(client).find(candidate => candidate.id === source)
       if (!moving) return
       actions.move(moving, dropRequest(page, operation))
-      if (operation === 'inside' && hasChildren && !open) togglePage(page.id)
+      if (operation === 'inside' && !open) togglePage(page.id)
     },
     onRestInside: () => {
-      if (hasChildren && !open) togglePage(page.id)
+      if (!open) togglePage(page.id)
     }
   })
   const menu = (
@@ -362,18 +419,14 @@ function PageTreeRow({
           className="pod-tree-row"
           data-active={active ? '' : undefined}
           data-dragging={drag.dragging ? '' : undefined}>
-          {hasChildren ? (
-            <button
-              type="button"
-              className="pod-tree-toggle"
-              aria-label={label}
-              aria-expanded={open}
-              onClick={() => togglePage(page.id)}>
-              <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
-            </button>
-          ) : (
-            <span className="pod-tree-spacer" />
-          )}
+          <button
+            type="button"
+            className="pod-tree-toggle"
+            aria-label={label}
+            aria-expanded={open}
+            onClick={() => togglePage(page.id)}>
+            <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
+          </button>
           {renaming ? (
             <PageRenameField page={page} onDone={() => setRenaming(false)} />
           ) : (
@@ -406,7 +459,7 @@ function PageTreeRow({
                   {menu}
                 </DropdownMenuContent>
               </DropdownMenu>
-              {page.type === 'doc' && edit && <CreatePageButton parentID={page.id} compact />}
+              {canEdit && <CreatePageButton parentID={page.id} compact />}
             </span>
           )}
           <TreeDropIndicator indication={drag.indication} />
@@ -483,13 +536,21 @@ type CreatePageOptions = {
 
 export function CreatePageButton({
   parentID,
-  scope = 'space',
+  scope,
   privateOwner,
   compact = false,
   onCreated
 }: CreatePageOptions & { compact?: boolean }) {
   const [open, setOpen] = useState(false)
-  const waitingForIdentity = !parentID && scope === 'private' && !privateOwner
+  const destinations = useInfiniteQuery({ ...pageChildrenQuery('space'), enabled: !parentID && scope === undefined })
+  const capabilities = destinations.data?.pages[0]
+  const effectiveScope = scope ?? (capabilities?.can_create_space ? 'space' : 'private')
+  const owner = privateOwner ?? (scope === undefined ? capabilities?.principal_uid : undefined)
+  const unavailable =
+    !parentID &&
+    scope === undefined &&
+    (!capabilities || destinations.isError || (!capabilities.can_create_space && !capabilities.can_create_private))
+  const waitingForIdentity = !parentID && effectiveScope === 'private' && !owner
   return (
     <>
       <Button
@@ -497,15 +558,15 @@ export function CreatePageButton({
         size={compact ? 'icon-sm' : 'sm'}
         aria-label={t('pod.content.new_page')}
         title={t('pod.content.new_page')}
-        disabled={waitingForIdentity}
+        disabled={unavailable || waitingForIdentity}
         onClick={() => setOpen(true)}>
         {compact ? <RiAddLine aria-hidden className="size-4" /> : t('pod.content.new_page')}
       </Button>
       {open && (
         <CreatePageDialog
           parentID={parentID}
-          scope={scope}
-          privateOwner={privateOwner}
+          scope={effectiveScope}
+          privateOwner={owner}
           onCreated={onCreated}
           onClose={() => setOpen(false)}
         />
@@ -587,10 +648,10 @@ export function ContentListRoute() {
     scope === 'search' ? 'all' : Object.hasOwn(scopeLabels, scope) ? (scope as PageScope) : 'space'
   const search = scope === 'search' || effectiveScope === 'all'
   const trash = effectiveScope === 'trash'
-  const [searchDraft, setSearchDraft] = useState({ scope, query: '' })
-  const query = searchDraft.scope === scope ? searchDraft.query : ''
+  const [searchParams, setSearchParams] = useSearchParams()
+  const query = searchParams.get('q') ?? ''
   const rootScope = !search && (effectiveScope === 'space' || effectiveScope === 'private')
-  const listing = useQuery({ ...pagesQuery(effectiveScope), enabled: !rootScope && !search })
+  const listing = useQuery({ ...pagesQuery(effectiveScope, trash ? query : ''), enabled: !rootScope && !search })
   const searched = useQuery({ ...pageSearchQuery(query), enabled: search })
   const roots = useInfiniteQuery({
     ...pageChildrenQuery(effectiveScope === 'private' ? 'private' : 'space'),
@@ -620,10 +681,7 @@ export function ContentListRoute() {
       })
     }
   })
-  const visible: Page[] | undefined =
-    trash && query.trim()
-      ? pages.data?.pages.filter(page => page.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-      : pages.data?.pages
+  const rows: Page[] | undefined = pages.data?.pages
   return (
     <section
       className="pod-content-list h-full overflow-auto px-6 py-6 md:px-10"
@@ -653,12 +711,15 @@ export function ContentListRoute() {
         <h1 className="text-2xl font-semibold">
           {search ? t('pod.content.search_pages') : scopeLabels[effectiveScope]}
         </h1>
-        {effectiveScope !== 'trash' && (effectiveScope !== 'private' || pages.data?.can_create_private !== false) && (
-          <CreatePageButton
-            scope={effectiveScope === 'private' ? 'private' : 'space'}
-            privateOwner={pages.data?.principal_uid}
-          />
-        )}
+        {effectiveScope !== 'trash' &&
+          (effectiveScope === 'private'
+            ? pages.data?.can_create_private !== false
+            : pages.data?.can_create_space === true) && (
+            <CreatePageButton
+              scope={effectiveScope === 'private' ? 'private' : 'space'}
+              privateOwner={pages.data?.principal_uid}
+            />
+          )}
       </div>
       {(search || trash) && (
         <Input
@@ -670,7 +731,17 @@ export function ContentListRoute() {
             trash ? t('pod.content.search_titles_in_trash') : t('pod.content.search_titles_and_document_content')
           }
           value={query}
-          onChange={event => setSearchDraft({ scope, query: event.target.value })}
+          onChange={event => {
+            const value = event.target.value
+            setSearchParams(
+              current => {
+                if (value) current.set('q', value)
+                else current.delete('q')
+                return current
+              },
+              { replace: true, preventScrollReset: true, flushSync: true }
+            )
+          }}
         />
       )}
       <ContentError error={pages.error || restore.error} retry={() => void pages.refetch()} />
@@ -678,7 +749,7 @@ export function ContentListRoute() {
         <p role="status">{t('pod.content.loading')}</p>
       ) : (
         <ul className="space-y-1">
-          {visible?.map(page => (
+          {rows?.map(page => (
             <li key={page.id} className={trash ? 'flex min-h-8 items-center justify-between gap-3 py-0.5' : undefined}>
               {trash ? (
                 <span className="flex min-w-0 flex-1 items-center gap-3 px-3">
@@ -728,7 +799,7 @@ export function ContentListRoute() {
           {t('pod.content.load_more_pages')}
         </Button>
       )}
-      {!pages.isPending && !pages.error && !visible?.length && (
+      {!pages.isPending && !pages.error && !rows?.length && (
         <p className="py-10 text-sm text-fg-tertiary">
           {query
             ? trash

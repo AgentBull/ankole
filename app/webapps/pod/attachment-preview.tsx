@@ -1,12 +1,33 @@
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { RiFileLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createClientConfig } from '../common/internal-api-client'
 import { podKeys } from './api'
 import { ContentError } from './content-primitives'
 import { isPreviewImage } from './state/chat-attachments'
+import { CodeBlockView } from './chat/code-block-view'
+import { ImageZoomView } from './chat/zoomable-image'
+
+const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
+const PresentationPreview = lazy(() => import('./file-presentation'))
+
+export function attachmentPreviewKind(name: string, type?: string) {
+  const mime = type?.split(';')[0]?.trim().toLowerCase()
+  if (isPreviewImage(mime)) return 'image'
+  if (mime === 'application/pdf') return 'pdf'
+  if (/\.(xlsx?|csv|tsv|ods)$/i.test(name) || mime?.includes('spreadsheet')) return 'spreadsheet'
+  if (/\.pptx$/i.test(name) || mime?.includes('presentationml')) return 'presentation'
+  if (
+    mime?.startsWith('text/') ||
+    ['application/json', 'application/xml', 'application/javascript'].includes(mime ?? '') ||
+    /\.(txt|md|json|xml|ya?ml|[cm]?[jt]sx?|py|exs?|rs|go|rb|sh|css|html|sql|toml)$/i.test(name)
+  ) {
+    return 'text'
+  }
+  return undefined
+}
 
 const transport = createClientConfig({}).fetch!
 const TEXT_BYTES = 64 * 1024
@@ -31,16 +52,14 @@ export function AttachmentPreview({
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  const mime = type?.split(';')[0]?.trim().toLowerCase()
-  const image = isPreviewImage(mime)
-  const text =
-    mime?.startsWith('text/') || ['application/json', 'application/xml', 'application/javascript'].includes(mime ?? '')
+  const kind = attachmentPreviewKind(name, type)
+  const image = kind === 'image'
   const thumbnail = image ? (
     <img src={url} alt={name} loading="lazy" className="size-12 rounded-control object-cover" />
   ) : (
     <RiFileLine className="size-6 text-fg-tertiary" aria-hidden />
   )
-  if (!image && !text) {
+  if (!kind) {
     return local ? (
       thumbnail
     ) : (
@@ -70,7 +89,19 @@ export function AttachmentPreview({
           ref={body}
           tabIndex={0}
           className="pod-dialog-body rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          {open && <PreviewContent url={url} image={image} name={name} conversationID={conversationID} local={local} />}
+          {open && (
+            <Suspense fallback={<p role="status">{t('pod.content.loading_file')}</p>}>
+              {kind === 'pdf' ? (
+                <iframe className="h-[70dvh] w-full border border-border" src={url} title={name} />
+              ) : kind === 'spreadsheet' ? (
+                <SpreadsheetPreview url={url} />
+              ) : kind === 'presentation' ? (
+                <PresentationPreview url={url} />
+              ) : (
+                <PreviewContent url={url} image={image} name={name} conversationID={conversationID} local={local} />
+              )}
+            </Suspense>
+          )}
         </div>
         <DialogFooter>
           <a href={url} target="_blank" rel="noopener noreferrer" className="link">
@@ -135,7 +166,7 @@ function PreviewContent({
           {t('pod.chat_attachments.preview_truncated')}
         </p>
       )}
-      <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-6">{query.data.text}</pre>
+      <CodeBlockView code={query.data.text} language={name.split('.').at(-1)} />
     </>
   )
 }
@@ -153,12 +184,7 @@ function PreviewImage({ blob, name }: { blob: Blob; name: string }) {
   return failed ? (
     <p role="alert">{t('pod.chat_attachments.preview_unavailable')}</p>
   ) : (
-    <img
-      src={url}
-      alt={name}
-      className="mx-auto max-h-[70dvh] max-w-full object-contain"
-      onError={() => setFailed(true)}
-    />
+    <ImageZoomView src={url} alt={name} onError={() => setFailed(true)} />
   )
 }
 

@@ -114,8 +114,11 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, external: canonical)
       else
         case WebSession.pod_session(conn) do
-          nil -> begin_login(conn, :pod, Map.put(params, "return_to", path))
-          _ -> render_spa(conn, :pod)
+          nil ->
+            begin_login(conn, :pod, Map.put(params, "return_to", path))
+
+          %{"principal_uid" => uid} ->
+            conn |> assign(:current_principal_uid, uid) |> render_spa(:pod)
         end
       end
     else
@@ -240,9 +243,16 @@ defmodule AnkoleWeb.SpaController do
           Ankole.BrowserSessions.encode_reference(ref),
           "\"><meta name=\"ankole-pod\" content=\"",
           tenant,
-          "\">\n"
+          "\">\n",
+          principal_meta(conn.assigns[:current_principal_uid])
         ]
     end
+  end
+
+  defp principal_meta(nil), do: []
+
+  defp principal_meta(uid) do
+    ["<meta name=\"ankole-principal\" content=\"", html_escape(uid), "\">\n"]
   end
 
   defp console_path_meta("console") do

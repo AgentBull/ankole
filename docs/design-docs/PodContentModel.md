@@ -24,9 +24,18 @@ Database views.
 
 Page titles and document bodies share one recoverable draft and navigation
 guard. Failed saves retain input. Pending dialogs keep their submitted inputs
-and cannot close. Page lists include the current role from the same permission
-tree traversal. Page moves list writable document destinations and exclude the
-page and its descendants. Trash search filters the authorized page list.
+and cannot close. Page details and lists include the effective actions from
+the same permission snapshot. Operation controls use these actions; role names
+summarize access for display. Page moves list writable Page destinations and
+exclude the page and its descendants. Root creation, move, and copy choices use
+the directory's `can_create_space` and `can_create_private` facts from the same
+destination check as the write. Root capabilities load while the navigation
+section is collapsed. Trash search matches titles and document bodies
+before the server applies the result limit.
+Every Page header offers child-page navigation. It lists visible children,
+loads further children with the directory cursor, and offers creation when the
+Page permits `page_edit`. This entry also serves shared projects whose parent
+is outside the current person's view.
 Pod links use the tenant's slug subdomain and Kernel's short UUID codec:
 `https://<slug>.<site>/pages/<short-id>` and `/conversations/<short-id>`.
 The Kernel owns the codec. The browser bundle cannot load the native kernel, so
@@ -46,7 +55,10 @@ starts with Cancel focused. Long forms scroll their bodies while retaining
 their title and actions. Property pickers stay anchored to their field.
 
 The sidebar search button and Command/Control+K open the same navigation menu.
-The menu links to Pages, Chats, and content locations. It does not send a request
+The menu links to Pages, Chats, and content locations. Page search owns title
+and body matching for both the menu and the search list. The search list keeps
+its query in the `q` URL parameter across result navigation, Back, and reload.
+The menu does not send a request
 or replace an unfinished Chat draft. J/K moves focus within content lists;
 fields keep their normal typing and composition keys. Desktop rows use compact
 spacing, with larger targets on touch layouts. Page references use the same type
@@ -108,7 +120,8 @@ the applet.
 ## Pages and access
 
 `Ankole.Pod.Pages` owns the page tree and lifecycle. A page is a `doc`,
-`database`, `applet`, or `file`. Only a document can have child pages. Tables
+`database`, `applet`, or `file`. Every page type can have child pages. A new
+Database page has a `Table 1` table, a primary `Name` field, and a `Grid` view. Tables
 and records belong to a Database; they are not pages. Sibling positions use
 PostgreSQL `C` collation. Page moves lock the tenant tree before they check for
 cycles, so concurrent opposite moves cannot create a cycle. A move names one
@@ -120,8 +133,15 @@ and adjacent sibling read under that lock. The browser uses this result for
 Undo, including when directory pagination has not loaded that sibling. An
 original location with no siblings needs only its parent and Private owner.
 
-`Ankole.Pod.Access` uses Principal and AuthZ. The actions are `page_view`,
-`page_edit`, and `page_manage`; the roles are `view`, `edit`, and `manage`.
+`Ankole.Pod.Access` uses Principal and AuthZ. Each action has one bit:
+`page_view = 1`, `page_write_records = 2`, `page_edit = 4`, and
+`page_manage = 8`. Roles include all lower actions: `view = 1`,
+`contribute = 3`, `edit = 7`, and `manage = 15`. Contributors can change
+records and upload record attachments. Editors can change documents, page
+metadata, table schemas, and Applet source. Managers can share, delete tables,
+move across permission boundaries, and manage Trash. Space-root page creation
+requires `page_edit`. Human-driven Agent work uses the intersection of the
+Human and Agent bits.
 Page grants are rows in `permission_grants`. The general Console grant API
 cannot create, change, or delete page authority. Tenant creation initializes
 the space policy once. Reads and scaffold repair do not restore removed grants.
@@ -159,27 +179,32 @@ action on its source Page. These rules combine by positive union.
 The Kernel evaluates Principal, group, and request conditions. PostgreSQL
 computes reachable anchor permissions with recursive `UNION`. The result is
 local to one request. Point checks load the target anchor's ancestor and
-reverse Userset dependency graph. List operations load the reachable graph
-once and reuse its permissions for result selection and metadata. A cycle
+reverse Userset dependency graph. Each authorized read uses the same reachable
+permissions for result selection and metadata. A cycle
 without a seed grants no permission. Topology
 writes update pass-through descendants only when their anchor identity changes.
 The recursive update stops at the next anchor and locates target rows by ID.
 Indexes on `tenant_id` with `acl_anchor_id` or `parent_anchor_id` support
 foreign-key checks for live and trashed Pages.
 
-Navigation loads one parent level with a cursor over position and ID. Root
+Navigation uses the Page resource's Ash keyset pagination over position and ID. Root
 queries use `parent_id IS NULL`; child queries use equality. Covering indexes
 support both forms and include `private_owner_uid` for the root scope filter.
 Page timestamps use `Ankole.Ash.Types.Timestamptz`, which maps microsecond
 `DateTime` values to the stored `timestamptz` type. Native Ash filters use the
 same type as the live-page index predicate.
-Title search uses substring matching and similarity ranking, and returns at
-most 30 visible Pages. A trigram index supports selective matches. Shared
+Search matches page titles and document plain text within the visible page
+set, ranks title similarity first, and returns at most 30 Pages. Trigram
+indexes support selective title and body matches. Shared
 Pages can be visible while their parent is hidden.
 Move destination search supplies `exclude_subtree_of`. The server excludes
 that Page and all its descendants before the result limit, including descendants
 whose ancestors do not match the search text.
-List title queries filter the requested scope before the 200-result limit.
+Move, copy, and saved-artifact destinations also supply `required_action=page_edit`.
+The search checks both view and edit access before the result limit. Ordinary
+search uses `page_view`.
+List text queries match titles and document bodies within the requested
+scope before the 200-result limit.
 Favorites and recents select visible live Pages before the limit and sort by
 the person's favorite or visit time, with the Page ID as a tie-breaker.
 The Trash list selects top-level deleted Pages in deletion-time order. It
@@ -211,11 +236,21 @@ Broadcasts to the page, access, and table topics run after commit
 
 `Ankole.Pod.Access` owns ancestor paths, reachable anchors, and access
 provenance. Its native SQL read model loads paths and reachable anchors.
-`Ankole.Pod.Pages.Queries` owns directory cursors, title search, list scopes,
+`Ankole.Pod.Pages.Queries` owns directory cursors, title and body search, list scopes,
 and version snapshots. Each SQL branch binds the tenant.
 `Ankole.Pod.Pages.Sharing` owns sharing changes, collaborator selection, and
 Space access settings. `Pages` owns tree writes, page details, and personal state.
 AuthZ owns Grant persistence and calls anchor maintenance for affected targets.
+Sharing forms offer four roles for complete role grants. Applet forms offer
+view, edit, and manage. Conditional rules,
+Usersets, and partial action sets show their exact actions as read-only entries
+with a revoke action. An unchanged entry preserves its action set. An explicit
+role change expands that role into its actions. A write supplies a role or an
+exact action set. If both are supplied, they must describe the same action set.
+Agents read `pages.sharing` and write `pages.set_sharing` through the same
+`page_manage` and version checks as the browser. Sharing saves use the current
+sharing version and one transaction. The Space default role comes from the
+unconditional `all_humans` rule; conditional rules keep their own scope.
 
 Pure multi-page reads use `Repo.transact_repeatable_read_only/1`. Its first
 statement sets `REPEATABLE READ, READ ONLY`. SQL Sandbox savepoint tests use
@@ -270,12 +305,30 @@ write authority. Under the page lock, it checks page access, type, and
 `base_revision` before it returns an XML validation error or commits the parsed
 document.
 XML bytes cross the signed WorkerFiles relay. They do not consume the
-RuntimeFabric RPC payload budget. A whole-page write creates a `reset` entry
-and advances the page revision atomically.
+RuntimeFabric RPC payload budget. `Documents.write` computes a ChangeSet under
+the page row lock. Rust aligns unchanged blocks, then changed child nodes and
+text with Myers diff. Text offsets count UTF-16 units and cannot split a
+surrogate pair. The kernel checks that applying the changes reproduces the
+target document. The transaction writes a `change` entry with
+`client_id = "server:" <> principal_uid` and `client_seq = new_revision`.
+The browser cannot use the reserved `server:` client prefix. A write with no
+content change keeps the current revision.
+
+`pages.append` appends the supplied Markdown blocks under the same revision
+check and diff path. `pages.patch` reads Markdown at `base_revision`, applies
+exact text replacements, and submits the resulting XML with the original
+revision. A missing match or an ambiguous match without `replace_all` rejects
+the patch. A concurrent commit returns a revision conflict.
 
 A browser tab owns one authenticated Phoenix socket at `/pod/socket`. Its
 frame and fragmented-message limits are 32 MiB, so valid Unicode documents can
-cross the transport. Document editors use `page:<id>`. Each client has one
+cross the transport. The tab's `content` topic uses the existing tenant
+content-access notifications to refresh its active content queries. It checks
+admission and refreshes after join, reconnect, and the periodic access check.
+A temporary token-service failure retries the subscription; access denial ends it.
+Ancestor and Space policy changes refresh effective actions even when the
+Page's content revision stays the same. Query refresh preserves the current
+document editor and its local draft. Document editors use `page:<id>`. Each client has one
 immutable batch in flight, identified
 by `client_id` and `client_seq`. Before submission it applies `preparePageUpdate`
 to its own document and includes the normalization correction in the batch.
@@ -304,6 +357,12 @@ immediately. A reconnect, return to a visible tab, or the 60-second version chec
 repairs missed broadcasts.
 Acknowledged state is already committed before a broadcast.
 
+The editor keeps a composing text node when a remote text edit uses the same
+marks. It maps both ends of that node through the pending changes and updates
+only the changed UTF-16 range in the DOM. This preserves the browser's native
+composition markers and the caret when a prefix changes. Structural changes or
+incompatible marks use the editor's composition cancellation path.
+
 The editor host resolves `embed` and `ankole:asset/<full-sha256>/<name>`.
 Creating an inline page first creates its child in the tree. Deleting its direct
 child embed through the block menu trashes that child. Removing a reference with
@@ -329,8 +388,10 @@ table's stored version and counters once per commit. PostgreSQL checks reject
 negative counters, record counts above the limit, nonpositive schema versions,
 and JSON values that are not objects. Database authorization follows sorted
 table locks in the aggregate write transaction. `table_access/3` accepts `:read`, `:write_records`, or
-`:manage_schema`. Read intent requires `page_view`; write and schema intent
-require `page_edit` on the host Page. Record copy, field conversion,
+`:manage_schema`, or `:delete_table`. These intents require `page_view`,
+`page_write_records`, `page_edit`, and `page_manage`, respectively, on the host
+Page. A table with incoming link fields cannot be deleted until those fields
+are removed. Record copy, field conversion,
 and field-value removal use bounded SQL statements of the Database subsystem.
 Purge uses the same resource destroy actions in batches of 1,000 rows; the
 Database subsystem removes record rows in batches of the same size.
@@ -484,48 +545,78 @@ and tenant and stops when a Job repeats or no message can be found.
 
 ## Applets
 
-`ankole-pod applet init`, `build`, and `publish` create a React applet. Bun emits
-CommonJS with a named `provider = defineApplet(App)`. React, React DOM,
-`@ankole/uikit`, and `@ankole/applet-sdk` are supplied by the host. Source and
-`dist/index.html`, JavaScript, and CSS are published as one complete manifest
-under a page revision. Digests must already belong to the Agent drive or the
-same page; knowledge of an unrelated blob hash grants no access.
-The build embeds imported images, fonts, and media as data URLs in JavaScript
-and CSS. These resources remain usable when the host loads the publication from
-Blob URLs. Use imports or CSS `url()` for local resources; a runtime string
-path does not add a file to the build.
+`ankole-pod applet init`, `build`, `publish`, and `pull` use one React ESM
+project contract. Bun builds the browser entry at `dist/main.js`, shared chunks,
+CSS, and `dist/index.html`. Seven host modules use an import map: `react`,
+`react/jsx-runtime`, `react/jsx-dev-runtime`, `react-dom`, `react-dom/client`,
+`@ankole/uikit`, and `@ankole/applet-sdk`. Other NPM packages are bundled with
+the Applet. Dynamic imports and WASM use browser module rules. Source files named
+`*.worker.ts` or `*.worker.js` build to matching `*.worker.js` entries under
+`dist/`. Import a Worker URL with
+`import workerURL from './calculation.worker.ts?url'`, then start it with
+`new Worker(new URL(workerURL, import.meta.url), { type: 'module' })`.
+Bun's file loader places the Worker URL relative to its importing chunk.
+Worker bundles contain their dependencies and use the same imported-media
+loader as the main entry. The project scaffold supplies the URL import types.
 
-An Applet can also include `src/server/main.ts`. The same build emits a bundled
-ES module at `server/main.js`. Publication replaces `src/`, `dist/`, and
-`server/` in one page transaction and advances one revision. Omitting the backend
-removes the previous `server/` reference. Before commit, the native runner
-evaluates the module in inspection mode and validates its default route table.
-Syntax errors, imports, invalid or conflicting routes, non-function handlers,
-and top-level capability calls reject the complete publication. The successful
-response includes the route list; there is no separately stored route table.
+An Applet runs in a same-origin iframe at
+`/pod/applet-frame/:authentication_ref/:id/:revision/*path`. The path selects
+one sealed browser authentication proof for the document and its subresources.
+Changing the browser's default account does not change that selection. The
+frame has its own DOM, CSS, viewport, and module map. The workspace scroll
+panel sets its viewport height; long Applet content scrolls inside the frame.
+The frame follows panel size changes. It shares the host origin and trust
+boundary. The host injects the runtime before the entry loads and scopes storage
+keys by the selected Principal UID and page ID. The shell supplies this UID
+from the same verified authentication result as its proof. The storage adapter
+preserves the frame's Storage prototype, methods, named properties, and key
+enumeration. One generation owns the frame's subscriptions,
+channels, and observers. A new page revision or unmount closes that generation.
+A change to effective actions updates runtime props in the same iframe and
+React root. Form input and local component state stay available while controls
+follow the new permissions. A denied business operation keeps the frame and its
+local state available. Page reads and realtime access checks own the decision
+to close a generation when view access is lost.
+A publication conflict refreshes the page snapshot; it does not repeat a write.
 
-The production host fetches the authorized manifest and each named digest.
-The build permits only the exact shared modules that the host registers.
-UIKit components use its root export; UIKit component subpaths and stylesheet
-imports fail the build with a correction message. The host already loads those styles.
-A changed or removed file requested with an expected digest returns a
-publication conflict after page authorization. The host rereads the manifest;
-page access denial stops the load. On a stale-revision response,
-the host cancels an in-flight page read before it fetches the current snapshot.
-The new fetch must not reuse a read taken before publication. The host does not
-replay the rejected write. A revision gets a new Garfish
-instance name with caching disabled. The host scopes entry CSS and contains
-load and render failures. Document typography does not enter embedded objects.
-The Applet surface supplies the same base typography in inline and full-page views.
-After a caught render failure, a local reload action restarts the Applet without
-reloading the Pod or clearing the shared query cache.
-Unmount releases React, queries, channels, and tracked
-sandbox effects. Applets keep their DOM inside the supplied container and do
-not add a second CSS reset. Garfish is an application-stability boundary, not a
-hostile-code security boundary. Arbitrary host-body DOM and styles are outside
-its cleanup and entry-style guarantees.
+The frame shell receives the hashed vendor modules and shared styles from the
+Vite manifest. Frame responses use precise content types, `nosniff`,
+`SAMEORIGIN`, private revalidation, and a content ETag. A shared page lock covers
+page authorization, the requested revision, and the immutable file digest.
+Blob reads run outside that transaction. A stale revision returns 409.
+The host presents Applet failures and one reload action above the frame. The
+SDK error boundary reports a render failure to this owner. Reload starts a
+fresh generation and clears the host's failure state.
+
+A project can include `src/server/main.ts`. Bun bundles its NPM dependencies
+into `server/main.js` and keeps Node built-ins as `node:` imports.
+`applet.env.json` is an optional flat string map with a 64 KiB limit. Its values
+are supplied as `process.env` in that publication's function worker.
+The manifest contains `src/`, `dist/`, optional `server/main.js`, and optional
+`package.json`, `bun.lock`, `tsconfig.json`, and `applet.env.json`. Publication
+replaces these paths atomically and advances one revision. Content digests must
+belong to the publishing Agent's drive or the same page. Route inspection runs
+before the page write lock and rejects invalid handlers or top-level host calls.
+The inspector receives the published environment for module initialization.
+
+Applet files under `dist/` and `assets/` require `page_view`. Source, backend,
+and root project files require `page_edit`; other Applet paths are rejected.
+The manifest applies the same filter. File downloads and Worker transfers use
+this same owner. Record attachments require `page_write_records`; document
+assets and file-page uploads require `page_edit`.
+
+`applet pull` requires an empty or absent destination. It downloads source and
+root project files to a temporary directory, checks each digest, and moves the
+complete project to its destination. A project with `package.json` runs
+`bun install --ignore-scripts`.
 
 The SDK uses the current Human's ordinary Pod APIs and a shared QueryClient.
+The shared Database API owns table-cache refresh after writes and live events.
+One connection per table coordinates schema and snapshot changes, then refreshes
+the record and aggregate queries once. SDK hooks observe access revocation.
+The ContentProvider owns one cache observer for denied reads across Applet
+generations and disposes it when the Pod unmounts. Runtime props supply its
+read-denial lookup to SDK hooks.
 `useRecords` and `useAggregate` keep live subscriptions. An explicit HTTP
 401, 403, or 404 hides cached data even while the live connection is unavailable.
 The first denial applies while a Query retry is pending, not only after its
@@ -574,28 +665,76 @@ The host rereads the Page and replaces its loaded publication. It does not
 replay a failed mutation. Agent RPC `applets.call`, exposed by `ankole-pod applet
 call`, uses the same invocation owner with the Agent's current write authority.
 
-Each invocation has one new native V8 isolate on its own thread. It keeps that
-isolate alive while capability requests wait; writes are never replayed. The
-isolate has ECMAScript built-ins, `Intl`, `console`, and `AnkoleRuntime`. It has no
-module loader, fetch, network, filesystem, environment, timers, Node, Deno,
-WebAssembly, or Web API shims. State cannot carry to the next invocation.
-`pod.applet.limits` sets total `timeout_ms` (default 60000) and `heap_mb` (default
-128), including typed-array external memory. Timeout, memory exhaustion, and
-client disconnection cancel that invocation. Already committed writes remain.
-At most four Applet isolates run at the same time; when all slots are busy, the
-runtime returns HTTP 503 with `applet_busy`.
-The isolate shares the control-plane OS process; it does not protect that
-process from a native V8 vulnerability.
+`ankole-function-runtime` is a stateless service built from Supabase Edge Runtime
+`v1.77.4`, commit `d4a4f606a90e8c66864219c9b1d31ef0e3e3f626`, with the native
+patches in `app/function_runtime/native/patches`. Its main worker authenticates control-plane
+requests with an internal Bearer token. Applet user workers receive only their
+published environment. Workers are pooled by tenant, page, and revision for at most
+five minutes. `AsyncLocalStorage` binds each request's capabilities,
+logs, and cancellation to its own WebSocket.
+
+Code and environment form one immutable SHA-256 cache identity: UTF-8 source,
+a newline, and compact JSON of the environment key/value pairs sorted by
+UTF-16 key code units.
+A plain HTTP invoke preflight on the selected replica returns 204 and reserves
+one invocation, 428 for missing code, or 503 at capacity. The client supplies
+missing code to that replica and opens its WebSocket. The client settles the
+reservation with an authenticated DELETE when the connection ends; the call's
+wall-time limit bounds an abandoned reservation.
+
+The client resolves all Ready replica addresses and chooses the least occupied
+endpoint from its active process leases. An explicit release or caller exit removes
+that lease. Only a connection failure before admission or a preflight 503 permits
+one switch to another replica. Executed code and capability writes are never
+replayed. `Ankole.Pod.Applets.Invocation` owns the call and all capability tasks.
+Caller exit, cancellation, timeout, and connection loss settle that owner once
+and stop its pending tasks.
+
+`pod.applet.limits` sets the wall-time and heap bounds. The function service
+also enforces per-worker CPU limits. Applets can use Node crypto, in-memory
+`/tmp` files, environment values, and public network fetch. The function service
+has no database credentials or persistent business volumes. Its deployment
+network uses the Helm NetworkPolicy to block the configured private and metadata
+CIDRs when the cluster enforces that policy. Single-host Compose puts the
+service and control plane on `ankole_functions`; PostgreSQL uses the separate
+internal `ankole_backend` network. The function service can reach the control
+plane on that shared bridge. The host firewall and cloud instance metadata
+settings control its other network access. The Elixir control plane owns every
+durable business write.
+
+Each user worker owns a native execution thread and can create a Tokio blocking
+helper. A CPU loop cannot occupy another worker's execution thread. The native
+supervisor deducts cumulative CPU use at each poll and enforces the absolute hard
+limit, including when the soft and hard limits are equal. Resident worker count
+and admitted request count are separate resource costs.
+
+Inspection and PTC use exclusive one-shot workers with immediate retirement.
+PTC reports execution failure as a JSON outcome over HTTP 200. Memory limits
+report `program_heap_limit_exceeded`; CPU and wall limits report `program_timeout`.
+A worker shutdown ends its child request and preserves the main worker's response.
+An HTTP caller disconnect settles the native request once and terminates an
+unowned one-shot worker, including synchronous JavaScript. Applet cancellation
+settles its control-plane invocation and capability tasks. An aborted invocation
+removes its worker from pool selection before the control plane reports completion.
+Existing calls on that worker can finish, and subsequent calls use a fresh worker.
+Synchronous Applet code can continue on its own thread until the CPU limit.
+A call that reaches its deadline returns `504 handler_timeout`, including when the native socket closes
+at the same time. The call deadline includes replica admission and worker startup.
+An expired call cannot start a handler.
 
 `AnkoleRuntime` capabilities call domain owners with the caller's
 identity and tenant: `db.schema`, `db.query`, `db.aggregate`, `db.write`,
 `file.list`, `file.read`, and `file.write`. Each call repeats authorization;
-write calls also enforce current RunRef or Job authority. GET handlers cannot
-write. Database writes keep field-version conflicts and normal broadcasts.
+all calls require `page_view` on the Applet. Writes require the action on the
+target resource: `page_write_records` for records and record attachments, or
+`page_edit` for file content. They also enforce current RunRef or Job authority.
+The frontend SDK exposes the Applet Page's effective `actions`; the target
+Database API owns record-write authorization. GET handlers cannot write. Database writes keep
+field-version conflicts and normal broadcasts.
 There is no transaction across capability calls. A guarded inventory update
 reads the record, writes with its field versions, and rereads after a conflict.
 Files use the page-type, revision, and upload-size rules; byte values in
-the handler are `Uint8Array`.
+the handler are `Uint8Array`, including empty files.
 
 `ai.generateText` resolves only an LLM profile of the Agent configured by
 `pod.applet.ai_agent_uid`. It accepts `model`, `effort`, optional `system`, and
@@ -614,9 +753,9 @@ update or automatic invalidation. The Applet chooses which queries to refresh
 with its shared QueryClient and `routes.key()`.
 
 Backend routes do not create Pages or schema, schedule work, receive events,
-access connectors or secrets, make network requests, stream responses, or
-return binary HTTP bodies. Source and backend code are readable to viewers;
-they must contain no secrets.
+access host connectors or host secrets, stream responses, or return binary HTTP
+bodies. Source, backend code, and publication environment values require
+`page_edit` permission to read.
 
 An Agent's Worker browser has its own profile. It does not inherit the
 requesting Human's Pod login. Build checks and persisted-data reads are separate
@@ -640,8 +779,8 @@ and editor state. Dedicated integration suites keep independent PostgreSQL
 transactions, 100,000-row measurements, interrupted purge, tenant teardown,
 provider reads, and real-browser user flows outside the default fast tests.
 The shared Rust/editor corpus compares XML and in-memory documents after every
-continuous edit batch. `test:garfish` tests the host compatibility boundary;
-`test:pod` uses the production Pod, real SDK, Phoenix endpoints, and PostgreSQL.
+continuous edit batch. The function-runtime protocol suite checks real worker
+isolation and cancellation. `test:pod` uses the production Pod, real SDK, Phoenix endpoints, and PostgreSQL.
 Provider and process integration results do not by themselves prove a complete
 model-driven user session.
 

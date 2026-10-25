@@ -15,6 +15,65 @@ async function createDocument(page: Page, text?: string) {
   return created.id
 }
 
+test('command search opens a document found by its body and keeps navigation commands searchable', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    const text = `Body-only search reference ${crypto.randomUUID()}`
+    id = await createDocument(page, text)
+    await page.goto(pageRoute(state.report_id))
+    const menu = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
+    await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
+    await menu.locator('[cmdk-input]').fill(text)
+    const result = menu.locator(`[cmdk-item][data-value="page:${id}"]`)
+    await expect(result).toBeVisible()
+    await result.click()
+    await expect(page).toHaveURL(state.base_url + pageRoute(id))
+    await expect(page.locator('.editor-content')).toHaveText(text)
+
+    await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
+    await menu.locator('[cmdk-input]').fill('空间')
+    await menu.locator('[cmdk-item][data-value="scope:space"]').click()
+    await expect(page).toHaveURL(state.base_url + listRoute('space'))
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('a document search keeps its query when opening a result, going back, and reloading', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    const text = `Return to this body reference ${crypto.randomUUID()}`
+    id = await createDocument(page, text)
+    await page.goto(listRoute('search'))
+    const input = page.getByRole('textbox', { name: '搜索页面', exact: true })
+    const result = page.locator('.pod-content-list').locator(`a[href="${pageRoute(id)}"]`)
+    await input.pressSequentially(text)
+    await expect(input).toBeFocused()
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe(text)
+    await expect(result).toBeVisible()
+    await result.click()
+    await expect(page.locator('.editor-content')).toHaveText(text)
+    await page.goBack()
+    await expect(input).toHaveValue(text)
+    await expect(result).toBeVisible()
+    await page.reload()
+    await expect(input).toHaveValue(text)
+    await expect(result).toBeVisible()
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('command shortcuts claim real editor selections before link or delete bindings run', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
@@ -57,7 +116,9 @@ test('command shortcuts claim real editor selections before link or delete bindi
 })
 
 for (const decision of ['proceed', 'cancel'] as const) {
-  test(`a delayed new-chat composer receives command focus only after a blocked ${decision}`, async ({ browser }) => {
+  test(`a new-chat composer keeps command focus through delayed Agent discovery after a blocked ${decision}`, async ({
+    browser
+  }) => {
     const context = await browser.newContext({ baseURL: state.base_url })
     await context.addCookies(state.owner.cookies)
     const page = await context.newPage()
@@ -98,9 +159,9 @@ for (const decision of ['proceed', 'cancel'] as const) {
       if (decision === 'cancel') {
         await blocker.getByRole('button', { name: '继续编辑', exact: true }).click()
         await expect(blocker).toBeHidden()
-        expect(await page.evaluate(() => history.state?.usr?.focusComposer ?? null)).toBeNull()
+        expect(await page.evaluate(() => history.state?.focusComposer ?? null)).toBeNull()
         await page.getByRole('tab', { name: '对话', exact: true }).click()
-        await page.getByRole('link', { name: '新对话', exact: true }).click()
+        await page.getByRole('button', { name: '新对话', exact: true }).click()
         await expect(blocker).toBeVisible()
       }
       const downloaded = page.waitForEvent('download')
@@ -109,14 +170,14 @@ for (const decision of ['proceed', 'cancel'] as const) {
       await expect(page).toHaveURL(`${state.base_url}/`)
       await expect.poll(() => agentsRequests).toBe(1)
       const composer = page.getByRole('textbox', { name: '消息', exact: true })
-      await expect(composer).toBeDisabled()
+      await expect(composer).toBeEditable()
+      await expect(composer).toBeFocused()
       const parkedFocus = page.getByRole('button', { name: '搜索或跳转', exact: true })
       await parkedFocus.focus()
       releaseAgents()
       await expect(composer).toBeEnabled()
-      if (decision === 'proceed') await expect(composer).toBeFocused()
-      else await expect(parkedFocus).toBeFocused()
-      await expect.poll(() => page.evaluate(() => history.state?.usr?.focusComposer ?? null)).toBeNull()
+      await expect(parkedFocus).toBeFocused()
+      await expect.poll(() => page.evaluate(() => history.state?.focusComposer ?? null)).toBeNull()
       await parkedFocus.focus()
       await page.keyboard.press('ControlOrMeta+k')
       await page.keyboard.press('Escape')

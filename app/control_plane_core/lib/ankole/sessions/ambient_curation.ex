@@ -7,8 +7,8 @@ defmodule Ankole.Sessions.AmbientCuration do
   database facts under locks before it starts or skips the visible turn. One transaction stores the
   judgment and applies accepted asked_by attribution to the Signal reply
   anchor. Standing
-  orders are member-set channel policy; they only drive behavior on bindings
-  whose group-message policy is `may_intervene`.
+  orders are member-set group policy. They apply when the Agent can intervene
+  in the native room or external channel.
   """
 
   require Ash.Query
@@ -114,8 +114,7 @@ defmodule Ankole.Sessions.AmbientCuration do
 
   Any member of the channel may set them through the agent; the setter is
   recorded from the triggering entry author. Empty text clears the orders.
-  The result reports whether orders are active, which requires the binding
-  group-message policy `may_intervene`.
+  The result reports whether the Agent can intervene in this group.
   """
   @spec set_standing_orders(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -204,6 +203,18 @@ defmodule Ankole.Sessions.AmbientCuration do
       %Binding{unaddressed_group_message_policy: :may_intervene},
       Ankole.Signals.get_binding!(event.agent_uid, name)
     )
+  end
+
+  defp binding_may_intervene?(%Signal{reply_binding_name: nil, conversation_id: id} = event)
+       when is_binary(id) do
+    match?(
+      %Conversation{kind: :native, room_mode: :group},
+      Ankole.Conversations.get_conversation!(id)
+    ) and
+      match?(
+        %{role: :agent, may_intervene: true},
+        Ankole.Conversations.get_participant!(id, event.agent_uid)
+      )
   end
 
   defp binding_may_intervene?(_event), do: false
@@ -388,7 +399,10 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp channel_event(agent_uid, signal_id) do
     case event_for_agent(agent_uid, signal_id) do
       {:ok, %Signal{conversation_id: channel_id} = event} when is_binary(channel_id) ->
-        {:ok, event}
+        case Ankole.Conversations.get_conversation!(channel_id) do
+          %Conversation{kind: :native, room_mode: :dm} -> {:error, :standing_orders_require_group}
+          _ -> {:ok, event}
+        end
 
       {:ok, %Signal{}} ->
         {:error, :event_has_no_signal_channel}

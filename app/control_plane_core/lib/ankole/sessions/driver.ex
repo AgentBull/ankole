@@ -15,6 +15,7 @@ defmodule Ankole.Sessions.Driver do
       :stream,
       :phase,
       :activity_conversation_id,
+      activity_tools: [],
       activity_revision: 0,
       activity_state: "active",
       tasks: %{},
@@ -37,6 +38,15 @@ defmodule Ankole.Sessions.Driver do
   def start_link({key, _tenant_id} = args),
     do: :gen_statem.start_link({:global, Ankole.Sessions.driver_name(key)}, __MODULE__, args, [])
 
+  def display_snapshot(key) do
+    case Ankole.Sessions.driver_pid(key) do
+      pid when is_pid(pid) -> :gen_statem.call(pid, :display_snapshot, 1_000)
+      _ -> nil
+    end
+  catch
+    :exit, _reason -> nil
+  end
+
   @impl true
   def callback_mode, do: :handle_event_function
 
@@ -52,6 +62,9 @@ defmodule Ankole.Sessions.Driver do
   @impl true
   def handle_event({:call, from}, :activity_snapshot, _state, data),
     do: {:keep_state_and_data, [{:reply, from, Activity.project(data)}]}
+
+  def handle_event({:call, from}, :display_snapshot, _state, data),
+    do: {:keep_state_and_data, [{:reply, from, display_snapshot_from(data)}]}
 
   def handle_event(:internal, {:ai_gateway_response_stream, _, _, _, _} = event, state, data),
     do: handle_event(:info, event, state, data)
@@ -149,6 +162,48 @@ defmodule Ankole.Sessions.Driver do
 
   defp dispatch(data, event), do: transition(advance(data, event))
 
+  defp display_snapshot_from(%{turn: %{run: %Run{} = run}, stream: stream} = data) do
+    with %{state: "active"} = activity <- Activity.project(data),
+         true <- Activity.valid?(activity),
+         {:ok, snapshot} <- current_display(stream, run),
+         {:ok, previous_thinking} <- Presentation.previous_thinking(run, snapshot.response_id) do
+      %{
+        responseID: snapshot.response_id,
+        signalIDs: Ankole.Sessions.response_signal_ids(snapshot),
+        text: snapshot.text,
+        thinkingSummary:
+          Enum.join(
+            Enum.reject([previous_thinking, snapshot.thinking_summary], &(&1 in [nil, ""])),
+            "\n\n"
+          ),
+        seq: snapshot.seq,
+        turnStartedAt: DateTime.to_iso8601(run.event.last_attempt_at)
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp display_snapshot_from(_data), do: nil
+
+  defp current_display(%AIGateway.ResponseStream{} = stream, _run),
+    do: AIGateway.ResponseStream.display_snapshot(stream)
+
+  defp current_display(nil, %{model_response: nil}), do: {:error, :no_response}
+
+  defp current_display(nil, run) do
+    execution = Ankole.Sessions.Presentation.Execution.from_chain([run.model_response])
+
+    {:ok,
+     %{
+       response_id: Run.response_id(run.model_response),
+       metadata: AIGateway.response_metadata(run.model_response),
+       text: Run.text(run),
+       thinking_summary: execution["thinking_summary"],
+       seq: nil
+     }}
+  end
+
   defp transition(result, actions \\ [])
   defp transition({:stop, _, _} = stopped, _actions), do: stopped
 
@@ -208,6 +263,7 @@ defmodule Ankole.Sessions.Driver do
       data
       | turn: %{data.turn | run: run},
         phase: nil,
+        activity_tools: [],
         activity_revision: 0,
         activity_state: "active",
         activity_conversation_id: Activity.native_source(run)
@@ -411,7 +467,7 @@ defmodule Ankole.Sessions.Driver do
   defp execute({:finish_tool, id, result}, data) do
     {span, spans} = Map.pop(data.tool_spans, id)
     Observability.finish_tool(span, ToolResult.encode(result))
-    {%{data | tool_spans: spans}, []}
+    {Activity.complete_tool(%{data | tool_spans: spans}, id, result), []}
   end
 
   defp execute({:settle, previous}, data) do

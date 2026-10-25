@@ -96,6 +96,16 @@ defmodule Ankole.Kernel do
     source |> page_apply_nif(Torque.encode!(changes)) |> decode_page_result()
   end
 
+  @doc "Computes a structural and UTF-16 ChangeSet between canonical page documents."
+  @spec page_diff(String.t(), String.t()) :: {:ok, list()} | {:error, String.t()}
+  def page_diff(old, new) when is_binary(old) and is_binary(new) do
+    case page_diff_nif(old, new) do
+      {:error, _} = error -> error
+      json -> Torque.decode(json)
+    end
+  end
+
+  defp page_diff_nif(_old, _new), do: :erlang.nif_error(:nif_not_loaded)
   defp page_validate_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_apply_nif(_source, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -381,31 +391,6 @@ defmodule Ankole.Kernel do
   """
   @spec phone_normalize_e164(String.t()) :: result(String.t())
   def phone_normalize_e164(_phone), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec program_handle_nif(pid()) :: reference()
-  def program_handle_nif(_owner), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec program_run_nif(reference(), String.t()) :: reference() | tuple()
-  def program_run_nif(_handle, _request_json), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec program_cancel_nif(reference()) :: boolean()
-  def program_cancel_nif(_handle), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec program_active_runs_nif() :: non_neg_integer()
-  def program_active_runs_nif, do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  def applet_start_nif(_run_id, _request_json), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  def applet_reply_nif(_handle, _call_id, _reply_json), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  def applet_cancel_nif(_handle), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Generates a standard hyphenated UUIDv4 string.

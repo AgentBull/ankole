@@ -55,7 +55,7 @@ import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys, fileURL, pageAPI, pageQuery, pagesQuery, type Page, type PageDetail } from './content-api'
 import { contentError } from './content-errors'
 import { ContentError } from './content-primitives'
-import { CreatePageDialog } from './page-navigation'
+import { CreatePageDialog, PageChildrenMenu } from './page-navigation'
 import { FilePage, uploadPageFile } from './page-files'
 import { useCopyPageLink, PageSharingButton } from './page-sharing'
 import { PageDraftModel } from './state/page-draft'
@@ -66,6 +66,7 @@ import { isRealtimeAccessDenied, RealtimeRequestError } from './realtime'
 import { LocalPageChatDrafts } from './chat-drafts'
 import { PageChat } from './page-chat'
 import { PageIcon } from './page-icon'
+import { canMovePage } from './state/page-move'
 import './page-workspace.css'
 
 const AppletPage = lazy(() => import('./applet-page').then(module => ({ default: module.AppletPage })))
@@ -122,7 +123,7 @@ export function PageRoute() {
 
 function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; loadError: unknown; reload(): void }) {
   useSignals()
-  const { page, role } = detail
+  const { page, actions } = detail
   const { state: sidebarState, isMobile } = useSidebar()
   const [moving, setMoving] = useState(false)
   const actionsTrigger = useRef<HTMLButtonElement>(null)
@@ -161,7 +162,9 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
     return () => window.removeEventListener('beforeunload', leave)
   }, [model])
   const accessDenied = isRealtimeAccessDenied(loadError)
-  const edit = role !== 'view' && !accessDenied
+  const edit = actions.includes('page_edit') && !accessDenied
+  const canManage = actions.includes('page_manage') && !accessDenied
+  const canMove = canMovePage(detail) && !accessDenied
   const favorites = useQuery(pagesQuery('favorites'))
   const favorited = favorites.data?.pages.some(favorite => favorite.id === page.id) ?? false
   const rename = useMutation({
@@ -176,12 +179,12 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
     }
   })
   const saveTitle = () => {
-    if (loadError || role === 'view') return
+    if (!edit) return
     const title = model.title.value.trim()
     if (model.titleDirty.value && !(rename.isPending && rename.variables === title)) rename.mutate(title)
   }
   const finishTitle = async () => {
-    if (loadError || role === 'view') {
+    if (accessDenied || (!edit && model.titleDirty.value)) {
       throw new Error(t('pod.content.could_not_confirm_your_editing_permission_reload_the_page_and'))
     }
     if (model.titleDirty.value) await rename.mutateAsync(model.title.value.trim())
@@ -213,17 +216,13 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
         <nav
           className="pod-page-breadcrumbs flex min-w-0 flex-1 items-center gap-1 text-sm"
           aria-label={t('pod.content.parent_page')}>
-          {page.parent_id && (
-            <>
-              <ParentPageLink pageID={page.parent_id} />
-              <RiArrowRightSLine aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
-            </>
-          )}
+          {page.parent_id && <ParentPageLink pageID={page.parent_id} />}
           <span className="truncate px-1" title={model.title.value}>
             {model.title.value || t('pod.content.untitled')}
           </span>
         </nav>
         <div className="flex shrink-0 items-center gap-0.5">
+          {!accessDenied && <PageChildrenMenu pageID={page.id} canCreate={edit} />}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -247,7 +246,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
               <RiChat3Line aria-hidden className="size-4" />
             </Button>
           )}
-          {role === 'manage' && !loadError && <PageSharingButton pageID={page.id} />}
+          {canManage && <PageSharingButton pageID={page.id} />}
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -266,13 +265,13 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                 <RiFileCopyLine aria-hidden />
                 {t('pod.content.copy_link')}
               </DropdownMenuItem>
-              {edit && !loadError && (
+              {canMove && (
                 <DropdownMenuItem disabled={remove.isPending} onClick={() => setMoving(true)}>
                   <RiFolderTransferLine aria-hidden />
                   {t('pod.content.move')}
                 </DropdownMenuItem>
               )}
-              {role === 'manage' && !loadError && (
+              {canManage && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
@@ -308,7 +307,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                     aria-label={t('pod.content.page_title')}
                     rows={1}
                     value={model.title.value}
-                    disabled={remove.isPending || !!loadError}
+                    disabled={remove.isPending || accessDenied}
                     placeholder={t('pod.content.untitled')}
                     onChange={event => (model.title.value = event.target.value.replace(/\n/g, ' '))}
                     onKeyDown={event => {
@@ -372,9 +371,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                 )}
               </p>
             )}
-            {!accessDenied && (
-              <PageContent detail={loadError ? { ...detail, role: 'view' } : detail} documentDraft={model} />
-            )}
+            {!accessDenied && <PageContent detail={detail} documentDraft={model} />}
           </div>
         </div>
         {!accessDenied && (
@@ -421,13 +418,17 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
 
 function ParentPageLink({ pageID }: { pageID: string }) {
   const parent = useQuery(pageQuery(pageID))
+  if (!parent.data || isRealtimeAccessDenied(parent.error)) return null
   return (
-    <Link
-      className="inline-flex max-w-40 items-center gap-1.5 rounded px-1 py-1 text-fg-secondary no-underline hover:bg-accent"
-      to={podLocation(`/pages/${pageID}`).pathname}>
-      {parent.data && <PageIcon page={parent.data.page} />}
-      <span className="truncate">{parent.data?.page.title || t('pod.content.untitled')}</span>
-    </Link>
+    <>
+      <Link
+        className="inline-flex max-w-40 items-center gap-1.5 rounded px-1 py-1 text-fg-secondary no-underline hover:bg-accent"
+        to={podLocation(`/pages/${pageID}`).pathname}>
+        <PageIcon page={parent.data.page} />
+        <span className="truncate">{parent.data.page.title || t('pod.content.untitled')}</span>
+      </Link>
+      <RiArrowRightSLine aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
+    </>
   )
 }
 
@@ -540,7 +541,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
   }
   return (
     <section className="pod-document">
-      {detail.role !== 'view' && (
+      {detail.actions.includes('page_edit') && (
         <div className="pod-document-tools">
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -648,7 +649,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
           labels={labels}
           initial={initialDocument}
           host={host}
-          readOnly={detail.role === 'view' || model.conflict.value}
+          readOnly={!detail.actions.includes('page_edit') || model.conflict.value}
           className="min-h-[60vh]"
           toolbar={null}
           onError={setCollaborationError}

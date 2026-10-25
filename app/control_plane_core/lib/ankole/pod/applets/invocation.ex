@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.Applets.Invocation do
-  @moduledoc "Owns one native isolate and its cancellable capability processes."
+  @moduledoc "Owns one function invocation and its cancellable capability processes."
 
-  alias Ankole.Kernel.AppletRuntime
+  alias Ankole.FunctionRuntime.AppletClient
   alias Ankole.Pod.Applets.Capabilities
   alias Ankole.Repo
 
@@ -38,23 +38,28 @@ defmodule Ankole.Pod.Applets.Invocation do
     Process.flag(:trap_exit, true)
     monitor = Process.monitor(owner)
     started = System.monotonic_time(:millisecond)
+    deadline = started + Keyword.get(limits, :timeout_ms, 60_000)
 
-    case AppletRuntime.start(source, context, limits) do
-      {:ok, handle, run_id} ->
-        try do
-          outcome =
-            receive_loop(handle, run_id, monitor, context, authority, %{}) |> normalize_error()
+    {:ok, handle, run_id} = AppletClient.start(source, context, limits, deadline)
 
-          finish_outcome(context, started, outcome)
-        after
-          AppletRuntime.cancel(handle)
-        end
+    state = %{
+      handle: handle,
+      run_id: run_id,
+      owner_monitor: monitor,
+      client_monitor: Process.monitor(handle),
+      context: context,
+      authority: authority,
+      tasks: %{},
+      deadline: deadline
+    }
 
-      {:error, {:applet_busy, outcome}} ->
-        finish_outcome(context, started, normalize_error(outcome))
-
-      _ ->
-        failed()
+    try do
+      outcome = state |> receive_loop() |> normalize_error()
+      finish_outcome(context, started, outcome)
+    after
+      AppletClient.cancel(handle)
+      Process.demonitor(state.client_monitor, [:flush])
+      Process.demonitor(monitor, [:flush])
     end
   end
 
@@ -72,60 +77,89 @@ defmodule Ankole.Pod.Applets.Invocation do
 
   defp normalize_error(outcome), do: outcome
 
-  defp receive_loop(handle, run_id, owner_monitor, context, authority, tasks) do
+  defp receive_loop(state) do
+    %{
+      handle: handle,
+      run_id: run_id,
+      owner_monitor: owner_monitor,
+      client_monitor: client_monitor,
+      tasks: tasks
+    } = state
+
     receive do
-      {:applet_runtime, ^run_id, :call, call_id, operation, args_json} ->
+      {:applet_runtime, ^run_id, :call, call_id, operation, args} ->
         task =
           Task.async(
             Repo.bind_tenant(fn ->
-              with {:ok, args} <- Torque.decode(args_json) do
-                Capabilities.call(context, authority, operation, args)
-              else
-                _ -> Capabilities.error(:invalid_request)
-              end
+              Capabilities.call(state.context, state.authority, operation, args)
             end)
           )
 
-        receive_loop(
-          handle,
-          run_id,
-          owner_monitor,
-          context,
-          authority,
-          Map.put(tasks, task.ref, {task, call_id})
-        )
+        receive_loop(%{
+          state
+          | tasks: Map.put(tasks, task.ref, {task, call_id})
+        })
 
       {ref, result} when is_map_key(tasks, ref) ->
         {task, call_id} = Map.fetch!(tasks, ref)
         Process.demonitor(task.ref, [:flush])
-        AppletRuntime.reply(handle, call_id, result)
-        receive_loop(handle, run_id, owner_monitor, context, authority, Map.delete(tasks, ref))
+        AppletClient.reply(handle, call_id, result)
+        receive_loop(%{state | tasks: Map.delete(tasks, ref)})
 
-      {:DOWN, ^owner_monitor, :process, _pid, _reason} ->
-        stop_tasks(tasks)
-        AppletRuntime.cancel(handle)
+      {:DOWN, ^owner_monitor, :process, _, _} ->
+        cancel_invocation(state)
         exit(:normal)
 
       :cancel ->
-        stop_tasks(tasks)
-        AppletRuntime.cancel(handle)
+        cancel_invocation(state)
         exit(:normal)
 
-      {:EXIT, _pid, _reason} ->
-        receive_loop(handle, run_id, owner_monitor, context, authority, tasks)
+      {:DOWN, ^client_monitor, :process, _, _} ->
+        stop_tasks(tasks)
+        failed()
 
-      {:DOWN, ref, :process, _pid, _reason} when is_map_key(tasks, ref) ->
+      {:EXIT, _, _} ->
+        receive_loop(state)
+
+      {:DOWN, ref, :process, _, _} when is_map_key(tasks, ref) ->
         {_task, call_id} = Map.fetch!(tasks, ref)
-        AppletRuntime.reply(handle, call_id, Capabilities.error(:handler_error))
-        receive_loop(handle, run_id, owner_monitor, context, authority, Map.delete(tasks, ref))
+        AppletClient.reply(handle, call_id, Capabilities.error(:handler_error))
+        receive_loop(%{state | tasks: Map.delete(tasks, ref)})
 
-      {:applet_runtime, ^run_id, :done, outcome_json} ->
+      {:applet_runtime, ^run_id, :done, outcome} ->
         stop_tasks(tasks)
 
-        case Torque.decode(outcome_json) do
-          {:ok, %{"status" => _} = outcome} -> outcome
+        case outcome do
+          %{"status" => _} -> outcome
           _ -> failed()
         end
+    after
+      max(0, state.deadline - System.monotonic_time(:millisecond)) ->
+        cancel_invocation(state)
+
+        %{
+          "status" => 504,
+          "body" => %{
+            "error" => %{
+              "code" => "handler_timeout",
+              "message" => "Applet invocation timed out",
+              "details" => nil
+            }
+          },
+          "logs" => []
+        }
+    end
+  end
+
+  defp cancel_invocation(state) do
+    AppletClient.cancel(state.handle)
+    stop_tasks(state.tasks)
+
+    receive do
+      {:DOWN, ref, :process, _, _} when ref == state.client_monitor -> :ok
+    after
+      1_000 ->
+        Task.Supervisor.terminate_child(Ankole.FunctionRuntime.Tasks, state.handle)
     end
   end
 

@@ -12,6 +12,30 @@ defmodule Ankole.Pod.Database.Schema do
   alias Ankole.Pod.{Access, Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
   alias Ankole.Pod.Database.{Records, Write}
 
+  def delete_table(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
+    authority = authority || actor.turn_authority
+
+    Access.write(authority, fn -> delete_table_in_tx(actor, id) end,
+      after_commit: fn table ->
+        Database.broadcast_schema([%{id: table.id, data_version: table.data_version + 1}])
+      end
+    )
+  end
+
+  @doc false
+  def delete_table_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
+    with {:ok, write} <- Write.open(actor, id, :delete_table) do
+      referenced =
+        Enum.any?(Map.keys(write.tables) -- [id], fn table_id ->
+          Enum.any?(fields(table_id), &(&1.type == :link and &1.config["table_id"] == id))
+        end)
+
+      if referenced,
+        do: {:error, :table_referenced},
+        else: Ankole.Ash.destroy(write.table, :remove)
+    end
+  end
+
   def create_field(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
     authority = authority || actor.turn_authority
     write(authority, fn -> create_field_in_tx(actor, id, attrs) end)

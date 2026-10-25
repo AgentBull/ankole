@@ -20,29 +20,103 @@ defmodule Ankole.Pod.Files do
     with {:ok, page} <- Pages.lock(page_id, :share),
          {:ok, _page} <- Pages.authorize(actor, page.id, "page_view"),
          {:ok, files} <- all_files(page.id) do
-      {:ok, %{page_id: page.id, revision: page.revision, files: Enum.map(files, &entry/1)}}
+      {:ok,
+       %{
+         page_id: page.id,
+         revision: page.revision,
+         files: files |> readable_files(actor, page) |> Enum.map(&entry/1)
+       }}
     end
   end
 
   @doc "Reads a page file, optionally requiring its current content digest."
   def read(%Ankole.AuthZ.Actor{} = actor, page_id, path, digest \\ nil) do
-    with {:ok, _page} <- Pages.authorize(actor, page_id, "page_view"),
-         {:ok, path} <- page_path(page_id, path),
-         {:ok, file, bytes} <- manifest_read(Drive.read(:pod, path), digest),
-         :ok <- check_digest(file, digest) do
+    with {:ok, file} <- resolve_read(actor, page_id, path, digest),
+         {:ok, bytes} <- Drive.read_content(hex(file.sha256)) do
       {:ok, entry(file), bytes}
     end
   end
 
   @doc "Streams a page file through a local file for the WorkerFiles relay."
   def read_to_file(%Ankole.AuthZ.Actor{} = actor, page_id, path, local_path, digest \\ nil) do
-    with {:ok, _page} <- Pages.authorize(actor, page_id, "page_view"),
-         {:ok, path} <- page_path(page_id, path),
-         {:ok, file} <- manifest_read(Drive.read_to_file(:pod, path, local_path), digest),
-         :ok <- check_digest(file, digest) do
-      {:ok, entry(file)}
+    with {:ok, file} <- resolve_read(actor, page_id, path, digest),
+         :ok <- Drive.read_content_to_file(hex(file.sha256), local_path) do
+      {:ok,
+       Map.merge(
+         entry(file),
+         Map.take(file, [:source, :mode, :updated_at, :conversation_id, :message_id])
+       )}
     end
   end
+
+  defp resolve_read(actor, page_id, relative, digest) do
+    Repo.transact_top_level(fn ->
+      with {:ok, path} <- page_path(page_id, relative),
+           {:ok, page} <- Pages.lock(page_id, :share),
+           {:ok, action} <- required_read_action(page, relative),
+           {:ok, _} <- Pages.authorize(actor, page.id, action),
+           {:ok, file} <- manifest_read(Drive.fetch(:pod, path), digest),
+           :ok <- check_digest(file, digest),
+           do: {:ok, file}
+    end)
+  end
+
+  @doc "Returns the action required to read a normalized page-relative path."
+  def required_read_action(%{type: :applet}, path) do
+    cond do
+      String.starts_with?(path, ["dist/", "assets/"]) ->
+        {:ok, "page_view"}
+
+      String.starts_with?(path, ["src/", "server/"]) or
+          path in ~w(package.json bun.lock tsconfig.json applet.env.json) ->
+        {:ok, "page_edit"}
+
+      true ->
+        {:error, :forbidden}
+    end
+  end
+
+  def required_read_action(_page, _path), do: {:ok, "page_view"}
+
+  defp readable_files(files, actor, %{type: :applet} = page) do
+    edit? = match?({:ok, _}, Pages.authorize(actor, page.id, "page_edit"))
+
+    Enum.filter(files, fn file ->
+      {:ok, _, path} = parse_path(file.path)
+
+      case required_read_action(page, path) do
+        {:ok, "page_view"} -> true
+        {:ok, "page_edit"} -> edit?
+        _ -> false
+      end
+    end)
+  end
+
+  defp readable_files(files, _actor, _page), do: files
+
+  @doc "Resolves a revision-pinned Applet asset under its page lock, then reads immutable bytes."
+  def resolve_applet_frame_asset(actor, page_id, expected_revision, relative) do
+    result =
+      Repo.transact_top_level(fn ->
+        with {:ok, path} <- page_path(page_id, "dist/" <> relative),
+             {:ok, page} <- Pages.lock(page_id, :share),
+             :ok <- require_type(page, :applet),
+             {:ok, action} <- required_read_action(page, "dist/" <> relative),
+             {:ok, _} <- Pages.authorize(actor, page.id, action),
+             :ok <- frame_revision(page, expected_revision),
+             {:ok, file} <- Drive.fetch(:pod, path),
+             do: {:ok, file}
+      end)
+
+    with {:ok, file} <- result,
+         {:ok, bytes} <- Drive.read_content(hex(file.sha256)),
+         do: {:ok, {file.content_type, hex(file.sha256), bytes}}
+  end
+
+  defp frame_revision(%{revision: revision}, revision), do: :ok
+
+  defp frame_revision(page, _),
+    do: {:error, {:applet_revision_changed, %{revision: page.revision}}}
 
   # Authorization has succeeded. A missing expected file means that its publication changed.
   defp manifest_read({:error, :not_found}, digest) when not is_nil(digest),
@@ -61,7 +135,7 @@ defmodule Ankole.Pod.Files do
         content_type \\ nil,
         authority \\ nil
       ) do
-    with {:ok, page} <- Pages.authorize(actor, page_id, "page_edit"),
+    with {:ok, page} <- Pages.authorize(actor, page_id, required_upload_action(role)),
          :ok <- allowed_role(page, role),
          {:ok, stored} <- Drive.store(source) do
       commit_upload(
@@ -115,8 +189,14 @@ defmodule Ankole.Pod.Files do
       when is_list(files) do
     authority = authority || actor.turn_authority
 
-    with {:ok, upserts} <- publish_files(page_id, files) do
-      Access.write(authority, fn -> publish_in_tx(actor, page_id, base_revision, upserts) end,
+    with {:ok, _} <- Pages.authorize(actor, page_id, "page_edit"),
+         {:ok, upserts} <- publish_files(page_id, files),
+         :ok <- own_publish_contents(actor, page_id, upserts),
+         {:ok, env} <- validate_environment(page_id, upserts),
+         {:ok, routes} <- inspect_backend(page_id, upserts, env) do
+      Access.write(
+        authority,
+        fn -> publish_in_tx(actor, page_id, base_revision, upserts, routes) end,
         after_commit: &committed/1
       )
     end
@@ -140,17 +220,20 @@ defmodule Ankole.Pod.Files do
   def parse_path(_path), do: {:error, :invalid_path}
 
   @doc false
-  def publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts) do
-    edit_in_tx(actor, page_id, fn page ->
+  def publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts, routes) do
+    write_file_in_tx(actor, page_id, "page_edit", fn page ->
       with :ok <- require_type(page, :applet),
            :ok <- revision(page, base_revision),
            :ok <- own_publish_contents(actor, page.id, upserts),
-           {:ok, routes} <- inspect_backend(page.id, upserts),
            {:ok, result} <-
              Drive.commit_in_tx(:pod, upserts, [
                prefix(page.id) <> "/src",
                prefix(page.id) <> "/dist",
-               prefix(page.id) <> "/server"
+               prefix(page.id) <> "/server",
+               prefix(page.id) <> "/package.json",
+               prefix(page.id) <> "/bun.lock",
+               prefix(page.id) <> "/tsconfig.json",
+               prefix(page.id) <> "/applet.env.json"
              ]),
            {:ok, page} <- advance(page) do
         {:ok,
@@ -193,7 +276,7 @@ defmodule Ankole.Pod.Files do
   def commit_upload_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, upload) do
     %{role: role, base_revision: base_revision, name: name, digest: digest} = upload
 
-    edit_in_tx(actor, page_id, fn page ->
+    write_file_in_tx(actor, page_id, required_upload_action(role), fn page ->
       with :ok <- allowed_role(page, role),
            :ok <- file_revision(page, base_revision),
            {:ok, path} <- upload_path(page.id, role, digest, name),
@@ -225,9 +308,9 @@ defmodule Ankole.Pod.Files do
   @doc "Publishes a committed page file change to the page channel."
   def committed(%{page_id: id}), do: Pages.broadcast(id)
 
-  defp edit_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, fun) do
+  defp write_file_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, action, fun) do
     with {:ok, page} <- Pages.lock(page_id),
-         {:ok, _page} <- Pages.authorize(actor, page.id, "page_edit") do
+         {:ok, _page} <- Pages.authorize(actor, page.id, action) do
       fun.(page)
     end
   end
@@ -241,7 +324,7 @@ defmodule Ankole.Pod.Files do
         with true <-
                is_binary(relative) and
                  (String.starts_with?(relative, "src/") or String.starts_with?(relative, "dist/") or
-                    relative == "server/main.js"),
+                    relative in ~w(server/main.js package.json bun.lock tsconfig.json applet.env.json)),
              {:ok, path} <- page_path(page_id, relative) do
           {:cont,
            {:ok,
@@ -276,7 +359,7 @@ defmodule Ankole.Pod.Files do
     end
   end
 
-  defp inspect_backend(page_id, upserts) do
+  defp inspect_backend(page_id, upserts, env) do
     case Enum.find(upserts, &(&1.path == prefix(page_id) <> "/server/main.js")) do
       nil ->
         {:ok, []}
@@ -284,7 +367,7 @@ defmodule Ankole.Pod.Files do
       file ->
         with {:ok, source} <- Drive.read_content(file.sha256),
              {:ok, limits} <- Ankole.Pod.Config.applet_limits(),
-             {:ok, routes} <- Ankole.Kernel.AppletRuntime.inspect(source, limits) do
+             {:ok, routes} <- Ankole.FunctionRuntime.AppletClient.inspect(source, limits, env) do
           {:ok, routes}
         else
           {:error, %{"code" => "applet_busy"}} ->
@@ -298,6 +381,24 @@ defmodule Ankole.Pod.Files do
         end
     end
   end
+
+  defp validate_environment(page_id, upserts) do
+    case Enum.find(upserts, &(&1.path == prefix(page_id) <> "/applet.env.json")) do
+      nil ->
+        {:ok, %{}}
+
+      file ->
+        with {:ok, bytes} <- Drive.read_content(file.sha256),
+             true <- byte_size(bytes) <= 65_536,
+             {:ok, env} when is_map(env) <- Torque.decode(bytes),
+             true <- Enum.all?(env, fn {key, value} -> is_binary(key) and is_binary(value) end),
+             do: {:ok, env},
+             else: (_ -> {:error, :invalid_manifest})
+    end
+  end
+
+  def required_upload_action("attachment"), do: "page_write_records"
+  def required_upload_action(_role), do: "page_edit"
 
   # A digest alone does not grant access to a site-wide byte content. Public
   # publication can use the writer's drive or this applet's current files.

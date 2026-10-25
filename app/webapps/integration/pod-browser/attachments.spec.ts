@@ -1,4 +1,4 @@
-import { state, request as podRequest } from './fixtures'
+import { state, request as podRequest, selectChatAgent } from './fixtures'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { conversationRoute, pageRoute } from './routes'
@@ -21,11 +21,12 @@ async function request(page: Page, path: string, method = 'GET', body?: unknown)
 async function removeConversation(page: Page, id: string | undefined) {
   if (!id) return
   let detail = await request(page, `/conversations/${id}`)
-  for (const input of detail.pendingInputs) {
+  for (const input of detail.pendingQueues.flatMap(queue => queue.inputs)) {
     detail = await request(page, `/conversations/${id}/queue`, 'POST', {
-      action: 'remove',
+      action: 'retract',
       messageID: input.messageID,
-      expectedVersion: detail.queueVersion
+      agentUID: input.agentUID,
+      expectedVersion: detail.pendingQueues.find(queue => queue.agentUID === input.agentUID)!.queueVersion
     })
   }
   await request(page, `/conversations/${id}`, 'DELETE')
@@ -54,6 +55,7 @@ test('file preparation and an uncertain send retain stable identities through pa
     await page.getByRole('button', { name: '页面对话', exact: true }).click()
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
     await panel.getByRole('button', { name: '新对话', exact: true }).click()
+    await selectChatAgent(page, panel)
     const composer = panel.locator('.pod-chat-composer')
     await page.route('**/api/v2/pod/attachments', async route => {
       uploadIDs.push(uploadID(route.request()))
@@ -133,6 +135,7 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
   let id: string | undefined
   try {
     await page.goto('/')
+    await selectChatAgent(page)
     const composer = page.locator('.pod-chat-composer')
     await expect(composer.getByRole('textbox', { name: '消息', exact: true })).toBeEditable()
     await composer.evaluate((element, base64) => {

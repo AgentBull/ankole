@@ -5,7 +5,7 @@ defmodule Ankole.Sessions.ToolsTest do
   alias Ankole.Sessions.Tools
 
   defmodule NativeWorkflowRunner do
-    alias Ankole.Kernel.ProgramRunner
+    alias Ankole.FunctionRuntime.ProgramRunner
 
     def run(run_id, source, tools, memo, options) do
       send(Process.whereis(:workflow_tools_native_runner_owner), {:native_replay_started, self()})
@@ -610,7 +610,7 @@ defmodule Ankole.Sessions.ToolsTest do
     test "cancel_workflow commits its receipt before it stops native replay", %{
       run: run
     } do
-      alias Ankole.Kernel.ProgramRunner
+      alias Ankole.FunctionRuntime.ProgramRunner
       alias Ankole.Workflow.RunServer
       alias Ankole.Workflow.Schemas.Run
 

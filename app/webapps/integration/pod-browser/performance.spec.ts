@@ -194,7 +194,7 @@ test.describe('Pod laboratory performance measurement', () => {
       await page.goto(`${state.base_url}/`)
       const { conversations } = await podRequest<Conversations>(page, '/conversations')
       const candidates = conversations
-        .filter(conversation => conversation.agent.uid === state.agent_uid && conversation.agent.active)
+        .filter(conversation => conversation.agents.some(agent => agent.uid === state.agent_uid && agent.active))
         .sort((a, b) => a.lastActivityAt.localeCompare(b.lastActivityAt) || a.id.localeCompare(b.id))
       const conversation =
         candidates.find(candidate => candidate.id === state.conversation_id) ??

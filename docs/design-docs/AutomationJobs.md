@@ -22,6 +22,10 @@ The attempt fence and both Worker-wait and execution deadlines enforce attempt
 ownership and time budgets. PostgreSQL also rejects incompatible lifecycle
 timestamps and attempt fences.
 
+Agent UID inputs use `Ankole.PrincipalKey` to trim surrounding whitespace and
+convert letters to lowercase. Required UIDs reject empty input. A list with an
+empty Agent UID returns no jobs; only `nil` selects every Agent.
+
 ## Human Work Authorization
 
 Each definition stores `authorization_kind`, `human_uid`, and
@@ -33,6 +37,19 @@ immutable `automation_job_id`.
 Revocation cancels the definition and queued runs. A running attempt keeps its
 completion rights; a retry or emitted follow-up cannot create newly authorized
 Human work. Independent service definitions keep their own authorization.
+
+Pod and file RPCs carry an `AutomationAttemptRef` with `job_id`, `run_id`,
+and `attempt_id`. `AutomationJobs.authorize_attempt_actor/2` checks the calling
+Worker, the active definition, the running Run, and its current attempt UUID.
+It locks the retained Human authorization before the definition and Run.
+A `human` definition uses the intersection of the Human and Agent page
+permissions and requires the recorded Human access version to remain current.
+A `service` definition uses the Agent's page permissions. A `review_required`
+definition rejects Pod access. A Pod write checks the attempt again in the
+transaction that commits its content. A tree write acquires the Pod tree
+lock before the Human and attempt row locks; a content row follows the
+attempt row locks.
+A stale or completed attempt cannot read or change Pod data.
 
 ## What PostgreSQL Stores
 
@@ -122,8 +139,10 @@ and writes one `0600` mcporter config with `imports: []`. It injects the path as
 `MCPORTER_CONFIG` and removes it when the attempt ends. Config generation does
 not start a server; `main.ts` starts one only when it calls mcporter. Automation
 does not read Skill instructions; `main.ts` contains the selected tool,
-arguments, bounds, and result checks. The Worker does not add turn-local human
-identity or turn CLI sockets. It runs `main.ts` with Bun as the Worker's user,
+arguments, bounds, and result checks. The Worker starts `ankole-pod` and
+`ankole-files` CLI bridges bound to the claimed attempt and closes them when
+the process ends. Pod file downloads use the same page and path authorization
+as browser downloads. It runs `main.ts` with Bun as the Worker's user,
 in its own process group, with the run directory as the working directory; the
 run limit ends the whole process group.
 

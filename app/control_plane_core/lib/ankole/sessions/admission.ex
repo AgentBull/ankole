@@ -155,7 +155,8 @@ defmodule Ankole.Sessions.Admission do
 
   @doc false
   def admit_in_tx(key, snapshot, plan, prepared, now) do
-    with :ok <- authorize_attempt_in_tx(snapshot),
+    with :ok <- Ankole.Conversations.lock_native_participants_in_tx(key, [snapshot.human_uid]),
+         :ok <- authorize_attempt_in_tx(snapshot),
          {:ok, :not_committed} <- finalize_workflow_input_in_tx(snapshot, plan),
          {:ok, kind_context} <- Run.type(snapshot).admit_in_tx(snapshot, plan),
          {:ok, _} <- Workspaces.ensure_in_tx(key.agent_uid, key.session_id),

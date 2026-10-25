@@ -5,7 +5,7 @@ import { useRef, type ClipboardEventHandler, type DragEventHandler } from 'react
 import { useTranslation } from 'react-i18next'
 import type { ConversationAttachment } from './api'
 import { InternalAPIError } from '../common/internal-api-client'
-import { identityQuery } from './content-api'
+import { conversationAttachmentURL } from './native-transfers'
 import type { ChatAttachments } from './state/chat-attachments'
 import { AttachmentPreview } from './attachment-preview'
 
@@ -168,9 +168,4 @@ export function MessageAttachments({
       })}
     </ul>
   )
-}
-
-export function conversationAttachmentURL(conversationID: string, messageID: string, path: string, download = false) {
-  const query = new URLSearchParams({ path, ...(download ? { download: 'true' } : {}), ...identityQuery() })
-  return `/api/v2/pod/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(messageID)}?${query}`
 }

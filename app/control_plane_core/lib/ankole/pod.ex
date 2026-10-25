@@ -71,7 +71,13 @@ defmodule Ankole.Pod do
 
       base_route "/", Ankole.Pod.Chat.Browser do
         route(:get, "/agents", :agents, name: "podAgents")
-        route(:get, "/conversations", :list, name: "podConversations", query_params: [:pageID])
+        route(:get, "/teammates", :teammates, name: "podChatTeammates", query_params: [:query])
+
+        route(:get, "/conversations", :list,
+          name: "podConversations",
+          query_params: [:pageID, :query, :cursor, :limit, :order]
+        )
+
         route(:post, "/conversations", :create, name: "createConversation")
 
         route(:get, "/conversations/:id", :show,
@@ -79,7 +85,28 @@ defmodule Ankole.Pod do
           query_params: [:beforeSeq, :loadedFirstSeq]
         )
 
-        route(:delete, "/conversations/:id", :delete, name: "deleteConversation")
+        route(:patch, "/conversations/:id", :update, name: "updateConversation")
+
+        route(:get, "/conversations/:id/executions/:kind/:run_id", :execution,
+          name: "conversationExecution",
+          query_params: [:cursor]
+        )
+
+        route(:post, "/conversations/:id/participants", :manage_participants,
+          name: "updateConversationParticipants"
+        )
+
+        route(
+          :post,
+          "/conversations/:id/interactions/:interaction_id/answer",
+          :answer_interaction,
+          name: "answerConversationInteraction"
+        )
+
+        route(:delete, "/conversations/:id", :delete,
+          name: "deleteConversation",
+          query_params: [:forceStop]
+        )
 
         route(:post, "/conversations/:id/messages", :post_message,
           name: "postConversationMessage"
@@ -89,7 +116,8 @@ defmodule Ankole.Pod do
         route(:get, "/agents/:uid/model-profiles", :model_profiles, name: "podModelProfiles")
 
         route(:get, "/conversations/:id/model-profile", :model_selection,
-          name: "podModelSelection"
+          name: "podModelSelection",
+          query_params: [:agentUID]
         )
 
         route(:put, "/conversations/:id/model-profile", :set_model_selection,
@@ -110,6 +138,7 @@ defmodule Ankole.Pod do
       base_route "/", Ankole.Pod.Database.Browser do
         route(:get, "/databases/:page_id", :tables, name: "podDatabaseTables")
         route(:post, "/databases/:page_id/tables", :create_table, name: "podDatabaseTableCreate")
+        route(:delete, "/tables/:id", :delete_table, name: "podDatabaseTableDelete")
         route(:get, "/tables/:id", :show, name: "podDatabaseSchema")
         route(:post, "/tables/:id/query", :query, name: "podDatabaseQuery")
         route(:post, "/tables/:id/aggregate", :aggregate, name: "podDatabaseAggregate")
@@ -146,7 +175,7 @@ defmodule Ankole.Pod do
 
         route(:get, "/pages/search", :search,
           name: "podPageSearch",
-          query_params: [:query, :exclude_subtree_of]
+          query_params: [:query, :exclude_subtree_of, :required_action]
         )
 
         route :post, "/pages", :create do

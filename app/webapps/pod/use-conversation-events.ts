@@ -1,76 +1,122 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
+import { podLocation } from '../common/browser-context'
 import { conversationEventsURL, podKeys, type ConversationDetail, type PodActivity } from './api'
 import type { ChatModel } from './state/chat'
+import { hasUnsentChatWork } from './state/chat-drafts'
 import { refreshConversationQueries } from './query-cache'
 
 export function useConversationEvents(id: string | undefined, model: InstanceType<typeof ChatModel>) {
-  const client = useQueryClient()
+  const client = useQueryClient(),
+    navigate = useNavigate()
   useEffect(() => {
     if (!id) return
     const events = new EventSource(conversationEventsURL(id))
-    let firstSnapshot = true
+    let revoked = false
     const reload = () => {
-      void reloadConversation(client, id, model)
+      if (!revoked) void reloadConversation(client, id, model)
     }
     events.onopen = () => {
-      firstSnapshot = true
       model.connected()
       reload()
     }
     events.onerror = () => {
-      model.disconnected()
-      reload()
+      if (!revoked) {
+        model.disconnected()
+        reload()
+      }
     }
     events.addEventListener('started', event => {
       const payload: unknown = JSON.parse((event as MessageEvent<string>).data)
-      if (!responsePayload(payload)) return
-      model.started(payload.responseID, payload.signalIDs)
+      if (!responsePayload(payload) || payload.conversationID !== id) return
+      model.started(payload.responseID, payload.signalIDs, payload.agentUID, payload.agentName, payload.turnStartedAt)
       reload()
     })
-    events.addEventListener('delta', event => {
+    events.addEventListener('snapshot', event => {
       const payload: unknown = JSON.parse((event as MessageEvent<string>).data)
-      if (responsePayload(payload) && 'text' in payload && typeof payload.text === 'string') {
-        model.delta(payload.responseID, payload.text, payload.signalIDs)
+      if (
+        !responsePayload(payload) ||
+        payload.conversationID !== id ||
+        typeof payload.text !== 'string' ||
+        typeof payload.thinkingSummary !== 'string'
+      ) {
+        return
       }
+      model.snapshot({
+        agentUID: payload.agentUID,
+        agentName: payload.agentName,
+        responseID: payload.responseID,
+        signalIDs: payload.signalIDs,
+        text: payload.text,
+        thinkingSummary: payload.thinkingSummary,
+        startedAt: payload.turnStartedAt
+      })
     })
+    for (const type of ['delta', 'reasoning_delta']) {
+      events.addEventListener(type, event => {
+        const payload: unknown = JSON.parse((event as MessageEvent<string>).data)
+        if (responsePayload(payload) && payload.conversationID === id && typeof payload.text === 'string') {
+          model.delta(payload.responseID, payload.text, payload.signalIDs, payload.agentUID, type === 'reasoning_delta')
+        }
+      })
+    }
     events.addEventListener('activity', event => {
       const payload: unknown = JSON.parse((event as MessageEvent<string>).data)
-      if (activityPayload(payload) && payload.conversationID === id) {
-        // The first frame is a current Driver read, ordered before live frames.
-        model.observeActivity(payload, firstSnapshot ? model.activityRead() : undefined)
-        firstSnapshot = false
-      }
+      if (activityPayload(payload) && payload.conversationID === id) model.observeActivity(payload)
     })
-    events.addEventListener('message', reload)
-    events.addEventListener('status', reload)
+    events.addEventListener('conversation', reload)
+    events.addEventListener('access_revoked', () => {
+      revoked = true
+      events.close()
+      model.markGone()
+      void client
+        .cancelQueries({ queryKey: podKeys.detail(id) })
+        .then(() => client.removeQueries({ queryKey: podKeys.detail(id) }))
+      void client.invalidateQueries({ queryKey: podKeys.conversations })
+      if (!hasUnsentChatWork(model)) void navigate({ to: podLocation('/').pathname })
+    })
     return () => events.close()
-  }, [client, id, model])
+  }, [client, id, model, navigate])
 }
 
-function responsePayload(payload: unknown): payload is { responseID: string; signalIDs: string[] } {
+type ResponseFrame = {
+  conversationID: string
+  agentUID: string
+  responseID: string
+  signalIDs: string[]
+  agentName?: string
+  turnStartedAt?: string
+  text?: string
+  thinkingSummary?: string
+}
+function responsePayload(payload: unknown): payload is ResponseFrame {
+  if (!payload || typeof payload !== 'object') return false
+  const item = payload as ResponseFrame
   return (
-    !!payload &&
-    typeof payload === 'object' &&
-    'responseID' in payload &&
-    typeof payload.responseID === 'string' &&
-    'signalIDs' in payload &&
-    Array.isArray(payload.signalIDs) &&
-    payload.signalIDs.every(id => typeof id === 'string')
+    typeof item.conversationID === 'string' &&
+    typeof item.agentUID === 'string' &&
+    typeof item.responseID === 'string' &&
+    Array.isArray(item.signalIDs) &&
+    item.signalIDs.every(id => typeof id === 'string')
   )
 }
 
-/** Bind a fresh execution status to the Response that requested the read. */
 export async function reloadConversation(
   client: QueryClient,
   id: string,
   model: InstanceType<typeof ChatModel>
 ): Promise<void> {
-  const responseID = model.live.peek()?.responseID
+  const streams = { ...model.liveStreams.peek() }
   await refreshConversationQueries(client, id)
   const result = client.getQueryState<ConversationDetail>(podKeys.detail(id))
   if (result?.status === 'success' && result.fetchStatus === 'idle' && result.data) {
-    model.reconcileStatus(responseID, result.data.status)
+    for (const stream of Object.values(streams)) {
+      const work = result.data.pendingQueues.find(item => item.agentUID === stream.agentUID)
+      if (work?.workStatus.state === 'idle') {
+        model.settled(stream.responseID, stream.agentUID)
+      }
+    }
   }
 }
 
@@ -84,13 +130,6 @@ function activityPayload(value: unknown): value is PodActivity {
     Number.isSafeInteger(item.epoch) &&
     Number.isSafeInteger(item.revision) &&
     ['active', 'unavailable', 'settled'].includes(item.state) &&
-    Array.isArray(item.tools) &&
-    item.tools.length <= 4 &&
-    [...item.tools, ...(item.phase ? [item.phase] : [])].every(
-      label =>
-        !!label &&
-        typeof label.operation_id === 'string' &&
-        (typeof label.label_key === 'string' || typeof label.label === 'string')
-    )
+    Array.isArray(item.tools)
   )
 }

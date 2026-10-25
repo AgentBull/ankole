@@ -33,8 +33,58 @@ defmodule Ankole.Pod.Documents do
     commit_in_tx(actor, id, fn page ->
       with :ok <- current_revision(page, base_revision),
            {:ok, parsed} <- validation,
-           do: save(page, content!(page), uid, parsed, %{kind: :reset})
+           do: save_diff(page, content!(page), uid, parsed)
     end)
+  end
+
+  def append(actor, id, base_revision, fragment_xml, authority \\ nil)
+
+  def append(%Ankole.AuthZ.Actor{} = actor, id, base_revision, fragment_xml, authority)
+      when is_integer(base_revision) and is_binary(fragment_xml) do
+    validation = Ankole.Kernel.page_validate(fragment_xml)
+    authority = authority || actor.turn_authority
+
+    authority
+    |> Access.write(fn -> append_in_tx(actor, id, base_revision, validation) end,
+      after_commit: &committed/1
+    )
+    |> result()
+  end
+
+  def append(_actor, _id, _revision, _fragment, _authority), do: {:error, :invalid_request}
+
+  @doc false
+  def append_in_tx(%Ankole.AuthZ.Actor{} = actor, id, base_revision, validation) do
+    commit_in_tx(actor, id, fn page ->
+      with :ok <- current_revision(page, base_revision),
+           {:ok, fragment} <- validation do
+        content = content!(page)
+
+        xml =
+          "<page>" <> page_children(content.content) <> page_children(fragment.xml) <> "</page>"
+
+        with {:ok, parsed} <- Ankole.Kernel.page_validate(xml),
+             do: save_diff(page, content, Ankole.AuthZ.Actor.uid(actor), parsed)
+      end
+    end)
+  end
+
+  defp page_children("<page />"), do: ""
+  defp page_children("<page>" <> rest), do: String.trim_trailing(rest, "</page>")
+
+  defp save_diff(page, content, uid, parsed) do
+    with {:ok, changes} <- Ankole.Kernel.page_diff(content.content, parsed.xml) do
+      if changes == [] do
+        {:ok, %{page: page, content: content}}
+      else
+        save(page, content, uid, parsed, %{
+          kind: :change,
+          client_id: "server:" <> uid,
+          client_seq: page.revision + 1,
+          changes: changes
+        })
+      end
+    end
   end
 
   def apply(uid, id, attrs, authority \\ nil)
@@ -50,7 +100,8 @@ defmodule Ankole.Pod.Documents do
     }
 
     if is_integer(batch.base) and batch.base >= 0 and is_binary(batch.client) and
-         byte_size(batch.client) in 1..255 and is_integer(batch.seq) and batch.seq > 0 and
+         byte_size(batch.client) in 1..255 and not String.starts_with?(batch.client, "server:") and
+         is_integer(batch.seq) and batch.seq > 0 and
          is_list(batch.changes) do
       authority
       |> Access.write(fn -> apply_in_tx(actor, id, batch) end, after_commit: &committed/1)

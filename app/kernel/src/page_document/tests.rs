@@ -184,3 +184,77 @@ fn surplus_close_tokens_are_rejected_while_reading_the_batch() {
             .contains("surplus close")
     );
 }
+
+#[test]
+fn server_diff_preserves_paragraphs_and_utf16_selection_offsets() {
+    let old = "<page><p>Before</p><p>需求😀尾</p><p>After</p></page>";
+    let new = "<page><p>Before</p><p>需求😁尾</p><p>After</p><p>API</p></page>";
+    let changes = diff(old, new).unwrap();
+    assert_eq!(changes[0], 11); // Whole first paragraph, then paragraph open and two CJK units.
+    assert_eq!(changes[1], json!([2, [{"type": "Text", "param": "😁"}]]));
+    assert_eq!(
+        apply(old, &changes.to_string()).unwrap().xml,
+        validate(new).unwrap().xml
+    );
+    assert_eq!(diff(new, new).unwrap(), json!([]));
+}
+
+#[test]
+fn server_diff_reproduces_every_pair_of_corpus_documents() {
+    let corpus = corpus();
+    let sources: Vec<&str> = corpus["xml"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|sample| sample["xml"].as_str().unwrap())
+        .collect();
+    for old in &sources {
+        for new in &sources {
+            let changes = diff(old, new).unwrap_or_else(|error| panic!("{old} -> {new}: {error}"));
+            // Empty changes are the idempotent server result, not an apply batch.
+            if changes == json!([]) {
+                assert_eq!(validate(old).unwrap().xml, validate(new).unwrap().xml);
+            } else {
+                assert_eq!(
+                    apply(old, &changes.to_string()).unwrap().xml,
+                    validate(new).unwrap().xml
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn server_text_diff_keeps_unchanged_regions_between_edits() {
+    let old = "<page><blockquote><p>alpha βeta gamma delta 😀 end</p></blockquote></page>";
+    let new = "<page><blockquote><p>alpha BETA gamma DELTA 😀 end!</p></blockquote></page>";
+    let changes = diff(old, new).unwrap();
+    assert!(
+        changes
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|value| value.is_u64())
+            .count()
+            >= 3
+    );
+    assert_eq!(
+        apply(old, &changes.to_string()).unwrap().xml,
+        validate(new).unwrap().xml
+    );
+}
+
+#[test]
+fn inline_mark_changes_keep_the_following_text_in_place() {
+    let old = "<page><p>alpha beta gamma</p></page>";
+    let new = "<page><p>alpha <strong>beta</strong> gamma</p></page>";
+    let changes = diff(old, new).unwrap();
+    assert_eq!(
+        changes,
+        json!([7, [4, [{"type": "Text", "param": "beta", "marks": {"Strong": null}}]], 7])
+    );
+    assert_eq!(
+        apply(old, &changes.to_string()).unwrap().xml,
+        validate(new).unwrap().xml
+    );
+}

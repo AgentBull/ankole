@@ -17,6 +17,9 @@ defmodule Ankole.Pod.Pages do
   defdelegate can_create_private?(actor), to: Queries
   defdelegate reconcile_versions(actor, page_ids, table_ids), to: Queries
 
+  def can_create_space?(%Ankole.AuthZ.Actor{} = actor),
+    do: match?(:ok, destination(actor, nil, nil))
+
   defdelegate sharing(actor, id), to: Sharing
   defdelegate subjects(actor), to: Sharing
   defdelegate set_sharing(actor, id, attrs, authority \\ nil), to: Sharing
@@ -41,6 +44,26 @@ defmodule Ankole.Pod.Pages do
          else: (_ -> {:error, :not_found})
   end
 
+  @doc "Returns the manageable Page IDs from the caller's evaluated access graph."
+  def manageable_ids(ids, reachable) do
+    {anchors, own} = Access.visibility_ids(reachable, 8)
+
+    Page
+    |> Ash.Query.filter(
+      id in ^ids and is_nil(deleted_at) and (acl_anchor_id in ^anchors or id in ^own)
+    )
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> MapSet.new(& &1.id)
+  end
+
+  @doc "Returns visible Pages that were saved from the supplied Messages."
+  def saved_from_messages(actor, ids) do
+    Page
+    |> Ash.Query.filter(saved_from_message_id in ^ids)
+    |> Ankole.Ash.read_authorized(actor)
+  end
+
   def create(%Ankole.AuthZ.Actor{} = actor, attrs, authority \\ nil) when is_map(attrs) do
     authority = authority || actor.turn_authority
     Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end, after_commit: &committed/1)
@@ -61,6 +84,8 @@ defmodule Ankole.Pod.Pages do
            ),
          {:ok, source} <- source_message(actor, Ankole.Attrs.get(attrs, :saved_from_message_id)) do
       now = DateTime.utc_now(:microsecond)
+
+      skip_default_table = Ankole.Attrs.get(attrs, :skip_default_table, false)
 
       attrs = %{
         id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -87,7 +112,7 @@ defmodule Ankole.Pod.Pages do
       attrs = Access.anchor_attributes(attrs)
 
       with {:ok, page} <- Ankole.Ash.create(Page, :create_in_tx, attrs),
-           :ok <- initial_content(page, uid) do
+           :ok <- initial_content(page, uid, skip_default_table) do
         {:ok, page}
       end
     end
@@ -333,10 +358,10 @@ defmodule Ankole.Pod.Pages do
   @doc false
   def get_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
     with {:ok, page} <- lock(id, :share),
-         {:ok, page} <- Access.authorize_with_role(actor, page),
+         {:ok, page} <- Access.authorize_with_permissions(actor, page),
          {:ok, content} <-
            PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one() do
-      {:ok, %{page: page, content: content, role: page.role}}
+      {:ok, %{page: page, content: content, role: page.role, actions: page.actions}}
     end
   end
 
@@ -450,7 +475,7 @@ defmodule Ankole.Pod.Pages do
 
   defp destination(%Ankole.AuthZ.Actor{} = actor, nil, nil, _initialize_private) do
     with {:ok, bits} <- Access.space_bits(actor),
-         true <- Bitwise.band(bits, 2) != 0,
+         true <- Bitwise.band(bits, 4) != 0,
          do: :ok,
          else: (_ -> {:error, :forbidden})
   end
@@ -467,12 +492,7 @@ defmodule Ankole.Pod.Pages do
   end
 
   defp destination(%Ankole.AuthZ.Actor{} = actor, parent, nil, _initialize_private) do
-    with {:ok, %{type: :doc}} <- authorize(actor, parent, "page_edit"),
-         do: :ok,
-         else: (
-           {:ok, _} -> {:error, :invalid_parent}
-           error -> error
-         )
+    with {:ok, _parent} <- authorize(actor, parent, "page_edit"), do: :ok
   end
 
   defp destination(_uid, _parent, _owner, _initialize_private), do: {:error, :invalid_parent}
@@ -499,7 +519,7 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  defp initial_content(%{type: :doc} = page, uid) do
+  defp initial_content(%{type: :doc} = page, uid, _skip) do
     with {:ok, parsed} <- Ankole.Kernel.page_validate("<page />"),
          {:ok, _} <-
            Ankole.Ash.create(PageContent, :create_in_tx, %{
@@ -512,7 +532,11 @@ defmodule Ankole.Pod.Pages do
          do: :ok
   end
 
-  defp initial_content(_page, _uid), do: :ok
+  defp initial_content(%{type: :database} = page, uid, false) do
+    with {:ok, _} <- Ankole.Pod.Database.init_default_table_in_tx(page, uid), do: :ok
+  end
+
+  defp initial_content(_page, _uid, _skip), do: :ok
 
   defp source_message(_uid, nil), do: {:ok, nil}
 

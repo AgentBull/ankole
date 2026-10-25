@@ -25,10 +25,13 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     child_id = child.id
 
     assert %{
-             "pages" => [%{"id" => ^root_id}],
+             "pages" => [%{"id" => ^root_id, "actions" => actions}],
              "next_cursor" => nil,
-             "can_create_private" => true
+             "can_create_private" => true,
+             "can_create_space" => true
            } = owner |> recycle_json() |> get("/api/v2/pod/pages/children") |> json_response(200)
+
+    assert actions == ~w(page_view page_write_records page_edit page_manage)
 
     assert %{"pages" => [%{"id" => ^private_id}], "next_cursor" => nil} =
              owner
@@ -42,13 +45,75 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              |> get("/api/v2/pod/pages/children", %{parent_id: private.id, scope: "private"})
              |> json_response(200)
 
-    assert %{"pages" => pages, "can_create_private" => true} =
+    assert %{"pages" => pages, "can_create_private" => true, "can_create_space" => true} =
              owner
              |> recycle_json()
              |> get("/api/v2/pod/pages/search", %{query: ""})
              |> json_response(200)
 
     assert MapSet.new(pages, & &1["id"]) == MapSet.new([root.id, private.id, child.id])
+  end
+
+  test "root and child directories paginate equal positions and reject invalid keysets", %{
+    conn: conn
+  } do
+    {owner, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    {:ok, parent} = Ankole.Pod.Pages.create(actor, %{title: "Parent"})
+
+    for {location, query} <- [
+          {%{private_owner_uid: uid}, %{scope: "private"}},
+          {%{parent_id: parent.id}, %{parent_id: parent.id}}
+        ] do
+      pages =
+        for number <- 1..5 do
+          {:ok, page} =
+            Ankole.Pod.Pages.create(
+              actor,
+              Map.merge(location, %{title: "Page #{number}", position: "A"})
+            )
+
+          page
+        end
+
+      first =
+        owner
+        |> recycle_json()
+        |> get("/api/v2/pod/pages/children", Map.put(query, :limit, 2))
+        |> json_response(200)
+
+      second =
+        owner
+        |> recycle_json()
+        |> get(
+          "/api/v2/pod/pages/children",
+          Map.merge(query, %{limit: 2, cursor: first["next_cursor"]})
+        )
+        |> json_response(200)
+
+      last =
+        owner
+        |> recycle_json()
+        |> get(
+          "/api/v2/pod/pages/children",
+          Map.merge(query, %{limit: 2, cursor: second["next_cursor"]})
+        )
+        |> json_response(200)
+
+      assert Enum.map([first, second, last], &length(&1["pages"])) == [2, 2, 1]
+      assert is_binary(first["next_cursor"])
+      assert is_binary(second["next_cursor"])
+      assert is_nil(last["next_cursor"])
+
+      assert Enum.map(first["pages"] ++ second["pages"] ++ last["pages"], & &1["id"]) ==
+               Enum.sort(Enum.map(pages, & &1.id))
+
+      assert %{"errors" => [%{"code" => "invalid_keyset"}]} =
+               owner
+               |> recycle_json()
+               |> get("/api/v2/pod/pages/children", Map.put(query, :cursor, "invalid"))
+               |> json_response(400)
+    end
   end
 
   test "a human edits their private page while another human cannot read or move it", %{
@@ -91,7 +156,11 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              owner |> recycle_json() |> get("/api/v2/pod/pages") |> json_response(200)
 
     read = owner |> recycle_json() |> get("/api/v2/pod/pages/#{id}")
-    assert %{"content" => %{"content" => ^xml}, "role" => "manage"} = json_response(read, 200)
+
+    assert %{"content" => %{"content" => ^xml}, "role" => "manage", "actions" => actions} =
+             json_response(read, 200)
+
+    assert actions == ~w(page_view page_write_records page_edit page_manage)
 
     human = Ankole.PrincipalsFixtures.human_fixture().principal
 
@@ -124,6 +193,91 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     assert {:ok, %{page: %{private_owner_uid: ^uid}, content: %{content: ^xml}}} =
              Ankole.Pod.Pages.get(Ankole.PrincipalsFixtures.actor_fixture(uid), id)
+  end
+
+  test "the sharing API preserves exact userset actions on a settings round trip", %{conn: conn} do
+    {owner, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    human = Ankole.PrincipalsFixtures.human_fixture().principal
+    {:ok, source} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid})
+    {:ok, target} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(uid, source.id, %{
+        grants: [%{principal_uid: human.uid, role: "view"}]
+      })
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        source_page_id: source.id,
+        source_action: "page_view",
+        resource_pattern: "pod:**:#{target.id}:**",
+        action: "page_write_records"
+      })
+
+    sharing =
+      owner
+      |> recycle_json()
+      |> get("/api/v2/pod/pages/#{target.id}/sharing")
+      |> json_response(200)
+
+    assert [%{"actions" => ["page_write_records"]}] = sharing["grants"]
+
+    grants =
+      Enum.map(sharing["grants"], fn grant ->
+        Map.take(
+          grant,
+          ~w(principal_uid group_id source_page_id source_action target_scope condition actions)
+        )
+      end)
+
+    assert %{"page" => %{"id" => id}} =
+             owner
+             |> send_json(:put, "/pages/#{target.id}/sharing", %{
+               sharing_version: sharing["sharing_version"],
+               inherit_permissions: sharing["inherit_permissions"],
+               grants: grants
+             })
+             |> json_response(200)
+
+    assert id == target.id
+    reader = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
+    assert {:error, :forbidden} = Ankole.Pod.Pages.authorize(reader, target.id, "page_view")
+    assert {:ok, _} = Ankole.Pod.Pages.authorize(reader, target.id, "page_write_records")
+  end
+
+  test "sharing accepts one rule meaning and rejects conflicting role and actions", %{conn: conn} do
+    {owner, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    human = Ankole.PrincipalsFixtures.human_fixture().principal
+    {:ok, page} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid})
+
+    for rule <- [
+          %{role: "view"},
+          %{actions: ["page_write_records"]},
+          %{role: "contribute", actions: ["page_write_records", "page_view"]}
+        ] do
+      {:ok, sharing} = Ankole.Pod.Pages.sharing(actor, page.id)
+
+      owner
+      |> send_json(:put, "/pages/#{page.id}/sharing", %{
+        sharing_version: sharing.sharing_version,
+        grants: [Map.put(rule, :principal_uid, human.uid)]
+      })
+      |> json_response(200)
+    end
+
+    {:ok, sharing} = Ankole.Pod.Pages.sharing(actor, page.id)
+
+    owner
+    |> send_json(:put, "/pages/#{page.id}/sharing", %{
+      sharing_version: sharing.sharing_version,
+      grants: [%{principal_uid: human.uid, role: "view", actions: ["page_write_records"]}]
+    })
+    |> json_response(422)
+
+    assert {:ok, same} = Ankole.Pod.Pages.sharing(actor, page.id)
+    assert same.sharing_version == sharing.sharing_version
   end
 
   test "AshJsonApi derives concrete page identifiers and timestamps for all page results" do
@@ -274,7 +428,11 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     candidates =
       owner
       |> recycle_json()
-      |> get("/api/v2/pod/pages/search", %{query: "needle", exclude_subtree_of: source.id})
+      |> get("/api/v2/pod/pages/search", %{
+        query: "needle",
+        exclude_subtree_of: source.id,
+        required_action: "page_edit"
+      })
       |> json_response(200)
 
     assert Enum.map(candidates["pages"], & &1["id"]) == [destination.id]

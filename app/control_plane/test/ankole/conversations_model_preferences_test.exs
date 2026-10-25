@@ -47,6 +47,7 @@ defmodule Ankole.ConversationsModelPreferencesTest do
   test "a preference survives reopening without changing the Agent or accepted inputs", ctx do
     {:ok, before} = ModelProfiles.get_model_profiles(ctx.agent.uid)
     assert ctx.input.data["model_profile"] == "primary"
+    :ok = Conversations.Events.subscribe(ctx.id)
 
     assert {:ok, %{profile: "careful"}} =
              Conversations.set_model_profile(
@@ -54,6 +55,9 @@ defmodule Ankole.ConversationsModelPreferencesTest do
                ctx.id,
                "careful"
              )
+
+    id = ctx.id
+    assert_receive {:conversation_event, ^id, :status}
 
     assert {:ok,
             %{
@@ -143,9 +147,15 @@ defmodule Ankole.ConversationsModelPreferencesTest do
                Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                ctx.id,
                %{
-                 action: "send_now",
+                 action: "steer",
                  message_id: id,
-                 expected_version: detail.queue_version
+                 agent_uid: ctx.agent.uid,
+                 expected_version:
+                   Ankole.Conversations.NativeQueue.queue_version(
+                     detail.conversation,
+                     Enum.filter(detail.pending_inputs, &(&1.agent_uid == ctx.agent.uid)),
+                     ctx.agent.uid
+                   )
                }
              )
 
@@ -338,7 +348,7 @@ defmodule Ankole.ConversationsModelPreferencesTest do
              )
   end
 
-  test "revoking a linked Page prevents reading or changing its Chat model preference", ctx do
+  test "revoking a shared anchor prevents reading or changing its Chat model preference", ctx do
     owner = human_fixture().principal
 
     {:ok, page} =
@@ -359,6 +369,7 @@ defmodule Ankole.ConversationsModelPreferencesTest do
         message_id: Ecto.UUID.generate(),
         agent_uid: ctx.agent.uid,
         page_id: page.id,
+        access_scope: :anchor_page,
         text: "Work on this Page"
       })
 
@@ -371,13 +382,13 @@ defmodule Ankole.ConversationsModelPreferencesTest do
 
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{grants: []})
 
-    assert {:error, :page_unavailable} =
+    assert {:error, :conversation_not_found} =
              Conversations.model_preferences(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                id
              )
 
-    assert {:error, :page_unavailable} =
+    assert {:error, :conversation_not_found} =
              Conversations.set_model_profile(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                id,

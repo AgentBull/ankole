@@ -140,7 +140,8 @@ defmodule Ankole.Sessions.Tools.BrainTest do
   test "a Signal that another Agent owns refuses the read", context do
     %{principal: other} = agent_fixture()
     foreign = job_turn(other.uid)
-    turn = %JobTurnRef{context.turn | signal_id: foreign.signal_id}
+    %JobTurnRef{} = turn = context.turn
+    turn = %JobTurnRef{turn | signal_id: foreign.signal_id}
 
     assert {:error, :signal_not_owned} =
              Tools.Brain.read(turn, "recall", %{"query" => "wire format"})

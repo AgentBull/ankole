@@ -323,6 +323,53 @@ defmodule Ankole.Sessions.ScheduledTest do
     assert Ankole.Conversations.reply_candidate_texts([]) == %{}
   end
 
+  test "reply candidate reads stay in the selected tenant" do
+    other = create_tenant()
+
+    {message_event, fallback_event} =
+      Repo.with_tenant(other.id, fn ->
+        %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+        room = Ankole.ExternalConversationsFixtures.external_conversation_fixture("mock:streak")
+        message_event = cron_fire_event(agent.uid, "foreign-session", "batch")
+        fallback_event = cron_fire_event(agent.uid, "foreign-session", "batch")
+
+        assert {:ok, _} =
+                 Repo.transact(fn _repo ->
+                   Ankole.Ash.create(Ankole.Conversations.Message, :record, %{
+                     id: Ecto.UUID.generate(),
+                     conversation_id: room.id,
+                     seq: 1,
+                     author_type: :agent,
+                     author_uid: agent.uid,
+                     text: "foreign message",
+                     signal_id: message_event.id,
+                     origin: :external,
+                     session_id: message_event.session_id,
+                     created_at: DateTime.add(@base_time, 100, :second)
+                   })
+                 end)
+
+        Ankole.SignalsFixtures.delivery_fixture!(%{
+          agent_uid: agent.uid,
+          binding_name: "control-plane:test",
+          outbound_key: Ecto.UUID.generate(),
+          operation: :reply,
+          status: :sent,
+          source_signal_id: fallback_event.id,
+          fallback_visible_text: "foreign fallback",
+          idempotency_key: Ecto.UUID.generate(),
+          inserted_at: DateTime.add(@base_time, 100, :second)
+        })
+
+        {message_event, fallback_event}
+      end)
+
+    assert Ankole.Conversations.reply_candidate_texts([message_event.id, fallback_event.id]) == %{
+             message_event.id => nil,
+             fallback_event.id => nil
+           }
+  end
+
   test "identical replies scan at most five fires" do
     %{agent: agent, session_id: session_id} = cron_session()
     for n <- 1..7, do: fire_with_reply(agent.uid, session_id, "bounded", "same report #{n}")

@@ -1,11 +1,14 @@
 import { t } from 'i18next'
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import { contentKeys } from '../content-api'
 import { ContentListRoute, ContentNavigation } from '../page-navigation'
+import { loadLocale } from '../../common/i18n'
+
+beforeAll(() => loadLocale('en-US', 'pod'))
 
 describe('Private page creation', () => {
   for (const state of ['pending', 'error', 'ready', 'guest'] as const) {
@@ -16,6 +19,12 @@ describe('Private page creation', () => {
       async () => {
         const client = new QueryClient({
           defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
+        })
+        client.setQueryData(contentKeys.children('space'), {
+          pages: [
+            { pages: [], principal_uid: 'current-human', can_create_space: state !== 'guest', next_cursor: null }
+          ],
+          pageParams: [undefined]
         })
         if (state === 'ready' || state === 'guest') {
           client.setQueryData(contentKeys.list('private'), {
@@ -63,9 +72,9 @@ describe('Private page creation', () => {
             html.match(
               new RegExp(`<button\\b[^>]*aria-label="${RegExp.escape(t('pod.content.new_page'))}"[^>]*>`, 'g')
             ) ?? []
-          expect(buttons).toHaveLength(state === 'guest' ? 1 : 3)
+          expect(buttons).toHaveLength(state === 'guest' ? 0 : 3)
           if (state === 'guest') expect(html).not.toContain('<section aria-label="Private"')
-          expect(buttons[0]).not.toMatch(/\sdisabled(?:=|\s|>)/)
+          if (state !== 'guest') expect(buttons[0]).not.toMatch(/\sdisabled(?:=|\s|>)/)
           for (const button of buttons.slice(1)) {
             expect(/\sdisabled(?:=|\s|>)/.test(button)).toBe(state !== 'ready')
           }

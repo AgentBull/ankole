@@ -54,6 +54,7 @@ defmodule Ankole.Pod.Copy do
          {:ok, page} <-
            Pages.create_in_tx(actor, %{
              type: "database",
+             skip_default_table: true,
              title: Ankole.Attrs.get(attrs, :title, source.name),
              parent_id: Ankole.Attrs.get(attrs, :parent_id),
              private_owner_uid: Ankole.Attrs.get(attrs, :private_owner_uid)

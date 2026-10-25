@@ -13,6 +13,8 @@ x-control-plane-environment: &control-plane-environment
   POOL_SIZE: ${ANKOLE_DATABASE_POOL_SIZE:-10}
   ANKOLE_LOG_LEVEL: ${ANKOLE_LOG_LEVEL:-info}
   ANKOLE_LIBRARY_ROOT: /app/app/library
+  ANKOLE_FUNCTION_RUNTIME_URL: http://function-runtime:9000
+  ANKOLE_FUNCTION_RUNTIME_TOKEN: ${ANKOLE_FUNCTION_RUNTIME_TOKEN:?Set ANKOLE_FUNCTION_RUNTIME_TOKEN in .env}
   ANKOLE_AI_GATEWAY_BASE_URL: http://control-plane:4000/api/v1/ai-gateway
   ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: http://control-plane:4000
   # Agent drives and attachments. The directory is the files_data volume.
@@ -64,7 +66,7 @@ services:
       - backend
 
   migrate:
-    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.5}
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.24}
     pull_policy: always
     restart: "no"
     command:
@@ -98,7 +100,7 @@ services:
     logging: *default-logging
 
   control-plane:
-    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.5}
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.24}
     pull_policy: always
     restart: unless-stopped
     environment: *control-plane-environment
@@ -115,6 +117,8 @@ services:
         condition: service_completed_successfully
       migrate-agent-homes:
         condition: service_completed_successfully
+      function-runtime:
+        condition: service_healthy
     expose:
       - "4000"
     logging: *default-logging
@@ -122,6 +126,19 @@ services:
       - backend
       - frontend
       - workers
+      - functions
+
+  function-runtime:
+    image: ${ANKOLE_FUNCTION_RUNTIME_IMAGE:-ghcr.io/agentbull/ankole-function-runtime:2.0.0-alpha.24}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      ANKOLE_FUNCTION_RUNTIME_TOKEN: ${ANKOLE_FUNCTION_RUNTIME_TOKEN:?Set ANKOLE_FUNCTION_RUNTIME_TOKEN in .env}
+    expose:
+      - "9000"
+    logging: *default-logging
+    networks:
+      - functions
 
   caddy:
     image: caddy:2-alpine
@@ -155,3 +172,4 @@ networks:
     internal: true
   frontend:
   workers:
+  functions:

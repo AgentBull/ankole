@@ -64,7 +64,6 @@ impl DocNode {
             content,
         }
     }
-    #[cfg(test)]
     pub fn json(&self) -> Value {
         let mut result = serde_json::Map::new();
         result.insert("type".into(), json!(self.kind));

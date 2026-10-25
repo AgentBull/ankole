@@ -6,8 +6,9 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   def call(context, %Ankole.AuthZ.Actor{} = actor, operation, args) do
     authority = actor.turn_authority
+    write? = operation in ["db.write", "file.write"]
 
-    if context["method"] == "GET" and operation in ["db.write", "file.write"] do
+    if context["method"] == "GET" and write? do
       error(:read_only_route)
     else
       outcome =
@@ -72,7 +73,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
        ]) do
     with {:ok, bytes} <- Base.decode64(encoded),
          true <- byte_size(bytes) <= Ankole.WorkerFiles.max_transfer_bytes(),
-         {:ok, page} <- Pages.authorize(actor, id, "page_edit"),
+         {:ok, page} <- Pages.authorize(actor, id, "page_view"),
          {:ok, role} <- upload_role(page.type),
          {:ok, result} <-
            Files.upload(
@@ -86,7 +87,12 @@ defmodule Ankole.Pod.Applets.Capabilities do
              authority
            ) do
       {:ok,
-       Map.merge(file_entry(id, result.file), %{pageId: result.page_id, revision: result.revision})
+       Map.merge(file_entry(id, result.file), %{
+         pageId: result.page_id,
+         revision: result.revision,
+         name: name,
+         mime: result.file.content_type || "application/octet-stream"
+       })
        |> then(fn entry -> if result[:src], do: Map.put(entry, :url, result.src), else: entry end)}
     else
       false -> {:error, :file_too_large}

@@ -2,11 +2,14 @@ defmodule Ankole.AuthZ.Checks.PodAnchorFilter do
   @moduledoc false
   @behaviour Ankole.AuthZ.Check
   import Ash.Expr
+  import Bitwise
 
-  def check(actor, _query) do
+  def check(actor, query) do
     with :ok <- Ankole.Repo.require_transaction(),
          {:ok, reachable} <- Ankole.Pod.Access.Graph.reachable_anchors(actor) do
-      {containers, pages} = Ankole.Pod.Access.Graph.visibility_ids(reachable)
+      required_action = Ash.Query.get_argument(query, :required_action) || :page_view
+      required_bits = bor(1, Ankole.Pod.Access.Graph.action_bit(to_string(required_action)))
+      {containers, pages} = Ankole.Pod.Access.Graph.visibility_ids(reachable, required_bits)
 
       {:ok,
        %{
@@ -25,13 +28,10 @@ defmodule Ankole.AuthZ.Checks.PodAnchorFilter do
       # The anchor is the page itself exactly when their IDs are equal.
       page = %{page | is_acl_anchor: page.id == page.acl_anchor_id}
 
-      %{
-        page
-        | role:
-            Ankole.Pod.Access.Graph.role_for_actions(
-              Ankole.Pod.Access.Graph.page_bits(page, reachable)
-            )
-      }
+      Ankole.Pod.Access.Graph.project_permissions(
+        page,
+        Ankole.Pod.Access.Graph.page_bits(page, reachable)
+      )
     end)
   end
 end

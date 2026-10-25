@@ -80,6 +80,7 @@ export type ViewProps = {
   records: DatabaseRecord[]
   view: ConfiguredView
   editable: boolean
+  schemaEditable: boolean
   pending?: boolean
   update(id: string, data: RecordData, expected: Versions): Promise<unknown>
   remove(id: string, expected: Versions): Promise<unknown>
@@ -170,7 +171,7 @@ function GridView(props: ViewProps) {
                       tableID={props.tableID}
                       pageID={props.pageID}
                       tables={props.tables}
-                      canManage={props.editable}
+                      canManage={props.schemaEditable}
                     />
                   </div>
                 </TableHead>
@@ -181,7 +182,7 @@ function GridView(props: ViewProps) {
                 tableID={props.tableID}
                 pageID={props.pageID}
                 tables={props.tables}
-                canManage={props.editable}
+                canManage={props.schemaEditable}
               />
             </TableHead>
           </TableRow>
@@ -591,7 +592,7 @@ function GalleryView(props: ViewProps) {
   )
 }
 
-export function RecordForm(props: Pick<ViewProps, 'fields' | 'pageID' | 'create'> & { close(): void }) {
+export function RecordForm(props: Pick<ViewProps, 'fields' | 'pageID' | 'create' | 'editable'> & { close(): void }) {
   useSignals()
   const model = useModel(RecordFormModel)
   // Read before the map so React Compiler tracks the signal values in its cache.
@@ -610,8 +611,7 @@ export function RecordForm(props: Pick<ViewProps, 'fields' | 'pageID' | 'create'
       }}
       onSubmit={event => {
         event.preventDefault()
-        if (model.pending.value || model.uploading.value.size) return
-        ;(document.activeElement as HTMLElement | null)?.blur()
+        if (!props.editable || model.pending.value || model.uploading.value.size) return
         void model.submit(props.create)
       }}>
       <div className="pod-dialog-body grid gap-5">
@@ -624,13 +624,15 @@ export function RecordForm(props: Pick<ViewProps, 'fields' | 'pageID' | 'create'
                 pageID={props.pageID}
                 field={field}
                 value={values[field.id] ?? null}
-                disabled={pending}
+                commitOnChange
+                disabled={pending || !props.editable}
                 onPendingChange={active => model.upload(field.id, active)}
                 onChange={value => model.change(field.id, value)}
               />
             </div>
           ))}
         <ContentError error={model.error.value} />
+        {!props.editable && <p role="status">{t('pod.errors.forbidden')}</p>}
         {!!model.uploading.value.size && (
           <p role="status">{t('pod.content.attachments_are_uploading_wait_before_submitting')}</p>
         )}
@@ -639,7 +641,10 @@ export function RecordForm(props: Pick<ViewProps, 'fields' | 'pageID' | 'create'
         <Button type="button" variant="ghost" disabled={model.pending.value} onClick={props.close}>
           {t('pod.content.cancel')}
         </Button>
-        <Button variant="outline" type="submit" disabled={model.pending.value || !!model.uploading.value.size}>
+        <Button
+          variant="outline"
+          type="submit"
+          disabled={!props.editable || model.pending.value || !!model.uploading.value.size}>
           {model.pending.value ? t('pod.content.submitting') : t('pod.content.submit_record')}
         </Button>
       </DialogFooter>

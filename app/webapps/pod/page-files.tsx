@@ -30,7 +30,7 @@ export async function uploadPageFile(
 }
 
 export function FilePage({ detail }: { detail: PageDetail }) {
-  const { page, role } = detail
+  const { page, actions } = detail
   const manifest = useQuery(filesQuery(page.id))
   const [selected, setSelected] = useState<File>()
   const input = useRef<HTMLInputElement>(null)
@@ -74,7 +74,7 @@ export function FilePage({ detail }: { detail: PageDetail }) {
             {name} · {Math.ceil(file.size / 1024)} KB
           </span>
         )}
-        {role !== 'view' && (
+        {actions.includes('page_edit') && (
           <form
             className="flex min-w-0 flex-wrap items-center gap-2"
             onSubmit={event => {

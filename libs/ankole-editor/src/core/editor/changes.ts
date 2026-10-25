@@ -78,7 +78,7 @@ export function separateChange(changes: Changes, fromB: number, toB: number) {
     } else {
       if (ins >= 0) {
         if (posB < fromB || endB > toB) return null
-        dLen = len - ins
+        dLen += len - ins
       }
       if (posB < fromB) result.push(fromB - posB, ins)
       if (!done) {

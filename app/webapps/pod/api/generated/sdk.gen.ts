@@ -3,12 +3,18 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  AnswerConversationInteractionData,
+  AnswerConversationInteractionErrors,
+  AnswerConversationInteractionResponses,
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
   ConversationDetailData,
   ConversationDetailErrors,
   ConversationDetailResponses,
+  ConversationExecutionData,
+  ConversationExecutionErrors,
+  ConversationExecutionResponses,
   CreateConversationData,
   CreateConversationErrors,
   CreateConversationResponses,
@@ -42,6 +48,9 @@ import type {
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
+  PodChatTeammatesData,
+  PodChatTeammatesErrors,
+  PodChatTeammatesResponses,
   PodConversationsData,
   PodConversationsErrors,
   PodConversationsResponses,
@@ -69,6 +78,9 @@ import type {
   PodDatabaseTableCreateData,
   PodDatabaseTableCreateErrors,
   PodDatabaseTableCreateResponses,
+  PodDatabaseTableDeleteData,
+  PodDatabaseTableDeleteErrors,
+  PodDatabaseTableDeleteResponses,
   PodDatabaseTablesData,
   PodDatabaseTablesErrors,
   PodDatabaseTablesResponses,
@@ -201,9 +213,15 @@ import type {
   UnbindPodMemberCredentialData,
   UnbindPodMemberCredentialErrors,
   UnbindPodMemberCredentialResponses,
+  UpdateConversationData,
+  UpdateConversationErrors,
+  UpdateConversationParticipantsData,
+  UpdateConversationParticipantsErrors,
+  UpdateConversationParticipantsResponses,
   UpdateConversationQueueData,
   UpdateConversationQueueErrors,
   UpdateConversationQueueResponses,
+  UpdateConversationResponses,
   UpdatePodAdminSettingsData,
   UpdatePodAdminSettingsErrors,
   UpdatePodAdminSettingsResponses,
@@ -231,6 +249,24 @@ export type Options<
 }
 
 /**
+ * podDatabaseTableDelete operation on pod_database_operation resource
+ */
+export const podDatabaseTableDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodDatabaseTableDeleteData, ThrowOnError>
+): RequestResult<PodDatabaseTableDeleteResponses, PodDatabaseTableDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    PodDatabaseTableDeleteResponses,
+    PodDatabaseTableDeleteErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}',
+    ...options
+  })
+
+/**
  * podDatabaseSchema operation on pod_database_operation resource
  */
 export const podDatabaseSchema = <ThrowOnError extends boolean = true>(
@@ -241,6 +277,28 @@ export const podDatabaseSchema = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}',
     ...options
+  })
+
+/**
+ * updateConversationParticipants operation on pod_chat_operation resource
+ */
+export const updateConversationParticipants = <ThrowOnError extends boolean = true>(
+  options: Options<UpdateConversationParticipantsData, ThrowOnError>
+): RequestResult<UpdateConversationParticipantsResponses, UpdateConversationParticipantsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    UpdateConversationParticipantsResponses,
+    UpdateConversationParticipantsErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/participants',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -417,6 +475,45 @@ export const conversationDetail = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * updateConversation operation on pod_chat_operation resource
+ */
+export const updateConversation = <ThrowOnError extends boolean = true>(
+  options: Options<UpdateConversationData, ThrowOnError>
+): RequestResult<UpdateConversationResponses, UpdateConversationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<UpdateConversationResponses, UpdateConversationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * answerConversationInteraction operation on pod_chat_operation resource
+ */
+export const answerConversationInteraction = <ThrowOnError extends boolean = true>(
+  options: Options<AnswerConversationInteractionData, ThrowOnError>
+): RequestResult<AnswerConversationInteractionResponses, AnswerConversationInteractionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    AnswerConversationInteractionResponses,
+    AnswerConversationInteractionErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/answer',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * changePodMembership operation on pod_admin_operation resource
  */
 export const changePodMembership = <ThrowOnError extends boolean = true>(
@@ -507,6 +604,19 @@ export const podFiles = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podChatTeammates operation on pod_chat_operation resource
+ */
+export const podChatTeammates = <ThrowOnError extends boolean = true>(
+  options?: Options<PodChatTeammatesData, ThrowOnError>
+): RequestResult<PodChatTeammatesResponses, PodChatTeammatesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodChatTeammatesResponses, PodChatTeammatesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/teammates',
+    ...options
+  })
+
+/**
  * verifyPodEmailBinding operation on pod_member_account resource
  */
 export const verifyPodEmailBinding = <ThrowOnError extends boolean = true>(
@@ -550,6 +660,19 @@ export const podAgents = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/agents',
+    ...options
+  })
+
+/**
+ * conversationExecution operation on pod_chat_operation resource
+ */
+export const conversationExecution = <ThrowOnError extends boolean = true>(
+  options: Options<ConversationExecutionData, ThrowOnError>
+): RequestResult<ConversationExecutionResponses, ConversationExecutionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<ConversationExecutionResponses, ConversationExecutionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}',
     ...options
   })
 

@@ -94,22 +94,23 @@ test('people and Agent-authored content follow the real Pod persistence, permiss
     await expect(member.getByRole('spinbutton', { name: 'Amount', exact: true })).toHaveCount(2)
 
     await viewer.goto(state.base_url + route(state.applet_id))
-    await expect(viewer.getByRole('heading', { name: 'Tracker v1', exact: true })).toBeVisible()
-    await viewer.getByRole('button', { name: 'Add sample', exact: true }).click()
-    await expect(viewer.getByRole('alert')).toContainText('Write rejected')
+    await expect(viewer.frameLocator('iframe').getByRole('heading', { name: 'Tracker v1', exact: true })).toBeVisible()
+    await expect(viewer.frameLocator('iframe').getByRole('button', { name: 'Add sample', exact: true })).toBeDisabled()
     await owner.goto(state.base_url + route(state.applet_id))
-    await expect(owner.getByRole('heading', { name: 'Tracker v1', exact: true })).toBeVisible()
-    await owner.getByRole('button', { name: 'Add sample', exact: true }).click()
-    await expect(owner.locator('.applet-record-count')).toHaveText('3 records')
-    await expect(viewer.locator('.applet-record-count')).toHaveText('3 records')
+    await expect(owner.frameLocator('iframe').getByRole('heading', { name: 'Tracker v1', exact: true })).toBeVisible()
+    await owner.frameLocator('iframe').getByRole('button', { name: 'Add sample', exact: true }).click()
+    await expect(owner.frameLocator('iframe').locator('.applet-record-count')).toHaveText('3 records')
+    await expect(viewer.frameLocator('iframe').locator('.applet-record-count')).toHaveText('3 records')
     const applet = await request<{ page: { revision: number } }>(owner, `/pages/${state.applet_id}`)
     await request(owner, `/pages/${state.applet_id}/publish`, 'POST', {
       base_revision: applet.page.revision,
       files: state.publish_v2_files
     })
-    await expect(owner.getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
-    await expect(viewer.getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
-    await expect(owner.getByRole('button', { name: 'Local counter 0', exact: true })).toBeVisible()
+    await expect(owner.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
+    await expect(viewer.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
+    await expect(
+      owner.frameLocator('iframe').getByRole('button', { name: 'Local counter 0', exact: true })
+    ).toBeVisible()
 
     await owner.goto(state.base_url + route(state.report_id))
     const report = await request<{ page: { revision: number } }>(owner, `/pages/${state.report_id}`)
@@ -117,10 +118,14 @@ test('people and Agent-authored content follow the real Pod persistence, permiss
       base_revision: report.page.revision,
       xml: `<page><p>Published report</p><embed ref="${state.applet_id}"/><embed ref="${state.applet_id}"/></page>`
     })
-    await expect(owner.getByRole('heading', { name: 'Tracker v2', exact: true })).toHaveCount(2)
-    await owner.getByRole('button', { name: 'Local counter 0', exact: true }).first().click()
-    await expect(owner.getByRole('button', { name: 'Local counter 1', exact: true })).toHaveCount(1)
-    await expect(owner.getByRole('button', { name: 'Local counter 0', exact: true })).toHaveCount(1)
+    await expect(owner.locator('iframe')).toHaveCount(2)
+    await owner.frameLocator('iframe').first().getByRole('button', { name: 'Local counter 0', exact: true }).click()
+    await expect(
+      owner.frameLocator('iframe').first().getByRole('button', { name: 'Local counter 1', exact: true })
+    ).toBeVisible()
+    await expect(
+      owner.frameLocator('iframe').nth(1).getByRole('button', { name: 'Local counter 0', exact: true })
+    ).toBeVisible()
     await request(owner, `/pages/${state.report_id}/sharing`, 'PUT', {
       inherit_permissions: false,
       grants: [
@@ -381,14 +386,15 @@ test('a large business table uses global groups and per-group paging across its 
   await owner.clock.setFixedTime(new Date('2026-10-19T12:00:00Z'))
   try {
     await owner.goto(state.base_url + route(state.report_id))
+    const title = `Large workflow ${crypto.randomUUID()}`
     const { page } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       type: 'database',
-      title: 'Large workflow',
+      title,
       parent_id: state.report_id
     })
-    const { table } = await request<{ table: { id: string } }>(owner, `/databases/${page.id}/tables`, 'POST', {
-      name: 'Large sales'
-    })
+    const { tables } = await request<{ tables: { id: string }[] }>(owner, `/databases/${page.id}`)
+    expect(tables).toHaveLength(1)
+    const table = tables[0]!
     const schema = await request<{ fields: { id: string; is_primary: boolean }[] }>(owner, `/tables/${table.id}`)
     const primary = schema.fields.find(field => field.is_primary)!.id
     const addField = async (name: string, type: string, config = {}) =>
@@ -461,10 +467,10 @@ test('a large business table uses global groups and per-group paging across its 
     await expect(owner.getByRole('button', { name: '下一页', exact: true })).toBeVisible()
     await owner.goto(state.base_url + route(state.report_id))
     await documentAction(owner, '引用已有页面')
-    await choose(owner, '选择页面', 'Large workflow', 'Browser report')
+    await choose(owner, '选择页面', title)
     const inline = content(owner)
       .locator('.embed')
-      .filter({ has: owner.getByRole('button', { name: 'Large workflow', exact: true }) })
+      .filter({ has: owner.getByRole('button', { name: title, exact: true }) })
     await inline.getByRole('button', { name: '筛选与排序', exact: true }).click()
     await owner.getByRole('button', { name: '添加筛选条件', exact: true }).click()
     await choose(owner, '筛选字段', 'Status')

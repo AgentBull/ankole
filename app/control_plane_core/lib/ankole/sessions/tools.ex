@@ -138,7 +138,8 @@ defmodule Ankole.Sessions.Tools do
   def interrupted,
     do:
       error(
-        "Tool execution was interrupted; its result is unknown. Do not repeat a side effect without checking its authoritative state."
+        "Tool execution was interrupted; its result is unknown. Do not repeat a side effect without checking its authoritative state.",
+        "interrupted"
       )
 
   # Ash error classes: an invalid input gives its validation details; a

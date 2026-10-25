@@ -1,0 +1,94 @@
+diff --git a/crates/base/src/worker/supervisor/mod.rs b/crates/base/src/worker/supervisor/mod.rs
+--- a/crates/base/src/worker/supervisor/mod.rs
++++ b/crates/base/src/worker/supervisor/mod.rs
+@@ -161,7 +161,9 @@
+     )
+   });
+ 
++  let memory_limit_cause = mem_check_state.clone();
+   let send_memory_limit_fn = move |kind: &'static str| {
++    memory_limit_cause.write().unwrap().exceeded = true;
+     log::debug!("memory limit triggered: isolate: {:?}, kind: {}", key, kind);
+ 
+     if memory_limit_tx.send(()).is_err() {
+diff --git a/crates/base/src/worker/pool.rs b/crates/base/src/worker/pool.rs
+--- a/crates/base/src/worker/pool.rs
++++ b/crates/base/src/worker/pool.rs
+@@ -578,6 +578,7 @@
+         let exit = worker.exit.clone();
+         let cancel = worker.cancel.clone();
+         let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
++        let mem_check = profile.mem_check.clone();
+ 
+         if profile.status.is_retired.is_raised() {
+           if res_tx
+@@ -655,6 +656,11 @@
+               Ok(req) => Ok((req, req_end_tx)),
+               Err(err) => {
+                 let _ = req_end_tx.send(());
++                let err = if mem_check.read().unwrap().exceeded {
++                  anyhow!(WorkerError::MemoryLimitExceeded)
++                } else {
++                  err
++                };
+                 error!(
+                   "failed to send request to user worker: {}",
+                   err.to_string()
+diff --git a/ext/workers/errors.rs b/ext/workers/errors.rs
+--- a/ext/workers/errors.rs
++++ b/ext/workers/errors.rs
+@@ -4,6 +4,8 @@
+ pub enum WorkerError {
+   #[error("request has been cancelled by supervisor")]
+   RequestCancelledBySupervisor,
++  #[error("worker exceeded memory limit")]
++  MemoryLimitExceeded,
+   #[error("request cannot be handled because the worker has already retired")]
+   WorkerAlreadyRetired,
+   #[error("request timed out")]
+diff --git a/ext/workers/lib.rs b/ext/workers/lib.rs
+--- a/ext/workers/lib.rs
++++ b/ext/workers/lib.rs
+@@ -635,6 +635,12 @@
+         Some(err @ WorkerError::RequestCancelledBySupervisor) => {
+           return Err(custom_error("WorkerRequestCancelled", err.to_string()));
+         }
++        Some(err @ WorkerError::MemoryLimitExceeded) => {
++          return Err(custom_error(
++            "WorkerMemoryLimitExceeded",
++            err.to_string(),
++          ));
++        }
+         Some(err @ WorkerError::WorkerAlreadyRetired) => {
+           return Err(custom_error("WorkerAlreadyRetired", err.to_string()));
+         }
+diff --git a/ext/runtime/js/errors.js b/ext/runtime/js/errors.js
+--- a/ext/runtime/js/errors.js
++++ b/ext/runtime/js/errors.js
+@@ -28,6 +28,7 @@
+ const InvalidWorkerResponse = buildErrorClass("InvalidWorkerResponse");
+ const InvalidWorkerCreation = buildErrorClass("InvalidWorkerCreation");
+ const WorkerRequestCancelled = buildErrorClass("WorkerRequestCancelled");
++const WorkerMemoryLimitExceeded = buildErrorClass("WorkerMemoryLimitExceeded");
+ const WorkerAlreadyRetired = buildErrorClass("WorkerAlreadyRetired");
+ const WorkerRequestIdleTimeout = buildErrorClass("WorkerRequestIdleTimeout");
+ const NotFound = buildErrorClass("NotFound");
+@@ -78,6 +79,7 @@
+   core.registerErrorClass("InvalidWorkerResponse", InvalidWorkerResponse);
+   core.registerErrorClass("InvalidWorkerCreation", InvalidWorkerCreation);
+   core.registerErrorClass("WorkerRequestCancelled", WorkerRequestCancelled);
++  core.registerErrorClass("WorkerMemoryLimitExceeded", WorkerMemoryLimitExceeded);
+   core.registerErrorClass("WorkerAlreadyRetired", WorkerAlreadyRetired);
+   core.registerErrorClass("WorkerRequestIdleTimeout", WorkerRequestIdleTimeout);
+   core.registerErrorClass("NotFound", NotFound);
+diff --git a/types/global.d.ts b/types/global.d.ts
+--- a/types/global.d.ts
++++ b/types/global.d.ts
+@@ -309,6 +309,7 @@
+ declare namespace Deno {
+   export namespace errors {
+     class WorkerRequestCancelled extends Error {}
++    class WorkerMemoryLimitExceeded extends Error {}
+     class WorkerAlreadyRetired extends Error {}
+     class WorkerRequestIdleTimeout extends Error {}
+ 

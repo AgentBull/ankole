@@ -210,6 +210,59 @@ defmodule AnkoleWeb.Assets do
     |> then(fn {files, seen} -> {files |> Enum.reverse() |> Enum.uniq(), seen} end)
   end
 
+  @doc "Returns the import map and shared styles for an Applet document."
+  def applet_frame_tags do
+    entries = %{
+      "react" => "react",
+      "react/jsx-runtime" => "react-jsx-runtime",
+      "react/jsx-dev-runtime" => "react-jsx-dev-runtime",
+      "react-dom" => "react-dom",
+      "react-dom/client" => "react-dom-client",
+      "@ankole/uikit" => "uikit",
+      "@ankole/applet-sdk" => "applet-sdk"
+    }
+
+    case dev_server() do
+      nil ->
+        manifest = read_manifest()
+
+        chunks =
+          Map.new(entries, fn {name, entry} ->
+            {name, Map.fetch!(manifest, "entrypoints/applet-vendor/" <> entry <> ".ts")}
+          end)
+
+        imports =
+          Map.new(chunks, fn {name, chunk} ->
+            {name, IO.iodata_to_binary(asset_path(chunk["file"]))}
+          end)
+
+        css = chunks |> Map.values() |> Enum.flat_map(&manifest_css(&1, manifest)) |> Enum.uniq()
+
+        [
+          ~s(<script type="importmap">),
+          Torque.encode!(%{imports: imports}),
+          "</script>",
+          Enum.map(css, &stylesheet_tag/1)
+        ]
+
+      server ->
+        server = String.trim_trailing(server, "/")
+
+        imports =
+          Map.new(entries, fn {name, entry} ->
+            {name, server <> "/entrypoints/applet-vendor/" <> entry <> ".ts"}
+          end)
+
+        [
+          ~s(<script type="importmap">),
+          Torque.encode!(%{imports: imports}),
+          "</script>",
+          react_refresh_preamble_tag(server),
+          module_script_tag(server <> "/@vite/client")
+        ]
+    end
+  end
+
   def directory, do: Application.fetch_env!(:ankole, :webapp_assets_path)
 
   defp manifest_path do

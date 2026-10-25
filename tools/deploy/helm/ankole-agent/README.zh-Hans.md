@@ -59,14 +59,16 @@ kubectl create namespace ankole
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"
 RELEASE_COOKIE="$(openssl rand -hex 32)"
+ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"
 
 kubectl -n ankole create secret generic ankole-bootstrap \
   --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
   --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \
   --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \
+  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \
   --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"
 
-unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE
+unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN
 ```
 
 创建 `values-production.yaml`：
@@ -155,13 +157,15 @@ ORDER BY name;
 ```sh
 ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"
 RELEASE_COOKIE="$(openssl rand -hex 32)"
+ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"
 
 kubectl -n ankole create secret generic ankole-bootstrap \
   --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \
   --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \
+  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \
   --from-literal="DATABASE_URL=ecto://ankole:REPLACE_ME@postgres.example.com:5432/ankole"
 
-unset ANKOLE_SECRET_BASE RELEASE_COOKIE
+unset ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN
 ```
 
 在 `values-production.yaml` 中设置：
@@ -175,6 +179,13 @@ postgresql:
 ```
 
 然后执行与内置数据库方案相同的 Helm 安装命令。
+
+`functionRuntime.image` 指定与控制面同版本的函数服务镜像。Headless Service
+只向控制面提供已就绪的副本。函数 Pod 不持有数据库凭据或 ServiceAccount 令牌。
+集群必须执行 NetworkPolicy；`functionRuntime.deniedCIDRs` 必须包含部署使用的
+内网网段，以及控制面和数据库的公网地址。策略仅允许控制面入站和公网出站。
+Chart 自动生成并保留内部函数令牌。使用 `secrets.existingSecret` 时，Secret 必须
+包含 `ANKOLE_FUNCTION_RUNTIME_TOKEN`。
 
 ## 首次设置
 
@@ -206,7 +217,7 @@ Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API
 
 只支持从 v0.70.0 或更高版本直接升级。不支持从更早的版本升级。
 
-默认固定控制面 `2.0.0-alpha.5` 和 `values.yaml` 中的 PostgreSQL digest。
+默认固定控制面 `2.0.0-alpha.24` 和 `values.yaml` 中的 PostgreSQL digest。
 这是预发布版本。请使用同一发布版本的部署文件和镜像；`main-latest` 可能指向
 启动契约不同的旧版本。受控生产升级前，解析并记录控制面 digest：
 
@@ -388,7 +399,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 | 配置 | 默认值 | 用途 |
 | --- | --- | --- |
 | `secrets.existingSecret` | 空 | 已有 bootstrap Secret |
-| `controlPlane.image.tag` | `2.0.0-alpha.5` | 不可变的已发布版本 |
+| `controlPlane.image.tag` | `2.0.0-alpha.24` | 不可变的已发布版本 |
 | `controlPlane.image.digest` | 空 | 固定控制面镜像 |
 | `controlPlane.publicHost` | `ankole.example.com` | Phoenix 对外域名 |
 | `worker.image.digest` | 空 | 显式覆盖 Worker 镜像时使用的 digest |
@@ -416,6 +427,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 设置 `secrets.existingSecret` 后，Secret 必须包含：
 
 - `ANKOLE_SECRET_BASE`
+- `ANKOLE_FUNCTION_RUNTIME_TOKEN`
 - `DATABASE_URL`
 - `RELEASE_COOKIE`，控制面节点的 Erlang distribution cookie
 - 使用内置 PostgreSQL 时还需要 `POSTGRES_PASSWORD`

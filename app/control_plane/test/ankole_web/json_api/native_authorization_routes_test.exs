@@ -161,10 +161,20 @@ defmodule AnkoleWeb.JSONAPI.NativeAuthorizationRoutesTest do
       Map.new(Regex.scan(~r/\{(\w+)\}/, path), fn [_, key] ->
         argument = Enum.find(action.arguments, &(to_string(&1.name) == key))
 
+        parameter =
+          Enum.find(operation["parameters"] || [], &(&1["in"] == "path" && &1["name"] == key))
+
         value =
-          if argument && argument.type == Ash.Type.Integer,
-            do: to_string(Keyword.get(argument.constraints, :min, 1)),
-            else: target(key, actor)
+          cond do
+            parameter && parameter["schema"]["enum"] ->
+              to_string(sample(parameter["schema"], spec))
+
+            argument && argument.type == Ash.Type.Integer ->
+              to_string(Keyword.get(argument.constraints, :min, 1))
+
+            true ->
+              target(key, actor)
+          end
 
         {key, value}
       end)

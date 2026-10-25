@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.Participant do
-  @moduledoc "A Principal's immutable membership of one shared conversation."
+  @moduledoc "A room member or viewer and that Principal's personal preferences."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
@@ -38,8 +38,19 @@ defmodule Ankole.Conversations.Participant do
     )
 
     attribute(:role, :atom,
-      constraints: [one_of: [:owner, :member, :agent]],
+      constraints: [one_of: [:owner, :member, :agent, :observer]],
       allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:may_intervene, :boolean, default: false, allow_nil?: false, public?: true)
+    attribute(:pinned_at, :utc_datetime_usec, public?: true)
+    attribute(:muted, :boolean, default: false, allow_nil?: false, public?: true)
+
+    attribute(:last_read_seq, :integer,
+      default: 0,
+      allow_nil?: false,
+      constraints: [min: 0],
       public?: true
     )
   end
@@ -47,8 +58,26 @@ defmodule Ankole.Conversations.Participant do
   actions do
     defaults([:read])
 
+    update :participate do
+      accept([])
+      change(set_attribute(:role, :member))
+    end
+
+    update :update_preferences do
+      accept([:pinned_at, :muted, :last_read_seq])
+    end
+
+    update :set_may_intervene do
+      accept([:may_intervene])
+      validate(attribute_equals(:role, :agent))
+    end
+
+    destroy :leave do
+      require_atomic?(true)
+    end
+
     create_if_absent :join do
-      accept([:conversation_id, :principal_uid, :role])
+      accept([:conversation_id, :principal_uid, :role, :may_intervene])
     end
   end
 end

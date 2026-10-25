@@ -520,6 +520,14 @@ defmodule Ankole.Sessions.Turn do
         {turn, []}
 
       entry ->
+        result =
+          if is_integer(entry.started_at) and not entry.probe? and is_nil(result.duration_ms),
+            do: %{
+              result
+              | duration_ms: max(System.monotonic_time(:millisecond) - entry.started_at, 0)
+            },
+            else: result
+
         events =
           if entry.tool && entry.tool.executor != :worker do
             phase = if result.is_error == true, do: "failed", else: "completed"

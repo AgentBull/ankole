@@ -1,5 +1,7 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { uploadAttachment } from '../api'
+import { InternalAPIError } from '../../common/internal-api-client'
+import { requestErrorCode } from '../../common/request-errors'
 
 export type AttachmentDraft = {
   id: string
@@ -76,6 +78,11 @@ export const ChatAttachments = createModel((upload: Upload = uploadAttachment) =
       batch(() => {
         for (const id of ids) update(id, { state: 'failed', receipt: undefined })
       })
+    },
+    rejected(error: unknown, ids: string[] = []) {
+      if (error instanceof InternalAPIError && requestErrorCode(error.payload) === 'attachment_expired') {
+        this.expired(ids)
+      }
     },
     dispose() {
       for (const file of files.peek()) remove(file.id)

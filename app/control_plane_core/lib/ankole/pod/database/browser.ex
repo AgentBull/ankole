@@ -10,6 +10,7 @@ defmodule Ankole.Pod.Database.Browser do
     scope(:pod)
     allow(:tables, check: :guardrail)
     allow(:create_table, check: :guardrail)
+    allow(:delete_table, check: :guardrail)
     allow(:show, check: :guardrail)
     allow(:query, check: :guardrail)
     allow(:aggregate, check: :guardrail)
@@ -115,6 +116,16 @@ defmodule Ankole.Pod.Database.Browser do
 
       run(fn input, context ->
         Database.create_table(context.actor, input.arguments.page_id, attrs(input))
+        |> APIError.result(&%{table: &1})
+      end)
+    end
+
+    action :delete_table, :map do
+      constraints(fields: [table: @table])
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        Database.delete_table(context.actor, input.arguments.id)
         |> APIError.result(&%{table: &1})
       end)
     end

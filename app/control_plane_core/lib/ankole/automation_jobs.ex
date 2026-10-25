@@ -21,6 +21,7 @@ defmodule Ankole.AutomationJobs do
   alias Ankole.AutomationJobs.Schemas.Run
   alias Ankole.AgentWorkers
   alias Ankole.Ecto.JSONPayload
+  alias Ankole.PrincipalKey
   alias Ankole.Repo
   alias Ankole.Conversations.Route
   alias Ankole.Text
@@ -63,6 +64,14 @@ defmodule Ankole.AutomationJobs do
     resource(Run)
   end
 
+  defdelegate authorize_attempt_actor(attempt, ctx),
+    to: Ankole.AutomationJobs.AttemptAccess,
+    as: :authorize_actor
+
+  defdelegate authorize_attempt_actor_in_tx(ref, ctx),
+    to: Ankole.AutomationJobs.AttemptAccess,
+    as: :authorize_actor_in_tx
+
   @doc """
   Counts, in every tenant, the running Runs of the automation jobs that one
   Human authorized with an access version older than `version`.
@@ -97,9 +106,9 @@ defmodule Ankole.AutomationJobs do
 
   @doc false
   def create_job_in_tx(attrs) do
-    attrs = Ankole.Principals.WorkAccess.inherit(normalize_agent_uid(attrs))
-
-    with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+    with {:ok, attrs} <- normalize_agent_uid(attrs),
+         attrs = Ankole.Principals.WorkAccess.inherit(attrs),
+         :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
          changeset = Ankole.Ash.for_create(Job, :create, attrs),
          :ok <- require_script_in_drive(changeset) do
       Ankole.Ash.create(changeset)
@@ -145,8 +154,10 @@ defmodule Ankole.AutomationJobs do
   defp maybe_where_agent(query, nil), do: query
 
   defp maybe_where_agent(query, agent_uid) do
-    agent_uid = String.downcase(agent_uid)
-    Ash.Query.filter(query, agent_uid == ^agent_uid)
+    case PrincipalKey.normalize(agent_uid) do
+      {:ok, agent_uid} -> Ash.Query.filter(query, agent_uid == ^agent_uid)
+      {:error, :invalid_uid} -> Ash.Query.filter(query, false)
+    end
   end
 
   @doc """
@@ -154,19 +165,19 @@ defmodule Ankole.AutomationJobs do
   `owner_session_id` accepts any session of the Agent.
   """
   @spec get_job(String.t(), String.t() | nil, pos_integer()) ::
-          {:ok, Job.t()} | {:error, :automation_job_not_found}
+          {:ok, Job.t()} | {:error, :automation_job_not_found | :invalid_uid}
   def get_job(agent_uid, owner_session_id, job_id)
       when is_binary(agent_uid) and (is_binary(owner_session_id) or is_nil(owner_session_id)) and
              Ankole.ModelIntegerID.valid?(job_id) do
-    agent_uid = String.downcase(agent_uid)
-
-    Job
-    |> Ash.Query.filter(id == ^job_id and agent_uid == ^agent_uid)
-    |> maybe_where_owner_session(owner_session_id)
-    |> Ankole.Ash.read_one()
-    |> case do
-      {:ok, %Job{} = job} -> {:ok, job}
-      {:ok, nil} -> {:error, :automation_job_not_found}
+    with {:ok, agent_uid} <- PrincipalKey.normalize(agent_uid) do
+      Job
+      |> Ash.Query.filter(id == ^job_id and agent_uid == ^agent_uid)
+      |> maybe_where_owner_session(owner_session_id)
+      |> Ankole.Ash.read_one()
+      |> case do
+        {:ok, %Job{} = job} -> {:ok, job}
+        {:ok, nil} -> {:error, :automation_job_not_found}
+      end
     end
   end
 
@@ -198,6 +209,12 @@ defmodule Ankole.AutomationJobs do
 
   @doc false
   def cancel_job_in_tx(agent_uid, owner_session_id, job_id, now) do
+    with {:ok, agent_uid} <- PrincipalKey.normalize(agent_uid) do
+      cancel_owned_job_in_tx(agent_uid, owner_session_id, job_id, now)
+    end
+  end
+
+  defp cancel_owned_job_in_tx(agent_uid, owner_session_id, job_id, now) do
     case lock_owned_job(agent_uid, owner_session_id, job_id) do
       %Job{status: :active} = job ->
         job_id = job.id
@@ -227,19 +244,19 @@ defmodule Ankole.AutomationJobs do
 
   def validate_bindable_in_tx(job_id, agent_uid)
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
-    normalized_agent_uid = String.downcase(agent_uid)
+    with {:ok, agent_uid} <- PrincipalKey.normalize(agent_uid) do
+      case lock_job_in_tx(job_id) do
+        %Job{agent_uid: ^agent_uid} = job ->
+          if job.status == :active,
+            do: :ok,
+            else: {:error, {:automation_job_not_active, job.status}}
 
-    case lock_job_in_tx(job_id) do
-      %Job{agent_uid: owner_uid} = job when owner_uid == normalized_agent_uid ->
-        if job.status == :active,
-          do: :ok,
-          else: {:error, {:automation_job_not_active, job.status}}
+        %Job{} ->
+          {:error, :automation_job_not_owned}
 
-      %Job{} ->
-        {:error, :automation_job_not_owned}
-
-      nil ->
-        {:error, :automation_job_not_found}
+        nil ->
+          {:error, :automation_job_not_found}
+      end
     end
   end
 
@@ -266,10 +283,11 @@ defmodule Ankole.AutomationJobs do
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_map(event) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+    with {:ok, agent_uid} <- PrincipalKey.normalize(agent_uid),
+         :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(Job, job_id),
          %Job{} = job <- lock_job_in_tx(job_id),
-         true <- job.agent_uid == String.downcase(agent_uid),
+         true <- job.agent_uid == agent_uid,
          {:ok, event} <- normalize_event(event) do
       enqueue_for_status(job, event, now, opts)
     else
@@ -551,9 +569,10 @@ defmodule Ankole.AutomationJobs do
 
   @doc false
   def emit_event_in_tx(agent_uid, run_id, attempt_id, payload, now) do
-    with {%Job{} = job, %Run{} = run} <- lock_job_run(run_id),
+    with {:ok, agent_uid} <- PrincipalKey.normalize(agent_uid),
+         {%Job{} = job, %Run{} = run} <- lock_job_run(run_id),
          true <- active_attempt?(run, attempt_id),
-         true <- job.agent_uid == String.downcase(agent_uid),
+         true <- job.agent_uid == agent_uid,
          {:ok, payload} <- normalize_emitted_payload(payload),
          {:ok, signal} <-
            append_owner_event(job, "automation_job.emitted", now, %{
@@ -816,8 +835,6 @@ defmodule Ankole.AutomationJobs do
   end
 
   defp lock_owned_job(agent_uid, owner_session_id, job_id) do
-    agent_uid = String.downcase(agent_uid)
-
     Job
     |> Ash.Query.filter(
       id == ^job_id and agent_uid == ^agent_uid and owner_session_id == ^owner_session_id
@@ -890,15 +907,12 @@ defmodule Ankole.AutomationJobs do
   defp route_text(_route, _key), do: nil
 
   defp normalize_agent_uid(attrs) do
-    case Ankole.Attrs.get_truthy(attrs, "agent_uid") do
-      agent_uid when is_binary(agent_uid) ->
-        attrs
-        |> Map.delete("agent_uid")
-        |> Map.delete(:agent_uid)
-        |> Map.put(:agent_uid, String.downcase(agent_uid))
-
-      _value ->
-        attrs
+    with {:ok, agent_uid} <- PrincipalKey.normalize(Ankole.Attrs.get_truthy(attrs, "agent_uid")) do
+      {:ok,
+       attrs
+       |> Map.delete("agent_uid")
+       |> Map.delete(:agent_uid)
+       |> Map.put(:agent_uid, agent_uid)}
     end
   end
 

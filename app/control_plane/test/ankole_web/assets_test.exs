@@ -74,6 +74,21 @@ defmodule AnkoleWeb.AssetsTest do
     refute html =~ "modulepreload"
   end
 
+  test "development Applet frames initialize their own React refresh runtime" do
+    Application.put_env(:ankole, Assets, dev_server: "http://vite.test/")
+    html = Assets.applet_frame_tags() |> IO.iodata_to_binary()
+
+    assert html =~
+             ~s("@ankole/applet-sdk":"http://vite.test/entrypoints/applet-vendor/applet-sdk.ts")
+
+    assert html =~ "window.$RefreshReg$ = () => {}"
+    assert html =~ "http://vite.test/@react-refresh"
+    assert html =~ ~s(src="http://vite.test/@vite/client")
+    assert {preamble, _} = :binary.match(html, "window.$RefreshReg$")
+    assert {client, _} = :binary.match(html, "src=\"http://vite.test/@vite/client\"")
+    assert preamble < client
+  end
+
   test "Pod and SaaS Pod preload only their scoped active and fallback catalogs" do
     for entry <- ["pod", "saas-pod"], locale <- ["en-US", "zh-Hans-CN", "ja-JP", "ko-KR"] do
       html = Assets.locale_preload_tags(locale, entry) |> IO.iodata_to_binary()

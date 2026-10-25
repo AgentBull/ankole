@@ -346,6 +346,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:owner_session_id, :string, allow_nil?: false)
       argument(:conversation_id, :string, allow_nil?: false)
       argument(:binding_name, :string, allow_nil?: false)
+      pagination(keyset?: true, countable: false, required?: false)
 
       filter(
         expr(

@@ -25,7 +25,7 @@ defmodule AnkoleWeb.PodControllerTest do
     def chunk(state, data) do
       send(state.owner, {:stream_frame, IO.iodata_to_binary(data)})
       if after_chunk = state[:after_chunk], do: after_chunk.()
-      {:ok, "", %{state | chunks_left: state.chunks_left - 1}}
+      {:ok, "", Map.delete(%{state | chunks_left: state.chunks_left - 1}, :after_chunk)}
     end
   end
 
@@ -105,7 +105,7 @@ defmodule AnkoleWeb.PodControllerTest do
       |> api_get(~p"/api/v2/pod/agents")
 
     assert %{"agents" => agents} = api_response(conn, 200)
-    assert %{"uid" => local.uid, "displayName" => "Local Agent"} in agents
+    assert %{"displayName" => "Local Agent"} = Enum.find(agents, &(&1["uid"] == local.uid))
     refute Enum.any?(agents, &(&1["uid"] == foreign.uid))
     refute Map.has_key?(conn.private, :open_api_spex)
   end
@@ -125,22 +125,25 @@ defmodule AnkoleWeb.PodControllerTest do
     message_id = attrs["messageID"]
 
     assert Enum.sort(Map.keys(detail)) == [
+             "activities",
+             "artifacts",
              "conversation",
+             "latestInput",
+             "linkedRuns",
              "messageRange",
              "messages",
              "olderMessagesBeforeSeq",
-             "pendingInputs",
-             "queuePaused",
-             "queueVersion",
-             "removedMessageIDs",
-             "retryableMessageID",
-             "status"
+             "pendingInteractions",
+             "pendingQueues",
+             "removedMessageIDs"
            ]
 
     assert detail["messageRange"] == %{"firstSeq" => 1, "lastSeq" => 1}
     assert detail["olderMessagesBeforeSeq"] == nil
-    assert detail["queuePaused"] == false
-    assert detail["retryableMessageID"] == nil
+    assert [queue] = detail["pendingQueues"]
+    assert queue["agentUID"] == agent.uid
+    assert queue["paused"] == false
+    assert queue["retryableMessageID"] == nil
 
     assert [
              %{
@@ -149,10 +152,23 @@ defmodule AnkoleWeb.PodControllerTest do
                "attachments" => [],
                "modelProfile" => "primary"
              }
-           ] = detail["pendingInputs"]
+           ] = queue["inputs"]
 
-    assert is_binary(detail["queueVersion"])
-    assert %{"state" => "queued", "retryAt" => nil} = detail["status"]
+    assert is_binary(queue["queueVersion"])
+    assert %{"state" => "queued", "retryAt" => nil} = queue["workStatus"]
+
+    missing_target =
+      created
+      |> recycle_api()
+      |> api_post("/api/v2/pod/conversations/#{id}/queue", %{
+        action: "stop",
+        commandID: Ecto.UUID.generate()
+      })
+
+    assert %{"errors" => [%{"code" => "required", "source" => %{"pointer" => "/data/agentUID"}}]} =
+             api_response(missing_target, 400)
+
+    refute Conversations.get_conversation!(id).metadata["queue_paused:" <> agent.uid] == true
 
     assert %{
              "id" => ^id,
@@ -443,7 +459,7 @@ defmodule AnkoleWeb.PodControllerTest do
 
     request = %{
       request
-      | adapter: {StreamAdapter, %{owner: self(), events: events, chunks_left: 5}}
+      | adapter: {StreamAdapter, %{owner: self(), events: events, chunks_left: 4}}
     }
 
     assert %Plug.Conn{state: :chunked} = @endpoint.call(request, @endpoint.init([]))
@@ -456,25 +472,50 @@ defmodule AnkoleWeb.PodControllerTest do
              key == "content-type" and String.starts_with?(value, "text/event-stream")
            end)
 
-    assert_receive {:stream_frame, ": ping\n\nevent: activity\ndata: " <> _activity}
-    assert_receive {:stream_frame, "event: started\ndata: " <> started}
+    assert_receive {:stream_frame, initial}
+    assert sse_payload(initial, "connected") == %{"conversationID" => id}
+    assert sse_payload(initial, "activity")["agentUID"] == agent.uid
+    assert_receive {:stream_frame, started}
 
-    assert Ankole.JSON.decode!(String.trim(started)) == %{
-             "responseID" => response_id,
-             "signalIDs" => [signal.id]
-           }
+    assert %{
+             "agentUID" => agent_uid,
+             "conversationID" => ^id,
+             "sessionID" => session,
+             "responseID" => ^response_id,
+             "signalIDs" => [signal_id],
+             "text" => "hello\nworld"
+           } = sse_payload(started, "reasoning_delta")
 
-    assert_receive {:stream_frame, "event: delta\ndata: " <> delta}
+    assert agent_uid == agent.uid and session == detail.session_id and signal_id == signal.id
 
-    assert Ankole.JSON.decode!(String.trim(delta)) == %{
+    assert %{
+             "agentUID" => ^agent_uid,
+             "agentName" => name,
+             "conversationID" => ^id,
+             "sessionID" => ^session,
+             "responseID" => ^response_id,
+             "signalIDs" => [^signal_id],
+             "turnStartedAt" => turn_started
+           } = sse_payload(started, "started")
+
+    assert name == agent.display_name
+    assert {:ok, _, _} = DateTime.from_iso8601(turn_started)
+    assert_receive {:stream_frame, changed}
+
+    assert sse_payload(changed, "delta") == %{
+             "agentUID" => agent.uid,
+             "conversationID" => id,
+             "sessionID" => detail.session_id,
              "responseID" => response_id,
              "signalIDs" => [signal.id],
              "text" => "hello\nworld"
            }
 
-    assert_receive {:stream_frame, "event: message\ndata: {}\n\n"}
-    assert_receive {:stream_frame, "event: status\ndata: {}\n\n"}
-    assert_receive {:stream_closed, "event: status\ndata: {}\n\n"}
+    assert sse_payload(changed, "conversation") == %{"conversationID" => id}
+    assert_receive {:stream_frame, status}
+    assert sse_payload(status, "conversation") == %{"conversationID" => id}
+    assert_receive {:stream_closed, completed}
+    assert sse_payload(completed, "conversation") == %{"conversationID" => id}
     refute_receive {:stream_frame, _}
     assert_receive {:unrelated, :must_remain}
     assert_receive ^unrelated_native
@@ -571,7 +612,16 @@ defmodule AnkoleWeb.PodControllerTest do
       }
 
       assert %Plug.Conn{state: :chunked} = @endpoint.call(request, @endpoint.init([]))
-      assert_receive {:stream_frame, ": ping\n\nevent: activity\ndata: " <> _}
+      assert_receive {:stream_frame, initial}
+      assert sse_payload(initial, "connected") == %{"conversationID" => detail.conversation.id}
+      assert_receive {:stream_frame, revoked}
+
+      assert sse_payload(revoked, "access_revoked") == %{
+               "conversationID" => detail.conversation.id,
+               "reason" => "access_revoked"
+             }
+
+      refute revoked =~ "This queued text must stay private."
       refute_receive {:stream_frame, _}
       refute_receive {:stream_closed, _}
     end
@@ -609,23 +659,29 @@ defmodule AnkoleWeb.PodControllerTest do
              owner: self(),
              events: [
                {:ai_gateway_event, :output_text_delta, gateway},
-               {:session_event, agent.uid, detail.session_id, :status}
+               {:session_event, agent.uid, detail.session_id, :status},
+               {:ai_gateway_event, :response_completed, gateway}
              ],
              chunks_left: 2
            }}
     }
 
     assert %Plug.Conn{state: :chunked} = @endpoint.call(conn, @endpoint.init([]))
-    assert_receive {:stream_frame, ": ping\n\nevent: activity\ndata: " <> _activity}
-    assert_receive {:stream_frame, "event: delta\ndata: " <> delta}
+    assert_receive {:stream_frame, initial}
+    assert sse_payload(initial, "connected") == %{"conversationID" => detail.conversation.id}
+    assert_receive {:stream_frame, changed}
 
-    assert Ankole.JSON.decode!(String.trim(delta)) == %{
+    assert sse_payload(changed, "delta") == %{
+             "agentUID" => agent.uid,
+             "conversationID" => detail.conversation.id,
+             "sessionID" => detail.session_id,
              "responseID" => response_id,
              "signalIDs" => [signal.id],
              "text" => "future tail"
            }
 
-    assert_receive {:stream_closed, "event: status\ndata: {}\n\n"}
+    assert_receive {:stream_closed, completed}
+    assert sse_payload(completed, "conversation") == %{"conversationID" => detail.conversation.id}
   end
 
   @tag timeout: 25_000
@@ -650,8 +706,19 @@ defmodule AnkoleWeb.PodControllerTest do
     started_at = System.monotonic_time(:millisecond)
     assert %Plug.Conn{state: :chunked} = @endpoint.call(conn, @endpoint.init([]))
     assert System.monotonic_time(:millisecond) - started_at >= 15_000
-    assert_receive {:stream_frame, ": ping\n\nevent: activity\ndata: " <> _activity}
+    assert_receive {:stream_frame, initial}
+    assert sse_payload(initial, "connected") == %{"conversationID" => detail.conversation.id}
     assert_receive {:stream_closed, ": ping\n\n"}
+  end
+
+  defp sse_payload(packet, name) do
+    prefix = "event: #{name}\ndata: "
+
+    frame =
+      packet |> String.split("\n\n", trim: true) |> Enum.find(&String.starts_with?(&1, prefix))
+
+    assert is_binary(frame), "missing #{name} in #{inspect(packet)}"
+    frame |> String.replace_prefix(prefix, "") |> Ankole.JSON.decode!()
   end
 
   defp stream_request(authenticated, id) do

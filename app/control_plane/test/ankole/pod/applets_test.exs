@@ -75,7 +75,8 @@ defmodule Ankole.Pod.AppletsTest do
           "export default []",
           "export default {'GET /x': 2}",
           "export default {'GET /:a':()=>1,'GET /:b':()=>2}",
-          "await AnkoleRuntime.db.query('x',{}); export default {}"
+          "await AnkoleRuntime.db.query('x',{}); export default {}",
+          "try { await AnkoleRuntime.db.query('x',{}) } catch {} export default {}"
         ] do
       assert {:error, {:invalid_applet_routes, %{reason: reason}}} =
                publish(ctx.owner, page, 1, bad)
@@ -100,7 +101,7 @@ defmodule Ankole.Pod.AppletsTest do
              )
   end
 
-  test "route matching, caller context, JSON values, errors and per-call state use the published package",
+  test "route matching, caller context, JSON values and warm module state use the published package",
        ctx do
     page = create(ctx.owner)
 
@@ -128,12 +129,12 @@ defmodule Ankole.Pod.AppletsTest do
       "query" => %{"tag" => ["one", "two"], "a[b]" => "flat"}
     }
 
-    for _ <- 1..2 do
+    for count <- 1..2 do
       assert {:ok, %{"body" => body}} =
                Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id, request)
 
       assert body["id"] == "a/b"
-      assert body["count"] == 1
+      assert body["count"] == count
       assert body["query"] == request["query"]
       assert body["principal"]["uid"] == ctx.owner
       assert body["principal"]["kind"] == "human"
@@ -324,6 +325,8 @@ defmodule Ankole.Pod.AppletsTest do
              )
 
     assert result["bytes"] == [0, 255, 42]
+    assert result["name"] == "data.bin"
+    assert result["mime"] == "application/octet-stream"
     assert result["path"] == "pages/#{file.id}/data.bin"
     assert hd(result["list"]["files"])["path"] == result["path"]
 
@@ -344,50 +347,125 @@ defmodule Ankole.Pod.AppletsTest do
              Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), file.id, "data.bin")
   end
 
-  test "uploaded backend attachments can be saved in a Database record and read with the same bytes",
+  test "Applet viewers submit through writable targets and save attachments as themselves",
        ctx do
-    {:ok, database} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
-        type: "database",
-        private_owner_uid: ctx.owner
-      })
+    owner = actor_fixture(ctx.owner)
+    contributor = actor_fixture(ctx.reader)
 
-    {:ok, table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), database.id, %{
-        name: "Reports"
-      })
-
-    {:ok, field} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{
-        name: "Files",
-        type: "attachment"
-      })
-
+    {:ok, database} = Pages.create(owner, %{type: "database", private_owner_uid: ctx.owner})
+    {:ok, table} = Database.create_table(owner, database.id, %{name: "Evaluations"})
+    {:ok, field} = Database.create_field(owner, table.id, %{name: "Resume", type: "attachment"})
     page = create(ctx.owner)
 
     source = """
-    export default {'POST /attach':async()=>{
-      const file = await AnkoleRuntime.file.write('#{database.id}',{name:'report.txt',contentType:'text/plain',bytes:new Uint8Array([65,66])});
-      const record = await AnkoleRuntime.db.write('#{table.id}',{creates:[{data:{'#{field.id}':[{path:file.path,name:'report.txt',mime:file.contentType,size:file.size}]}}]});
-      return {file,record};
-    }}
+    export default {
+      'POST /record':()=>AnkoleRuntime.db.write('#{table.id}',{creates:[{data:{}}]}),
+      'POST /file':()=>AnkoleRuntime.file.write('#{database.id}',{name:'resume.txt',bytes:new Uint8Array([65])}),
+      'POST /submit':async r=>{
+        const file = await AnkoleRuntime.file.write('#{database.id}',{name:r.body.name,contentType:'text/plain',bytes:new Uint8Array(r.body.bytes)});
+        const read = await AnkoleRuntime.file.read(file.path);
+        const record = await AnkoleRuntime.db.write('#{table.id}',{creates:[{data:{'#{field.id}':[file]}}]});
+        return {file,record,isBytes:read.bytes instanceof Uint8Array,bytes:Array.from(read.bytes),byteLength:read.bytes.byteLength};
+      }
+    }
     """
 
-    {:ok, _} = publish(ctx.owner, page, 0, source)
+    assert {:ok, _} = publish(ctx.owner, page, 0, source)
+    share(ctx.owner, page.id, ctx.reader, "view")
+    share(ctx.owner, database.id, ctx.reader, "view")
 
-    assert {:ok, %{"status" => 200, "body" => %{"file" => file}}} =
-             call(ctx.owner, page.id, "POST", "/attach")
+    for path <- ["/record", "/file"] do
+      assert {:ok, %{"status" => 403}} = call(ctx.reader, page.id, "POST", path)
+    end
 
-    assert {:ok, %{records: [record]}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{})
+    assert {:ok, %{records: []}} = Database.query(contributor, table.id, %{})
+    assert {:ok, %{files: []}} = Files.manifest(contributor, database.id)
 
-    assert [%{"path" => path, "size" => 2, "mime" => "text/plain"}] = record["data"][field.id]
-    assert file["path"] == path
-    {:ok, id, relative} = Files.parse_path(path)
-    assert id == database.id
+    share(ctx.owner, database.id, ctx.reader, "contribute")
 
-    assert {:ok, _, "AB"} =
-             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), database.id, relative)
+    for {name, bytes} <- [{"resume.txt", [65, 66]}, {"empty.txt", []}] do
+      assert {:ok, %{"status" => 200, "body" => result}} =
+               Applets.call(
+                 contributor,
+                 page.id,
+                 request("POST", "/submit", %{"name" => name, "bytes" => bytes})
+               )
+
+      assert result["isBytes"]
+      assert result["bytes"] == bytes
+      assert result["byteLength"] == length(bytes)
+      assert [record] = result["record"]["records"]
+
+      assert record["created_by"] ==
+               "ankole:#{Repo.tenant_id!()}:principal/#{ctx.reader}"
+
+      assert [%{"path" => path, "size" => size, "mime" => "text/plain"}] =
+               record["data"][field.id]
+
+      assert size == length(bytes)
+      assert path == result["file"]["path"]
+      assert result["file"]["name"] == name
+      assert result["file"]["mime"] == "text/plain"
+      assert {:ok, database_id, relative} = Files.parse_path(path)
+      assert database_id == database.id
+      assert {:ok, _, contents} = Files.read(contributor, database.id, relative)
+      assert contents == :erlang.list_to_binary(bytes)
+    end
+
+    for {applet_role, database_role} <- [{"view", "view"}, {"edit", "view"}] do
+      share(ctx.owner, page.id, ctx.reader, applet_role)
+      share(ctx.owner, database.id, ctx.reader, database_role)
+
+      for path <- ["/record", "/file"] do
+        assert {:ok, %{"status" => 403}} = call(ctx.reader, page.id, "POST", path)
+      end
+    end
+
+    assert {:ok, %{records: records}} = Database.query(contributor, table.id, %{})
+    assert length(records) == 2
+    assert {:ok, %{files: files}} = Files.manifest(contributor, database.id)
+    assert length(files) == 2
+  end
+
+  test "publication supplies the package environment during module initialization", ctx do
+    page = create(ctx.owner)
+    source = "const hook = new URL(process.env.HOOK); export default {'GET /hook':()=>hook.href}"
+
+    assert {:ok, _} =
+             publish(ctx.owner, page, 0, source, [
+               {"applet.env.json", Torque.encode!(%{"HOOK" => "https://example.com/hook"})}
+             ])
+
+    assert {:ok, %{"status" => 200, "body" => "https://example.com/hook"}} =
+             call(ctx.owner, page.id, "GET", "/hook")
+  end
+
+  test "code cache identity includes environment values with one cross-language key order", ctx do
+    page = create(ctx.owner)
+    source = "export default {'GET /env':()=>({value:process.env.Z})}"
+
+    env = %{
+      "Z" => "quoted \"value\"\n中文",
+      "a" => "lower",
+      "_KEY" => "underscore",
+      "\uE000" => "bmp",
+      "😀" => "astral"
+    }
+
+    assert {:ok, _} =
+             publish(ctx.owner, page, 0, source, [{"applet.env.json", Torque.encode!(env)}])
+
+    assert {:ok, %{"status" => 200, "body" => %{"value" => value}}} =
+             call(ctx.owner, page.id, "GET", "/env")
+
+    assert value == env["Z"]
+    next = Map.put(env, "Z", "changed")
+
+    assert {:ok, _} =
+             publish(ctx.owner, page, 1, source, [{"applet.env.json", Torque.encode!(next)}])
+
+    assert {:ok, %{"status" => 200, "body" => %{"value" => "changed"}}} =
+             call(ctx.owner, page.id, "GET", "/env")
   end
 
   test "invocations enforce tenant limits and a failed call does not poison later calls", ctx do
@@ -421,25 +499,7 @@ defmodule Ankole.Pod.AppletsTest do
     page = create(ctx.owner)
     {:ok, _} = publish(ctx.owner, page, 0, "export default {'GET /ok':()=>true}")
 
-    hold_source = "export default {'POST /hold':()=>AnkoleRuntime.db.query('t',{})}"
-
-    hold_context = %{
-      "method" => "POST",
-      "path" => "/hold",
-      "query" => %{},
-      "principal" => %{"uid" => ctx.owner, "kind" => "human"},
-      "applet" => %{"pageId" => page.id, "revision" => 1},
-      "timezone" => "Asia/Singapore"
-    }
-
-    active =
-      for _ <- 1..4 do
-        {:ok, handle, run_id} =
-          Ankole.Kernel.AppletRuntime.start(hold_source, hold_context, timeout_ms: 10_000)
-
-        assert_receive {:applet_runtime, ^run_id, :call, _id, "db.query", _}, 2_000
-        {handle, run_id}
-      end
+    active = Ankole.FunctionRuntimeHelpers.saturate()
 
     try do
       assert {:ok,
@@ -448,7 +508,7 @@ defmodule Ankole.Pod.AppletsTest do
                 "body" => %{
                   "error" => %{
                     "code" => "applet_busy",
-                    "message" => "Applet runtime is at capacity",
+                    "message" => "Applet invocation failed",
                     "details" => nil
                   }
                 }
@@ -457,10 +517,7 @@ defmodule Ankole.Pod.AppletsTest do
       assert {:error, :applet_busy} =
                publish(ctx.owner, page, 1, "export default {'GET /next':()=>1}")
     after
-      Enum.each(active, fn {handle, run_id} ->
-        Ankole.Kernel.AppletRuntime.cancel(handle)
-        assert_receive {:applet_runtime, ^run_id, :done, _}, 2_000
-      end)
+      Ankole.FunctionRuntimeHelpers.release(active)
     end
   end
 
@@ -493,12 +550,12 @@ defmodule Ankole.Pod.AppletsTest do
         grants: [%{principal_uid: reader, role: role}]
       })
 
-  defp publish(uid, page, revision, server) do
+  defp publish(uid, page, revision, server, extra_files \\ []) do
     files = [{"src/main.tsx", "frontend source"}, {"dist/index.html", "frontend"}]
     files = if server, do: files ++ [{"server/main.js", server}], else: files
 
     manifest =
-      Enum.map(files, fn {path, bytes} ->
+      Enum.map(files ++ extra_files, fn {path, bytes} ->
         {:ok, blob} = Drive.store(bytes)
 
         {:ok, _} =

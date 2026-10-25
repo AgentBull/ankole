@@ -899,6 +899,217 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert_signal_completed!(emitted.id)
   end
 
+  @tag :pod_automation
+  test "service and Human automation attempts use Pod through the authenticated Docker Worker" do
+    owner = Ankole.PrincipalsFixtures.human_fixture().principal
+    human = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    agent =
+      Ankole.SessionsCase.agent_fixture(%{worker_provider_id: DockerWorker.provider_id!()}).principal
+
+    actor = Ankole.PrincipalsFixtures.actor_fixture(owner)
+    start_worker!([agent.uid], automatic_signal_wakeups: false)
+    assert DockerWorker.container_info(DockerWorker.container_name(agent.uid)).status == "running"
+
+    {:ok, database} =
+      Ankole.Pod.Pages.create(actor, %{type: "database", private_owner_uid: owner.uid})
+
+    {:ok, %{tables: [table]}} = Ankole.Pod.Database.list_tables(actor, database.id)
+    {:ok, schema} = Ankole.Pod.Database.get_table(actor, table.id)
+    primary = Enum.find(schema.fields, & &1.is_primary)
+
+    {:ok, applet} =
+      Ankole.Pod.Pages.create(actor, %{type: "applet", private_owner_uid: owner.uid})
+
+    project = automation_applet_project()
+
+    manifest =
+      for {path, bytes} <-
+            Map.merge(project, %{
+              "dist/index.html" => "<head></head>",
+              "dist/main.js" => "export {}"
+            }) do
+        put_drive_file!(owner.uid, "pod-automation/" <> path, bytes)
+        {:ok, file} = Ankole.Files.fetch(owner.uid, "pod-automation/" <> path)
+        %{path: path, sha256: Base.encode16(file.sha256, case: :lower)}
+      end
+
+    assert {:ok, _} = Ankole.Pod.Files.publish(actor, applet.id, 0, manifest)
+
+    for page <- [database, applet] do
+      assert {:ok, _} =
+               Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+                 grants: [
+                   %{principal_uid: agent.uid, role: "edit"},
+                   %{principal_uid: human.uid, role: "contribute"}
+                 ]
+               })
+    end
+
+    put_drive_file!(agent.uid, "automation/pod/main.ts", """
+    import {existsSync} from 'node:fs';
+    const data = context().event.data;
+    async function cli(program, args) {
+      const process = Bun.spawn([program, ...args], { stdout: 'pipe', stderr: 'pipe' });
+      const [code, out, err] = await Promise.all([
+        process.exited, new Response(process.stdout).text(), new Response(process.stderr).text()
+      ]);
+      return {code, out, err};
+    }
+    const record = await cli('ankole-pod', ['database.write', JSON.stringify({
+      id: data.table, creates: [{data: {[data.field]: data.kind}}]
+    })]);
+    if (record.code !== 0) throw new Error(record.err);
+    const schema = await cli('ankole-pod', ['database.create_field', JSON.stringify({
+      id: data.table, name: 'From ' + data.kind, type: 'text'
+    })]);
+    const source = await cli('ankole-files', [
+      'get', 'pages/' + data.applet + '/src/main.tsx', '--pod', '--output', 'source.tsx'
+    ]);
+    if (source.code === 0 && await Bun.file('source.tsx').text() !== data.files['src/main.tsx']) {
+      throw new Error('Pod relay returned different source bytes');
+    }
+    const pull = await cli('ankole-pod', ['applet', 'pull', 'restored', JSON.stringify({id: data.applet})]);
+    const restored = [];
+    let dependency;
+    if (pull.code === 0) {
+      for (const [path, bytes] of Object.entries(data.files)) {
+        if (await Bun.file('restored/' + path).text() !== bytes) throw new Error('Restored file differs: ' + path);
+        restored.push(path);
+      }
+      dependency = (await import(Bun.resolveSync('pod-pull-dependency', process.cwd() + '/restored'))).default;
+    }
+    console.log(JSON.stringify({
+      record, schema, source, pull, restored, dependency,
+      pullOutputExists: existsSync('restored'),
+      postinstallRan: existsSync('restored/postinstall-ran')
+    }));
+    """)
+
+    for kind <- [:service, :human] do
+      source = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+
+      if kind == :human do
+        assert {:ok, _} =
+                 Repo.transact(fn ->
+                   Ankole.Ash.update(
+                     source,
+                     :reauthorize,
+                     Ankole.Principals.WorkAccess.from_sender(human.uid)
+                   )
+                 end)
+      end
+
+      assert {:ok, job} =
+               Ankole.AutomationJobs.create_job(%{
+                 agent_uid: agent.uid,
+                 owner_session_id: source.session_id,
+                 source_signal_id: source.id,
+                 drive_prefix: "automation/pod",
+                 label: "Pod #{kind} transport",
+                 reply_route: %{},
+                 source_provenance: %{}
+               })
+
+      assert {:ok, %{automation_job_run: run}} =
+               Repo.transact(fn ->
+                 Ankole.AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
+                   "specversion" => "1.0",
+                   "id" => Ecto.UUID.generate(),
+                   "source" => "test://pod-automation",
+                   "type" => "test.triggered",
+                   "data" => %{
+                     "table" => table.id,
+                     "field" => primary.id,
+                     "applet" => applet.id,
+                     "kind" => to_string(kind),
+                     "files" => project
+                   }
+                 })
+               end)
+
+      assert :ok =
+               perform_job(Ankole.AutomationJobs.Jobs.ExecuteRun, %{
+                 "automation_job_run_id" => run.id
+               })
+
+      current = Repo.reload!(run)
+      assert current.status == :succeeded, inspect(Map.take(current, [:error, :stdout, :stderr]))
+      assert current.exit_code == 0
+      result = Torque.decode!(String.trim(current.stdout))
+      assert result["record"]["code"] == 0
+
+      if kind == :service do
+        assert result["schema"]["code"] == 0
+        assert result["source"]["code"] == 0
+        assert result["pull"]["code"] == 0
+        assert Enum.sort(result["restored"]) == Enum.sort(Map.keys(project))
+        assert result["dependency"] == 42
+        assert result["pullOutputExists"]
+        refute result["postinstallRan"]
+      else
+        assert result["schema"]["code"] == 1
+        assert result["schema"]["err"] =~ "forbidden"
+        assert result["source"]["code"] == 1
+        assert result["source"]["err"] =~ "forbidden"
+        assert result["pull"]["code"] == 1
+        assert result["pull"]["err"] =~ "Applet source is not available"
+        refute result["pullOutputExists"]
+        assert result["restored"] == []
+      end
+    end
+
+    assert {:ok, %{records: records}} = Ankole.Pod.Database.query(actor, table.id, %{})
+    assert Enum.sort(Enum.map(records, & &1["data"][primary.id])) == ["human", "service"]
+    assert Enum.all?(records, &String.ends_with?(&1["created_by"], "/" <> agent.uid))
+    assert {:ok, schema} = Ankole.Pod.Database.get_table(actor, table.id)
+    assert Enum.any?(schema.fields, &(&1.name == "From service"))
+    refute Enum.any?(schema.fields, &(&1.name == "From human"))
+  end
+
+  defp automation_applet_project do
+    files = %{
+      "src/main.tsx" =>
+        "import {defineApplet} from '@ankole/applet-sdk';\nexport const provider = defineApplet(() => null);\n",
+      "src/pull-dependency/package.json" =>
+        Torque.encode!(%{
+          name: "pod-pull-dependency",
+          version: "1.0.0",
+          type: "module",
+          exports: "./index.js"
+        }),
+      "src/pull-dependency/index.js" => "export default 42;\n",
+      "package.json" =>
+        Torque.encode!(%{
+          name: "pod-automation-pull",
+          version: "1.0.0",
+          private: true,
+          dependencies: %{"pod-pull-dependency" => "file:src/pull-dependency"},
+          scripts: %{postinstall: "touch postinstall-ran"}
+        }),
+      "tsconfig.json" => Torque.encode!(%{compilerOptions: %{jsx: "react-jsx", strict: true}}),
+      "applet.env.json" => Torque.encode!(%{WEBHOOK: "https://example.test/automation"})
+    }
+
+    directory = Path.join(System.tmp_dir!(), "ankole-pod-pull-" <> Ecto.UUID.generate())
+
+    try do
+      for {path, bytes} <- files do
+        path = Path.join(directory, path)
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, bytes)
+      end
+
+      {output, status} =
+        System.cmd("bun", ["install", "--ignore-scripts"], cd: directory, stderr_to_stdout: true)
+
+      assert status == 0, output
+      Map.put(files, "bun.lock", File.read!(Path.join(directory, "bun.lock")))
+    after
+      File.rm_rf!(directory)
+    end
+  end
+
   defp send!(ctx, suffix, text) do
     source_id = "om_q03_#{suffix}"
 

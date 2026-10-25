@@ -20,6 +20,9 @@ export const roleLabels: Record<PageRole, string> = {
   get view() {
     return t('pod.content.can_view')
   },
+  get contribute() {
+    return t('pod.content.can_contribute')
+  },
   get edit() {
     return t('pod.content.can_edit')
   },
@@ -36,8 +39,8 @@ export function Choice<T extends string>({
   disabled
 }: {
   value: T
-  onChange(value: T): void
-  options: Record<T, string>
+  onChange(value: NoInfer<T>): void
+  options: Partial<Record<NoInfer<T>, string>>
   label: string
   disabled?: boolean
 }) {
@@ -52,7 +55,7 @@ export function Choice<T extends string>({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {Object.entries<string>(options).map(([key, text]) => (
+        {Object.entries<string | undefined>(options).map(([key, text]) => (
           <SelectItem key={key} value={key}>
             {text}
           </SelectItem>

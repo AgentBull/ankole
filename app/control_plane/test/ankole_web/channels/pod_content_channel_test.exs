@@ -3,12 +3,73 @@ defmodule AnkoleWeb.PodContentChannelTest do
   import Ankole.PrincipalsFixtures
   alias Ankole.{BrowserSessions, Repo}
   alias Ankole.Pod.{Documents, Pages}
-  alias AnkoleWeb.{PodPageChannel, PodRoomChannel, PodSocket}
+  alias AnkoleWeb.{PodContentChannel, PodPageChannel, PodRoomChannel, PodSocket}
 
   setup do
     owner = human_fixture().principal
     reader = human_fixture().principal
     %{owner: owner, reader: reader}
+  end
+
+  test "the content subscription refreshes after join and committed tree or policy changes",
+       ctx do
+    Process.flag(:trap_exit, true)
+
+    assert {:ok, %{}, socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+
+    assert_push "changed", %{}, 1_000
+
+    assert {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+    assert_push "changed", %{}, 1_000
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+               grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+             })
+
+    assert_push "changed", %{}, 1_000
+    send(socket.channel_pid, :periodic_access)
+    assert_push "changed", %{}, 1_000
+
+    reference = Process.monitor(socket.channel_pid)
+    leave(socket)
+    assert_receive {:DOWN, ^reference, :process, _, {:shutdown, :left}}, 1_000
+
+    assert {:ok, %{}, _socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+
+    assert_push "changed", %{}, 1_000
+  end
+
+  test "the content subscription closes when its authenticated account loses admission", ctx do
+    assert {:ok, %{}, socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+
+    assert_push "changed", %{}, 1_000
+    reference = Process.monitor(socket.channel_pid)
+    assert {:ok, _} = disable_principal_fixture(ctx.reader.uid)
+    send(socket.channel_pid, :periodic_access)
+    assert_push "access_revoked", %{}, 1_000
+    assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
+  end
+
+  test "room changes coalesce and background Session status refreshes the sidebar", ctx do
+    assert {:ok, %{}, _socket} =
+             subscribe_and_join(authenticated_socket(ctx.reader), PodContentChannel, "content")
+
+    assert_push "changed", %{}, 1_000
+    for _ <- 1..10, do: Ankole.Conversations.Events.publish_rooms_changed()
+    refute_push "conversations_changed", %{}, 100
+    assert_push "conversations_changed", %{}, 2_000
+    refute_push "conversations_changed", %{}, 100
+
+    Ankole.Sessions.Events.publish_status(
+      "background-room-agent",
+      "conversation:" <> Ash.UUIDv7.generate()
+    )
+
+    assert_push "conversations_changed", %{}, 2_000
   end
 
   test "a Pod socket proof is valid only on its tenant host", ctx do
@@ -262,8 +323,25 @@ defmodule AnkoleWeb.PodContentChannelTest do
 
     assert_push "changes", changed, 1_000
 
-    assert %{"changes" => [%{"kind" => "reset", "created_at" => change_time}]} =
+    assert %{
+             "revision" => 1,
+             "reset_required" => false,
+             "changes" => [
+               %{
+                 "kind" => "change",
+                 "client_id" => client_id,
+                 "client_seq" => 1,
+                 "changes" => changes,
+                 "created_at" => change_time
+               }
+             ]
+           } =
              changed |> Ankole.JSON.encode!() |> Ankole.JSON.decode!()
+
+    assert client_id == "server:" <> ctx.owner.uid
+
+    assert {:ok, %{xml: "<page><p>new</p></page>"}} =
+             Ankole.Kernel.page_apply("<page />", changes)
 
     assert {:ok, _, _} = DateTime.from_iso8601(change_time)
   end

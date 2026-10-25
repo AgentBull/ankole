@@ -72,7 +72,7 @@ defmodule Ankole.ConversationsQueueTest do
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
     assert Enum.find(reopened.pending_inputs, &(&1.id == input.id)).message_id == input.message_id
-    assert {:ok, _} = change(ctx, "remove", input)
+    assert {:ok, _} = change(ctx, "retract", input)
 
     assert {:ok, replay} =
              Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id, %{
@@ -132,7 +132,7 @@ defmodule Ankole.ConversationsQueueTest do
     assert {:ok, injected} = Run.inject(ctx.run, [first, second])
     assert Enum.map(injected, & &1.id) == [second.id, first.id]
     assert List.last(injected).data["text"] == "Updated steer"
-    assert {:error, :input_already_started} = change(ctx, "remove", first)
+    assert {:error, :input_already_started} = change(ctx, "retract", first)
   end
 
   test "Stop cancels the current run and persists a paused queue until explicit resume", ctx do
@@ -147,7 +147,7 @@ defmodule Ankole.ConversationsQueueTest do
                command_id: command_id
              })
 
-    assert stopped.conversation.metadata["queue_paused"] == true
+    assert stopped.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
     stop = Repo.get_by!(Signal, source_event_id: command_id)
     assert stop.type == "command.stop"
     assert {:ok, _} = Commands.interrupt(ctx.run, stop)
@@ -156,14 +156,14 @@ defmodule Ankole.ConversationsQueueTest do
     assert {:ok, reopened} =
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
-    assert reopened.conversation.metadata["queue_paused"] == true
+    assert reopened.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
     assert Enum.map(reopened.pending_inputs, & &1.id) == [first.id, second.id, pending_steer.id]
     assert Repo.reload!(pending_steer).data["delivery_mode"] == "queue"
     assert is_nil(Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id))
     assert Ankole.Sessions.status(ctx.key) == %{state: :idle, retry_at: nil}
 
     assert {:ok, resumed} = queue_command(ctx, %{action: "resume"})
-    assert resumed.conversation.metadata["queue_paused"] == false
+    assert resumed.conversation.metadata["queue_paused:" <> ctx.agent.uid] == false
     assert Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id).id == first.id
 
     assert {:ok, duplicate_stop} =
@@ -172,7 +172,77 @@ defmodule Ankole.ConversationsQueueTest do
                command_id: command_id
              })
 
-    assert duplicate_stop.conversation.metadata["queue_paused"] == false
+    assert duplicate_stop.conversation.metadata["queue_paused:" <> ctx.agent.uid] == false
+  end
+
+  test "paused group queues are idle while an admitted turn remains running", ctx do
+    agent_b = agent_fixture(%{owner_principal_uid: ctx.human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(ctx.human.uid, agent_b.uid)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid)
+    key_b = %{agent_uid: agent_b.uid, session_id: ctx.key.session_id}
+
+    assert {:ok, _} = Conversations.manage_participants(actor, ctx.id, %{add_uids: [agent_b.uid]})
+
+    for text <- ["B first queued input", "B second queued input"] do
+      assert {:ok, _} =
+               Conversations.post(actor, ctx.id, %{
+                 message_id: Ecto.UUID.generate(),
+                 target_agent_uid: agent_b.uid,
+                 text: text,
+                 delivery_mode: "queue"
+               })
+    end
+
+    command = fn uid, attrs ->
+      {:ok, current} = Conversations.get(actor, ctx.id)
+      inputs = Enum.filter(current.pending_inputs, &(&1.agent_uid == uid))
+      version = Ankole.Conversations.NativeQueue.queue_version(current.conversation, inputs, uid)
+
+      Conversations.update_queue(
+        actor,
+        ctx.id,
+        Map.merge(attrs, %{agent_uid: uid, expected_version: version})
+      )
+    end
+
+    b_stop_id = Ecto.UUID.generate()
+
+    assert {:ok, paused} =
+             command.(agent_b.uid, %{action: "stop", command_id: b_stop_id})
+
+    assert paused.statuses[agent_b.uid] == %{state: :idle, retry_at: nil}
+    assert paused.statuses[ctx.agent.uid] == %{state: :running, retry_at: nil}
+    assert Repo.get_by!(Signal, source_event_id: b_stop_id).status == :completed
+    assert is_nil(Queue.next_ready_event(agent_b.uid, key_b.session_id))
+
+    a_stop_id = Ecto.UUID.generate()
+
+    assert {:ok, stopping} =
+             command.(ctx.agent.uid, %{action: "stop", command_id: a_stop_id})
+
+    assert stopping.statuses[ctx.agent.uid] == %{state: :running, retry_at: nil}
+
+    assert {:ok, _} =
+             Commands.interrupt(ctx.run, Repo.get_by!(Signal, source_event_id: a_stop_id))
+
+    assert {:ok, idle} = Conversations.get(actor, ctx.id)
+    assert Enum.all?(idle.statuses, fn {_uid, status} -> status.state == :idle end)
+
+    projection = Ankole.Pod.Chat.Presentation.detail(idle)
+    assert Enum.all?(projection.pendingQueues, &(&1.paused and &1.workStatus.state == :idle))
+
+    input = Enum.find(idle.pending_inputs, &(&1.agent_uid == agent_b.uid))
+
+    assert {:ok, released} =
+             command.(agent_b.uid, %{action: "steer", message_id: input.message_id})
+
+    assert released.statuses[agent_b.uid] == %{state: :queued, retry_at: nil}
+    assert released.statuses[ctx.agent.uid] == %{state: :idle, retry_at: nil}
+    assert {:ok, run_b} = Admission.admit(key_b, Repo.reload!(input))
+    assert Ankole.Sessions.status(key_b) == %{state: :running, retry_at: nil}
+    assert {:ok, {:preparing, run_b}} = Model.prepare(run_b)
+    assert {:ok, _} = Run.finalize(run_b, :silent)
+    assert Ankole.Sessions.status(key_b) == %{state: :idle, retry_at: nil}
   end
 
   test "send now releases only the selected message while the rest remain paused", ctx do
@@ -189,8 +259,8 @@ defmodule Ankole.ConversationsQueueTest do
     assert {:ok, _} =
              Commands.interrupt(ctx.run, Repo.get_by!(Signal, source_event_id: command_id))
 
-    assert {:ok, now} = change(ctx, "send_now", second)
-    assert now.conversation.metadata["queue_paused"] == true
+    assert {:ok, now} = change(ctx, "steer", second)
+    assert now.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
     assert Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id).id == second.id
     assert Repo.reload!(first).data["delivery_mode"] == "queue"
     assert Repo.reload!(second).data["delivery_mode"] == "steer"
@@ -202,7 +272,7 @@ defmodule Ankole.ConversationsQueueTest do
     assert {:ok, still_paused} =
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
-    assert still_paused.conversation.metadata["queue_paused"] == true
+    assert still_paused.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
     assert {:ok, _} = Run.finalize(selected_run, :silent)
     assert Ankole.Sessions.status(ctx.key) == %{state: :idle, retry_at: nil}
   end
@@ -217,6 +287,7 @@ defmodule Ankole.ConversationsQueueTest do
                ctx.id,
                %{
                  action: "edit",
+                 agent_uid: ctx.agent.uid,
                  message_id: input.message_id,
                  text: "Overwrite"
                }
@@ -243,6 +314,8 @@ defmodule Ankole.ConversationsQueueTest do
     {:ok, baseline} =
       Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
+    baseline_version = queue_version(baseline, ctx.agent.uid)
+
     assert {:ok, _} = change(ctx, "edit", first, text: "Saved in another tab")
 
     assert {:error, :queue_changed} =
@@ -250,7 +323,7 @@ defmodule Ankole.ConversationsQueueTest do
                action: "edit",
                message_id: first.message_id,
                text: "Stale overwrite",
-               expected_version: baseline.queue_version
+               expected_version: baseline_version
              })
 
     assert Repo.reload!(first).data["text"] == "Saved in another tab"
@@ -259,7 +332,7 @@ defmodule Ankole.ConversationsQueueTest do
              queue_command(ctx, %{
                action: "reorder",
                message_ids: [second.message_id, first.message_id],
-               expected_version: baseline.queue_version
+               expected_version: baseline_version
              })
 
     assert {:ok, current} =
@@ -268,22 +341,170 @@ defmodule Ankole.ConversationsQueueTest do
     assert Enum.map(current.pending_inputs, & &1.id) == [first.id, second.id]
   end
 
+  test "pending edits keep structured references and a reference-only change invalidates stale editors",
+       ctx do
+    page_id = Ecto.UUID.generate()
+    other_page = Ecto.UUID.generate()
+
+    quote = %{
+      "kind" => "message",
+      "id" => ctx.input.message_id,
+      "quote" => "The original requirement."
+    }
+
+    links = [%{"kind" => "page", "id" => page_id}, quote]
+    message_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id, %{
+               message_id: message_id,
+               text: "Read @Roadmap",
+               delivery_mode: "queue",
+               links: links
+             })
+
+    input = Repo.get_by!(Signal, message_id: message_id)
+    assert {:ok, _} = change(ctx, "edit", input, text: "Review @Roadmap")
+    assert Repo.get_by!(Message, id: message_id).links == links
+
+    {:ok, baseline} =
+      Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
+
+    baseline_version = queue_version(baseline, ctx.agent.uid)
+
+    changed_links = [%{"kind" => "page", "id" => other_page}, quote]
+
+    assert {:ok, saved} =
+             change(ctx, "edit", input, text: "Review @Roadmap", links: changed_links)
+
+    assert queue_version(saved, ctx.agent.uid) != baseline_version
+    assert Repo.get_by!(Message, id: message_id).links == changed_links
+
+    assert {:error, :queue_changed} =
+             queue_command(ctx, %{
+               action: "edit",
+               message_id: message_id,
+               text: "Stale overwrite",
+               links: [],
+               expected_version: baseline_version
+             })
+
+    assert Repo.get_by!(Message, id: message_id).links == changed_links
+    assert {:ok, _} = change(ctx, "edit", input, text: "Without references", links: [])
+    assert Repo.get_by!(Message, id: message_id).links == []
+  end
+
+  test "completed edits preserve references in command identity and reject an expired reference snapshot",
+       ctx do
+    _reply = complete_reply(ctx, "Original answer")
+
+    links = [
+      %{"kind" => "message", "id" => ctx.input.message_id, "quote" => "A quoted requirement."}
+    ]
+
+    command = %{
+      action: "edit_last",
+      message_id: ctx.input.message_id,
+      text: "Corrected request",
+      expected_text: "Original work",
+      expected_links: [],
+      links: links,
+      command_id: Ecto.UUID.generate()
+    }
+
+    assert {:ok, _} = queue_command(ctx, command)
+    assert Repo.get_by!(Message, id: ctx.input.message_id).links == links
+    assert {:ok, _} = queue_command(ctx, command)
+    assert {:error, :conversation_conflict} = queue_command(ctx, %{command | links: []})
+    retry = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert {:ok, run} = Admission.admit(ctx.key, retry)
+    assert {:ok, {:preparing, run}} = Model.prepare(run)
+    _reply = complete_reply(%{ctx | run: run, input: retry}, "Corrected answer")
+
+    assert {:error, :queue_changed} =
+             queue_command(ctx, %{
+               command
+               | expected_text: "Corrected request",
+                 expected_links: [],
+                 command_id: Ecto.UUID.generate()
+             })
+
+    assert Repo.get_by!(Message, id: ctx.input.message_id).links == links
+  end
+
+  test "completed edits remove captured Human mentions and preserve their retry identity", ctx do
+    bob = human_fixture().principal
+    id = Ecto.UUID.generate()
+    agent_mention = %{"type" => "agent", "uid" => ctx.agent.uid}
+    mentions = [agent_mention, %{"type" => "human", "uid" => bob.uid, "displayName" => "Bob"}]
+
+    assert {:ok, detail} =
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), %{
+               conversation_id: id,
+               agent_uid: ctx.agent.uid,
+               message_id: Ecto.UUID.generate(),
+               text: "Ask @Bob to review",
+               mentions: mentions
+             })
+
+    input = Repo.get_by!(Signal, conversation_id: id)
+    key = %{agent_uid: ctx.agent.uid, session_id: detail.session_id}
+    assert {:ok, run} = Admission.admit(key, input)
+    assert {:ok, {:preparing, run}} = Model.prepare(run)
+    ctx = %{ctx | id: id, key: key, input: input, run: run}
+    _reply = complete_reply(ctx, "Original answer")
+
+    command = %{
+      action: "edit_last",
+      message_id: input.message_id,
+      text: "Review the result",
+      expected_text: "Ask @Bob to review",
+      expected_mentions: mentions,
+      mentions: [],
+      command_id: Ecto.UUID.generate()
+    }
+
+    assert {:ok, _} = queue_command(ctx, command)
+    assert Repo.get_by!(Message, id: input.message_id).mentions == [agent_mention]
+    assert {:ok, _} = queue_command(ctx, command)
+    assert {:error, :conversation_conflict} = queue_command(ctx, %{command | mentions: mentions})
+    retry = Queue.next_ready_event(ctx.agent.uid, key.session_id)
+    assert retry.agent_uid == input.agent_uid
+    assert retry.message_id == input.message_id
+    assert Repo.reload!(input).data["text"] == "Ask @Bob to review"
+    assert {:ok, run} = Admission.admit(key, retry)
+    assert {:ok, {:preparing, run}} = Model.prepare(run)
+    _reply = complete_reply(%{ctx | run: run, input: retry}, "Updated answer")
+
+    assert {:error, :queue_changed} =
+             queue_command(ctx, %{
+               command
+               | expected_text: "Review the result",
+                 command_id: Ecto.UUID.generate()
+             })
+  end
+
   test "a delayed Resume cannot release a queue paused by a later Stop", ctx do
     _input = post!(ctx, "Keep this paused", "queue")
 
     assert {:ok, first_stop} =
              queue_command(ctx, %{action: "stop", command_id: Ecto.UUID.generate()})
 
+    first_stop_version = queue_version(first_stop, ctx.agent.uid)
+
     assert {:ok, _} = queue_command(ctx, %{action: "resume"})
     assert {:ok, _} = queue_command(ctx, %{action: "stop", command_id: Ecto.UUID.generate()})
 
     assert {:error, :queue_changed} =
-             queue_command(ctx, %{action: "resume", expected_version: first_stop.queue_version})
+             queue_command(ctx, %{
+               action: "resume",
+               expected_version: first_stop_version
+             })
 
     assert {:ok, current} =
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
-    assert current.conversation.metadata["queue_paused"] == true
+    assert current.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
   end
 
   test "editing the latest completed Human input retries the saved text through the real history owner",
@@ -510,9 +731,10 @@ defmodule Ankole.ConversationsQueueTest do
                id,
                %{
                  action: "regenerate",
+                 agent_uid: ctx.agent.uid,
                  message_id: notice.id,
                  command_id: Ecto.UUID.generate(),
-                 expected_version: rejected.queue_version
+                 expected_version: queue_version(rejected, ctx.agent.uid)
                }
              )
   end
@@ -562,9 +784,10 @@ defmodule Ankole.ConversationsQueueTest do
 
     command = %{
       action: "regenerate",
+      agent_uid: ctx.agent.uid,
       message_id: notice.id,
       command_id: Ecto.UUID.generate(),
-      expected_version: failed.queue_version
+      expected_version: queue_version(failed, ctx.agent.uid)
     }
 
     assert {:ok, _} =
@@ -640,13 +863,16 @@ defmodule Ankole.ConversationsQueueTest do
     {:ok, baseline} =
       Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
+    baseline_version = queue_version(baseline, ctx.agent.uid)
+
     command = %{
       action: "edit_last",
+      agent_uid: ctx.agent.uid,
       message_id: ctx.input.message_id,
       text: "Committed correction",
       expected_text: "Original work",
       command_id: Ecto.UUID.generate(),
-      expected_version: baseline.queue_version
+      expected_version: baseline_version
     }
 
     assert {:ok, saved} =
@@ -656,7 +882,8 @@ defmodule Ankole.ConversationsQueueTest do
                command
              )
 
-    refute saved.queue_version == baseline.queue_version
+    saved_version = queue_version(saved, ctx.agent.uid)
+    refute saved_version == baseline_version
     count = Repo.aggregate(Signal, :count)
 
     assert {:ok, replayed} =
@@ -666,7 +893,7 @@ defmodule Ankole.ConversationsQueueTest do
                command
              )
 
-    assert replayed.queue_version == saved.queue_version
+    assert queue_version(replayed, ctx.agent.uid) == saved_version
     assert Repo.aggregate(Signal, :count) == count
     assert Repo.get_by!(Message, id: ctx.input.message_id).text == "Committed correction"
 
@@ -736,10 +963,19 @@ defmodule Ankole.ConversationsQueueTest do
     {:ok, detail} =
       Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
+    agent_uid = Map.get(attrs, :agent_uid, ctx.agent.uid)
+
     Conversations.update_queue(
       Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
       ctx.id,
-      Map.put_new(attrs, :expected_version, detail.queue_version)
+      attrs
+      |> Map.put_new(:agent_uid, agent_uid)
+      |> Map.put_new(:expected_version, queue_version(detail, agent_uid))
     )
+  end
+
+  defp queue_version(detail, agent_uid) do
+    inputs = Enum.filter(detail.pending_inputs, &(&1.agent_uid == agent_uid))
+    Ankole.Conversations.NativeQueue.queue_version(detail.conversation, inputs, agent_uid)
   end
 end

@@ -243,12 +243,8 @@ defmodule Ankole.Pod.ResourceActionsTest do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
 
-    {:ok, table} =
-      Ankole.Pod.Database.create_table(
-        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
-        page.id,
-        %{}
-      )
+    {:ok, %{tables: [table]}} =
+      Ankole.Pod.Database.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id)
 
     before = Repo.aggregate(Page, :count)
 

@@ -19,6 +19,92 @@ defmodule Ankole.AutomationJobsTest do
 
   @now ~U[2026-07-30 09:00:00.000000Z]
 
+  test "Agent UID normalization is shared by creation, lookup, binding, dispatch, emission, and cancellation" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    uid = "  " <> String.upcase(agent.uid) <> "\n"
+    drive_file_fixture(agent.uid, "automation/test/main.ts")
+
+    attrs = job_attrs(source, []) |> Map.delete(:agent_uid) |> Map.put("agent_uid", uid)
+    assert {:ok, job} = AutomationJobs.create_job(attrs)
+    assert job.agent_uid == agent.uid
+    assert [listed] = AutomationJobs.list_jobs(uid, source.session_id)
+    assert listed.id == job.id
+    assert {:ok, found} = AutomationJobs.get_job(uid, source.session_id, job.id)
+    assert found.id == job.id
+
+    assert {:ok, :bound} =
+             Repo.transact(fn ->
+               with :ok <- AutomationJobs.validate_bindable_in_tx(job.id, uid),
+                    do: {:ok, :bound}
+             end)
+
+    assert {:ok, %{automation_job_run: run}} =
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, uid, trigger_event("normalized-uid"))
+             end)
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-normalized-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
+    assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
+
+    assert {:ok, emitted} =
+             AutomationJobs.emit_event(uid, run.id, attempt.attempt_id, %{"normalized" => true})
+
+    assert emitted.agent_uid == agent.uid
+    assert emitted.session_id == source.session_id
+
+    assert {:ok, %{status: :cancelled}} =
+             AutomationJobs.cancel_job(uid, source.session_id, job.id)
+  end
+
+  test "blank Agent UIDs cannot broaden a list scope or change automation work" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source)
+    uid = " \n\t "
+
+    assert AutomationJobs.list_jobs(uid, nil) == []
+    assert [listed] = AutomationJobs.list_jobs(nil, nil)
+    assert listed.id == job.id
+
+    assert {:error, :invalid_uid} =
+             AutomationJobs.create_job(Map.put(job_attrs(source, []), :agent_uid, uid))
+
+    assert {:error, :invalid_uid} = AutomationJobs.get_job(uid, source.session_id, job.id)
+
+    assert {:error, :invalid_uid} =
+             AutomationJobs.cancel_job(uid, source.session_id, job.id)
+
+    assert {:error, :invalid_uid} =
+             Repo.transact(fn -> AutomationJobs.validate_bindable_in_tx(job.id, uid) end)
+
+    assert {:error, :invalid_uid} =
+             Repo.transact(fn ->
+               AutomationJobs.enqueue_run_in_tx(job.id, uid, trigger_event("blank-uid"))
+             end)
+
+    assert Repo.aggregate(Run, :count) == 0
+    assert Repo.reload!(job).status == :active
+    run = enqueue!(job, trigger_event("valid-uid"))
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-blank-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
+    assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
+
+    assert {:error, :invalid_uid} =
+             AutomationJobs.emit_event(uid, run.id, attempt.attempt_id, %{"rejected" => true})
+
+    refute Repo.get_by(Signal, agent_uid: agent.uid, type: "automation_job.emitted")
+    assert Repo.reload!(run).attempt_id == attempt.attempt_id
+  end
+
   test "attempt fences reject stale completion and emission after infrastructure replay" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)

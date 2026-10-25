@@ -280,6 +280,29 @@ defmodule Ankole.Sessions.ModelHistory do
   def load_turn_chain(%{signal_id: _}, _final_response_id),
     do: {:error, :invalid_final_response_id}
 
+  @doc "Reads completed rows before the current Response in the same turn."
+  def completed_turn_prefix(turn_ref, response_id) do
+    with {:ok, [%Message{} = current | previous]} <-
+           AIGateway.list_response_chain(turn_ref.agent_uid, response_id, @max_chain_depth),
+         {:ok, conversation} <-
+           AIGateway.get_conversation(turn_ref.agent_uid, current.conversation_id),
+         :ok <- validate_conversation(conversation, turn_ref),
+         true <- AIGateway.response_metadata(current)["signal_id"] == turn_ref.signal_id do
+      case previous do
+        [first | _] ->
+          if AIGateway.response_metadata(first)["signal_id"] == turn_ref.signal_id,
+            do: turn_response_chain(previous, turn_ref),
+            else: {:ok, []}
+
+        [] ->
+          {:ok, []}
+      end
+    else
+      false -> {:error, :response_signal_mismatch}
+      error -> error
+    end
+  end
+
   defp request_ref_signal_ids(request_refs) when is_list(request_refs) do
     Enum.flat_map(request_refs, fn
       %{"signal_id" => signal_id} when is_binary(signal_id) -> [signal_id]

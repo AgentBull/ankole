@@ -24,7 +24,7 @@ function inputEvent(wg: Wordgard, type: string, init: InputEventInit) {
 
 type CompositionUpdate = [number, number, string, () => Text] | [number, number, string]
 
-type UpdateArg = CompositionUpdate | { run: () => void }
+type UpdateArg = CompositionUpdate | { run: () => void; selectionShift?: number }
 
 function selEnd(node: Node) {
   document.getSelection()!.collapse(node, node.nodeValue!.length)
@@ -154,7 +154,8 @@ function compose(
       }
       ist(node.parentNode && wg.contentDOM.contains(node.parentNode))
       ist(sel.focusNode, focusNode)
-      ist(sel.focusOffset, focusOffset)
+      const selectionShift = update && !Array.isArray(update) && 'run' in update ? update.selectionShift || 0 : 0
+      ist(sel.focusOffset, focusOffset + selectionShift)
       if (update) ist(wg.compositionStarted)
     }
   }
@@ -294,7 +295,7 @@ describe('composition', () => {
     compose(
       wg,
       [2, 2, '-'],
-      { run: () => wg.dispatch({ changes: { from: 1, insert: [Leaf.text('!')] } }) },
+      { run: () => wg.dispatch({ changes: { from: 1, insert: [Leaf.text('!')] } }), selectionShift: 1 },
       [3, 4, '×'],
       { run: () => wg.dispatch({ changes: { from: 5, insert: [Leaf.text('?')] } }) },
       [3, 4, '⇒']
@@ -303,7 +304,7 @@ describe('composition', () => {
     ist(wg.contentDOM.innerHTML, '<p>!a⇒b?</p>')
   })
 
-  it('gracefully handles API-produced changes inside the composition', () => {
+  it('keeps composing through API-produced text edits before the candidate', () => {
     const wg = requireFocus(tempEditor(doc(p('ab', 0, 'c'))))
     compose(
       wg,
@@ -315,9 +316,9 @@ describe('composition', () => {
           ist(wg.contentDOM.innerHTML, '<p>a!b-c</p>')
         }
       },
-      { cancel: true }
+      [4, 5, '×']
     )
-    ist(wg.state.doc, doc(p('a!b-c')), eq)
+    ist(wg.state.doc, doc(p('a!b×c')), eq)
   })
 
   it('gracefully handles starting a composition in a modified text node', () => {

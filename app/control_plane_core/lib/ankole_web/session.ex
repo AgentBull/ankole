@@ -221,6 +221,12 @@ defmodule AnkoleWeb.Session do
   # header. Other API URLs must not select a different signed-in identity.
   defp parameter_reference(conn) do
     case {conn.method, String.split(conn.request_path, "/", trim: true)} do
+      {"GET", ["pod", "applet-frame", "current", _id, _revision | _]} ->
+        BrowserSessions.current_reference(browser_reference(conn))
+
+      {"GET", ["pod", "applet-frame", ref, _id, _revision | _]} ->
+        decode_reference(ref)
+
       {"GET", ["api", "v2", "pod", "conversations", _id, "events"]} ->
         parameter_authentication(conn)
 

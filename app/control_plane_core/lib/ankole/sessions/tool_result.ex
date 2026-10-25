@@ -2,6 +2,7 @@ defmodule Ankole.Sessions.ToolResult do
   @moduledoc "A tool's model output and explicit local presentation effects."
   defstruct [
     :output,
+    :duration_ms,
     :final_text,
     :details,
     :failure_kind,
@@ -25,7 +26,9 @@ defmodule Ankole.Sessions.ToolResult do
   @spec journal_fields(t()) :: map()
   def journal_fields(%__MODULE__{} = result),
     do:
-      result |> encode() |> Map.take(~w(is_error terminate outcome failure_kind todos final_text))
+      result
+      |> encode()
+      |> Map.take(~w(is_error terminate outcome failure_kind todos final_text duration_ms))
 
   @spec encode(t() | {:await, Ankole.Sessions.Wait.t()}) :: map()
   def encode({:await, wait}), do: %{"wait" => Ankole.Sessions.Wait.encode(wait)}

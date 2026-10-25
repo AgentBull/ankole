@@ -124,6 +124,8 @@ RUN ANKOLE_SECRET_BASE=build-smoke \
   ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files \
   ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT=ws://build-smoke:4000/runtime-fabric/worker \
   ANKOLE_AGENT_COMPUTER_IMAGE=build-smoke \
+  ANKOLE_FUNCTION_RUNTIME_URL=http://build-smoke:9000 \
+  ANKOLE_FUNCTION_RUNTIME_TOKEN=build-smoke \
   PHX_SERVER=false \
   mix ankole.openapi.check
 
@@ -197,6 +199,8 @@ RUN ANKOLE_SECRET_BASE=build-smoke \
   ANKOLE_FILES_STORE=fs \
   ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files \
   ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT=ws://build-smoke:4000/runtime-fabric/worker \
+  ANKOLE_FUNCTION_RUNTIME_URL=http://build-smoke:9000 \
+  ANKOLE_FUNCTION_RUNTIME_TOKEN=build-smoke \
   PHX_SERVER=false \
   /app/bin/ankole eval 'Application.load(:ankole)'
 

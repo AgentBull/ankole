@@ -185,6 +185,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
         message_id: Ecto.UUID.generate(),
         agent_uid: agent.uid,
         page_id: page.id,
+        access_scope: :participants,
         text: "",
         attachments: [upload.receipt]
       })
@@ -221,11 +222,13 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     assert {:error, :forbidden} =
              Pages.get(Ankole.PrincipalsFixtures.actor_fixture(reader.uid), page.id)
 
-    assert {:error, :page_unavailable} =
+    assert {:ok, posted} =
              Ankole.ConversationsFixtures.post(reader.uid, detail.conversation.id, %{
                message_id: Ecto.UUID.generate(),
-               text: "Cannot delegate this Page again"
+               text: "Continue the private Chat"
              })
+
+    assert posted.conversation.native_access_scope == :participants
 
     assert {:ok, ^attachment} =
              Ankole.Conversations.Attachments.Native.read_to_file(

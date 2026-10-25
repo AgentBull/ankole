@@ -354,7 +354,9 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert {:present, [activity]} = Enum.find(commands, &match?({:present, [_]}, &1))
 
     assert empty_pending == %{}
-    assert completed.results["attachment-1"] == result
+    completed_result = completed.results["attachment-1"]
+    assert is_integer(completed_result.duration_ms) and completed_result.duration_ms >= 0
+    assert %{completed_result | duration_ms: result.duration_ms} == result
     assert completed.visible_delivery?
     assert activity["payload"]["phase"] == "completed"
 

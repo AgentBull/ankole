@@ -60,10 +60,18 @@ defmodule Ankole.Sessions do
 
   @doc "Returns the current work state from the durable Session queue."
   def status(%{agent_uid: uid, session_id: session}) do
+    statuses([{uid, session}])[{uid, session}]
+  end
+
+  @doc "Returns public work states for the requested execution Sessions."
+  def statuses(keys) do
     now = DateTime.utc_now(:microsecond)
+    events = Ankole.Signals.session_status_signals(Enum.uniq(keys), now)
+    by_session = Map.new(events, &{{&1.agent_uid, &1.session_id}, &1})
+    Map.new(keys, &{&1, status_from_event(by_session[&1], now)})
+  end
 
-    event = Ankole.Sessions.Queue.status_event(uid, session, now)
-
+  defp status_from_event(event, now) do
     case event do
       nil ->
         %{state: :idle, retry_at: nil}

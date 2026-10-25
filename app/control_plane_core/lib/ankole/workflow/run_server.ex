@@ -5,7 +5,7 @@ defmodule Ankole.Workflow.RunServer do
 
   require Ash.Query
 
-  alias Ankole.Kernel.ProgramRunner
+  alias Ankole.FunctionRuntime.ProgramRunner
   alias Ankole.Repo
   alias Ankole.Workflow.Lifecycle
   alias Ankole.Workflow.Recovery

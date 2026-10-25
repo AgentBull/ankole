@@ -10,7 +10,55 @@ defmodule Ankole.Sessions.ModelHistoryTest do
   alias Ankole.Repo
   alias Ankole.Signals
   alias Ankole.Sessions.ModelHistory
-  alias Ankole.Conversations.Conversation, as: PublicConversation
+
+  test "live display reads the completed same-turn reasoning without the current Response or an older turn" do
+    %{principal: subject} = agent_fixture()
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "live-display")
+
+    for {signal, text} <- [
+          {"older-turn", "Old reasoning."},
+          {"live-turn", "First reasoning."},
+          {"live-turn", "Second reasoning."}
+        ] do
+      {:ok, response} =
+        start_response_run(%{
+          subject_uid: subject.uid,
+          conversation_id: conversation.id,
+          metadata: %{"request_metadata" => %{"signal_id" => signal}}
+        })
+
+      assert {:ok, _} =
+               ResponseCommit.commit_complete(response, [
+                 %{
+                   "type" => "reasoning",
+                   "summary" => [%{"type" => "summary_text", "text" => text}]
+                 }
+               ])
+    end
+
+    assert {:ok, live} =
+             start_response_run(%{
+               subject_uid: subject.uid,
+               conversation_id: conversation.id,
+               metadata: %{"request_metadata" => %{"signal_id" => "live-turn"}}
+             })
+
+    ref = %{agent_uid: subject.uid, session_id: "live-display", signal_id: "live-turn"}
+    assert {:ok, rows} = ModelHistory.completed_turn_prefix(ref, "resp_#{live.id}")
+    assert length(rows) == 2
+    assert Enum.all?(rows, &(&1.status == :complete))
+
+    assert {:ok, "First reasoning.\n\nSecond reasoning."} =
+             Ankole.Sessions.Presentation.previous_thinking(ref, "resp_#{live.id}")
+
+    assert {:error, :response_signal_mismatch} =
+             ModelHistory.completed_turn_prefix(
+               %{ref | signal_id: "another-turn"},
+               "resp_#{live.id}"
+             )
+
+    assert Repo.reload!(live).status == :generating
+  end
 
   test "run recovery reads model output, recorded calls, without the live Response (G3)" do
     %{principal: subject} = human_fixture()
@@ -195,9 +243,8 @@ defmodule Ankole.Sessions.ModelHistoryTest do
     now = DateTime.utc_now(:microsecond)
     channel_id = Ecto.UUID.generate()
 
-    Repo.insert!(%PublicConversation{
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
       id: channel_id,
-      kind: :external,
       external_kind: :im_dm,
       title: "DM",
       provider_conversation_id: "dm:#{channel_id}",

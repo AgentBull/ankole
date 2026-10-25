@@ -1035,8 +1035,8 @@ omits output after complete output-item events, the loop uses the raw items from
 that provider round to decide local execution. It clears these temporary items
 before the next provider round.
 
-Programmatic tool calls run in a fresh bare V8 isolate. The program has no Node,
-filesystem, or network API. It runs until it finishes or reaches its first
+Programmatic tool calls run in a fresh restricted function worker. The program
+has no filesystem, network, environment, process, or external module access. It runs until it finishes or reaches its first
 unanswered tool-call batch. A resume replays the program from the start with
 the recorded answers. Nested calls carry their program caller identity, and
 Agent Computer executes one only when the frozen tool descriptor permits the
@@ -1088,15 +1088,23 @@ This wire rule is separate from the Codex code-mode JavaScript global-name
 rule. The adapters reject two structured identities that produce the same
 Provider alias. No earlier AIGateway layer flattens the identity.
 
-`ResponseStream` remains the sole owner of public events, sequence numbers,
-loop advancement, and durable commit. Program execution runs under a bounded
-`Task.Supervisor`. V8 execution and request decoding run on native threads. A
-ResourceArc handle owns each execution before its BEAM task starts. Cancellation
-uses that handle. Exit of the Response owner or execution task terminates the
-same native execution, including a batch that has not entered V8. Admission
-has four slots, separate from the four Applet slots. No program occupies a dirty
-CPU scheduler. The same lifecycle owner serves SSE, WebSocket, and collected
-non-streaming Responses.
+`ResponseStream` is the sole owner of public events, sequence numbers, loop
+advancement, and durable commit. Its semantic state accumulates public output
+text and reasoning summaries with the same public sequence number. A display
+snapshot reads this state without consuming stream credit or advancing the
+provider. The snapshot belongs to the current stream process. PostgreSQL owns
+the terminal Response and its recorded items.
+
+Program execution runs under a bounded
+`Task.Supervisor`. `Ankole.FunctionRuntime.ProgramRunner` sends each step to
+`POST /v1/program/run` on the stateless function service. One opaque handle
+exists before admission and owns cancellation. Exit of the response owner or
+execution task cancels the HTTP request. Each step uses a fresh worker with
+network, filesystem, environment, process, and FFI permissions denied. The
+worker replays the memo with deterministic random and clock values, then
+returns a completed, pending, or failed result. Native supervision retires the
+worker when its request ends. The same lifecycle owner serves
+SSE, WebSocket, and collected non-streaming Responses.
 
 One public `max_tool_calls` budget covers all internal rounds. A zero budget
 removes every built-in tool before the first provider call. Every provider
@@ -1112,7 +1120,7 @@ authoritative.
 Internal work is bounded before it can amplify provider or worker cost. One
 public response permits at most 16 internal rounds, 8 top-level programs, 256
 nested program calls, 1,024 retained provider-history items, and 8 MiB of
-retained provider history. The native runner also caps program code, memo,
+retained provider history. The function runner also caps program code, memo,
 pending calls, output, heap, runtime, and concurrent isolates. These limits fail
 the affected response or program explicitly instead of dropping a dependency
 edge.

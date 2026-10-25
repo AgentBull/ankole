@@ -26,12 +26,19 @@ defmodule Ankole.Sessions.Events do
   def publish_status(agent_uid, session_id) do
     Repo.assert_outside_transaction!()
     broadcast(agent_uid, session_id, :status)
+    publish_rooms_changed(session_id)
   end
 
   def publish_turn_completed(agent_uid, session_id, signal_id, outcome) do
     Repo.assert_outside_transaction!()
     broadcast(agent_uid, session_id, {:turn_completed, signal_id, outcome})
+    publish_rooms_changed(session_id)
   end
+
+  defp publish_rooms_changed("conversation:" <> _id),
+    do: Ankole.Conversations.Events.publish_rooms_changed()
+
+  defp publish_rooms_changed(_session), do: :ok
 
   @doc "Publishes a transient Driver snapshot. This event does not establish a durable fact."
   def publish_activity(agent_uid, session_id, snapshot),

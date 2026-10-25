@@ -144,6 +144,49 @@ defmodule Ankole.AppConfigureTest do
     end
   end
 
+  test "tenant platform identity writes preserve envelopes across production calls", %{
+    prefix: prefix,
+    tenant: tenant
+  } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "platform-production-metadata"),
+        encrypted: true,
+        scope: :tenant,
+        schema: Schema.non_empty_string()
+      )
+
+    assert :ok = Registry.register_definitions([definition])
+    scope = "tenant:" <> tenant.id
+
+    assert {:ok, envelope} =
+             Repo.transact(fn _repo ->
+               with {:ok, write} <-
+                      AppConfigure.put_tenant_by_key_in_tx(definition.key, "secret"),
+                    {:ok, row} <- AppConfigure.get_app_config(scope, definition.key),
+                    :ok <-
+                      Ankole.Signals.Bindings.record_platform_application_in_tx(
+                        write,
+                        "provider:first"
+                      ),
+                    :ok <-
+                      Ankole.Signals.Bindings.record_platform_application_in_tx(
+                        write,
+                        "provider:second"
+                      ) do
+                 {:ok, row.value}
+               end
+             end)
+
+    updated = Repo.get_by!(AppConfig, scope: scope, key: definition.key)
+
+    assert updated.value ==
+             Map.put(envelope, "platform_application", "provider:second")
+
+    assert {:ok, "secret"} =
+             Ankole.AppConfigure.Codec.load(definition, scope, definition.key, updated.value)
+  end
+
   @tag sandbox: false
   test "committed E2E cleanup restores changed and deleted global values and removes new keys", %{
     prefix: prefix

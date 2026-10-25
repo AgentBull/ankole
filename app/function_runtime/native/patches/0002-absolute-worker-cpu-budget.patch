@@ -1,0 +1,55 @@
+diff --git a/crates/base/src/worker/supervisor/strategy_per_worker.rs b/crates/base/src/worker/supervisor/strategy_per_worker.rs
+--- a/crates/base/src/worker/supervisor/strategy_per_worker.rs
++++ b/crates/base/src/worker/supervisor/strategy_per_worker.rs
+@@ -181,6 +181,7 @@
+   let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
+   let mut cpu_usage_ms = 0i64;
+   let mut cpu_timer_rx = None::<mpsc::UnboundedReceiver<()>>;
++  let mut cpu_timer_is_hard_deadline = false;
+ 
+   let wall_clock_limit_ms = if worker_timeout_ms < 2 {
+     2
+@@ -324,13 +325,26 @@
+             if !state.is_cpu_time_limit_disabled {
+               cpu_timer_rx = Some(timer.set_channel().in_current_span().await);
+ 
+-              if let Err(err) = timer.reset({
+-                // TODO(Nyannyacha): Once a CPU budget-based scheduler is
+-                // implemented, uncomment this line.
+-                // cpu_budget(&runtime_opts)
+-                runtime_opts.cpu_time_soft_limit_ms
+-              }, cpu_time_hard_limit_ms) {
+-                error!("can't reset cpu timer: {}, {:?}", err, std::thread::current());
++              let used_ms = cpu_usage_ms.max(0) as u64;
++              if used_ms >= cpu_time_hard_limit_ms {
++                error!("CPU time hard limit reached: isolate: {:?}", key);
++                complete_reason = Some(ShutdownReason::CPUTime);
++              } else {
++                let soft_alarm_pending = !state.is_cpu_time_soft_limit_reached
++                  && used_ms < cpu_time_soft_limit_ms
++                  && cpu_time_soft_limit_ms < cpu_time_hard_limit_ms;
++                cpu_timer_is_hard_deadline = !soft_alarm_pending;
++                let (initial_ms, interval_ms) = if soft_alarm_pending {
++                  (
++                    cpu_time_soft_limit_ms - used_ms,
++                    cpu_time_hard_limit_ms - cpu_time_soft_limit_ms,
++                  )
++                } else {
++                  (cpu_time_hard_limit_ms - used_ms, 0)
++                };
++                if let Err(err) = timer.reset(initial_ms, interval_ms) {
++                  error!("can't reset cpu timer: {}, {:?}", err, std::thread::current());
++                }
+               }
+             }
+           }
+@@ -377,7 +391,8 @@
+         }
+       } => {
+         if state.is_worker_entered {
+-          if !state.is_cpu_time_soft_limit_reached {
++          if !cpu_timer_is_hard_deadline {
++            cpu_timer_is_hard_deadline = true;
+             early_retire_fn();
+             error!("CPU time soft limit reached: isolate: {:?}", key);
+ 

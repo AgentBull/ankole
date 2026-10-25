@@ -14,20 +14,21 @@ contracts through `ankole-pod`; do not make a local file stand in for a saved
 page or use browser storage as the authoritative database.
 
 Run `ankole-pod --help` before the first operation. It lists the current
-operations and parameter shapes. The CLI is available inside an active
-Agent turn. Main routes this Skill to a Background Agent Job.
+operations and parameter shapes. The CLI is available inside an active Agent turn or an authorized
+Automation Job attempt. Main routes this Skill to a Background Agent Job.
 
 ## Identity and access
 
-The control plane uses your Agent Principal for every request. A person who
-asks you to do work does not lend you their page permissions. If access is
-denied, ask them to share the target page with your Agent or add your Agent
-to the space. Never use another identity or a hidden storage path.
+The control plane checks your Agent Principal for every request. Work driven
+by a Human uses the intersection of that Human's permissions and your Agent's
+permissions. A service Automation Job uses its Agent's own permissions. An
+Automation Job must hold its current execution attempt; review-required and
+expired attempts cannot access Pod. If access is denied, ask for the required
+sharing grant. Never use another identity or a hidden storage path.
 
-A page is the unit of permissions and lifecycle. Only a document page can
-have children. A Database holds its tables; tables and records are not pages.
+A page is the unit of permissions and lifecycle. Every page type can have children. A Database holds its tables; tables and records are not pages.
 
-Creating a child requires edit access to its parent document. The child
+Creating a child requires edit access to its parent page. The child
 inherits that access; creation does not add a manage grant. Editing content,
 title, or icon requires edit access. Edit access also permits a move when
 the page and its descendants keep the same access permissions. A move that
@@ -37,6 +38,13 @@ changing sharing still requires Full access. A rejected move leaves the source
 in place. Keep its identity and ask for the needed access rather than claim
 a replacement was moved.
 
+Read `pages.sharing {id}` for the current `sharing_version`, grants, and subjects.
+Use `pages.set_sharing {id, sharing_version, inherit_permissions?, grants?}` or
+`ankole-pod page set-sharing <page-id> '<JSON body>'` to replace sharing.
+Each grant supplies one subject (`principal_uid`, `group_id`, or `source_page_id`
+with `source_action`) and either `role` or exact `actions`, plus optional
+`target_scope` and `condition`. A stale version requires a fresh read.
+
 ## Documents and files
 
 Set a Page's `title` with `pages.create` or `pages.update`;
@@ -45,8 +53,11 @@ rules for Page authoring and the requested output format.
 
 1. List the pages you can see or read the requested page.
 2. Read its Markdown and revision before a change.
-3. Write Markdown with that `base_revision`. The Worker uses the editor's
-   parser and printer to produce the canonical XML sent to the control plane.
+3. Use `pages.write` for a target body, `pages.append` for Markdown at the end,
+   or `pages.patch` for exact `old_text` and `new_text` edits. Each operation
+   requires that `base_revision`. A patch rejects missing or ambiguous text;
+   `replace_all: true` permits all matches. The Worker uses the editor's codec.
+   The control plane commits minimal structural and UTF-16 text changes.
 4. If the write conflicts, read again and reconsider the change. Do not
    overwrite a newer revision or claim the old write succeeded.
 
@@ -73,7 +84,9 @@ purge begins. Deleting a chat does not delete the pages saved from it.
 
 ## Business data
 
-Create the Database, tables, and typed fields before the applet. Keep the IDs
+Create the Database and typed fields before the applet. A new Database has
+`Table 1` with a primary Name field; read it with `database.tables` before
+creating another table. Keep the IDs
 returned by these operations and continue work on them. A rejected query does
 not remove already saved pages or tables. Read the CLI parameter shapes and
 correct that query instead of creating replacement content. Records use field
@@ -86,6 +99,11 @@ records:
 - One batch contains at most 200 records and commits as a unit.
 - A conflict requires a new read and a new decision. Different fields of the
   same record can be changed independently.
+
+Contributors can create, update, and delete records and upload record
+attachments. Editors can change fields, views, and documents and publish
+Applets. Managers can delete tables and change sharing. A table referenced by
+a link field must have that reference removed before deletion.
 
 Formula fields are read-only and are evaluated by the server. Reference
 same-record fields by name in formula source, such as `[Price] * [Quantity]`.
@@ -101,31 +119,42 @@ instead.
 
 ## React applets
 
-Use one CLI for initialization, build, and publication:
+Use one CLI for initialization, build, publication, and source pull:
 
 ```text
 ankole-pod applet init <directory>
 ankole-pod applet build <directory>
 ankole-pod applet publish <directory> '{"id":"<applet-page-id>","base_revision":0}'
+ankole-pod applet pull <empty-directory> '{"id":"<applet-page-id>"}'
 ```
 
 The generated entry exports `provider = defineApplet(App)` from
-`@ankole/applet-sdk`. Keep source under `src/`. Build emits CommonJS,
-`dist/index.html`, JavaScript, and CSS. React, React DOM, `@ankole/uikit`,
-and `@ankole/applet-sdk` are host dependencies. Do not bundle another React
+`@ankole/applet-sdk`. Keep source under `src/`. Build emits browser ESM,
+`dist/index.html`, `dist/main.js`, shared chunks, and CSS. React, React DOM, `@ankole/uikit`,
+and `@ankole/applet-sdk` are host dependencies. Keep all four out of
+`package.json`; the host supplies them. Do not bundle another React
 or add a global CSS reset. Use the host components and theme. For standard action
 buttons, use `import { Button } from '@ankole/uikit'`. Native `button` elements
-do not include the host's control styles. Keep custom CSS inside the
-`.ankole-applet` mount container.
+do not include the host's control styles. Keep custom CSS inside the Applet frame.
 Import UIKit components from its root export. The build rejects UIKit component
 subpaths and stylesheet imports; the host already loads those styles.
 Import local images, fonts, and media from source, or reference them with CSS
-`url()`. The build embeds these resources for the published Blob entry. A plain
-runtime path string does not include a resource in the build.
+`url()`. The build embeds imported resources in the published module graph. A plain
+runtime path string does not include a resource in the build. Import a Worker
+URL with `import workerURL from './calculation.worker.ts?url'`, then use
+`new Worker(new URL(workerURL, import.meta.url), { type: 'module' })`.
+The build compiles the Worker and resolves its URL from nested modules and
+dynamic chunks. Applet init supplies the Worker URL import types.
+Source pull requires edit access,
+checks each file digest, and runs `bun install --ignore-scripts`.
 
 Use `useRecords(tableID, query)` for records and its `create`, `update`, and
 `remove` methods for writes. Its TanStack Query result holds rows at
 `result.data?.records`; `useAggregate` holds groups at `result.data?.groups`.
+`usePod().actions` lists the selected user's permitted actions on the Applet
+page. View access permits use of the Applet. Record writes require contribution
+access to the target Database, and file content writes require edit access to
+the target Page. Preserve form input when the target rejects a write.
 Handle the query's loading and error states before rendering its data.
 Retain the record when editing begins. Call
 `update(record.id, data, expectedVersions(record, data))`, importing
@@ -141,11 +170,11 @@ Messages are not saved or replayed. Save durable results in Database. For
 many simultaneous votes, append one record per vote and aggregate them;
 do not repeatedly overwrite one counter.
 
-The applet runs as its current user and can use network fetch. Garfish scopes
-its globals and entry styles and cleans tracked effects on unmount. Keep DOM
-inside the supplied container. Do not add nodes or styles to the host body,
-mutate host DOM, or run long synchronous loops. The sandbox protects app
-stability; it is not an isolation boundary against malicious code.
+The Applet runs as its current user in a same-origin iframe. Its document,
+modules, and Workers use the tab's proven identity. The frame separates DOM,
+CSS, and viewport layout; it shares the host's origin and trust boundary.
+The host closes subscriptions and channels when a publication is replaced.
+Keep DOM and styles in the frame and do not mutate the parent document.
 
 Before publication, read the applet's current revision. Publication replaces
 its complete source, distribution, and optional backend in one commit. A conflict requires a
@@ -171,8 +200,8 @@ export default {
 } satisfies Routes
 ```
 
-`ankole-pod applet build` bundles this entry into `server/main.js` as one browser
-ES module. No external imports or dynamic module loading are supported. Publish
+`ankole-pod applet build` bundles this entry into `server/main.js` as one
+ES module. NPM dependencies are bundled; Node built-ins use `node:` imports. Publish
 validates the default route table and returns its registered `routes`. No server
 source means no backend: rebuilding and publishing removes the old server.
 
@@ -184,19 +213,22 @@ Return JSON for 200, `undefined` for 204, or throw
 failure. Other exceptions produce a fixed browser error. Agent calls also receive
 bounded diagnostic logs and handler exception details.
 
-The sandbox provides only ECMAScript built-ins, console, and `AnkoleRuntime`:
+The function worker supplies Node built-ins, public `fetch`, an in-memory
+`/tmp`, published environment values, and `AnkoleRuntime` capabilities:
 `db.schema`, `db.query`, `db.aggregate`, `db.write`; `file.list`, `file.read`,
 `file.write`; and `ai.generateText`. Read their exact types in
-`/repo/libs/applet-sdk/src/server.ts`. There is no network, Node, filesystem,
-environment, timers, Request/Response, URL, TextEncoder, crypto, structuredClone,
-WebAssembly, or Deno. Never put secrets in source: page viewers can read it.
+`/repo/libs/applet-sdk/src/server.ts`. Put publication environment values in
+`applet.env.json`, a flat string map of at most 64 KiB. Read each backend value
+through `process.env.<KEY>`. Only editors can read
+source, backend files, and environment values; viewers and contributors can
+read published frontend assets.
 Module top-level code must not call AnkoleRuntime; inspection rejects such calls.
 
 Each capability uses the current caller's permissions, not the author's.
 Viewing the applet does not grant access to its tables or files. GET handlers
 cannot write. The runtime cannot create pages or change Database structure.
-Every call has a fresh isolate. Calls have no shared state or cross-call
-transaction; a later failure does not undo committed writes. Put an atomic batch
+Function workers are reused by tenant, page, and publication revision. Keep
+request-specific state inside the handler. Calls have no cross-call transaction; a later failure does not undo committed writes. Put an atomic batch
 in one `db.write`, and include the field versions captured by the read.
 
 Model generation needs tenant `pod.applet.ai_agent_uid` configured to an active

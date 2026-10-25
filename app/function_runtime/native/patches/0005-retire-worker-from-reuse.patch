@@ -1,0 +1,95 @@
+diff --git a/ext/workers/context.rs b/ext/workers/context.rs
+--- a/ext/workers/context.rs
++++ b/ext/workers/context.rs
+@@ -289,6 +289,7 @@
+     oneshot::Sender<Result<SendRequestResult, Error>>,
+     Option<CancellationToken>,
+   ),
++  Retire(Uuid, oneshot::Sender<()>),
+   Idle(Uuid),
+   Shutdown(Uuid),
+   TryCleanupIdleWorkers(usize, oneshot::Sender<usize>),
+diff --git a/crates/base/src/worker/pool.rs b/crates/base/src/worker/pool.rs
+--- a/crates/base/src/worker/pool.rs
++++ b/crates/base/src/worker/pool.rs
+@@ -871,6 +871,11 @@
+                 worker_pool.send_request(&key, req, res_tx, conn_token);
+               }
+ 
++              Some(UserWorkerMsgs::Retire(key, ack)) => {
++                worker_pool.retire(&key);
++                let _ = ack.send(());
++              }
++
+               Some(UserWorkerMsgs::Idle(key)) => {
+                 worker_pool.idle(&key);
+               }
+diff --git a/ext/workers/lib.rs b/ext/workers/lib.rs
+--- a/ext/workers/lib.rs
++++ b/ext/workers/lib.rs
+@@ -74,6 +74,7 @@
+   user_workers,
+   ops = [
+     op_user_worker_create,
++    op_user_worker_retire,
+     op_user_worker_fetch_build,
+     op_user_worker_fetch_send,
+     op_user_worker_cleanup_idle_workers,
+@@ -694,6 +695,23 @@
+ }
+ 
+ #[op2(async)]
++pub async fn op_user_worker_retire(
++  state: Rc<RefCell<OpState>>,
++  #[string] key: String,
++) -> Result<(), AnyError> {
++  let msg_tx = {
++    state
++      .borrow()
++      .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
++      .clone()
++  };
++  let (tx, rx) = oneshot::channel();
++  msg_tx.send(UserWorkerMsgs::Retire(Uuid::parse_str(&key)?, tx))?;
++  rx.await?;
++  Ok(())
++}
++
++#[op2(async)]
+ #[number]
+ pub async fn op_user_worker_cleanup_idle_workers(
+   state: Rc<RefCell<OpState>>,
+diff --git a/ext/workers/user_workers.js b/ext/workers/user_workers.js
+--- a/ext/workers/user_workers.js
++++ b/ext/workers/user_workers.js
+@@ -17,6 +17,7 @@
+ const {
+   op_user_worker_fetch_send,
+   op_user_worker_create,
++  op_user_worker_retire,
+   op_user_worker_cleanup_idle_workers,
+   op_user_worker_mem_stats,
+ } = ops;
+@@ -37,6 +38,10 @@
+ class UserWorker {
+   constructor(key) {
+     this.key = key;
++  }
++
++  async retire() {
++    await op_user_worker_retire(this.key);
+   }
+ 
+   async fetch(request, options = {}) {
+diff --git a/types/global.d.ts b/types/global.d.ts
+--- a/types/global.d.ts
++++ b/types/global.d.ts
+@@ -190,6 +190,8 @@
+       options?: UserWorkerFetchOptions,
+     ): Promise<Response>;
+ 
++    retire(): Promise<void>;
++
+     static create(opts: UserWorkerCreateOptions): Promise<UserWorker>;
+     static tryCleanupIdleWorkers(timeoutMs: number): Promise<number>;
+     static memStats(): Promise<

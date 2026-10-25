@@ -102,7 +102,7 @@ defmodule Ankole.ConversationsMemoryTest do
     input = post!(ctx, "A removed confidential request")
     message = Repo.get_by!(Message, id: input.message_id)
     learned = learned_claims!(ctx, message)
-    assert {:ok, _} = queue_command(ctx, %{action: "remove", message_id: message.id})
+    assert {:ok, _} = queue_command(ctx, %{action: "retract", message_id: message.id})
     assert_withdrawn(learned)
     assert Repo.get_by!(Message, id: message.id)
     assert Repo.reload!(input).data["removed"] == true
@@ -233,7 +233,16 @@ defmodule Ankole.ConversationsMemoryTest do
     Conversations.update_queue(
       Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
       ctx.id,
-      Map.put(attrs, :expected_version, detail.queue_version)
+      attrs
+      |> Map.put(:agent_uid, ctx.agent.uid)
+      |> Map.put(
+        :expected_version,
+        Ankole.Conversations.NativeQueue.queue_version(
+          detail.conversation,
+          detail.pending_inputs,
+          ctx.agent.uid
+        )
+      )
     )
   end
 end

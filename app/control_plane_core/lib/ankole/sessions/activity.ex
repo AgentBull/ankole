@@ -1,5 +1,5 @@
 defmodule Ankole.Sessions.Activity do
-  @moduledoc "Native activity display rules and bounded projections of the existing Session Driver."
+  @moduledoc "Native activity display rules and the work history of one Session turn."
   require Ash.Query
   alias Ankole.Sessions
   alias Ankole.Sessions.{Key, Presentation, Run, SessionWorkspace}
@@ -33,24 +33,53 @@ defmodule Ankole.Sessions.Activity do
 
   defp put_display(data, "tool.activity", payload) do
     id = payload["operation_id"]
+    tools = data.activity_tools
+    previous = Enum.find(tools, fn {tool_id, _, _} -> tool_id == id end)
 
-    if Map.has_key?(data.turn.pending, id) do
-      previous = data.turn.pending[id].activity
+    {payload, started_at} =
+      case previous do
+        {_id, %{"phase" => phase} = saved, at} when phase in ["completed", "failed"] ->
+          {saved, at}
 
-      activity =
-        if previous && previous["phase"] in ["completed", "failed"],
-          do: previous,
-          else: payload
+        {_id, _saved, at} ->
+          {Map.put(payload, "duration_ms", max(System.monotonic_time(:millisecond) - at, 0)), at}
 
-      %{
+        nil ->
+          {payload, System.monotonic_time(:millisecond)}
+      end
+
+    entry = {id, payload, started_at}
+
+    tools =
+      if previous,
+        do:
+          Enum.map(tools, fn {tool_id, _, _} = current ->
+            if tool_id == id, do: entry, else: current
+          end),
+        else: tools ++ [entry]
+
+    Map.put(data, :activity_tools, tools)
+  end
+
+  def complete_tool(data, id, result) do
+    tools = data.activity_tools
+
+    case Enum.find(tools, fn {tool_id, _, _} -> tool_id == id end) do
+      nil ->
         data
-        | turn: %{
-            data.turn
-            | pending: Map.update!(data.turn.pending, id, &%{&1 | activity: activity})
-          }
-      }
-    else
-      data
+
+      {_id, payload, at} ->
+        payload =
+          payload
+          |> Map.put("phase", if(result.is_error, do: "failed", else: "completed"))
+          |> Map.put("duration_ms", result.duration_ms || payload["duration_ms"])
+
+        tools =
+          Enum.map(tools, fn {tool_id, _, _} = current ->
+            if tool_id == id, do: {id, payload, at}, else: current
+          end)
+
+        data |> Map.put(:activity_tools, tools) |> publish()
     end
   end
 
@@ -70,7 +99,7 @@ defmodule Ankole.Sessions.Activity do
         activity_state: state
     }
 
-    publish_snapshot(project(%{data | turn: %{data.turn | pending: %{}}}))
+    publish_snapshot(project(data))
     data
   end
 
@@ -98,21 +127,14 @@ defmodule Ankole.Sessions.Activity do
           %{}
       end
 
-    safe =
-      payload
-      |> Enum.filter(fn
-        {key, value} when key in ["operation_id", "phase", "state"] -> is_binary(value)
-        {"consequential", value} -> is_boolean(value)
-        _ -> false
-      end)
-      |> Map.new(fn {key, value} ->
-        {key,
-         if(is_binary(value) and key != "operation_id",
-           do: Presentation.activity_excerpt(value, 160),
-           else: value
-         )}
-      end)
-      |> Map.put("label_bindings", bindings)
+    safe = %{
+      "operation_id" => payload["operation_id"],
+      "phase" =>
+        if(is_binary(payload["phase"]),
+          do: Presentation.activity_excerpt(payload["phase"], 160)
+        ),
+      "label_bindings" => bindings
+    }
 
     cond do
       key ->
@@ -129,33 +151,19 @@ defmodule Ankole.Sessions.Activity do
   def project(%{activity_conversation_id: nil}), do: nil
   def project(%{turn: %{run: nil}}), do: nil
 
-  def project(%{turn: %{run: run}} = data) do
-    case Key.parse(run.session_id) do
-      {:conversation, id} ->
-        %{
-          conversationID: id,
-          agentUID: run.agent_uid,
-          sessionID: run.session_id,
-          signalID: run.signal_id,
-          epoch: run.epoch,
-          revision: data.activity_revision,
-          responseID: Run.response_id(run.model_response),
-          state: data.activity_state,
-          phase: data.phase,
-          tools:
-            data.turn.pending
-            |> Enum.sort_by(&elem(&1, 0))
-            |> Enum.flat_map(fn {_id, entry} ->
-              if entry.activity && entry.activity["phase"] not in ["completed", "failed"],
-                do: [entry.activity],
-                else: []
-            end)
-            |> Enum.take(4)
-        }
-
-      _ ->
-        nil
-    end
+  def project(%{activity_conversation_id: id, turn: %{run: run}} = data) do
+    %{
+      conversationID: id,
+      agentUID: run.agent_uid,
+      sessionID: run.session_id,
+      signalID: run.signal_id,
+      epoch: run.epoch,
+      revision: data.activity_revision,
+      responseID: Run.response_id(run.model_response),
+      state: data.activity_state,
+      phase: data.phase,
+      tools: Enum.map(data.activity_tools, fn {_id, payload, _at} -> payload end)
+    }
   end
 
   def current(key) do

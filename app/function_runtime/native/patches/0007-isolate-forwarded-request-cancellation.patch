@@ -1,0 +1,12 @@
+diff --git a/ext/workers/lib.rs b/ext/workers/lib.rs
+--- a/ext/workers/lib.rs
++++ b/ext/workers/lib.rs
+@@ -594,7 +594,7 @@
+     .map(Rc::try_unwrap);
+ 
+   let conn_token = match conn_token {
+-    Some(Ok(it)) => it.into_inner(),
++    Some(Ok(it)) => it.into_inner().map(|token| token.child_token()),
+     Some(Err(_)) => {
+       error!("failed to unwrap connection watcher");
+       None

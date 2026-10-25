@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file ankole/runtime_fabric/v1/rpc.proto.
  */
 export const file_ankole_runtime_fabric_v1_rpc: GenFile = /*@__PURE__*/
-  fileDesc("CiJhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvcnBjLnByb3RvEhhhbmtvbGUucnVudGltZV9mYWJyaWMudjEiLAoXSlNPTlBhc3N0aHJvdWdoUmVzcG9uc2USEQoJYm9keV9qc29uGAEgASgMIkwKFUFjdG9yVHVybkFib3J0UmVxdWVzdBIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSFAoMZGV0YWlsc19qc29uGAMgASgMIkkKFkFjdG9yVHVybkFib3J0UmVzcG9uc2USGgoScmV0cnlfYXZhaWxhYmxlX2F0GAMgASgJSgQIAhADUg1kZWFkX2xldHRlcmVkIhgKFkFJR2F0ZXdheUFQSUtleVJlcXVlc3QihwEKF0FJR2F0ZXdheUFQSUtleVJlc3BvbnNlEg8KB2FwaV9rZXkYAiABKAkSEgoKdG9rZW5fdHlwZRgDIAEoCRISCgpleHBpcmVzX2F0GAQgASgDEhIKCmV4cGlyZXNfaW4YBSABKAMSDQoFc2NvcGUYBiABKAkSEAoIYmFzZV91cmwYByABKAkiLwoXV29ya2VyRW52UmVzb2x2ZVJlcXVlc3QSFAoMYmluZGluZ19uYW1lGAEgASgJIrQDChhXb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2USSgoEdmFycxgBIAMoCzI8LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2UuVmFyc0VudHJ5ElsKDW9wZXJhdG9yX3ZhcnMYAiADKAsyRC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyRW52UmVzb2x2ZVJlc3BvbnNlLk9wZXJhdG9yVmFyc0VudHJ5ElkKDGJpbmRpbmdfdmFycxgDIAMoCzJDLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2UuQmluZGluZ1ZhcnNFbnRyeRorCglWYXJzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARozChFPcGVyYXRvclZhcnNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGjIKEEJpbmRpbmdWYXJzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASIyCh9PYnNlcnZhYmlsaXR5U3BhbnNFeHBvcnRSZXF1ZXN0Eg8KB3BheWxvYWQYASABKAwiIgogT2JzZXJ2YWJpbGl0eVNwYW5zRXhwb3J0UmVzcG9uc2UirAEKCURyaXZlRmlsZRIMCgRwYXRoGAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRzaXplGAMgASgEEhQKDGNvbnRlbnRfdHlwZRgEIAEoCRIOCgZzb3VyY2UYBSABKAkSDAoEbW9kZRgGIAEoDRISCgp1cGRhdGVkX2F0GAcgASgJEhcKD2NvbnZlcnNhdGlvbl9pZBgIIAEoCRISCgptZXNzYWdlX2lkGAkgASgJIkAKEEZpbGVzTGlzdFJlcXVlc3QSDgoGcHJlZml4GAEgASgJEg0KBWxpbWl0GAIgASgNEg0KBWFmdGVyGAMgASgJIm0KEUZpbGVzTGlzdFJlc3BvbnNlEjIKBWZpbGVzGAEgAygLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkRyaXZlRmlsZRISCgpuZXh0X2FmdGVyGAIgASgJEhAKCHJldmlzaW9uGAMgASgJIk4KD0ZpbGVzR2V0UmVxdWVzdBIMCgRwYXRoGAEgASgJEhoKEmhvbWVfcmVsYXRpdmVfcGF0aBgCIAEoCRIRCglwb2RfZHJpdmUYAyABKAgiRQoQRmlsZXNHZXRSZXNwb25zZRIxCgRmaWxlGAEgASgLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkRyaXZlRmlsZSI0CgpQb2RSZXF1ZXN0EhEKCW9wZXJhdGlvbhgBIAEoCRITCgtwYXJhbXNfanNvbhgCIAEoDCJ/ChFGaWxlc0NvbW1pdFVwc2VydBIMCgRwYXRoGAEgASgJEhoKEmhvbWVfcmVsYXRpdmVfcGF0aBgCIAEoCRIOCgZzaGEyNTYYAyABKAkSFAoMY29udGVudF90eXBlGAQgASgJEgwKBG1vZGUYBSABKA0SDAoEc2l6ZRgGIAEoBCJjChJGaWxlc0NvbW1pdFJlcXVlc3QSPAoHdXBzZXJ0cxgBIAMoCzIrLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5GaWxlc0NvbW1pdFVwc2VydBIPCgdkZWxldGVzGAIgAygJIloKE0ZpbGVzQ29tbWl0UmVzcG9uc2USMgoFZmlsZXMYASADKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuRHJpdmVGaWxlEg8KB2RlbGV0ZWQYAiABKA0iaAoQQ29udmVyc2F0aW9uSW5mbxIQCgh0aW1lem9uZRgEIAEoCRIXCg9kcml2ZV9kaXJlY3RvcnkYBSABKAkSDwoHcGFnZV9pZBgGIAEoCRIYChBwb2RfaW5zdHJ1Y3Rpb25zGAcgASgJIsABChNSdW50aW1lU2tpbGxTdW1tYXJ5EhIKCnNraWxsX25hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSEwoLc291cmNlX2tpbmQYBCABKAkSFwoPYWdlbnRfcGx1Z2luX2lkGAUgASgJEhUKDXJlbGF0aXZlX3BhdGgYBiABKAkSEgoKc2tpbGxfcm9vdBgHIAEoCRIVCg1tZXRhZGF0YV9qc29uGAggASgMEhAKCGNhdGVnb3J5GAkgASgJIs4DCiBBZ2VudENvbnZlcnNhdGlvbkNvbnRleHRSZXNwb25zZRJACgxjb252ZXJzYXRpb24YAiABKAsyKi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQ29udmVyc2F0aW9uSW5mbxIMCgRzb3VsGAMgASgJEg8KB21pc3Npb24YBCABKAkSDgoGZGVzaWduGAUgASgJEj0KBnNraWxscxgIIAMoCzItLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW50aW1lU2tpbGxTdW1tYXJ5Eh4KFmNvbmZpZGVudGlhbGl0eV9wb2xpY3kYDCABKAkSSAoNYWdlbnRfcGx1Z2lucxgOIAMoCzIxLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudFBsdWdpbkNhdGFsb2dFbnRyeRIVCg1za2lsbHNfcHJvbXB0GA8gASgJSgQICRAKSgQIChALSgQICxAMSgQIDRAOUhFzb3VsX2NvbnRlbnRfaGFzaFIUbWlzc2lvbl9jb250ZW50X2hhc2hSE2Rlc2lnbl9jb250ZW50X2hhc2hSI2NvbmZpZGVudGlhbGl0eV9wb2xpY3lfY29udGVudF9oYXNoIi8KF0FnZW50UGx1Z2luQ2F0YWxvZ1NraWxsEhQKDGNhdGFsb2dfbmFtZRgBIAEoCSJoChdBZ2VudFBsdWdpbkNhdGFsb2dFbnRyeRIKCgJpZBgBIAEoCRJBCgZza2lsbHMYBSADKAsyMS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRQbHVnaW5DYXRhbG9nU2tpbGwiRQocQmFja2dyb3VuZEFnZW50Sm9iR2V0UmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFQoNcmVzdWx0X29mZnNldBgEIAEoCSLFAgojQmFja2dyb3VuZEFnZW50Sm9iVHVyblVwc2VydFJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg8KB2F0dGVtcHQYAiABKA0SGQoRcnVudGltZV90aHJlYWRfaWQYAyABKAkSFwoPcnVudGltZV90dXJuX2lkGAQgASgJEgwKBGtpbmQYBSABKAkSDgoGc3RhdHVzGAYgASgJEhAKCHJldmlzaW9uGAcgASgNEhcKD3RyYWplY3RvcnlfanNvbhgIIAEoDBIVCg1wcm9ncmVzc19qc29uGAogASgMEhIKCnVzYWdlX2pzb24YCyABKAwSEgoKZXJyb3JfanNvbhgMIAEoDBISCgpzdGFydGVkX2F0GA0gASgJEhQKDGNvbXBsZXRlZF9hdBgOIAEoCRIXCg90dXJuX2l0ZW1zX2pzb24YDyABKAwiSAomQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW1zTGlzdFJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg4KBmN1cnNvchgCIAEoCSKHAQoaQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW0SGQoRcnVudGltZV90aHJlYWRfaWQYASABKAkSFwoPcnVudGltZV90dXJuX2lkGAIgASgJEhAKCHBvc2l0aW9uGAMgASgNEhAKCGl0ZW1fa2V5GAQgASgJEhEKCWl0ZW1fanNvbhgFIAEoDCKTAQonQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW1zTGlzdFJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRJDCgVpdGVtcxgCIAMoCzI0LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5CYWNrZ3JvdW5kQWdlbnRKb2JUdXJuSXRlbRITCgtuZXh0X2N1cnNvchgDIAEoCSK+AQolQmFja2dyb3VuZEFnZW50Sm9iU3RhdHVzVXBkYXRlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSDgoGc3RhdHVzGAIgASgJEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAMgASgJEhMKC3Jlc3VsdF9qc29uGAQgASgMEhIKCmVycm9yX2pzb24YBSABKAwSFQoNbWV0YWRhdGFfanNvbhgGIAEoDBIaChJhcHBsaWVkX3NpZ25hbF9pZHMYByADKAkiegolQmFja2dyb3VuZEFnZW50Sm9iQXR0ZW1wdEhpc3RvcnlFbnRyeRIPCgdhdHRlbXB0GAEgASgNEhUKDXR1cm5fc3RhdHVzZXMYAiADKAkSDwoHc3VtbWFyeRgDIAEoCRIYChB1c2VkX3NraWxsX25hbWVzGAQgAygJIqkDChpCYWNrZ3JvdW5kQWdlbnRKb2JSZXNwb25zZRIRCglhZ2VudF91aWQYAiABKAkSDgoGc3RhdHVzGAYgASgJEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAcgASgJEgwKBHRhc2sYCiABKAkSEAoIYXR0ZW1wdHMYDiABKA0SHQoVd29ya3NwYWNlX3RlbXBsYXRlX2lkGA8gASgJEh0KFWNvbnRpbnVlZF9mcm9tX2pvYl9pZBgQIAEoCRIeChZ3b3Jrc3BhY2Vfb3duZXJfam9iX2lkGBEgASgJEhUKDW1ldGFkYXRhX2pzb24YGSABKAwSWAoPYXR0ZW1wdF9oaXN0b3J5GBsgAygLMj8uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYkF0dGVtcHRIaXN0b3J5RW50cnkSHwoXcnVudGltZV9wcm9qZWN0aW9uX2pzb24YHSABKAwSGgoScmVzdWx0X291dHB1dF90ZXh0GB8gASgJEiEKGXJlc3VsdF9vdXRwdXRfdG90YWxfYnl0ZXMYICABKAkixAIKFkJhY2tncm91bmRBZ2VudEpvYlR1cm4SCgoCaWQYASABKAkSDwoHYXR0ZW1wdBgCIAEoDRIZChFydW50aW1lX3RocmVhZF9pZBgDIAEoCRIXCg9ydW50aW1lX3R1cm5faWQYBCABKAkSDAoEa2luZBgFIAEoCRIOCgZzdGF0dXMYBiABKAkSEAoIcmV2aXNpb24YByABKA0SFwoPdHJhamVjdG9yeV9qc29uGAggASgMEhUKDXByb2dyZXNzX2pzb24YCSABKAwSEgoKdXNhZ2VfanNvbhgKIAEoDBISCgplcnJvcl9qc29uGAsgASgMEhIKCnN0YXJ0ZWRfYXQYDCABKAkSFAoMY29tcGxldGVkX2F0GA0gASgJEhMKC2luc2VydGVkX2F0GA4gASgJEhIKCnVwZGF0ZWRfYXQYDyABKAkidgokQmFja2dyb3VuZEFnZW50Sm9iVHVyblVwc2VydFJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRI+CgR0dXJuGAIgASgLMjAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYlR1cm4idgocV2ViaG9va0VuZHBvaW50Q3JlYXRlUmVxdWVzdBINCgVsYWJlbBgCIAEoCRIMCgRtb2RlGAMgASgJEhIKCmV4cGlyZXNfYXQYBCABKAkSGQoRYXV0b21hdGlvbl9qb2JfaWQYBiABKAlKBAgBEAJKBAgFEAYiOgoaV2ViaG9va0VuZHBvaW50TGlzdFJlcXVlc3QSEgoFbGltaXQYASABKA1IAIgBAUIICgZfbGltaXQiOwocV2ViaG9va0VuZHBvaW50VGFyZ2V0UmVxdWVzdBIbChN3ZWJob29rX2VuZHBvaW50X2lkGAEgASgJInAKGkF1dG9tYXRpb25Kb2JDcmVhdGVSZXF1ZXN0Eg0KBWxhYmVsGAIgASgJEhcKD3dha2Vfb25fZmFpbHVyZRgDIAEoCBIUCgxkcml2ZV9wcmVmaXgYBCABKAlKBAgBEAJSDmRpcmVjdG9yeV9wYXRoIjgKGEF1dG9tYXRpb25Kb2JMaXN0UmVxdWVzdBISCgVsaW1pdBgBIAEoDUgAiAEBQggKBl9saW1pdCJRChhBdXRvbWF0aW9uSm9iU2hvd1JlcXVlc3QSGQoRYXV0b21hdGlvbl9qb2JfaWQYASABKAkSEQoEcnVucxgCIAEoDUgAiAEBQgcKBV9ydW5zIjcKGkF1dG9tYXRpb25Kb2JUYXJnZXRSZXF1ZXN0EhkKEWF1dG9tYXRpb25fam9iX2lkGAEgASgJImMKGEF1dG9tYXRpb25Kb2JFbWl0UmVxdWVzdBIdChVhdXRvbWF0aW9uX2pvYl9ydW5faWQYASABKAkSEgoKYXR0ZW1wdF9pZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwiGwoZQXV0b21hdGlvbkpvYkVtaXRSZXNwb25zZSKfAgoXQXV0b21hdGlvbkpvYlJ1blJlcXVlc3QSHQoVYXV0b21hdGlvbl9qb2JfcnVuX2lkGAEgASgJEhIKCmF0dGVtcHRfaWQYAiABKAkSDQoFbGFiZWwYBSABKAkSEgoKZXZlbnRfanNvbhgGIAEoDBISCgp0aW1lb3V0X21zGAcgASgNEhkKEWF1dG9tYXRpb25fam9iX2lkGAggASgJEj0KBnNraWxscxgJIAMoCzItLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW50aW1lU2tpbGxTdW1tYXJ5EhQKDGJpbmRpbmdfbmFtZRgKIAEoCRIUCgxkcml2ZV9wcmVmaXgYCyABKAlKBAgEEAVSDmRpcmVjdG9yeV9wYXRoIrMBChhBdXRvbWF0aW9uSm9iUnVuUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhYKCWV4aXRfY29kZRgCIAEoBUgAiAEBEg0KBWVycm9yGAMgASgJEg4KBnN0ZG91dBgEIAEoCRIOCgZzdGRlcnIYBSABKAkSGAoQc3Rkb3V0X3RydW5jYXRlZBgGIAEoCBIYChBzdGRlcnJfdHJ1bmNhdGVkGAcgASgIQgwKCl9leGl0X2NvZGUiawoPUmVhZFRvb2xSZXF1ZXN0EgwKBG5hbWUYASABKAkSFgoOYXJndW1lbnRzX2pzb24YAiABKAwSFgoOd2ViX2NhY2hlX2pzb24YAyABKAwSGgoScmVuZGVyZWRfYm9keV9qc29uGAQgASgMIqIBChlXb3JrZXJGaWxlVHJhbnNmZXJSZXF1ZXN0EhMKC3RyYW5zZmVyX2lkGAEgASgJEgsKA3VybBgCIAEoCRIaChJob21lX3JlbGF0aXZlX3BhdGgYBCABKAkSEQoJbWF4X2J5dGVzGAUgASgEEhIKCmV4cGlyZXNfYXQYBiABKAkSFAoMYnVuZGxlX3BhdGhzGAcgAygJSgQIAxAEUgRyb290IlsKGldvcmtlckZpbGVUcmFuc2ZlclJlc3BvbnNlEgwKBHNpemUYAyABKARKBAgBEAJKBAgCEANKBAgEEAVSBHJvb3RSDXJlbGF0aXZlX3BhdGhSCHh4aDNfMTI4YgZwcm90bzM");
+  fileDesc("CiJhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvcnBjLnByb3RvEhhhbmtvbGUucnVudGltZV9mYWJyaWMudjEiLAoXSlNPTlBhc3N0aHJvdWdoUmVzcG9uc2USEQoJYm9keV9qc29uGAEgASgMIkwKFUFjdG9yVHVybkFib3J0UmVxdWVzdBIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSFAoMZGV0YWlsc19qc29uGAMgASgMIkkKFkFjdG9yVHVybkFib3J0UmVzcG9uc2USGgoScmV0cnlfYXZhaWxhYmxlX2F0GAMgASgJSgQIAhADUg1kZWFkX2xldHRlcmVkIhgKFkFJR2F0ZXdheUFQSUtleVJlcXVlc3QihwEKF0FJR2F0ZXdheUFQSUtleVJlc3BvbnNlEg8KB2FwaV9rZXkYAiABKAkSEgoKdG9rZW5fdHlwZRgDIAEoCRISCgpleHBpcmVzX2F0GAQgASgDEhIKCmV4cGlyZXNfaW4YBSABKAMSDQoFc2NvcGUYBiABKAkSEAoIYmFzZV91cmwYByABKAkiLwoXV29ya2VyRW52UmVzb2x2ZVJlcXVlc3QSFAoMYmluZGluZ19uYW1lGAEgASgJIrQDChhXb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2USSgoEdmFycxgBIAMoCzI8LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2UuVmFyc0VudHJ5ElsKDW9wZXJhdG9yX3ZhcnMYAiADKAsyRC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyRW52UmVzb2x2ZVJlc3BvbnNlLk9wZXJhdG9yVmFyc0VudHJ5ElkKDGJpbmRpbmdfdmFycxgDIAMoCzJDLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2UuQmluZGluZ1ZhcnNFbnRyeRorCglWYXJzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARozChFPcGVyYXRvclZhcnNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGjIKEEJpbmRpbmdWYXJzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASIyCh9PYnNlcnZhYmlsaXR5U3BhbnNFeHBvcnRSZXF1ZXN0Eg8KB3BheWxvYWQYASABKAwiIgogT2JzZXJ2YWJpbGl0eVNwYW5zRXhwb3J0UmVzcG9uc2UirAEKCURyaXZlRmlsZRIMCgRwYXRoGAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRzaXplGAMgASgEEhQKDGNvbnRlbnRfdHlwZRgEIAEoCRIOCgZzb3VyY2UYBSABKAkSDAoEbW9kZRgGIAEoDRISCgp1cGRhdGVkX2F0GAcgASgJEhcKD2NvbnZlcnNhdGlvbl9pZBgIIAEoCRISCgptZXNzYWdlX2lkGAkgASgJIkoKFEF1dG9tYXRpb25BdHRlbXB0UmVmEg4KBmpvYl9pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSEgoKYXR0ZW1wdF9pZBgDIAEoCSKMAQoQRmlsZXNMaXN0UmVxdWVzdBIOCgZwcmVmaXgYASABKAkSDQoFbGltaXQYAiABKA0SDQoFYWZ0ZXIYAyABKAkSSgoSYXV0b21hdGlvbl9hdHRlbXB0GAQgASgLMi4uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkF1dG9tYXRpb25BdHRlbXB0UmVmIm0KEUZpbGVzTGlzdFJlc3BvbnNlEjIKBWZpbGVzGAEgAygLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkRyaXZlRmlsZRISCgpuZXh0X2FmdGVyGAIgASgJEhAKCHJldmlzaW9uGAMgASgJIpoBCg9GaWxlc0dldFJlcXVlc3QSDAoEcGF0aBgBIAEoCRIaChJob21lX3JlbGF0aXZlX3BhdGgYAiABKAkSEQoJcG9kX2RyaXZlGAMgASgIEkoKEmF1dG9tYXRpb25fYXR0ZW1wdBgEIAEoCzIuLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BdXRvbWF0aW9uQXR0ZW1wdFJlZiJFChBGaWxlc0dldFJlc3BvbnNlEjEKBGZpbGUYASABKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuRHJpdmVGaWxlIoABCgpQb2RSZXF1ZXN0EhEKCW9wZXJhdGlvbhgBIAEoCRITCgtwYXJhbXNfanNvbhgCIAEoDBJKChJhdXRvbWF0aW9uX2F0dGVtcHQYAyABKAsyLi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQXV0b21hdGlvbkF0dGVtcHRSZWYifwoRRmlsZXNDb21taXRVcHNlcnQSDAoEcGF0aBgBIAEoCRIaChJob21lX3JlbGF0aXZlX3BhdGgYAiABKAkSDgoGc2hhMjU2GAMgASgJEhQKDGNvbnRlbnRfdHlwZRgEIAEoCRIMCgRtb2RlGAUgASgNEgwKBHNpemUYBiABKAQirwEKEkZpbGVzQ29tbWl0UmVxdWVzdBI8Cgd1cHNlcnRzGAEgAygLMisuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkZpbGVzQ29tbWl0VXBzZXJ0Eg8KB2RlbGV0ZXMYAiADKAkSSgoSYXV0b21hdGlvbl9hdHRlbXB0GAMgASgLMi4uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkF1dG9tYXRpb25BdHRlbXB0UmVmIloKE0ZpbGVzQ29tbWl0UmVzcG9uc2USMgoFZmlsZXMYASADKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuRHJpdmVGaWxlEg8KB2RlbGV0ZWQYAiABKA0iaAoQQ29udmVyc2F0aW9uSW5mbxIQCgh0aW1lem9uZRgEIAEoCRIXCg9kcml2ZV9kaXJlY3RvcnkYBSABKAkSDwoHcGFnZV9pZBgGIAEoCRIYChBwb2RfaW5zdHJ1Y3Rpb25zGAcgASgJIsABChNSdW50aW1lU2tpbGxTdW1tYXJ5EhIKCnNraWxsX25hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSEwoLc291cmNlX2tpbmQYBCABKAkSFwoPYWdlbnRfcGx1Z2luX2lkGAUgASgJEhUKDXJlbGF0aXZlX3BhdGgYBiABKAkSEgoKc2tpbGxfcm9vdBgHIAEoCRIVCg1tZXRhZGF0YV9qc29uGAggASgMEhAKCGNhdGVnb3J5GAkgASgJIs4DCiBBZ2VudENvbnZlcnNhdGlvbkNvbnRleHRSZXNwb25zZRJACgxjb252ZXJzYXRpb24YAiABKAsyKi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQ29udmVyc2F0aW9uSW5mbxIMCgRzb3VsGAMgASgJEg8KB21pc3Npb24YBCABKAkSDgoGZGVzaWduGAUgASgJEj0KBnNraWxscxgIIAMoCzItLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW50aW1lU2tpbGxTdW1tYXJ5Eh4KFmNvbmZpZGVudGlhbGl0eV9wb2xpY3kYDCABKAkSSAoNYWdlbnRfcGx1Z2lucxgOIAMoCzIxLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudFBsdWdpbkNhdGFsb2dFbnRyeRIVCg1za2lsbHNfcHJvbXB0GA8gASgJSgQICRAKSgQIChALSgQICxAMSgQIDRAOUhFzb3VsX2NvbnRlbnRfaGFzaFIUbWlzc2lvbl9jb250ZW50X2hhc2hSE2Rlc2lnbl9jb250ZW50X2hhc2hSI2NvbmZpZGVudGlhbGl0eV9wb2xpY3lfY29udGVudF9oYXNoIi8KF0FnZW50UGx1Z2luQ2F0YWxvZ1NraWxsEhQKDGNhdGFsb2dfbmFtZRgBIAEoCSJoChdBZ2VudFBsdWdpbkNhdGFsb2dFbnRyeRIKCgJpZBgBIAEoCRJBCgZza2lsbHMYBSADKAsyMS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRQbHVnaW5DYXRhbG9nU2tpbGwiRQocQmFja2dyb3VuZEFnZW50Sm9iR2V0UmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFQoNcmVzdWx0X29mZnNldBgEIAEoCSLFAgojQmFja2dyb3VuZEFnZW50Sm9iVHVyblVwc2VydFJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg8KB2F0dGVtcHQYAiABKA0SGQoRcnVudGltZV90aHJlYWRfaWQYAyABKAkSFwoPcnVudGltZV90dXJuX2lkGAQgASgJEgwKBGtpbmQYBSABKAkSDgoGc3RhdHVzGAYgASgJEhAKCHJldmlzaW9uGAcgASgNEhcKD3RyYWplY3RvcnlfanNvbhgIIAEoDBIVCg1wcm9ncmVzc19qc29uGAogASgMEhIKCnVzYWdlX2pzb24YCyABKAwSEgoKZXJyb3JfanNvbhgMIAEoDBISCgpzdGFydGVkX2F0GA0gASgJEhQKDGNvbXBsZXRlZF9hdBgOIAEoCRIXCg90dXJuX2l0ZW1zX2pzb24YDyABKAwiSAomQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW1zTGlzdFJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg4KBmN1cnNvchgCIAEoCSKHAQoaQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW0SGQoRcnVudGltZV90aHJlYWRfaWQYASABKAkSFwoPcnVudGltZV90dXJuX2lkGAIgASgJEhAKCHBvc2l0aW9uGAMgASgNEhAKCGl0ZW1fa2V5GAQgASgJEhEKCWl0ZW1fanNvbhgFIAEoDCKTAQonQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW1zTGlzdFJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRJDCgVpdGVtcxgCIAMoCzI0LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5CYWNrZ3JvdW5kQWdlbnRKb2JUdXJuSXRlbRITCgtuZXh0X2N1cnNvchgDIAEoCSK+AQolQmFja2dyb3VuZEFnZW50Sm9iU3RhdHVzVXBkYXRlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSDgoGc3RhdHVzGAIgASgJEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAMgASgJEhMKC3Jlc3VsdF9qc29uGAQgASgMEhIKCmVycm9yX2pzb24YBSABKAwSFQoNbWV0YWRhdGFfanNvbhgGIAEoDBIaChJhcHBsaWVkX3NpZ25hbF9pZHMYByADKAkiegolQmFja2dyb3VuZEFnZW50Sm9iQXR0ZW1wdEhpc3RvcnlFbnRyeRIPCgdhdHRlbXB0GAEgASgNEhUKDXR1cm5fc3RhdHVzZXMYAiADKAkSDwoHc3VtbWFyeRgDIAEoCRIYChB1c2VkX3NraWxsX25hbWVzGAQgAygJIqkDChpCYWNrZ3JvdW5kQWdlbnRKb2JSZXNwb25zZRIRCglhZ2VudF91aWQYAiABKAkSDgoGc3RhdHVzGAYgASgJEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAcgASgJEgwKBHRhc2sYCiABKAkSEAoIYXR0ZW1wdHMYDiABKA0SHQoVd29ya3NwYWNlX3RlbXBsYXRlX2lkGA8gASgJEh0KFWNvbnRpbnVlZF9mcm9tX2pvYl9pZBgQIAEoCRIeChZ3b3Jrc3BhY2Vfb3duZXJfam9iX2lkGBEgASgJEhUKDW1ldGFkYXRhX2pzb24YGSABKAwSWAoPYXR0ZW1wdF9oaXN0b3J5GBsgAygLMj8uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYkF0dGVtcHRIaXN0b3J5RW50cnkSHwoXcnVudGltZV9wcm9qZWN0aW9uX2pzb24YHSABKAwSGgoScmVzdWx0X291dHB1dF90ZXh0GB8gASgJEiEKGXJlc3VsdF9vdXRwdXRfdG90YWxfYnl0ZXMYICABKAkixAIKFkJhY2tncm91bmRBZ2VudEpvYlR1cm4SCgoCaWQYASABKAkSDwoHYXR0ZW1wdBgCIAEoDRIZChFydW50aW1lX3RocmVhZF9pZBgDIAEoCRIXCg9ydW50aW1lX3R1cm5faWQYBCABKAkSDAoEa2luZBgFIAEoCRIOCgZzdGF0dXMYBiABKAkSEAoIcmV2aXNpb24YByABKA0SFwoPdHJhamVjdG9yeV9qc29uGAggASgMEhUKDXByb2dyZXNzX2pzb24YCSABKAwSEgoKdXNhZ2VfanNvbhgKIAEoDBISCgplcnJvcl9qc29uGAsgASgMEhIKCnN0YXJ0ZWRfYXQYDCABKAkSFAoMY29tcGxldGVkX2F0GA0gASgJEhMKC2luc2VydGVkX2F0GA4gASgJEhIKCnVwZGF0ZWRfYXQYDyABKAkidgokQmFja2dyb3VuZEFnZW50Sm9iVHVyblVwc2VydFJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRI+CgR0dXJuGAIgASgLMjAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYlR1cm4idgocV2ViaG9va0VuZHBvaW50Q3JlYXRlUmVxdWVzdBINCgVsYWJlbBgCIAEoCRIMCgRtb2RlGAMgASgJEhIKCmV4cGlyZXNfYXQYBCABKAkSGQoRYXV0b21hdGlvbl9qb2JfaWQYBiABKAlKBAgBEAJKBAgFEAYiOgoaV2ViaG9va0VuZHBvaW50TGlzdFJlcXVlc3QSEgoFbGltaXQYASABKA1IAIgBAUIICgZfbGltaXQiOwocV2ViaG9va0VuZHBvaW50VGFyZ2V0UmVxdWVzdBIbChN3ZWJob29rX2VuZHBvaW50X2lkGAEgASgJInAKGkF1dG9tYXRpb25Kb2JDcmVhdGVSZXF1ZXN0Eg0KBWxhYmVsGAIgASgJEhcKD3dha2Vfb25fZmFpbHVyZRgDIAEoCBIUCgxkcml2ZV9wcmVmaXgYBCABKAlKBAgBEAJSDmRpcmVjdG9yeV9wYXRoIjgKGEF1dG9tYXRpb25Kb2JMaXN0UmVxdWVzdBISCgVsaW1pdBgBIAEoDUgAiAEBQggKBl9saW1pdCJRChhBdXRvbWF0aW9uSm9iU2hvd1JlcXVlc3QSGQoRYXV0b21hdGlvbl9qb2JfaWQYASABKAkSEQoEcnVucxgCIAEoDUgAiAEBQgcKBV9ydW5zIjcKGkF1dG9tYXRpb25Kb2JUYXJnZXRSZXF1ZXN0EhkKEWF1dG9tYXRpb25fam9iX2lkGAEgASgJImMKGEF1dG9tYXRpb25Kb2JFbWl0UmVxdWVzdBIdChVhdXRvbWF0aW9uX2pvYl9ydW5faWQYASABKAkSEgoKYXR0ZW1wdF9pZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwiGwoZQXV0b21hdGlvbkpvYkVtaXRSZXNwb25zZSKfAgoXQXV0b21hdGlvbkpvYlJ1blJlcXVlc3QSHQoVYXV0b21hdGlvbl9qb2JfcnVuX2lkGAEgASgJEhIKCmF0dGVtcHRfaWQYAiABKAkSDQoFbGFiZWwYBSABKAkSEgoKZXZlbnRfanNvbhgGIAEoDBISCgp0aW1lb3V0X21zGAcgASgNEhkKEWF1dG9tYXRpb25fam9iX2lkGAggASgJEj0KBnNraWxscxgJIAMoCzItLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW50aW1lU2tpbGxTdW1tYXJ5EhQKDGJpbmRpbmdfbmFtZRgKIAEoCRIUCgxkcml2ZV9wcmVmaXgYCyABKAlKBAgEEAVSDmRpcmVjdG9yeV9wYXRoIrMBChhBdXRvbWF0aW9uSm9iUnVuUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhYKCWV4aXRfY29kZRgCIAEoBUgAiAEBEg0KBWVycm9yGAMgASgJEg4KBnN0ZG91dBgEIAEoCRIOCgZzdGRlcnIYBSABKAkSGAoQc3Rkb3V0X3RydW5jYXRlZBgGIAEoCBIYChBzdGRlcnJfdHJ1bmNhdGVkGAcgASgIQgwKCl9leGl0X2NvZGUiawoPUmVhZFRvb2xSZXF1ZXN0EgwKBG5hbWUYASABKAkSFgoOYXJndW1lbnRzX2pzb24YAiABKAwSFgoOd2ViX2NhY2hlX2pzb24YAyABKAwSGgoScmVuZGVyZWRfYm9keV9qc29uGAQgASgMIqIBChlXb3JrZXJGaWxlVHJhbnNmZXJSZXF1ZXN0EhMKC3RyYW5zZmVyX2lkGAEgASgJEgsKA3VybBgCIAEoCRIaChJob21lX3JlbGF0aXZlX3BhdGgYBCABKAkSEQoJbWF4X2J5dGVzGAUgASgEEhIKCmV4cGlyZXNfYXQYBiABKAkSFAoMYnVuZGxlX3BhdGhzGAcgAygJSgQIAxAEUgRyb290IlsKGldvcmtlckZpbGVUcmFuc2ZlclJlc3BvbnNlEgwKBHNpemUYAyABKARKBAgBEAJKBAgCEANKBAgEEAVSBHJvb3RSDXJlbGF0aXZlX3BhdGhSCHh4aDNfMTI4YgZwcm90bzM");
 
 /**
  * Response family whose body is model-facing JSON owned by the Elixir
@@ -274,6 +274,35 @@ export const DriveFileSchema: GenMessage<DriveFile> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_rpc, 9);
 
 /**
+ * A live Automation Job attempt; the Worker identity comes from the connection.
+ *
+ * @generated from message ankole.runtime_fabric.v1.AutomationAttemptRef
+ */
+export type AutomationAttemptRef = Message<"ankole.runtime_fabric.v1.AutomationAttemptRef"> & {
+  /**
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string run_id = 2;
+   */
+  runId: string;
+
+  /**
+   * @generated from field: string attempt_id = 3;
+   */
+  attemptId: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.AutomationAttemptRef.
+ * Use `create(AutomationAttemptRefSchema)` to create a new message.
+ */
+export const AutomationAttemptRefSchema: GenMessage<AutomationAttemptRef> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 10);
+
+/**
  * @generated from message ankole.runtime_fabric.v1.FilesListRequest
  */
 export type FilesListRequest = Message<"ankole.runtime_fabric.v1.FilesListRequest"> & {
@@ -291,6 +320,11 @@ export type FilesListRequest = Message<"ankole.runtime_fabric.v1.FilesListReques
    * @generated from field: string after = 3;
    */
   after: string;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.AutomationAttemptRef automation_attempt = 4;
+   */
+  automationAttempt?: AutomationAttemptRef | undefined;
 };
 
 /**
@@ -298,7 +332,7 @@ export type FilesListRequest = Message<"ankole.runtime_fabric.v1.FilesListReques
  * Use `create(FilesListRequestSchema)` to create a new message.
  */
 export const FilesListRequestSchema: GenMessage<FilesListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 10);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 11);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.FilesListResponse
@@ -327,7 +361,7 @@ export type FilesListResponse = Message<"ankole.runtime_fabric.v1.FilesListRespo
  * Use `create(FilesListResponseSchema)` to create a new message.
  */
 export const FilesListResponseSchema: GenMessage<FilesListResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 11);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 12);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.FilesGetRequest
@@ -344,11 +378,16 @@ export type FilesGetRequest = Message<"ankole.runtime_fabric.v1.FilesGetRequest"
   homeRelativePath: string;
 
   /**
-   * Read a page-owned path from the Pod drive, authorized as this Agent.
+   * Read a page-owned Pod path with the current turn or Automation Job attempt.
    *
    * @generated from field: bool pod_drive = 3;
    */
   podDrive: boolean;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.AutomationAttemptRef automation_attempt = 4;
+   */
+  automationAttempt?: AutomationAttemptRef | undefined;
 };
 
 /**
@@ -356,7 +395,7 @@ export type FilesGetRequest = Message<"ankole.runtime_fabric.v1.FilesGetRequest"
  * Use `create(FilesGetRequestSchema)` to create a new message.
  */
 export const FilesGetRequestSchema: GenMessage<FilesGetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 12);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 13);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.FilesGetResponse
@@ -373,11 +412,11 @@ export type FilesGetResponse = Message<"ankole.runtime_fabric.v1.FilesGetRespons
  * Use `create(FilesGetResponseSchema)` to create a new message.
  */
 export const FilesGetResponseSchema: GenMessage<FilesGetResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 13);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 14);
 
 /**
- * Pod domain operations keep their identity in the authenticated turn. The
- * broker accepts a closed operation vocabulary and validates each payload.
+ * Pod operations use the authenticated turn or a live Automation Job attempt.
+ * The broker accepts a closed operation vocabulary and validates each payload.
  *
  * @generated from message ankole.runtime_fabric.v1.PodRequest
  */
@@ -391,6 +430,11 @@ export type PodRequest = Message<"ankole.runtime_fabric.v1.PodRequest"> & {
    * @generated from field: bytes params_json = 2;
    */
   paramsJson: Uint8Array;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.AutomationAttemptRef automation_attempt = 3;
+   */
+  automationAttempt?: AutomationAttemptRef | undefined;
 };
 
 /**
@@ -398,7 +442,7 @@ export type PodRequest = Message<"ankole.runtime_fabric.v1.PodRequest"> & {
  * Use `create(PodRequestSchema)` to create a new message.
  */
 export const PodRequestSchema: GenMessage<PodRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 14);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 15);
 
 /**
  * One file to name at `path`. The control plane pulls `home_relative_path`
@@ -446,7 +490,7 @@ export type FilesCommitUpsert = Message<"ankole.runtime_fabric.v1.FilesCommitUps
  * Use `create(FilesCommitUpsertSchema)` to create a new message.
  */
 export const FilesCommitUpsertSchema: GenMessage<FilesCommitUpsert> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 15);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 16);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.FilesCommitRequest
@@ -463,6 +507,11 @@ export type FilesCommitRequest = Message<"ankole.runtime_fabric.v1.FilesCommitRe
    * @generated from field: repeated string deletes = 2;
    */
   deletes: string[];
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.AutomationAttemptRef automation_attempt = 3;
+   */
+  automationAttempt?: AutomationAttemptRef | undefined;
 };
 
 /**
@@ -470,7 +519,7 @@ export type FilesCommitRequest = Message<"ankole.runtime_fabric.v1.FilesCommitRe
  * Use `create(FilesCommitRequestSchema)` to create a new message.
  */
 export const FilesCommitRequestSchema: GenMessage<FilesCommitRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 16);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 17);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.FilesCommitResponse
@@ -492,7 +541,7 @@ export type FilesCommitResponse = Message<"ankole.runtime_fabric.v1.FilesCommitR
  * Use `create(FilesCommitResponseSchema)` to create a new message.
  */
 export const FilesCommitResponseSchema: GenMessage<FilesCommitResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 17);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 18);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ConversationInfo
@@ -524,7 +573,7 @@ export type ConversationInfo = Message<"ankole.runtime_fabric.v1.ConversationInf
  * Use `create(ConversationInfoSchema)` to create a new message.
  */
 export const ConversationInfoSchema: GenMessage<ConversationInfo> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 18);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 19);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RuntimeSkillSummary
@@ -580,7 +629,7 @@ export type RuntimeSkillSummary = Message<"ankole.runtime_fabric.v1.RuntimeSkill
  * Use `create(RuntimeSkillSummarySchema)` to create a new message.
  */
 export const RuntimeSkillSummarySchema: GenMessage<RuntimeSkillSummary> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 19);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 20);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentConversationContextResponse
@@ -634,7 +683,7 @@ export type AgentConversationContextResponse = Message<"ankole.runtime_fabric.v1
  * Use `create(AgentConversationContextResponseSchema)` to create a new message.
  */
 export const AgentConversationContextResponseSchema: GenMessage<AgentConversationContextResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 20);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 21);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentPluginCatalogSkill
@@ -651,7 +700,7 @@ export type AgentPluginCatalogSkill = Message<"ankole.runtime_fabric.v1.AgentPlu
  * Use `create(AgentPluginCatalogSkillSchema)` to create a new message.
  */
 export const AgentPluginCatalogSkillSchema: GenMessage<AgentPluginCatalogSkill> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 21);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 22);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentPluginCatalogEntry
@@ -673,7 +722,7 @@ export type AgentPluginCatalogEntry = Message<"ankole.runtime_fabric.v1.AgentPlu
  * Use `create(AgentPluginCatalogEntrySchema)` to create a new message.
  */
 export const AgentPluginCatalogEntrySchema: GenMessage<AgentPluginCatalogEntry> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 22);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 23);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobGetRequest
@@ -697,7 +746,7 @@ export type BackgroundAgentJobGetRequest = Message<"ankole.runtime_fabric.v1.Bac
  * Use `create(BackgroundAgentJobGetRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobGetRequestSchema: GenMessage<BackgroundAgentJobGetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 23);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 24);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertRequest
@@ -787,7 +836,7 @@ export type BackgroundAgentJobTurnUpsertRequest = Message<"ankole.runtime_fabric
  * Use `create(BackgroundAgentJobTurnUpsertRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnUpsertRequestSchema: GenMessage<BackgroundAgentJobTurnUpsertRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 24);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 25);
 
 /**
  * Pages the stored lead-thread turn items of one Job's workspace lineage in
@@ -813,7 +862,7 @@ export type BackgroundAgentJobTurnItemsListRequest = Message<"ankole.runtime_fab
  * Use `create(BackgroundAgentJobTurnItemsListRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnItemsListRequestSchema: GenMessage<BackgroundAgentJobTurnItemsListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 25);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 26);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnItem
@@ -850,7 +899,7 @@ export type BackgroundAgentJobTurnItem = Message<"ankole.runtime_fabric.v1.Backg
  * Use `create(BackgroundAgentJobTurnItemSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnItemSchema: GenMessage<BackgroundAgentJobTurnItem> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 26);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 27);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnItemsListResponse
@@ -877,7 +926,7 @@ export type BackgroundAgentJobTurnItemsListResponse = Message<"ankole.runtime_fa
  * Use `create(BackgroundAgentJobTurnItemsListResponseSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnItemsListResponseSchema: GenMessage<BackgroundAgentJobTurnItemsListResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 27);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 28);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobStatusUpdateRequest
@@ -926,7 +975,7 @@ export type BackgroundAgentJobStatusUpdateRequest = Message<"ankole.runtime_fabr
  * Use `create(BackgroundAgentJobStatusUpdateRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobStatusUpdateRequestSchema: GenMessage<BackgroundAgentJobStatusUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 28);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 29);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobAttemptHistoryEntry
@@ -958,7 +1007,7 @@ export type BackgroundAgentJobAttemptHistoryEntry = Message<"ankole.runtime_fabr
  * Use `create(BackgroundAgentJobAttemptHistoryEntrySchema)` to create a new message.
  */
 export const BackgroundAgentJobAttemptHistoryEntrySchema: GenMessage<BackgroundAgentJobAttemptHistoryEntry> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 29);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 30);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobResponse
@@ -1037,7 +1086,7 @@ export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.Backg
  * Use `create(BackgroundAgentJobResponseSchema)` to create a new message.
  */
 export const BackgroundAgentJobResponseSchema: GenMessage<BackgroundAgentJobResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 30);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 31);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurn
@@ -1124,7 +1173,7 @@ export type BackgroundAgentJobTurn = Message<"ankole.runtime_fabric.v1.Backgroun
  * Use `create(BackgroundAgentJobTurnSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnSchema: GenMessage<BackgroundAgentJobTurn> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 31);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 32);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertResponse
@@ -1146,7 +1195,7 @@ export type BackgroundAgentJobTurnUpsertResponse = Message<"ankole.runtime_fabri
  * Use `create(BackgroundAgentJobTurnUpsertResponseSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnUpsertResponseSchema: GenMessage<BackgroundAgentJobTurnUpsertResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 32);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 33);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WebhookEndpointCreateRequest
@@ -1180,7 +1229,7 @@ export type WebhookEndpointCreateRequest = Message<"ankole.runtime_fabric.v1.Web
  * Use `create(WebhookEndpointCreateRequestSchema)` to create a new message.
  */
 export const WebhookEndpointCreateRequestSchema: GenMessage<WebhookEndpointCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 33);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 34);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WebhookEndpointListRequest
@@ -1197,7 +1246,7 @@ export type WebhookEndpointListRequest = Message<"ankole.runtime_fabric.v1.Webho
  * Use `create(WebhookEndpointListRequestSchema)` to create a new message.
  */
 export const WebhookEndpointListRequestSchema: GenMessage<WebhookEndpointListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 34);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 35);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WebhookEndpointTargetRequest
@@ -1214,7 +1263,7 @@ export type WebhookEndpointTargetRequest = Message<"ankole.runtime_fabric.v1.Web
  * Use `create(WebhookEndpointTargetRequestSchema)` to create a new message.
  */
 export const WebhookEndpointTargetRequestSchema: GenMessage<WebhookEndpointTargetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 35);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 36);
 
 /**
  * `drive_prefix` names the drive folder that holds the script and its
@@ -1244,7 +1293,7 @@ export type AutomationJobCreateRequest = Message<"ankole.runtime_fabric.v1.Autom
  * Use `create(AutomationJobCreateRequestSchema)` to create a new message.
  */
 export const AutomationJobCreateRequestSchema: GenMessage<AutomationJobCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 36);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 37);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobListRequest
@@ -1261,7 +1310,7 @@ export type AutomationJobListRequest = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobListRequestSchema)` to create a new message.
  */
 export const AutomationJobListRequestSchema: GenMessage<AutomationJobListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 37);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 38);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobShowRequest
@@ -1283,7 +1332,7 @@ export type AutomationJobShowRequest = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobShowRequestSchema)` to create a new message.
  */
 export const AutomationJobShowRequestSchema: GenMessage<AutomationJobShowRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 38);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 39);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobTargetRequest
@@ -1300,7 +1349,7 @@ export type AutomationJobTargetRequest = Message<"ankole.runtime_fabric.v1.Autom
  * Use `create(AutomationJobTargetRequestSchema)` to create a new message.
  */
 export const AutomationJobTargetRequestSchema: GenMessage<AutomationJobTargetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 39);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 40);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobEmitRequest
@@ -1327,7 +1376,7 @@ export type AutomationJobEmitRequest = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobEmitRequestSchema)` to create a new message.
  */
 export const AutomationJobEmitRequestSchema: GenMessage<AutomationJobEmitRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 40);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 41);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobEmitResponse
@@ -1340,7 +1389,7 @@ export type AutomationJobEmitResponse = Message<"ankole.runtime_fabric.v1.Automa
  * Use `create(AutomationJobEmitResponseSchema)` to create a new message.
  */
 export const AutomationJobEmitResponseSchema: GenMessage<AutomationJobEmitResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 41);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 42);
 
 /**
  * Control-plane-originated request handled by the Agent Computer worker.
@@ -1401,7 +1450,7 @@ export type AutomationJobRunRequest = Message<"ankole.runtime_fabric.v1.Automati
  * Use `create(AutomationJobRunRequestSchema)` to create a new message.
  */
 export const AutomationJobRunRequestSchema: GenMessage<AutomationJobRunRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 42);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 43);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobRunResponse
@@ -1450,7 +1499,7 @@ export type AutomationJobRunResponse = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobRunResponseSchema)` to create a new message.
  */
 export const AutomationJobRunResponseSchema: GenMessage<AutomationJobRunResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 43);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 44);
 
 /**
  * Control-plane read tools shared by Conversations and Codex Jobs. Browser
@@ -1486,7 +1535,7 @@ export type ReadToolRequest = Message<"ankole.runtime_fabric.v1.ReadToolRequest"
  * Use `create(ReadToolRequestSchema)` to create a new message.
  */
 export const ReadToolRequestSchema: GenMessage<ReadToolRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 44);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 45);
 
 /**
  * Control-plane-originated transfers into or out of the Agent Home of the
@@ -1542,7 +1591,7 @@ export type WorkerFileTransferRequest = Message<"ankole.runtime_fabric.v1.Worker
  * Use `create(WorkerFileTransferRequestSchema)` to create a new message.
  */
 export const WorkerFileTransferRequestSchema: GenMessage<WorkerFileTransferRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 45);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 46);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerFileTransferResponse
@@ -1559,4 +1608,4 @@ export type WorkerFileTransferResponse = Message<"ankole.runtime_fabric.v1.Worke
  * Use `create(WorkerFileTransferResponseSchema)` to create a new message.
  */
 export const WorkerFileTransferResponseSchema: GenMessage<WorkerFileTransferResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 46);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 47);

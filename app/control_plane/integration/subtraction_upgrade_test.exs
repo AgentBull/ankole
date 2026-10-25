@@ -235,6 +235,112 @@ defmodule Ankole.SubtractionUpgradeTest do
     assert Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @brain_tags, log: false) == []
   end
 
+  test "Pod Chat upgrade backfills room membership, identity snapshots, and per-Agent preferences" do
+    start_upgrade_repo!()
+    migration = 20_261_025_020_000
+    Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: migration - 1, log: false)
+    alice = Ankole.Ecto.UUIDv7.autogenerate()
+    bob = Ankole.Ecto.UUIDv7.autogenerate()
+    agent = Ankole.Ecto.UUIDv7.autogenerate()
+    dm = Ankole.Ecto.UUIDv7.autogenerate()
+    group = Ankole.Ecto.UUIDv7.autogenerate()
+    message = Ankole.Ecto.UUIDv7.autogenerate()
+
+    for {uid, type, name, membership} <- [
+          {alice, "human", "Upgrade Alice", "member"},
+          {bob, "human", "Upgrade Bob", "member"},
+          {agent, "agent", "Upgrade Agent", nil}
+        ] do
+      SQL.query!(
+        UpgradeRepo,
+        "INSERT INTO principals (tenant_id,uid,type,status,display_name,membership,access_version,inserted_at,updated_at) VALUES ($1,$2,$3::principal_type,'active',$4,$5,1,now(),now())",
+        [Ecto.UUID.dump!(@tenant), uid, type, name, membership]
+      )
+    end
+
+    for id <- [dm, group] do
+      SQL.query!(
+        UpgradeRepo,
+        "INSERT INTO conversations (tenant_id,id,title,kind,created_by,last_activity_at,sequence_high_water,metadata,inserted_at,updated_at) VALUES ($1,$2,'Upgrade room','native',$3,now(),1,$4,now(),now())",
+        [
+          Ecto.UUID.dump!(@tenant),
+          Ecto.UUID.dump!(id),
+          alice,
+          %{"model_profile" => "careful", "queue_paused" => true}
+        ]
+      )
+
+      for {uid, role} <- [{alice, "owner"}, {agent, "agent"}] do
+        SQL.query!(
+          UpgradeRepo,
+          "INSERT INTO conversation_participants (tenant_id,conversation_id,principal_uid,role) VALUES ($1,$2,$3,$4)",
+          [Ecto.UUID.dump!(@tenant), Ecto.UUID.dump!(id), uid, role]
+        )
+      end
+    end
+
+    SQL.query!(
+      UpgradeRepo,
+      "INSERT INTO conversation_participants (tenant_id,conversation_id,principal_uid,role) VALUES ($1,$2,$3,'member')",
+      [Ecto.UUID.dump!(@tenant), Ecto.UUID.dump!(group), bob]
+    )
+
+    SQL.query!(
+      UpgradeRepo,
+      "INSERT INTO conversation_messages (tenant_id,id,conversation_id,seq,author_type,author_uid,kind,text,origin,created_at) VALUES ($1,$2,$3,1,'human',$4,'message','Retained statement','native',now())",
+      [Ecto.UUID.dump!(@tenant), Ecto.UUID.dump!(message), Ecto.UUID.dump!(group), alice]
+    )
+
+    assert Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: migration, log: false) == [
+             migration
+           ]
+
+    assert SQL.query!(
+             UpgradeRepo,
+             "SELECT room_mode,native_access_scope,preferred_models,metadata FROM conversations WHERE id=$1",
+             [Ecto.UUID.dump!(group)]
+           ).rows == [
+             [
+               "group",
+               "participants",
+               %{agent => "careful"},
+               %{("queue_paused:" <> agent) => true}
+             ]
+           ]
+
+    assert SQL.query!(UpgradeRepo, "SELECT room_mode FROM conversations WHERE id=$1", [
+             Ecto.UUID.dump!(dm)
+           ]).rows == [["dm"]]
+
+    assert SQL.query!(
+             UpgradeRepo,
+             "SELECT author_display_name,delivery_key,text FROM conversation_messages WHERE id=$1",
+             [Ecto.UUID.dump!(message)]
+           ).rows == [["Upgrade Alice", "final", "Retained statement"]]
+
+    assert SQL.query!(
+             UpgradeRepo,
+             "SELECT may_intervene,last_read_seq FROM conversation_participants WHERE conversation_id=$1 AND principal_uid=$2",
+             [Ecto.UUID.dump!(group), agent]
+           ).rows == [[true, 0]]
+
+    assert SQL.query!(
+             UpgradeRepo,
+             "SELECT last_read_seq FROM conversation_participants WHERE conversation_id=$1 AND principal_uid=$2",
+             [Ecto.UUID.dump!(group), bob]
+           ).rows == [[1]]
+
+    assert_raise Ecto.MigrationError, ~r/forward-only multiplayer Pod Chat migration/, fn ->
+      Ecto.Migrator.run(UpgradeRepo, @migrations, :down, step: 1, log: false)
+    end
+
+    assert SQL.query!(
+             UpgradeRepo,
+             "SELECT author_display_name FROM conversation_messages WHERE id=$1",
+             [Ecto.UUID.dump!(message)]
+           ).rows == [["Upgrade Alice"]]
+  end
+
   defp start_upgrade_repo! do
     config = Repo.config()
 

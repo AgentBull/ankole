@@ -15,7 +15,8 @@ defmodule Ankole.Conversations.Message do
     unique_index_names([
       {[:tenant_id, :id], "conversation_messages_pkey"},
       {[:tenant_id, :conversation_id, :seq], "conversation_messages_sequence_index"},
-      {[:tenant_id, :conversation_id, :signal_id], "conversation_messages_signal_index"}
+      {[:tenant_id, :conversation_id, :signal_id, :delivery_key],
+       "conversation_messages_signal_index"}
     ])
 
     foreign_key_names([
@@ -43,6 +44,18 @@ defmodule Ankole.Conversations.Message do
     attribute(:author_type, :atom,
       constraints: [one_of: [:human, :agent, :unknown]],
       allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:author_display_name, :string,
+      constraints: [trim?: false, match: ~r/\S/u],
+      public?: true
+    )
+
+    attribute(:delivery_key, :string,
+      default: "final",
+      allow_nil?: false,
+      constraints: [match: ~r/\S/u],
       public?: true
     )
 
@@ -98,7 +111,7 @@ defmodule Ankole.Conversations.Message do
   end
 
   validations do
-    validate(present(:author_uid), where: [attribute_equals(:origin, :native)])
+    validate(present(:author_display_name), where: [attribute_equals(:origin, :native)])
 
     validate(present(:text),
       where: [attribute_equals(:origin, :native), attribute_equals(:attachments, [])]
@@ -110,7 +123,7 @@ defmodule Ankole.Conversations.Message do
   end
 
   calculations do
-    # A removed native input withdraws its Message from the public facts.
+    # A Message is withdrawn when all its Agent inputs are removed.
     calculate(
       :withdrawn,
       :boolean,
@@ -118,7 +131,11 @@ defmodule Ankole.Conversations.Message do
         exists(
           Ankole.Signals.Signal,
           message_id == parent(id) and fragment("? @> '{\"removed\": true}'::jsonb", data)
-        )
+        ) and
+          not exists(
+            Ankole.Signals.Signal,
+            message_id == parent(id) and not fragment("? @> '{\"removed\": true}'::jsonb", data)
+          )
       )
     )
   end
@@ -126,13 +143,26 @@ defmodule Ankole.Conversations.Message do
   actions do
     defaults([:read])
 
+    read :history_page do
+      pagination(keyset?: true, max_page_size: 500, countable: false, required?: false)
+    end
+
     create :record do
+      change(Ankole.Conversations.Message.SnapshotAuthor)
+      validate(present(:author_uid), where: [attribute_equals(:origin, :native)])
+
+      validate(present(:signal_id),
+        where: [attribute_equals(:origin, :native), attribute_equals(:author_type, :agent)]
+      )
+
       accept([
         :id,
         :conversation_id,
         :seq,
         :author_type,
         :author_uid,
+        :author_display_name,
+        :delivery_key,
         :kind,
         :text,
         :attachments,
@@ -148,12 +178,21 @@ defmodule Ankole.Conversations.Message do
     end
 
     create_if_absent :record_once do
+      change(Ankole.Conversations.Message.SnapshotAuthor)
+      validate(present(:author_uid), where: [attribute_equals(:origin, :native)])
+
+      validate(present(:signal_id),
+        where: [attribute_equals(:origin, :native), attribute_equals(:author_type, :agent)]
+      )
+
       accept([
         :id,
         :conversation_id,
         :seq,
         :author_type,
         :author_uid,
+        :author_display_name,
+        :delivery_key,
         :kind,
         :text,
         :attachments,
@@ -169,7 +208,7 @@ defmodule Ankole.Conversations.Message do
     end
 
     update :edit do
-      accept([:text, :links])
+      accept([:text, :links, :mentions])
       validate(attribute_equals(:origin, :native))
     end
 
@@ -177,6 +216,8 @@ defmodule Ankole.Conversations.Message do
       accept([
         :author_type,
         :author_uid,
+        :author_display_name,
+        :delivery_key,
         :kind,
         :text,
         :attachments,

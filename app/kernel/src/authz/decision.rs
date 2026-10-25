@@ -320,7 +320,7 @@ pub fn evaluate_pod_context(snapshot: PodContextSnapshot) -> KernelResult<PodCon
             || grant.condition == "true"
             || !matches!(
                 grant.action.as_str(),
-                "page_view" | "page_edit" | "page_manage"
+                "page_view" | "page_write_records" | "page_edit" | "page_manage"
             )
         {
             continue;

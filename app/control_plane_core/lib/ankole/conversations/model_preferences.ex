@@ -38,41 +38,41 @@ defmodule Ankole.Conversations.ModelPreferences do
          else: (_ -> false)
   end
 
-  def selected(%Conversation{metadata: metadata}), do: metadata["model_profile"]
-  def logical(conversation), do: selected(conversation) || "primary"
+  def selected(%Conversation{preferred_models: models}, agent_uid), do: models[agent_uid]
+  def logical(conversation, agent_uid), do: selected(conversation, agent_uid) || "primary"
 
   def selection(conversation, agent_uid) do
     with {:ok, catalog} <- catalog(agent_uid) do
       {:ok,
        Map.merge(catalog, %{
-         profile: selected(conversation),
+         profile: selected(conversation, agent_uid),
          active_profile: active_profile(agent_uid, conversation.id)
        })}
     end
   end
 
   def initialize(%Conversation{sequence_high_water: 0} = conversation, agent_uid, profile) do
-    with {:ok, profile} <- validate(agent_uid, profile), do: put(conversation, profile)
+    with {:ok, profile} <- validate(agent_uid, profile), do: put(conversation, agent_uid, profile)
   end
 
   # Retrying the original create must not reset a later, explicitly saved preference.
   def initialize(conversation, _agent_uid, _profile), do: {:ok, conversation}
 
-  def put(conversation, profile) do
-    metadata =
+  def put(conversation, agent_uid, profile) do
+    models =
       if is_nil(profile),
-        do: Map.delete(conversation.metadata, "model_profile"),
-        else: Map.put(conversation.metadata, "model_profile", profile)
+        do: Map.delete(conversation.preferred_models, agent_uid),
+        else: Map.put(conversation.preferred_models, agent_uid, profile)
 
-    Ankole.Ash.update(conversation, :put_metadata, %{metadata: metadata})
+    Ankole.Ash.update(conversation, :set_agent_model_profile, %{preferred_models: models})
   end
 
   def authorize_input(_conversation, _agent_uid, _mode, false), do: :ok
 
   def authorize_input(conversation, agent_uid, mode, true) do
-    with {:ok, _} <- validate(agent_uid, selected(conversation)) do
+    with {:ok, _} <- validate(agent_uid, selected(conversation, agent_uid)) do
       if mode == "steer",
-        do: ensure_can_steer(agent_uid, conversation.id, logical(conversation)),
+        do: ensure_can_steer(agent_uid, conversation.id, logical(conversation, agent_uid)),
         else: :ok
     end
   end
@@ -95,7 +95,7 @@ defmodule Ankole.Conversations.ModelPreferences do
 
   # Human inputs carry their sending-time choice. Automatic Main wakes use the
   # conversation's preference until admission freezes it into the same input.
-  def for_event(%Signal{producer: :kernel, conversation_id: id, data: data})
+  def for_event(%Signal{producer: :kernel, agent_uid: agent_uid, conversation_id: id, data: data})
       when is_binary(id) and is_map(data) do
     case data["model_profile"] do
       profile when is_binary(profile) ->
@@ -103,7 +103,7 @@ defmodule Ankole.Conversations.ModelPreferences do
 
       _ ->
         case conversation(id) do
-          %Conversation{kind: :native} = conversation -> logical(conversation)
+          %Conversation{kind: :native} = conversation -> logical(conversation, agent_uid)
           _ -> nil
         end
     end

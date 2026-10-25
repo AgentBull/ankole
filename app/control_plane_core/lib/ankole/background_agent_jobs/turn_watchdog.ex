@@ -1,5 +1,5 @@
 defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
-  @moduledoc "Detects a stalled Job from durable Codex trajectory activity."
+  @moduledoc "Compensates aborted Job attempts and detects stalled runtime Turns."
   require Ash.Query
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Lifecycle
@@ -8,11 +8,14 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.WorkerRouteAuth
   alias Ankole.Repo
   alias Ankole.Sessions.TurnControl
   alias Ankole.Sessions.CodexJob
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.JobTurnRef
+  alias Ankole.Sessions.Queue
+  alias Ankole.Sessions.TurnErrorClassifier
   @stall_grace_seconds 3_600
   @max_stalls 3
   @stall_code "background_agent_job_turn_stalled"
@@ -21,6 +24,36 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   @doc "Returns the durable error code written on a Turn the watchdog interrupted."
   @spec stall_code() :: String.t()
   def stall_code, do: @stall_code
+
+  def abort_attempt_in_tx(ref, worker_id, error, now) do
+    with {:ok, :authorized} <-
+           WorkerRouteAuth.authorize_turn_in_tx(ref, worker_id, :terminal, lock: true),
+         %Job{} = job <- Queries.get(ref.job_id),
+         _turns <- Turns.lock_attempt_in_tx(job),
+         :ok <- Lifecycle.lock_job_sessions_in_tx(job),
+         %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(ref.signal_id) do
+      if job.status != :running do
+        {:ok, %{signal: event, compensation: nil}}
+      else
+        error = BackgroundAgentJobs.quota_terminal_error(error, event.agent_uid)
+        delay = BackgroundAgentJobs.turn_error_retry_at(error, ref.attempt, now)
+
+        event_result =
+          if TurnErrorClassifier.retryable?(error),
+            do: Ankole.Signals.transition_in_tx(event, :defer, %{available_at: delay}),
+            else: Queue.mark_event_dead_letter_in_tx(event, now, error)
+
+        with {:ok, event} <- event_result,
+             {:ok, _compensation} <- compensate_in_tx(event, error, now),
+             :ok <-
+               Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
+                 %{agent_uid: event.agent_uid, session_id: event.session_id},
+                 delay
+               ),
+             do: {:ok, event}
+      end
+    end
+  end
 
   def reconcile_stuck_job(job_id, opts \\ []) when is_integer(job_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))

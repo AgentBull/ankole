@@ -127,7 +127,7 @@ defmodule Ankole.Pod.PageContractTest do
              Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 1)
   end
 
-  test "an Agent reset is visible to stale clients and rejected Agent writes leave content intact",
+  test "an Agent change is visible to stale clients and rejected Agent writes leave content intact",
        ctx do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
@@ -165,7 +165,7 @@ defmodule Ankole.Pod.PageContractTest do
 
     assert Repo.get!(PageContent, page.id).content == "<page><p>Agent</p></page>"
 
-    assert {:ok, %{changes: [%{kind: :reset}], reset_required: false}} =
+    assert {:ok, %{changes: [%{kind: :change}], reset_required: false}} =
              Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
 
     Repo.delete_all(PageChange)
@@ -246,7 +246,7 @@ defmodule Ankole.Pod.PageContractTest do
                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                 page.id,
                 revision,
-                "<page><p>latest</p></page>"
+                "<page><p>latest #{revision}</p></page>"
               )
           )
 
@@ -439,5 +439,34 @@ defmodule Ankole.Pod.PageContractTest do
     assert Enum.map(third.pages, & &1.position) == ["z0"]
     assert third.next_cursor == nil
     assert Enum.all?(first.pages ++ second.pages ++ third.pages, &(&1.role == "manage"))
+  end
+
+  test "directory pagination ends on exact full and empty pages" do
+    principal = Ankole.PrincipalsFixtures.human_fixture().principal
+    actor = Ankole.AuthZ.Actor.new(principal)
+
+    pages =
+      for position <- ["A0", "B0", "C0", "D0"] do
+        assert {:ok, page} =
+                 Ankole.Pod.Pages.create(actor, %{title: position, position: position})
+
+        page
+      end
+
+    assert {:ok, first} = Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2})
+    assert Enum.map(first.pages, & &1.position) == ["A0", "B0"]
+    assert is_binary(first.next_cursor)
+
+    assert {:ok, second} =
+             Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2, cursor: first.next_cursor})
+
+    assert Enum.map(second.pages, & &1.position) == ["C0", "D0"]
+    assert second.next_cursor == nil
+
+    assert {:ok, empty} =
+             Ankole.Pod.Pages.list_children(actor, hd(pages).id, %{limit: 2})
+
+    assert empty.pages == []
+    assert empty.next_cursor == nil
   end
 end

@@ -20,6 +20,9 @@
         },
         "postgresqlPassword": {
           "type": "string"
+        },
+        "functionRuntimeToken": {
+          "type": "string"
         }
       }
     },
@@ -275,6 +278,53 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        }
+      }
+    },
+    "functionRuntime": {
+      "type": "object",
+      "required": ["replicaCount", "image", "maxConcurrency", "resources", "autoscaling", "deniedCIDRs"],
+      "properties": {
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "image": {
+          "$ref": "#/$defs/image"
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resources": {
+          "type": "object"
+        },
+        "autoscaling": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "deniedCIDRs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

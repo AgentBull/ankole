@@ -367,7 +367,11 @@ and `updated_at`.
 
 ### Page Actions
 
-The Pod page domain reserves `page_view`, `page_edit`, and `page_manage`.
+The Pod page domain reserves `page_view`, `page_write_records`, `page_edit`,
+and `page_manage`, with bits 1, 2, 4, and 8. The roles `view`, `contribute`,
+`edit`, and `manage` expand to masks 1, 3, 7, and 15. Each stored grant has
+one action, and each recursive graph edge compares one exact source bit.
+Human-driven Agent work intersects the Human and Agent masks.
 The Console grant API rejects Page grant creation and deletion. It permits
 only description changes on a Page grant. Pod sharing writes Page grants
 through AuthZ with a typed target Page and a `container` or `self` scope.

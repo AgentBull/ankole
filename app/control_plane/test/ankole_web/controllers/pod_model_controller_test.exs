@@ -127,6 +127,8 @@ defmodule AnkoleWeb.PodModelControllerTest do
       })
 
     assert [%{"modelProfile" => "careful", "deliveryMode" => "queue"}] =
-             api_response(queued, 200)["pendingInputs"]
+             api_response(queued, 200)["pendingQueues"]
+             |> Enum.find(&(&1["agentUID"] == ctx.agent.uid))
+             |> Map.fetch!("inputs")
   end
 end

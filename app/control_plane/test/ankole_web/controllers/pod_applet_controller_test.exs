@@ -106,25 +106,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
     {conn, uid} = console_conn_with_principal(conn)
     page = publish(uid)
 
-    hold_source = "export default {'POST /hold':()=>AnkoleRuntime.db.query('t',{})}"
-
-    hold_context = %{
-      "method" => "POST",
-      "path" => "/hold",
-      "query" => %{},
-      "principal" => %{"uid" => uid, "kind" => "human"},
-      "applet" => %{"pageId" => page.id, "revision" => 1},
-      "timezone" => "Asia/Singapore"
-    }
-
-    active =
-      for _ <- 1..4 do
-        {:ok, handle, run_id} =
-          Ankole.Kernel.AppletRuntime.start(hold_source, hold_context, timeout_ms: 10_000)
-
-        assert_receive {:applet_runtime, ^run_id, :call, _id, "db.query", _}, 2_000
-        {handle, run_id}
-      end
+    active = Ankole.FunctionRuntimeHelpers.saturate()
 
     try do
       route_response =
@@ -155,10 +137,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
       assert %{"errors" => [%{"code" => "applet_busy"}]} =
                json_response(publish_response, 503)
     after
-      Enum.each(active, fn {handle, run_id} ->
-        Ankole.Kernel.AppletRuntime.cancel(handle)
-        assert_receive {:applet_runtime, ^run_id, :done, _}, 2_000
-      end)
+      Ankole.FunctionRuntimeHelpers.release(active)
     end
   end
 

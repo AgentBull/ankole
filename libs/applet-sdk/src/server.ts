@@ -29,6 +29,8 @@ export type FileEntry = { path: string; sha256: string; size: number; contentTyp
 export type FileRead = FileEntry & { bytes: Uint8Array }
 export type FileWrite = { name: string; contentType?: string; bytes: Uint8Array; baseRevision?: number }
 export type FileWriteResult = {
+  name: string
+  mime: string
   pageId: string
   revision: number
   path: string

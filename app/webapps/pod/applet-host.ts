@@ -1,200 +1,303 @@
 import { t } from 'i18next'
-import { GarfishBrowserVm } from '@garfish/browser-vm'
-import Garfish from '@garfish/core'
-import { GarfishCssScope } from '@garfish/css-scope'
-import * as react from 'react'
-import * as jsxRuntime from 'react/jsx-runtime'
-import * as jsxDevRuntime from 'react/jsx-dev-runtime'
-import * as reactDom from 'react-dom'
-import * as reactDomClient from 'react-dom/client'
-import * as uikit from '@ankole/uikit'
-import * as sdk from '@ankole/applet-sdk'
 import type { AppletRuntime } from '@ankole/applet-sdk'
-import { fileURL } from './content-api'
-import { createAppletRoutes } from './applet-routes'
-import { podFiles } from './api/generated/sdk.gen'
 import { InternalAPIError } from '../common/internal-api-client'
+import { authenticationRef, principalUID } from '../common/browser-context'
+import { createAppletRoutes } from './applet-routes'
 
-let host: Garfish | undefined
-function garfish() {
-  if (!host) {
-    host = new Garfish({ plugins: [GarfishBrowserVm(), GarfishCssScope()] })
-    host.setExternal({
-      react,
-      'react/jsx-runtime': jsxRuntime,
-      'react/jsx-dev-runtime': jsxDevRuntime,
-      'react-dom': reactDom,
-      'react-dom/client': reactDomClient,
-      '@ankole/uikit': uikit,
-      '@ankole/applet-sdk': sdk
-    })
-    host.run()
+type AppletProvider = {
+  render(options: { dom: Element; props: { runtime: AppletRuntime } }): void
+  destroy(options: { dom: Element }): void
+}
+type MountedFrame = {
+  prepare(): void
+  mount(provider: AppletProvider): void
+  changed(): void
+  error(error: unknown): void
+}
+type AppletHostWindow = Window & {
+  __ANKOLE_APPLET_HOST__?: {
+    prepare(frame: Window): void
+    mount(frame: Window, provider: AppletProvider): void
+    changed(frame: Window): void
+    error(frame: Window, error: unknown): void
   }
-  return host
+}
+const frames = new WeakMap<Window, MountedFrame>()
+
+function host() {
+  return ((window as AppletHostWindow).__ANKOLE_APPLET_HOST__ ??= {
+    prepare: frame => frames.get(frame)?.prepare(),
+    mount: (frame, provider) => frames.get(frame)?.mount(provider),
+    changed: frame => frames.get(frame)?.changed(),
+    error: (frame, error) => frames.get(frame)?.error(error)
+  })
 }
 
-class PublicationChanged extends Error {}
-
-/** Garfish's instance namespace changes on every mount; storage belongs to the applet page. */
-function appletStorage(storage: Storage, pageID: string): Storage {
-  const prefix = `ankole:applet:${pageID}:`
+function appletStorage(storage: Storage, principal: string, pageID: string): Storage {
+  const prefix = `ankole:applet:${principal}:${pageID}:`
   const keys = () => Object.keys(storage).filter(key => key.startsWith(prefix))
-  return {
+  const scoped: Storage = {
     get length() {
       return keys().length
     },
-    key(index) {
-      return keys()[index]?.slice(prefix.length) ?? null
-    },
-    getItem(key) {
-      return storage.getItem(prefix + key)
-    },
-    setItem(key, value) {
-      storage.setItem(prefix + key, value)
-    },
-    removeItem(key) {
-      storage.removeItem(prefix + key)
-    },
+    key: index => keys()[index]?.slice(prefix.length) ?? null,
+    getItem: key => storage.getItem(prefix + key),
+    setItem: (key, value) => storage.setItem(prefix + key, value),
+    removeItem: key => storage.removeItem(prefix + key),
     clear() {
       for (const key of keys()) storage.removeItem(key)
     }
   }
-}
-
-/** Download one complete publication before Garfish executes any of its resources. */
-export async function appletPublication(pageID: string, signal: AbortSignal) {
-  const manifest = await podFiles({ path: { id: pageID }, signal })
-  const files = manifest.files.filter(file => file.path.startsWith('dist/'))
-  const entry = files.find(file => file.path === 'dist/index.html')
-  if (!entry) throw new Error(t('pod.content.this_applet_has_not_been_published_yet'))
-  const urls = new Map<string, string>()
-  const revoke = () => {
-    for (const url of urls.values()) URL.revokeObjectURL(url)
-  }
-  try {
-    const downloaded = await Promise.all(
-      files.map(async file => {
-        const response = await fetch(fileURL(pageID, file.path, file.sha256), { signal, credentials: 'same-origin' })
-        if (response.status === 409) throw new PublicationChanged()
-        if (!response.ok) {
-          throw new InternalAPIError(response.status, response.statusText, {
-            error: t('pod.content.could_not_load_the_applet_file', { value1: response.status })
-          })
-        }
-        return {
-          file,
-          blob: new Blob([await response.arrayBuffer()], { type: file.content_type ?? 'application/octet-stream' })
-        }
-      })
-    )
-    if (signal.aborted) throw signal.reason
-    for (const { file, blob } of downloaded) if (file !== entry) urls.set(file.path, URL.createObjectURL(blob))
-    const html = new DOMParser().parseFromString(
-      await downloaded.find(item => item.file === entry)!.blob.text(),
-      'text/html'
-    )
-    for (const element of html.querySelectorAll('script[src],link[href]')) {
-      const attribute = element.tagName === 'SCRIPT' ? 'src' : 'href'
-      const original = element.getAttribute(attribute)!
-      const path = new URL(original, 'https://applet.invalid/dist/index.html')
-      if (path.origin !== 'https://applet.invalid') continue
-      const immutable = urls.get(decodeURIComponent(path.pathname.slice(1)))
-      if (!immutable) throw new Error(t('pod.content.the_applet_publication_manifest_is_missing', { value1: original }))
-      element.setAttribute(attribute, immutable)
+  const prototype = Object.getPrototypeOf(storage)
+  return new Proxy(storage, {
+    get(_target, key) {
+      if (Object.hasOwn(scoped, key)) return Reflect.get(scoped, key)
+      if (typeof key !== 'string' || Reflect.has(prototype, key)) return Reflect.get(storage, key, storage)
+      return scoped.getItem(key) ?? undefined
+    },
+    set(_target, key, value) {
+      if (typeof key !== 'string') return Reflect.set(storage, key, value, storage)
+      scoped.setItem(key, value)
+      return true
+    },
+    deleteProperty(_target, key) {
+      if (typeof key !== 'string') return Reflect.deleteProperty(storage, key)
+      scoped.removeItem(key)
+      return true
+    },
+    has(_target, key) {
+      return (
+        Object.hasOwn(scoped, key) ||
+        Reflect.has(prototype, key) ||
+        (typeof key === 'string' && scoped.getItem(key) !== null)
+      )
+    },
+    ownKeys: () => keys().map(key => key.slice(prefix.length)),
+    getOwnPropertyDescriptor(_target, key) {
+      const value = typeof key === 'string' ? scoped.getItem(key) : null
+      return value === null ? undefined : { value, writable: true, enumerable: true, configurable: true }
     }
-    const url = URL.createObjectURL(
-      new Blob([`<!doctype html>${html.documentElement.outerHTML}`], { type: 'text/html' })
-    )
-    urls.set(entry.path, url)
-    return { revision: manifest.revision, entry: url, revoke }
-  } catch (error) {
-    revoke()
-    throw error
-  }
+  })
 }
 
+function appletFrameURL(pageID: string, revision: number) {
+  const reference = authenticationRef()
+  if (!reference) throw new Error('The applet requires this document’s authenticated session')
+  return `/pod/applet-frame/${encodeURIComponent(reference)}/${encodeURIComponent(pageID)}/${revision}/index.html`
+}
+
+/** One mount owns one publication and all resources created by that generation. */
 export function mountApplet(
   pageID: string,
-  instanceID: string,
+  revision: number,
   container: HTMLElement,
   runtime: Omit<AppletRuntime, 'revision' | 'routes'>,
   onError: (error: unknown) => void,
   onReady?: () => void,
   onRevisionChanged?: () => void
 ) {
-  const controller = new AbortController()
-  let app: Awaited<ReturnType<Garfish['loadApp']>>
-  let publication: Awaited<ReturnType<typeof appletPublication>> | undefined
+  const principal = principalUID()
+  if (!principal) throw new Error('The applet requires this document’s authenticated Principal')
+  host()
+  const frame = document.createElement('iframe')
+  frame.title = t('pod.content.applet')
+  frame.className = 'block w-full min-h-32 border-0'
+  const viewport = container.closest<HTMLElement>('.pod-page-scroll')
+  const resize = () => {
+    frame.style.height = `${Math.max(128, viewport?.clientHeight ?? window.innerHeight)}px`
+  }
+  resize()
+  frame.src = appletFrameURL(pageID, revision)
+  container.append(frame)
+  const frameWindow = frame.contentWindow!
   let disposed = false
-  void (async () => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        publication = await appletPublication(pageID, controller.signal)
-        break
-      } catch (error) {
-        if (!(error instanceof PublicationChanged) || attempt === 2) throw error
+  let provider: AppletProvider | undefined
+  let observer: ResizeObserver | undefined
+  const cleanup = new Set<() => void>()
+  const controller = new AbortController()
+  const current = () => {
+    if (disposed) throw new Error('This applet publication is inactive')
+  }
+  const changed = () => {
+    if (disposed) return
+    dispose()
+    onRevisionChanged?.()
+  }
+  const report = (error: unknown) => {
+    if (disposed) return
+    void fetch(frame.src, { credentials: 'same-origin', signal: controller.signal })
+      .then(response => {
+        if (disposed) return
+        if (response.status === 409) changed()
+        else onError(error)
+      })
+      .catch(() => {
+        if (!disposed) onError(error)
+      })
+  }
+  const database = {
+    ...runtime.database,
+    schema(tableID: string) {
+      current()
+      return runtime.database.schema(tableID)
+    },
+    records(...args: Parameters<AppletRuntime['database']['records']>) {
+      current()
+      return runtime.database.records(...args)
+    },
+    aggregate(...args: Parameters<AppletRuntime['database']['aggregate']>) {
+      current()
+      return runtime.database.aggregate(...args)
+    },
+    async write(...args: Parameters<AppletRuntime['database']['write']>) {
+      current()
+      return runtime.database.write(...args)
+    },
+    subscribe(tableID: string, callback: Parameters<AppletRuntime['database']['subscribe']>[1]) {
+      current()
+      const unsubscribe = runtime.database.subscribe(tableID, event => {
+        if (!disposed) callback(event)
+      })
+      const stop = () => {
+        cleanup.delete(stop)
+        unsubscribe()
       }
+      cleanup.add(stop)
+      return stop
     }
-    if (disposed) {
-      publication?.revoke()
-      return
+  }
+  const routes = createAppletRoutes(pageID, revision, changed)
+  let bound: AppletRuntime = {
+    ...runtime,
+    get principal() {
+      return runtime.principal
+    },
+    get theme() {
+      return runtime.theme
+    },
+    revision,
+    database,
+    routes: {
+      key: routes.key,
+      call(request) {
+        current()
+        return routes.call(request)
+      }
+    },
+    pod: {
+      request(...args) {
+        current()
+        return runtime.pod.request(...args)
+      }
+    },
+    channel(name) {
+      current()
+      const channel = runtime.channel(name)
+      const close = () => {
+        cleanup.delete(close)
+        channel.close()
+      }
+      cleanup.add(close)
+      return { ...channel, close }
     }
-    if (!publication) return
-    let mountError: Error | undefined
-    app = await garfish().loadApp(`${pageID}-${publication.revision}-${instanceID}`, {
-      entry: publication.entry,
-      cache: false,
-      domGetter: () => container,
-      sandbox: {
-        strictIsolation: false,
-        modules: [
-          () => ({
-            override: {
-              localStorage: appletStorage(localStorage, pageID),
-              sessionStorage: appletStorage(sessionStorage, pageID)
-            }
-          })
-        ]
-      },
-      props: {
-        runtime: {
-          ...runtime,
-          get principal() {
-            return runtime.principal
-          },
-          get theme() {
-            return runtime.theme
-          },
-          revision: publication.revision,
-          routes: createAppletRoutes(pageID, publication.revision, () => {
-            if (disposed) return
-            // A rejected write is never replayed. Stop this version before requesting its replacement.
-            app?.unmount()
-            onRevisionChanged?.()
-          })
+  }
+  frames.set(frameWindow, {
+    prepare() {
+      if (disposed) return
+      Object.defineProperty(frameWindow, 'localStorage', {
+        value: appletStorage(frameWindow.localStorage, principal, pageID),
+        configurable: true
+      })
+      Object.defineProperty(frameWindow, 'sessionStorage', {
+        value: appletStorage(frameWindow.sessionStorage, principal, pageID),
+        configurable: true
+      })
+      const doc = frameWindow.document
+      doc.documentElement.lang = document.documentElement.lang
+      const syncTheme = () => {
+        if (runtime.theme) doc.documentElement.dataset.theme = runtime.theme
+        else delete doc.documentElement.dataset.theme
+      }
+      syncTheme()
+      const theme = new MutationObserver(syncTheme)
+      theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+      cleanup.add(() => theme.disconnect())
+      const error = (event: Event) => {
+        if (disposed) return
+        if ('message' in event) {
+          const failure = event as ErrorEvent
+          report(failure.error ?? new Error(failure.message))
+        } else if ((event.target as Element | null)?.tagName === 'SCRIPT') {
+          report(new Error(t('pod.content.the_applet_could_not_be_loaded')))
         }
-      },
-      errorMountApp(error) {
-        mountError = error
       }
-    })
-    if (disposed) {
-      app?.unmount()
-      return
-    }
-    if (!app || !(await app.mount())) throw mountError ?? new Error(t('pod.content.the_applet_could_not_be_loaded'))
-    if (disposed) app.unmount()
-    else onReady?.()
-  })().catch(error => {
-    app?.unmount()
-    if (!disposed) onError(error)
+      frameWindow.addEventListener('error', error, true)
+      cleanup.add(() => frameWindow.removeEventListener('error', error, true))
+      const rejected = (event: PromiseRejectionEvent) => {
+        if (!disposed) report(event.reason)
+      }
+      frameWindow.addEventListener('unhandledrejection', rejected)
+      cleanup.add(() => frameWindow.removeEventListener('unhandledrejection', rejected))
+    },
+    mount(entry) {
+      if (disposed || provider) return
+      try {
+        provider = entry
+        const doc = frameWindow.document
+        provider.render({ dom: doc.body, props: { runtime: bound } })
+        observer = new ResizeObserver(resize)
+        observer.observe(viewport ?? document.documentElement)
+        window.addEventListener('resize', resize, { signal: controller.signal })
+        resize()
+        onReady?.()
+      } catch (error) {
+        report(error)
+      }
+    },
+    changed,
+    error: report
   })
-  return () => {
+  frame.addEventListener(
+    'load',
+    () => {
+      if (disposed || provider) return
+      void fetch(frame.src, { credentials: 'same-origin', signal: controller.signal })
+        .then(response => {
+          if (disposed || provider) return
+          if (response.status === 409) changed()
+          else if (!response.ok) onError(new InternalAPIError(response.status, response.statusText, {}))
+        })
+        .catch(error => {
+          if (!disposed) onError(error)
+        })
+    },
+    { signal: controller.signal }
+  )
+  function dispose() {
+    if (disposed) return
     disposed = true
     controller.abort()
-    queueMicrotask(() => {
-      app?.unmount()
-      publication?.revoke()
-    })
+    frames.delete(frameWindow)
+    observer?.disconnect()
+    for (const close of cleanup) close()
+    cleanup.clear()
+    try {
+      provider?.destroy({ dom: frameWindow.document.body })
+    } finally {
+      frame.remove()
+    }
+  }
+  return {
+    dispose,
+    update(next: Omit<AppletRuntime, 'revision' | 'routes'>) {
+      if (disposed || next.pageID !== pageID) return
+      bound = { ...bound, actions: next.actions }
+      if (!provider) return
+      try {
+        provider.render({ dom: frameWindow.document.body, props: { runtime: bound } })
+      } catch (error) {
+        report(error)
+      }
+    }
   }
 }

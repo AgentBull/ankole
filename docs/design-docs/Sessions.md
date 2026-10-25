@@ -182,6 +182,13 @@ drivers. `driver_pid/1` and `active_model_conversation_id/1` are read-only
 locators; neither starts a process nor creates history. External Preview uses
 its checkpoint identity when recovering a completed presentation.
 
+`Driver.display_snapshot/1` reads an existing Driver. It checks the current
+Signal and workspace epoch, reads the stream's display snapshot, and adds
+completed reasoning from earlier Responses of the same Signal through
+ModelHistory. During tool execution, the current recorded Response supplies
+its text and reasoning. Pod SSE reads this view after subscription so a new
+connection can show the received prefix and continue with later deltas.
+
 Both Driver types register the same global name before initialization.
 `ensure_driver/1` reuses an existing PID and accepts an `already_started` result
 when another caller wins registration. The DynamicSupervisor owns process
@@ -285,7 +292,9 @@ request consumed those Messages. Failed requests after compaction therefore
 reread the same unconsumed background.
 
 Signals retain their original envelope and current stimulus Message identities.
-They do not freeze the conversation's background history. Provider reasoning,
+The native input environment identifies the current Human speaker by display
+name and Principal UID, so different people in one room remain distinct in the
+model request. Signals do not freeze the conversation's background history. Provider reasoning,
 signatures, and other continuation artifacts remain exact AIGateway records;
 they are not copied into the public Message table or regenerated from text.
 
@@ -390,8 +399,8 @@ Sessions can use their Binding's transient reply preview. The preview is a
 presentation owner, not the execution log. Final delivery settles its recorded
 surface after the durable terminal intent takes ownership.
 
-Native activity is a bounded observation in the Driver: one phase and
-up to four unfinished tool labels from its PendingCalls. `Sessions.Activity`
+Native activity is an observation in the Driver: one phase and the current
+turn's tool history. `Sessions.Activity`
 filters native display fields, ignores late updates to terminal tools, advances
 display revisions, and clears details. The Driver holds the Turn and its
 PendingCalls; tracing handles stay outside that execution state. Each snapshot

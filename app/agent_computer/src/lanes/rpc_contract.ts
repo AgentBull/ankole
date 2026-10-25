@@ -46,12 +46,27 @@ import {
  */
 export type RPCOperation =
   | { scope: 'worker_agent'; request: DescMessage; response: DescMessage }
-  | { scope: 'turn'; effect: 'read' | 'write' | 'complete'; request: DescMessage; response: DescMessage }
+  | {
+      scope: 'turn' | 'turn_or_automation'
+      effect: 'read' | 'write' | 'complete'
+      request: DescMessage
+      response: DescMessage
+    }
   | { owner: 'worker'; handler: keyof WorkerRPCHandlers; request: DescMessage; response: DescMessage }
 
 export const rpcOperations = {
-  'pod.read': { scope: 'turn', effect: 'read', request: PodRequestSchema, response: JSONPassthroughResponseSchema },
-  'pod.write': { scope: 'turn', effect: 'write', request: PodRequestSchema, response: JSONPassthroughResponseSchema },
+  'pod.read': {
+    scope: 'turn_or_automation',
+    effect: 'read',
+    request: PodRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  'pod.write': {
+    scope: 'turn_or_automation',
+    effect: 'write',
+    request: PodRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
   'session_turn.abort': {
     scope: 'turn',
     effect: 'complete',

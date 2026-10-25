@@ -3,37 +3,36 @@ import { parseMarkdown, printXml } from '@ankole/block-editor/document'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
-import type { ConversationAttachment } from './api'
+import { podKeys, type ConversationAttachment } from './api'
 import { podLocation } from '../common/browser-context'
 import { podFileCopy } from './api/generated/sdk.gen'
 import { contentKeys, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
 import { Choice, ContentError, TextField } from './content-primitives'
 import { MessageAttachments } from './chat-attachments'
 import { PageIcon } from './page-icon'
+import { messageMarkdown } from './chat/export-markdown'
+import { RiSaveLine } from '@remixicon/react'
 
 type Message = ConversationMessage
 
-export function MessageArtifacts({ message, conversationID }: { message: Message; conversationID?: string }) {
+export function MessageArtifacts({ message, conversationID }: { message: Message; conversationID: string }) {
+  const pages = message.links.filter(link => link.kind === 'page' && !message.text.includes(`ankole:page/${link.id}`))
+  if (!message.attachments.length && !pages.length) return null
   return (
     <div className="mt-2 space-y-2 text-sm">
-      {conversationID && (
-        <MessageAttachments conversationID={conversationID} messageID={message.id} attachments={message.attachments} />
-      )}
-      {!!message.links?.length && (
+      <MessageAttachments conversationID={conversationID} messageID={message.id} attachments={message.attachments} />
+      {!!pages.length && (
         <ul className="space-y-1">
-          {message.links
-            .filter(link => link.kind === 'page' && typeof link.id === 'string')
-            .map(link => (
-              <li key={String(link.id)}>
-                <MessagePageReference id={String(link.id)} />
-              </li>
-            ))}
+          {pages.map(link => (
+            <li key={link.id}>
+              <MessagePageReference id={link.id} />
+            </li>
+          ))}
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
-        {!!message.text.trim() && <SaveMessageButton message={message} />}
         {message.attachments
           ?.filter(attachment => typeof attachment.path === 'string')
           .map(attachment => (
@@ -41,6 +40,7 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
               key={attachment.attachment_id ?? attachment.path}
               message={message}
               attachment={attachment}
+              conversationID={conversationID}
             />
           ))}
       </div>
@@ -48,7 +48,7 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
   )
 }
 
-function MessagePageReference({ id }: { id: string }) {
+export function MessagePageReference({ id }: { id: string }) {
   const page = useQuery(pageQuery(id))
   if (page.error) return <span className="text-fg-tertiary">{t('pod.content.cannot_display')}</span>
   if (!page.data) {
@@ -66,7 +66,17 @@ function MessagePageReference({ id }: { id: string }) {
   )
 }
 
-function SaveMessageButton({ message, attachment }: { message: Message; attachment?: ConversationAttachment }) {
+export function SaveMessageButton({
+  message,
+  attachment,
+  conversationID,
+  onSaved
+}: {
+  message: Message
+  attachment?: ConversationAttachment
+  conversationID: string
+  onSaved?: (page: PageDetail['page']) => void
+}) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState(
     String(
@@ -82,19 +92,20 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
   const [destinationQuery, setDestinationQuery] = useState('')
   const [selectedPage, setSelectedPage] = useState<Page>()
   const created = useRef<PageDetail['page'] | null>(null)
-  const pages = useQuery({ ...pageSearchQuery(destinationQuery), enabled: open })
-  const parent = selectedParent ?? (pages.data?.can_create_private === false ? 'space' : 'private')
+  const [saved, setSaved] = useState<PageDetail['page']>()
+  const pages = useQuery({ ...pageSearchQuery(destinationQuery, { required_action: 'page_edit' }), enabled: open })
+  const parent =
+    selectedParent ?? (pages.data?.can_create_private ? 'private' : pages.data?.can_create_space ? 'space' : '')
   const destinations = [
     ...new Map(
       [...(pages.data?.pages ?? []), ...(selectedPage ? [selectedPage] : [])].map(page => [page.id, page])
     ).values()
-  ].filter(page => page.type === 'doc' && (page.role === 'edit' || page.role === 'manage'))
+  ]
   const validParent =
     (parent === 'private' && pages.data?.can_create_private === true) ||
-    parent === 'space' ||
+    (parent === 'space' && pages.data?.can_create_space === true) ||
     destinations.some(page => page.id === parent)
-  const client = useQueryClient(),
-    navigate = useNavigate()
+  const client = useQueryClient()
   const save = useMutation({
     mutationFn: async () => {
       if (!created.current && !validParent) {
@@ -103,7 +114,7 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
       if (parent === 'private' && !pages.data?.principal_uid) {
         throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_loading'))
       }
-      const xml = attachment ? undefined : printXml(parseMarkdown(message.text ?? ''))
+      const xml = attachment ? undefined : printXml(parseMarkdown(messageMarkdown(message)))
       const page =
         created.current ??
         (
@@ -134,9 +145,13 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
       return page
     },
     onSuccess: async page => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+      await Promise.all([
+        client.invalidateQueries({ queryKey: contentKeys.all }),
+        client.invalidateQueries({ queryKey: podKeys.detail(conversationID) })
+      ])
       setOpen(false)
-      void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+      setSaved(page)
+      onSaved?.(page)
     }
   })
   const cannotSave =
@@ -144,18 +159,34 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
     !pages.data ||
     (!created.current && !validParent) ||
     (parent === 'private' && !pages.data.principal_uid)
+  if (saved) {
+    return onSaved ? null : (
+      <Link className="link pod-chat-saved-page" to={podLocation(`/pages/${saved.id}`).pathname}>
+        <PageIcon page={saved} />
+        {saved.title || t('pod.content.untitled')}
+      </Link>
+    )
+  }
   return (
     <Dialog open={open} onOpenChange={next => !save.isPending && setOpen(next)}>
       <Button
-        size="xs"
+        size="icon-xs"
         variant="ghost"
+        aria-label={
+          attachment
+            ? t('pod.content.save_file', { value1: String(attachment.name || t('pod.content.attachment')) })
+            : t('pod.content.save_as_page')
+        }
+        title={
+          attachment
+            ? t('pod.content.save_file', { value1: String(attachment.name || t('pod.content.attachment')) })
+            : t('pod.content.save_as_page')
+        }
         onClick={() => {
           save.reset()
           setOpen(true)
         }}>
-        {attachment
-          ? t('pod.content.save_file', { value1: String(attachment.name || t('pod.content.attachment')) })
-          : t('pod.content.save_as_page')}
+        <RiSaveLine aria-hidden />
       </Button>
       <DialogContent
         className="pod-dialog"
@@ -193,8 +224,9 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
           }}
           disabled={save.isPending || !!created.current}
           options={{
+            ...(!parent ? { '': t('pod.content.choose_an_available_destination') } : {}),
             ...(pages.data?.can_create_private ? { private: 'Private' } : {}),
-            space: t('pod.content.space'),
+            ...(pages.data?.can_create_space ? { space: t('pod.content.space') } : {}),
             ...Object.fromEntries(destinations.map(page => [page.id, page.title || t('pod.content.untitled')]))
           }}
         />

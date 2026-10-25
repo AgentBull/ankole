@@ -3,7 +3,6 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './integration',
   testMatch: /\/integration\/[^/]+\.spec\.ts$/,
-  testIgnore: 'garfish.spec.ts',
   workers: 1,
   retries: 0,
   timeout: 30_000,

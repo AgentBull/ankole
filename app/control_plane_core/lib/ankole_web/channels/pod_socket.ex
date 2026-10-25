@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.PodSocket do
   @moduledoc "One authenticated realtime connection for a browser's Pod tab."
   use Phoenix.Socket
+  channel "content", AnkoleWeb.PodContentChannel
   channel "page:*", AnkoleWeb.PodPageChannel
   channel "table:*", AnkoleWeb.PodRoomChannel
   channel "applet:*", AnkoleWeb.PodRoomChannel

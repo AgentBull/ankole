@@ -155,7 +155,7 @@ defmodule Ankole.Pod.PagesTest do
     assert Enum.all?(Access.page_grants(restricted.id), &(&1.condition == "true"))
   end
 
-  test "move changes inherited permissions, rejects cycles and leaf parents, and preserves direct shares",
+  test "move accepts all page types, rejects cycles, and preserves direct shares",
        ctx do
     {:ok, root} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Space"})
@@ -183,10 +183,12 @@ defmodule Ankole.Pod.PagesTest do
                parent_id: child.id
              })
 
-    assert {:error, :invalid_parent} =
+    assert {:ok, %{page: moved}} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), child.id, %{
                parent_id: leaf.id
              })
+
+    assert moved.parent_id == leaf.id
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{
@@ -482,7 +484,7 @@ defmodule Ankole.Pod.PagesTest do
     assert is_nil(Repo.get!(Page, referenced.id).deleted_at)
   end
 
-  test "whole document CAS validates XML before commit and logs resets", ctx do
+  test "whole document CAS validates XML before commit and logs incremental changes", ctx do
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
 
     assert {:ok, %{page: %{revision: 1}}} =
@@ -551,9 +553,9 @@ defmodule Ankole.Pod.PagesTest do
 
     assert Repo.get!(Page, page.id).revision == 1
     assert Repo.get!(PageContent, page.id).plain_text =~ "Hello"
-    assert [%{kind: :reset, revision: 1}] = Repo.all(PageChange)
+    assert [%{kind: :change, revision: 1}] = Repo.all(PageChange)
 
-    assert {:ok, %{changes: [%{kind: :reset}], revision: 1}} =
+    assert {:ok, %{changes: [%{kind: :change}], revision: 1}} =
              Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
   end
 

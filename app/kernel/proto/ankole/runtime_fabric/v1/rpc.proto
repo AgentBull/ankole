@@ -97,10 +97,18 @@ message DriveFile {
   string message_id = 9;
 }
 
+// A live Automation Job attempt; the Worker identity comes from the connection.
+message AutomationAttemptRef {
+  string job_id = 1;
+  string run_id = 2;
+  string attempt_id = 3;
+}
+
 message FilesListRequest {
   string prefix = 1;
   uint32 limit = 2;
   string after = 3;
+  AutomationAttemptRef automation_attempt = 4;
 }
 
 message FilesListResponse {
@@ -113,19 +121,21 @@ message FilesListResponse {
 message FilesGetRequest {
   string path = 1;
   string home_relative_path = 2;
-  // Read a page-owned path from the Pod drive, authorized as this Agent.
+  // Read a page-owned Pod path with the current turn or Automation Job attempt.
   bool pod_drive = 3;
+  AutomationAttemptRef automation_attempt = 4;
 }
 
 message FilesGetResponse {
   DriveFile file = 1;
 }
 
-// Pod domain operations keep their identity in the authenticated turn. The
-// broker accepts a closed operation vocabulary and validates each payload.
+// Pod operations use the authenticated turn or a live Automation Job attempt.
+// The broker accepts a closed operation vocabulary and validates each payload.
 message PodRequest {
   string operation = 1;
   bytes params_json = 2;
+  AutomationAttemptRef automation_attempt = 3;
 }
 
 // One file to name at `path`. The control plane pulls `home_relative_path`
@@ -145,6 +155,7 @@ message FilesCommitRequest {
   repeated FilesCommitUpsert upserts = 1;
   // Each delete removes the path and every path under it.
   repeated string deletes = 2;
+  AutomationAttemptRef automation_attempt = 3;
 }
 
 message FilesCommitResponse {

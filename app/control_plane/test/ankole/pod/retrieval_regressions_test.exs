@@ -75,6 +75,64 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     end
   end
 
+  test "destination search checks editable access before the result limit" do
+    owner = human_fixture().principal
+    reader = human_fixture().principal
+    owner_actor = Ankole.PrincipalsFixtures.actor_fixture(owner.uid)
+    reader_actor = Ankole.PrincipalsFixtures.actor_fixture(reader.uid)
+
+    {:ok, root} = Pages.create(owner_actor, %{private_owner_uid: owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, root.id, %{
+        inherit_permissions: false,
+        grants: [
+          %{principal_uid: owner.uid, role: "manage"},
+          %{principal_uid: reader.uid, role: "view"}
+        ]
+      })
+
+    for _ <- 1..30 do
+      {:ok, _} = Pages.create(owner_actor, %{parent_id: root.id, title: "Needle destination"})
+    end
+
+    {:ok, editable} =
+      Pages.create(owner_actor, %{parent_id: root.id, title: "Needle destination available"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, editable.id, %{
+        inherit_permissions: false,
+        grants: [
+          %{principal_uid: owner.uid, role: "manage"},
+          %{principal_uid: reader.uid, role: "edit"}
+        ]
+      })
+
+    for actions <- [~w(page_view page_manage), ~w(page_edit)] do
+      {:ok, partial} =
+        Pages.create(owner_actor, %{parent_id: root.id, title: "Needle destination"})
+
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(owner.uid, partial.id, %{
+          inherit_permissions: false,
+          grants: [
+            %{principal_uid: owner.uid, role: "manage"},
+            %{principal_uid: reader.uid, actions: actions}
+          ]
+        })
+    end
+
+    assert {:ok, %{pages: ordinary}} = Pages.search(reader_actor, "Needle destination")
+    assert length(ordinary) == 30
+    refute Enum.any?(ordinary, &(&1.id == editable.id))
+
+    assert {:ok, %{pages: [found]}} =
+             Pages.search(reader_actor, "Needle destination", %{required_action: "page_edit"})
+
+    assert found.id == editable.id
+    assert "page_edit" in found.actions
+  end
+
   for scope <- ~w(recent favorites), hidden <- [:revoked, :deleted] do
     @scope scope
     @hidden hidden
@@ -257,6 +315,22 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
              })
 
     assert found.id == first.id
+  end
+
+  test "Trash search finds and restores an older page beyond the current result limit" do
+    owner = human_fixture().principal
+    actor = Ankole.PrincipalsFixtures.actor_fixture(owner.uid)
+    {:ok, page} = Pages.create(actor, %{type: "file", title: "Older deleted notes"})
+    {:ok, page} = Pages.delete(actor, page.id)
+    insert_trash(owner, 201, %{}, DateTime.add(page.deleted_at, 60, :second))
+
+    assert {:ok, current} = Pages.list(actor, %{scope: "trash"})
+    assert length(current) == 200
+    refute Enum.any?(current, &(&1.id == page.id))
+    assert {:ok, [found]} = Pages.list(actor, %{scope: "trash", query: "Older deleted notes"})
+    assert found.id == page.id
+    assert {:ok, _} = Pages.restore(actor, found.id)
+    assert {:ok, %{page: %{deleted_at: nil}}} = Pages.get(actor, page.id)
   end
 
   defp insert_states(owner, creator, parent, count, time) do

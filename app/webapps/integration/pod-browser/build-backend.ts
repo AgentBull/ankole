@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { buildApplet, initializeApplet } from '../../../agent_computer/src/cli/pod/pod-cli'
 
 const [tableID, stockFieldID, recordID, output] = process.argv.slice(2)
 if (!tableID || !stockFieldID || !recordID || !output) {
@@ -9,7 +10,10 @@ if (!tableID || !stockFieldID || !recordID || !output) {
 const manifests: Record<string, { path: string; local_path: string; content_type: string }[]> = {}
 for (const version of ['v1', 'v2']) {
   const directory = path.join(output, version)
+  await rm(directory, { recursive: true, force: true })
   await mkdir(directory, { recursive: true })
+  await initializeApplet(directory)
+  await mkdir(path.join(directory, 'src/server'))
   const server = `
 const TABLE = ${JSON.stringify(tableID)};
 const STOCK = ${JSON.stringify(stockFieldID)};
@@ -88,40 +92,12 @@ function App() {
   </section>
 }
 export const provider = defineApplet(App);`
-  const frontendPath = path.join(directory, 'main.tsx')
-  const serverPath = path.join(directory, 'server.ts')
+  const frontendPath = path.join(directory, 'src/main.tsx')
+  const serverPath = path.join(directory, 'src/server/main.ts')
   await writeFile(frontendPath, source)
   await writeFile(serverPath, server)
-  const frontend = await Bun.build({
-    entrypoints: [frontendPath],
-    outdir: directory,
-    target: 'browser',
-    format: 'cjs',
-    jsx: { runtime: 'automatic', development: false },
-    define: { 'process.env.NODE_ENV': '"production"' },
-    naming: 'app.js',
-    external: [
-      'react',
-      'react/jsx-runtime',
-      'react/jsx-dev-runtime',
-      'react-dom',
-      'react-dom/client',
-      '@ankole/uikit',
-      '@ankole/applet-sdk'
-    ]
-  })
-  const backend = await Bun.build({
-    entrypoints: [serverPath],
-    outdir: path.join(directory, 'server'),
-    target: 'browser',
-    format: 'esm',
-    naming: 'main.js'
-  })
-  if (!frontend.success || !backend.success) {
-    throw new AggregateError([...frontend.logs, ...backend.logs], 'Could not build the backend browser Applet')
-  }
   await writeFile(
-    path.join(directory, 'app.css'),
+    path.join(directory, 'src/style.css'),
     `
 .sample-workspace{display:grid;gap:24px;max-width:620px;padding:8px 0;color:var(--foreground)}
 .sample-workspace header{display:grid;gap:8px}.sample-workspace h2{font-size:24px;font-weight:600;line-height:1.3}
@@ -136,19 +112,16 @@ export const provider = defineApplet(App);`
 @media(max-width:480px){.sample-workspace{gap:20px}.sample-workspace .sample-availability{flex-wrap:wrap}}
 `
   )
-  await writeFile(
-    path.join(directory, 'index.html'),
-    '<!doctype html><html><head><link rel="stylesheet" href="./app.css"><script src="./app.js"></script></head><body></body></html>'
-  )
+  const built = await buildApplet(directory)
   manifests[version] = [
-    { path: 'src/main.tsx', local_path: frontendPath, content_type: 'text/plain' },
-    { path: 'src/server/main.ts', local_path: serverPath, content_type: 'text/plain' },
-    { path: 'server/main.js', local_path: path.join(directory, 'server/main.js'), content_type: 'text/javascript' },
-    ...['app.js', 'app.css', 'index.html'].map(name => ({
-      path: `dist/${name}`,
-      local_path: path.join(directory, name),
-      content_type: name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html'
-    }))
-  ]
+    ...(await readdir(path.join(directory, 'src'), { recursive: true, withFileTypes: true }))
+      .filter(entry => entry.isFile())
+      .map(entry => path.relative(directory, path.join(entry.parentPath, entry.name))),
+    ...built.files
+  ].map(name => ({
+    path: name,
+    local_path: path.join(directory, name),
+    content_type: Bun.file(path.join(directory, name)).type || 'text/plain'
+  }))
 }
 await writeFile(path.join(output, 'manifests.json'), JSON.stringify(manifests, null, 2))

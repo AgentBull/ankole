@@ -32,7 +32,7 @@ defmodule Ankole.Pod.Applets do
           "timezone" => timezone
         })
 
-      Invocation.start(published.source, context, limits, %{
+      Invocation.start(published, context, limits, %{
         actor
         | turn_authority: Keyword.get(opts, :authority, actor.turn_authority)
       })
@@ -56,8 +56,30 @@ defmodule Ankole.Pod.Applets do
          {:ok, _page} <- Pages.authorize(actor, page.id, "page_view"),
          :ok <- applet_type(page),
          :ok <- current_revision(page.revision, revision),
-         {:ok, source} <- backend_source(page.id) do
-      {:ok, %{page_id: page.id, revision: page.revision, source: source}}
+         {:ok, source} <- backend_source(page.id),
+         {:ok, env} <- backend_environment(page.id) do
+      payload =
+        source <>
+          "\n" <>
+          Torque.encode!(
+            env
+            |> Enum.sort_by(fn {key, _value} ->
+              :unicode.characters_to_binary(key, :utf8, {:utf16, :big})
+            end)
+            |> Enum.map(fn {key, value} -> [key, value] end)
+          )
+
+      digest = :crypto.hash(:sha256, payload) |> Base.encode16(case: :lower)
+
+      {:ok,
+       %{
+         tenant_id: Repo.tenant_id!(),
+         page_id: page.id,
+         revision: page.revision,
+         source: source,
+         env: env,
+         sha256: digest
+       }}
     end
   end
 
@@ -72,6 +94,20 @@ defmodule Ankole.Pod.Applets do
            {:error, :not_found} -> {:error, :route_not_found}
            error -> error
          )
+  end
+
+  defp backend_environment(id) do
+    case Files.fetch(:pod, Ankole.Pod.Files.prefix(id) <> "/applet.env.json") do
+      {:ok, file} ->
+        with {:ok, bytes} <- Files.read_content(Base.encode16(file.sha256, case: :lower)),
+             do: Torque.decode(bytes)
+
+      {:error, :not_found} ->
+        {:ok, %{}}
+
+      error ->
+        error
+    end
   end
 
   defp current_revision(_current, nil), do: :ok

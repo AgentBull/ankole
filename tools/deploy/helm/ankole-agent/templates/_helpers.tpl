@@ -58,6 +58,10 @@ Component names.
 {{- printf "%s-control-plane-headless" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "ankole-agent.functionRuntimeName" -}}
+{{- printf "%s-function-runtime" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "ankole-agent.workerName" -}}
 {{- printf "%s-worker" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -133,6 +137,10 @@ Bootstrap Secret and generated values.
 
 {{- define "ankole-agent.releaseCookie" -}}
 {{- include "ankole-agent.preservedSecretValue" (dict "root" . "key" "RELEASE_COOKIE" "explicit" .Values.secrets.releaseCookie "length" 64) -}}
+{{- end -}}
+
+{{- define "ankole-agent.functionRuntimeToken" -}}
+{{- include "ankole-agent.preservedSecretValue" (dict "root" . "key" "ANKOLE_FUNCTION_RUNTIME_TOKEN" "explicit" .Values.secrets.functionRuntimeToken "length" 64) -}}
 {{- end -}}
 
 {{- define "ankole-agent.postgresqlPassword" -}}
@@ -215,6 +223,11 @@ the same release, and its runtime configuration reads these variables too.
     secretKeyRef:
       name: {{ include "ankole-agent.bootstrapSecretName" . }}
       key: ANKOLE_SECRET_BASE
+- name: ANKOLE_FUNCTION_RUNTIME_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ankole-agent.bootstrapSecretName" . }}
+      key: ANKOLE_FUNCTION_RUNTIME_TOKEN
 - name: DATABASE_URL
   valueFrom:
     secretKeyRef:

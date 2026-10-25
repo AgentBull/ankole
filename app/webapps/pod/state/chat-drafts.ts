@@ -49,11 +49,11 @@ export class ChatDrafts {
   }
 
   hasUnsentWork(): boolean {
-    return [...this.models.values()].some(unfinished)
+    return [...this.models.values()].some(hasUnsentChatWork)
   }
 
   unfinishedPageConversation(pageID: string): string | undefined {
-    const model = [...(this.pageModels.get(pageID) ?? [])].reverse().find(unfinished)
+    const model = [...(this.pageModels.get(pageID) ?? [])].reverse().find(hasUnsentChatWork)
     return model ? (model.conversationID.peek() ?? 'new') : undefined
   }
 
@@ -90,7 +90,7 @@ export class ChatDrafts {
   }
 }
 
-function unfinished(model: Model): boolean {
+export function hasUnsentChatWork(model: Model): boolean {
   return (
     model.draft.peek().trim() !== '' ||
     model.attachments.hasFiles.peek() ||

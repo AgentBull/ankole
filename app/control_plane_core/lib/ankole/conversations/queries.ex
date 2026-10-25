@@ -39,6 +39,21 @@ defmodule Ankole.Conversations.Queries do
     end
   end
 
+  @doc "Returns each Agent's latest native question in a room."
+  def latest_native_questions(id) when is_binary(id), do: latest_native_questions([id])
+  def latest_native_questions([]), do: []
+
+  def latest_native_questions(ids) when is_list(ids) do
+    Message
+    |> Ash.Query.filter(
+      conversation_id in ^ids and author_type == :agent and
+        fragment("?->'clarify' IS NOT NULL", rich_content)
+    )
+    |> Ash.Query.distinct([:conversation_id, :author_uid])
+    |> Ash.Query.distinct_sort(conversation_id: :asc, author_uid: :asc, seq: :desc)
+    |> Ankole.Ash.read!()
+  end
+
   @doc "Returns a Signal's committed statement when both IDs name the same Conversation."
   def message_for_signal(%{message_id: id, conversation_id: conversation_id})
       when is_binary(id) and is_binary(conversation_id) do
@@ -60,10 +75,12 @@ defmodule Ankole.Conversations.Queries do
     messages =
       Message
       |> Ash.Query.filter(signal_id in ^signal_ids)
+      |> Ash.Query.distinct(:signal_id)
+      |> Ash.Query.distinct_sort(signal_id: :asc, created_at: :desc)
       |> Ash.Query.sort(created_at: :desc)
       |> Ash.Query.select([:signal_id, :text])
       |> Ankole.Ash.read!()
-      |> latest_by(:signal_id, :text)
+      |> Map.new(&{&1.signal_id, &1.text})
 
     fallback_ids = Enum.filter(signal_ids, &is_nil(Map.get(messages, &1)))
 
@@ -75,20 +92,15 @@ defmodule Ankole.Conversations.Queries do
         |> Ash.Query.filter(
           source_signal_id in ^fallback_ids and not is_nil(fallback_visible_text)
         )
+        |> Ash.Query.distinct(:source_signal_id)
+        |> Ash.Query.distinct_sort(source_signal_id: :asc, inserted_at: :desc)
         |> Ash.Query.sort(inserted_at: :desc)
         |> Ash.Query.select([:source_signal_id, :fallback_visible_text])
         |> Ankole.Ash.read!()
-        |> latest_by(:source_signal_id, :fallback_visible_text)
+        |> Map.new(&{&1.source_signal_id, &1.fallback_visible_text})
       end
 
     Map.new(signal_ids, &{&1, Map.get(messages, &1) || Map.get(fallback, &1)})
-  end
-
-  # The rows are sorted newest first, so the first row of each key wins.
-  defp latest_by(rows, key, value) do
-    Enum.reduce(rows, %{}, fn row, acc ->
-      Map.put_new(acc, Map.fetch!(row, key), Map.fetch!(row, value))
-    end)
   end
 
   @doc "Reads a bounded snapshot of statements not yet included by the caller."
@@ -125,7 +137,7 @@ defmodule Ankole.Conversations.Queries do
             not exists(
               Signal,
               message_id == parent(id) and conversation_id == ^id and producer == :kernel and
-                type == ^@addressed and status in [:queued, :running] and
+                type == ^@addressed and agent_uid == ^agent_uid and status in [:queued, :running] and
                 is_nil(last_attempt_at)
             )
         )
@@ -152,7 +164,10 @@ defmodule Ankole.Conversations.Queries do
 
   @doc false
   def delete_for_agent_in_tx(uid) do
-    case uid |> native_conversations_of_agent() |> Ankole.Ash.destroy_where(:remove) do
+    case uid
+         |> native_conversations_of_agent()
+         |> Ash.Query.filter(room_mode == :dm)
+         |> Ankole.Ash.destroy_where(:remove) do
       {:ok, _conversations} -> :ok
       {:error, _} = error -> error
     end

@@ -7,6 +7,9 @@ import { mkdirAgent } from '../common/agent-user'
 import { writeFileAtomicSync } from '../common/atomic-write'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import { agentHomePaths, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
+import { startDriveCLIBridge } from '../cli/drive/drive-cli-bridge'
+import { startPodCLIBridge } from '../cli/pod/pod-cli-bridge'
+import { DRIVE_CLI_SOCKET_ENV, POD_CLI_SOCKET_ENV } from '../core/execution/turn_runtime_env'
 import { Drive } from '../drive/drive'
 import { downloadFolder } from '../drive/folder-sync'
 import { materializeSkills } from '../skills/drive_skills'
@@ -85,8 +88,16 @@ export async function runAutomationJob(
     runRoot = join(automationRunsRoot(agentHome), request.attemptId)
     const directoryPath = join(runRoot, 'script')
     const skillsRoot = join(runRoot, 'skills')
-    const drive = new Drive({ agentHome, rpc })
-    execution = { agentHome, agentInstalledSkillsRoot: skillsRoot, directoryPath, started: false }
+    const drive = new Drive({
+      agentHome,
+      rpc,
+      automationAttempt: {
+        jobId: String(request.automationJobId),
+        runId: String(request.automationJobRunId),
+        attemptId: request.attemptId
+      }
+    })
+    execution = { drive, agentHome, agentInstalledSkillsRoot: skillsRoot, directoryPath, started: false }
 
     await mkdirAgent(directoryPath)
     const files = await downloadFolder(drive, request.drivePrefix, directoryPath)
@@ -155,8 +166,21 @@ async function runPreparedJob(
   })
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
 
+  let driveBridge: SocketLineBridge | undefined
+  let podBridge: SocketLineBridge | undefined
+  let emitBridge: SocketLineBridge | undefined
   try {
-    const emitBridge = startEmitBridge(request, opts.rpc)
+    driveBridge = startDriveCLIBridge({ drive: execution.drive, workspaceRoot: execution.directoryPath })
+    podBridge = startPodCLIBridge({
+      drive: execution.drive,
+      rpc: opts.rpc,
+      automationAttempt: {
+        jobId: String(request.automationJobId),
+        runId: String(request.automationJobRunId),
+        attemptId: request.attemptId
+      }
+    })
+    emitBridge = startEmitBridge(request, opts.rpc)
     try {
       writeFileAtomicSync(
         contextPath,
@@ -176,7 +200,11 @@ async function runPreparedJob(
         materials.workerEnv,
         contextPath,
         emitBridge.socketPath,
-        materials.runtimeEnv,
+        {
+          ...materials.runtimeEnv,
+          [DRIVE_CLI_SOCKET_ENV]: driveBridge.socketPath,
+          [POD_CLI_SOCKET_ENV]: podBridge.socketPath
+        },
         opts.sdkPath ?? workerSDKPath,
         opts.signal,
         opts.deadlineUnixMs
@@ -186,11 +214,14 @@ async function runPreparedJob(
       if (existsSync(contextPath)) unlinkSync(contextPath)
     }
   } finally {
+    driveBridge?.close()
+    podBridge?.close()
     await materials.cleanup()
   }
 }
 
 type RunExecution = {
+  drive: Drive
   started: boolean
   agentHome: string
   agentInstalledSkillsRoot: string

@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
-import type { ConversationDetail } from '../pod/api'
+import type { ConversationDetail, PodActivity } from '../pod/api'
 import { conversationRoute } from './pod-browser/routes'
 
 const base = '/api/v2/pod'
@@ -7,14 +7,37 @@ const oldID = '00112233-4455-6677-8899-aabbccddeeff'
 const agent = { uid: 'agent-one', displayName: 'Research Agent' }
 function detail(id = oldID, text = 'Existing history'): ConversationDetail {
   return {
-    pendingInputs: [],
-    queuePaused: false,
-    queueVersion: 'fixture-version',
-    retryableMessageID: null,
+    activities: [],
+    pendingQueues: [
+      {
+        agentUID: agent.uid,
+        inputs: [],
+        paused: false,
+        queueVersion: 'fixture-version',
+        workStatus: { state: 'idle', retryAt: null }
+      }
+    ],
+    pendingInteractions: [],
+    linkedRuns: [],
+    artifacts: { pageIDs: [], attachments: [] },
     removedMessageIDs: [],
     olderMessagesBeforeSeq: null,
     messageRange: { firstSeq: 1, lastSeq: 1 },
     conversation: {
+      accessScope: 'participants',
+      canDelete: true,
+      canManage: true,
+      roomMode: 'dm',
+      titleCustomized: false,
+      createdBy: 'person',
+      lastMessageSeq: 1,
+      rowStatus: 'idle',
+      viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq: 1 },
+      agents: [{ ...agent, active: true, type: 'agent', mayIntervene: true }],
+      participants: [
+        { uid: 'person', displayName: 'Person', active: true, type: 'human', role: 'owner', mayIntervene: false },
+        { ...agent, active: true, type: 'agent', mayIntervene: true }
+      ],
       pageID: null,
       id,
       title: id === oldID ? 'Existing conversation' : 'Created conversation',
@@ -26,6 +49,10 @@ function detail(id = oldID, text = 'Existing history'): ConversationDetail {
         id: 'old-message',
         seq: 1,
         authorType: 'agent',
+        authorDisplayName: 'Fixture author',
+        authorArchived: false,
+        mentions: [],
+        savedPages: [],
         authorUID: agent.uid,
         kind: 'message',
         links: [],
@@ -35,23 +62,7 @@ function detail(id = oldID, text = 'Existing history'): ConversationDetail {
         replyToMessageID: null,
         signalID: null
       }
-    ],
-    status: {
-      state: 'idle',
-      retryAt: null,
-      activity: {
-        conversationID: 'conversation',
-        agentUID: 'agent',
-        sessionID: 'conversation:conversation',
-        signalID: null,
-        responseID: null,
-        epoch: 0,
-        revision: 0,
-        state: 'unavailable',
-        phase: null,
-        tools: []
-      }
-    }
+    ]
   }
 }
 async function pod(page: Page) {
@@ -394,7 +405,7 @@ test('current activity survives reconnect snapshots, clears at completion, and n
       const stream = (window as unknown as { testStreams: EventSource[] }).testStreams.at(-1)!
       stream.dispatchEvent(new MessageEvent('activity', { data: JSON.stringify(value) }))
     }, snapshot)
-  const snapshot = {
+  const snapshot: PodActivity = {
     conversationID: oldID,
     agentUID: agent.uid,
     sessionID: `conversation:${oldID}`,
@@ -408,7 +419,7 @@ test('current activity survives reconnect snapshots, clears at completion, and n
   }
   server.setDetail({
     ...detail(),
-    status: { ...detail().status, activity: snapshot as ConversationDetail['status']['activity'] }
+    activities: [snapshot]
   })
   const before = reads
   await emit(snapshot)
@@ -452,7 +463,7 @@ test('an in-flight detail cannot restore unavailable activity, while a fresh rec
   page
 }) => {
   const server = await pod(page)
-  const snapshot: ConversationDetail['status']['activity'] = {
+  const snapshot: PodActivity = {
     conversationID: oldID,
     agentUID: agent.uid,
     sessionID: `conversation:${oldID}`,
@@ -464,7 +475,7 @@ test('an in-flight detail cannot restore unavailable activity, while a fresh rec
     phase: { operation_id: 'turn', label: 'Still waiting for computer capacity' },
     tools: []
   }
-  server.setDetail({ ...detail(), status: { ...detail().status, activity: snapshot } })
+  server.setDetail({ ...detail(), activities: [snapshot] })
   await page.goto(conversationRoute(oldID))
   await expect(page.getByText('Still waiting for computer capacity', { exact: true })).toBeVisible()
   let held: Route | undefined
@@ -486,7 +497,7 @@ test('an in-flight detail cannot restore unavailable activity, while a fresh rec
     },
     { ...snapshot, state: 'unavailable', phase: null, tools: [] }
   )
-  await held!.fulfill({ json: { ...detail(), status: { ...detail().status, activity: snapshot } } })
+  await held!.fulfill({ json: { ...detail(), activities: [snapshot] } })
   await expect(page.getByText('Still waiting for computer capacity', { exact: true })).not.toBeVisible()
   await page.unroute(detailURL, hold)
   await page.evaluate(value => {

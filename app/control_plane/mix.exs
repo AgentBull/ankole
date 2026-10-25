@@ -13,7 +13,10 @@ defmodule Ankole.MixProject do
       test_load_filters: [
         &(String.ends_with?(&1, "_test.exs") and not String.starts_with?(&1, "test/fixtures/"))
       ],
-      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
+      test_ignore_filters: [
+        &String.starts_with?(&1, "test/fixtures/"),
+        &(&1 == "test/ankole/persistence_boundary.exs")
+      ],
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,

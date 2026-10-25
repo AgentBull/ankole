@@ -127,7 +127,7 @@ defmodule Ankole.Sessions.Tools.Session do
                   "type": "function",
                   "name": "set_channel_standing_orders",
                   "activity": "standing_orders_update",
-                  "description": "Replace the standing orders of the current channel: a short durable policy for when you should proactively speak here without being addressed (for example \"only speak up when CI turns red\" or \"post a daily summary at 18:00\").\nUse this tool when a channel member tells you how to behave in this channel going forward. Any member may set or clear them; the platform records who asked.\nStanding orders drive behavior only where the channel binding allows ambient intervention (group message mode \"may intervene\"); the tool result reports whether they are active.\nThe current standing orders, when present, appear in your conversation context. Writing is a full replacement: to amend, submit the complete new text.\nAfter a confirmed save, summarize the stored orders in your visible reply.",
+                  "description": "Replace the standing orders of the current channel: a short durable policy for when you should proactively speak here without being addressed (for example \"only speak up when CI turns red\" or \"post a daily summary at 18:00\").\nUse this tool when a channel member tells you how to behave in this channel going forward. Any member may set or clear them; the platform records who asked.\nStanding orders drive behavior when you may intervene in a native group room or the channel binding permits ambient intervention; the tool result reports whether they are active.\nThe current standing orders, when present, appear in your conversation context. Writing is a full replacement: to amend, submit the complete new text.\nAfter a confirmed save, summarize the stored orders in your visible reply.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -185,13 +185,26 @@ defmodule Ankole.Sessions.Tools.Session do
   @impl true
   def declarations, do: @declarations
   @impl true
-  def declarations(run),
-    do:
-      Enum.reject(
-        @declarations,
-        &(&1["name"] in ["set_channel_standing_orders", "read_channel_history"] and
-            is_nil(run.event.conversation_id))
-      )
+  def declarations(run) do
+    Enum.reject(@declarations, fn tool ->
+      case tool["name"] do
+        "read_channel_history" -> is_nil(run.event.conversation_id)
+        "set_channel_standing_orders" -> not standing_orders_available?(run.event)
+        _ -> false
+      end
+    end)
+  end
+
+  defp standing_orders_available?(%{reply_binding_name: name}) when is_binary(name), do: true
+
+  defp standing_orders_available?(%{conversation_id: id}) when is_binary(id) do
+    match?(
+      %{kind: :native, room_mode: :group},
+      Ankole.Conversations.get_conversation!(id)
+    )
+  end
+
+  defp standing_orders_available?(_), do: false
 
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools

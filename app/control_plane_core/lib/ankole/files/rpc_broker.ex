@@ -23,7 +23,8 @@ defmodule Ankole.Files.RPCBroker do
   def handle_list(agent_uid, %FabricProto.FilesListRequest{} = request, ctx) do
     limit = if request.limit in [0, nil], do: @list_limit, else: request.limit
 
-    with {:ok, %{files: files, next_after: next_after, revision: revision}} <-
+    with :ok <- authorize_attempt(request.automation_attempt, ctx),
+         {:ok, %{files: files, next_after: next_after, revision: revision}} <-
            Files.list(agent_uid, request.prefix,
              limit: limit,
              after: presence(request.after),
@@ -43,24 +44,31 @@ defmodule Ankole.Files.RPCBroker do
   @doc "Writes one drive file into the calling Worker's Agent Home."
   def handle_get(agent_uid, %FabricProto.FilesGetRequest{} = request, ctx) do
     with {:ok, target} <- home_relative_path(request.home_relative_path),
-         :ok <- authorize_get(agent_uid, request),
-         drive = if(request.pod_drive, do: :pod, else: agent_uid),
-         {:ok, file} <- send_file(drive, request.path, target, ctx) do
+         {:ok, file} <- send_requested_file(agent_uid, request, target, ctx) do
       {:ok, %FabricProto.FilesGetResponse{file: drive_file(file)}}
     else
       {:error, reason} -> error(ctx, reason)
     end
   end
 
-  defp authorize_get(uid, %{pod_drive: true, path: path}) do
-    with {:ok, page_id, _relative} <- Ankole.Pod.Files.parse_path(path),
-         {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         actor = Ankole.AuthZ.Actor.new(principal, authn: %{"surface" => "worker_files"}),
-         {:ok, _page} <- Ankole.Pod.Pages.authorize(actor, page_id, "page_view"),
-         do: :ok
+  defp send_requested_file(_uid, %{pod_drive: true} = request, target, ctx) do
+    with {:ok, actor} <-
+           Ankole.Pod.RPCBroker.actor_for_request(ctx[:turn_ref], request.automation_attempt, ctx),
+         {:ok, page_id, relative} <- Ankole.Pod.Files.parse_path(request.path),
+         {:ok, file} <- send_file({:pod, actor, page_id, relative}, request.path, target, ctx),
+         do: {:ok, Map.put(file, :path, request.path)}
   end
 
-  defp authorize_get(_uid, _request), do: :ok
+  defp send_requested_file(uid, request, target, ctx) do
+    with :ok <- authorize_attempt(request.automation_attempt, ctx),
+         do: send_file(uid, request.path, target, ctx)
+  end
+
+  defp authorize_attempt(nil, _ctx), do: :ok
+
+  defp authorize_attempt(attempt, ctx) do
+    with {:ok, _actor} <- Ankole.AutomationJobs.authorize_attempt_actor(attempt, ctx), do: :ok
+  end
 
   @doc """
   Names files from the calling Worker's Agent Home at drive paths, and removes
@@ -74,7 +82,8 @@ defmodule Ankole.Files.RPCBroker do
   every other Worker commit gets the source `agent`.
   """
   def handle_commit(agent_uid, %FabricProto.FilesCommitRequest{} = request, ctx) do
-    with {:ok, upserts} <- resolve_upserts(agent_uid, request.upserts, ctx),
+    with :ok <- authorize_attempt(request.automation_attempt, ctx),
+         {:ok, upserts} <- resolve_upserts(agent_uid, request.upserts, ctx),
          {:ok, _opts} <- transfer_opts(ctx),
          {:ok, %{files: files, deleted: deleted}} <-
            Files.commit(agent_uid, upserts, request.deletes) do
@@ -88,9 +97,16 @@ defmodule Ankole.Files.RPCBroker do
   # Encodes one drive file for the wire.
   @spec drive_file(DriveFile.t()) :: FabricProto.DriveFile.t()
   defp drive_file(%DriveFile{} = file) do
+    file
+    |> Map.from_struct()
+    |> Map.update!(:sha256, &Base.encode16(&1, case: :lower))
+    |> drive_file()
+  end
+
+  defp drive_file(%{sha256: digest} = file) do
     %FabricProto.DriveFile{
       path: file.path,
-      sha256: Base.encode16(file.sha256, case: :lower),
+      sha256: digest,
       size: file.size,
       content_type: file.content_type,
       source: file.source,
@@ -105,7 +121,7 @@ defmodule Ankole.Files.RPCBroker do
     local_path = Files.temp_path()
 
     try do
-      with {:ok, file} <- Files.read_to_file(agent_uid, path, local_path),
+      with {:ok, file} <- read_to_file(agent_uid, path, local_path),
            {:ok, opts} <- transfer_opts(ctx),
            {:ok, _transfer} <-
              WorkerFiles.put(target, {:file, local_path}, opts) do
@@ -115,6 +131,12 @@ defmodule Ankole.Files.RPCBroker do
       File.rm(local_path)
     end
   end
+
+  defp read_to_file({:pod, actor, page_id, relative}, _path, local_path),
+    do: Ankole.Pod.Files.read_to_file(actor, page_id, relative, local_path)
+
+  defp read_to_file(agent_uid, path, local_path),
+    do: Files.read_to_file(agent_uid, path, local_path)
 
   defp resolve_upserts(agent_uid, upserts, ctx) do
     with {:ok, planned} <- plan_upserts(agent_uid, upserts),

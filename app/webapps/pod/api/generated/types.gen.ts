@@ -441,6 +441,7 @@ export type PodPage = {
    * An attributes object for a pod_page
    */
   attributes?: {
+    actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'> | null
     /**
      * Field included by default.
      */
@@ -477,7 +478,7 @@ export type PodPage = {
      * Field included by default.
      */
     revision: number
-    role?: 'view' | 'edit' | 'manage' | null
+    role?: 'view' | 'contribute' | 'edit' | 'manage' | null
     /**
      * Field included by default.
      */
@@ -506,6 +507,10 @@ export type PodPage = {
 }
 
 export type PodPageType = {
+  /**
+   * Field included by default.
+   */
+  actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'> | null
   /**
    * Field included by default.
    */
@@ -549,7 +554,7 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
-  role?: 'view' | 'edit' | 'manage' | null
+  role?: 'view' | 'contribute' | 'edit' | 'manage' | null
   /**
    * Field included by default.
    */
@@ -705,6 +710,35 @@ export type PodRealtimeFilter = {
   or?: Array<PodRealtimeFilter>
 }
 
+export type PodDatabaseTableDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}'
+}
+
+export type PodDatabaseTableDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodDatabaseTableDeleteError = PodDatabaseTableDeleteErrors[keyof PodDatabaseTableDeleteErrors]
+
+export type PodDatabaseTableDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    table: PodDbTableType
+  }
+}
+
+export type PodDatabaseTableDeleteResponse = PodDatabaseTableDeleteResponses[keyof PodDatabaseTableDeleteResponses]
+
 export type PodDatabaseSchemaData = {
   body?: never
   path: {
@@ -750,16 +784,76 @@ export type PodDatabaseSchemaResponses = {
 
 export type PodDatabaseSchemaResponse = PodDatabaseSchemaResponses[keyof PodDatabaseSchemaResponses]
 
+export type UpdateConversationParticipantsData = {
+  /**
+   * Request body for the updateConversationParticipants operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      addUIDs?: Array<string> | null
+      agentUID?: string | null
+      mayIntervene?: boolean | null
+      removeUIDs?: Array<string> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/participants'
+}
+
+export type UpdateConversationParticipantsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateConversationParticipantsError =
+  UpdateConversationParticipantsErrors[keyof UpdateConversationParticipantsErrors]
+
+export type UpdateConversationParticipantsResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type UpdateConversationParticipantsResponse =
+  UpdateConversationParticipantsResponses[keyof UpdateConversationParticipantsResponses]
+
 export type UpdateConversationQueueData = {
   /**
    * Request body for the updateConversationQueue operation on pod_chat_operation resource
    */
   body: {
     data: {
-      action: 'edit' | 'send_now' | 'remove' | 'reorder' | 'stop' | 'resume' | 'regenerate' | 'edit_last'
+      action: 'edit' | 'steer' | 'retract' | 'reorder' | 'stop' | 'resume' | 'regenerate' | 'edit_last'
+      agentUID: string
       commandID?: string | null
+      expectedLinks?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      expectedMentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
       expectedText?: string | null
       expectedVersion?: string | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
       messageID?: string | null
       messageIDs?: Array<string> | null
       text?: string | null
@@ -786,17 +880,115 @@ export type UpdateConversationQueueResponses = {
    * Success
    */
   201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
     conversation: {
-      agent: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
         active: boolean
         displayName: string
         uid: string
-      }
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
       id: string
       lastActivityAt: string
+      lastMessageSeq: number
       pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
       title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
     }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
     messageRange: {
       firstSeq: number
       lastSeq: number
@@ -813,6 +1005,8 @@ export type UpdateConversationQueueResponses = {
         size: number
         upload_id?: string | null
       }>
+      authorArchived: boolean
+      authorDisplayName: string
       authorType: 'human' | 'agent' | 'system'
       authorUID?: string | null
       createdAt: string
@@ -820,71 +1014,79 @@ export type UpdateConversationQueueResponses = {
       kind: 'message' | 'notice'
       links: Array<{
         id: string
-        kind: 'page'
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
       }>
       replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
       seq: number
       signalID?: string | null
       text: string
     }>
     olderMessagesBeforeSeq?: number | null
-    pendingInputs: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        blob_ref: string
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        path: string
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
       }>
-      deliveryMode: 'steer' | 'queue'
+      interaction_id: string
       messageID: string
-      modelProfile: string
-      text: string
+      question: string
+      state: string
+      tool_call_id: string
     }>
-    queuePaused: boolean
-    queueVersion: string
-    removedMessageIDs: Array<string>
-    retryableMessageID?: string | null
-    status: {
-      activity: {
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
         agentUID: string
-        conversationID: string
-        epoch: number
-        phase?: {
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
-        } | null
-        responseID?: string | null
-        revision: number
-        sessionID: string
-        signalID?: string | null
-        state: 'active' | 'unavailable' | 'settled'
-        tools: Array<{
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
         }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
       }
-      retryAt?: string | null
-      state: 'idle' | 'queued' | 'running' | 'retrying'
-    }
+    }>
+    removedMessageIDs: Array<string>
   }
 }
 
@@ -1290,7 +1492,9 @@ export type DeleteConversationData = {
   path: {
     id: string
   }
-  query?: never
+  query?: {
+    forceStop?: boolean
+  }
   url: '/api/v2/pod/conversations/{id}'
 }
 
@@ -1338,17 +1542,115 @@ export type ConversationDetailResponses = {
    * Success
    */
   200: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
     conversation: {
-      agent: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
         active: boolean
         displayName: string
         uid: string
-      }
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
       id: string
       lastActivityAt: string
+      lastMessageSeq: number
       pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
       title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
     }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
     messageRange: {
       firstSeq: number
       lastSeq: number
@@ -1365,6 +1667,8 @@ export type ConversationDetailResponses = {
         size: number
         upload_id?: string | null
       }>
+      authorArchived: boolean
+      authorDisplayName: string
       authorType: 'human' | 'agent' | 'system'
       authorUID?: string | null
       createdAt: string
@@ -1372,15 +1676,232 @@ export type ConversationDetailResponses = {
       kind: 'message' | 'notice'
       links: Array<{
         id: string
-        kind: 'page'
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
       }>
       replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
       seq: number
       signalID?: string | null
       text: string
     }>
     olderMessagesBeforeSeq?: number | null
-    pendingInputs: Array<{
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type ConversationDetailResponse = ConversationDetailResponses[keyof ConversationDetailResponses]
+
+export type UpdateConversationData = {
+  /**
+   * Request body for the updateConversation operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      accessScope?: 'participants' | 'anchor_page' | null
+      lastReadSeq?: number | null
+      muted?: boolean | null
+      pinned?: boolean | null
+      title?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}'
+}
+
+export type UpdateConversationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateConversationError = UpdateConversationErrors[keyof UpdateConversationErrors]
+
+export type UpdateConversationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
       attachments: Array<{
         attachment_id?: number | null
         blob_ref: string
@@ -1392,55 +1913,349 @@ export type ConversationDetailResponses = {
         size: number
         upload_id?: string | null
       }>
-      deliveryMode: 'steer' | 'queue'
-      messageID: string
-      modelProfile: string
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
       text: string
     }>
-    queuePaused: boolean
-    queueVersion: string
-    removedMessageIDs: Array<string>
-    retryableMessageID?: string | null
-    status: {
-      activity: {
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
         agentUID: string
-        conversationID: string
-        epoch: number
-        phase?: {
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
-        } | null
-        responseID?: string | null
-        revision: number
-        sessionID: string
-        signalID?: string | null
-        state: 'active' | 'unavailable' | 'settled'
-        tools: Array<{
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
         }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
       }
-      retryAt?: string | null
-      state: 'idle' | 'queued' | 'running' | 'retrying'
-    }
+    }>
+    removedMessageIDs: Array<string>
   }
 }
 
-export type ConversationDetailResponse = ConversationDetailResponses[keyof ConversationDetailResponses]
+export type UpdateConversationResponse = UpdateConversationResponses[keyof UpdateConversationResponses]
+
+export type AnswerConversationInteractionData = {
+  /**
+   * Request body for the answerConversationInteraction operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      attachments?: Array<string> | null
+      choiceID?: string | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
+      text?: string | null
+    }
+  }
+  path: {
+    interaction_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/answer'
+}
+
+export type AnswerConversationInteractionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AnswerConversationInteractionError =
+  AnswerConversationInteractionErrors[keyof AnswerConversationInteractionErrors]
+
+export type AnswerConversationInteractionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        blob_ref: string
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        path: string
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type AnswerConversationInteractionResponse =
+  AnswerConversationInteractionResponses[keyof AnswerConversationInteractionResponses]
 
 export type ChangePodMembershipData = {
   /**
@@ -1742,6 +2557,44 @@ export type PodFilesResponses = {
 
 export type PodFilesResponse = PodFilesResponses[keyof PodFilesResponses]
 
+export type PodChatTeammatesData = {
+  body?: never
+  path?: never
+  query?: {
+    query?: string
+  }
+  url: '/api/v2/pod/teammates'
+}
+
+export type PodChatTeammatesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodChatTeammatesError = PodChatTeammatesErrors[keyof PodChatTeammatesErrors]
+
+export type PodChatTeammatesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    teammates: Array<{
+      active: boolean
+      avatarURL?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+  }
+}
+
+export type PodChatTeammatesResponse = PodChatTeammatesResponses[keyof PodChatTeammatesResponses]
+
 export type VerifyPodEmailBindingData = {
   /**
    * Request body for the verifyPodEmailBinding operation on pod_member_account resource
@@ -1847,13 +2700,53 @@ export type PodAgentsResponses = {
    */
   200: {
     agents: Array<{
+      active: boolean
+      avatarURL?: string | null
       displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
       uid: string
     }>
   }
 }
 
 export type PodAgentsResponse = PodAgentsResponses[keyof PodAgentsResponses]
+
+export type ConversationExecutionData = {
+  body?: never
+  path: {
+    run_id: number
+    kind: 'background_agent_job' | 'workflow'
+    id: string
+  }
+  query?: {
+    cursor?: string
+  }
+  url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}'
+}
+
+export type ConversationExecutionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ConversationExecutionError = ConversationExecutionErrors[keyof ConversationExecutionErrors]
+
+export type ConversationExecutionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    nextCursor?: string | null
+    text: string
+  }
+}
+
+export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
 
 export type PodDatabaseAggregateData = {
   /**
@@ -2145,15 +3038,17 @@ export type PodPageChildrenResponses = {
    */
   200: {
     can_create_private: boolean
+    can_create_space: boolean
     next_cursor?: string | null
     pages: Array<{
+      actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'>
       icon?: string | null
       id: string
       inherit_permissions: boolean
       parent_id?: string | null
       position: string
       private_owner_uid?: string | null
-      role: 'view' | 'edit' | 'manage'
+      role: 'view' | 'contribute' | 'edit' | 'manage'
       title: string
       type: 'doc' | 'database' | 'applet' | 'file'
     }>
@@ -2235,7 +3130,18 @@ export type PostConversationMessageData = {
     data: {
       attachments?: Array<string> | null
       deliveryMode?: 'steer' | 'queue' | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
       messageID: string
+      targetAgentUID?: string | null
       text: string
     }
   }
@@ -2260,17 +3166,115 @@ export type PostConversationMessageResponses = {
    * Success
    */
   201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
     conversation: {
-      agent: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
         active: boolean
         displayName: string
         uid: string
-      }
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
       id: string
       lastActivityAt: string
+      lastMessageSeq: number
       pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
       title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
     }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
     messageRange: {
       firstSeq: number
       lastSeq: number
@@ -2287,6 +3291,8 @@ export type PostConversationMessageResponses = {
         size: number
         upload_id?: string | null
       }>
+      authorArchived: boolean
+      authorDisplayName: string
       authorType: 'human' | 'agent' | 'system'
       authorUID?: string | null
       createdAt: string
@@ -2294,71 +3300,79 @@ export type PostConversationMessageResponses = {
       kind: 'message' | 'notice'
       links: Array<{
         id: string
-        kind: 'page'
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
       }>
       replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
       seq: number
       signalID?: string | null
       text: string
     }>
     olderMessagesBeforeSeq?: number | null
-    pendingInputs: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        blob_ref: string
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        path: string
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
       }>
-      deliveryMode: 'steer' | 'queue'
+      interaction_id: string
       messageID: string
-      modelProfile: string
-      text: string
+      question: string
+      state: string
+      tool_call_id: string
     }>
-    queuePaused: boolean
-    queueVersion: string
-    removedMessageIDs: Array<string>
-    retryableMessageID?: string | null
-    status: {
-      activity: {
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
         agentUID: string
-        conversationID: string
-        epoch: number
-        phase?: {
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
-        } | null
-        responseID?: string | null
-        revision: number
-        sessionID: string
-        signalID?: string | null
-        state: 'active' | 'unavailable' | 'settled'
-        tools: Array<{
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
         }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
       }
-      retryAt?: string | null
-      state: 'idle' | 'queued' | 'running' | 'retrying'
-    }
+    }>
+    removedMessageIDs: Array<string>
   }
 }
 
@@ -2682,9 +3696,10 @@ export type PodPageReadResponses = {
    * Success
    */
   200: {
+    actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'>
     content?: PodPageContentType | null
     page: PodPageType
-    role: 'view' | 'edit' | 'manage'
+    role: 'view' | 'contribute' | 'edit' | 'manage'
     source_conversation?: {
       deleted?: boolean | null
       id?: string | null
@@ -2794,6 +3809,7 @@ export type PodPageListResponses = {
    */
   200: {
     can_create_private: boolean
+    can_create_space: boolean
     pages: Array<PodPageType>
     principal_uid: string
   }
@@ -3310,12 +4326,13 @@ export type PodPageSharingResponses = {
    */
   200: {
     grants: Array<{
+      actions: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'>
       condition?: string | null
       group_id?: string | null
       kind: 'human' | 'agent' | 'group' | 'userset'
       name: string
       principal_uid?: string | null
-      role: 'view' | 'edit' | 'manage'
+      role: 'view' | 'contribute' | 'edit' | 'manage'
       source_action?: string | null
       source_page?: {
         accessible?: boolean | null
@@ -3346,10 +4363,11 @@ export type PodPageSharingWriteData = {
   body: {
     data: {
       grants?: Array<{
+        actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'> | null
         condition?: string | null
         group_id?: string | null
         principal_uid?: string | null
-        role: 'view' | 'edit' | 'manage'
+        role?: 'view' | 'contribute' | 'edit' | 'manage' | null
         source_action?: string | null
         source_page_id?: string | null
         target_scope?: string | null
@@ -3389,7 +4407,11 @@ export type PodConversationsData = {
   body?: never
   path?: never
   query?: {
+    cursor?: string
+    limit?: number
+    order?: 'pinned' | 'recent'
     pageID?: string
+    query?: string
   }
   url: '/api/v2/pod/conversations'
 }
@@ -3409,16 +4431,51 @@ export type PodConversationsResponses = {
    */
   200: {
     conversations: Array<{
-      agent: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
         active: boolean
         displayName: string
         uid: string
-      }
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
       id: string
       lastActivityAt: string
+      lastMessageSeq: number
       pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
       title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
     }>
+    nextCursor?: string | null
   }
 }
 
@@ -3430,13 +4487,27 @@ export type CreateConversationData = {
    */
   body: {
     data: {
-      agentUID: string
+      accessScope?: 'participants' | 'anchor_page' | null
+      agentUID?: string | null
+      agentUIDs?: Array<string> | null
       attachments?: Array<string> | null
       conversationID: string
       deliveryMode?: 'steer' | 'queue' | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
       messageID: string
       modelProfile?: string | null
       pageID?: string | null
+      participantUIDs?: Array<string> | null
+      targetAgentUID?: string | null
       text: string
     }
   }
@@ -3459,17 +4530,115 @@ export type CreateConversationResponses = {
    * Success
    */
   201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
     conversation: {
-      agent: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
         active: boolean
         displayName: string
         uid: string
-      }
+      } | null
+      agents: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      createdBy: string
       id: string
       lastActivityAt: string
+      lastMessageSeq: number
       pageID?: string | null
+      participants: Array<{
+        active: boolean
+        avatarURL?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
       title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
     }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
     messageRange: {
       firstSeq: number
       lastSeq: number
@@ -3486,6 +4655,8 @@ export type CreateConversationResponses = {
         size: number
         upload_id?: string | null
       }>
+      authorArchived: boolean
+      authorDisplayName: string
       authorType: 'human' | 'agent' | 'system'
       authorUID?: string | null
       createdAt: string
@@ -3493,71 +4664,79 @@ export type CreateConversationResponses = {
       kind: 'message' | 'notice'
       links: Array<{
         id: string
-        kind: 'page'
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
       }>
       replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
       seq: number
       signalID?: string | null
       text: string
     }>
     olderMessagesBeforeSeq?: number | null
-    pendingInputs: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        blob_ref: string
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        path: string
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
       }>
-      deliveryMode: 'steer' | 'queue'
+      interaction_id: string
       messageID: string
-      modelProfile: string
-      text: string
+      question: string
+      state: string
+      tool_call_id: string
     }>
-    queuePaused: boolean
-    queueVersion: string
-    removedMessageIDs: Array<string>
-    retryableMessageID?: string | null
-    status: {
-      activity: {
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
         agentUID: string
-        conversationID: string
-        epoch: number
-        phase?: {
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
-        } | null
-        responseID?: string | null
-        revision: number
-        sessionID: string
-        signalID?: string | null
-        state: 'active' | 'unavailable' | 'settled'
-        tools: Array<{
-          consequential?: boolean | null
-          label?: string | null
-          label_bindings?: {
-            [key: string]: unknown
-          } | null
-          label_key?: string | null
-          operation_id: string
-          phase?: string | null
-          state?: string | null
+        attachments: Array<{
+          attachment_id?: number | null
+          blob_ref: string
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          path: string
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
         }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
       }
-      retryAt?: string | null
-      state: 'idle' | 'queued' | 'running' | 'retrying'
-    }
+    }>
+    removedMessageIDs: Array<string>
   }
 }
 
@@ -3642,7 +4821,9 @@ export type PodModelSelectionData = {
   path: {
     id: string
   }
-  query?: never
+  query?: {
+    agentUID?: string
+  }
   url: '/api/v2/pod/conversations/{id}/model-profile'
 }
 
@@ -3677,6 +4858,7 @@ export type SetPodModelSelectionData = {
    */
   body?: {
     data: {
+      agentUID?: string | null
       profile?: string | null
     }
   }
@@ -3780,6 +4962,7 @@ export type PodPageSearchData = {
   query: {
     exclude_subtree_of?: string
     query: string
+    required_action?: 'page_view' | 'page_edit'
   }
   url: '/api/v2/pod/pages/search'
 }
@@ -3799,6 +4982,7 @@ export type PodPageSearchResponses = {
    */
   200: {
     can_create_private: boolean
+    can_create_space: boolean
     pages: Array<PodPageType>
     principal_uid: string
   }
@@ -3828,12 +5012,13 @@ export type PodSpaceResponses = {
    */
   200: {
     agents: Array<{
+      actions?: Array<'page_view' | 'page_write_records' | 'page_edit' | 'page_manage'> | null
       condition?: string | null
       group_id?: string | null
       kind: 'human' | 'agent' | 'group' | 'userset'
       name: string
       principal_uid?: string | null
-      role: 'view' | 'edit' | 'manage'
+      role: 'view' | 'contribute' | 'edit' | 'manage'
       source_action?: string | null
       source_page?: {
         accessible?: boolean | null
@@ -3845,7 +5030,7 @@ export type PodSpaceResponses = {
       target_scope?: string | null
     }>
     can_manage: boolean
-    role: 'view' | 'edit' | 'manage'
+    role: 'view' | 'contribute' | 'edit' | 'manage'
   }
 }
 
@@ -3857,7 +5042,7 @@ export type PodSpaceWriteData = {
    */
   body: {
     data: {
-      role: 'view' | 'edit' | 'manage'
+      role: 'view' | 'contribute' | 'edit' | 'manage'
     }
   }
   path?: never
@@ -3879,7 +5064,7 @@ export type PodSpaceWriteResponses = {
    * Success
    */
   200: {
-    role: 'view' | 'edit' | 'manage'
+    role: 'view' | 'contribute' | 'edit' | 'manage'
   }
 }
 
@@ -3892,7 +5077,7 @@ export type PodSpaceAgentWriteData = {
   body: {
     data: {
       principal_uid: string
-      role: 'view' | 'edit' | 'manage'
+      role: 'view' | 'contribute' | 'edit' | 'manage'
     }
   }
   path?: never
@@ -3915,7 +5100,7 @@ export type PodSpaceAgentWriteResponses = {
    */
   201: {
     principal_uid: string
-    role: 'view' | 'edit' | 'manage'
+    role: 'view' | 'contribute' | 'edit' | 'manage'
   }
 }
 

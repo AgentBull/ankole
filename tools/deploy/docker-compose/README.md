@@ -40,16 +40,17 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Generate three independent hexadecimal values:
+Generate four independent hexadecimal values:
 
 ```sh
 openssl rand -hex 24
 openssl rand -hex 32
 openssl rand -hex 32
+openssl rand -hex 32
 ```
 
-Put them in `.env` as `POSTGRES_PASSWORD`, `ANKOLE_SECRET_BASE`, and
-`RELEASE_COOKIE`. Keep the hexadecimal form because it is safe in the database
+Put them in `.env` as `POSTGRES_PASSWORD`, `ANKOLE_SECRET_BASE`,
+`RELEASE_COOKIE`, and `ANKOLE_FUNCTION_RUNTIME_TOKEN`. Keep the hexadecimal form because it is safe in the database
 URL.
 
 `RELEASE_COOKIE` is the distributed Erlang cookie of this deployment. Every
@@ -145,6 +146,15 @@ After setup, use the Console to configure providers, model profiles, Agent
 Library capabilities, Agents, channel bindings, and WorkerEnv secrets. Do not
 put provider API keys in `.env`.
 
+## Function Runtime network
+
+The Function Runtime and control plane share the `ankole_functions` bridge.
+The Function Runtime can reach the control plane on that bridge. PostgreSQL
+uses the separate internal `ankole_backend` network. Compose uses Docker bridge
+isolation; the Helm deployment uses a Kubernetes NetworkPolicy for its configured
+private and metadata CIDRs. On a cloud host, set the instance metadata hop limit
+to 1 or block `169.254.169.254` for containers with the host firewall.
+
 ## Worker containers
 
 Each Worker container is named `ankole-ankole-<hash>-<generation>` and has the
@@ -175,7 +185,7 @@ can start a second Worker for an Agent.
 
 ## Image policy and upgrades
 
-The defaults pin control plane `2.0.0-alpha.5` and the PostgreSQL digest in
+The defaults pin control plane `2.0.0-alpha.24` and the PostgreSQL digest in
 `compose.yaml`. This is a pre-release. The control-plane image supplies the
 Worker image of the same source revision.
 Use deployment files and images from the same release. `main-latest` can point
@@ -330,7 +340,9 @@ PostgreSQL is on an internal Docker network. Only Caddy publishes host ports.
 | `ANKOLE_DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket on the host |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | Control-plane database pool |
 | `ANKOLE_WORKER_INSTALLATION` | `ankole` | Label in the names of the Worker containers and Agent volumes; do not change it after the first start |
-| `ANKOLE_CONTROL_PLANE_IMAGE` | `2.0.0-alpha.5` image | Control-plane image or digest; it names the Worker image |
+| `ANKOLE_CONTROL_PLANE_IMAGE` | `2.0.0-alpha.24` image | Control-plane image or digest; it names the Worker image |
+| `ANKOLE_FUNCTION_RUNTIME_TOKEN` | required | Internal token shared by the control plane and function service |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | Matching release image | Stateless Applet and program worker image |
 | `ANKOLE_POSTGRESQL_IMAGE` | Digest in `compose.yaml` | PostgreSQL image or digest |
 
 ## Troubleshooting

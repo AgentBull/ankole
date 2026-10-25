@@ -567,6 +567,7 @@ defmodule Ankole.ConversationsTest do
       seq: 2,
       author_type: :agent,
       author_uid: agent.uid,
+      author_display_name: agent.display_name,
       kind: :message,
       origin: :native,
       text: "A visible answer",
@@ -593,6 +594,7 @@ defmodule Ankole.ConversationsTest do
       message_attrs
       | author_type: :human,
         author_uid: foreign_human.uid,
+        author_display_name: foreign_human.display_name,
         signal_id: nil
     }
 
@@ -816,7 +818,7 @@ defmodule Ankole.ConversationsTest do
              )
   end
 
-  test "page chat creation and later input require the Human's current page access", %{
+  test "page-shared chat creation and later input require the Human's current page access", %{
     human: human,
     agent: agent
   } do
@@ -828,7 +830,7 @@ defmodule Ankole.ConversationsTest do
         private_owner_uid: owner.uid
       })
 
-    request = Map.put(attrs(agent), :page_id, private.id)
+    request = Map.merge(attrs(agent), %{page_id: private.id, access_scope: :anchor_page})
 
     assert {:error, :page_unavailable} =
              in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
@@ -851,7 +853,7 @@ defmodule Ankole.ConversationsTest do
 
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, private.id, %{grants: []})
 
-    assert {:error, :page_unavailable} =
+    assert {:error, :conversation_not_found} =
              in_tx(fn ->
                Ankole.ConversationsFixtures.post(human.uid, detail.conversation.id, %{
                  message_id: Ecto.UUID.generate(),

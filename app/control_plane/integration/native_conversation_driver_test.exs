@@ -24,6 +24,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture(%{mobile: nil})
 
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "primary")
     owner = self()
     script = start_supervised!({Agent, fn -> %{rounds: [], requests: 0, block_first?: true} end})
@@ -337,12 +338,19 @@ defmodule Ankole.Conversations.NativeDriverTest do
     end
 
     detail = Task.await(reader, 5_000)
-    assert detail["status"]["state"] == "running"
+
+    assert Enum.find(detail["pendingQueues"], &(&1["agentUID"] == agent.uid))["workStatus"][
+             "state"
+           ] == "running"
+
     assert [%{"id" => ^message_id}] = detail["messages"]
 
     _ = wait_for_completion(signal.id)
     completed = detail_response(human.uid, id)
-    assert completed["status"]["state"] == "idle"
+
+    assert Enum.find(completed["pendingQueues"], &(&1["agentUID"] == agent.uid))["workStatus"][
+             "state"
+           ] == "idle"
 
     assert [_, %{"authorType" => "agent", "text" => "A committed native answer."}] =
              completed["messages"]
@@ -939,13 +947,18 @@ defmodule Ankole.Conversations.NativeDriverTest do
   end
 
   defp detail_response(human_uid, id) do
-    conn =
-      Plug.Test.conn(:get, "/api/v2/pod/conversations/#{id}")
-      |> Plug.Conn.assign(:current_principal_uid, human_uid)
-      |> AnkoleWeb.PodController.show(%{"id" => id})
+    input =
+      Ash.ActionInput.for_action(Ankole.Pod.Chat.Browser, :show, %{id: id},
+        tenant: Repo.tenant_id!()
+      )
 
-    assert conn.status == 200
-    Ankole.JSON.decode!(conn.resp_body)
+    assert {:ok, detail} =
+             Ankole.Ash.run_action_authorized(
+               input,
+               Ankole.PrincipalsFixtures.actor_fixture(human_uid)
+             )
+
+    detail |> Ankole.JSON.encode!() |> Ankole.JSON.decode!()
   end
 
   defp await_detail_completion_boundary(id, backend, attempts \\ 200)

@@ -17,9 +17,9 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         conn =
           conn
           |> AnkoleWeb.Plugs.AppletRouteBody.call([])
-          |> assign(:current_principal_uid, opts[:uid])
+          |> assign(:authz_actor, Ankole.PrincipalsFixtures.actor_fixture(opts[:uid]))
 
-        [".internal-apis", "pod", "pages", id, "routes" | _] = conn.path_info
+        ["api", "v2", "pod", "pages", id, "routes" | _] = conn.path_info
 
         conn = %{conn | params: %{"id" => id}}
         AnkoleWeb.PodAppletController.call(conn, :post)
@@ -76,7 +76,8 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     %{owner: owner, reader: reader, database: page, table: table, field: field}
   end
 
-  test "closing the HTTP client cancels the isolate and keeps an already committed write", ctx do
+  test "closing the HTTP client cancels the invocation and keeps an already committed write",
+       ctx do
     applet =
       publish(ctx.owner, """
         export default {'POST /commit':async()=>{
@@ -265,7 +266,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, ctx.database.id, %{
-        grants: [%{principal_uid: ctx.reader, role: "edit"}]
+        grants: [%{principal_uid: ctx.reader, role: "contribute"}]
       })
 
     {:ok, _} =
@@ -376,6 +377,50 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
              )
   end
 
+  test "frame asset reads keep their revision and digest during concurrent publication", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.owner})
+    old = "old\n" <> :binary.copy("a", 131_072)
+    new = "new\n" <> :binary.copy("b", 131_072)
+    assert {:ok, %{revision: 1}} = publish_existing(ctx.owner, page, 0, "export default {}", old)
+    digest = Base.encode16(:crypto.hash(:sha256, old), case: :lower)
+
+    writer =
+      Task.async(
+        Repo.bind_tenant(fn ->
+          publish_existing(ctx.owner, page, 1, "export default {}", new)
+        end)
+      )
+
+    read =
+      Repo.bind_tenant(fn ->
+        Files.resolve_applet_frame_asset(actor, page.id, 1, "index.html")
+      end)
+
+    results =
+      1..32
+      |> Task.async_stream(
+        fn _ -> read.() end,
+        max_concurrency: 8
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert {:ok, %{revision: 2}} = Task.await(writer)
+
+    for result <- results do
+      case result do
+        {:ok, {_, ^digest, ^old}} -> :ok
+        {:error, {:applet_revision_changed, %{revision: 2}}} -> :ok
+        other -> flunk("Frame read mixed publication versions: #{inspect(other)}")
+      end
+    end
+
+    assert {:error, {:applet_revision_changed, %{revision: 2}}} =
+             Files.resolve_applet_frame_asset(actor, page.id, 1, "index.html")
+
+    assert {:ok, {_, _, ^new}} = Files.resolve_applet_frame_asset(actor, page.id, 2, "index.html")
+  end
+
   test "file writes retain the Pod upload limit before any durable bytes are stored", ctx do
     applet = publish(ctx.owner, "export default {}")
 
@@ -403,7 +448,12 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     ]
 
     assert {:error, %{status: 413, code: "file_too_large"}} =
-             Ankole.Pod.Applets.Capabilities.call(context, nil, "file.write", args)
+             Ankole.Pod.Applets.Capabilities.call(
+               context,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               "file.write",
+               args
+             )
 
     assert {:ok, %{revision: 0, files: []}} =
              Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), file.id)
@@ -478,15 +528,15 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     end
   end
 
-  test "measure fresh isolate startup separately from the complete control-plane invocation",
+  test "measure inspection and pooled invocation separately",
        ctx do
-    source = "let value=0;export default {'GET /':()=>++value}"
+    source = "export default {'GET /':()=>1}"
     applet = publish(ctx.owner, source)
 
     native =
       for _ <- 1..100 do
         {micros, {:ok, ["GET /"]}} =
-          :timer.tc(fn -> Ankole.Kernel.AppletRuntime.inspect(source) end)
+          :timer.tc(fn -> Ankole.FunctionRuntime.AppletClient.inspect(source, []) end)
 
         micros
       end
@@ -548,10 +598,10 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     page
   end
 
-  defp publish_existing(uid, page, revision, source) do
+  defp publish_existing(uid, page, revision, source, frontend \\ "frontend") do
     manifest =
       Enum.map(
-        [{"src/main.tsx", "source"}, {"dist/index.html", "frontend"}, {"server/main.js", source}],
+        [{"src/main.tsx", "source"}, {"dist/index.html", frontend}, {"server/main.js", source}],
         fn {path, bytes} ->
           {:ok, blob} = Drive.store(bytes)
 

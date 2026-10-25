@@ -135,7 +135,8 @@ export function composeArgs(args: string[]): string[] {
 /** Runs Docker Compose from the repository root. */
 export async function runCompose(args: string[]): Promise<void> {
   await runChild('docker', composeArgs(args), {
-    cwd: repoRootPath
+    cwd: repoRootPath,
+    env: loadAppDevelopmentEnv()
   })
 }
 
@@ -155,7 +156,7 @@ export async function startComposeServices({
   wait = true,
   waitTimeout = 60
 }: StartComposeServicesArgs = {}): Promise<void> {
-  const args = ['up', '--detach', '--remove-orphans']
+  const args = ['up', '--build', '--detach', '--remove-orphans']
   if (pull) args.push('--pull', 'missing')
   if (wait) args.push('--wait', '--wait-timeout', String(waitTimeout))
 

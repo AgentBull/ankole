@@ -7,29 +7,38 @@ defmodule Ankole.Pod.RPCBroker do
   alias Ankole.WorkerFiles
 
   @read_operations ~w(pages.list pages.read pages.sharing files.manifest database.tables database.schema database.query database.aggregate)
-  @write_operations ~w(pages.create pages.update pages.move pages.delete pages.restore pages.write files.upload applets.publish applets.call database.create_table database.create_field database.update_field database.delete_field database.create_view database.update_view database.delete_view database.write database.copy)
+  @write_operations ~w(pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.write pages.append files.upload applets.publish applets.call database.create_table database.delete_table database.create_field database.update_field database.delete_field database.create_view database.update_view database.delete_view database.write database.copy)
 
-  def handle_read(turn, %FabricProto.PodRequest{} = request, ctx),
-    do:
-      with_request(turn, ctx, fn actor ->
-        handle(request, Map.put(ctx, :actor, actor), @read_operations)
-      end)
-
-  def handle_write(turn, %FabricProto.PodRequest{} = request, ctx) do
-    ctx = Map.put(ctx, :write_authority, {turn, ctx.worker_id})
-
-    ctx =
-      if request.operation == "pages.create",
-        do: Map.put(ctx, :source_message_id, Ankole.Conversations.Route.source_message_id(turn)),
-        else: ctx
-
-    with_request(turn, ctx, fn actor ->
-      handle(request, Map.put(ctx, :actor, actor), @write_operations)
-    end)
+  def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
+    with {:ok, actor} <- actor_for_request(turn, request.automation_attempt, ctx) do
+      handle(request, Map.put(ctx, :actor, actor), @read_operations)
+    else
+      {:error, reason} -> error(ctx, reason)
+    end
   end
 
-  defp with_request(ref, ctx, fun)
-       when is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef) do
+  def handle_write(turn, %FabricProto.PodRequest{} = request, ctx) do
+    with {:ok, actor} <- actor_for_request(turn, request.automation_attempt, ctx) do
+      ctx = Map.merge(ctx, %{actor: actor, write_authority: actor.turn_authority})
+
+      ctx =
+        if request.operation == "pages.create" and turn,
+          do:
+            Map.put(ctx, :source_message_id, Ankole.Conversations.Route.source_message_id(turn)),
+          else: ctx
+
+      handle(request, ctx, @write_operations)
+    else
+      {:error, reason} -> error(ctx, reason)
+    end
+  end
+
+  @doc false
+  def actor_for_request(nil, %FabricProto.AutomationAttemptRef{} = attempt, ctx),
+    do: Ankole.AutomationJobs.authorize_attempt_actor(attempt, ctx)
+
+  def actor_for_request(ref, nil, ctx)
+      when is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef) do
     with {:ok, signal} <- Ankole.Signals.get_signal(ref.signal_id),
          true <- signal.agent_uid == ctx.worker_id and signal.session_id == ref.session_id,
          {:ok, principal} <- Ankole.Principals.get_principal(ctx.worker_id),
@@ -38,19 +47,19 @@ defmodule Ankole.Pod.RPCBroker do
       context = Map.merge(Map.take(request, ["ip"]), %{"surface" => "agent_rpc"})
       interactive_authn = Map.merge(request["authn"] || %{}, context)
 
-      actor =
-        Ankole.AuthZ.Actor.new(principal,
-          interactive_principal: human,
-          turn_authority: {ref, ctx.worker_id},
-          authn: context,
-          interactive_authn: interactive_authn
-        )
-
-      fun.(actor)
+      {:ok,
+       Ankole.AuthZ.Actor.new(principal,
+         interactive_principal: human,
+         turn_authority: {ref, ctx.worker_id},
+         authn: context,
+         interactive_authn: interactive_authn
+       )}
     else
-      _ -> error(ctx, :work_authorization_review_required)
+      _ -> {:error, :work_authorization_review_required}
     end
   end
+
+  def actor_for_request(_, _, _), do: {:error, :work_authorization_review_required}
 
   defp interactive(%{authorization_kind: "human", human_uid: uid}) when is_binary(uid),
     do: Ankole.Principals.get_principal(uid)
@@ -73,6 +82,9 @@ defmodule Ankole.Pod.RPCBroker do
   defp dispatch("pages.list", actor, params, _ctx), do: Pages.list(actor, params)
   defp dispatch("pages.read", actor, params, ctx), do: read_document(actor, params, ctx)
   defp dispatch("pages.sharing", actor, params, _ctx), do: Pages.sharing(actor, params["id"])
+
+  defp dispatch("pages.set_sharing", actor, params, ctx),
+    do: Pages.set_sharing(actor, params["id"], params, ctx.write_authority)
 
   defp dispatch("pages.create", actor, params, ctx) do
     params =
@@ -97,23 +109,25 @@ defmodule Ankole.Pod.RPCBroker do
   defp dispatch("pages.restore", actor, params, ctx),
     do: Pages.restore(actor, params["id"], ctx.write_authority)
 
-  defp dispatch("pages.write", actor, params, ctx) do
+  defp dispatch(operation, actor, params, ctx)
+       when operation in ["pages.write", "pages.append"] do
     with {:ok, _page} <- Pages.authorize(actor, params["id"], "page_edit") do
       receive_document(params["xml_home_relative_path"], ctx, fn xml ->
         with {:ok, result} <-
-               Documents.write(
+               apply(Documents, if(operation == "pages.append", do: :append, else: :write), [
                  actor,
                  params["id"],
                  params["base_revision"],
                  xml,
                  ctx.write_authority
-               ),
+               ]),
              do: {:ok, Map.drop(result, [:content])}
       end)
     end
   end
 
   defp dispatch("files.manifest", actor, params, _ctx), do: Files.manifest(actor, params["id"])
+
   defp dispatch("files.upload", actor, params, ctx), do: upload(actor, params, ctx)
 
   defp dispatch("applets.publish", actor, params, ctx),
@@ -145,6 +159,9 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp dispatch("database.create_table", actor, params, ctx),
     do: Database.create_table(actor, params["id"], params, ctx.write_authority)
+
+  defp dispatch("database.delete_table", actor, params, ctx),
+    do: Database.delete_table(actor, params["id"], ctx.write_authority)
 
   defp dispatch("database.create_field", actor, params, ctx),
     do: Database.create_field(actor, params["id"], params, ctx.write_authority)
@@ -208,7 +225,12 @@ defmodule Ankole.Pod.RPCBroker do
   defp upload(actor, params, ctx) do
     source = params["home_relative_path"]
 
-    with {:ok, _page} <- Pages.authorize(actor, params["id"], "page_edit"),
+    with {:ok, _page} <-
+           Pages.authorize(
+             actor,
+             params["id"],
+             Files.required_upload_action(params["role"] || "file")
+           ),
          {:ok, source} <- Ankole.Files.normalize_path(source) do
       WorkerFiles.with_received_file(
         source,

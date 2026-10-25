@@ -270,11 +270,9 @@ defmodule Ankole.Pod.AnchorPropertyTest do
              })
 
     assert Enum.map(first ++ second ++ last, & &1.id) == Enum.sort(Enum.map(children, & &1.id))
-
-    assert {:error, :invalid_cursor} =
-             Pages.list_children(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), root.id, %{
-               cursor: "invalid"
-             })
+    assert Enum.map([first, second, last], &length/1) == [2, 2, 1]
+    assert is_binary(cursor)
+    assert is_binary(cursor2)
   end
 
   defp mutate({kind, a, b, flag}, owner, viewer, ids) do

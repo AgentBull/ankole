@@ -48,7 +48,8 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     token = url |> URI.parse() |> Map.fetch!(:path) |> String.replace_prefix("/join/", "")
 
     guest =
-      Phoenix.ConnTest.build_conn()
+      build_conn()
+      |> pod_conn(tenant)
       |> init_test_session(%{})
       |> api_get("/api/v2/browser/invitations/" <> invitation_code)
 
@@ -321,6 +322,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     conn =
       conn
       |> recycle()
+      |> pod_conn(tenant)
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(original_ref))
       |> api_get("/api/v2/pod/me")
 
@@ -362,7 +364,8 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
   for method <- [:get, :post, :put, :delete] do
     def unquote(:"api_#{method}")(conn, path, params \\ nil) do
       Repo.with_tenant(Repo.tenant_id!(), fn ->
-        AnkoleWeb.PodAPI.request(conn, unquote(method), path, params)
+        url = AnkoleWeb.Plugs.RequestHost.origin(conn) <> path
+        AnkoleWeb.PodAPI.request(conn, unquote(method), url, params)
       end)
     end
   end
@@ -373,6 +376,14 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
   end
 
   defp login(conn, email, purpose) do
+    conn =
+      if purpose == :pod do
+        {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
+        pod_conn(conn, tenant)
+      else
+        site_conn(conn)
+      end
+
     conn = api_get(conn, "/api/v2/browser/session")
     session = get_session(conn)
     conn = conn |> recycle() |> init_test_session(session)

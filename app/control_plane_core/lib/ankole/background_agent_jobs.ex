@@ -158,6 +158,45 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate requeue_credential_pool_exhausted_attempt_in_tx(job_id, agent_uid),
     to: Lifecycle
 
+  @doc """
+  Locks admission authority, Worker capacity, and the Job, then claims or adopts
+  its attempt in the caller's transaction.
+
+  `prepare` receives `"start"` or `"adopt"` under the Job lock and returns
+  `{:ok, spec}` or an error before a Worker slot is reserved.
+  Resolve `max_running_per_agent` and `ready_timeout_ms` before the transaction;
+  pass them with `now` in `opts`. A wait returns its reason and mode. A terminal
+  Job returns `{:ok, :terminal}` so the caller can close its trigger.
+  """
+  @spec admit_attempt_in_tx(
+          Job.t(),
+          Signal.t(),
+          (String.t() -> {:ok, map()} | {:error, term()}),
+          keyword()
+        ) ::
+          {:ok,
+           :terminal
+           | %{
+               job: Job.t(),
+               worker: Ankole.AgentWorkers.AgentWorker.t(),
+               mode: String.t()
+             }}
+          | {:wait, atom(), String.t()}
+          | {:error, term()}
+  defdelegate admit_attempt_in_tx(snapshot, event, prepare, opts),
+    to: Ankole.BackgroundAgentJobs.Admission
+
+  @doc "Authorizes and locks an attempt, settles its input, and commits abort compensation."
+  @spec abort_attempt_in_tx(Ankole.Sessions.JobTurnRef.t(), String.t(), map(), DateTime.t()) ::
+          {:ok, Signal.t() | %{signal: Signal.t(), compensation: nil}} | {:error, term()}
+  defdelegate abort_attempt_in_tx(ref, worker_id, error, now),
+    to: Ankole.BackgroundAgentJobs.TurnWatchdog
+
+  @doc "Fails a rejected admission and commits its parent wakeup in the caller's transaction."
+  @spec fail_admission_in_tx(Job.t() | nil, String.t(), DateTime.t()) ::
+          {:ok, %{job: Job.t(), wakeup_event: Signal.t() | nil} | nil} | {:error, term()}
+  defdelegate fail_admission_in_tx(job, code, now), to: Lifecycle
+
   @doc "Completes a job Signal that no longer needs execution."
   def complete_signal(%Signal{} = signal),
     do: Repo.transact_top_level(fn -> Dispatch.complete_signal_in_tx(signal) end)

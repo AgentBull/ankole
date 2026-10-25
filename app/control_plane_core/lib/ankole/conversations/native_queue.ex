@@ -22,37 +22,55 @@ defmodule Ankole.Conversations.NativeQueue do
 
   @doc false
   def update_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
-    human_uid = Ankole.AuthZ.Actor.uid(actor)
-
     with {:ok, id} <- Queries.cast_id(id),
          %Conversation{} = visible <- Native.visible_conversation(actor, id),
-         %{} = agent <- Native.conversation_agent(id),
+         %{} = agent <-
+           Enum.find(Native.room_agents(id), &(&1.uid == Ankole.Attrs.get(attrs, :agent_uid))),
          session_id = Ankole.Sessions.Key.conversation(id),
-         :ok <- Native.lock_participants_in_tx(actor, agent.uid),
+         affected_uids = queue_agent_uids(id, agent.uid, attrs),
+         {:ok, _} <-
+           Ankole.Principals.lock_principals_in_tx([
+             Ankole.AuthZ.Actor.uid(actor),
+             visible.created_by | affected_uids
+           ]),
          :ok <-
-           Signals.lock_target_in_tx(%{
-             agent_uid: agent.uid,
-             session_id: session_id
-           }),
+           Ankole.Sessions.Queue.lock_sessions_in_tx(Enum.map(affected_uids, &{&1, session_id})),
          :ok <- Native.check_human_in_tx(actor),
-         :ok <- Native.authorize_page(actor, visible.page_id),
+         :ok <- Native.authorize_agent(actor, agent.uid),
          %Conversation{} = conversation <- Native.visible_conversation(actor, id, lock: true),
-         inputs = Signals.lock_signals_in_tx(Native.pending_filter(id)),
-         true <- Enum.all?(inputs, &(&1.human_uid == human_uid)),
+         inputs =
+           Signals.lock_signals_in_tx([{:agent_uid, agent.uid} | Native.pending_filter(id)]),
          {:ok, accepted_retry} <- accepted_retry(conversation, agent, attrs),
          :ok <-
-           if(accepted_retry, do: :ok, else: check_queue_version(conversation, inputs, attrs)),
+           if(accepted_retry,
+             do: :ok,
+             else: check_queue_version(conversation, inputs, attrs, agent.uid)
+           ),
          {:ok, changed} <-
            if(accepted_retry,
              do: {:ok, [accepted_retry]},
-             else: change_queue_in_tx(actor, conversation, agent, inputs, attrs)
+             else:
+               change_queue_in_tx(
+                 actor,
+                 conversation,
+                 agent,
+                 inputs,
+                 Map.put(attrs, :locked_agent_uids, affected_uids)
+               )
            ),
          :ok <-
            Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
              %{agent_uid: agent.uid, session_id: session_id},
              DateTime.utc_now(:microsecond)
            ) do
-      removed_ids = for input <- changed, input.data["removed"] == true, do: input.message_id
+      removed = for input <- changed, input.data["removed"] == true, do: input.message_id
+
+      removed_ids =
+        Message
+        |> Ash.Query.filter(id in ^removed and withdrawn)
+        |> Ash.Query.select([:id])
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.id)
 
       {:ok,
        %{
@@ -68,14 +86,52 @@ defmodule Ankole.Conversations.NativeQueue do
     end
   end
 
+  defp queue_agent_uids(id, selected, attrs) do
+    if Ankole.Attrs.get(attrs, :action) == "edit" do
+      inputs =
+        Signals.list_signals!(
+          query: [
+            filter: [
+              conversation_id: id,
+              message_id: Ankole.Attrs.get(attrs, :message_id),
+              type: @addressed
+            ]
+          ]
+        )
+
+      Enum.uniq([selected | Enum.map(inputs, & &1.agent_uid)])
+    else
+      [selected]
+    end
+  end
+
   @doc "A derived version of the pending queue and its latest explicit pause."
-  def queue_version(conversation, inputs) do
+  def queue_version(conversation, inputs, agent_uid) do
+    message_ids = Enum.map(inputs, & &1.message_id)
+
+    references_by_id =
+      if message_ids == [] do
+        %{}
+      else
+        Message
+        |> Ash.Query.filter(id in ^message_ids)
+        |> Ash.Query.select([:id, :links, :mentions])
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.id, [&1.links, &1.mentions]})
+      end
+
     snapshot = [
-      conversation.metadata["queue_paused"] == true,
-      conversation.metadata["queue_pause_command_id"],
+      conversation.metadata["queue_paused:" <> agent_uid] == true,
+      conversation.metadata["queue_pause_command_id:" <> agent_uid],
       Enum.map(
         inputs,
-        &[&1.message_id, &1.data["text"], &1.data["delivery_mode"] || "steer", &1.queue_sequence]
+        &[
+          &1.message_id,
+          &1.data["text"],
+          Map.fetch!(references_by_id, &1.message_id),
+          &1.data["delivery_mode"] || "steer",
+          &1.queue_sequence
+        ]
       )
     ]
 
@@ -93,9 +149,10 @@ defmodule Ankole.Conversations.NativeQueue do
 
   def retryable_reply?(_, _), do: false
 
-  defp check_queue_version(conversation, inputs, attrs) do
+  defp check_queue_version(conversation, inputs, attrs, agent_uid) do
     if Ankole.Attrs.get(attrs, :action) == "stop" or
-         Ankole.Attrs.get(attrs, :expected_version) == queue_version(conversation, inputs),
+         Ankole.Attrs.get(attrs, :expected_version) ==
+           queue_version(conversation, inputs, agent_uid),
        do: :ok,
        else: {:error, :queue_changed}
   end
@@ -108,7 +165,7 @@ defmodule Ankole.Conversations.NativeQueue do
         stop_queue_in_tx(actor, conversation, agent, inputs, attrs)
 
       "resume" ->
-        with {:ok, _} <- put_queue_pause(conversation, false), do: {:ok, []}
+        with {:ok, _} <- put_queue_pause(conversation, agent.uid, false), do: {:ok, []}
 
       "reorder" ->
         reorder_inputs(inputs, Ankole.Attrs.get(attrs, :message_ids))
@@ -116,12 +173,12 @@ defmodule Ankole.Conversations.NativeQueue do
       action when action in ["regenerate", "edit_last"] ->
         retry_last_in_tx(actor, conversation, agent, action, attrs)
 
-      action when action in ["edit", "send_now", "remove"] ->
+      action when action in ["edit", "steer", "retract"] ->
         with {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
              %Signal{} = input <-
                Enum.find(inputs, &(&1.message_id == id and &1.human_uid == human_uid)) do
-          with {:ok, changed} <- change_input_in_tx(input, action, attrs) do
-            if action == "send_now",
+          with {:ok, changed} <- change_selected_input_in_tx(input, action, attrs) do
+            if action == "steer",
               do: reorder_inputs(inputs, [id | Enum.map(inputs, & &1.message_id) -- [id]]),
               else: {:ok, changed}
           end
@@ -136,11 +193,22 @@ defmodule Ankole.Conversations.NativeQueue do
   end
 
   defp retry_command_data(action, message_id, attrs) do
-    %{
+    data = %{
       "native_action" => action,
       "native_message_id" => message_id,
       "native_edit_text" => if(action == "edit_last", do: Ankole.Attrs.get(attrs, :text))
     }
+
+    data =
+      case Ankole.Attrs.get(attrs, :links) do
+        nil -> data
+        links -> Map.put(data, "native_edit_links", canonical_links(links))
+      end
+
+    case Ankole.Attrs.get(attrs, :mentions) do
+      nil -> data
+      mentions -> Map.put(data, "native_edit_mentions", canonical_mentions(mentions))
+    end
   end
 
   defp accepted_retry(conversation, agent, attrs) do
@@ -191,6 +259,7 @@ defmodule Ankole.Conversations.NativeQueue do
       now = DateTime.utc_now(:microsecond)
 
       with %Message{} = message <- Queries.conversation_message(conversation.id, message_id),
+           :ok <- edit_last_scope(message, action),
            %Signal{} = input <- retry_input(human_uid, message, action),
            {:ok, command} <-
              Signals.accept_in_tx(%{
@@ -213,7 +282,12 @@ defmodule Ankole.Conversations.NativeQueue do
            {:ok, retry} <- Ankole.Sessions.Commands.retry_in_tx(key, command, now),
            {:ok, retry} <-
              Signals.update_metadata_signal(retry, %{
-               data: Map.put(retry.data, "model_profile", ModelPreferences.logical(conversation))
+               data:
+                 Map.put(
+                   retry.data,
+                   "model_profile",
+                   ModelPreferences.logical(conversation, agent.uid)
+                 )
              }),
            :ok <- remove_native_reply_in_tx(conversation.id, input.id, now) do
         {:ok, [retry]}
@@ -242,6 +316,31 @@ defmodule Ankole.Conversations.NativeQueue do
         error -> {:halt, error}
       end
     end)
+  end
+
+  defp edit_last_scope(_message, "regenerate"), do: :ok
+
+  defp edit_last_scope(message, "edit_last") do
+    if length(addressed_agent_uids(message)) > 1,
+      do: {:error, :input_already_started},
+      else: :ok
+  end
+
+  @doc "Returns a native message's actual Agent recipients, including silent turns."
+  def addressed_agent_uids(message) do
+    Signals.list_signals!(
+      query: [
+        filter: [
+          message_id: message.id,
+          conversation_id: message.conversation_id,
+          type: @addressed
+        ]
+      ]
+    )
+    |> Enum.reject(&(&1.data["removed"] == true))
+    |> Enum.map(& &1.agent_uid)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp retry_input(
@@ -274,23 +373,27 @@ defmodule Ankole.Conversations.NativeQueue do
   defp edit_last_in_tx(_message, "regenerate", _attrs), do: :ok
 
   defp edit_last_in_tx(message, "edit_last", attrs) do
-    if Ankole.Attrs.get(attrs, :expected_text) == (message.text || "") do
-      with {:ok, text} <- Native.native_text(Ankole.Attrs.get(attrs, :text), message.attachments),
-           {:ok, updated} <-
-             Ankole.Ash.update(message, :edit, %{text: text, links: Native.page_links(text)}),
-           :ok <-
-             Queries.message_changed_in_tx(message, updated, DateTime.utc_now(:microsecond)),
-           do: :ok
+    expected_links = Ankole.Attrs.get(attrs, :expected_links)
+    expected_mentions = Ankole.Attrs.get(attrs, :expected_mentions)
+
+    if Ankole.Attrs.get(attrs, :expected_text) == (message.text || "") and
+         (is_nil(expected_links) or
+            canonical_links(expected_links) == canonical_links(message.links)) and
+         (is_nil(expected_mentions) or
+            canonical_mentions(expected_mentions) == canonical_mentions(message.mentions)) do
+      with {:ok, _} <- edit_message_in_tx(message, attrs), do: :ok
     else
       {:error, :queue_changed}
     end
   end
 
-  defp put_queue_pause(conversation, paused, command_id \\ nil) do
-    metadata = Map.put(conversation.metadata, "queue_paused", paused)
+  defp put_queue_pause(conversation, agent_uid, paused, command_id \\ nil) do
+    metadata = Map.put(conversation.metadata, "queue_paused:" <> agent_uid, paused)
 
     metadata =
-      if command_id, do: Map.put(metadata, "queue_pause_command_id", command_id), else: metadata
+      if command_id,
+        do: Map.put(metadata, "queue_pause_command_id:" <> agent_uid, command_id),
+        else: metadata
 
     Ankole.Ash.update(conversation, :put_metadata, %{metadata: metadata})
   end
@@ -305,7 +408,7 @@ defmodule Ankole.Conversations.NativeQueue do
 
         nil ->
           with {:ok, paused} <- pause_inputs(inputs),
-               {:ok, _} <- put_queue_pause(conversation, true, command_id),
+               {:ok, _} <- put_queue_pause(conversation, agent.uid, true, command_id),
                {:ok, event} <-
                  Signals.accept_in_tx(%{
                    producer: :kernel,
@@ -317,8 +420,25 @@ defmodule Ankole.Conversations.NativeQueue do
                    sender: human_uid,
                    data: %{"conversation_id" => conversation.id}
                  }),
+               {:ok, event} <- settle_idle_stop_in_tx(event),
                do: {:ok, [event | paused]}
       end
+    end
+  end
+
+  defp settle_idle_stop_in_tx(event) do
+    if Ankole.Sessions.Queue.oldest_started(event.agent_uid, event.session_id) do
+      {:ok, event}
+    else
+      key = Map.take(event, [:agent_uid, :session_id])
+
+      with {:ok, %{signal: completed}} <-
+             Ankole.Sessions.Commands.apply_command_in_tx(
+               key,
+               event,
+               DateTime.utc_now(:microsecond)
+             ),
+           do: {:ok, completed}
     end
   end
 
@@ -333,21 +453,60 @@ defmodule Ankole.Conversations.NativeQueue do
     end)
   end
 
+  defp change_selected_input_in_tx(input, "edit", attrs) do
+    targets =
+      Signals.lock_signals_in_tx(
+        conversation_id: input.conversation_id,
+        message_id: input.message_id,
+        type: @addressed
+      )
+      |> Enum.reject(&(&1.data["removed"] == true))
+
+    locked = MapSet.new(attrs.locked_agent_uids)
+
+    cond do
+      Enum.any?(targets, &(not MapSet.member?(locked, &1.agent_uid))) ->
+        {:error, :queue_changed}
+
+      Enum.any?(
+        targets,
+        &(&1.status not in [:queued, :running] or not is_nil(&1.last_attempt_at))
+      ) ->
+        {:error, :input_already_started}
+
+      true ->
+        with {:ok, [edited]} <- change_input_in_tx(input, "edit", attrs),
+             do: update_shared_inputs_in_tx(targets, edited)
+    end
+  end
+
+  defp change_selected_input_in_tx(input, action, attrs),
+    do: change_input_in_tx(input, action, attrs)
+
+  defp update_shared_inputs_in_tx(targets, edited) do
+    targets
+    |> Enum.reject(&(&1.id == edited.id))
+    |> Enum.reduce_while({:ok, [edited]}, fn target, {:ok, changed} ->
+      case Signals.update_metadata_signal(target, %{
+             data: put_input_text(target.data, edited.data["text"])
+           }) do
+        {:ok, updated} -> {:cont, {:ok, [updated | changed]}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
   defp change_input_in_tx(input, "edit", attrs) do
     with %Message{} = message <- Native.message(input.message_id),
-         {:ok, text} <- Native.native_text(Ankole.Attrs.get(attrs, :text), message.attachments),
-         {:ok, updated} <-
-           Ankole.Ash.update(message, :edit, %{text: text, links: Native.page_links(text)}),
-         :ok <-
-           Queries.message_changed_in_tx(message, updated, DateTime.utc_now(:microsecond)),
+         {:ok, message} <- edit_message_in_tx(message, attrs),
          {:ok, input} <-
            Signals.update_metadata_signal(input, %{
-             data: put_input_text(input.data, text)
+             data: put_input_text(input.data, message.text)
            }),
          do: {:ok, [input]}
   end
 
-  defp change_input_in_tx(input, "send_now", _attrs) do
+  defp change_input_in_tx(input, "steer", _attrs) do
     with :ok <-
            ModelPreferences.ensure_can_steer(
              input.agent_uid,
@@ -361,24 +520,75 @@ defmodule Ankole.Conversations.NativeQueue do
          do: {:ok, [input]}
   end
 
-  defp change_input_in_tx(input, "remove", _attrs) do
+  defp change_input_in_tx(input, "retract", _attrs) do
     # Retain the accepted identity so a late POST retry cannot recreate removed input.
     now = DateTime.utc_now(:microsecond)
 
     with %Message{} = message <- Native.message(input.message_id),
-         :ok <- Queries.message_changed_in_tx(message, nil, now),
          {:ok, input} <-
-           Signals.update_metadata_signal(input, %{
-             data: Map.put(input.data, "removed", true)
-           }),
+           Signals.update_metadata_signal(input, %{data: Map.put(input.data, "removed", true)}),
          {:ok, input} <- Ankole.Sessions.Queue.mark_event_completed_in_tx(input, now),
+         :ok <- invalidate_withdrawn(message, now),
          do: {:ok, [input]}
+  end
+
+  defp edit_message_in_tx(message, attrs) do
+    with {:ok, text} <- Native.native_text(Ankole.Attrs.get(attrs, :text), message.attachments),
+         {:ok, updated} <-
+           Ankole.Ash.update(message, :edit, %{
+             text: text,
+             links: edited_links(message, text, attrs),
+             mentions: edited_mentions(message, attrs)
+           }),
+         :ok <- Queries.message_changed_in_tx(message, updated, DateTime.utc_now(:microsecond)),
+         do: {:ok, updated}
+  end
+
+  defp invalidate_withdrawn(message, now) do
+    withdrawn =
+      Message |> Ash.Query.filter(id == ^message.id and withdrawn) |> Ankole.Ash.read_one!()
+
+    if withdrawn, do: Queries.message_changed_in_tx(message, nil, now), else: :ok
   end
 
   defp put_input_text(data, text) do
     data = Map.put(data, "text", text)
     if is_map(data["entry"]), do: put_in(data, ["entry", "text"], text), else: data
   end
+
+  defp edited_links(message, text, attrs) do
+    links = Ankole.Attrs.get(attrs, :links) || message.links
+    Enum.uniq(Native.page_links(text) ++ canonical_links(links))
+  end
+
+  defp edited_mentions(message, attrs) do
+    case Ankole.Attrs.get(attrs, :mentions) do
+      nil ->
+        message.mentions
+
+      mentions ->
+        human_uids =
+          for mention <- canonical_mentions(mentions),
+              mention["type"] == "human",
+              do: mention["uid"]
+
+        Enum.filter(message.mentions, &(&1["type"] != "human" or &1["uid"] in human_uids))
+    end
+  end
+
+  @doc false
+  def canonical_links(links), do: canonical_references(links, "kind")
+  @doc false
+  def canonical_mentions(mentions), do: canonical_references(mentions, "type")
+
+  defp canonical_references(references, type_key),
+    do:
+      Enum.map(references, fn reference ->
+        reference
+        |> Map.new(fn {key, value} -> {to_string(key), value} end)
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.update!(type_key, &to_string/1)
+      end)
 
   defp reorder_inputs(inputs, ids) when is_list(ids) do
     current_ids = Enum.map(inputs, & &1.message_id)
@@ -393,7 +603,7 @@ defmodule Ankole.Conversations.NativeQueue do
         end
 
       ids
-      |> Enum.with_index((maximum || 0) + 1)
+      |> Enum.with_index(maximum + 1)
       |> Enum.reduce_while({:ok, []}, fn {id, sequence}, {:ok, changed} ->
         case Signals.update_metadata_signal(Map.fetch!(by_id, id), %{
                queue_sequence: sequence
@@ -410,16 +620,16 @@ defmodule Ankole.Conversations.NativeQueue do
   defp reorder_inputs(_inputs, _ids), do: {:error, :invalid_request}
 
   defp max_queue_sequence(input) do
-    case Signals.list_signals!(
-           query: [
-             filter: [agent_uid: input.agent_uid, session_id: input.session_id],
-             sort: [queue_sequence: :desc],
-             limit: 1,
-             select: [:queue_sequence]
-           ]
-         ) do
-      [%Signal{queue_sequence: sequence}] -> sequence
-      [] -> nil
-    end
+    [latest] =
+      Signals.list_signals!(
+        query: [
+          filter: [agent_uid: input.agent_uid, session_id: input.session_id],
+          sort: [queue_sequence: :desc],
+          limit: 1,
+          select: [:queue_sequence]
+        ]
+      )
+
+    latest.queue_sequence
   end
 end

@@ -49,10 +49,21 @@ defmodule Ankole.Pod.Database do
 
   @doc false
   def create_table_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, attrs) do
-    with {:ok, %{type: :database}} <- Pages.authorize(actor, page_id, "page_edit"),
-         {:ok, table} <-
+    with {:ok, %{type: :database} = page} <- Pages.authorize(actor, page_id, "page_edit"),
+         do: init_table_in_tx(page, attrs),
+         else: (
+           {:ok, _} -> {:error, :invalid_page_type}
+           error -> error
+         )
+  end
+
+  @doc false
+  def init_default_table_in_tx(page, _uid), do: init_table_in_tx(page, %{name: "Table 1"})
+
+  defp init_table_in_tx(page, attrs) do
+    with {:ok, table} <-
            Ankole.Ash.create(DbTable, :create_in_tx, %{
-             page_id: page_id,
+             page_id: page.id,
              name: Ankole.Attrs.get(attrs, :name, "Table"),
              position: Ankole.Attrs.get(attrs, :position, Ankole.Ecto.UUIDv7.autogenerate())
            }),
@@ -72,9 +83,6 @@ defmodule Ankole.Pod.Database do
              position: "U"
            }) do
       {:ok, table}
-    else
-      {:ok, _} -> {:error, :invalid_page_type}
-      error -> error
     end
   end
 
@@ -164,6 +172,8 @@ defmodule Ankole.Pod.Database do
     end)
   end
 
+  defdelegate delete_table(actor, id, authority \\ nil), to: Ankole.Pod.Database.Schema
+
   defdelegate create_field(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
   defdelegate update_field(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
   defdelegate delete_field(actor, id, version, authority \\ nil), to: Ankole.Pod.Database.Schema
@@ -195,13 +205,20 @@ defmodule Ankole.Pod.Database do
   def committed_schema(%{changed: changed}), do: broadcast_schema(changed)
 
   def table_access(%Ankole.AuthZ.Actor{} = actor, %DbTable{} = table, intent)
-      when intent in [:read, :write_records, :manage_schema] do
-    action = if intent == :read, do: "page_view", else: "page_edit"
+      when intent in [:read, :write_records, :manage_schema, :delete_table] do
+    action =
+      case intent do
+        :read -> "page_view"
+        :write_records -> "page_write_records"
+        :manage_schema -> "page_edit"
+        :delete_table -> "page_manage"
+      end
+
     with {:ok, _} <- Pages.authorize(actor, table.page_id, action), do: {:ok, table}
   end
 
   def table_access(%Ankole.AuthZ.Actor{} = actor, id, intent)
-      when intent in [:read, :write_records, :manage_schema] do
+      when intent in [:read, :write_records, :manage_schema, :delete_table] do
     with {:ok, table} <- fetch_table(id), do: table_access(actor, table, intent)
   end
 

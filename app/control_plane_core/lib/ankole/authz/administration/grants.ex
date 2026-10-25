@@ -165,7 +165,7 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp allow_guest_share(%{principal_uid: uid, action: action})
-       when is_binary(uid) and action in ~w(page_view page_edit page_manage) do
+       when is_binary(uid) and action in ~w(page_view page_write_records page_edit page_manage) do
     with {:ok, principal} <- Ankole.Principals.get_principal(uid) do
       if principal.membership == :guest do
         with {:ok, enabled} <-
@@ -266,7 +266,8 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   defp normalize_target(%{action: action, resource_pattern: pattern} = attrs)
-       when action in ~w(page_view page_edit page_manage) and is_binary(pattern) do
+       when action in ~w(page_view page_write_records page_edit page_manage) and
+              is_binary(pattern) do
     case Regex.run(
            ~r/\Apod:\*\*:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(\*\*|page)\z/,
            pattern

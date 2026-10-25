@@ -74,6 +74,88 @@ defmodule Ankole.Pod.RPCBrokerTest do
     end
   end
 
+  test "sharing RPC uses the page manage contract and its current version", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{private_owner_uid: ctx.owner})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+        grants: [%{principal_uid: ctx.agent, role: "edit"}]
+      })
+
+    {:ok, sharing} = Pages.sharing(actor, page.id)
+    params = %{id: page.id, sharing_version: sharing.sharing_version, grants: []}
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_write(ctx.ref, request("pages.set_sharing", params), ctx.ctx)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+        grants: [%{principal_uid: ctx.agent, role: "manage"}]
+      })
+
+    assert {:ok, %{"result" => readable}} =
+             RPCBroker.handle_read(ctx.ref, request("pages.sharing", %{id: page.id}), ctx.ctx)
+
+    params = %{
+      id: page.id,
+      sharing_version: readable["sharing_version"],
+      grants: [%{principal_uid: ctx.agent, role: "manage"}]
+    }
+
+    assert {:ok, %{"result" => %{"id" => id}}} =
+             RPCBroker.handle_write(ctx.ref, request("pages.set_sharing", params), ctx.ctx)
+
+    assert id == page.id
+
+    assert {:error, %{"code" => "sharing_conflict"}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.set_sharing", %{params | sharing_version: "stale"}),
+               ctx.ctx
+             )
+  end
+
+  test "Human-driven sharing requires manage access for both the Human and Agent", ctx do
+    {source, _parent} = page_request(ctx)
+    assert {:ok, _run} = Ankole.Sessions.Admission.admit(source, source)
+    ref = %RunRef{agent_uid: ctx.agent, session_id: source.session_id, signal_id: source.id}
+    colleague = human_fixture().principal
+    colleague_actor = Ankole.PrincipalsFixtures.actor_fixture(colleague.uid)
+    {:ok, page} = Pages.create(colleague_actor, %{private_owner_uid: colleague.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(colleague.uid, page.id, %{
+        grants: [
+          %{principal_uid: ctx.agent, role: "manage"},
+          %{principal_uid: ctx.owner, role: "view"}
+        ]
+      })
+
+    {:ok, sharing} = Pages.sharing(colleague_actor, page.id)
+
+    params = %{
+      id: page.id,
+      sharing_version: sharing.sharing_version,
+      grants: [%{principal_uid: ctx.agent, role: "manage"}]
+    }
+
+    assert {:error, %{"code" => "forbidden"}} =
+             RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(colleague.uid, page.id, %{
+        grants: [
+          %{principal_uid: ctx.agent, role: "manage"},
+          %{principal_uid: ctx.owner, role: "manage"}
+        ]
+      })
+
+    {:ok, sharing} = Pages.sharing(colleague_actor, page.id)
+    params = %{params | sharing_version: sharing.sharing_version}
+    assert {:ok, _} = RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
+  end
+
   test "document RPC transfers canonical XML over the signed relay and keeps CAS at its owner",
        ctx do
     {:ok, page} =
@@ -184,7 +266,11 @@ defmodule Ankole.Pod.RPCBrokerTest do
     }
 
     assert {:error, %{"code" => "forbidden"}} =
-             Ankole.Files.RPCBroker.handle_get(ctx.agent, request, ctx.ctx)
+             Ankole.Files.RPCBroker.handle_get(
+               ctx.agent,
+               request,
+               Map.put(ctx.ctx, :turn_ref, ctx.ref)
+             )
 
     assert WorkerFilesFake.files(fake) == %{}
 
@@ -194,7 +280,11 @@ defmodule Ankole.Pod.RPCBrokerTest do
       })
 
     assert {:ok, %FabricProto.FilesGetResponse{}} =
-             Ankole.Files.RPCBroker.handle_get(ctx.agent, request, ctx.ctx)
+             Ankole.Files.RPCBroker.handle_get(
+               ctx.agent,
+               request,
+               Map.put(ctx.ctx, :turn_ref, ctx.ref)
+             )
 
     assert WorkerFilesFake.files(fake) == %{"received/report.txt" => "saved bytes"}
   end

@@ -216,6 +216,46 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
     assert task_excerpt =~ "matching"
   end
 
+  test "ambient candidates preserve the eight-row boundary and completeness", %{
+    agent: agent,
+    base_time: base_time
+  } do
+    binding_fixture(agent.uid, "bot", :may_intervene)
+
+    assert {:ok, %{signal: event}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{text: "The deploy has a new database timeout."}),
+               now: base_time
+             )
+
+    jobs = for n <- 1..8, do: create_job!(agent.uid, event, "bounded-#{n}", %{})
+
+    assert %{"complete" => true, "jobs" => first_jobs} =
+             Ankole.Sessions.Ambient.candidates(event)
+
+    expected_first_ids =
+      jobs
+      |> Enum.sort_by(& &1.id, :desc)
+      |> Enum.map(&Integer.to_string(&1.id))
+
+    assert Enum.map(first_jobs, & &1["job_id"]) == expected_first_ids
+
+    ninth = create_job!(agent.uid, event, "bounded-9", %{})
+
+    assert %{"complete" => false, "jobs" => second_jobs} =
+             Ankole.Sessions.Ambient.candidates(event)
+
+    expected_second_ids =
+      [ninth | jobs]
+      |> Enum.sort_by(& &1.id, :desc)
+      |> Enum.take(8)
+      |> Enum.map(&Integer.to_string(&1.id))
+
+    assert Enum.map(second_jobs, & &1["job_id"]) == expected_second_ids
+  end
+
   test "a policy change after observation rejects judgment and supersedes the next input", %{
     agent: agent,
     base_time: base_time

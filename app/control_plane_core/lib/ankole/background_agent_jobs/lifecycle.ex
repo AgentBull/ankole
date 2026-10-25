@@ -208,6 +208,24 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @doc "Wakes the Job driver after a committed `commit_status` action."
   def publish_status_commit(%{job: job}), do: Ankole.Sessions.job_turn(job)
 
+  def fail_admission_in_tx(nil, _code, _now), do: {:ok, nil}
+
+  def fail_admission_in_tx(%Job{} = job, code, now) do
+    commit_status_with_wakeup_in_tx(
+      job.id,
+      job.agent_uid,
+      %{
+        "status" => :failed,
+        "error" => %{"code" => code, "summary" => "Job admission was rejected."}
+      },
+      now,
+      nil,
+      nil,
+      nil,
+      transition_action: :fail_admission
+    )
+  end
+
   @doc false
   @spec commit_status_with_wakeup_in_tx(
           pos_integer(),

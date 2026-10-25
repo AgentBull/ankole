@@ -18,6 +18,8 @@ secrets:
   ankoleSecretBase: ""
   # Shared by every control-plane Pod for Distributed Erlang.
   releaseCookie: ""
+  # Shared by the control plane and Function Runtime.
+  functionRuntimeToken: ""
   # Required when postgresql.enabled is false and existingSecret is empty.
   databaseURL: ""
   # Used only by the bundled PostgreSQL service.
@@ -37,7 +39,7 @@ controlPlane:
   terminationGracePeriodSeconds: 60
   image:
     repository: ghcr.io/agentbull/ankole-agent-control-plane
-    tag: 2.0.0-alpha.5
+    tag: 2.0.0-alpha.24
     digest: ""
     pullPolicy: Always
   publicHost: ankole.example.com
@@ -71,6 +73,34 @@ controlPlane:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+functionRuntime:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/agentbull/ankole-function-runtime
+    tag: 2.0.0-alpha.24
+    digest: ""
+    pullPolicy: Always
+  maxConcurrency: 32
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  # Include public control-plane and database addresses used by the site.
+  deniedCIDRs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+    - 127.0.0.0/8
 
 # Bytes of Agent drives and attachments. `fs` keeps them on a ReadWriteOnce
 # volume of the control plane and allows one control-plane replica. Remote

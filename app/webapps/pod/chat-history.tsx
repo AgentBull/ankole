@@ -12,6 +12,7 @@ import type { ChatModel, ChatPresentation, ChatReadingPosition, DisplayMessage }
 export function useChatHistory(id: string | undefined, detail: ConversationDetail | undefined) {
   const client = useQueryClient()
   const anchor = useRef<{ element: HTMLElement; height: number; top: number } | null>(null)
+  const jumpToMatch = useRef<((range: Range) => void) | undefined>(undefined)
   const load = useMutation({
     mutationFn: async (element: HTMLElement | null) => {
       if (!id) return
@@ -37,7 +38,12 @@ export function useChatHistory(id: string | undefined, detail: ConversationDetai
     position.element.scrollTop = position.top + position.element.scrollHeight - position.height
     anchor.current = null
   }, [detail?.messages])
-  return { ...load, hasOlder: detail?.olderMessagesBeforeSeq != null }
+  return {
+    ...load,
+    jumpToMatch,
+    hasOlder: detail?.olderMessagesBeforeSeq != null,
+    loadedCount: detail?.messages.length ?? 0
+  }
 }
 
 export function OlderMessages({
@@ -60,18 +66,15 @@ export function OlderMessages({
 }
 
 export function messageID(message: DisplayMessage) {
-  return message.type === 'committed'
-    ? message.message.id
-    : message.type === 'pending'
-      ? message.message.messageID
-      : undefined
+  return message.type === 'committed' ? message.message.id : message.message.messageID
 }
 
 export function useChatReading(
   model: InstanceType<typeof ChatModel>,
   presentation: ChatPresentation,
   { scrollRef, contentRef, state, stopScroll, scrollToBottom }: StickToBottomInstance,
-  messageKeys: string
+  messageKeys: string,
+  jumpToMatch: ReturnType<typeof useChatHistory>['jumpToMatch']
 ) {
   const position = useRef<ChatReadingPosition | undefined>(model.reading.peek()[presentation])
   const elements = useRef<HTMLElement[]>([])
@@ -119,6 +122,20 @@ export function useChatReading(
   }
   const callbacks = useRef({ capture, restore })
   callbacks.current = { capture, restore }
+
+  useLayoutEffect(() => {
+    jumpToMatch.current = range => {
+      const scroll = scrollRef.current
+      if (!scroll) return
+      stopScroll()
+      state.scrollTop +=
+        range.getBoundingClientRect().top - scroll.getBoundingClientRect().top - scroll.clientHeight / 2
+      callbacks.current.capture()
+    }
+    return () => {
+      jumpToMatch.current = undefined
+    }
+  }, [jumpToMatch, scrollRef, state, stopScroll])
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current

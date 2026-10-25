@@ -497,7 +497,10 @@ defmodule Ankole.Pod.MovePermissionsTest do
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: page.id})
 
     {:ok, leaf} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{type: "file"})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        type: "file",
+        parent_id: left.id
+      })
 
     share(ctx.owner, page, %{
       inherit_permissions: false,
@@ -514,10 +517,12 @@ defmodule Ankole.Pod.MovePermissionsTest do
                parent_id: child.id
              })
 
-    assert {:error, :invalid_parent} =
+    assert {:ok, %{page: moved}} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{
                parent_id: leaf.id
              })
+
+    assert moved.parent_id == leaf.id
 
     assert {:error, :not_found} =
              Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, %{

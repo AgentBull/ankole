@@ -23,6 +23,7 @@ import { canAggregateLocally, canQueryLocally } from './state/local-query'
 import {
   podDatabaseTables,
   podDatabaseTableCreate,
+  podDatabaseTableDelete,
   podDatabaseSchema,
   podDatabaseQuery,
   podDatabaseAggregate,
@@ -39,6 +40,7 @@ export const databaseHTTP = {
   tables: (pageID: string) => podDatabaseTables({ path: { page_id: pageID } }),
   createTable: (pageID: string, name: string) =>
     podDatabaseTableCreate({ path: { page_id: pageID }, body: { data: { name } } }),
+  removeTable: (tableID: string) => podDatabaseTableDelete({ path: { id: tableID } }),
   schema: (tableID: string): Promise<TableSchema> => podDatabaseSchema({ path: { id: tableID } }),
   query: (tableID: string, body: RecordQuery): Promise<RecordsResult> =>
     podDatabaseQuery({ path: { id: tableID }, body: { data: body } }),
@@ -150,7 +152,13 @@ export function createDatabaseAPI(client: QueryClient, realtime: PodRealtime): D
       }
       return result
     },
-    write: databaseHTTP.write,
+    async write(tableID, changes) {
+      try {
+        return await databaseHTTP.write(tableID, changes)
+      } finally {
+        await client.invalidateQueries({ queryKey: key(tableID) })
+      }
+    },
     subscribe(tableID, callback) {
       let entry = subscriptions.get(tableID)
       if (!entry) {
@@ -195,7 +203,6 @@ export function createDatabaseAPI(client: QueryClient, realtime: PodRealtime): D
             const changed = (event: TableEvent) => {
               if (!active()) return
               const change = ++owned.change
-              if (event.schema_changed) void client.invalidateQueries({ queryKey: [...key(tableID), 'schema'] })
               clearTimeout(owned.timer)
               owned.timer = setTimeout(async () => {
                 const current = () => active() && change === owned.change
@@ -251,7 +258,15 @@ export function createDatabaseAPI(client: QueryClient, realtime: PodRealtime): D
                 } catch {
                   if (current()) await client.invalidateQueries({ queryKey: snapshotKey, exact: true })
                 }
-                if (current()) for (const notify of owned.callbacks) notify(event)
+                if (current()) {
+                  const tableKey = key(tableID)
+                  void client.invalidateQueries({
+                    queryKey: tableKey,
+                    predicate: query =>
+                      query.queryKey[tableKey.length] === 'records' || query.queryKey[tableKey.length] === 'aggregate'
+                  })
+                  for (const notify of owned.callbacks) notify(event)
+                }
               }, 300)
             }
             handle.on('changed', changed)

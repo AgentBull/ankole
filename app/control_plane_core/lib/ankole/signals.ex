@@ -9,6 +9,7 @@ defmodule Ankole.Signals do
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
+  require Ash.Expr
   require Ash.Sort
 
   alias Ankole.Signals.{Binding, Intake, Signal, WebhookEndpoint}
@@ -151,9 +152,21 @@ defmodule Ankole.Signals do
 
   @doc "Gives the runnable or admitted input that the public Session status reports."
   def session_status_signal(agent_uid, session_id, now) do
-    agent_uid
-    |> open_query(session_id)
-    |> Ash.Query.sort([
+    session_status_signals([{agent_uid, session_id}], now) |> List.first()
+  end
+
+  @doc "Gives one public work-status input for each requested Session."
+  def session_status_signals([], _now), do: []
+
+  def session_status_signals(keys, now) do
+    filter =
+      Enum.reduce(keys, Ash.Expr.expr(false), fn {uid, session}, filter ->
+        Ash.Expr.expr(^filter or (agent_uid == ^uid and session_id == ^session))
+      end)
+
+    sort = [
+      {:agent_uid, :asc},
+      {:session_id, :asc},
       {Ash.Sort.expr_sort(
          fragment(
            "CASE WHEN ? > ? THEN 2 WHEN ? IS NULL THEN 1 ELSE 0 END",
@@ -165,22 +178,33 @@ defmodule Ankole.Signals do
        ), :asc},
       {:available_at, :asc},
       {:queue_sequence, :asc}
-    ])
-    |> Ash.Query.limit(1)
-    |> Ankole.Ash.read_one!()
+    ]
+
+    Signal
+    |> Ash.Query.filter(^filter)
+    |> open_status_query()
+    |> Ash.Query.select([:agent_uid, :session_id, :last_attempt_at, :available_at])
+    |> Ash.Query.distinct([:agent_uid, :session_id])
+    |> Ash.Query.distinct_sort(sort)
+    |> Ankole.Ash.read!()
   end
 
   defp open_query(agent_uid, session_id) do
     Signal
-    |> Ash.Query.filter(
-      agent_uid == ^agent_uid and session_id == ^session_id and status in [:queued, :running]
-    )
+    |> Ash.Query.filter(agent_uid == ^agent_uid and session_id == ^session_id)
+    |> open_status_query()
+  end
+
+  defp open_status_query(query) do
+    query
+    |> Ash.Query.filter(status in [:queued, :running])
     |> Ash.Query.filter(
       not is_nil(last_attempt_at) or type != "conversation.message.addressed" or
         fragment("COALESCE(?->>'delivery_mode', 'steer')", data) != "queue" or
         not exists(
           native_conversation,
-          fragment("COALESCE(?->>'queue_paused', 'false')", metadata) == "true"
+          fragment("COALESCE(?->>('queue_paused:' || ?), 'false')", metadata, parent(agent_uid)) ==
+            "true"
         )
     )
   end

@@ -1,0 +1,18 @@
+diff --git a/crates/base/src/worker/worker_surface_creation.rs b/crates/base/src/worker/worker_surface_creation.rs
+--- a/crates/base/src/worker/worker_surface_creation.rs
++++ b/crates/base/src/worker/worker_surface_creation.rs
+@@ -221,7 +221,13 @@
+       ReadTimeoutStream::with_bypass(upstream)
+     };
+ 
+-    let mut downstream = downstream.await.expect("failed to upgrade request");
++    let mut downstream = match downstream.await {
++      Ok(stream) => stream,
++      Err(err) => {
++        tracing::debug!("downstream upgrade ended before relay: {}", err);
++        return;
++      }
++    };
+ 
+     match io::copy_bidirectional(&mut upstream, &mut downstream).await {
+       Ok(_) => {}

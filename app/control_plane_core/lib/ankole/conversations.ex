@@ -4,7 +4,7 @@ defmodule Ankole.Conversations do
   """
   use Ankole.Ash.Domain
 
-  alias Ankole.Conversations.{Native, NativeQueue, Queries}
+  alias Ankole.Conversations.{Native, NativeQueue, NativeRoom, Queries}
 
   resources do
     resource Ankole.Conversations.Conversation do
@@ -55,13 +55,17 @@ defmodule Ankole.Conversations do
     end
   end
 
+  defdelegate teammates(actor, query \\ nil), to: NativeRoom
+  defdelegate update_conversation(actor, id, attrs), to: NativeRoom, as: :update
+  defdelegate manage_participants(actor, id, attrs), to: NativeRoom, as: :manage
+  defdelegate list_rooms(actor, opts \\ []), to: Native
   defdelegate agents(human_uid), to: Native
   defdelegate model_profiles(human_uid, agent_uid), to: Native
   defdelegate request_context(signal), to: Native
   defdelegate visible_native_conversation(human_uid, id), to: Native
-  defdelegate model_preferences(human_uid, id), to: Native
-  defdelegate set_model_profile(human_uid, id, profile), to: Native
-  defdelegate set_model_profile_in_tx(human_uid, id, profile), to: Native
+  defdelegate model_preferences(human_uid, id, agent_uid \\ nil), to: Native
+  defdelegate set_model_profile(human_uid, id, profile, agent_uid \\ nil), to: Native
+  defdelegate set_model_profile_in_tx(human_uid, id, profile, agent_uid \\ nil), to: Native
   defdelegate list(human_uid), to: Native
   defdelegate list_for_page(human_uid, page_id), to: Native
   defdelegate get(human_uid, id, opts \\ []), to: Native
@@ -73,9 +77,18 @@ defmodule Ankole.Conversations do
   defdelegate post_in_tx(target, statement), to: Native
   defdelegate update_queue(human_uid, id, attrs), to: NativeQueue
   defdelegate update_queue_in_tx(human_uid, id, attrs), to: NativeQueue
-  defdelegate queue_version(conversation, inputs), to: NativeQueue
-  defdelegate delete(human_uid, id), to: Native
-  defdelegate delete_in_tx(human_uid, id), to: Native
+  defdelegate delete(human_uid, id, opts \\ []), to: Native
+  defdelegate delete_in_tx(human_uid, id, opts \\ []), to: Native
+
+  defdelegate lock_native_participants_in_tx(key, human_uids),
+    to: Native,
+    as: :lock_session_participants_in_tx
+
+  defdelegate latest_native_questions(id), to: Queries
+
+  defdelegate answer_interaction(actor, id, interaction_id, attrs),
+    to: Ankole.Conversations.Delivery.Interactions,
+    as: :answer_native
 
   defdelegate message_changed_in_tx(before_message, after_message, now), to: Queries
   defdelegate message_for_signal(event), to: Queries

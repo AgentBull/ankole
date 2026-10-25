@@ -17,8 +17,10 @@ defmodule AnkoleWeb.WorkerChannel do
   by one per accepted message; a rejected message does not advance the
   sequence, so the Worker repeats it with the same number. Every reply
   carries the cumulative acknowledged sequence and the remaining message and
-  byte credit of that stream; a `durable` message is acknowledged only after
-  PostgreSQL committed it.
+  byte credit of that stream. An RPC request is acknowledged when its task
+  starts in the bounded in-flight set. The RPC response confirms the operation's
+  result and any PostgreSQL commit. Other envelopes follow the acknowledgement
+  points in `RuntimeFabric.md`.
 
   Commands from the control plane are pushed on `command` and replies on
   `reply`, with one shared sequence per connection. The Worker acknowledges

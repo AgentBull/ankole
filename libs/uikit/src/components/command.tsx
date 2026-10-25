@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { InputGroup, InputGroupAddon } from './input-group'
 import { RiSearchLine, RiCheckLine } from '@remixicon/react'
 
+export { defaultFilter as commandFilter } from 'cmdk'
+
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive

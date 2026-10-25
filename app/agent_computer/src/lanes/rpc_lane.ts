@@ -40,13 +40,15 @@ export type RPCCallOptions = {
 }
 
 /**
- * Frame of one call, enforced per operation scope. A turn method names its
- * turn fence. A worker-agent method has no frame: the control plane takes the
- * Agent from the connection, so the argument is omitted.
+ * A turn method names its turn fence. Pod methods use a turn frame or an
+ * Automation Job attempt in the payload. files.get can carry the turn frame
+ * for a Pod download. Other worker-agent calls use the connection identity.
  */
 export type RPCFrame<M extends ControlPlaneOwnedRPCMethod> = (typeof rpcOperations)[M] extends { scope: 'turn' }
   ? TurnRPCFrame
-  : void
+  : M extends 'pod.read' | 'pod.write' | 'files.get'
+    ? TurnRPCFrame | void
+    : void
 
 /**
  * Shape of the injected RPC caller every turn capability goes through. It

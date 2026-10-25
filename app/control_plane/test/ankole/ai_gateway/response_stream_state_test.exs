@@ -44,6 +44,34 @@ defmodule Ankole.AIGateway.ResponseStream.StateTest do
     end
   end
 
+  test "the display snapshot keeps every text and reasoning delta at the public watermark" do
+    state = State.new("agent-test", %{}, %{"api_resolver" => "openai_responses"})
+
+    events = [
+      %{"type" => "response.output_text.delta", "delta" => "prefix ", "sequence_number" => 7},
+      %{
+        "type" => "response.reasoning_summary_text.delta",
+        "delta" => "Think ",
+        "sequence_number" => 8
+      },
+      %{"type" => "response.output_text.delta", "delta" => "suffix", "sequence_number" => 9},
+      %{"type" => "response.reasoning_text.delta", "delta" => "more.", "sequence_number" => 10}
+    ]
+
+    state =
+      Enum.reduce(events, state, fn event, state ->
+        assert {:ok, state, [_], :continue} = State.observe(state, event, 0)
+        state
+      end)
+
+    assert %{text: "prefix suffix", thinking_summary: "Think more.", seq: 10} =
+             State.display_snapshot(state)
+
+    assert State.display_snapshot(state) == State.display_snapshot(state)
+    assert state.public_items == []
+    assert state.durable_items == []
+  end
+
   describe "shared single-round event fixtures across zero-effect and hosted-tool responses" do
     test "uses the streamed items when the terminal envelope carries no output" do
       created = %{"type" => "response.created", "sequence_number" => 0, "response" => %{}}

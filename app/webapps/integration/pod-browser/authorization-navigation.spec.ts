@@ -4,6 +4,70 @@ import { listRoute, pageRoute } from './routes'
 
 const suffix = () => crypto.randomUUID().slice(0, 8)
 
+test('a collapsed Space loads root permissions after reload for page creation and drag moves', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1365, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let sourceID: string | undefined
+  let createdID: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    const sourceTitle = `Private root move ${suffix()}`
+    const source = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: sourceTitle,
+      private_owner_uid: state.owner.uid
+    })
+    sourceID = source.page.id
+    const space = page.getByRole('region', { name: '空间', exact: true })
+    const toggle = space.getByRole('button', { name: '空间', exact: true })
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await toggle.click()
+    await page.reload()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    const create = space.getByRole('button', { name: '新建页面', exact: true })
+    await expect(create).toBeVisible()
+    await create.click()
+    const dialog = page.getByRole('dialog', { name: '新建页面', exact: true })
+    const title = `Collapsed Space page ${suffix()}`
+    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title)
+    const created = page.waitForResponse(
+      response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
+    )
+    await dialog.getByRole('button', { name: '创建', exact: true }).click()
+    const response = await created
+    expect(response.status()).toBe(201)
+    const result = (await response.json()) as {
+      page: { id: string; parent_id: string | null; private_owner_uid: string | null }
+    }
+    createdID = result.page.id
+    expect(result.page).toMatchObject({ parent_id: null, private_owner_uid: null })
+    await expect(page).toHaveURL(state.base_url + pageRoute(createdID))
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    const privateRow = page.getByRole('link', { name: sourceTitle, exact: true })
+    await expect(privateRow).toHaveAttribute('draggable', 'true')
+    const moved = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/v2/pod/pages/${sourceID}/move`
+    )
+    await privateRow.dragTo(space.locator('.pod-nav-section-heading'))
+    expect((await moved).status()).toBe(201)
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(space.getByRole('link', { name: sourceTitle, exact: true })).toBeVisible()
+    const persisted = await request<{ page: { parent_id: string | null; private_owner_uid: string | null } }>(
+      page,
+      `/pages/${sourceID}`
+    )
+    expect(persisted.page).toMatchObject({ parent_id: null, private_owner_uid: null })
+  } finally {
+    if (sourceID) await request(page, `/pages/${sourceID}`, 'DELETE')
+    if (createdID) await request(page, `/pages/${createdID}`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('navigation fetches a branch on expansion, follows its cursor, and searches an unloaded title', async ({
   browser
 }) => {
@@ -53,15 +117,16 @@ test('navigation fetches a branch on expansion, follows its cursor, and searches
   }
 })
 
-test('sharing adds Userset rules, redacts source titles and retains a conditional self rule through a CAS conflict', async ({
+test('sharing exposes four roles and preserves read-only advanced grants through CAS recovery and removal', async ({
   browser
 }) => {
-  const owner = await browser.newContext({ baseURL: state.base_url })
-  const viewer = await browser.newContext({ baseURL: state.base_url })
+  const owner = await browser.newContext({ baseURL: state.base_url }),
+    viewer = await browser.newContext({ baseURL: state.base_url })
   await owner.addCookies(state.owner.cookies)
   await viewer.addCookies(state.viewer.cookies)
-  const ownerPage = await owner.newPage()
-  const viewerPage = await viewer.newPage()
+  const ownerPage = await owner.newPage(),
+    viewerPage = await viewer.newPage()
+  let sourceID: string | undefined, targetID: string | undefined
   try {
     await ownerPage.goto(pageRoute(state.report_id))
     const sourceTitle = `Private source ${suffix()}`
@@ -70,76 +135,79 @@ test('sharing adds Userset rules, redacts source titles and retains a conditiona
       title: sourceTitle,
       private_owner_uid: state.owner.uid
     })
+    sourceID = source.page.id
     const target = await request<{ page: { id: string } }>(ownerPage, '/pages', 'POST', {
       type: 'doc',
       title: `Shared target ${suffix()}`
     })
+    targetID = target.page.id
+    const expression = 'context.request.surface == "pod_browser"'
     const grants = [
       { principal_uid: state.viewer.uid, role: 'manage', target_scope: 'container', condition: 'true' },
       {
-        source_page_id: source.page.id,
+        source_page_id: sourceID,
         source_action: 'page_view',
         role: 'view',
         target_scope: 'self',
-        condition: 'true'
+        condition: expression
       }
     ]
-    await requestWithSharingVersion(ownerPage, `/pages/${target.page.id}/sharing`, 'PUT', {
+    await requestWithSharingVersion(ownerPage, `/pages/${targetID}/sharing`, 'PUT', {
       inherit_permissions: false,
       grants
     })
-    await viewerPage.goto(pageRoute(target.page.id))
+    await viewerPage.goto(pageRoute(targetID))
     await viewerPage.getByRole('button', { name: '分享', exact: true }).click()
     await expect(viewerPage.getByText('你无权访问的页面', { exact: true })).toBeVisible()
     await expect(viewerPage.getByText(sourceTitle, { exact: true })).toHaveCount(0)
-    const sourceRule = viewerPage
-      .locator('li')
-      .filter({ has: viewerPage.getByText('你无权访问的页面', { exact: true }) })
-    const condition = sourceRule.getByRole('textbox', { name: '条件（CEL）', exact: true })
-    const expression = 'context.request.surface == "pod_browser"'
-    await condition.fill(expression)
-    await requestWithSharingVersion(ownerPage, `/pages/${target.page.id}/sharing`, 'PUT', {
+    await expect(viewerPage.getByRole('textbox', { name: '条件（CEL）', exact: true })).toHaveCount(0)
+    await expect(viewerPage.getByRole('combobox', { name: '共享对象', exact: true })).toHaveCount(0)
+    await expect(viewerPage.locator('code')).toHaveText(expression)
+    await viewerPage.getByRole('checkbox').first().check()
+    await requestWithSharingVersion(ownerPage, `/pages/${targetID}/sharing`, 'PUT', {
       inherit_permissions: true,
       grants
     })
     await viewerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
     await viewerPage.getByRole('button', { name: '保留我的设置并读取最新版本', exact: true }).click()
-    await expect(condition).toHaveValue(expression)
-    await expect(viewerPage.getByText(/^已读取最新版本/)).toBeVisible()
-    await viewerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
-    await expect(viewerPage.getByRole('textbox', { name: '条件（CEL）', exact: true })).toHaveCount(0)
-    const saved = await request<{
-      grants: Array<{ source_page_id?: string; target_scope: string; condition: string }>
-    }>(ownerPage, `/pages/${target.page.id}/sharing`)
-    expect(saved.grants.find(grant => grant.source_page_id === source.page.id)).toMatchObject({
-      target_scope: 'self',
-      condition: expression
-    })
-    await ownerPage.goto(pageRoute(target.page.id))
-    await ownerPage.getByRole('button', { name: '分享', exact: true }).click()
-    await ownerPage.getByRole('combobox', { name: '共享对象', exact: true }).click()
-    await ownerPage.getByRole('option', { name: '有权访问其他页面的用户', exact: true }).click()
-    await ownerPage.getByRole('combobox', { name: '来源页面', exact: true }).fill(sourceTitle)
-    await ownerPage
-      .getByRole('option')
-      .filter({ has: ownerPage.getByText(sourceTitle, { exact: true }) })
-      .click()
-    await ownerPage.getByRole('combobox', { name: '生效范围', exact: true }).first().click()
-    await ownerPage.getByRole('option', { name: '仅此页面', exact: true }).click()
-    await ownerPage.getByRole('button', { name: '添加', exact: true }).click()
-    await ownerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
-    await expect(ownerPage.getByRole('dialog', { name: '分享页面', exact: true })).toHaveCount(0)
-    const added = await request<{
-      grants: Array<{ source_page_id?: string; target_scope: string; condition: string }>
-    }>(ownerPage, `/pages/${target.page.id}/sharing`)
-    expect(added.grants.filter(grant => grant.source_page_id === source.page.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ target_scope: 'self', condition: expression }),
-        expect.objectContaining({ target_scope: 'self', condition: 'true' })
-      ])
+    await expect(viewerPage.locator('code')).toHaveText(expression)
+    const savedSharing = viewerPage.waitForResponse(
+      response =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname === `/api/v2/pod/pages/${targetID}/sharing`
     )
+    await viewerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    await expect(viewerPage.getByRole('button', { name: '保存分享设置', exact: true })).toHaveCount(0)
+    expect((await savedSharing).status()).toBe(200)
+    const saved = await request<{
+      inherit_permissions: boolean
+      grants: { source_page_id?: string; condition: string; target_scope: string }[]
+    }>(ownerPage, `/pages/${targetID}/sharing`)
+    expect(saved.inherit_permissions).toBe(true)
+    expect(saved.grants.find(grant => grant.source_page_id === sourceID)).toMatchObject({
+      condition: expression,
+      target_scope: 'self'
+    })
+    await ownerPage.goto(pageRoute(targetID))
+    await ownerPage.getByRole('button', { name: '分享', exact: true }).click()
+    await ownerPage.getByRole('combobox', { name: '授予权限', exact: true }).click()
+    await expect(ownerPage.getByRole('option')).toHaveCount(4)
+    await ownerPage.getByRole('option', { name: '可提交数据', exact: true }).click()
+    const advanced = ownerPage.locator('li').filter({ has: ownerPage.getByText(sourceTitle, { exact: true }) })
+    await advanced.getByRole('button', { name: '移除', exact: true }).click()
+    const removedSharing = ownerPage.waitForResponse(
+      response =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname === `/api/v2/pod/pages/${targetID}/sharing`
+    )
+    await ownerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    await expect(ownerPage.getByRole('button', { name: '保存分享设置', exact: true })).toHaveCount(0)
+    expect((await removedSharing).status()).toBe(200)
+    const removed = await request<{ grants: { source_page_id?: string }[] }>(ownerPage, `/pages/${targetID}/sharing`)
+    expect(removed.grants.some(grant => grant.source_page_id === sourceID)).toBe(false)
   } finally {
-    await owner.close()
-    await viewer.close()
+    if (targetID) await request(ownerPage, `/pages/${targetID}`, 'DELETE')
+    if (sourceID) await request(ownerPage, `/pages/${sourceID}`, 'DELETE')
+    await Promise.all([owner.close(), viewer.close()])
   }
 })

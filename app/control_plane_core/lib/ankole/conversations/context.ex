@@ -176,7 +176,13 @@ defmodule Ankole.Conversations.Context do
   def unreplied_messages(_attrs, _entries), do: []
 
   defp observed_message(%{message: message, external_ref: ref}, thread \\ nil) do
-    author = if ref, do: ref.author, else: %{"principal_uid" => message.author_uid}
+    author =
+      if ref,
+        do: ref.author,
+        else: %{
+          "principal_uid" => message.author_uid,
+          "display_name" => message.author_display_name
+        }
 
     %{
       "id" => message.id,

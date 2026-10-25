@@ -1,11 +1,26 @@
 import { batch, createModel, signal } from '@preact/signals-react'
 import type { PodPageSharingResponse } from '../api/generated/types.gen'
-import type { PageSharing } from '../content-api'
+import type { PageRole, PageSharing } from '../content-api'
 
-type SharingGrant = PodPageSharingResponse['grants'][number]
+// Ordinary rules send a role. Advanced rules preserve their exact stored actions.
+type SharingGrant = Omit<PodPageSharingResponse['grants'][number], 'actions'> & {
+  actions?: PodPageSharingResponse['grants'][number]['actions']
+}
+type SharingDraft = Omit<PodPageSharingResponse, 'grants'> & { grants: SharingGrant[] }
+
+const roleActionCount: Record<PageRole, number> = { view: 1, contribute: 2, edit: 3, manage: 4 }
+
+export function isAdvancedSharingRule(grant: SharingGrant): boolean {
+  // The server projects the highest action as the role. A full role contains each lower action.
+  return (
+    !!grant.source_page_id ||
+    (grant.condition ?? 'true') !== 'true' ||
+    (grant.actions !== undefined && grant.actions.length !== roleActionCount[grant.role])
+  )
+}
 
 export const PageSharingModel = createModel(() => {
-  const draft = signal<PodPageSharingResponse>()
+  const draft = signal<SharingDraft>()
   const conflictReloaded = signal(false)
   return {
     draft,
@@ -45,7 +60,12 @@ export const PageSharingModel = createModel(() => {
       if (current) {
         draft.value = {
           ...current,
-          grants: current.grants.map((grant, i) => (i === index ? { ...grant, ...attrs } : grant))
+          grants: current.grants.map((grant, i) => {
+            if (i !== index) return grant
+            const changed = { ...grant, ...attrs }
+            if (attrs.role && attrs.role !== grant.role) delete changed.actions
+            return changed
+          })
         }
       }
     },
@@ -59,17 +79,19 @@ export const PageSharingModel = createModel(() => {
       return {
         sharing_version: current.sharing_version,
         inherit_permissions: current.inherit_permissions,
-        grants: current.grants.map(
-          ({ principal_uid, group_id, role, target_scope, source_page_id, source_action, condition }) => ({
+        grants: current.grants.map(grant => {
+          const { principal_uid, group_id, role, target_scope, source_page_id, source_action, condition, actions } =
+            grant
+          return {
             principal_uid,
             group_id,
-            role,
             target_scope: target_scope ?? 'container',
             source_page_id,
             source_action,
-            condition: condition?.trim() || 'true'
-          })
-        )
+            condition: condition?.trim() || 'true',
+            ...(actions && isAdvancedSharingRule(grant) ? { actions } : { role })
+          }
+        })
       }
     }
   }

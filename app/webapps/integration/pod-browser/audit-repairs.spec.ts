@@ -1,159 +1,74 @@
 import { state, request } from './fixtures'
-import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import type { DatabaseField, DatabaseRecord } from '@ankole/applet-sdk/types'
-import { pageRoute, listRoute } from './routes'
+import { pageRoute } from './routes'
 
 test.setTimeout(30_000)
 const location = (id: string) => state.base_url + pageRoute(id)
 
-test('a late automatic recovery cannot replace edits made after a manual reload', async ({ browser }) => {
+test('remote writes preserve an unsent local draft and commit it through the original OT request', async ({
+  browser
+}) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
-  const started = Promise.withResolvers<void>()
-  const release = Promise.withResolvers<void>()
   let id: string | undefined
   let held = 0
-  await page.routeWebSocket('**/pod/socket/websocket*', ws => {
-    const server = ws.connectToServer()
-    ws.onMessage(message => {
-      if (JSON.parse(message.toString())[3] === 'changes') {
+  let deliver = false
+  let release: (() => void) | undefined
+  await page.routeWebSocket('**/pod/socket/websocket*', socket => {
+    const server = socket.connectToServer()
+    socket.onMessage(message => {
+      if (JSON.parse(message.toString())[3] === 'changes' && !deliver) {
         held++
+        release ??= () => server.send(message)
         return
       }
       server.send(message)
     })
-    server.onMessage(message => ws.send(message))
+    server.onMessage(message => socket.send(message))
   })
   try {
     await page.goto(location(state.report_id))
-    const saved = await request<{ page: { id: string; revision: number } }>(page, '/pages', 'POST', {
-      title: 'Overlapping draft recovery',
+    const created = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      title: 'Concurrent draft preservation',
       type: 'doc'
     })
-    id = saved.page.id
-    await request(page, `/pages/${id}/content`, 'PUT', {
-      base_revision: saved.page.revision,
+    id = created.page.id
+    const seeded = await request<{ page: { revision: number } }>(page, `/pages/${id}/content`, 'PUT', {
+      base_revision: 0,
       xml: '<page><p>Initial</p></page>'
     })
     await page.goto(location(id))
     const editor = page.locator('.editor-content')
-    await expect(editor).toContainText('Initial')
+    await expect(editor).toHaveText('Initial')
     await editor.click()
     await page.keyboard.press('ControlOrMeta+End')
-    await page.keyboard.insertText('First local draft')
+    await page.keyboard.insertText(' Local draft A')
     await expect.poll(() => held).toBeGreaterThan(0)
-    const latest = await request<{ page: { revision: number } }>(page, `/pages/${id}`)
-    let reads = 0
-    await page.route(`**/api/v2/pod/pages/${id}`, async route => {
-      if (route.request().method() !== 'GET' || ++reads !== 1) return route.continue()
-      const response = await route.fetch()
-      expect(response.ok()).toBe(true)
-      started.resolve()
-      await release.promise
-      await route.fulfill({ response })
+    const first = await request<{ page: { revision: number } }>(page, `/pages/${id}/content`, 'PUT', {
+      base_revision: seeded.page.revision,
+      xml: '<page><p>Remote name</p><p>Appended block</p></page>'
     })
+    await expect(editor).toContainText('Remote name Local draft A')
+    await expect(editor).toContainText('Appended block')
     await request(page, `/pages/${id}/content`, 'PUT', {
-      base_revision: latest.page.revision,
-      xml: '<page><p>Remote reset</p></page>'
+      base_revision: first.page.revision,
+      xml: '<page><p>Corrected name</p><p>Appended block</p><p>Second block</p></page>'
     })
-    await started.promise
-    await page.getByRole('button', { name: '重新读取文档', exact: true }).click()
-    await expect(editor).toContainText('Remote reset')
-    await expect(editor).not.toContainText('First local draft')
-    await editor.click()
-    await page.keyboard.press('ControlOrMeta+End')
-    await page.keyboard.insertText('Latest local draft')
-    await expect(editor).toContainText('Latest local draft')
-    const delivered = page.waitForEvent('requestfinished', {
-      predicate: request => request.method() === 'GET' && request.url().endsWith(`/pages/${id}`)
-    })
-    release.resolve()
-    await delivered
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    await expect(editor).toContainText('Latest local draft')
-    const download = page.waitForEvent('download')
-    await page.getByRole('button', { name: /导出保留的草稿/ }).click()
-    expect(readFileSync((await (await download).path())!, 'utf8')).toContain('First local draft')
+    await expect(editor).toContainText('Corrected name Local draft A')
+    await expect(editor).toContainText('Second block')
+    await expect(page.getByRole('button', { name: /导出保留的草稿/ })).toHaveCount(0)
+    deliver = true
+    release?.()
+    await expect
+      .poll(async () => (await request<{ content: { plain_text: string } }>(page, `/pages/${id}`)).content.plain_text)
+      .toContain('Corrected name Local draft A')
+    await page.reload()
+    await expect(page.locator('.editor-content')).toContainText('Corrected name Local draft A')
+    await expect(page.locator('.editor-content')).toContainText('Second block')
   } finally {
-    release.resolve()
-    if (id) await request(page, `/pages/${id}`, 'DELETE').catch(() => {})
-    await context.close()
-  }
-})
-
-test('two external document resets keep both local drafts exportable and protect navigation', async ({ browser }) => {
-  const context = await browser.newContext()
-  await context.addCookies(state.owner.cookies)
-  const page = await context.newPage()
-  let id: string | undefined
-  let held = 0
-  await page.routeWebSocket('**/pod/socket/websocket*', ws => {
-    const server = ws.connectToServer()
-    ws.onMessage(message => {
-      const frame = JSON.parse(message.toString())
-      if (frame[3] === 'changes') {
-        held++
-        return
-      }
-      server.send(message)
-    })
-    server.onMessage(message => ws.send(message))
-  })
-  try {
-    await page.goto(location(state.report_id))
-    const saved = await request<{ page: { id: string; revision: number } }>(page, '/pages', 'POST', {
-      title: 'Recovery owner review',
-      type: 'doc'
-    })
-    id = saved.page.id
-    await request(page, `/pages/${id}/content`, 'PUT', {
-      base_revision: saved.page.revision,
-      xml: '<page><p>Initial</p></page>'
-    })
-    await page.goto(location(id))
-    const editor = page.locator('.editor-content')
-    await expect(editor).toContainText('Initial')
-    for (const [local, remote] of [
-      ['Local draft A', 'Remote one'],
-      ['Local draft B', 'Remote two']
-    ]) {
-      await editor.click()
-      await page.keyboard.press('ControlOrMeta+End')
-      await page.keyboard.insertText(local!)
-      await expect.poll(() => held).toBeGreaterThan(0)
-      const latest = await request<{ page: { revision: number } }>(page, `/pages/${id}`)
-      await request(page, `/pages/${id}/content`, 'PUT', {
-        base_revision: latest.page.revision,
-        xml: `<page><p>${remote}</p></page>`
-      })
-      await expect(editor).toContainText(remote!)
-      await expect(editor).not.toContainText(local!)
-    }
-    const exportButtons = page.getByRole('button', { name: /导出保留的草稿/ })
-    await expect(exportButtons).toHaveCount(2)
-    for (let i = 0; i < 2; i++) {
-      const download = page.waitForEvent('download')
-      await exportButtons.nth(i).click()
-      const file = await download
-      expect(readFileSync((await file.path())!, 'utf8')).toContain(i === 0 ? 'Local draft A' : 'Local draft B')
-    }
-    await page
-      .getByRole('navigation', { name: '页面导航' })
-      .getByRole('link', { name: '最近访问', exact: true })
-      .click()
-    await expect(page.getByRole('dialog', { name: '修改尚未保存' })).toBeVisible()
-    const download = page.waitForEvent('download')
-    await page.getByRole('button', { name: '下载草稿并离开', exact: true }).click()
-    const file = await download
-    const backup = JSON.parse(readFileSync((await file.path())!, 'utf8'))
-    expect(backup.recoveryDrafts).toHaveLength(2)
-    expect(backup.recoveryDrafts[0]).toContain('Local draft A')
-    expect(backup.recoveryDrafts[1]).toContain('Local draft B')
-    await expect(page).toHaveURL(state.base_url + listRoute('recent'))
-  } finally {
-    if (id) await request(page, `/pages/${id}`, 'DELETE').catch(() => {})
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
   }
 })

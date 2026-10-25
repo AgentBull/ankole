@@ -887,7 +887,28 @@ export class TextTile extends Tile {
 
   sync() {
     if (!checkSync(this)) return
-    if (this.dom.nodeValue != this.text) this.dom.nodeValue = this.text
+    const before = this.dom.data
+    if (before == this.text) return
+    let from = 0
+    const max = Math.min(before.length, this.text.length)
+    while (from < max && before.charCodeAt(from) == this.text.charCodeAt(from)) from++
+    if (from && before.charCodeAt(from - 1) >= 0xd800 && before.charCodeAt(from - 1) <= 0xdbff) from--
+    let suffix = 0
+    while (
+      suffix < max - from &&
+      before.charCodeAt(before.length - suffix - 1) == this.text.charCodeAt(this.text.length - suffix - 1)
+    ) {
+      suffix++
+    }
+    if (
+      suffix &&
+      before.charCodeAt(before.length - suffix) >= 0xdc00 &&
+      before.charCodeAt(before.length - suffix) <= 0xdfff
+    ) {
+      suffix--
+    }
+    // Preserve the browser's IME range in the unchanged part of this Text node.
+    this.dom.replaceData(from, before.length - from - suffix, this.text.slice(from, this.text.length - suffix))
   }
 
   toString() {

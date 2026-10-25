@@ -1,4 +1,6 @@
 import { createClientConfig } from '../common/internal-api-client'
+import type { ConversationAttachment } from './api'
+import { identityQuery } from './content-api'
 import type { PodFileCopyResponse } from './api/generated/types.gen'
 
 export type AttachmentReceipt = { receipt: string; name: string; size: number; content_type?: string | null }
@@ -24,4 +26,25 @@ export async function uploadFile(
   if (revision !== undefined) body.set('base_revision', String(revision))
   const response = await transport(`/api/v2/pod/pages/${encodeURIComponent(id)}/files`, { method: 'POST', body })
   return response.json()
+}
+
+export function conversationAttachmentURL(conversationID: string, messageID: string, path: string, download = false) {
+  const query = new URLSearchParams({ path, ...(download ? { download: 'true' } : {}), ...identityQuery() })
+  return `/api/v2/pod/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(messageID)}?${query}`
+}
+
+export function restoreConversationFiles(
+  conversationID: string,
+  messageID: string,
+  attachments: ConversationAttachment[]
+): Promise<File[]> {
+  return Promise.all(
+    attachments.map(async attachment => {
+      const response = await transport(conversationAttachmentURL(conversationID, messageID, attachment.path), {
+        method: 'GET'
+      })
+      const bytes = await response.blob()
+      return new File([bytes], attachment.name, { type: attachment.content_type || attachment.mime_type || bytes.type })
+    })
+  )
 }

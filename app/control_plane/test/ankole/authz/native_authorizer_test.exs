@@ -181,7 +181,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
         name: "Protected"
       })
 
-    for action <- ~w(page_view page_edit page_manage) do
+    for action <- ~w(page_view page_write_records page_edit page_manage) do
       {:ok, _} =
         AuthZ.create_permission_grant(%{
           principal_uid: agent.uid,

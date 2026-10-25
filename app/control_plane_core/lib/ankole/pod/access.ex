@@ -6,9 +6,15 @@ defmodule Ankole.Pod.Access do
   alias Ankole.AuthZ.{Actor, Grants, Root}
   alias Ankole.Pod.{Page, Pages}
   alias Ankole.Sessions.{JobTurnRef, RunRef}
+  alias Ankole.AutomationJobs.AttemptRef
 
-  @actions ~w(page_view page_edit page_manage)
-  @roles %{"view" => ["page_view"], "edit" => ~w(page_view page_edit), "manage" => @actions}
+  @actions ~w(page_view page_write_records page_edit page_manage)
+  @roles %{
+    "view" => ["page_view"],
+    "contribute" => ~w(page_view page_write_records),
+    "edit" => ~w(page_view page_write_records page_edit),
+    "manage" => @actions
+  }
   def page_actions, do: @actions
   def actions(role) when is_binary(role) or is_atom(role), do: Map.fetch(@roles, to_string(role))
   def actions(_role), do: :error
@@ -37,8 +43,16 @@ defmodule Ankole.Pod.Access do
        when (is_struct(ref, RunRef) or is_struct(ref, JobTurnRef)) and ref.agent_uid == uid,
        do: :ok
 
+  defp validate_authority_shape({%AttemptRef{agent_uid: uid}, uid}), do: :ok
+
   defp validate_authority_shape(_), do: {:error, :worker_not_assigned_to_turn}
   defp writer_in_tx(nil), do: :ok
+
+  defp writer_in_tx({%AttemptRef{} = ref, uid}) do
+    with {:ok, _actor} <-
+           Ankole.AutomationJobs.authorize_attempt_actor_in_tx(ref, %{worker_id: uid}),
+         do: :ok
+  end
 
   defp writer_in_tx({ref, uid}) do
     case Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(ref, uid, :write, lock: true) do
@@ -107,12 +121,12 @@ defmodule Ankole.Pod.Access do
     end
   end
 
-  def authorize_with_role(uid, page) do
+  def authorize_with_permissions(uid, page) do
     with :ok <- visible_state(page, []),
          {:ok, reachable} <- reachable_anchors(uid, target_ids: [page.acl_anchor_id]),
          bits = page_bits(page, reachable),
          true <- band(bits, 1) != 0,
-         do: {:ok, %{page | role: role_for_actions(bits)}},
+         do: {:ok, Ankole.Pod.Access.Graph.project_permissions(page, bits)},
          else: (
            false -> {:error, :forbidden}
            error -> error
@@ -313,7 +327,7 @@ defmodule Ankole.Pod.Access do
   def authorize_move_source(uid, page) do
     with :ok <- visible_state(page, []),
          {:ok, reachable} <- reachable_anchors(uid, target_ids: [page.acl_anchor_id]) do
-      if band(page_bits(page, reachable), 6) != 0,
+      if band(page_bits(page, reachable), 12) != 0,
         do: {:ok, page},
         else: {:error, :forbidden}
     end
@@ -322,7 +336,7 @@ defmodule Ankole.Pod.Access do
   def authorize_move(uid, page, parent_id, private_owner_uid) do
     with :ok <- visible_state(page, []),
          {:ok, reachable} <- reachable_anchors(uid, target_ids: [page.acl_anchor_id]) do
-      if band(page_bits(page, reachable), 4) != 0 do
+      if band(page_bits(page, reachable), 8) != 0 do
         {:ok, page}
       else
         with {:ok, _} <- authorize_bits(page, "page_edit", reachable),
@@ -501,7 +515,7 @@ defmodule Ankole.Pod.Access do
       policy = MapSet.new(selected, &{{&1.principal_uid, &1.group_id}, action_bit(&1.action)})
 
       if baseline == "pod:space:**",
-        do: Enum.reduce([1, 2, 4], policy, &MapSet.put(&2, {:space_admin_fallback, &1})),
+        do: Enum.reduce([1, 2, 4, 8], policy, &MapSet.put(&2, {:space_admin_fallback, &1})),
         else: policy
     end
   end
@@ -545,7 +559,11 @@ defmodule Ankole.Pod.Access do
 
   def put_role(owner, pattern, role, opts \\ %{}) do
     with {:ok, wanted} <- actions(role) do
-      grants(resource_pattern: pattern, action: [in: @actions])
+      grants(
+        resource_pattern: pattern,
+        action: [in: @actions],
+        condition: Map.get(opts, :condition, "true")
+      )
       |> Enum.filter(&(owner_match?(owner, &1) and &1.action not in wanted))
       |> remove_grants()
 

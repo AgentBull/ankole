@@ -5,6 +5,10 @@ import { moveDestinations } from './page-location'
 export type TreeOperation = 'before' | 'after' | 'inside'
 export type DropAvailability = 'available' | 'blocked' | 'not-available'
 
+export function canMovePage(page: Pick<Page, 'actions'>): boolean {
+  return page.actions?.some(action => action === 'page_edit' || action === 'page_manage') === true
+}
+
 /** Sibling order is the server's `C` collation order with the ID as tie-breaker. */
 export function positionOrder(a: Page, b: Page): number {
   return a.position === b.position ? (a.id < b.id ? -1 : a.id === b.id ? 0 : 1) : a.position < b.position ? -1 : 1
@@ -34,8 +38,7 @@ export function dropAvailability(
   target: Page,
   operation: TreeOperation
 ): DropAvailability {
-  if (!source || source.role === 'view') return 'not-available'
-  if (operation === 'inside' && target.type !== 'doc') return 'not-available'
+  if (!source || !canMovePage(source)) return 'not-available'
   const destinations = new Set(moveDestinations(pages, source.id).map(page => page.id))
   if (operation === 'inside') return destinations.has(target.id) ? 'available' : 'blocked'
   if (within(pages, target, source.id)) return 'blocked'

@@ -137,7 +137,8 @@ defmodule Ankole.Sessions.Commands do
 
   @doc false
   def apply_command_in_tx(key, event, now) do
-    with :ok <- Queue.lock_session_in_tx(key.agent_uid, key.session_id),
+    with :ok <- Ankole.Conversations.lock_native_participants_in_tx(key, [event.human_uid]),
+         :ok <- Queue.lock_session_in_tx(key.agent_uid, key.session_id),
          %Signal{status: live_status} = current
          when live_status in [:queued, :running] <-
            PreviewStates.load(Ankole.Signals.lock_signal_in_tx(event.id)) do
@@ -175,7 +176,8 @@ defmodule Ankole.Sessions.Commands do
 
   @doc false
   def retry_action_in_tx(run, event) do
-    with :ok <- Queue.lock_session_in_tx(run.agent_uid, run.session_id),
+    with :ok <- Run.lock_native_participants_in_tx(run, [event]),
+         :ok <- Queue.lock_session_in_tx(run.agent_uid, run.session_id),
          :ok <- Fence.check_in_tx(run),
          %Signal{status: live_status} = current
          when live_status in [:queued, :running] <-

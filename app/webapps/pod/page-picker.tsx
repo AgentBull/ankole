@@ -3,7 +3,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { RiFolderLine, RiLockLine } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { pageSearchQuery, type Page } from './content-api'
+import { pageSearchQuery, type Page, type PageSearchOptions } from './content-api'
 import { ContentError } from './content-primitives'
 import { PageIcon } from './page-icon'
 
@@ -12,7 +12,7 @@ type Location = { id: string; title: string; private?: boolean }
 /** One searchable list for choosing a saved Page or its destination. */
 export function PagePicker({
   excludeSubtreeOf,
-  filter,
+  requiredAction,
   roots = [],
   selected,
   onSelect,
@@ -20,7 +20,7 @@ export function PagePicker({
   disabled = false
 }: {
   excludeSubtreeOf?: Page['id']
-  filter?(pages: Page[]): Page[]
+  requiredAction?: PageSearchOptions['required_action']
   roots?: Location[]
   selected?: string
   onSelect(id: string, page?: Page): void
@@ -29,11 +29,12 @@ export function PagePicker({
 }) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const remote = useQuery(pageSearchQuery(deferredQuery, excludeSubtreeOf))
+  const remote = useQuery(
+    pageSearchQuery(deferredQuery, { exclude_subtree_of: excludeSubtreeOf, required_action: requiredAction })
+  )
   const searching = query !== deferredQuery || remote.isFetching
-  const candidates = query === deferredQuery ? (remote.data?.pages ?? []) : []
+  const pages = query === deferredQuery ? (remote.data?.pages ?? []) : []
   const visibleRoots = roots.filter(root => root.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  const pages = filter ? filter(candidates) : candidates
   const byID = new Map(pages.map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
     const visited = new Set([page.id])

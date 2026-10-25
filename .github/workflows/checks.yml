@@ -142,6 +142,7 @@ jobs:
     env:
       MIX_ENV: test
       ANKOLE_EDITION: foss
+      TORQUE_BUILD: 'true'
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -185,6 +186,9 @@ jobs:
       MIX_TEST_PARTITION: ci
       ANKOLE_EDITION: foss
       ANKOLE_SECRET_BASE: repository-checks-only
+      TORQUE_BUILD: 'true'
+      ANKOLE_FUNCTION_RUNTIME_URL: http://127.0.0.1:5435
+      ANKOLE_FUNCTION_RUNTIME_TOKEN: repository-checks-only
       DATABASE_URL: ecto://postgres:repository-checks-only@localhost:5432/ankole_test
     services:
       postgres:
@@ -202,6 +206,23 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build and start Function Runtime
+        run: |
+          docker buildx build --load \
+            --cache-from type=registry,ref=ghcr.io/agentbull/ankole-function-runtime:buildcache-amd64 \
+            -t ankole-function-runtime:checks -f app/function_runtime/Dockerfile .
+          docker run -d --name ankole-function-runtime -p 5435:9000 \
+            --add-host=host.docker.internal:host-gateway \
+            -e ANKOLE_FUNCTION_RUNTIME_TOKEN \
+            ankole-function-runtime:checks
+          for _ in $(seq 1 30); do
+            if curl -fsS "$ANKOLE_FUNCTION_RUNTIME_URL/_internal/health"; then exit 0; fi
+            sleep 1
+          done
+          docker logs ankole-function-runtime
+          exit 1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -213,6 +234,20 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup default 1.98.1
       - run: bun install --frozen-lockfile
+      - run: bun run --filter @ankole/function-runtime type-check
+      - run: bun run --filter @ankole/function-runtime test
+      - run: bun run --filter @ankole/function-runtime test:integration
+      - run: bun run --filter @ankole/function-runtime test:native
+        env:
+          ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE: ankole-function-runtime:checks
+          ANKOLE_FUNCTION_RUNTIME_NATIVE_ARTIFACTS: ${{ runner.temp }}/function-runtime-native
+      - name: Upload Function Runtime native evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: function-runtime-native-${{ env.ANKOLE_EDITION }}
+          path: ${{ runner.temp }}/function-runtime-native
+          retention-days: 7
       - uses: actions/cache@v6
         with:
           path: |
@@ -253,3 +288,6 @@ jobs:
         working-directory: app/control_plane
       - run: mix test integration/subtraction_upgrade_test.exs integration/fake_feishu_standalone_e2e_test.exs
         working-directory: app/control_plane
+      - name: Function Runtime logs
+        if: failure()
+        run: docker logs ankole-function-runtime

@@ -1,38 +1,25 @@
-import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { authenticationRef, podID } from '../common/browser-context'
 import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogFooter,
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
   SidebarTrigger,
   useSidebar,
   Tabs,
   TabsContent,
   TabsList,
-  TabsTrigger,
-  toast
+  TabsTrigger
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { RiChat3Line, RiHome5Line, RiSearchLine } from '@remixicon/react'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useNavigate } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
+import { ChatSidebar } from './chat/chat-sidebar'
 import { AccountMenu } from './account-menu'
-import { conversationsQuery } from './api'
 import { ContentNavigation, CreatePageButton } from './page-navigation'
-import { contentError } from './content-errors'
-import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys } from './content-api'
-import { deleteConversation } from './api/generated/sdk.gen'
-import { podKeys } from './api'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePodCommandMenu } from './command-menu'
 
@@ -126,104 +113,5 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
 }
 
 function ConversationMenu() {
-  const { t } = useTranslation()
-  const location = useLocation()
-  const { isMobile, setOpenMobile } = useSidebar()
-  const conversations = useQuery(conversationsQuery)
-  const client = useQueryClient(),
-    navigate = useNavigate()
-  const [deleting, setDeleting] = useState<{ id: string; title: string }>()
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteConversation({ path: { id } }),
-    onError: error => toast.error(requestErrorMessage(contentError(error))),
-    onSuccess: async (_result, id) => {
-      await client.invalidateQueries({ queryKey: podKeys.conversations })
-      setDeleting(undefined)
-      if (location.pathname === podLocation(`/conversations/${id}`).pathname) {
-        void navigate({ to: podLocation('/').pathname })
-      }
-    }
-  })
-  const close = () => {
-    if (isMobile) setOpenMobile(false)
-  }
-  return (
-    <>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            render={<Link to={podLocation('/').pathname} />}
-            isActive={location.pathname === '/'}
-            onClick={close}>
-            <RiAddLine aria-hidden />
-            <span>{t('pod.chat.new_conversation')}</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        {conversations.isPending ? (
-          <li role="status" className="px-3 py-2">
-            {t('pod.chat.loading_history')}
-          </li>
-        ) : null}
-        {conversations.isError ? (
-          <li className="space-y-2 px-3 py-2">
-            <p role="alert">{t('pod.chat.history_failed')}</p>
-            <Button size="xs" variant="outline" onClick={() => void conversations.refetch()}>
-              {t('pod.chat.retry_load')}
-            </Button>
-          </li>
-        ) : null}
-        {!conversations.isPending && !conversations.isError && !conversations.data?.conversations.length ? (
-          <li className="px-3 py-2">{t('pod.sidebar.chat_empty')}</li>
-        ) : null}
-        {conversations.data?.conversations.map(conversation => (
-          <SidebarMenuItem key={conversation.id} className="pod-chat-row flex items-center">
-            <SidebarMenuButton
-              render={<Link to={podLocation(`/conversations/${conversation.id}`).pathname} />}
-              isActive={location.pathname === podLocation(`/conversations/${conversation.id}`).pathname}
-              onClick={close}
-              title={conversation.title}>
-              <RiChat3Line aria-hidden className="text-fg-tertiary" />
-              <span>{conversation.title}</span>
-            </SidebarMenuButton>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="pod-row-action"
-              aria-label={t('pod.content.delete_conversation', { value1: conversation.title })}
-              disabled={remove.isPending}
-              onClick={() => {
-                remove.reset()
-                setDeleting(conversation)
-              }}>
-              <RiDeleteBinLine aria-hidden className="size-4" />
-            </Button>
-          </SidebarMenuItem>
-        ))}
-      </SidebarMenu>
-      <Dialog
-        open={!!deleting}
-        onOpenChange={open => {
-          if (!open && !remove.isPending) setDeleting(undefined)
-        }}>
-        <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!remove.isPending}>
-          <DialogTitle>{t('pod.content.delete_conversation_2')}</DialogTitle>
-          <p className="text-sm">
-            {t('pod.content.deleting_cannot_be_undone_pages_saved_to_pod_will_be', { title: deleting?.title ?? '' })}
-          </p>
-          {remove.error && <p role="alert">{requestErrorMessage(contentError(remove.error))}</p>}
-          <DialogFooter>
-            <Button variant="outline" disabled={remove.isPending} onClick={() => setDeleting(undefined)}>
-              {t('pod.content.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={remove.isPending}
-              onClick={() => deleting && remove.mutate(deleting.id)}>
-              {remove.isPending ? t('pod.content.deleting') : t('pod.content.confirm_conversation_deletion')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
+  return <ChatSidebar />
 }

@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import type { DatabaseRecord, RecordsResult, TableEvent, TableSchema } from '@ankole/applet-sdk/types'
 import { createDatabaseAPI, databaseHTTP } from '../database-api'
 import { InternalAPIError } from '../../common/internal-api-client'
@@ -36,6 +36,7 @@ function schema(version: number, count: number, mode: TableSchema['mode'] = 'loc
 class RealtimeBoundary {
   readonly ready = Promise.withResolvers<unknown>()
   readonly listeners = new Map<string, Set<(event: TableEvent) => void>>()
+  readonly versions = new Set<(version: number | undefined) => void>()
   readonly handle: TopicHandle = {
     ready: this.ready.promise,
     push: async () => {
@@ -59,7 +60,16 @@ class RealtimeBoundary {
   }
 
   join = async () => this.handle
-  watchVersion = () => () => {}
+  watchVersion = (_kind: string, _id: string, callback: (version: number | undefined) => void) => {
+    this.versions.add(callback)
+    return () => {
+      this.versions.delete(callback)
+    }
+  }
+
+  version(version: number | undefined) {
+    for (const callback of this.versions) callback(version)
+  }
 
   emit(name: string, event: TableEvent = {}) {
     for (const callback of this.listeners.get(name) ?? []) callback(event)
@@ -116,6 +126,171 @@ function fixture(manualReady = false) {
 }
 
 describe('Database cache reconciliation', () => {
+  for (const event of ['changed', 'schema_changed', 'version'] as const) {
+    test(`one ${event} refreshes each active table read once with multiple subscribers`, async () => {
+      const context = fixture()
+      const aggregate = spyOn(databaseHTTP, 'aggregate')
+      let version = 1
+      context.schemaSpy.mockImplementation(async () => schema(version, 1, 'remote'))
+      context.querySpy.mockImplementation(async () => records([record('a', `Value ${version}`)], version))
+      aggregate.mockImplementation(async () => ({
+        groups: [{ values: [], metrics: { count: version } }],
+        data_version: version
+      }))
+      const recordsQuery = {
+        queryKey: [...context.api.key(tableID), 'records', {}],
+        queryFn: () => context.api.records(tableID, {})
+      }
+      const aggregateQuery = {
+        queryKey: [...context.api.key(tableID), 'aggregate', {}],
+        queryFn: () => context.api.aggregate(tableID, { metrics: [{ operation: 'count' as const, alias: 'count' }] })
+      }
+      const stop: (() => void)[] = []
+      try {
+        await context.subscribe()
+        await Promise.all([context.client.fetchQuery(recordsQuery), context.client.fetchQuery(aggregateQuery)])
+        // Separate SDK hooks share the records query and each keep a table subscription.
+        for (let index = 0; index < 2; index++) {
+          stop.push(new QueryObserver(context.client, recordsQuery).subscribe(() => {}))
+          stop.push(context.api.subscribe(tableID, () => {}))
+        }
+        stop.push(new QueryObserver(context.client, aggregateQuery).subscribe(() => {}))
+        stop.push(context.api.subscribe(tableID, () => {}))
+        stop.push(
+          new QueryObserver(context.client, {
+            queryKey: [...context.api.key(tableID), 'schema'],
+            queryFn: () => databaseHTTP.schema(tableID)
+          }).subscribe(() => {})
+        )
+        context.schemaSpy.mockClear()
+        context.querySpy.mockClear()
+        aggregate.mockClear()
+        version = 2
+        if (event === 'version') context.realtime.version(version)
+        else context.realtime.emit(event, { data_version: version, changed_ids: ['a'] })
+        await context.notified(version)
+        await turn()
+        if (event !== 'version') expect(context.schemaSpy).toHaveBeenCalledTimes(1)
+        expect(
+          context.client.getQueryData<TableSchema>([...context.api.key(tableID), 'schema'])?.table.data_version
+        ).toBe(version)
+        expect(context.querySpy).toHaveBeenCalledTimes(1)
+        expect(aggregate).toHaveBeenCalledTimes(1)
+        expect(context.client.getQueryData<RecordsResult>(recordsQuery.queryKey)?.data_version).toBe(version)
+        expect(context.client.getQueryData(aggregateQuery.queryKey)).toMatchObject({ data_version: version })
+      } finally {
+        for (const close of stop) close()
+        aggregate.mockRestore()
+        context.dispose()
+      }
+    })
+  }
+
+  test('active reads reuse one reconciled local snapshot across table subscribers', async () => {
+    const context = fixture()
+    const aggregate = spyOn(databaseHTTP, 'aggregate')
+    let version = 1
+    context.schemaSpy.mockImplementation(async () => ({ ...schema(version, 1), limits: { group_count: 1000 } }))
+    context.querySpy.mockImplementation(async () => records([record('a', `Value ${version}`)], version))
+    const query = {
+      queryKey: [...context.api.key(tableID), 'records', {}],
+      queryFn: () => context.api.records(tableID, {})
+    }
+    const stop: (() => void)[] = []
+    try {
+      await context.subscribe()
+      await context.client.fetchQuery(query)
+      for (let index = 0; index < 2; index++) {
+        stop.push(new QueryObserver(context.client, query).subscribe(() => {}))
+        stop.push(context.api.subscribe(tableID, () => {}))
+      }
+      stop.push(
+        new QueryObserver(context.client, {
+          queryKey: [...context.api.key(tableID), 'aggregate', {}],
+          queryFn: () => context.api.aggregate(tableID, { metrics: [{ operation: 'count' as const, alias: 'count' }] })
+        }).subscribe(() => {})
+      )
+      await turn()
+      version = 2
+      context.realtime.emit('changed', { data_version: version, changed_ids: ['a'] })
+      await context.notified(version)
+      await turn()
+      expect(context.querySpy.mock.calls.map(([, query]) => query)).toEqual([{ local: true }, { ids: ['a'] }])
+      expect(aggregate).not.toHaveBeenCalled()
+      expect(context.client.getQueryData<RecordsResult>(query.queryKey)?.records[0]?.data.name).toBe('Value 2')
+    } finally {
+      for (const close of stop) close()
+      aggregate.mockRestore()
+      context.dispose()
+    }
+  })
+
+  test('revocation evicts table reads without refetching, and a fresh subscription can read again', async () => {
+    const context = fixture()
+    const join = spyOn(context.realtime, 'join')
+    const notifications: TableEvent[][] = [[], []]
+    const stop: (() => void)[] = []
+    context.schemaSpy.mockResolvedValue(schema(1, 1, 'remote'))
+    context.querySpy.mockResolvedValue(records([record('a', 'Visible')], 1))
+    const query = {
+      queryKey: [...context.api.key(tableID), 'records', {}],
+      queryFn: () => context.api.records(tableID, {})
+    }
+    try {
+      await context.subscribe()
+      await context.client.fetchQuery(query)
+      for (const events of notifications) {
+        stop.push(new QueryObserver(context.client, query).subscribe(() => {}))
+        stop.push(context.api.subscribe(tableID, event => events.push(event)))
+      }
+      context.querySpy.mockClear()
+      context.realtime.emit('access_revoked')
+      await turn()
+      expect(context.client.getQueriesData({ queryKey: context.api.key(tableID) })).toEqual([])
+      expect(context.querySpy).not.toHaveBeenCalled()
+      expect(notifications).toEqual([[{ access_revoked: true }], [{ access_revoked: true }]])
+      for (const close of stop.splice(0)) close()
+      context.unsubscribe()
+      await context.subscribe()
+      expect(join).toHaveBeenCalledTimes(2)
+      expect((await context.client.fetchQuery(query)).records[0]?.data.name).toBe('Visible')
+      expect(context.querySpy).toHaveBeenCalledTimes(1)
+    } finally {
+      for (const close of stop) close()
+      join.mockRestore()
+      context.dispose()
+    }
+  })
+
+  for (const succeeds of [true, false]) {
+    test(`the adapter refreshes cached reads after a ${succeeds ? 'successful' : 'failed'} write`, async () => {
+      const context = fixture()
+      const write = spyOn(databaseHTTP, 'write')
+      context.schemaSpy.mockResolvedValue(schema(1, 1, 'remote'))
+      context.querySpy.mockResolvedValue(records([record('a', 'Confirmed')], 1))
+      const query = {
+        queryKey: [...context.api.key(tableID), 'records', {}],
+        queryFn: () => context.api.records(tableID, {})
+      }
+      const stop = new QueryObserver(context.client, query).subscribe(() => {})
+      const error = new Error('Edit conflict')
+      if (succeeds) write.mockResolvedValue({ records: [], deleted_ids: [], data_version: 2 })
+      else write.mockRejectedValue(error)
+      try {
+        await context.client.fetchQuery(query)
+        context.querySpy.mockClear()
+        const result = context.api.write(tableID, { updates: [] })
+        if (succeeds) await expect(result).resolves.toMatchObject({ data_version: 2 })
+        else await expect(result).rejects.toBe(error)
+        expect(context.querySpy).toHaveBeenCalledTimes(1)
+      } finally {
+        stop()
+        write.mockRestore()
+        context.dispose()
+      }
+    })
+  }
+
   test('a paginated changed-ID response never removes the remaining changed rows', async () => {
     const context = fixture()
     const before = Array.from({ length: 301 }, (_, i) => record(String(i).padStart(3, '0'), 'before'))

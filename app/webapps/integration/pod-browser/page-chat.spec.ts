@@ -1,4 +1,4 @@
-import { state, request } from './fixtures'
+import { state, request, selectChatAgent } from './fixtures'
 import { pageRoute, conversationRoute, uuidShorten } from './routes'
 import { writeFileSync } from 'node:fs'
 import { expect, test, type Dialog, type Route } from '@playwright/test'
@@ -10,7 +10,7 @@ for (const width of [1440, 390]) {
     const page = await context.newPage()
     try {
       await page.goto('/')
-      const title = page.getByRole('heading', { level: 1, name: '开始对话', exact: true })
+      const title = page.getByRole('heading', { level: 1, name: /，一起做点什么？$/ })
       const input = page.getByRole('textbox', { name: '消息', exact: true })
       await expect(title).toBeVisible()
       await expect(input).toBeVisible()
@@ -44,8 +44,11 @@ test('page chat sends through the real API and reopens the same conversation in 
     await page.goto(pageRoute(state.report_id))
     await page.getByRole('button', { name: '页面对话', exact: true }).click()
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
-    await expect(panel.getByText('当前页面: Browser report', { exact: true })).toBeVisible()
+    await expect(panel.locator('.pod-page-chat-header')).toHaveAttribute('title', 'Browser report')
+    await expect(panel.locator('.pod-chat-home-eyebrow')).toHaveCount(0)
+    await expect(panel.locator('.pod-chat-starters')).toHaveCount(0)
     await panel.getByRole('button', { name: '新对话', exact: true }).click()
+    await selectChatAgent(page, panel)
     const message = `请更新此页面，保留现有内容 ${Date.now()}`
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(message)
     const response = page.waitForResponse(
@@ -59,30 +62,34 @@ test('page chat sends through the real API and reopens the same conversation in 
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
     const selectedTitle = panel.getByRole('heading', { level: 3, name: submitted.conversation.title, exact: true })
     await expect(selectedTitle).toBeVisible()
+    await expect(panel.locator('.pod-room-header [data-slot="sidebar-trigger"]')).toHaveCount(0)
+    await expect(panel.locator('.pod-chat-turn-rail')).toHaveCount(0)
+    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toHaveCount(0)
     await expect(panel.getByLabel('选择页面对话', { exact: true })).toBeVisible()
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(message, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
     await page.reload()
     await expect(selectedTitle).toBeVisible()
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(message, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
     await panel.getByRole('button', { name: '在对话页面打开', exact: true }).click()
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id))
     await expect(
-      page.getByRole('region', { name: '对话消息', exact: true }).getByText(message, { exact: true })
+      page.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
     // A page-associated Conversation also has a context link. The broad real-
     // story selector can choose it before any delivered message link exists.
-    const contextLink = page.locator(`a.link[href*="${pageRoute(state.report_id)}"]`)
+    const contextLink = page.getByRole('link', { name: '关联页面', exact: true })
     await expect(contextLink).toHaveCount(1)
     const selectedHref = await contextLink.getAttribute('href')
     expect(new URL(selectedHref!, state.base_url).searchParams.get('chat')).toBe(uuidShorten(id))
+    expect(new URL(selectedHref!, state.base_url).pathname).toBe(pageRoute(state.report_id))
     await contextLink.click()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(message, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
     const opener = page.getByRole('button', { name: '页面对话', exact: true })
     await expect(opener).toHaveAttribute('aria-expanded', 'true')
@@ -106,14 +113,14 @@ test('page chat sends through the real API and reopens the same conversation in 
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBeNull()
     await opener.click()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
-    await expect(panel.getByText('当前页面: Browser report', { exact: true })).toBeVisible()
+    await expect(panel.locator('.pod-page-chat-header')).toHaveAttribute('title', 'Browser report')
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(message, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
     await page.reload()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(message, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
     expect(errors).toEqual([])
   } finally {
@@ -146,7 +153,7 @@ test('page chat fits a small viewport and returns focus to its opener', async ({
     await page.setViewportSize({ width: 1440, height: 900 })
     await opener.click()
     await expect(page.getByRole('complementary', { name: '页面对话', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: '更多操作', exact: true }).focus()
+    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).focus()
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(panel).toBeVisible()
     await panel.getByRole('button', { name: '关闭页面对话', exact: true }).click()
@@ -206,12 +213,17 @@ test('an unfinished page chat survives closing and navigation and warns before r
     await opener.click()
     let panel = page.getByRole('complementary', { name: '页面对话', exact: true })
     await panel.getByRole('button', { name: '新对话', exact: true }).click()
+    await selectChatAgent(page, panel)
     const draft = `保留尚未发送的修改要求 ${Date.now()}`
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(draft)
     await panel.getByRole('button', { name: '关闭页面对话', exact: true }).click()
     await opener.click()
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue(draft)
     await panel.getByRole('button', { name: '关闭页面对话', exact: true }).click()
+    const parent = page
+      .getByRole('region', { name: '空间', exact: true })
+      .getByRole('button', { name: 'Browser report', exact: true })
+    if ((await parent.getAttribute('aria-expanded')) !== 'true') await parent.click()
     await page
       .locator(`a[href*="${pageRoute(state.database_id)}"]`)
       .first()
@@ -268,6 +280,7 @@ test('a failed first send retries the same request after the panel closes', asyn
     await opener.click()
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
     await panel.getByRole('button', { name: '新对话', exact: true }).click()
+    await selectChatAgent(page, panel)
     const text = `断线后继续同一次委托 ${Date.now()}`
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(text)
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
@@ -277,7 +290,7 @@ test('a failed first send retries the same request after the panel closes', asyn
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue(text)
     await panel.getByRole('button', { name: '重试发送', exact: true }).click()
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
     ).toBeVisible()
     expect(requests).toHaveLength(2)
     expect(requests[1]).toEqual(requests[0])
@@ -303,12 +316,13 @@ test('a successful first send is visible while its following history read is del
   try {
     await page.goto(pageRoute(state.report_id, 'new'))
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    await selectChatAgent(page, panel)
     const text = `发送成功后立即可见 ${Date.now()}`
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(text)
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('')
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
     ).toBeVisible({ timeout: 3000 })
   } finally {
     history.resolve()
@@ -332,6 +346,7 @@ test('closing during the first send keeps its completion attached to the same co
   try {
     await page.goto(pageRoute(state.report_id, 'new'))
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    await selectChatAgent(page, panel)
     const text = `等待确认时关闭面板 ${Date.now()}`
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(text)
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
@@ -342,7 +357,7 @@ test('closing during the first send keeps its completion attached to the same co
     acknowledgement.resolve()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(saved.conversation.id))
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
     ).toBeVisible()
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('')
   } finally {
@@ -360,12 +375,13 @@ test('a list refresh failure keeps the open chat and its draft while another tab
   try {
     await page.goto(pageRoute(state.report_id, 'new'))
     const panel = page.getByRole('complementary', { name: '页面对话', exact: true })
+    await selectChatAgent(page, panel)
     const first = `双窗口对话 ${Date.now()}`
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(first)
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).not.toBe('new')
     await expect(
-      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(first, { exact: true })
+      panel.getByRole('region', { name: '待发送', exact: true }).getByText(first, { exact: true })
     ).toBeVisible()
     const draft = '列表刷新失败时仍保留的草稿'
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(draft)

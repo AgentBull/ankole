@@ -81,7 +81,7 @@ backend. Use the source build for private server and frontend code.
 A full local setup is complete only when all of these are true:
 
 1. Bun, Elixir/Erlang, Rust, Docker, and Docker Compose work from a new terminal.
-2. The devkit PostgreSQL service is healthy and the control-plane database is migrated.
+2. The devkit PostgreSQL and Function Runtime services are healthy, and the control-plane database is migrated.
 3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation requests Worker startup. Environment tools or Jobs request it again after idle release; pure questions do not wait for it.
 4. The first administrator can sign in, and an LLM provider, agent, and Signal binding are configured.
 5. A real message sent through Feishu/Lark reaches the agent and receives the expected reply.
@@ -119,6 +119,7 @@ You do not need to learn every runtime before starting. The repository-level Bun
 | Component | What it does | Source | Local surface |
 | --- | --- | --- | --- |
 | PostgreSQL | Stores all durable control-plane state | Devkit Compose service | `localhost:5433` |
+| Function Runtime | Runs Applet backends and deterministic program steps | `app/function_runtime` | `localhost:5435` |
 | Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://ankole.localhost:4000` |
 | Webapps | Provide setup, authentication, and Console pages | `app/webapps` | Vite on `localhost:3035`, served through the control plane |
 | Agent Computer | Runs environment tools, Codex, Skill materialization, and Worker-local state | `app/agent_computer` | One Docker container per Agent, label `ankole.installation=dev` |
@@ -213,7 +214,7 @@ Do not continue while `docker info` fails. Fix Docker Desktop startup or Linux g
 
 **Stage 2 is complete when every tool check succeeds from a new terminal.**
 
-## 3. Install dependencies and initialize PostgreSQL
+## 3. Install dependencies and start local services
 
 Run these commands in order:
 
@@ -227,7 +228,7 @@ bun run control-plane:setup
 They perform distinct jobs:
 
 1. `bun install` installs every workspace dependency.
-2. `services:start` starts PostgreSQL through `tools/devkit/external-services.docker-compose.yml` and waits for it to become healthy.
+2. `services:start` starts PostgreSQL and builds Function Runtime through `tools/devkit/external-services.docker-compose.yml`, then waits for their health checks. The first Function Runtime build compiles the pinned Rust engine. Later builds reuse its native layer when only Main or application code changes.
 3. `services:status` shows the Compose service state.
 4. `control-plane:setup` fetches Elixir dependencies, creates the development database, runs Ecto migrations, and loads seeds.
 
@@ -235,7 +236,7 @@ The first Elixir compile is much slower than a normal TypeScript install. Contin
 
 If a command fails, preserve its first actionable error. Do not jump to a database reset, edit generated files, or bypass the root command with an improvised lower-level command.
 
-**Stage 3 is complete when PostgreSQL is healthy and `control-plane:setup` exits successfully.**
+**Stage 3 is complete when both services are healthy and `control-plane:setup` exits successfully.**
 
 ## 4. Start the complete development environment
 
@@ -245,9 +246,9 @@ Run:
 bun dev
 ```
 
-Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
+Keep this terminal open. The devkit starts or verifies PostgreSQL and Function Runtime, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
 
-The first run may spend substantial time building the Agent Computer image. Wait while there is active build output.
+The first run may spend substantial time building the Function Runtime and Agent Computer images. Wait while there is active build output.
 
 In another terminal, verify the visible boundaries:
 
@@ -262,7 +263,7 @@ The development control plane listens on every interface, because Worker contain
 
 Do not start a second `bun dev`. Stop the control plane with `Ctrl+C` in the original terminal; the devkit then removes the Worker containers of the `dev` installation.
 
-PostgreSQL intentionally remains running after `Ctrl+C`. Stop it separately when needed:
+PostgreSQL and Function Runtime run until you stop the support services:
 
 ```bash
 bun run services:stop
@@ -554,6 +555,7 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 | `app/control_plane_core` | Domain and web code of the control plane: Ecto persistence, setup, Console APIs, and durable runtime authority |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
 | `app/kernel` | Rust library loaded through Rustler and browser Node-API bindings |
+| `app/function_runtime` | Stateless Applet backend and deterministic program workers |
 | `app/webapps` | Vite/React setup, authentication, Pod, and Console applications |
 | `app/library` | Built-in agent skills and starter templates |
 | `app/locales` | Shared translation catalogs |
@@ -603,10 +605,22 @@ this workflow succeeds for that revision.
 | Agent Computer | `bun run agent-computer:type-check` and `bun run agent-computer:test` |
 | Webapps | `bun run webapps:type-check`, `bun run --filter @ankole/webapps test`, and `bun run webapps:build` |
 | Kernel | `bun run --filter @ankole/kernel lint` and `bun run --filter @ankole/kernel test` |
+| Function Runtime | `bun run --filter @ankole/function-runtime type-check`, `bun run --filter @ankole/function-runtime test`, and `bun run --filter @ankole/function-runtime test:integration` with local services running, plus `bun run --filter @ankole/function-runtime test:native` against the built image |
 | Browser | `bun run --filter @ankole/browser lint`, `bun run --filter @ankole/browser test`, and `bun run --filter @ankole/browser test:integration` with `ANKOLE_BROWSER_TEST_CHROMIUM` set to Chromium |
 | Feishu client | `bun run lark-adapter:test` |
 | Block editor | `bun run --filter @ankole/block-editor type-check`, `bun run --filter @ankole/block-editor test`, and `bun run --filter @ankole/block-editor test:package` |
 | Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |
+
+Function Runtime protocol checks start a local HTTP webhook receiver. The devkit
+and CI containers use `host.docker.internal` to reach this receiver.
+`test:native` starts an ephemeral container from `ankole-function-runtime:dev`.
+Set `ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE` to test another built image. It checks
+actual CPU shutdown events, physical PTC cancellation, one-shot and warm-worker
+thread retirement, memory at 20 and 100 resident workers, and SIGTERM drain.
+It prints the artifact directory and removes its container. The fixture uses
+shorter native wall lifetimes for bounded checks; the production Applet maximum
+lifetime is five minutes. CI keeps the native event log and resource report as
+build artifacts for seven days.
 
 The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7. `astro check` stops with an error on TypeScript 7.0, and `@astrojs/check` lists TypeScript 5 and 6 as its supported versions. Keep this pin when you update dependencies. Move the website to the workspace version when Astro supports it: `@astrojs/ts-content-mapper` needs TypeScript 7.1 or later.
 
@@ -669,8 +683,8 @@ cd app/control_plane
 MIX_TEST_PARTITION=session_driver elixir --sname session_checks@localhost -S mix test integration/session_driver_test.exs
 ```
 
-`bun run test:integration` in `app/control_plane` runs every integration file
-that needs only PostgreSQL. It excludes the `cloud`, `cluster` (a named node),
+`bun run test:integration` in `app/control_plane` runs the integration files
+that use the local PostgreSQL and Function Runtime services. It excludes the `cloud`, `cluster` (a named node),
 and `external` (Docker, Kubernetes, or cloud tooling) tags; run those files with
 the commands later in this guide.
 
@@ -831,12 +845,13 @@ membership, and verify the stored access version after a reload.
 The fixture sends login codes through a local TLS SMTP server. Its companion
 `.mail.json` file lets browser cases read the delivered code without bypassing
 the login challenge.
-Its independent sample-reservation workspace uses the production native Applet
+Its independent sample-reservation workspace uses the production function Applet
 backend and committed records. The backend story checks pending submission,
 retained inputs after rejection, viewer write denial, competing reservations,
 and revision-paired frontend/backend replacement. It delays delivery of one
 real committed response to inspect pending UI; it does not replace that write.
-Run `test:garfish` separately for sandbox effects and entry-style scoping.
+The Applet frame cases also check module loading, style isolation, and the
+identity selected by each tab.
 
 ### Console API and OpenAPI
 
@@ -928,7 +943,7 @@ If the full workspace has an unrelated failure, keep the scoped validation resul
 
 ### End-to-end suites
 
-The dedicated runner builds a missing or stale worker image and starts PostgreSQL when needed:
+The dedicated runner builds a missing or stale Worker image and starts PostgreSQL and Function Runtime when needed:
 
 ```bash
 tools/e2e/run --help

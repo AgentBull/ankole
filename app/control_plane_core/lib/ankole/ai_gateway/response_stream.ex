@@ -226,6 +226,9 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   def read(%__MODULE__{}, _count), do: {:error, :invalid_response_stream_credit}
 
+  @doc "Reads the current display without consuming stream credit."
+  def display_snapshot(%__MODULE__{pid: pid}), do: safe_call(pid, :display_snapshot)
+
   @spec cancel(t(), String.t()) :: :ok | {:error, term()}
   def cancel(stream, reason \\ "consumer_cancelled")
 
@@ -792,6 +795,9 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   @impl true
+  def handle_call(:display_snapshot, _from, state),
+    do: {:reply, {:ok, State.display_snapshot(state.semantic)}, state}
+
   def handle_call(:describe, _from, %{public_open?: true} = state) do
     {:reply, {:ok, %__MODULE__{pid: self(), ref: state.ref}, state.meta}, state}
   end

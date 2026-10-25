@@ -260,6 +260,7 @@ defmodule Ankole.Sessions.Run do
     events =
       Ankole.Signals.list_signals!(query: [filter: [id: [in: ids]], sort: [queue_sequence: :asc]])
 
+    :ok = lock_native_participants_in_tx(run, events)
     :ok = Ankole.Principals.WorkAccess.lock_authorizers_in_tx(events)
 
     with :ok <- Ankole.Sessions.Notices.lock_work_in_tx(run),
@@ -513,7 +514,15 @@ defmodule Ankole.Sessions.Run do
   @spec reject_input_in_tx(Signal.t(), Outcome.t(), term()) ::
           {:ok, map()} | {:error, term()}
   def reject_input_in_tx(snapshot, outcome, reason) do
-    with {:ok, _} <-
+    humans =
+      Ankole.Signals.session_queue(snapshot.agent_uid, snapshot.session_id, started?: true)
+      |> Enum.map(& &1.human_uid)
+
+    with :ok <-
+           Ankole.Conversations.lock_native_participants_in_tx(snapshot, [
+             snapshot.human_uid | humans
+           ]),
+         {:ok, _} <-
            Ankole.Sessions.Workspaces.ensure_in_tx(
              snapshot.agent_uid,
              snapshot.session_id
@@ -560,7 +569,7 @@ defmodule Ankole.Sessions.Run do
          {:ok, {run, journal}} <- record_pending_in_tx(run),
          {:ok, events} <- lock_applied_events(run, outcome),
          :ok <- live_sources(events, outcome, now),
-         {:ok, completion} <- completion(run, outcome, images),
+         {:ok, completion} <- completion(run, outcome, reason, images),
          reply_event = Presentation.reply_event(events, run.event),
          {:ok, posted} <-
            commit_terminal_in_tx(run, events, reply_event, completion, outcome, reason, now) do
@@ -572,6 +581,7 @@ defmodule Ankole.Sessions.Run do
          outcome: outcome,
          journal: journal,
          final_text: completion.final_text,
+         completion: completion,
          input_signal_ids: Enum.map(events, & &1.id),
          posted: posted,
          signal: Ankole.Signals.get_signal!(run.signal_id),
@@ -585,8 +595,21 @@ defmodule Ankole.Sessions.Run do
   def lock_for_write_in_tx(%{kind: :workflow_task} = run),
     do: lock_workflow_in_tx(run)
 
-  def lock_for_write_in_tx(run),
-    do: Queue.lock_session_in_tx(run.agent_uid, run.session_id)
+  def lock_for_write_in_tx(run) do
+    with :ok <- lock_native_participants_in_tx(run),
+         do: Queue.lock_session_in_tx(run.agent_uid, run.session_id)
+  end
+
+  @doc false
+  def lock_native_participants_in_tx(run, extra_events \\ []) do
+    events =
+      Ankole.Signals.list_signals!(query: [filter: [id: [in: run.steer_event_ids]]])
+
+    Ankole.Conversations.lock_native_participants_in_tx(
+      run,
+      Enum.map([run.event | events ++ extra_events], & &1.human_uid)
+    )
+  end
 
   defp lock_workflow_in_tx(run) do
     with {:ok, %{run: workflow}} <-
@@ -598,7 +621,7 @@ defmodule Ankole.Sessions.Run do
     end
   end
 
-  defp completion(run, outcome, images) do
+  defp completion(run, outcome, reason, images) do
     if Outcome.class(outcome) == :reply do
       with {:ok, completion} <-
              Presentation.load_completion_in_tx(run, external_anchor(run.anchor), images),
@@ -609,7 +632,30 @@ defmodule Ankole.Sessions.Run do
            else: {:error, :turn_completion_has_no_user_visible_projection}
       end
     else
-      {:ok, %{final_text: nil, clarify_prompt: nil, attachments: []}}
+      completion = %{final_text: nil, clarify_prompt: nil, attachments: []}
+
+      if outcome in [:stopped, :dead_letter] and native_turn?(run) do
+        status =
+          if outcome == :stopped and reason in [nil, :signal_context_canceled],
+            do: "stopped",
+            else: "failed"
+
+        with {:ok, execution} <-
+               Presentation.execution_in_tx(run, status),
+             do: {:ok, Map.put(completion, :execution, execution)}
+      else
+        {:ok, completion}
+      end
+    end
+  end
+
+  defp native_turn?(run) do
+    case Ankole.Sessions.Key.parse(run.session_id) do
+      {:conversation, id} ->
+        match?(%{kind: :native}, Ankole.Conversations.get_conversation!(id))
+
+      _ ->
+        false
     end
   end
 
@@ -659,14 +705,42 @@ defmodule Ankole.Sessions.Run do
          _run,
          events,
          reply_event,
-         _completion,
+         completion,
          :dead_letter,
          reason,
          now
        ) do
     with {:ok, _} <-
            update_events(events, &Queue.mark_event_dead_letter_in_tx(&1, now, reason)),
-         {:ok, notice} <- Notices.commit_dead_letter_notice_in_tx(reply_event, reason) do
+         {:ok, notice} <- Notices.commit_dead_letter_notice_in_tx(reply_event, reason, completion) do
+      {:ok, notice}
+    end
+  end
+
+  defp commit_terminal_in_tx(
+         _run,
+         events,
+         reply_event,
+         %{execution: _} = completion,
+         :stopped,
+         reason,
+         now
+       )
+       when reason in [nil, :signal_context_canceled] do
+    text =
+      if reason == :signal_context_canceled,
+        do: Ankole.I18n.t("conversations.delivery.reply.context_withdrawn"),
+        else: Ankole.I18n.t("conversations.delivery.reply.command_stopped")
+
+    with {:ok, notice} <-
+           Notices.post_in_tx(
+             reply_event,
+             :stopped,
+             text,
+             %{"reason" => reason},
+             completion
+           ),
+         {:ok, _} <- update_events(events, &Queue.mark_event_completed_in_tx(&1, now)) do
       {:ok, notice}
     end
   end

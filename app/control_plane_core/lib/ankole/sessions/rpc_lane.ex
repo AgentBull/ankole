@@ -37,7 +37,13 @@ defmodule Ankole.Sessions.RPCLane do
   alias Ankole.Signals.Webhooks.RPCBroker, as: WebhookRPCBroker
 
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
-  @type scope :: :worker_agent | :turn_read | :turn_write | :turn_complete
+  @type scope ::
+          :worker_agent
+          | :turn_read
+          | :turn_write
+          | :turn_complete
+          | :turn_or_automation_read
+          | :turn_or_automation_write
 
   @typedoc """
   Connection and frame facts handed to every broker beside the decoded
@@ -58,6 +64,12 @@ defmodule Ankole.Sessions.RPCLane do
                        case {entry["scope"], entry["effect"]} do
                          {"worker_agent", nil} ->
                            :worker_agent
+
+                         {"turn_or_automation", "read"} ->
+                           :turn_or_automation_read
+
+                         {"turn_or_automation", "write"} ->
+                           :turn_or_automation_write
 
                          {"turn", "read"} ->
                            :turn_read
@@ -235,8 +247,16 @@ defmodule Ankole.Sessions.RPCLane do
       # The Agent of a `worker_agent` RPC is the Agent of the calling Worker:
       # its connection proved the credential of that Agent's generation.
       {:ok, {module, function, :worker_agent, request_mod, _response_mod}} ->
-        with {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
+        with {:ok, ctx} <- optional_turn_context(request, ctx),
+             {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
           apply(module, function, [ctx.worker_id, payload, ctx])
+        end
+
+      {:ok, {module, function, scope, request_mod, _response_mod}}
+      when scope in [:turn_or_automation_read, :turn_or_automation_write] ->
+        with {:ok, ctx} <- optional_turn_context(request, ctx, scope_effect(scope)),
+             {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
+          apply(module, function, [ctx[:turn_ref], payload, ctx])
         end
 
       {:ok, {module, function, :turn_complete, request_mod, _response_mod}} ->
@@ -278,6 +298,18 @@ defmodule Ankole.Sessions.RPCLane do
   defp require_broker_ref(BackgroundAgentJobBroker, ref, ctx), do: require_job_ref(ref, ctx)
   defp require_broker_ref(_broker, _ref, _ctx), do: :ok
 
+  defp optional_turn_context(request, ctx, effect \\ :read) do
+    if request.run || request.job_turn do
+      with {:ok, ref} <- request_turn_ref(request, ctx),
+           :ok <- authorize_turn(ref, ctx, effect),
+           do: {:ok, Map.put(ctx, :turn_ref, ref)}
+    else
+      {:ok, ctx}
+    end
+  end
+
+  defp scope_effect(:turn_or_automation_read), do: :read
+  defp scope_effect(:turn_or_automation_write), do: :write
   defp scope_effect(:turn_read), do: :read
   defp scope_effect(:turn_write), do: :write
 

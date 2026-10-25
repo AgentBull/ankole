@@ -33,7 +33,16 @@ defmodule Ankole.Pod.Pages.Browser do
   alias Ankole.Pod.{Documents, Pages, APIError}
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey}
 
-  @role [type: :atom, constraints: [one_of: [:view, :edit, :manage]], allow_nil?: false]
+  @role [
+    type: :atom,
+    constraints: [one_of: [:view, :contribute, :edit, :manage]],
+    allow_nil?: false
+  ]
+  @actions [
+    type: {:array, :atom},
+    allow_nil?: false,
+    constraints: [items: [one_of: [:page_view, :page_write_records, :page_edit, :page_manage]]]
+  ]
   @subject [
     principal_uid: [type: PrincipalKey],
     group_id: [type: UUIDv7],
@@ -51,7 +60,8 @@ defmodule Ankole.Pod.Pages.Browser do
     source_action: [type: :string],
     target_scope: [type: :string, constraints: [match: ~r/\A(container|self)\z/]],
     condition: [type: :string, constraints: [trim?: false]],
-    role: @role
+    actions: Keyword.put(@actions, :allow_nil?, true),
+    role: Keyword.put(@role, :allow_nil?, true)
   ]
   @source_page [
     type: :map,
@@ -77,7 +87,8 @@ defmodule Ankole.Pod.Pages.Browser do
     icon: [type: :string],
     position: [type: :string, allow_nil?: false],
     inherit_permissions: [type: :boolean, allow_nil?: false],
-    role: @role
+    role: @role,
+    actions: @actions
   ]
 
   @page [type: :struct, constraints: struct_constraints(Ankole.Pod.Page), allow_nil?: false]
@@ -103,7 +114,8 @@ defmodule Ankole.Pod.Pages.Browser do
             allow_nil?: false
           ],
           principal_uid: [type: PrincipalKey, allow_nil?: false],
-          can_create_private: [type: :boolean, allow_nil?: false]
+          can_create_private: [type: :boolean, allow_nil?: false],
+          can_create_space: [type: :boolean, allow_nil?: false]
         ]
       )
 
@@ -123,7 +135,8 @@ defmodule Ankole.Pod.Pages.Browser do
           &%{
             pages: &1,
             principal_uid: Ankole.AuthZ.Actor.uid(context.actor),
-            can_create_private: Pages.can_create_private?(context.actor)
+            can_create_private: Pages.can_create_private?(context.actor),
+            can_create_space: Pages.can_create_space?(context.actor)
           }
         )
       end)
@@ -138,6 +151,7 @@ defmodule Ankole.Pod.Pages.Browser do
             allow_nil?: false
           ],
           can_create_private: [type: :boolean, allow_nil?: false],
+          can_create_space: [type: :boolean, allow_nil?: false],
           principal_uid: [type: PrincipalKey, allow_nil?: false],
           next_cursor: [type: :string]
         ]
@@ -173,12 +187,19 @@ defmodule Ankole.Pod.Pages.Browser do
             allow_nil?: false
           ],
           principal_uid: [type: PrincipalKey, allow_nil?: false],
-          can_create_private: [type: :boolean, allow_nil?: false]
+          can_create_private: [type: :boolean, allow_nil?: false],
+          can_create_space: [type: :boolean, allow_nil?: false]
         ]
       )
 
       argument(:query, :string, allow_nil?: false, constraints: [allow_empty?: true])
       argument(:exclude_subtree_of, UUIDv7)
+
+      argument(:required_action, :atom,
+        allow_nil?: false,
+        default: :page_view,
+        constraints: [one_of: [:page_view, :page_edit]]
+      )
 
       run(fn input, context ->
         APIError.result(Pages.search(context.actor, input.arguments.query, input.arguments))
@@ -191,6 +212,7 @@ defmodule Ankole.Pod.Pages.Browser do
           page: @page,
           content: @content,
           role: @role,
+          actions: @actions,
           source_conversation: [
             type: :map,
             constraints: [
@@ -337,7 +359,13 @@ defmodule Ankole.Pod.Pages.Browser do
           grants: [
             type: {:array, :map},
             constraints: [
-              items: [fields: Keyword.merge(@subject, @grant) ++ [source_page: @source_page]]
+              items: [
+                fields:
+                  Keyword.merge(@subject, @grant)
+                  |> Keyword.put(:role, @role)
+                  |> Keyword.update!(:actions, &Keyword.put(&1, :allow_nil?, false))
+                  |> Keyword.put(:source_page, @source_page)
+              ]
             ],
             allow_nil?: false
           ]
@@ -451,7 +479,12 @@ defmodule Ankole.Pod.Pages.Browser do
             type: {:array, :map},
             allow_nil?: false,
             constraints: [
-              items: [fields: Keyword.merge(@subject, @grant) ++ [source_page: @source_page]]
+              items: [
+                fields:
+                  Keyword.merge(@subject, @grant)
+                  |> Keyword.put(:role, @role)
+                  |> Keyword.put(:source_page, @source_page)
+              ]
             ]
           ]
         ]
@@ -462,7 +495,11 @@ defmodule Ankole.Pod.Pages.Browser do
 
     action :set_space, :map do
       constraints(fields: [role: @role])
-      argument(:role, :atom, constraints: [one_of: [:view, :edit, :manage]], allow_nil?: false)
+
+      argument(:role, :atom,
+        constraints: [one_of: [:view, :contribute, :edit, :manage]],
+        allow_nil?: false
+      )
 
       run(fn input, context ->
         APIError.result(Pages.set_space(context.actor, input.arguments.role))
@@ -472,7 +509,11 @@ defmodule Ankole.Pod.Pages.Browser do
     action :space_agent, :map do
       constraints(fields: [principal_uid: [type: PrincipalKey, allow_nil?: false], role: @role])
       argument(:principal_uid, PrincipalKey, allow_nil?: false)
-      argument(:role, :atom, constraints: [one_of: [:view, :edit, :manage]], allow_nil?: false)
+
+      argument(:role, :atom,
+        constraints: [one_of: [:view, :contribute, :edit, :manage]],
+        allow_nil?: false
+      )
 
       run(fn input, context ->
         APIError.result(

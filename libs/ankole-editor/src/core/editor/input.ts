@@ -435,14 +435,34 @@ export class InputState {
     if (!comp) return null
     comp.target = this.findComposition(comp.target)
     if (!comp.target) return null
-    const value = comp.target.nodeValue!
-    const fromB = this.posAtDOM(comp.target, 0, 1),
-      toB = fromB + value.length
-    let disrupted = false
-    this.domMapping.iterChanges((_fA, _tA, fB, tB) => {
-      if (fB < toB && tB > fromB) disrupted = true
+    let value = comp.target.nodeValue!
+    const fromA = this.getDOMPos(comp.target, 0)
+    const toA = fromA + value.length
+    const fromB = this.domMapping.mapPos(fromA, -1)
+    const toB = this.domMapping.mapPos(toA, 1)
+    let changed = false
+    let crossed = false
+    this.domMapping.iterChanges((fA, tA) => {
+      if (fA < toA && tA > fromA) {
+        changed = true
+        if (fA < fromA || tA > toA) crossed = true
+      }
     })
-    return disrupted ? null : { fromB, toB, text: value, target: comp.target }
+    if (crossed) return null
+    if (changed || toB - fromB != value.length) {
+      const before = this.domDoc.resolve(fromA).nodeAfter
+      const tokens = wg.state.doc.slice(fromB, toB)
+      if (
+        !before ||
+        !tokens.length ||
+        !tokens.every(token => token instanceof Leaf && token.isText && Mark.sameSet(token.marks, before.marks))
+      ) {
+        return null
+      }
+      // Reuse the composing Text node for remote text edits with the same marks.
+      value = tokens.map(token => (token as Leaf<string>).param).join('')
+    }
+    return { fromB, toB, text: value, target: comp.target }
   }
 
   clearComposition() {

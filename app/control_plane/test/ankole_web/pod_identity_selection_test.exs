@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.PodIdentitySelectionTest do
   use AnkoleWeb.ConnCase, async: false
   import AnkoleWeb.PodAPI
-  import AnkoleWeb.PodAPI
   import Ankole.PrincipalsFixtures
   alias Ankole.{BrowserSessions, Repo}
   alias AnkoleWeb.PodURL
@@ -89,6 +88,27 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     end
   end
 
+  test "the Pod shell exposes the Principal selected by its authentication proof", ctx do
+    for {reference, principal} <- [{ctx.a_ref, ctx.a}, {ctx.b_ref, ctx.b}] do
+      {chooser, flow} = chooser(ctx.signed, ctx.tenant)
+      selected = select(chooser, ctx.tenant, flow, reference)
+      assert api_response(selected, 200)["returnTo"] == "/content/space"
+
+      response =
+        selected
+        |> recycle()
+        |> put_req_header("accept", "text/html")
+        |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(reference))
+        |> get(ctx.origin <> "/content/space")
+
+      html = html_response(response, 200)
+      assert html =~ ~s(<meta name="ankole-principal" content="#{principal.uid}">)
+
+      assert html =~
+               ~s(<meta name="ankole-authentication" content="#{BrowserSessions.encode_reference(reference)}">)
+    end
+  end
+
   test "the existing Pod chooser switches a proven account and keeps an open tab pinned", ctx do
     {shell, flow} = chooser(ctx.signed, ctx.tenant)
 
@@ -96,7 +116,9 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       shell
       |> recycle()
       |> put_req_header("accept", "application/json")
-      |> get(auth_origin(shell, ctx.tenant) <> "/api/v2/browser/identity-providers?flow=#{flow}")
+      |> get(
+        PodURL.origin(shell, ctx.tenant) <> "/api/v2/browser/identity-providers?flow=#{flow}"
+      )
 
     assert %{"identities" => identities} = json_response(choices, 200)
 
@@ -231,9 +253,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     denied = select(foreign_shell, foreign, foreign_flow, ctx.a_ref)
     assert denied.status == 401
 
-    unless @host_policy do
-      assert select(shell, foreign, flow, ctx.a_ref).status == 401
-    end
+    assert select(shell, foreign, flow, ctx.a_ref).status == 401
 
     Repo.put_tenant_id(ctx.a.tenant_id)
     assert {:ok, _} = BrowserSessions.revoke(WebSession.browser_reference(ctx.signed), ctx.a_ref)
@@ -314,46 +334,25 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       start
       |> recycle()
       |> put_req_header("accept", "text/html")
-      |> get(auth_origin(conn, tenant) <> location)
+      |> get(PodURL.origin(conn, tenant) <> location)
 
     assert html_response(shell, 200) =~ "csrf-token"
     {shell, flow}
   end
 
   defp begin_choice(conn, tenant) do
-    if @host_policy do
-      site = PodURL.site_origin(conn)
-      account = conn |> put_req_header("accept", "text/html") |> get(site <> "/account")
-      [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, html_response(account, 200))
+    start =
+      get(
+        conn,
+        PodURL.origin(conn, tenant) <> "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace"
+      )
 
-      start =
-        account
-        |> recycle()
-        |> put_req_header("accept", "application/json")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("x-csrf-token", csrf)
-        |> put_req_header("origin", site)
-        |> api_post(site <> "/api/v2/saas/pod-login", %{
-          slug: tenant.slug,
-          return_to: "/content/space"
-        })
-
-      %{"returnTo" => location} = api_response(start, 200)
-      {start, location}
-    else
-      start =
-        get(
-          conn,
-          PodURL.origin(conn, tenant) <> "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace"
-        )
-
-      {start, redirected_to(start)}
-    end
+    {start, redirected_to(start)}
   end
 
   defp select(shell, tenant, flow, ref) do
     [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, shell.resp_body)
-    origin = auth_origin(shell, tenant)
+    origin = PodURL.origin(shell, tenant)
 
     shell
     |> recycle()
@@ -366,7 +365,4 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       authenticationRef: BrowserSessions.encode_reference(ref)
     })
   end
-
-  defp auth_origin(conn, tenant),
-    do: if(@host_policy, do: PodURL.site_origin(conn), else: PodURL.origin(conn, tenant))
 end

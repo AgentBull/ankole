@@ -31,6 +31,7 @@ defmodule Ankole.ConversationsHistoryTest do
           seq: sequence,
           author_type: :human,
           author_uid: human.uid,
+          author_display_name: human.display_name,
           kind: :message,
           origin: :native,
           text: "Statement #{sequence}",
@@ -95,5 +96,76 @@ defmodule Ankole.ConversationsHistoryTest do
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id,
                before_seq: 0
              )
+  end
+
+  test "history handles an exact full page and no visible statements" do
+    human = human_fixture().principal
+    agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
+    id = Ankole.Kernel.gen_uuid_v7()
+
+    {:ok, _} =
+      Ankole.ConversationsFixtures.create(human.uid, %{
+        conversation_id: id,
+        message_id: Ankole.Kernel.gen_uuid_v7(),
+        agent_uid: agent.uid,
+        text: "First statement"
+      })
+
+    now = DateTime.utc_now(:microsecond)
+
+    rows =
+      for sequence <- 2..500 do
+        %{
+          tenant_id: Repo.tenant_id!(),
+          id: Ankole.Kernel.gen_uuid_v7(),
+          conversation_id: id,
+          seq: sequence,
+          author_type: :human,
+          author_uid: human.uid,
+          author_display_name: human.display_name,
+          kind: :message,
+          origin: :native,
+          text: "Statement #{sequence}",
+          attachments: [],
+          links: [],
+          mentions: [],
+          created_at: now
+        }
+      end
+
+    {499, _} = Repo.insert_all(Message, rows)
+    Repo.update_all(from(c in Conversation, where: c.id == ^id), set: [sequence_high_water: 500])
+
+    assert {:ok, full} = Conversations.get(actor, id)
+    assert Enum.map(full.messages, & &1.seq) == Enum.to_list(1..500)
+    assert full.older_messages_before_seq == nil
+    assert full.message_range == %{first_seq: 1, last_seq: 500}
+
+    empty_id = Ankole.Kernel.gen_uuid_v7()
+
+    {:ok, _} =
+      Ankole.ConversationsFixtures.create(human.uid, %{
+        conversation_id: empty_id,
+        message_id: Ankole.Kernel.gen_uuid_v7(),
+        agent_uid: agent.uid,
+        text: "Removed statement"
+      })
+
+    input = Repo.one!(from(s in Signal, where: s.conversation_id == ^empty_id))
+
+    {:ok, _input} =
+      Repo.transact(fn _ ->
+        Ankole.Ash.update(input, :complete, %{
+          data: Map.put(input.data, "removed", true),
+          completed_at: now
+        })
+      end)
+
+    assert {:ok, empty} = Conversations.get(actor, empty_id)
+    assert empty.messages == []
+    assert empty.older_messages_before_seq == nil
+    assert empty.message_range == %{first_seq: 1, last_seq: 1}
   end
 end

@@ -25,6 +25,7 @@ defmodule Ankole.Conversations.Conversation do
 
     check_constraints do
       check_constraint(:kind, "conversations_kind_check")
+      check_constraint(:native_access_scope, "conversations_native_room_check")
       check_constraint(:page_id, "conversations_page_origin_check")
       check_constraint(:title, "conversations_title_present")
       check_constraint(:provider_conversation_id, "conversations_origin_check")
@@ -44,6 +45,21 @@ defmodule Ankole.Conversations.Conversation do
 
     attribute(:title, :string,
       constraints: [trim?: false, match: ~r/\S/u],
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:room_mode, :atom, constraints: [one_of: [:dm, :group]], public?: true)
+
+    attribute(:native_access_scope, :atom,
+      constraints: [one_of: [:participants, :anchor_page]],
+      public?: true
+    )
+
+    attribute(:title_customized, :boolean, default: false, allow_nil?: false, public?: true)
+
+    attribute(:preferred_models, Ankole.Ash.Types.JSONMap,
+      default: %{},
       allow_nil?: false,
       public?: true
     )
@@ -101,6 +117,13 @@ defmodule Ankole.Conversations.Conversation do
     timestamps(type: :utc_datetime_usec)
   end
 
+  relationships do
+    has_many :participants, Ankole.Conversations.Participant do
+      source_attribute(:id)
+      destination_attribute(:conversation_id)
+    end
+  end
+
   validations do
     validate(present(:created_by), where: [attribute_equals(:kind, :native)])
 
@@ -120,7 +143,18 @@ defmodule Ankole.Conversations.Conversation do
     defaults([:read])
 
     create_if_absent :ensure_native do
-      accept([:id, :title, :created_by, :page_id, :last_activity_at])
+      accept([
+        :id,
+        :title,
+        :created_by,
+        :page_id,
+        :last_activity_at,
+        :room_mode,
+        :native_access_scope
+      ])
+
+      change(set_attribute(:room_mode, :dm))
+      change(set_attribute(:native_access_scope, :participants))
       change(set_attribute(:kind, :native))
     end
 
@@ -156,6 +190,27 @@ defmodule Ankole.Conversations.Conversation do
       ])
 
       validate(attribute_equals(:kind, :external))
+    end
+
+    update :promote_to_group do
+      accept([])
+      change(set_attribute(:room_mode, :group))
+      validate(attribute_equals(:kind, :native))
+    end
+
+    update :rename_title do
+      accept([:title, :title_customized])
+      validate(attribute_equals(:kind, :native))
+    end
+
+    update :set_access_scope do
+      accept([:native_access_scope])
+      validate(attribute_equals(:kind, :native))
+    end
+
+    update :set_agent_model_profile do
+      accept([:preferred_models])
+      validate(attribute_equals(:kind, :native))
     end
 
     update :put_metadata do

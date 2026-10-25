@@ -184,9 +184,9 @@ The Elixir control plane:
 - runs each task at most three times
 - sends the terminal event to the owner Session
 
-The Rust kernel:
+The function runtime:
 
-- runs the fixed JavaScript wrapper in a bare `deno_core` isolate
+- runs the fixed JavaScript wrapper in a restricted, one-shot User Worker
 - records unresolved `agent` calls as a pending batch
 - checks the memo sequence during replay
 - enforces execution, output, pending-call, and memo limits
@@ -214,7 +214,7 @@ from the source Signal under [Human Offboarding](HumanOffboarding.md).
 Task dispatch and delegated Jobs retain that fact. A replay, new task, wake,
 or retry must pass the current Human check before admission.
 Run creation does not admit a replay. RunServer checks the stored authorization
-in its replay-input transaction before it calls the kernel. This check does not
+in its replay-input transaction before it calls the function service. This check does not
 wait for asynchronous Human work cleanup.
 
 Revocation marks the run cancelled, cancels pending calls, and prevents new
@@ -257,10 +257,10 @@ prefix. A succeeded call contributes `{ok: true, value}`. A failed call
 contributes `{ok: false, code, summary}`. Queued and running calls stop the
 prefix.
 
-The kernel re-runs the program from the start with this memo. Each replayed
+The function worker runs the program from the start with this memo. Each replayed
 `agent()` call must match the stored name and arguments at the same position.
-The kernel returns the stored envelope for a matched call. If a call does not
-match the supplied memo, the kernel fails the replay with
+The worker returns the stored envelope for a matched call. If a call does not
+match the supplied memo, the worker fails the replay with
 `program_replay_diverged`. It returns the next unresolved batch as pending
 calls when the memo matches.
 
@@ -310,17 +310,17 @@ without a `RunServer` and terminal runs that need cleanup, then inserts the
 each idempotent job insert stands alone, and the next pass repeats a failed
 one. This also covers a crash before the first task event.
 A new replay reads the script and memo from PostgreSQL, so completed tasks do
-not run again. Each native replay handle monitors its `RunServer` owner and
-execution task. Exit of either process cancels the isolate without another
-guardian process.
+not run again. Each function replay handle monitors its `RunServer` owner and
+execution task. Exit of either process cancels its HTTP request. The function
+service runs each replay step in a fresh restricted worker.
 
-An unexpected replay-isolate cancellation failure emits a warning with the
+An unexpected function-request cancellation failure emits a warning with the
 failure class and stack locations. It omits exception messages and function
 arguments and returns the best-effort cancellation result.
 
-The replay supervisor runs at most four kernel replay isolates at one time. If
+The replay supervisor runs at most four function replay requests at one time. If
 all four slots are in use, another running run stays durable and its `RunServer`
-retries after 30 seconds. This limit controls replay isolates, not Workflow task
+retries after 30 seconds. This limit controls replay requests, not Workflow task
 concurrency.
 
 If a successful `sleep` or `submit_result` result has committed for the current
@@ -377,13 +377,13 @@ repeats the idempotent cleanup before it marks them complete.
 
 Cancellation uses the same durable call cleanup. After the transaction commits,
 cleanup tells the active `RunServer` to stop. On normal exit, that owner
-cancels any running kernel replay and stops its replay task. Cleanup does not
+cancels any running function replay and stops its replay task. Cleanup does not
 start a replacement `RunServer`; a later wake reads the terminal state before
-native replay. A late replay or task result cannot revive the cancelled run.
+function replay. A late replay or task result cannot revive the cancelled run.
 
-The control-plane deployment model uses one control-plane node. A
-duplicate driver is safe: PostgreSQL state guards, unique call and event
-keys, and the kernel run-ID fence prevent duplicate durable effects.
+Control-plane Pods form a cluster as described in [RuntimeFabric](RuntimeFabric.md).
+A duplicate driver is safe: PostgreSQL state guards and unique call and event
+keys prevent duplicate durable effects.
 
 ## Cost Boundaries
 
@@ -400,16 +400,16 @@ keys, and the kernel run-ID fence prevent duplicate durable effects.
 | One call argument object | n/a | 8 KiB |
 | One successful result value | n/a | 24 KiB |
 | Durable memo budget | n/a | 6 MiB |
-| Kernel memo input | n/a | 8 MiB |
-| Kernel pending calls | 64 | 1,024 |
-| Kernel pending-call bytes | 1 MiB | 8 MiB |
+| Program memo input | n/a | 8 MiB |
+| Program pending calls | 64 | 1,024 |
+| Program pending-call bytes | 1 MiB | 8 MiB |
 | Final result text | n/a | 1 MiB |
 
 The AppConfigure keys `workflow.max_concurrency_per_run`,
 `workflow.max_running_per_agent`, and `workflow.max_agent_calls_per_run` set the
 deployment limits. A run request cannot raise these limits.
 
-The 6 MiB durable memo budget reserves space below the kernel's 8 MiB input
+The 6 MiB durable memo budget reserves space below the runner's 8 MiB input
 limit. If a run reaches the budget, it fails with a message that tells the main
 Agent to reduce fanout, return summaries, or split the work into more runs.
 

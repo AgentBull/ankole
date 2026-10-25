@@ -35,6 +35,24 @@ defmodule AnkoleWeb.PodResponse do
     |> send_file(200, local)
   end
 
+  def send_applet_frame_asset(conn, bytes, type, sha256) do
+    etag = "\"" <> sha256 <> "\""
+
+    conn =
+      conn
+      |> put_resp_content_type(type)
+      |> delete_resp_header("content-security-policy")
+      |> delete_resp_header("content-disposition")
+      |> put_resp_header("x-content-type-options", "nosniff")
+      |> put_resp_header("x-frame-options", "SAMEORIGIN")
+      |> put_resp_header("cache-control", "private, no-cache")
+      |> put_resp_header("etag", etag)
+
+    if etag in get_req_header(conn, "if-none-match"),
+      do: send_resp(conn, 304, ""),
+      else: send_resp(conn, 200, bytes)
+  end
+
   def error(conn, reason) do
     error = Serialization.error(reason)
 

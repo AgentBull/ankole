@@ -1,0 +1,58 @@
+defmodule AnkoleWeb.PodAppletFrameControllerTest do
+  use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
+  alias Ankole.Files, as: Drive
+  alias Ankole.Pod.{Files, Pages}
+
+  test "frame modules revalidate privately and reject a stale publication", %{conn: conn} do
+    {conn, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    {:ok, page} = Pages.create(actor, %{type: "applet", private_owner_uid: uid})
+
+    manifest =
+      Enum.map(
+        %{
+          "src/main.tsx" => "source",
+          "dist/index.html" => "<head></head>",
+          "dist/main.js" => "export {}"
+        },
+        fn {path, bytes} ->
+          {:ok, stored} = Drive.store(bytes)
+
+          {:ok, _} =
+            Drive.commit(uid, [
+              %{path: "project/" <> path, sha256: stored.sha256, source: "agent"}
+            ])
+
+          %{path: path, sha256: stored.sha256}
+        end
+      )
+
+    assert {:ok, %{revision: 1}} = Files.publish(actor, page.id, 0, manifest)
+
+    reference =
+      conn
+      |> get("/api/v2/browser/session")
+      |> AnkoleWeb.Session.authentication_reference()
+      |> Ankole.BrowserSessions.encode_reference()
+
+    url = "/pod/applet-frame/#{reference}/#{page.id}/1/main.js"
+    response = conn |> recycle_api() |> get(url)
+    assert response(response, 200) == "export {}"
+    assert get_resp_header(response, "content-type") == ["text/javascript; charset=utf-8"]
+    assert get_resp_header(response, "cache-control") == ["private, no-cache"]
+    assert get_resp_header(response, "x-frame-options") == ["SAMEORIGIN"]
+    assert get_resp_header(response, "content-security-policy") == []
+    assert get_resp_header(response, "content-disposition") == []
+
+    current = conn |> recycle_api() |> get("/pod/applet-frame/current/#{page.id}/1/main.js")
+    assert response(current, 200) == "export {}"
+
+    [etag] = get_resp_header(response, "etag")
+    cached = conn |> recycle_api() |> put_req_header("if-none-match", etag) |> get(url)
+    assert response(cached, 304) == ""
+    assert {:ok, %{revision: 2}} = Files.publish(actor, page.id, 1, manifest)
+    stale = conn |> recycle_api() |> get(url)
+    assert response(stale, 409) =~ "changed(window)"
+  end
+end

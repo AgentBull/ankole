@@ -3,7 +3,15 @@ defmodule Ankole.Pod.APIError do
   use Splode.Error, fields: [:reason], class: :invalid
 
   @chat_errors %{
+    interaction_not_pending: {409, "This question has an answer or was superseded"},
+    invalid_choice: {422, "Select a valid answer"},
+    participant_unavailable: {422, "This participant is unavailable"},
+    cannot_remove_last_participant: {422, "The room needs an Agent"},
+    anchor_page_required: {422, "Select an anchor page to share this discussion"},
+    forbidden_room_operation: {403, "Only the room owner or space administrator can do this"},
     conversation_not_found: {404, "Conversation not found"},
+    execution_not_found: {404, "Execution not found in this conversation"},
+    invalid_execution_cursor: {422, "The execution log cursor is invalid. Reload the log"},
     agent_unavailable: {409, "Agent is unavailable"},
     page_unavailable: {403, "The page is unavailable or you no longer have access to it"},
     conversation_conflict: {409, "Conversation facts conflict"},

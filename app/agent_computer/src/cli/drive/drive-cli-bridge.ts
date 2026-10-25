@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
+import type { TurnRPCFrame } from '../../lanes/rpc_lane'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import {
   CLI_REQUEST_MAX_BYTES,
@@ -22,6 +23,7 @@ export function startDriveCLIBridge(opts: {
   drive: Drive
   workspaceRoot: string
   socketRoot?: string
+  frame?: TurnRPCFrame
 }): SocketLineBridge {
   return startSocketLineBridge({
     socketPath: join(opts.socketRoot ?? WORKER_SHARE_ROOT, `ankole-files-${randomUUID()}.sock`),
@@ -33,7 +35,7 @@ export function startDriveCLIBridge(opts: {
 
 async function executeLine(
   line: string,
-  opts: { drive: Drive; workspaceRoot: string }
+  opts: { drive: Drive; workspaceRoot: string; frame?: TurnRPCFrame }
 ): Promise<SocketLineBridgeResponse> {
   const command = parseCLIRequest(line, DriveCLICommand, 'drive CLI request must be one JSON object')
   const drive = opts.drive
@@ -56,7 +58,7 @@ async function executeLine(
     const target = command.output
       ? resolve(command.cwd, command.output)
       : join(opts.workspaceRoot, 'drive', ...command.path.split('/'))
-    const file = await drive.get(command.path, target, { pod: command.pod })
+    const file = await drive.get(command.path, target, { pod: command.pod, frame: opts.frame })
     return { ok: true, result: { ...listedFile(file), local_path: target } }
   }
 

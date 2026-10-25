@@ -44,7 +44,9 @@ export function startRunCLIBridges({
   try {
     return {
       env: {
-        [DRIVE_CLI_SOCKET_ENV]: socketOf(startDriveCLIBridge({ drive, workspaceRoot })),
+        [DRIVE_CLI_SOCKET_ENV]: socketOf(
+          startDriveCLIBridge({ drive, workspaceRoot, frame: 'job_id' in turn ? { jobTurn: turn } : { run: turn } })
+        ),
         [POD_CLI_SOCKET_ENV]: socketOf(
           startPodCLIBridge({ drive, rpc, frame: 'job_id' in turn ? { jobTurn: turn } : { run: turn } })
         ),

@@ -1,4 +1,4 @@
-import { state, request as podRequest } from './fixtures'
+import { state, request as podRequest, selectChatAgent } from './fixtures'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import type { ConversationDetail } from '../../pod/api'
@@ -17,17 +17,19 @@ async function request<T = ConversationDetail>(page: Page, path: string, method 
 
 async function clearPending(page: Page, id: string) {
   let detail = await request(page, `/conversations/${id}`)
-  for (const input of detail.pendingInputs) {
+  for (const input of detail.pendingQueues.flatMap(queue => queue.inputs)) {
     detail = await request(page, `/conversations/${id}/queue`, 'POST', {
-      action: 'remove',
+      action: 'retract',
       messageID: input.messageID,
-      expectedVersion: detail.queueVersion
+      agentUID: input.agentUID,
+      expectedVersion: detail.pendingQueues.find(queue => queue.agentUID === input.agentUID)!.queueVersion
     })
   }
 }
 
 async function createChat(page: Page) {
   await page.goto('/')
+  await selectChatAgent(page)
   const composer = page.locator('.pod-chat-composer')
   const choose = page.waitForEvent('filechooser')
   await composer.getByRole('button', { name: '添加文件', exact: true }).click()
@@ -157,6 +159,21 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
     const blob = (await image.getAttribute('src'))!
     expect(blob).toMatch(/^blob:/)
+    const viewport = imageDialog.getByRole('region', { name: 'preview-image.png', exact: true })
+    await imageDialog.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(imageDialog.getByRole('toolbar')).toContainText('150%')
+    expect(await viewport.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+    await viewport.focus()
+    await viewport.press('+')
+    await expect(imageDialog.getByRole('toolbar')).toContainText('200%')
+    const box = (await viewport.boundingBox())!
+    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 5 })
+    await page.mouse.up()
+    expect(await viewport.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+    await viewport.press('0')
+    await expect(imageDialog.getByRole('toolbar')).toContainText('100%')
     await page.keyboard.press('Escape')
     await expect(imageDialog).toHaveCount(0)
     await expect(imageTrigger).toBeFocused()
@@ -226,7 +243,10 @@ test('closing a pending preview aborts its request, and removing its owning mess
     await request(page, `/conversations/${id}`, 'DELETE')
     id = undefined
     await expect(dialog).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '发送消息', exact: true })).toHaveCount(0)
+    await expect(page).toHaveURL(`${state.base_url}/`)
+    await expect(trigger).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('')
+    await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
   } finally {
     gate.resolve()
     await page.unrouteAll({ behavior: 'wait' })
@@ -244,6 +264,7 @@ test('local text and image previews keep unsent text and selected files in the c
   const page = await context.newPage()
   try {
     await page.goto('/')
+    await selectChatAgent(page)
     const composer = page.locator('.pod-chat-composer')
     const message = composer.getByRole('textbox', { name: '消息', exact: true })
     await message.fill('Keep my unsent draft')

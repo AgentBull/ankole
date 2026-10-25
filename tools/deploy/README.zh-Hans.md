@@ -18,7 +18,7 @@
   Agent Home 与缓存分开，实例删除后保留 Agent Home；
 - RuntimeFabric 通过私有网络连接控制面和 Worker。
 
-默认配置固定控制面 `2.0.0-alpha.5` 和 PostgreSQL 镜像 digest。这是预发布版本。
+默认配置固定控制面 `2.0.0-alpha.24` 和 PostgreSQL 镜像 digest。这是预发布版本。
 请使用同一发布版本的部署文件和镜像；控制面镜像已指定配套的 Worker 镜像。
 `main-latest` 跟随正式发布（包括候选版），`canary` 跟随 alpha 和 beta 发布。
 通道所指的版本可能早于 `main` 分支中的部署文件。

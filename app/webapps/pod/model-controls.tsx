@@ -13,7 +13,6 @@ type ModelControlsProps = {
   conversationID?: string
   draftProfile: string | null
   onDraftProfileChange(profile: string | null): void
-  onRequiresQueue(required: boolean): void
   activeSignalID?: string | null
   disabled?: boolean
 }
@@ -24,40 +23,40 @@ export function ModelControls({
   conversationID,
   draftProfile,
   onDraftProfileChange,
-  onRequiresQueue,
   activeSignalID,
   disabled
 }: ModelControlsProps) {
   const { t } = useTranslation()
   const client = useQueryClient()
-  const key = conversationID ? modelSelectionKey(conversationID) : [...podKeys.agents, agentUID, 'model-profiles']
+  const key = conversationID
+    ? [...modelSelectionKey(conversationID), agentUID]
+    : [...podKeys.agents, agentUID, 'model-profiles']
   const selection = useQuery({
     queryKey: key,
     queryFn: async () => {
-      if (conversationID) return podModelSelection({ path: { id: conversationID } })
+      if (conversationID) return podModelSelection({ path: { id: conversationID }, query: { agentUID } })
       const catalog = await podModelProfiles({ path: { uid: agentUID } })
       return { ...catalog, profile: null, activeProfile: null }
     },
     enabled: !!agentUID
   })
   const save = useMutation({
-    mutationKey: conversationID ? modelSelectionKey(conversationID) : undefined,
+    mutationKey: conversationID ? [...modelSelectionKey(conversationID), agentUID] : undefined,
     mutationFn: ({ id, profile }: { id: string; profile: string | null }) =>
-      setPodModelSelection({ path: { id }, body: { data: { profile } } }),
-    onSuccess: (result, submitted) => client.setQueryData(modelSelectionKey(submitted.id), result)
+      setPodModelSelection({ path: { id }, body: { data: { profile, agentUID } } }),
+    onSuccess: (result, submitted) => client.setQueryData([...modelSelectionKey(submitted.id), agentUID], result)
   })
   const previousSignal = useRef(activeSignalID)
   useEffect(() => {
     if (previousSignal.current !== activeSignalID) {
       previousSignal.current = activeSignalID
-      if (conversationID) void client.invalidateQueries({ queryKey: modelSelectionKey(conversationID), exact: true })
+      if (conversationID) void client.invalidateQueries({ queryKey: modelSelectionKey(conversationID), exact: false })
     }
   }, [activeSignalID, client, conversationID])
 
   const profile = conversationID ? (selection.data?.profile ?? null) : draftProfile
   const activeProfile = selection.data?.activeProfile
   const requiresQueue = !!activeProfile && activeProfile !== (profile ?? 'primary')
-  useEffect(() => onRequiresQueue(requiresQueue), [requiresQueue, onRequiresQueue])
   const profiles = selection.data?.profiles ?? []
   const unavailable = !!profile && !profiles.some(option => option.name === profile)
   const label = selection.isPending ? t('pod.content.loading') : profile ? profile : t('pod.chat.model_follow_agent')

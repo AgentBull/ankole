@@ -34,16 +34,17 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-生成三个独立的十六进制值：
+生成四个独立的十六进制值：
 
 ```sh
 openssl rand -hex 24
 openssl rand -hex 32
 openssl rand -hex 32
+openssl rand -hex 32
 ```
 
-依次把它们写入 `.env` 的 `POSTGRES_PASSWORD`、`ANKOLE_SECRET_BASE` 和
-`RELEASE_COOKIE`。请保留十六进制形式，因为它可以安全放入数据库 URL。
+依次把它们写入 `.env` 的 `POSTGRES_PASSWORD`、`ANKOLE_SECRET_BASE`、
+`RELEASE_COOKIE` 和 `ANKOLE_FUNCTION_RUNTIME_TOKEN`。请保留十六进制形式，因为它可以安全放入数据库 URL。
 
 `RELEASE_COOKIE` 是本部署的 Erlang distribution cookie。公开发布的控制面镜像
 内置同一个 cookie，每次拉取得到的都一样；沿用它就等于把这个 cookie 共享给
@@ -131,6 +132,14 @@ docker compose logs control-plane | grep "SETUP ACTIVATION CODE"
 Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API key
 放进 `.env`。
 
+## Function Runtime 网络
+
+Function Runtime 与控制面共用 `ankole_functions` bridge，可以通过该网络访问控制面。
+PostgreSQL 使用独立的内部网络 `ankole_backend`。Compose 依靠 Docker bridge 隔离，
+Helm 部署则通过 Kubernetes NetworkPolicy 限制配置的私网与元数据 CIDR。
+在云主机上，请把实例元数据的 hop limit 设为 1，或通过宿主防火墙对容器屏蔽
+`169.254.169.254`。
+
 ## Worker 容器
 
 每个 Worker 容器的名称是 `ankole-ankole-<hash>-<generation>`，并带有标签
@@ -154,7 +163,7 @@ Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API
 
 ## 镜像策略和升级
 
-默认固定控制面 `2.0.0-alpha.5` 和 `compose.yaml` 中的 PostgreSQL digest。
+默认固定控制面 `2.0.0-alpha.24` 和 `compose.yaml` 中的 PostgreSQL digest。
 这是预发布版本。控制面镜像指定相同源码 revision 的 Worker 镜像。
 请使用同一发布版本的部署文件和镜像；`main-latest` 可能指向启动契约不匹配的旧版本。
 
@@ -289,7 +298,9 @@ Docker internal network。只有 Caddy 会发布主机端口。
 | `ANKOLE_DOCKER_SOCKET` | `/var/run/docker.sock` | 主机上的 Docker socket |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | 控制面数据库连接池 |
 | `ANKOLE_WORKER_INSTALLATION` | `ankole` | Worker 容器与 Agent 卷名称中的标签；首次启动后不能修改 |
-| `ANKOLE_CONTROL_PLANE_IMAGE` | `2.0.0-alpha.5` 镜像 | 控制面镜像或 digest；它指定 Worker 镜像 |
+| `ANKOLE_CONTROL_PLANE_IMAGE` | `2.0.0-alpha.24` 镜像 | 控制面镜像或 digest；它指定 Worker 镜像 |
+| `ANKOLE_FUNCTION_RUNTIME_TOKEN` | 必填 | 控制面与函数服务共享的内部令牌 |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | 同版本发布镜像 | 无状态 Applet 后端与程序执行服务 |
 | `ANKOLE_POSTGRESQL_IMAGE` | `compose.yaml` 中的 digest | PostgreSQL 镜像或 digest |
 
 ## 故障排查

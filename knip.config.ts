@@ -45,7 +45,13 @@ const config: KnipConfig = {
       entry: ['scripts/deploy.ts!']
     },
     'app/webapps': {
-      entry: ['entrypoints/*.tsx!', 'openapi-ts.config.ts!', 'vite.config.ts!', 'playwright.*.config.ts!'],
+      entry: [
+        'entrypoints/*.tsx!',
+        'entrypoints/applet-vendor/*.ts!',
+        'openapi-ts.config.ts!',
+        'vite.config.ts!',
+        'playwright.*.config.ts!'
+      ],
       project: [
         'auth/**/*.{ts,tsx}!',
         'common/**/*.{ts,tsx}!',
@@ -56,8 +62,12 @@ const config: KnipConfig = {
         '*.ts!'
       ]
     },
+    'app/function_runtime': {
+      entry: ['main/index.ts!'],
+      project: ['main/**/*.ts!']
+    },
     'app/kernel': {
-      entry: ['src/applet_runtime/bootstrap.js!', 'scripts/build-node-addon.ts!']
+      entry: ['scripts/build-node-addon.ts!']
     },
     'libs/uikit': {
       entry: ['src/index.ts!'],

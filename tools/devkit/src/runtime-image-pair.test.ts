@@ -33,25 +33,48 @@ const worker = {
   metadata: metadata('2')
 }
 
+const functionRuntime = {
+  ref: `ghcr.io/agentbull/ankole-function-runtime:${revision}`,
+  metadata: metadata('3')
+}
+
 describe('runtime image pair rollout gate', () => {
   test('stays closed when control plane publishes first and opens only after the matching worker arrives', () => {
     expect(runtimeImagePairStatus({ revision, protocolVersion, controlPlane })).toEqual({
       ready: false,
-      missing: ['worker']
+      missing: ['worker', 'function-runtime']
     })
 
-    const complete = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })
+    const complete = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker, functionRuntime })
     expect(complete.ready).toBe(true)
   })
 
   test('stays closed when worker publishes first and opens only after the matching control plane arrives', () => {
     expect(runtimeImagePairStatus({ revision, protocolVersion, worker })).toEqual({
       ready: false,
-      missing: ['control-plane']
+      missing: ['control-plane', 'function-runtime']
     })
 
-    const complete = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })
+    const complete = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker, functionRuntime })
     expect(complete.ready).toBe(true)
+  })
+
+  test('requires the Function Runtime of the same release', () => {
+    expect(runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })).toEqual({
+      ready: false,
+      missing: ['function-runtime']
+    })
+    const stale = metadata('4')
+    stale.image['linux/arm64'].config.Labels[releaseRevisionLabel] = 'b'.repeat(40)
+    expect(() =>
+      runtimeImagePairStatus({
+        revision,
+        protocolVersion,
+        controlPlane,
+        worker,
+        functionRuntime: { ...functionRuntime, metadata: stale }
+      })
+    ).toThrow(/must be a{40}/)
   })
 
   test('fails closed on a stale revision, protocol, or missing architecture', () => {
@@ -87,10 +110,12 @@ describe('runtime image pair rollout gate', () => {
     const entrypoint = fileURLToPath(new URL('./runtime-image-pair.ts', import.meta.url))
     const controlPlaneMetadata = join(outputRoot, 'control-plane.json')
     const workerMetadata = join(outputRoot, 'worker.json')
+    const functionRuntimeMetadata = join(outputRoot, 'function-runtime.json')
 
     try {
       writeFileSync(controlPlaneMetadata, JSON.stringify(controlPlane.metadata))
       writeFileSync(workerMetadata, JSON.stringify(worker.metadata))
+      writeFileSync(functionRuntimeMetadata, JSON.stringify(functionRuntime.metadata))
 
       const result = Bun.spawnSync(
         [
@@ -108,7 +133,11 @@ describe('runtime image pair rollout gate', () => {
           '--worker-ref',
           worker.ref,
           '--worker-metadata',
-          workerMetadata
+          workerMetadata,
+          '--function-runtime-ref',
+          functionRuntime.ref,
+          '--function-runtime-metadata',
+          functionRuntimeMetadata
         ],
         { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' }
       )

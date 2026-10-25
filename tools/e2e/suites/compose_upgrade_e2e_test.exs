@@ -317,7 +317,9 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                    "/api/v2/pod/conversations/#{target_conversation_id}"
                  )
 
-               detail["status"]["state"] == "idle" and
+               Enum.any?(detail["pendingQueues"], fn queue ->
+                 queue["agentUID"] == uid and queue["workStatus"]["state"] == "idle"
+               end) and
                  Enum.any?(detail["messages"], fn message ->
                    message["authorType"] == "agent" and message["text"] == "CHAOS_DIRECT_OK"
                  end)

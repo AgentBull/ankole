@@ -237,10 +237,8 @@ end
     parent_id: report.id
   })
 
-{:ok, table} =
-  Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), data_page.id, %{
-    name: "Sales"
-  })
+{:ok, %{tables: [table]}} =
+  Database.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), data_page.id)
 
 {:ok, amount} =
   Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
@@ -411,7 +409,7 @@ candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> 
     inherit_permissions: false,
     grants: [
       %{principal_uid: owner.uid, role: "manage"},
-      %{principal_uid: member.uid, role: "edit"},
+      %{principal_uid: member.uid, role: "contribute"},
       %{principal_uid: viewer.uid, role: "view"},
       %{principal_uid: agent.uid, role: "edit"}
     ]
@@ -424,12 +422,8 @@ candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> 
     parent_id: backend_report.id
   })
 
-{:ok, inventory} =
-  Database.create_table(
-    Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
-    backend_database.id,
-    %{name: "Inventory"}
-  )
+{:ok, %{tables: [inventory]}} =
+  Database.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), backend_database.id)
 
 inventory_name = Enum.find(Database.fields(inventory.id), & &1.is_primary)
 
@@ -495,13 +489,15 @@ backend_files =
     {version, files}
   end)
 
-{:ok, _} =
-  Ankole.Pod.Files.publish(
-    Ankole.PrincipalsFixtures.actor_fixture(agent.uid),
-    backend_applet.id,
-    0,
-    backend_files["v1"]
-  )
+if System.get_env("POD_BROWSER_CHAT_WORKSPACE") != "true" do
+  {:ok, _} =
+    Ankole.Pod.Files.publish(
+      Ankole.PrincipalsFixtures.actor_fixture(agent.uid),
+      backend_applet.id,
+      0,
+      backend_files["v1"]
+    )
+end
 
 {:ok, _} =
   Ankole.Pod.Documents.write(
@@ -747,6 +743,26 @@ state = %{
   other_pod: other_pod,
   agent_uid: agent.uid
 }
+
+state =
+  if System.get_env("POD_BROWSER_CHAT_WORKSPACE") == "true" do
+    Code.require_file("pod_chat_workspace_material.exs", __DIR__)
+
+    Map.put(
+      state,
+      :chat_workspace,
+      Ankole.PodChatWorkspaceMaterial.seed(
+        owner,
+        member,
+        viewer,
+        agent,
+        report,
+        model_provider_id
+      )
+    )
+  else
+    state
+  end
 
 File.write!(state_path, Torque.encode!(state))
 File.chmod!(state_path, 0o600)

@@ -89,9 +89,14 @@ defmodule Ankole.Pod.Page do
   end
 
   calculations do
+    calculate(:actions, {:array, :atom}, expr(nil),
+      public?: true,
+      constraints: [items: [one_of: [:page_view, :page_write_records, :page_edit, :page_manage]]]
+    )
+
     calculate(:role, :atom, expr(nil),
       public?: true,
-      constraints: [one_of: [:view, :edit, :manage]]
+      constraints: [one_of: [:view, :contribute, :edit, :manage]]
     )
   end
 
@@ -109,9 +114,22 @@ defmodule Ankole.Pod.Page do
 
   actions do
     defaults([:read])
-    read(:list_children)
-    read(:list_roots)
-    read(:search)
+
+    read :list_children do
+      pagination(keyset?: true, max_page_size: 200, countable: false, required?: false)
+    end
+
+    read :list_roots do
+      pagination(keyset?: true, max_page_size: 200, countable: false, required?: false)
+    end
+
+    read :search do
+      argument(:required_action, :atom,
+        allow_nil?: false,
+        default: :page_view,
+        constraints: [one_of: [:page_view, :page_edit]]
+      )
+    end
 
     create :create_in_tx do
       accept([

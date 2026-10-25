@@ -12,10 +12,11 @@ import {
 import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiHistoryLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { lazy, Suspense, useEffect, useState, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useState, useRef, type CSSProperties, type RefObject } from 'react'
 import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { pageConversationsQuery } from './api'
+import { useRoomActions } from './chat/room-api'
 import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { useChatDrafts } from './chat-drafts'
@@ -47,6 +48,10 @@ export function PageChat({
   const chats = useQuery({ ...pageConversationsQuery(pageID), enabled: !!selection })
   const accessDenied = isRealtimeAccessDenied(chats.error)
   const conversationID = selected === 'latest' || selected === 'new' ? undefined : (selected ?? undefined)
+  const [width, setWidth] = useState(400)
+  const [newScope, setNewScope] = useState<'participants' | 'anchor_page'>('participants')
+  const resizing = useRef<{ x: number; width: number } | undefined>(undefined)
+  const actions = useRoomActions(conversationID ?? '')
   const selectedChat = chats.data?.conversations.find(chat => chat.id === conversationID)
   useEffect(() => {
     // Read current drafts on each open, even when the closed panel stays mounted.
@@ -56,13 +61,31 @@ export function PageChat({
     }
   }, [selection, chats.data, chats.isFetching, drafts, pageID, select])
   const header = (
-    <header className="pod-page-chat-header">
+    <header className="pod-page-chat-header" title={pageTitle}>
       <div className="pod-page-chat-heading">
         {mobile ? (
           <SheetTitle className="pod-page-chat-title">{t('pod.page_chat.title')}</SheetTitle>
         ) : (
           <h2 className="pod-page-chat-title">{t('pod.page_chat.title')}</h2>
         )}
+        <div className="pod-page-chat-scope">
+          <Select
+            value={selectedChat?.accessScope ?? newScope}
+            onValueChange={value => {
+              if (value !== 'participants' && value !== 'anchor_page') return
+              if (conversationID) actions.update.mutate({ accessScope: value })
+              else setNewScope(value)
+            }}
+            disabled={accessDenied || actions.update.isPending || (!!conversationID && !selectedChat?.canManage)}>
+            <SelectTrigger size="sm" aria-label={t('pod.chat_room.visibility')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="participants">{t('pod.chat_room.scope_participants')}</SelectItem>
+              <SelectItem value="anchor_page">{t('pod.chat_room.scope_anchor_page')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Button
           size="icon-sm"
           variant="ghost"
@@ -107,14 +130,6 @@ export function PageChat({
           <RiCloseLine aria-hidden />
         </Button>
       </div>
-      {selectedChat && (
-        <h3 className="pod-page-chat-selected-title" title={selectedChat.title}>
-          {selectedChat.title}
-        </h3>
-      )}
-      <p className="pod-page-chat-context" title={pageTitle}>
-        {t('pod.page_chat.context_page')}: {pageTitle || t('pod.content.untitled')}
-      </p>
       {chats.data && chats.error && !accessDenied && (
         <ContentError error={chats.error} retry={() => void chats.refetch()} />
       )}
@@ -140,6 +155,8 @@ export function PageChat({
           key={conversationID ?? 'new'}
           conversationID={conversationID}
           pageID={pageID}
+          accessScope={newScope}
+          onNewConversation={() => select('new', true)}
           onConversationStarted={id => {
             if (selection) select(id)
           }}
@@ -158,7 +175,42 @@ export function PageChat({
   }
   if (!selection) return null
   return (
-    <aside aria-label={t('pod.page_chat.title')} className="pod-page-chat">
+    <aside
+      aria-label={t('pod.page_chat.title')}
+      className="pod-page-chat"
+      style={{ '--pod-page-chat-width': `${width}px` } as CSSProperties}>
+      <div
+        role="separator"
+        tabIndex={0}
+        aria-label={t('pod.chat_room.resize_chat')}
+        aria-orientation="vertical"
+        aria-valuemin={360}
+        aria-valuemax={480}
+        aria-valuenow={width}
+        className="pod-page-chat-resize"
+        onPointerDown={event => {
+          resizing.current = { x: event.clientX, width }
+          event.currentTarget.setPointerCapture(event.pointerId)
+          event.preventDefault()
+        }}
+        onPointerMove={event => {
+          if (resizing.current) {
+            setWidth(Math.max(360, Math.min(480, resizing.current.width + resizing.current.x - event.clientX)))
+          }
+        }}
+        onPointerUp={() => {
+          resizing.current = undefined
+        }}
+        onPointerCancel={() => {
+          resizing.current = undefined
+        }}
+        onKeyDown={event => {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault()
+            setWidth(current => Math.max(360, Math.min(480, current + (event.key === 'ArrowLeft' ? 10 : -10))))
+          }
+        }}
+      />
       {header}
       {body}
     </aside>

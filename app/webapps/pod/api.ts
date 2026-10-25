@@ -1,3 +1,4 @@
+import i18n from '../common/i18n'
 import { authenticationRef, podID } from '../common/browser-context'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
@@ -21,18 +22,25 @@ import {
 } from './api/generated/sdk.gen'
 
 export type ConversationDetail = ConversationDetailResponse
-export type ConversationStatus = ConversationDetail['status']
 export type ConversationMessage = ConversationDetail['messages'][number]
-export type ConversationPendingInput = ConversationDetail['pendingInputs'][number]
+export type ConversationPendingInput = ConversationDetail['pendingQueues'][number]['inputs'][number]
 export type ConversationAttachment = ConversationMessage['attachments'][number]
 export type ConversationCreateRequest = CreateConversationData['body']['data']
 export type ConversationQueueRequest = UpdateConversationQueueData['body']['data']
 export type PodAgent = PodAgentsResponse['agents'][number]
-export type PodActivity = NonNullable<ConversationStatus['activity']>
+export type PodActivity = ConversationDetail['activities'][number]
 export type PodActivityItem = PodActivity['tools'][number]
 
 /** Local attachment IDs identify the captured draft; the API receives only signed receipts. */
-export type MessageSubmission = ConversationCreateRequest & { attachmentIDs?: string[] }
+export type MessageSubmission = Omit<
+  ConversationCreateRequest,
+  'mentions' | 'links' | 'agentUIDs' | 'participantUIDs'
+> & {
+  attachmentIDs?: string[]
+  targetAgentUID?: string
+  mentions?: { type: 'agent' | 'human'; uid: string; displayName?: string }[]
+  links?: { kind: 'page' | 'message'; id: string; quote?: string }[]
+}
 
 export const podKeys = {
   get agents() {
@@ -74,11 +82,41 @@ export function conversationQuery(id: string) {
   }
 }
 export function postMessage(submission: MessageSubmission, create: boolean): Promise<ConversationDetail> {
-  const { conversationID, messageID, agentUID, text, pageID, deliveryMode, attachments, modelProfile } = submission
-  const content = { text, deliveryMode, ...(attachments?.length ? { attachments } : {}) }
+  const {
+    conversationID,
+    messageID,
+    agentUID,
+    text,
+    pageID,
+    deliveryMode,
+    attachments,
+    modelProfile,
+    accessScope,
+    mentions,
+    links,
+    targetAgentUID
+  } = submission
+  const content = {
+    text,
+    deliveryMode,
+    mentions,
+    links,
+    targetAgentUID,
+    ...(attachments?.length ? { attachments } : {})
+  }
   return create
     ? createConversation({
-        body: { data: { conversationID, messageID, agentUID, modelProfile, ...content, ...(pageID ? { pageID } : {}) } }
+        body: {
+          data: {
+            conversationID,
+            messageID,
+            agentUID,
+            accessScope,
+            modelProfile,
+            ...content,
+            ...(pageID ? { pageID } : {})
+          }
+        }
       })
     : postConversationMessage({ path: { id: conversationID }, body: { data: { messageID, ...content } } })
 }
@@ -104,4 +142,12 @@ export function conversationNotFound(error: unknown): boolean {
 
 function contextKey() {
   return ['pod', authenticationRef() ?? 'anonymous', podID() ?? 'unselected'] as const
+}
+
+export function chatError(error: unknown): unknown {
+  const payload = error instanceof InternalAPIError ? error.payload : error
+  const raw = payload && typeof payload === 'object' && 'error' in payload ? payload.error : undefined
+  const code = requestErrorCode(payload) ?? (typeof raw === 'string' ? raw : undefined)
+  const key = code ? `pod.chat.errors.${code}` : ''
+  return key && i18n.exists(key) ? new Error(i18n.t(key)) : error
 }

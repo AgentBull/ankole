@@ -38,6 +38,8 @@ export function buildControlPlaneEnv(env: NodeJS.ProcessEnv, opts: ControlPlaneE
   return {
     ...env,
     PORT: String(opts.port),
+    ANKOLE_FUNCTION_RUNTIME_URL: env.ANKOLE_FUNCTION_RUNTIME_URL || 'http://127.0.0.1:5435',
+    ANKOLE_FUNCTION_RUNTIME_TOKEN: env.ANKOLE_FUNCTION_RUNTIME_TOKEN || 'dev-function-runtime-token',
     ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: `http://host.docker.internal:${opts.port}`,
     ANKOLE_AI_GATEWAY_BASE_URL: aiGatewayBaseURL,
     ANKOLE_WORKER_PROVIDERS_FILE: path.join(opts.repoRoot, 'var', 'ankole-dev', 'worker-providers.yaml'),
@@ -228,7 +230,7 @@ export function devCommand() {
     'dev',
     {
       description:
-        "Start local Postgres and the Phoenix control plane, which runs each Agent's Worker in Docker from the local source."
+        "Start local Postgres, Function Runtime, and the Phoenix control plane, which runs each Agent's Worker in Docker from the local source."
     },
     command =>
       command

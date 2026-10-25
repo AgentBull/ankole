@@ -17,7 +17,7 @@ test('a long chat loads real earlier windows without losing messages or the read
     await expect(page.getByText('History item 1006', { exact: true })).toBeVisible()
     await scroll.evaluate(element => element.scrollTo({ top: 0, behavior: 'instant' }))
     await expect(earlier).toBeVisible()
-    const anchor = page.getByText('History item 0507', { exact: true })
+    const anchor = messages.filter({ has: page.getByText('History item 0507', { exact: true }) })
     const before = await anchor.boundingBox()
     expect(before).not.toBeNull()
     const loaded = page.waitForResponse(response => {

@@ -110,6 +110,39 @@ defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
              resolve_owner(agent.uid, "provider-old-preview")
   end
 
+  test "resolves the same provider message ID independently in each tenant" do
+    %{principal: agent} = agent_fixture()
+    signal_id = Ecto.UUID.generate()
+    provider_message_id = "provider-shared-across-tenants"
+
+    insert_intent(agent.uid, %{
+      source_signal_id: signal_id,
+      created_provider_message_id: provider_message_id
+    })
+
+    other = create_tenant()
+
+    {foreign_agent_uid, foreign_signal_id} =
+      Repo.with_tenant(other.id, fn ->
+        %{principal: foreign_agent} = agent_fixture()
+        foreign_signal_id = Ecto.UUID.generate()
+
+        insert_intent(foreign_agent.uid, %{
+          source_signal_id: foreign_signal_id,
+          created_provider_message_id: provider_message_id
+        })
+
+        {foreign_agent.uid, foreign_signal_id}
+      end)
+
+    assert {:ok, ^signal_id} = resolve_owner(agent.uid, provider_message_id)
+
+    assert {:ok, ^foreign_signal_id} =
+             Repo.with_tenant(other.id, fn ->
+               resolve_owner(foreign_agent_uid, provider_message_id)
+             end)
+  end
+
   defp resolve_owner(agent_uid, provider_provider_message_id) do
     Delivery.resolve_durable_reply_signal_in_tx(
       agent_uid,

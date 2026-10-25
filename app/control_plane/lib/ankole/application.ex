@@ -61,6 +61,7 @@ defmodule Ankole.Application do
         Ankole.AgentWorkers.Providers.Seed,
         Ankole.Authn.RateLimiter,
         Ankole.AIGateway.CredentialPool,
+        Ankole.FunctionRuntime.Supervisor,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
         {Task.Supervisor, name: Ankole.AIGateway.BrainTaskSupervisor, max_children: 64},
         {Task.Supervisor, name: Ankole.Pod.AppletTaskSupervisor},

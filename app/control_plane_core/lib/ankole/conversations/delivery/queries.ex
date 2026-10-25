@@ -24,7 +24,7 @@ defmodule Ankole.Conversations.Delivery.Queries do
       )
       when is_binary(agent_uid) and is_binary(binding_name) and
              is_binary(conversation_id) and is_binary(provider_message_id) do
-    owners =
+    %{owners: owners} =
       agent_uid
       |> durable_reply_surface_query(binding_name, conversation_id)
       |> Ash.Query.filter(
@@ -32,10 +32,7 @@ defmodule Ankole.Conversations.Delivery.Queries do
            created_provider_message_id == ^provider_message_id) or
           (operation == :edit and target_provider_message_id == ^provider_message_id)
       )
-      |> Ash.Query.select([:source_signal_id])
-      |> Ankole.Ash.read!()
-      |> Enum.map(& &1.source_signal_id)
-      |> Enum.uniq()
+      |> Ankole.Ash.aggregate!({:owners, :list, field: :source_signal_id, uniq?: true})
 
     case owners do
       [signal_id] -> {:ok, signal_id}

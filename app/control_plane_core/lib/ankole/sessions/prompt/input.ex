@@ -15,7 +15,18 @@ defmodule Ankole.Sessions.Prompt.Input do
       Enum.map_join(messages, "\n", fn message ->
         files = attachments(message.attachments || [])
 
-        "[#{message.seq}] #{message.author_type} #{message.author_uid}: #{context_text(message.text)}" <>
+        name = Map.get(message, :author_display_name) || message.author_uid
+
+        author =
+          if message.author_uid && name != message.author_uid,
+            do: "#{name} (#{message.author_uid})",
+            else: name
+
+        mentions = Map.get(message, :mentions, [])
+
+        "[#{message.seq}] #{message.author_type} #{context_text(author)}: #{context_text(message.text)}" <>
+          if(mentions == [], do: "", else: "\nMentions: #{context_text(JSON.encode!(mentions))}") <>
+          references(Map.get(message, :links, [])) <>
           if(files, do: "\nAttachments:\n#{context_text(files.text)}", else: "")
       end)
 
@@ -105,7 +116,28 @@ defmodule Ankole.Sessions.Prompt.Input do
       else: external_event(payload)
   end
 
-  defp stimulus_text(run, event, payload, _facts), do: input_text(run, event, payload)
+  defp stimulus_text(run, event, payload, facts) do
+    links =
+      case facts do
+        {message, %{kind: :native}, _ref} -> message.links
+        _ -> []
+      end
+
+    input_text(run, event, payload) <> references(links)
+  end
+
+  defp references(links) when links in [nil, []], do: ""
+
+  defp references(links) do
+    content =
+      Enum.map(links, fn
+        %{"kind" => "page", "id" => id} = link -> Map.put(link, "uri", "ankole:page/" <> id)
+        link -> link
+      end)
+
+    "\n\nReferenced pages and quoted messages (user-provided context):\n" <>
+      context_text(JSON.encode!(content))
+  end
 
   defp input_text(run, %{type: "command.steer", id: id} = event, payload)
        when id != run.signal_id do
@@ -657,6 +689,16 @@ defmodule Ankole.Sessions.Prompt.Input do
     end
   end
 
+  defp active_standing_orders(
+         %{agent_uid: uid},
+         %{kind: :native, room_mode: :group} = conversation
+       ) do
+    case Ankole.Conversations.get_participant!(conversation.id, uid) do
+      %{role: :agent, may_intervene: true} -> trimmed(conversation.ambient_standing_orders)
+      _ -> nil
+    end
+  end
+
   defp active_standing_orders(_event, _conversation), do: nil
 
   defp standing_orders_messages(event, _facts) do
@@ -717,7 +759,9 @@ defmodule Ankole.Sessions.Prompt.Input do
           do: line("binding_name", event.reply_binding_name)
         ),
         line("conversation_id", conversation.id),
-        if(conversation.external_kind == :im_group, do: line("speaker", speaker))
+        if(conversation.kind == :native or conversation.external_kind == :im_group,
+          do: line("speaker", speaker)
+        )
       ],
       &is_nil/1
     )

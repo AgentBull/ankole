@@ -41,7 +41,17 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
       Ankole.ConversationsFixtures.grant_chat(human.uid, allowed.uid)
 
       assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
-               "agents" => [%{"uid" => allowed.uid, "displayName" => "Allowed"}]
+               "agents" => [
+                 %{
+                   "uid" => allowed.uid,
+                   "displayName" => "Allowed",
+                   "active" => true,
+                   "avatarURL" => allowed.avatar_url,
+                   "type" => "agent",
+                   "mayIntervene" => false,
+                   "modelProfile" => nil
+                 }
+               ]
              }
 
       assert %{"profiles" => []} =

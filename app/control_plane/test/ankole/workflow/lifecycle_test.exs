@@ -1149,6 +1149,7 @@ defmodule Ankole.WorkflowTest do
   test "memo budget failure cancels parallel siblings, stops their turns, and releases capacity" do
     %{principal: agent} = agent_fixture()
     run = run_fixture(agent.uid, max_agent_calls: 1_024)
+    Ankole.SessionsCase.stub_workflow_drivers(run)
     full_arguments = %{"prompt" => String.duplicate("x", 7_990)}
     full_size = byte_size(Torque.encode!(full_arguments))
     empty_size = byte_size(Torque.encode!(%{"prompt" => ""}))

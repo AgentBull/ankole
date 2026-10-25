@@ -65,7 +65,18 @@ defmodule Ankole.AppConfigure.SiteConfig do
       accept([])
       argument(:application, :string, constraints: [trim?: false])
 
-      change(Ankole.AppConfigure.Changes.RecordPlatformApplication)
+      change(
+        atomic_update(
+          :value,
+          expr(
+            fragment(
+              "? || jsonb_build_object('platform_application', ?::text)",
+              value,
+              ^arg(:application)
+            )
+          )
+        )
+      )
     end
 
     destroy :remove do

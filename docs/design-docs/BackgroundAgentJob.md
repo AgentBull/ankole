@@ -823,10 +823,16 @@ Each operation that changes more than one row runs in
 `complete_signal`, `WorkerWait.resolve_timeout`, and the lock phase of
 `TurnWatchdog.reconcile_stuck_job`. Each operation owns its transaction and
 must be the top-level call. Another domain composes these steps
-inside its own operation with the `_in_tx` functions, for example
-`Lifecycle.claim_attempt_in_tx/5`, `Lifecycle.commit_status_with_wakeup_in_tx`,
-`Dispatch.prepare_create_in_tx/1`, and `lock_job_in_tx/2`. Action rejection runs before SQL and
-does not roll back the enclosing transaction. `CodexJob.abort` can therefore
+inside its own operation through `BackgroundAgentJobs` composition functions.
+`admit_attempt_in_tx/4` checks admission authority, then locks the Worker, Agent
+slots, and Job before it checks capacity, persists Worker wait state, and claims
+or adopts an attempt. The Session caller supplies a preparation check that runs
+under the Job lock before slot reservation. `abort_attempt_in_tx/4` authorizes
+the attempt, then locks its Turns, Sessions, and Signal before it settles the
+input and compensates the Job. `fail_admission_in_tx/3` commits an admission
+failure and its parent wakeup. Session and Signal admission share the caller's
+transaction with these steps. Action rejection runs before SQL and does not
+roll back the enclosing transaction. `CodexJob.abort` can therefore
 commit its Signal settlement and owner wakeup after a rejected transition.
 Worker authorization reads the input under the locked Job and attempt fence;
 the mutation locks its input after Turn and Session locks. A successful Turn

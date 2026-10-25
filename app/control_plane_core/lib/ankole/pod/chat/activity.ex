@@ -1,10 +1,9 @@
 defmodule Ankole.Pod.Chat.Activity do
-  @moduledoc "The current, bounded activity projection shared with the conversation stream."
+  @moduledoc "The current Turn activity shared with the room stream."
   @item [
+    duration_ms: [type: :integer],
     operation_id: [type: :string, allow_nil?: false],
     phase: [type: :string],
-    state: [type: :string],
-    consequential: [type: :boolean],
     label_key: [type: :string],
     label: [type: :string],
     label_bindings: [type: Ankole.Ash.Types.JSONMap]
@@ -29,7 +28,7 @@ defmodule Ankole.Pod.Chat.Activity do
         tools: [
           type: {:array, :map},
           allow_nil?: false,
-          constraints: [max_length: 4, items: [fields: @item]]
+          constraints: [items: [fields: @item]]
         ]
       ]
     ]

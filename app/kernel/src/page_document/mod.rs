@@ -1,5 +1,6 @@
 //! The page-tree codec and Wordgard apply path. PostgreSQL remains the document owner.
 mod changeset;
+mod diff;
 mod document;
 mod tree;
 
@@ -31,6 +32,12 @@ pub fn apply(source: &str, changes: &str) -> Result<Page> {
     }
     page(root)
 }
+pub fn diff(old: &str, new: &str) -> Result<Value> {
+    let old = document::page_document_normalized(&tree::parse(old)?)?;
+    let new = document::page_document_normalized(&tree::parse(new)?)?;
+    diff::changes(&old, &new)
+}
+
 fn page(root: Element) -> Result<Page> {
     let xml = tree::print(&root);
     if xml.encode_utf16().count() > tree::SOURCE_LIMIT {

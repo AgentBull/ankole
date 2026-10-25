@@ -1319,6 +1319,31 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.Repo
 
+  test "display reads do not consume credit or advance the native stream" do
+    %{stream: stream, server: server} = open_stream()
+    state = :sys.get_state(stream.pid)
+
+    assert {:ok, %{text: "", thinking_summary: "", seq: -1}} =
+             ResponseStream.display_snapshot(stream)
+
+    assert {:ok, _} = ResponseStream.display_snapshot(stream)
+    assert :sys.get_state(stream.pid).outstanding_credit == state.outstanding_credit
+    refute_receive {:ai_gateway_response_stream, _, :events, _, _}, 100
+
+    assert :ok = ResponseStream.read(stream)
+
+    send(
+      server,
+      {:event,
+       %{"type" => "response.output_text.delta", "delta" => "prefix", "sequence_number" => 1}}
+    )
+
+    assert_receive {:ai_gateway_response_stream, _, :events, [_], :continue}, 1_000
+    assert {:ok, %{text: "prefix", seq: 1}} = ResponseStream.display_snapshot(stream)
+    assert :sys.get_state(stream.pid).outstanding_credit == 0
+    refute_receive {:ai_gateway_response_stream, _, :events, _, _}, 100
+  end
+
   test "Ready, heartbeat and terminal commits record real provider event progress" do
     %{stream: stream, response: response, server: server} = open_stream()
     state = :sys.get_state(stream.pid)

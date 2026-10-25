@@ -1,133 +1,136 @@
 import { podLocation, podRouteID } from '../common/browser-context'
-import {
-  Button,
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  SidebarTrigger,
-  useSidebar,
-  useReducedMotion,
-  toast,
-  cn
-} from '@ankole/uikit'
+import { Button, cn, Dialog, DialogContent, DialogTitle, DialogFooter } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import {
-  RiAddLine,
-  RiArrowDownLine,
-  RiArrowUpLine,
-  RiCheckLine,
-  RiDeleteBinLine,
-  RiEditLine,
-  RiFileCopyLine,
-  RiRestartLine,
-  RiSendPlaneLine,
-  RiStopFill
-} from '@remixicon/react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import { useStickToBottom } from 'use-stick-to-bottom'
-import { InternalAPIError } from '../common/internal-api-client'
-import { MarkdownBody } from '../common/markdown-body'
-import { linkTarget } from '../common/router'
-import { MessageArtifacts } from './message-artifacts'
-import { requestErrorCode, requestErrorMessage } from '../common/request-errors'
+import { requestErrorMessage } from '../common/request-errors'
 import {
+  chatError,
   agentsQuery,
   conversationNotFound,
   conversationQuery,
   podKeys,
-  type PodActivity,
-  type PodActivityItem,
-  type PodAgent,
-  type ConversationPendingInput,
-  type ConversationQueueRequest,
   type ConversationDetail
 } from './api'
-import { ChatModel, mergeMessages, shouldSendOnEnter, type ChatPresentation, type DisplayMessage } from './state/chat'
+import { ChatModel, mergeMessages } from './state/chat'
 import { LocalChatDrafts, UnconfirmedChats, useChatDraft } from './chat-drafts'
-import { OlderMessages, useChatHistory, useChatReading, messageID } from './chat-history'
-import { editingText, useChatCommands, type ChatCommands } from './chat-commands'
-import {
-  ChatAttachmentButton,
-  ChatAttachmentDrafts,
-  MessageAttachments,
-  chatAttachmentHandlers
-} from './chat-attachments'
+import { useChatHistory } from './chat-history'
+import { editingSnapshot, useChatCommands, type ChatCommands } from './chat-commands'
+import { ChatAttachmentDrafts } from './chat-attachments'
 import { useConversationEvents } from './use-conversation-events'
-import { pageQuery } from './content-api'
-import { ModelControls } from './model-controls'
-import { PageIcon } from './page-icon'
+import { refreshConversationDetail } from './query-cache'
+import { deleteConversation } from './api/generated/sdk.gen'
+import { Composer } from './chat/composer'
+import { TurnTimeline } from './chat/turn-timeline'
+import { ChatHomeView, ChatHomeToolbar } from './chat/chat-home-view'
+import { RoomHeader } from './chat/room-header'
+import { SharePopover } from './chat/share-popover'
+import { ChatSummaryPanel } from './chat/chat-summary-panel'
+import { SessionFindBar } from './chat/session-find-bar'
+import { QueuedStrip } from './chat/queued-strip'
+import { useRoomActions } from './chat/room-api'
 import './chat.css'
 
 export function ChatRoute() {
   const { conversationID } = useParams({ strict: false })
   const location = useLocation()
   const fullID = podRouteID(conversationID)
-  const locationKey = (location.state as { __TSR_key?: string; key?: string } | null)?.__TSR_key ?? location.href
+  const locationKey = (location.state as { __TSR_key?: string } | null)?.__TSR_key ?? location.href
   return <ChatPage key={fullID ?? conversationID ?? locationKey} conversationID={fullID ?? conversationID} />
 }
 
 export function ChatPage({
   conversationID: requestedConversationID,
   pageID,
-  onConversationStarted
+  accessScope,
+  onConversationStarted,
+  onNewConversation
 }: {
   conversationID?: string
   pageID?: string
+  accessScope?: 'participants' | 'anchor_page'
   onConversationStarted?: (id: string) => void
+  onNewConversation?: () => void
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
-  const navigate = useNavigate()
-  const client = useQueryClient()
+  const navigate = useNavigate(),
+    client = useQueryClient()
   const { drafts, model, selectDraft } = useChatDraft(requestedConversationID, pageID)
   const conversationID = requestedConversationID ?? model.conversationID.value
-  const agents = useQuery({ ...agentsQuery, enabled: !conversationID })
+  const [sharing, setSharing] = useState(false),
+    [summary, setSummary] = useState(false),
+    [finding, setFinding] = useState(false),
+    [renaming, setRenaming] = useState(false),
+    [deleting, setDeleting] = useState(false)
+  const root = useRef<HTMLElement>(null)
+  const composerInput = useRef<HTMLTextAreaElement>(null)
+  const summaryTrigger = useRef<HTMLButtonElement>(null)
+  const findReturnFocus = useRef<HTMLElement | null>(null)
+  const toggleFinding = useCallback(() => {
+    if (finding) {
+      setFinding(false)
+      const target = findReturnFocus.current?.isConnected ? findReturnFocus.current : root.current
+      target?.focus({ preventScroll: true })
+    } else {
+      findReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      setFinding(true)
+    }
+  }, [finding])
+  const actions = useRoomActions(conversationID ?? '')
+  const agents = useQuery(agentsQuery)
   const query = conversationQuery(conversationID ?? '')
   const detail = useQuery({
     ...query,
     queryFn: async context => {
       const observation = model.activityRead()
-      const detail = await query.queryFn(context)
-      model.observeActivity(detail.status.activity, observation)
-      return detail
+      const result = await query.queryFn(context)
+      for (const activity of result.activities) model.observeActivity(activity, observation)
+      return result
     },
-    enabled: !!conversationID && !model.gone.value
+    enabled: !!conversationID && !model.gone.value,
+    refetchInterval: query =>
+      query.state.data?.linkedRuns.some(run => ['queued', 'running', 'waiting_on_user'].includes(run.status))
+        ? 2000
+        : false
   })
-  const data = detail.data
-  const history = useChatHistory(conversationID, data)
+  const data = detail.data,
+    history = useChatHistory(conversationID, data)
   const availableAgents = agents.data?.agents ?? []
-  const selection = model.selectedAgentUID.value
-  const selectedAgentUID = availableAgents.some(agent => agent.uid === selection) ? selection : ''
+  const selected = model.selectedAgentUID.value
   const agentUID =
-    data?.conversation.agent.uid ?? (availableAgents.length === 1 ? availableAgents[0]!.uid : selectedAgentUID)
+    data?.conversation.agents.find(agent => agent.uid === model.targetAgentUID.value)?.uid ??
+    data?.conversation.agents[0]?.uid ??
+    (availableAgents.some(agent => agent.uid === selected) ? selected : (availableAgents[0]?.uid ?? ''))
   const commands = useChatCommands({
     model,
     drafts,
     conversationID,
     pageID,
+    accessScope,
     data,
     agentUID,
     agentsError: agents.isError,
-    refresh: async () => (await detail.refetch({ cancelRefetch: true, throwOnError: true })).data
+    callableAgentUIDs: availableAgents.map(agent => agent.uid),
+    refresh: () => refreshConversationDetail(client, conversationID!)
   })
-  const { disabled, working, submit } = commands
-
+  const remove = useMutation({
+    mutationFn: () => deleteConversation({ path: { id: conversationID! }, query: { forceStop: true } }),
+    onSuccess: () => {
+      model.markGone()
+      client.removeQueries({ queryKey: podKeys.detail(conversationID!) })
+      void client.invalidateQueries({ queryKey: podKeys.conversations })
+      void navigate({ to: podLocation('/').pathname })
+    }
+  })
   useEffect(() => {
     if (!requestedConversationID && conversationID) {
       if (onConversationStarted) onConversationStarted(conversationID)
       else void navigate({ to: podLocation(`/conversations/${conversationID}`).pathname })
     }
   }, [requestedConversationID, conversationID, onConversationStarted, navigate])
-
   const gone = model.gone.value || conversationNotFound(detail.error)
   useConversationEvents(gone ? undefined : conversationID, model)
   useEffect(() => {
@@ -142,72 +145,121 @@ export function ChatPage({
       client.removeQueries({ queryKey: podKeys.detail(conversationID), exact: true })
     }
   }, [client, conversationID, detail.error, model])
-
+  const lastReadSeq = data?.conversation.viewer.lastReadSeq,
+    lastSeq = data?.messageRange.lastSeq
+  const atBottom = model.reading.value[pageID ? 'page' : 'standalone']?.atBottom !== false
+  useEffect(() => {
+    const markRead = () => {
+      if (
+        conversationID &&
+        lastSeq &&
+        lastReadSeq != null &&
+        lastReadSeq < lastSeq &&
+        atBottom &&
+        document.visibilityState === 'visible'
+      ) {
+        actions.update.mutate({ lastReadSeq: lastSeq })
+      }
+    }
+    markRead()
+    document.addEventListener('visibilitychange', markRead)
+    return () => document.removeEventListener('visibilitychange', markRead)
+  }, [conversationID, lastReadSeq, lastSeq, atBottom])
+  const roomReady = !!data && !gone
+  useEffect(() => {
+    const element = root.current
+    if (!element || !conversationID) return
+    const handle = (event: KeyboardEvent) => {
+      if (event.isComposing || event.repeat) return
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        ['f', 'i'].includes(event.key.toLowerCase())
+      ) {
+        event.preventDefault()
+        if (event.key.toLowerCase() === 'f') toggleFinding()
+        else setSummary(value => !value)
+      }
+    }
+    element.addEventListener('keydown', handle)
+    return () => element.removeEventListener('keydown', handle)
+  }, [conversationID, roomReady, toggleFinding])
   const composer = (
     <Composer
       model={model}
       agents={availableAgents}
+      agentsLoaded={agents.isSuccess}
       agentUID={agentUID}
-      existingAgent={data?.conversation.agent.displayName}
+      detail={data}
       commands={commands}
-      conversationID={conversationID}
-      activeSignalID={working ? (model.activity.value?.signalID ?? data?.status.activity.signalID) : null}
+      variant={conversationID ? 'compact' : 'hero'}
+      onInvite={() => setSharing(true)}
+      onRename={() => setRenaming(true)}
+      onSummary={() => setSummary(true)}
+      onNew={onNewConversation}
+      inputRef={composerInput}
+      answering={actions.answer.isPending}
+      onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
     />
   )
   const failure = model.error.value
   const retry = (
-    <Button size="sm" variant="outline" onClick={() => submit()} disabled={!commands.canSubmit}>
+    <Button size="sm" variant="outline" onClick={() => commands.submit()} disabled={!commands.canSubmit}>
       {t('pod.chat.retry_send')}
     </Button>
   )
-
   if (!conversationID) {
     return (
-      <section className={cn('pod-chat pod-chat-empty', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-        {!pageID && <ChatHeader title={t('pod.chat.new_conversation')} />}
-        <div className="pod-chat-empty-content">
-          <h1 className="pod-chat-empty-title">{t(pageID ? 'pod.page_chat.start_title' : 'pod.chat.new_title')}</h1>
-          {pageID && <p className="pod-chat-empty-hint">{t('pod.page_chat.start_hint')}</p>}
-          {agents.isPending ? (
+      <section
+        ref={root}
+        className={cn('pod-chat pod-chat-empty', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
+        {!pageID && <ChatHomeToolbar />}
+        <ChatHomeView
+          composer={composer}
+          pageID={pageID}
+          showSuggestions={!model.hasContent.value && !model.links.value.length}
+          onSuggestion={text => {
+            model.draft.value = text
+            composerInput.current?.focus()
+          }}>
+          {agents.isPending && (
             <p role="status" className="pod-chat-status">
               {t('pod.chat.loading_agents')}
             </p>
-          ) : null}
-          {agents.isError ? <RequestFailure error={agents.error} retry={() => void agents.refetch()} /> : null}
-          {!agents.isPending && !agents.isError && !availableAgents.length ? (
+          )}
+          {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
+          {!agents.isPending && !agents.isError && !availableAgents.length && (
             <p className="pod-chat-status">{t('pod.chat.no_agents')}</p>
-          ) : null}
-        </div>
-        <div className="pod-chat-composer-dock">
+          )}
+          {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
           {!pageID && <UnconfirmedChats current={model} select={selectDraft} />}
-          {failure ? <RequestFailure error={failure} action={retry} sendFailure /> : null}
-          {composer}
-        </div>
+        </ChatHomeView>
       </section>
     )
   }
-  if (gone) return <ConversationGone model={model} />
+  if (gone) {
+    return (
+      <>
+        {!pageID && <ChatHomeToolbar />}
+        <ConversationGone model={model} />
+      </>
+    )
+  }
   if (!data) {
     return (
-      <section className="pod-chat-loading">
-        {detail.isError ? (
-          <RequestFailure error={detail.error} retry={() => void detail.refetch()} />
-        ) : (
-          <p role="status" className="text-[13px] text-fg-tertiary">
-            {t('pod.chat.loading_history')}
-          </p>
-        )}
+      <section className="pod-chat flex-col">
+        {!pageID && <ChatHomeToolbar />}
+        <div className="pod-chat-loading">
+          {detail.isError ? (
+            <RequestFailure error={detail.error} retry={() => void detail.refetch()} />
+          ) : (
+            <p role="status">{t('pod.chat.loading_history')}</p>
+          )}
+        </div>
       </section>
     )
   }
-  const firstMessageID = data.messages.find(message => message.seq === 1 && message.authorType === 'human')?.id
-  const pendingInputs = data.pendingInputs.filter(input => data.queuePaused || input.messageID !== firstMessageID)
-  const pendingIDs = new Set(pendingInputs.map(input => input.messageID))
-  const messages = mergeMessages(
-    data.messages.filter(message => !pendingIDs.has(message.id)),
-    model.pending.value,
-    model.live.value
-  )
   if (pageID && data.conversation.pageID !== pageID) {
     return (
       <p role="alert" className="p-4 text-sm">
@@ -215,57 +267,183 @@ export function ChatPage({
       </p>
     )
   }
-  const retryTime = data.status.retryAt
-    ? new Date(data.status.retryAt).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
-    : undefined
-
+  const messages = mergeMessages(
+    data.messages,
+    model.pending.value,
+    data.pendingQueues,
+    data.conversation.participants.filter(member => member.type === 'human').length
+  )
+  const liveStreams = Object.values(model.liveStreams.value)
+    .filter(stream => data.conversation.agents.some(agent => agent.uid === stream.agentUID))
+    .map(stream => ({
+      ...stream,
+      agentName: stream.agentName || data.conversation.agents.find(agent => agent.uid === stream.agentUID)?.displayName,
+      activity: model.activities.value[stream.agentUID]
+    }))
+  const activity = Object.values(model.activities.value).find(
+    activity => activity.state === 'active' && data.conversation.agents.some(agent => agent.uid === activity.agentUID)
+  )
+  const workingQueues = data.pendingQueues.filter(queue => queue.workStatus.state !== 'idle')
+  const running = workingQueues.some(queue => queue.workStatus.state === 'running')
+  const waiting = !running && workingQueues.some(queue => queue.workStatus.state === 'queued')
+  const retryAt = workingQueues
+    .flatMap(queue =>
+      queue.workStatus.state === 'retrying' && queue.workStatus.retryAt ? [queue.workStatus.retryAt] : []
+    )
+    .sort()[0]
+  const retryTime =
+    !running && !waiting && retryAt
+      ? new Date(retryAt).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
+      : undefined
   return (
-    <section className={cn('pod-chat', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-      {!pageID ? (
-        <ChatHeader title={data.conversation.title} />
-      ) : (
-        <h1 className="sr-only">{data.conversation.title}</h1>
-      )}
-      {!pageID && data.conversation.pageID && (
-        <ConversationPageLink pageID={data.conversation.pageID} conversationID={data.conversation.id} />
-      )}
-      <MessageHistory
-        model={model}
-        presentation={pageID ? 'page' : 'standalone'}
-        history={history}
-        messages={messages}
-        working={working}
-        retryTime={retryTime}
-        activity={model.activity.value}
-        conversationID={conversationID}
-        retryableMessageID={data.retryableMessageID ?? null}
-        actions={commands.messageActions}
+    <section ref={root} tabIndex={-1} className={cn('pod-chat', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
+      <RoomHeader
+        detail={data}
+        embedded={!!pageID}
+        onInvite={() => setSharing(true)}
+        onFind={toggleFinding}
+        onSummary={() => setSummary(value => !value)}
+        summaryOpen={summary}
+        summaryTrigger={summaryTrigger}
+        onDelete={() => setDeleting(true)}
+        editing={renaming}
+        onEditingChange={setRenaming}
       />
-      <div className="pod-chat-composer-dock">
-        <PendingInputs
-          conversationID={conversationID}
-          inputs={pendingInputs}
-          order={data.pendingInputs}
-          paused={data.queuePaused}
-          disabled={disabled}
-          change={commands.changeQueue}
-          edit={commands.editQueued}
-        />
-        {commands.queueError ? <RequestFailure error={commands.queueError} /> : null}
-        {commands.editConflict && <EditRecovery model={model} data={data} recovery={commands.recovery} />}
-        {commands.recovery.error ? <RequestFailure error={commands.recovery.error} /> : null}
-        {detail.isError ? <RequestFailure error={detail.error} retry={() => void detail.refetch()} /> : null}
-        {model.connecting.value ? (
-          <p role="status" className="text-[13px] text-fg-tertiary">
-            {t('pod.chat.reconnecting')}
-          </p>
-        ) : null}
-        {!data.conversation.agent.active ? (
-          <p className="text-[13px] text-fg-tertiary">{t('pod.chat.agent_unavailable')}</p>
-        ) : null}
-        {failure ? <RequestFailure error={failure} action={retry} sendFailure /> : null}
-        {composer}
+      {finding && <SessionFindBar root={root} history={history} onClose={toggleFinding} />}
+      <div className="pod-chat-room-body">
+        <div className="pod-chat-room-main">
+          <TurnTimeline
+            model={model}
+            presentation={pageID ? 'page' : 'standalone'}
+            history={history}
+            messages={messages}
+            viewerUID={data.conversation.viewer.uid}
+            members={data.conversation.participants}
+            working={commands.working}
+            waiting={waiting}
+            activity={activity}
+            retryTime={retryTime}
+            conversationID={conversationID}
+            retryableMessageIDs={data.pendingQueues.flatMap(queue =>
+              queue.retryableMessageID ? [queue.retryableMessageID] : []
+            )}
+            actions={commands.messageActions}
+            latestInput={data.latestInput}
+            liveStreams={liveStreams}
+            pendingInteractions={data.pendingInteractions}
+            linkedRuns={data.linkedRuns.map(run => ({
+              ...run,
+              agentName:
+                data.conversation.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
+                data.messages.findLast(message => message.authorType === 'agent' && message.authorUID === run.agentUID)
+                  ?.authorDisplayName
+            }))}
+            canAnswer={uid =>
+              data.conversation.agents.some(agent => agent.uid === uid && agent.active) &&
+              availableAgents.some(agent => agent.uid === uid)
+            }
+            readOnlyReason={t('pod.chat_room.answer_unavailable')}
+            onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
+            onComposeAnswer={
+              !model.editing.value && !actions.answer.isPending
+                ? (interactionID, text) => {
+                    if (model.startAnswer(interactionID, text)) {
+                      composerInput.current?.focus()
+                    }
+                  }
+                : undefined
+            }
+            onQuote={(quote, message) => {
+              model.links.value = [
+                ...model.links.value.filter(link => link.kind !== 'message'),
+                { kind: 'message', id: message.id, quote }
+              ]
+              composerInput.current?.focus()
+            }}
+          />
+          <div className="pod-chat-composer-dock">
+            <QueuedStrip
+              detail={data}
+              pending={commands.pendingQueueAction}
+              callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+              disabled={commands.disabled}
+              editing={!!model.editing.value}
+              change={commands.changeQueue}
+              edit={commands.editQueued}
+              takeBack={commands.takeBackQueued}
+            />
+            {model.neededInvites.value.map(person => (
+              <div key={person.uid} className="pod-chat-invite-notice">
+                <span>{t('pod.chat_room.mention_outside', { name: person.displayName })}</span>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={actions.participants.isPending}
+                  onClick={() =>
+                    actions.participants.mutate(
+                      { addUIDs: [person.uid] },
+                      {
+                        onSuccess: () => {
+                          model.neededInvites.value = model.neededInvites.value.filter(item => item.uid !== person.uid)
+                        }
+                      }
+                    )
+                  }>
+                  {t('pod.chat_room.invite')}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => {
+                    model.neededInvites.value = model.neededInvites.value.filter(item => item.uid !== person.uid)
+                  }}>
+                  {t('pod.chat_room.dismiss')}
+                </Button>
+              </div>
+            ))}
+            {!!commands.queueError && <RequestFailure error={commands.queueError} />}
+            {commands.editConflict && <EditRecovery model={model} data={data} recovery={commands.recovery} />}
+            {!!commands.recovery.error && <RequestFailure error={commands.recovery.error} />}
+            {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
+            {detail.isError && <RequestFailure error={detail.error} retry={() => void detail.refetch()} />}
+            {model.connecting.value && (
+              <p role="status" className="text-xs text-fg-tertiary">
+                {t('pod.chat.reconnecting')}
+              </p>
+            )}
+            {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
+            {composer}
+          </div>
+        </div>
+        {summary && (
+          <ChatSummaryPanel
+            detail={data}
+            callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+            onClose={() => {
+              setSummary(false)
+              summaryTrigger.current?.focus()
+            }}
+          />
+        )}
       </div>
+      <SharePopover detail={data} open={sharing} onOpenChange={setSharing} />
+      <Dialog open={deleting} onOpenChange={open => !remove.isPending && setDeleting(open)}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!remove.isPending}>
+          <DialogTitle>{t(commands.working ? 'pod.chat_room.stop_delete' : 'pod.chat_room.delete')}</DialogTitle>
+          <p>
+            {t('pod.content.deleting_cannot_be_undone_pages_saved_to_pod_will_be', { title: data.conversation.title })}
+          </p>
+          {remove.error && <RequestFailure error={remove.error} />}
+          <DialogFooter>
+            <Button variant="outline" disabled={remove.isPending} onClick={() => setDeleting(false)}>
+              {t('pod.content.cancel')}
+            </Button>
+            <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+              {t('pod.chat_room.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }
@@ -283,8 +461,8 @@ function EditRecovery({
   const { t } = useTranslation()
   const editing = model.editing.value
   if (!editing) return null
-  const saved = editingText(data, editing)
-  const conflict = saved !== undefined && saved !== (editing.originalText ?? '')
+  const saved = editingSnapshot(data, editing)
+  const conflict = saved && model.savedEditChanged(saved)
   return (
     <div className="space-y-2 text-[13px] leading-5">
       <Button type="button" size="sm" variant="outline" disabled={recovery.loading} onClick={recovery.refresh}>
@@ -295,7 +473,7 @@ function EditRecovery({
         <>
           <p>{t('pod.chat.saved_message_changed')}</p>
           <blockquote className="max-h-28 overflow-auto border-l-2 border-border pl-3 whitespace-pre-wrap break-words">
-            {saved}
+            {saved.text}
           </blockquote>
           <Button type="button" size="sm" variant="outline" disabled={recovery.loading} onClick={recovery.useSaved}>
             {t('pod.chat.load_saved_message')}
@@ -303,151 +481,6 @@ function EditRecovery({
         </>
       )}
     </div>
-  )
-}
-
-function ConversationPageLink({ pageID, conversationID }: { pageID: string; conversationID: string }) {
-  const { t } = useTranslation()
-  const page = useQuery(pageQuery(pageID))
-  return (
-    <div className="pod-chat-page-reference">
-      <Link
-        className="link inline-flex items-center gap-1.5"
-        {...linkTarget(podLocation(`/pages/${pageID}`, { chat: conversationID }))}>
-        {page.data && <PageIcon page={page.data.page} />}
-        {t('pod.page_chat.context_page')}: {page.data?.page.title || t('pod.content.untitled')}
-      </Link>
-    </div>
-  )
-}
-
-function ChatHeader({ title }: { title: string }) {
-  const { t } = useTranslation()
-  const { state } = useSidebar()
-  return (
-    <header className="pod-chat-header">
-      <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
-      <h1 className="pod-chat-header-title" title={title}>
-        {title}
-      </h1>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={t('pod.chat.new_conversation')}
-        title={t('pod.chat.new_conversation')}
-        nativeButton={false}
-        render={<Link to={podLocation('/').pathname} />}>
-        <RiAddLine aria-hidden />
-      </Button>
-    </header>
-  )
-}
-
-function PendingInputs({
-  conversationID,
-  inputs,
-  order,
-  paused,
-  disabled,
-  change,
-  edit
-}: {
-  conversationID: string
-  inputs: ConversationPendingInput[]
-  order: ConversationPendingInput[]
-  paused: boolean
-  disabled: boolean
-  change(command: ConversationQueueRequest): void
-  edit(input: ConversationPendingInput): void
-}) {
-  useSignals()
-  const { t } = useTranslation()
-  if (!inputs.length && !paused) return null
-  const reorder = (index: number, offset: number) => {
-    const ids = inputs.map(input => input.messageID)
-    const [id] = ids.splice(index, 1)
-    ids.splice(index + offset, 0, id!)
-    const visible = new Set(ids)
-    let position = 0
-    const messageIDs = order.map(input => (visible.has(input.messageID) ? ids[position++]! : input.messageID))
-    change({ action: 'reorder', messageIDs })
-  }
-  return (
-    <section className="pod-chat-queue" aria-label={t('pod.chat.queue_title')}>
-      <div className="pod-chat-queue-header">
-        <h2>{t(paused ? 'pod.chat.queue_paused' : 'pod.chat.queue_title')}</h2>
-        {paused && (
-          <Button size="xs" variant="ghost" disabled={disabled} onClick={() => change({ action: 'resume' })}>
-            {t('pod.chat.resume_queue')}
-          </Button>
-        )}
-      </div>
-      <ol className="pod-chat-queue-items">
-        {inputs.map((input, index) => (
-          <li key={input.messageID} className="pod-chat-queue-item">
-            <div className="pod-chat-queue-text">
-              <p>{input.text}</p>
-              <MessageAttachments
-                conversationID={conversationID}
-                messageID={input.messageID}
-                attachments={input.attachments}
-              />
-              <span>
-                {t(input.deliveryMode === 'queue' ? 'pod.chat.pending_queue' : 'pod.chat.pending_steer')} ·{' '}
-                {input.modelProfile === 'primary' ? t('pod.chat.model_follow_agent') : input.modelProfile}
-              </span>
-            </div>
-            <div className="pod-chat-queue-actions">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('pod.chat.edit_pending')}
-                title={t('pod.chat.edit_pending')}
-                disabled={disabled}
-                onClick={() => edit(input)}>
-                <RiEditLine aria-hidden />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('pod.chat.move_earlier')}
-                title={t('pod.chat.move_earlier')}
-                disabled={disabled || index === 0}
-                onClick={() => reorder(index, -1)}>
-                <RiArrowUpLine aria-hidden />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('pod.chat.move_later')}
-                title={t('pod.chat.move_later')}
-                disabled={disabled || index === inputs.length - 1}
-                onClick={() => reorder(index, 1)}>
-                <RiArrowDownLine aria-hidden />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('pod.chat.send_now')}
-                title={t('pod.chat.send_now')}
-                disabled={disabled}
-                onClick={() => change({ action: 'send_now', messageID: input.messageID })}>
-                <RiSendPlaneLine aria-hidden />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('pod.chat.remove_pending')}
-                title={t('pod.chat.remove_pending')}
-                disabled={disabled}
-                onClick={() => change({ action: 'remove', messageID: input.messageID })}>
-                <RiDeleteBinLine aria-hidden />
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
   )
 }
 
@@ -473,395 +506,6 @@ function ConversationGone({ model }: { model: InstanceType<typeof ChatModel> }) 
   )
 }
 
-function Composer({
-  model,
-  agents,
-  agentUID,
-  existingAgent,
-  commands,
-  conversationID,
-  activeSignalID
-}: {
-  model: InstanceType<typeof ChatModel>
-  agents: PodAgent[]
-  agentUID: string
-  existingAgent?: string
-  commands: ChatCommands
-  conversationID?: string
-  activeSignalID?: string | null
-}) {
-  const { disabled, sending, submit, working, followupRelevant, stop, canSubmit } = commands
-  useSignals()
-  const { t } = useTranslation()
-  const textarea = useRef<HTMLTextAreaElement>(null)
-  const editingID = model.editing.value?.messageID
-  useEffect(() => {
-    if (editingID) textarea.current?.focus()
-  }, [editingID])
-  return (
-    <form
-      {...chatAttachmentHandlers(model.attachments, disabled || !!model.editing.value)}
-      className="pod-chat-composer"
-      title={t('pod.chat.alternate_shortcut')}
-      onSubmit={event => {
-        event.preventDefault()
-        submit()
-      }}>
-      {model.editing.value?.kind === 'last' && (
-        <p className="pod-chat-action-hint">{t('pod.chat.retry_keeps_artifacts')}</p>
-      )}
-      <InputGroup className="pod-chat-composer-field">
-        <ChatAttachmentDrafts model={model.attachments} disabled={disabled || !!model.editing.value} />
-        <InputGroupTextarea
-          ref={textarea}
-          aria-label={t('pod.chat.message_label')}
-          autoFocus
-          className="pod-chat-composer-input"
-          disabled={disabled && (sending || !!existingAgent || agents.length === 0)}
-          placeholder={t('pod.chat.placeholder')}
-          rows={1}
-          value={model.draft.value}
-          onChange={event => {
-            model.draft.value = event.target.value
-          }}
-          onKeyDown={event => {
-            if (event.key === 'Escape' && !event.nativeEvent.isComposing && model.editing.value) {
-              event.preventDefault()
-              model.cancelEdit()
-              return
-            }
-            if (
-              shouldSendOnEnter({
-                key: event.key,
-                shiftKey: event.shiftKey,
-                isComposing: event.nativeEvent.isComposing,
-                keyCode: event.nativeEvent.keyCode,
-                ctrlKey: event.ctrlKey,
-                metaKey: event.metaKey
-              })
-            ) {
-              event.preventDefault()
-              submit(
-                event.shiftKey && (event.ctrlKey || event.metaKey)
-                  ? model.deliveryMode.value === 'steer'
-                    ? 'queue'
-                    : 'steer'
-                  : undefined
-              )
-            }
-          }}
-        />
-        <InputGroupAddon align="block-end" className="pod-chat-composer-tools">
-          <div className="pod-chat-recipient-tools">
-            <ChatAttachmentButton model={model.attachments} disabled={disabled || !!model.editing.value} />
-            {existingAgent || agents.length === 1 ? (
-              <span className="pod-chat-agent-name">{existingAgent ?? agents[0]?.displayName}</span>
-            ) : agents.length > 1 ? (
-              <Select
-                value={agentUID || null}
-                onValueChange={value => {
-                  if (model.selectedAgentUID.value !== (value ?? '')) model.modelProfile.value = null
-                  model.selectedAgentUID.value = value ?? ''
-                }}
-                disabled={sending}>
-                <SelectTrigger aria-label={t('pod.chat.choose_agent')} size="sm" className="pod-chat-agent-picker">
-                  <SelectValue placeholder={t('pod.chat.choose_agent')} />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {agents.map(agent => (
-                    <SelectItem key={agent.uid} value={agent.uid}>
-                      {agent.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <span />
-            )}
-            {agentUID && (
-              <ModelControls
-                agentUID={agentUID}
-                conversationID={conversationID}
-                draftProfile={model.modelProfile.value}
-                onDraftProfileChange={profile => {
-                  model.modelProfile.value = profile
-                }}
-                onRequiresQueue={required => {
-                  if (required) model.deliveryMode.value = 'queue'
-                }}
-                activeSignalID={activeSignalID}
-                disabled={disabled || !!model.editing.value}
-              />
-            )}
-          </div>
-          <div className="pod-chat-send-tools">
-            {model.editing.value ? (
-              <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={() => model.cancelEdit()}>
-                {t('pod.chat.cancel_pending')}
-              </Button>
-            ) : followupRelevant ? (
-              <Select
-                value={model.deliveryMode.value}
-                onValueChange={value => {
-                  if (value === 'steer' || value === 'queue') model.deliveryMode.value = value
-                }}
-                disabled={disabled}>
-                <SelectTrigger
-                  aria-label={t('pod.chat.followup_mode')}
-                  title={t(model.deliveryMode.value === 'steer' ? 'pod.chat.steer_hint' : 'pod.chat.queue_hint')}
-                  size="sm"
-                  className="pod-chat-mode-picker">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="steer">{t('pod.chat.steer')}</SelectItem>
-                  <SelectItem value="queue">{t('pod.chat.queue')}</SelectItem>
-                </SelectContent>
-              </Select>
-            ) : null}
-            {working && (
-              <InputGroupButton
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t('pod.chat.stop')}
-                title={t('pod.chat.stop_hint')}
-                disabled={disabled}
-                onClick={stop}>
-                <RiStopFill aria-hidden />
-              </InputGroupButton>
-            )}
-            <InputGroupButton
-              type="submit"
-              variant="outline"
-              size="icon-sm"
-              aria-label={
-                sending ? t('pod.chat.sending') : model.editing.value ? t('pod.chat.save_pending') : t('pod.chat.send')
-              }
-              disabled={!canSubmit}>
-              {model.editing.value ? <RiCheckLine aria-hidden /> : <RiArrowUpLine aria-hidden />}
-            </InputGroupButton>
-          </div>
-        </InputGroupAddon>
-      </InputGroup>
-    </form>
-  )
-}
-
-function MessageHistory({
-  model,
-  presentation,
-  conversationID,
-  history,
-  messages,
-  working,
-  retryTime,
-  activity,
-  retryableMessageID,
-  actions
-}: {
-  model: InstanceType<typeof ChatModel>
-  presentation: ChatPresentation
-  conversationID: string
-  history: ReturnType<typeof useChatHistory>
-  messages: DisplayMessage[]
-  working: boolean
-  retryTime?: string
-  activity?: PodActivity
-  retryableMessageID: string | null
-  actions?: MessageActions
-}) {
-  const { t } = useTranslation()
-  const savedReading = useRef(model.reading.peek()[presentation])
-  const reducedMotion = useReducedMotion()
-  const stick = useStickToBottom({
-    initial: savedReading.current?.atBottom === false ? false : 'instant',
-    resize: reducedMotion ? 'instant' : 'smooth'
-  })
-  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = stick
-  const messageKeys = messages.map(messageID).join('|')
-  useChatReading(model, presentation, stick, messageKeys)
-  const committed = messages.filter(item => item.type === 'committed').map(item => item.message)
-  const lastHuman = committed.findLast(message => message.authorType === 'human')
-  return (
-    <div className="pod-chat-history">
-      <div
-        ref={scrollRef}
-        role="region"
-        aria-label={t('pod.chat_history.label')}
-        tabIndex={0}
-        className="pod-chat-history-scroll">
-        <div ref={contentRef} className="pod-chat-history-content">
-          <OlderMessages history={history} scrollRef={scrollRef} />
-          {messages.map(message => (
-            <div key={messageID(message) ?? 'live'} data-chat-message-id={messageID(message)}>
-              <ChatMessage
-                item={message}
-                conversationID={conversationID}
-                edit={message.type === 'committed' && message.message.id === lastHuman?.id ? actions?.edit : undefined}
-                regenerate={
-                  message.type === 'committed' && message.message.id === retryableMessageID
-                    ? actions?.regenerate
-                    : undefined
-                }
-              />
-            </div>
-          ))}
-          {activity && (activity.phase || activity.tools.length > 0) ? (
-            <CurrentActivity activity={activity} />
-          ) : working ? (
-            <div role="status" className="flex items-center gap-2 text-[13px] text-fg-tertiary">
-              <span aria-hidden className="size-1.5 rounded-full bg-current" />
-              {retryTime ? t('pod.chat.retrying', { time: retryTime }) : t('pod.chat.replying')}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      {!isAtBottom ? (
-        <Button
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 shadow-sm"
-          variant="outline"
-          size="sm"
-          onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
-          <RiArrowDownLine aria-hidden />
-          {t('pod.chat.scroll_latest')}
-        </Button>
-      ) : null}
-    </div>
-  )
-}
-
-function CurrentActivity({ activity }: { activity: PodActivity }) {
-  const { t } = useTranslation()
-  const label = (item: PodActivityItem) =>
-    item.label_key?.startsWith('conversations.delivery.reply.activity.')
-      ? t(item.label_key, { ...item.label_bindings, defaultValue: t('pod.chat.replying') })
-      : item.label || t('pod.chat.replying')
-  return (
-    <div role="status" aria-live="polite" className="space-y-1 text-[13px] text-fg-tertiary">
-      {activity.phase ? <p>{label(activity.phase)}</p> : null}
-      {activity.tools.map(tool => (
-        <p key={tool.operation_id}>{label(tool)}</p>
-      ))}
-    </div>
-  )
-}
-
-type CommittedMessage = Extract<DisplayMessage, { type: 'committed' }>['message']
-type MessageActions = { edit(message: CommittedMessage): void; regenerate(message: CommittedMessage): void }
-
-function ChatMessage({
-  item,
-  conversationID,
-  edit,
-  regenerate
-}: {
-  item: DisplayMessage
-  conversationID: string
-  edit?: MessageActions['edit']
-  regenerate?: MessageActions['regenerate']
-}) {
-  const { t } = useTranslation()
-  if (item.type === 'live') return <MarkdownBody className="pod-chat-agent-message" text={item.text} copyCode />
-  if (item.type === 'committed' && item.message.kind === 'notice') {
-    return (
-      <div className="pod-chat-agent-message">
-        <p className="whitespace-pre-wrap text-[13px] leading-5 text-fg-tertiary">{item.message.text}</p>
-        {regenerate && <MessageCopy text="" regenerate={() => regenerate(item.message)} retry />}
-      </div>
-    )
-  }
-  const human = item.type === 'pending' || item.message.authorType === 'human'
-  if (!human) {
-    return (
-      <div className="pod-chat-agent-message">
-        <MarkdownBody text={item.message.text ?? ''} copyCode />
-        <MessageCopy
-          text={item.message.text ?? ''}
-          regenerate={regenerate ? () => regenerate(item.message) : undefined}
-        />
-        <MessageArtifacts conversationID={conversationID} message={item.message} />
-      </div>
-    )
-  }
-  return (
-    <div className="pod-chat-human-message">
-      {item.message.text && (
-        <div className={cn('pod-chat-human-text whitespace-pre-wrap', item.type === 'pending' && 'opacity-65')}>
-          {item.message.text}
-        </div>
-      )}
-      {item.type === 'pending' ? (
-        <span className="text-xs text-fg-tertiary">
-          {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
-        </span>
-      ) : null}
-      {item.type === 'committed' && <MessageArtifacts conversationID={conversationID} message={item.message} />}
-      {item.type === 'committed' && (
-        <MessageCopy text={item.message.text ?? ''} edit={edit ? () => edit(item.message) : undefined} />
-      )}
-    </div>
-  )
-}
-
-function MessageCopy({
-  text,
-  edit,
-  regenerate,
-  retry
-}: {
-  text: string
-  edit?(): void
-  regenerate?(): void
-  retry?: boolean
-}) {
-  const { t } = useTranslation()
-  return (
-    <div className="pod-chat-message-actions">
-      {edit && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('pod.chat.edit_last')}
-          title={t('pod.chat.edit_last')}
-          onClick={edit}>
-          <RiEditLine aria-hidden />
-        </Button>
-      )}
-      {regenerate && (
-        <>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={t(retry ? 'pod.chat.retry_reply' : 'pod.chat.regenerate')}
-            title={t(retry ? 'pod.chat.retry_reply' : 'pod.chat.regenerate')}
-            onClick={regenerate}>
-            <RiRestartLine aria-hidden />
-          </Button>
-          <span className="pod-chat-action-hint">{t('pod.chat.retry_keeps_artifacts')}</span>
-        </>
-      )}
-      {text && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('pod.chat.copy_message')}
-          title={t('pod.chat.copy_message')}
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(text)
-              toast.success(t('pod.chat.message_copied'))
-            } catch {
-              toast.error(t('pod.chat.copy_failed'))
-            }
-          }}>
-          <RiFileCopyLine aria-hidden />
-        </Button>
-      )}
-    </div>
-  )
-}
-
 function RequestFailure({
   error,
   retry,
@@ -873,15 +517,10 @@ function RequestFailure({
   action?: ReactNode
   sendFailure?: boolean
 }) {
-  const { t, i18n } = useTranslation()
-  const payload = error instanceof InternalAPIError ? error.payload : error
-  const code =
-    requestErrorCode(payload) ??
-    (typeof (payload as { error?: unknown })?.error === 'string' ? (payload as { error: string }).error : undefined)
-  const known = code && i18n.exists(`pod.chat.errors.${code}`)
+  const { t } = useTranslation()
   return (
     <div role="alert" className="space-y-2 text-[13px] leading-5">
-      <p className="text-destructive">{known ? t(`pod.chat.errors.${code}`) : requestErrorMessage(error)}</p>
+      <p className="text-destructive">{requestErrorMessage(chatError(error))}</p>
       {sendFailure ? <p className="text-fg-tertiary">{t('pod.chat.draft_preserved')}</p> : null}
       {action ??
         (retry ? (

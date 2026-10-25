@@ -68,14 +68,16 @@ kubectl create namespace ankole
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"
 RELEASE_COOKIE="$(openssl rand -hex 32)"
+ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"
 
 kubectl -n ankole create secret generic ankole-bootstrap \
   --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
   --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \
   --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \
+  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \
   --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"
 
-unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE
+unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN
 ```
 
 Create `values-production.yaml`:
@@ -168,13 +170,15 @@ Create a Secret:
 ```sh
 ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"
 RELEASE_COOKIE="$(openssl rand -hex 32)"
+ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"
 
 kubectl -n ankole create secret generic ankole-bootstrap \
   --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \
   --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \
+  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \
   --from-literal="DATABASE_URL=ecto://ankole:REPLACE_ME@postgres.example.com:5432/ankole"
 
-unset ANKOLE_SECRET_BASE RELEASE_COOKIE
+unset ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN
 ```
 
 Set these values in `values-production.yaml`:
@@ -221,7 +225,7 @@ put provider API keys in Helm values.
 Direct upgrades are supported only from v0.70.0 or later.
 Upgrades from an older release are not supported.
 
-The defaults pin control plane `2.0.0-alpha.5` and the PostgreSQL digest in
+The defaults pin control plane `2.0.0-alpha.24` and the PostgreSQL digest in
 `values.yaml`. This is a pre-release. Use deployment files and images from the
 same release; `main-latest` can point to an older release with a different
 startup contract. Before a controlled production upgrade, resolve and record
@@ -234,6 +238,14 @@ controlPlane:
 ```
 
 The control-plane image supplies its matching immutable Worker image.
+`functionRuntime.image` selects the Function Runtime of that same release.
+Its headless Service exposes Ready replicas to the control-plane client.
+The function Pods have no database credentials or service account token.
+A NetworkPolicy permits control-plane ingress and public network egress;
+`functionRuntime.deniedCIDRs` must include the site's internal and public
+control-plane and database addresses. The cluster must enforce NetworkPolicy.
+The chart generates and preserves the internal function token, or reads
+`ANKOLE_FUNCTION_RUNTIME_TOKEN` from `secrets.existingSecret`.
 To select another PostgreSQL tag, clear `postgresql.image.digest` as well;
 the digest takes precedence over the tag.
 Leave `worker.image` empty to use that image. Set `worker.image.repository`
@@ -448,7 +460,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `secrets.existingSecret` | empty | Existing bootstrap Secret |
-| `controlPlane.image.tag` | `2.0.0-alpha.5` | Immutable published release |
+| `controlPlane.image.tag` | `2.0.0-alpha.24` | Immutable published release |
 | `controlPlane.image.digest` | empty | Immutable control-plane image |
 | `controlPlane.publicHost` | `ankole.example.com` | Phoenix public host |
 | `worker.image.digest` | empty | Digest for an explicit Worker image override |
@@ -476,6 +488,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 When `secrets.existingSecret` is set, it must contain these keys:
 
 - `ANKOLE_SECRET_BASE`
+- `ANKOLE_FUNCTION_RUNTIME_TOKEN`
 - `DATABASE_URL`
 - `RELEASE_COOKIE`, the distributed Erlang cookie of the control-plane nodes
 - `POSTGRES_PASSWORD` when bundled PostgreSQL is enabled

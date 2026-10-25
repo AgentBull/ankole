@@ -37,6 +37,9 @@ defmodule Ankole.AIGateway.ResponseStream.State do
             public_pair_ids: MapSet.new(),
             issuer: nil,
             upstream_progress: nil,
+            display_text: "",
+            display_thinking: "",
+            display_sequence: -1,
             next_output_index: 0
 
   @type t :: %__MODULE__{}
@@ -80,6 +83,20 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   @spec stateful_context(t()) :: map() | nil
   def stateful_context(%__MODULE__{stateful: stateful}), do: stateful
+
+  def display_snapshot(state) do
+    %{
+      response_id: cleanup_response_id(state),
+      text: state.display_text,
+      thinking_summary: state.display_thinking,
+      seq: state.display_sequence,
+      metadata:
+        case state.stateful do
+          %{message: message} -> Ankole.AIGateway.ResponseChain.response_metadata(message)
+          _ -> %{}
+        end
+    }
+  end
 
   @spec observe(t(), map(), non_neg_integer()) ::
           {:ok, t(), [map()], status()}
@@ -856,7 +873,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
     if is_binary(delta) and delta != "" do
       publish(state, :output_text_delta, %{text: delta, seq: seq})
-      state
+      %{state | display_text: state.display_text <> delta, display_sequence: seq}
     else
       state
     end
@@ -872,9 +889,10 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
     if is_binary(delta) and delta != "" do
       publish(state, :reasoning_delta, %{text: delta, source: type, seq: seq})
+      %{state | display_thinking: state.display_thinking <> delta, display_sequence: seq}
+    else
+      state
     end
-
-    state
   end
 
   defp remember_non_terminal_event(

@@ -42,7 +42,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
     assert ids == Enum.uniq(ids)
 
     for {ip, a_bits, b_bits, child_bits} <- [
-          {"10.0.0.1", 5, 2, 4},
+          {"10.0.0.1", 9, 4, 8},
           {"10.0.0.2", 1, 0, 0}
         ] do
       assert {:ok, full} =
@@ -75,7 +75,12 @@ defmodule Ankole.Pod.TargetedGraphTest do
         assert Access.page_bits(page, full) == expected
         assert Access.page_bits(page, targeted) == expected
 
-        for {action, bit} <- [{"page_view", 1}, {"page_edit", 2}, {"page_manage", 4}] do
+        for {action, bit} <- [
+              {"page_view", 1},
+              {"page_write_records", 2},
+              {"page_edit", 4},
+              {"page_manage", 8}
+            ] do
           if Bitwise.band(expected, bit) == 0 do
             assert {:error, :forbidden} =
                      Pages.authorize(
@@ -176,7 +181,7 @@ defmodule Ankole.Pod.TargetedGraphTest do
                context: context
              )
 
-    for {id, expected} <- [{a.id, 4}, {b.id, 0}] do
+    for {id, expected} <- [{a.id, 8}, {b.id, 0}] do
       page = Repo.get!(Page, id)
 
       assert {:ok, full} =

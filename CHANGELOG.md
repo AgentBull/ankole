@@ -1,5 +1,71 @@
 # Changelog
 
+## Version 2.0.0-alpha.24 (2026-10-25)
+
+- Accept surrounding whitespace in Agent UIDs when binding Automation Jobs,
+  queuing runs, and emitting events.
+
+- Add four Pod sharing roles, including record contribution without schema or
+  source access. Database pages start with a table, and every page type supports
+  child pages. Search includes visible document text.
+- Merge Agent document writes, appends, and exact text patches as incremental
+  changes. Automation Jobs access Pod through their current authorized attempt.
+- Run ESM Applets in identity-bound frames, with Node-compatible backend
+  functions, publication environment values, and complete source pull.
+  Isolate CPU-bound Applets and stop canceled one-shot programs.
+  Deploy the matching Function Runtime image and set its shared internal token.
+- Preserve exact Page sharing actions and keep conditional grants separate
+  from the Space default role. Use effective actions and valid destinations
+  for content controls, moves, copies, and saved work.
+- Show child pages from every Page header, including shared private projects.
+  Refresh content and permissions when another person changes the workspace
+  and when the live connection recovers.
+  Keep record drafts and Applet form state through permission changes.
+  Keep Applets open when a business operation is denied. Keep authorized root
+  creation and movement available when the navigation section is collapsed.
+  Prevent browser cache listeners from accumulating across Applet reloads.
+- Find documents by their body in command search. Keep search queries when
+  users open a result, go Back, or reload.
+  Find editable move, copy, and save destinations among read-only search matches.
+- Use Applets with view access and check writes against the target data's
+  permissions. Read empty attachments as byte arrays. Keep Applet browser
+  storage separate for each Principal and Page, with native key and property
+  access.
+- Build nested module Workers and their media through the Applet project
+  build. Present one visible host reload action for Applet failures.
+
+- Collaborate with several people and Agents in one Pod Chat, with explicit
+  mentions, Page-based access, personal pins, and shared decision cards.
+  Configure Page sharing through the Agent. Set durable standing orders for
+  Agents that can intervene in a group room.
+- Review saved reasoning and tool steps, manage each Agent's queue and model,
+  and use the Chat workspace from a resizable Page Chat panel.
+- Keep mention and command completion in the Chat composer, show compact
+  queues and current tool activity, and open complete background execution logs.
+  Send Page references and quoted messages to the Agent, and honor the group
+  setting for unaddressed input when one Agent remains.
+- Search earlier Chat history through the existing pager, preserve draft focus
+  and quoted text, and order recent rooms by their latest activity.
+- Use the Ankole theme for Chat messages, command output, search highlights,
+  status indicators, and composer fields.
+- Keep room artifacts and unanswered decisions available across history pages.
+  Associate interleaved replies with their questions, show each background task
+  once, and identify the current Human in Agent input.
+- Preserve references in decision answers, recover reference-only edit conflicts,
+  and restore colleague mentions when taking back queued input. Keep starter
+  suggestions from replacing a draft that the Human has started, and search
+  names and Page titles with spaces in active completion.
+- Answer decision cards explicitly from the composer with references and files.
+  Preserve references when saving messages as Pages. Keep unsaved edits and new
+  draft references, and remove deleted Human mentions from edited messages.
+  Use recorded Agent targets for edit eligibility and actual tool results for
+  live and saved execution status.
+- Show queued input once until an Agent starts it, and refresh background-room
+  status in the sidebar. Keep the composer focused after sending and code blocks
+  stable during streaming. Preserve pin order when settings are saved again and
+  restore room titles from their first message or attachment. Show tool failures
+  from their execution result.
+
 ## Version 2.0.0-alpha.23 (2026-10-23)
 
 - Include Userset grants in Human restoration review and reject approval when
