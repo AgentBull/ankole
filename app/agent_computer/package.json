@@ -16,7 +16,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
-    "test": "bun test --path-ignore-patterns=test/integration/**",
+    "test": "TMPDIR=/tmp bun test --path-ignore-patterns=test/integration/**",
     "test:docker": "cd ../.. && bun run kit agent-computer-test --suite unit",
     "test:integration": "bun ../kernel/scripts/build-node-addon.ts && TMPDIR=/tmp bun test ./test/integration/host",
     "test:integration:linux": "TMPDIR=/tmp bun test ./test/integration/linux",
