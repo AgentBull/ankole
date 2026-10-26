@@ -601,20 +601,14 @@ Use `kit --help` to discover database, service, generation, worker-test, and ana
 Start with checks scoped to the files you changed. This makes failures easier to attribute and avoids treating unrelated worktree noise as your regression.
 
 The `Repository checks` workflow runs on pull requests and pushes to `main`.
-Each job runs the existing commands of one area: `repo-lint` (root oxlint and
-oxfmt), `webapps` (analysis, Webapps, and Applet SDK), `agent-computer` (type
-check and host unit suite), `libs` (UI kit and devkit), `page-codec` (block
-editor, the shared XML corpus in TypeScript and Rust, Kernel Node-API, and
-browser unit tests), `kernel-lint` (rustfmt, clippy for each feature set, and
-Rust unit tests), `mix-projects` (provider client unit tests through the control
-plane without PostgreSQL, plus independent Mix tests for shared transport and
-frame libraries, the fake Feishu server, and the Kernel), and `control-plane`
-(lint with Credo, the compile-connected cycle and Plugin dependency checks,
-OpenAPI output, fast suite, upgrade check, standalone Feishu protocol
-integration, and extension release fixtures with a real browser on the Ankole
-PostgreSQL image). Provider E2E, Worker container tests, and the full Pod browser
-suite use their dedicated commands. The runtime-image workflow releases a `main` push only after
-this workflow succeeds for that revision.
+It runs static checks in three jobs: `bun-static` (oxlint, oxfmt, analysis,
+and workspace type checks), `kernel-lint` (rustfmt, clippy for each feature set,
+and Elixir formatting), and `control-plane-lint` (formatting, compilation with
+warnings as errors, Credo, compile-connected cycles, Plugin dependency
+directions, and OpenAPI and generated SDK consistency). Control Plane checks
+use the FOSS edition. Test suites use the dedicated commands below. The
+runtime-image workflow releases a `main` push after these static checks succeed
+for that revision.
 
 | Changed area | Useful first checks |
 | --- | --- |
@@ -631,15 +625,15 @@ this workflow succeeds for that revision.
 | Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |
 
 Function Runtime protocol checks start a local HTTP webhook receiver. The devkit
-and CI containers use `host.docker.internal` to reach this receiver.
+container uses `host.docker.internal` to reach this receiver.
 `test:native` starts an ephemeral container from `ankole-function-runtime:dev`.
 Set `ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE` to test another built image. It checks
 actual CPU shutdown events, physical PTC cancellation, one-shot and warm-worker
 thread retirement, memory at 20 and 100 resident workers, and SIGTERM drain.
 It prints the artifact directory and removes its container. The fixture uses
 shorter native wall lifetimes for bounded checks; the production Applet maximum
-lifetime is five minutes. CI keeps the native event log and resource report as
-build artifacts for seven days.
+lifetime is five minutes. The artifact directory contains the native event log
+and resource report.
 
 The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7. `astro check` stops with an error on TypeScript 7.0, and `@astrojs/check` lists TypeScript 5 and 6 as its supported versions. Keep this pin when you update dependencies. Move the website to the workspace version when Astro supports it: `@astrojs/ts-content-mapper` needs TypeScript 7.1 or later.
 

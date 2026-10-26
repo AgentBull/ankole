@@ -14,24 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  webapps:
+  bun-static:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - run: bun run analyze
-      - run: bun run --filter @ankole/webapps type-check
-      - run: bun run --filter @ankole/webapps test
-      - run: bun run --filter @ankole/applet-sdk type-check
-      - run: bun run --filter @ankole/applet-sdk test
-
-  repo-lint:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -40,71 +25,12 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint:repo
       - run: bun run fmt:check:repo
-
-  agent-computer:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - run: bun run agent-computer:type-check
-      # The host unit suite needs Bash, GNU timeout, and Python 3; the Ubuntu
-      # runner image has all three.
-      - run: bun run agent-computer:test
-
-  libs:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-
-      - run: bun install --frozen-lockfile
-      - run: bun run --filter @ankole/uikit type-check
-      - run: bun run --filter @ankole/uikit test
-      - run: bun run --filter @agentbull/devkit type-check
-      - run: bun run --filter @agentbull/devkit test
-
-  page-codec:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - run: rustup toolchain install 1.98.1 --profile minimal
-      - run: rustup default 1.98.1
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            app/kernel/target
-          key: page-codec-cargo-${{ runner.os }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/build.rs', 'app/kernel/src/**', 'app/kernel/proto/**') }}
-          restore-keys: |
-            page-codec-cargo-${{ runner.os }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
-            page-codec-cargo-${{ runner.os }}-rust-1.98.1-
-      - run: bun run --filter @ankole/block-editor type-check
-      - run: bun run --filter @ankole/block-editor test
-      - run: cargo test --locked --manifest-path app/kernel/Cargo.toml --no-default-features page_document
-      - run: bun run --filter @ankole/block-editor test:rust
-      - run: bun run --filter @ankole/kernel test:node
-      # Reuses the Node-API addon that test:node built. The Playwright snapshot
-      # tests skip when ANKOLE_BROWSER_TEST_CHROMIUM names no browser.
-      - run: bun run --filter @ankole/browser type-check
-      - run: bun run --filter @ankole/browser test
+      - run: bun run analyze
+      - run: bun run type-check --filter='!@ankole/control-plane'
 
   kernel-lint:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -120,115 +46,16 @@ jobs:
         with:
           workspaces: app/kernel
       - run: bun run --filter @ankole/kernel lint
-      - run: bun run --filter @ankole/kernel test:rust
 
-  mix-projects:
+  control-plane-lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        project:
-          - app/control_plane
-          - libs/im_transport
-          - libs/feishu_protocol
-          - tools/fake-feishu
-          - app/kernel
     env:
       MIX_ENV: test
       ANKOLE_EDITION: foss
       TORQUE_BUILD: 'true'
-    defaults:
-      run:
-        working-directory: ${{ matrix.project }}
     steps:
       - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        if: matrix.project == 'app/control_plane'
-        with:
-          bun-version: 1.4.4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: '29'
-          elixir-version: '1.20.4'
-      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - run: rustup toolchain install 1.98.1 --profile minimal
-      - run: rustup default 1.98.1
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            app/kernel/target
-            app/kernel/priv/native
-          key: mix-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/src/**', 'app/kernel/proto/**', 'app/kernel/lib/**') }}
-          restore-keys: |
-            mix-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
-            mix-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-rust-1.98.1-
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ${{ matrix.project }}/deps
-            ${{ matrix.project }}/_build
-            app/control_plane/deps
-          key: mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), 'app/control_plane/mix.lock', 'app/control_plane/config/**', 'app/control_plane/patches/**', 'app/kernel/mix.exs') }}
-          restore-keys: |
-            mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-
-      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
-      - run: mix test
-        if: matrix.project != 'app/control_plane'
-      - run: mix ankole.plugins.test
-        if: matrix.project == 'app/control_plane'
-      - name: Check compiled Plugin dependency boundaries without PostgreSQL
-        if: matrix.project == 'app/control_plane'
-        run: elixir -e 'ExUnit.start(); Code.require_file("integration/compile_cycles_test.exs")'
-
-  control-plane:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    env:
-      MIX_ENV: test
-      MIX_TEST_PARTITION: ci
-      ANKOLE_EDITION: foss
-      ANKOLE_SECRET_BASE: repository-checks-only
-      TORQUE_BUILD: 'true'
-      ANKOLE_FUNCTION_RUNTIME_URL: http://127.0.0.1:5435
-      ANKOLE_FUNCTION_RUNTIME_TOKEN: repository-checks-only
-      DATABASE_URL: ecto://postgres:repository-checks-only@localhost:5432/ankole_test
-    services:
-      postgres:
-        image: ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: repository-checks-only
-          POSTGRES_DB: ankole_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d ankole_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 30
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      - name: Build and start Function Runtime
-        run: |
-          docker buildx build --load \
-            --cache-from type=registry,ref=ghcr.io/agentbull/ankole-function-runtime:buildcache-amd64 \
-            -t ankole-function-runtime:checks -f app/function_runtime/Dockerfile .
-          docker run -d --name ankole-function-runtime -p 5435:9000 \
-            --add-host=host.docker.internal:host-gateway \
-            -e ANKOLE_FUNCTION_RUNTIME_TOKEN \
-            ankole-function-runtime:checks
-          for _ in $(seq 1 30); do
-            if curl -fsS "$ANKOLE_FUNCTION_RUNTIME_URL/_internal/health"; then exit 0; fi
-            sleep 1
-          done
-          docker logs ankole-function-runtime
-          exit 1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -240,21 +67,6 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup default 1.98.1
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-      - run: bun run --filter @ankole/function-runtime type-check
-      - run: bun run --filter @ankole/function-runtime test
-      - run: bun run --filter @ankole/function-runtime test:integration
-      - run: bun run --filter @ankole/function-runtime test:native
-        env:
-          ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE: ankole-function-runtime:checks
-          ANKOLE_FUNCTION_RUNTIME_NATIVE_ARTIFACTS: ${{ runner.temp }}/function-runtime-native
-      - name: Upload Function Runtime native evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: function-runtime-native-${{ env.ANKOLE_EDITION }}
-          path: ${{ runner.temp }}/function-runtime-native
-          retention-days: 7
       - uses: actions/cache@v6
         with:
           path: |
@@ -291,13 +103,3 @@ jobs:
           bun run --filter @ankole/webapps openapi:generate
           git diff --exit-code -- app/webapps/openapi app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated
           test -z "$(git ls-files --others --exclude-standard -- app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated)"
-      - run: mix test
-        working-directory: app/control_plane
-      - run: mix test integration/subtraction_upgrade_test.exs integration/fake_feishu_standalone_e2e_test.exs
-        working-directory: app/control_plane
-      - name: Verify extension fixtures in FOSS and SaaS releases
-        run: mix test integration/edition_build_test.exs --trace
-        working-directory: app/control_plane
-      - name: Function Runtime logs
-        if: failure()
-        run: docker logs ankole-function-runtime

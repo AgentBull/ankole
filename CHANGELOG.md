@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.26 (2026-10-26)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.25 (2026-10-26)
 
 - Rename Database pages and APIs to Base (多维表). Update callers to `/bases`, `pod_base_operation`, and `AnkoleRuntime.base`.
