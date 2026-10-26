@@ -41,7 +41,7 @@ export const editorPhrases = PhraseSet.define({
   link: '链接',
   highlight: '高亮',
   embed: '嵌入',
-  database: '数据库',
+  base: '多维表',
   unlinked: '未关联',
   paragraph_title: '正文',
   paragraph_detail: '普通段落',

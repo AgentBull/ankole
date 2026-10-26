@@ -14,7 +14,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
   alias Ankole.E2E.PodContentStory, as: Story
   alias Ankole.Conversations
   alias Ankole.Conversations.Message
-  alias Ankole.Pod.{Database, DbRecord, Formula, Page, PageContent, Pages}
+  alias Ankole.Pod.{Bases, BaseRecord, Formula, Page, PageContent, Pages}
   alias Ankole.Pod.Files, as: PageFiles
   alias Ankole.Repo
   alias Ankole.Signals.Signal
@@ -47,14 +47,14 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
         text: """
         Make a durable Pod report titled "#{title}" for our October sales review.
 
-        Under that report, create a Database titled "Sales ledger #{reference}" with a
+        Under that report, create a Base titled "Sales ledger #{reference}" with a
         table named "October sales". Its primary field holds the product name. Add
         number fields named Price and Quantity, and a read-only formula field named
         Total that calculates [Price] * [Quantity]. Enter these two sales:
         Oak: Price 120, Quantity 2. Pine: Price 75, Quantity 3.
 
         Write a brief report with the products, their totals and combined sales, and
-        include a working reference to its child Database. Keep the report and data
+        include a working reference to its child Base. Keep the report and data
         saved so we can continue to edit them together. Do not use web research.
 
         Also create a child Applet named "Sales workspace #{reference}" that works
@@ -81,7 +81,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     completion = complete_request!(ctx, input)
 
     report = Repo.get_by!(Page, title: title, type: :doc)
-    ledger = Repo.get_by!(Page, parent_id: report.id, type: :database)
+    ledger = Repo.get_by!(Page, parent_id: report.id, type: :base)
     applet = Repo.get_by!(Page, parent_id: report.id, type: :applet)
     assert report.revision > 0
     assert applet.revision > 0
@@ -96,10 +96,10 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), page.id, "page_edit")
     end
 
-    {:ok, %{tables: tables}} = Database.list_tables(ctx.owner_actor, ledger.id)
+    {:ok, %{tables: tables}} = Bases.list_tables(ctx.owner_actor, ledger.id)
     table = Enum.find(tables, &(&1.name == "October sales"))
     assert table, "Agent did not save the requested business table"
-    definitions = Database.fields(table.id)
+    definitions = Bases.fields(table.id)
     primary = Enum.find(definitions, & &1.is_primary)
     price = Enum.find(definitions, &(&1.name == "Price"))
     quantity = Enum.find(definitions, &(&1.name == "Quantity"))
@@ -130,7 +130,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       assert actual == expected
     end
 
-    assert {:ok, %{records: records}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: records}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert length(records) == 2
 
     assert Map.new(records, fn record ->
@@ -142,18 +142,18 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            }
 
     assert {:ok, %{groups: [%{metrics: %{"sales" => 465}}]}} =
-             Database.aggregate(ctx.owner_actor, table.id, %{
+             Bases.aggregate(ctx.owner_actor, table.id, %{
                metrics: [%{operation: "sum", field_id: total.id, alias: "sales"}]
              })
 
-    for record <- Repo.all(from r in DbRecord, where: r.table_id == ^table.id),
+    for record <- Repo.all(from r in BaseRecord, where: r.table_id == ^table.id),
         do: assert(record.created_by.uid == ctx.agent.uid)
 
     content = Repo.get!(PageContent, report.id)
     assert content.updated_by.uid == ctx.agent.uid
     assert_named_facts!(content.plain_text, [{"Oak", "\\b240\\b"}, {"Pine", "\\b225\\b"}])
     assert content.plain_text =~ "465"
-    assert_database_reference(content.content, ledger.id)
+    assert_base_reference(content.content, ledger.id)
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{applet.id}"/, content.content)
 
     assert {:ok, manifest} = PageFiles.manifest(ctx.owner_actor, applet.id)
@@ -197,14 +197,14 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            "The Agent wrote Cedar before the Human's first click, even if it later removed or renamed the record"
 
     Browser.report!(ctx, owner, conversation_id, report.id, applet.id, :add)
-    assert {:ok, %{records: after_human}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: after_human}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert length(after_human) == 3
     cedar = Enum.find(after_human, &(&1["data"][primary.id] == "Cedar"))
     assert cedar["data"][primary.id] == "Cedar"
     assert cedar["data"][price.id] == 10
     assert cedar["data"][quantity.id] == 2
     assert cedar["data"][total.id] == 20
-    assert Repo.get_by!(DbRecord, table_id: table.id, id: cedar["id"]).created_by.uid == owner
+    assert Repo.get_by!(BaseRecord, table_id: table.id, id: cedar["id"]).created_by.uid == owner
 
     cedar_writes =
       Enum.filter(Evidence.record_writes(record_observer, table.id, :after_human), fn write ->
@@ -218,7 +218,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert cedar_actor == "ankole:#{Repo.tenant_id!()}:principal/#{owner}"
 
     assert {:ok, %{groups: [%{metrics: %{"sales" => 485}}]}} =
-             Database.aggregate(ctx.owner_actor, table.id, %{
+             Bases.aggregate(ctx.owner_actor, table.id, %{
                metrics: [%{operation: "sum", field_id: total.id, alias: "sales"}]
              })
 
@@ -228,7 +228,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
         text: """
         更新此页面。我刚使用此页面中的 Applet 添加了 Cedar。
         请重新读取此页面引用的原有销售表，把此页面的现有销售总结更新为三种产品及其最新总额。
-        保留原有 Database、Applet 和两个嵌入引用；不要创建替代页面或表，也不要再添加 Cedar。
+        保留原有多维表、Applet 和两个嵌入引用；不要创建替代页面或表，也不要再添加 Cedar。
         请完成实际修改，并给我更新后的可点击链接。
         """
       )
@@ -277,15 +277,15 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            "Page chat did not pass the stable current Page to its real Agent Job"
 
     assert Repo.get!(Page, report.id).revision > report.revision
-    assert_database_reference(updated.content, ledger.id)
+    assert_base_reference(updated.content, ledger.id)
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{applet.id}"/, updated.content)
-    assert {:ok, %{records: ^after_human}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: ^after_human}} = Bases.query(ctx.owner_actor, table.id, %{})
     Browser.report!(ctx, owner, followup_conversation_id, report.id, applet.id, :read)
 
     assert {:ok, _} = Pages.remove_space_agent(ctx.owner_actor, ctx.agent.uid)
     assert {:error, :forbidden} = Pages.authorize(Actor.new(ctx.agent), report.id, "page_view")
-    assert {:error, :forbidden} = Database.query(Actor.new(ctx.agent), table.id, %{})
-    assert {:ok, _} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:error, :forbidden} = Bases.query(Actor.new(ctx.agent), table.id, %{})
+    assert {:ok, _} = Bases.query(ctx.owner_actor, table.id, %{})
 
     assert {:ok, ^conversation_id} = Conversations.delete(ctx.owner_actor, conversation_id)
 
@@ -293,7 +293,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
              Pages.get(ctx.owner_actor, report.id)
 
     assert remaining.content == updated.content
-    assert {:ok, %{records: remaining_records}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: remaining_records}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert remaining_records == after_human
     refute Repo.exists?(from m in Message, where: m.conversation_id == ^conversation_id)
 
@@ -326,7 +326,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
         "#{applet_title}". Its only state is an in-memory focus counter, initially zero.
         Show only the numeric count inside a status region named "Focus points".
         A button labeled "Add focus point" increases it by one, and "Reset" returns it to zero.
-        Reloading starts a new session at zero. This applet needs no Database or server data.
+        Reloading starts a new session at zero. This applet needs no Base or server data.
 
         Send clickable links to both documents and the working Applet. Do the work now;
         you already have space edit access. Do not move either document yet.
@@ -344,7 +344,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert applet.parent_id == shelf.id
     assert original.plain_text =~ marker
     assert original.updated_by.uid == ctx.agent.uid
-    refute Repo.exists?(from p in Page, where: p.type == :database)
+    refute Repo.exists?(from p in Page, where: p.type == :base)
 
     for page <- [shelf, note, applet] do
       assert page.created_by.uid == ctx.agent.uid
@@ -407,7 +407,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert Repo.aggregate(from(p in Page, where: p.type == :doc), :count) == 2
     assert Repo.aggregate(from(p in Page, where: p.type == :applet), :count) == 1
     assert Repo.get!(Page, applet.id).parent_id == shelf.id
-    refute Repo.exists?(from p in Page, where: p.type == :database)
+    refute Repo.exists?(from p in Page, where: p.type == :base)
 
     detail =
       await_delivery(
@@ -515,7 +515,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       Browser.send_message!(ctx, owner,
         text: """
         Build and deliver a small shared sample-reservation workspace now.
-        Save a report titled "#{title}", with a child Database containing one
+        Save a report titled "#{title}", with a child Base containing one
         Inventory table: product name and an Available number. Add just one product,
         Cedar sample kit, with 5 available samples.
 
@@ -542,13 +542,13 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     input = Repo.get_by!(Signal, message_id: request["message_id"])
     completion = complete_request!(ctx, input, require_job: false)
     report = Repo.get_by!(Page, title: title, type: :doc)
-    database = Repo.get_by!(Page, parent_id: report.id, type: :database)
+    database = Repo.get_by!(Page, parent_id: report.id, type: :base)
     applet = Repo.get_by!(Page, parent_id: report.id, type: :applet)
-    {:ok, %{tables: [table]}} = Database.list_tables(ctx.owner_actor, database.id)
-    fields = Database.fields(table.id)
+    {:ok, %{tables: [table]}} = Bases.list_tables(ctx.owner_actor, database.id)
+    fields = Bases.fields(table.id)
     stock = Enum.find(fields, &(&1.name == "Available"))
     assert stock && stock.type == :number
-    assert {:ok, %{records: [record]}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: [record]}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert record["data"][stock.id] == 5
 
     assert Enum.all?(Evidence.record_writes(observer, table.id, :before_human), fn write ->
@@ -585,10 +585,10 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     Browser.inventory!(ctx, owner, request["conversation_id"], report.id, applet.id, :reserve)
 
-    assert {:ok, %{records: [reserved]}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: [reserved]}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert reserved["id"] == record["id"]
     assert reserved["data"][stock.id] == 3
-    assert Repo.get_by!(DbRecord, table_id: table.id, id: record["id"]).updated_by.uid == owner
+    assert Repo.get_by!(BaseRecord, table_id: table.id, id: record["id"]).updated_by.uid == owner
     human_writes = Evidence.record_writes(observer, table.id, :after_human)
     human_actor = "ankole:#{Repo.tenant_id!()}:principal/#{owner}"
 
@@ -617,7 +617,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     followup_completion = complete_request!(ctx, followup_input, require_job: false)
     assert Repo.get!(Page, applet.id).revision > published_revision
     assert Repo.aggregate(from(p in Page, where: p.type == :applet), :count) == 1
-    assert {:ok, %{records: [retained]}} = Database.query(ctx.owner_actor, table.id, %{})
+    assert {:ok, %{records: [retained]}} = Bases.query(ctx.owner_actor, table.id, %{})
     assert retained["id"] == record["id"]
     assert retained["data"][stock.id] == 3
 
@@ -639,9 +639,9 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     )
   end
 
-  defp assert_database_reference(xml, id) do
+  defp assert_base_reference(xml, id) do
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{id}"/, xml) or
              Regex.match?(~r/<a\b[^>]*\bhref="ankole:page\/#{id}"/, xml),
-           "Report lost its reference to Database #{id}"
+           "Report lost its reference to Base #{id}"
   end
 end

@@ -3,7 +3,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
   use Ankole.DataCase, async: false
   @moduletag sandbox: false
 
-  alias Ankole.Pod.{Applets, Database, Files, Pages}
+  alias Ankole.Pod.{Applets, Bases, Files, Pages}
   alias Ankole.Files, as: Drive
 
   defmodule TransportPlug do
@@ -34,17 +34,17 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner), %{
-        type: "database",
+        type: "base",
         private_owner_uid: owner
       })
 
     {:ok, table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner), page.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner), page.id, %{
         name: "Durable"
       })
 
     {:ok, field} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner), table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner), table.id, %{
         name: "Value",
         type: "text"
       })
@@ -73,7 +73,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       end)
     end)
 
-    %{owner: owner, reader: reader, database: page, table: table, field: field}
+    %{owner: owner, reader: reader, base: page, table: table, field: field}
   end
 
   test "closing the HTTP client cancels the invocation and keeps an already committed write",
@@ -81,7 +81,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     applet =
       publish(ctx.owner, """
         export default {'POST /commit':async()=>{
-          await AnkoleRuntime.db.write('#{ctx.table.id}', {creates: [{data: {'#{ctx.field.id}':'committed'}}]});
+          await AnkoleRuntime.base.write('#{ctx.table.id}', {creates: [{data: {'#{ctx.field.id}':'committed'}}]});
           while(true){}
         }}
       """)
@@ -104,13 +104,13 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         "POST /api/v2/pod/pages/#{applet.id}/routes/commit HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nx-ankole-applet-revision: 1\r\n\r\n{}"
       )
 
-    eventually(fn -> assert Repo.get!(Ankole.Pod.DbTable, ctx.table.id).record_count == 1 end)
+    eventually(fn -> assert Repo.get!(Ankole.Pod.BaseTable, ctx.table.id).record_count == 1 end)
     refute Task.Supervisor.children(Ankole.Pod.AppletTaskSupervisor) == []
     :ok = :gen_tcp.close(client)
     eventually(fn -> assert Task.Supervisor.children(Ankole.Pod.AppletTaskSupervisor) == [] end)
 
     assert {:ok, %{records: [record]}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
 
     assert record["data"][ctx.field.id] == "committed"
   end
@@ -167,12 +167,12 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     applet =
       publish(ctx.owner, """
         export default {'GET /read':async()=>{
-          await AnkoleRuntime.db.query('#{ctx.table.id}', {});
-          return await AnkoleRuntime.db.schema('#{ctx.table.id}');
+          await AnkoleRuntime.base.query('#{ctx.table.id}', {});
+          return await AnkoleRuntime.base.schema('#{ctx.table.id}');
         }}
       """)
 
-    for page <- [ctx.database, applet] do
+    for page <- [ctx.base, applet] do
       {:ok, _} =
         Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
           grants: [%{principal_uid: ctx.reader, role: "view"}]
@@ -186,7 +186,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         Repo.bind_tenant(fn ->
           Repo.transact(fn _ ->
             Repo.one!(
-              from t in Ankole.Pod.DbTable, where: t.id == ^ctx.table.id, lock: "FOR UPDATE"
+              from t in Ankole.Pod.BaseTable, where: t.id == ^ctx.table.id, lock: "FOR UPDATE"
             )
 
             send(test, :locked)
@@ -214,7 +214,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     eventually(fn ->
       [[count]] =
         Repo.query!(
-          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%db_tables%' AND query LIKE '%FOR SHARE%'"
+          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%base_tables%' AND query LIKE '%FOR SHARE%'"
         ).rows
 
       assert count > 0
@@ -228,19 +228,19 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
              Task.await(invocation)
 
     assert {:ok, _} =
-             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), ctx.table.id)
+             Bases.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), ctx.table.id)
   end
 
   test "two callers retry field conflicts without losing inventory deductions or going negative",
        ctx do
     {:ok, stock} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{
         name: "Stock",
         type: "number"
       })
 
     {:ok, %{records: [record]}} =
-      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{
+      Bases.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{
         creates: [%{data: %{stock.id => 5}}]
       })
 
@@ -249,12 +249,12 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         export default {'POST /withdraw':async ({body})=>{
           let retries=0;
           while(true){
-            const {records}=await AnkoleRuntime.db.query('#{ctx.table.id}',{ids:['#{record.id}']});
+            const {records}=await AnkoleRuntime.base.query('#{ctx.table.id}',{ids:['#{record.id}']});
             const row=records[0];
             const remaining=row.data['#{stock.id}']-body.amount;
             if(remaining<0) throw new AnkoleRuntime.HttpError(409,'insufficient_stock');
             try {
-              await AnkoleRuntime.db.write('#{ctx.table.id}',{updates:[{id:row.id,data:{'#{stock.id}':remaining},expected_versions:{'#{stock.id}':row.versions['#{stock.id}']}}]});
+              await AnkoleRuntime.base.write('#{ctx.table.id}',{updates:[{id:row.id,data:{'#{stock.id}':remaining},expected_versions:{'#{stock.id}':row.versions['#{stock.id}']}}]});
               return {remaining,retries};
             } catch(error){
               if(error.code!=='field_conflict') throw error;
@@ -265,7 +265,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       """)
 
     {:ok, _} =
-      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, ctx.database.id, %{
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, ctx.base.id, %{
         grants: [%{principal_uid: ctx.reader, role: "contribute"}]
       })
 
@@ -281,7 +281,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         Repo.bind_tenant(fn ->
           Repo.transact(fn _ ->
             Repo.one!(
-              from t in Ankole.Pod.DbTable, where: t.id == ^ctx.table.id, lock: "FOR SHARE"
+              from t in Ankole.Pod.BaseTable, where: t.id == ^ctx.table.id, lock: "FOR SHARE"
             )
 
             send(test, :inventory_readable)
@@ -314,7 +314,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     eventually(fn ->
       [[waiting]] =
         Repo.query!(
-          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%db_tables%' AND query LIKE '%FOR UPDATE%'"
+          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%base_tables%' AND query LIKE '%FOR UPDATE%'"
         ).rows
 
       assert waiting >= 2
@@ -333,7 +333,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     assert Enum.sum(Enum.map(results, & &1["retries"])) >= 1
 
     assert {:ok, %{records: [saved]}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
 
     assert saved["data"][stock.id] == 1
 
@@ -341,7 +341,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
              Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), applet.id, request)
 
     assert {:ok, %{records: [unchanged]}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
 
     assert unchanged["data"][stock.id] == 1
   end

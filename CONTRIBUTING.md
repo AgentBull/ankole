@@ -30,8 +30,10 @@ The SaaS source has these required inputs:
 - `internals/control_plane/test/test_helper.exs` accompanies the private tests.
   Mix runs both public and private test paths; support modules compile only in
   the test environment.
-- `internals/webapps/entries.json` maps private entry names to relative source
-  paths. Names cannot replace public entries. Private sources use the public
+- `internals/webapps/entries.json` has an `entries` map for private entry names
+  and an optional `overrides` map for public entry wrappers. Additional names
+  must be unique; overrides must name public entries. Values are relative source
+  paths. Private sources use the public
   webapp dependencies through a generated `node_modules` link. Entry reads do
   not create the link. Mix, Vite, type checks, and Bun test preparation create
   it and accept concurrent preparation of the same target. `lint`, type checks,
@@ -45,6 +47,7 @@ The SaaS source has these required inputs:
 `mix ecto.migrate`, `mix ecto.migrations`, `mix ecto.rollback`, and
 `Ankole.Release.migrate/0`. Versions, filenames, and literal module names must
 be unique across both directories, including files whose versions already ran.
+Data migration queries select only the columns present at that schema version.
 SaaS releases place private files in `priv/repo/internal_migrations`, beside
 public migrations. Both use the same `schema_migrations` ledger. Removing
 private source does not reverse its schema changes.
@@ -60,6 +63,10 @@ MIX_TEST_PARTITION=edition_build mix test integration/edition_build_test.exs --t
 The build integration test uses a labeled private fixture in a temporary
 checkout. It checks FOSS isolation, SaaS compilation and resources, private test
 discovery, empty and upgraded databases, rollback, and a detached release.
+Its browser fixture uses the built Pod and Auth entries, real HTTPS sessions,
+Principal authorization, generated API clients, and the SMTP protocol. Install
+Chromium with `bunx playwright install chromium` before this check. OpenSSL must
+be on `PATH` for the temporary test certificate.
 It does not implement or certify a SaaS account product.
 
 The control-plane image uses Cargo to build the Kernel and Torque native libraries.
@@ -132,7 +139,10 @@ You do not need to learn every runtime before starting. The repository-level Bun
 
 Elixir implementation files use `.ex`; tests, scripts, and configuration often use `.exs`.
 
-Domain and web code lives under `app/control_plane_core/lib`. The assembly, configuration, tests, and migrations remain under `app/control_plane`. Each control-plane Plugin is a local Mix project under `plugins/`; the matching provider client is part of that project.
+Domain and web code lives under `app/control_plane/lib`. Configuration, tests,
+and migrations also live under `app/control_plane`. Its Mix project compiles
+`plugins/*/lib` into the same `:ankole` application. Each Plugin source directory
+contains its matching provider client.
 
 Use the root Bun commands in this guide. Run `mix` directly only when a module-specific instruction says to, and then use `app/control_plane` as the working directory.
 
@@ -476,6 +486,15 @@ Seeing the page, database, or worker alone is not an end-to-end result. If this 
 
 Start with the first error in the `bun dev` terminal. Later errors are often consequences of an earlier compile, database, port, or worker failure.
 
+### Base shard databases
+
+Development and test use four independent Base shard databases on the configured
+PostgreSQL host. Startup creates missing databases from `template0` with the
+control-plane locale. `MIX_TEST_PARTITION` also partitions their names. PostgreSQL
+18 is required. Set `BASE_DB_URLS` to use explicit shard URLs; see
+[Base storage placement](docs/design-docs/Tenants.md#base-storage-placement)
+for URL parameters, production defaults, and backup requirements.
+
 ### Docker or PostgreSQL does not start
 
 ```bash
@@ -551,16 +570,15 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 
 | Path | Responsibility |
 | --- | --- |
-| `app/control_plane` | Phoenix/OTP control plane application: OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and the test suites |
-| `app/control_plane_core` | Domain and web code of the control plane: Ecto persistence, setup, Console APIs, and durable runtime authority |
+| `app/control_plane` | Phoenix/OTP control plane application: domain and web modules, OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and the test suites |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
 | `app/kernel` | Rust library loaded through Rustler and browser Node-API bindings |
 | `app/function_runtime` | Stateless Applet backend and deterministic program workers |
 | `app/webapps` | Vite/React setup, authentication, Pod, and Console applications |
 | `app/library` | Built-in agent skills and starter templates |
 | `app/locales` | Shared translation catalogs |
-| `libs/` | Shared UI, editor, and provider client libraries |
-| `plugins/` | Trusted first-party plugins |
+| `libs/` | Shared UI, editor, transport, and protocol libraries |
+| `plugins/` | Trusted first-party Plugin source and provider clients compiled by the control plane |
 | `tools/devkit` | Repository automation, local services, database helpers, and analysis |
 | `tools/e2e` | Dedicated integration and end-to-end suites |
 | `docs/design-docs` | Current design intent for non-trivial subsystems |
@@ -588,13 +606,14 @@ oxfmt), `webapps` (analysis, Webapps, and Applet SDK), `agent-computer` (type
 check and host unit suite), `libs` (UI kit and devkit), `page-codec` (block
 editor, the shared XML corpus in TypeScript and Rust, Kernel Node-API, and
 browser unit tests), `kernel-lint` (rustfmt, clippy for each feature set, and
-Rust unit tests), `mix-projects` (a matrix of the six provider client projects,
-shared transport and frame libraries, fake Feishu server, and Kernel Elixir
-tests as independent Mix projects), and `control-plane` (lint with Credo, the
-compile-connected cycle check, OpenAPI output, fast suite, upgrade check, and
-standalone Feishu protocol integration on the Ankole PostgreSQL image). Provider
-E2E, Worker container tests, and browser integration suites still use their
-dedicated commands. The runtime-image workflow releases a `main` push only after
+Rust unit tests), `mix-projects` (provider client unit tests through the control
+plane without PostgreSQL, plus independent Mix tests for shared transport and
+frame libraries, the fake Feishu server, and the Kernel), and `control-plane`
+(lint with Credo, the compile-connected cycle and Plugin dependency checks,
+OpenAPI output, fast suite, upgrade check, standalone Feishu protocol
+integration, and extension release fixtures with a real browser on the Ankole
+PostgreSQL image). Provider E2E, Worker container tests, and the full Pod browser
+suite use their dedicated commands. The runtime-image workflow releases a `main` push only after
 this workflow succeeds for that revision.
 
 | Changed area | Useful first checks |
@@ -607,7 +626,7 @@ this workflow succeeds for that revision.
 | Kernel | `bun run --filter @ankole/kernel lint` and `bun run --filter @ankole/kernel test` |
 | Function Runtime | `bun run --filter @ankole/function-runtime type-check`, `bun run --filter @ankole/function-runtime test`, and `bun run --filter @ankole/function-runtime test:integration` with local services running, plus `bun run --filter @ankole/function-runtime test:native` against the built image |
 | Browser | `bun run --filter @ankole/browser lint`, `bun run --filter @ankole/browser test`, and `bun run --filter @ankole/browser test:integration` with `ANKOLE_BROWSER_TEST_CHROMIUM` set to Chromium |
-| Feishu client | `bun run lark-adapter:test` |
+| Provider clients | `bun run control-plane:test:plugins`; for Feishu only, `bun run lark-adapter:test` |
 | Block editor | `bun run --filter @ankole/block-editor type-check`, `bun run --filter @ankole/block-editor test`, and `bun run --filter @ankole/block-editor test:package` |
 | Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |
 
@@ -626,6 +645,19 @@ The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7.
 
 For one Elixir test file, set the working directory to `app/control_plane` and run `mix test test/path/to/file_test.exs`. This is the normal case where a direct `mix` command is appropriate.
 
+Run provider client unit tests without PostgreSQL from the repository root:
+
+```bash
+bun run control-plane:test:plugins
+bun run control-plane:test:plugins lark_adapter
+```
+
+The optional Plugin directory name selects one client. The command runs
+`mix ankole.plugins.test` in the test environment. It compiles the same
+application as the main suite, skips application startup, and uses each
+client's test helper to start only its supervisor. The ordinary control-plane
+test suite also runs these tests.
+
 Control Plane lint runs the Credo default check set, ex_slop checks, and the
 Ankole checks. Fix violations; there is no baseline exemption. The checks that
 `app/control_plane/.credo.exs` lists as `disabled` had findings when the default
@@ -636,8 +668,8 @@ dependencies; tests do not retain dead production code.
 
 The build applies the pinned Ash 3.36.1, AshPostgres 2.15.1, AshJsonApi
 1.7.1, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
-Docker build installs it. The host, core, and standalone plugins share the patch
-loader. Each build tree checks its own stamp for the patch and loader contents
+Docker build installs it. The control-plane Mix project owns the patch loader.
+Each build tree checks its own stamp for the patch and loader contents
 before it loads dependencies. When the stamp changes, Mix rebuilds the patched
 dependencies and their consumers, and clears the current application's Elixir
 compilation cache. A failed patch stops the build. The fixes prevent
@@ -664,8 +696,17 @@ MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
 MIX_ENV=prod ANKOLE_EDITION=foss mix ankole.compile_cycles
 ```
 
-The command checks the host and every local Mix dependency. It rejects dependency cycles that contain a compile-time dependency.
-Runtime-only cycles remain allowed. CI checks both test and production builds
+The command checks the control plane and every local Mix dependency. It rejects
+dependency cycles that contain a compile-time dependency. Runtime-only cycles
+remain allowed. It also checks compile, export, and runtime references between
+the control-plane source directories. Domain code in `app/control_plane/lib`
+and `internals/control_plane/lib` cannot statically reference a concrete Plugin.
+A Plugin cannot statically reference another Plugin. The exact migration
+exceptions are `Ankole.Upgrade202610` references to
+`Ankole.Plugins.SlackAdapter.Config` and
+`Ankole.Plugins.Microsoft365Adapter.Config`. See
+[Control Plane Plugins](docs/design-docs/Plugins.md#fixed-source-builds).
+CI checks both test and production builds
 of the FOSS edition. Production uses compile-time plug initialization, so a
 test build alone cannot detect all compile dependencies. Endpoint and Router
 use local function plugs for business implementations and keep the standard
@@ -674,6 +715,13 @@ library plug initialization. The private SaaS router uses
 as a runtime dependency. Check both environments with `ANKOLE_EDITION=saas`
 when private control plane sources are present. Do not add `--only-direct`:
 it removes indirect paths that can close a compile-connected cycle.
+
+The source boundary tests compile temporary Mix projects and inspect their
+actual xref graphs. Run them without PostgreSQL from `app/control_plane`:
+
+```bash
+elixir -e 'ExUnit.start(); Code.require_file("integration/compile_cycles_test.exs")'
+```
 
 Run the Driver's process and transaction checks separately from the unit suite.
 Use a separate test partition and a resolvable local node name:
@@ -789,7 +837,9 @@ the boundary test reports a stale entry.
   `ankole_web`, plugins, and the application. It also requires
   `change(filter(...))` for the filter of an update or destroy action.
 - The Credo check `RawSQLTenant` requires `tenant_id` in raw SQL that reads a
-  table, or `@raw_sql_scope :site` in a module whose SQL reads no tenant rows.
+  table. A module that reads no tenant rows can declare `@raw_sql_scope :site`.
+  Physical Base modules declare `@raw_sql_scope :tenant_schema` and use
+  `BaseRepo` table helpers, which derive the schema from `Repo.tenant_id!()`.
 - `test/ankole/tenancy_guard_test.exs` keeps a reviewed count of the raw SQL,
   fragments, and cross-tenant reads of each function.
 
@@ -797,7 +847,7 @@ the boundary test reports a stale entry.
 
 The Pod domain tests are under `test/ankole/pod`. Dedicated integration files
 check concurrent page moves, interrupted purge, tenant teardown, and 100,000-row
-Database queries with committed PostgreSQL transactions. Use a separate test
+Base queries with committed PostgreSQL transactions. Use a separate test
 partition. The GitHub sync file has the `external` tag and makes a read-only
 request to the public GitHub API; run it explicitly when network access is
 available.
@@ -1006,6 +1056,21 @@ credentials and production frontend assets. A successful Job report alone is
 not proof that the requested content was saved.
 Long-lived browser channels use the normal SQL connection pool; the suite
 deletes its committed fixtures and restores the test pool after cleanup.
+
+For Skill Lessons from native Pod work, run:
+
+```bash
+tools/e2e/run --real-llm --only=pod_skill_lessons_real_llm
+```
+
+The fixture grants the Human chat and tool access to one Agent with zero
+external Bindings. Two browser requests create real Jobs on its Docker Worker.
+Each Job must execute the named-key openpyxl failure, repair the workbook, and
+verify its rows. The suite invokes the Dreaming phase, runs the reflection on
+the Worker, and checks persisted lessons and their production Skill rendering.
+It also checks that reflection creates no public reply or external delivery.
+This checks the reflection path; it does not check the periodic Dreaming schedule.
+The suite requires OpenRouter test credentials and production frontend assets.
 
 For the DeepSeek user stories and recovery checks, select these tags:
 

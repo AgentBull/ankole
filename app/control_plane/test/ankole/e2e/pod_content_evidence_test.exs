@@ -6,7 +6,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
 
   alias Ankole.E2E.PodContentEvidence
   alias Ankole.BackgroundAgentJobs.Schemas.{Job, Turn, TurnItem}
-  alias Ankole.Pod.{Database, Documents, Pages}
+  alias Ankole.Pod.{Bases, Documents, Pages}
   alias Ankole.Signals.Signal
 
   setup do
@@ -90,25 +90,25 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     owner = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: "database"})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: "base"})
 
     {:ok, table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id, %{
         name: "Sales"
       })
 
-    primary = Enum.find(Database.fields(table.id), & &1.is_primary)
+    primary = Enum.find(Bases.fields(table.id), & &1.is_primary)
 
     {:ok, other} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id, %{
         name: "Other sales"
       })
 
-    other_primary = Enum.find(Database.fields(other.id), & &1.is_primary)
+    other_primary = Enum.find(Bases.fields(other.id), & &1.is_primary)
     observer = PodContentEvidence.observe_record_writes!()
 
     assert {:ok, %{records: [cedar]}} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                table.id,
                %{
@@ -117,7 +117,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
              )
 
     assert {:ok, _} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                table.id,
                %{
@@ -126,7 +126,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
              )
 
     assert {:ok, %{records: []}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{})
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{})
 
     tenant_id = Repo.tenant_id!()
 
@@ -150,7 +150,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     assert hd(writes)["actor"] == "ankole:#{owner.tenant_id}:principal/#{owner.uid}"
 
     assert {:ok, _} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                other.id,
                %{
@@ -163,7 +163,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     assert other_id == other.id
 
     assert {:ok, %{records: [pending]}} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                table.id,
                %{
@@ -172,7 +172,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
              )
 
     assert {:ok, %{records: [renamed]}} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                table.id,
                %{
@@ -187,7 +187,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
              )
 
     assert {:ok, _} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                table.id,
                %{
@@ -196,7 +196,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
              )
 
     assert {:ok, %{records: []}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{})
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{})
 
     writes = PodContentEvidence.record_writes(observer, table.id)
     assert Enum.map(writes, & &1["operation"]) == ["INSERT", "INSERT", "UPDATE"]
@@ -209,7 +209,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     assert {:error, :rolled_back} =
              Repo.transact(fn ->
                assert {:ok, _} =
-                        Database.write_records_in_tx(
+                        Bases.write_records_in_tx(
                           Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                           table.id,
                           %{

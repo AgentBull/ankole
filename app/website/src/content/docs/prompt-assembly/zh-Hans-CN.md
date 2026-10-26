@@ -11,7 +11,7 @@ description: 控制面如何渲染主 Agent 指令，以及 Codex Job 上下文�
 
 上下文包含 Agent 身份与文档、有效 Skill 和插件、会话起始频道及时区。`SOUL.md` 提供行为与判断准则，`MISSION.md` 提供职责。这些文档由领域 owner 在 PostgreSQL 中保存。环境工具经工作区契约获得物化的运行时文件。
 
-主 Prompt 依次包含身份、SOUL、MISSION、完成与权限指令、可用 Job 和 Workflow 的策略、记忆指导、环境与工具指导、Skill 目录、运行时上下文。模板位于 `app/control_plane_core/priv/sessions/prompts/`，渲染器位于 `app/control_plane_core/lib/ankole/sessions/prompt.ex`。
+主 Prompt 依次包含身份、SOUL、MISSION、完成与权限指令、可用 Job 和 Workflow 的策略、记忆指导、环境与工具指导、Skill 目录、运行时上下文。模板位于 `app/control_plane/priv/sessions/prompts/`，渲染器位于 `app/control_plane/lib/ankole/sessions/prompt.ex`。
 
 Skill 目录省略 `brain-recall-only: true` 的条目。这些 Skill 仍在有效集合中，可经 Brain 发现并由 `skill_view` 加载。运行时后缀包含 Agent、`/workspace`、当前 Session 工作区、时区、会话开始时间与起始频道。Lark adapter 同时表示 Lark 和飞书，其 domain 选择上游 API。
 

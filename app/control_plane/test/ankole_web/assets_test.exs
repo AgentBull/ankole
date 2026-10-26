@@ -89,31 +89,21 @@ defmodule AnkoleWeb.AssetsTest do
     assert preamble < client
   end
 
-  test "Pod and SaaS Pod preload only their scoped active and fallback catalogs" do
-    for entry <- ["pod", "saas-pod"], locale <- ["en-US", "zh-Hans-CN", "ja-JP", "ko-KR"] do
-      html = Assets.locale_preload_tags(locale, entry) |> IO.iodata_to_binary()
-
-      assert preloads(html) ==
-               ["/assets/js/#{locale}-pod.js", "/assets/js/en-US-pod.js"] |> Enum.uniq()
-
-      refute html =~ "-full.js"
+  test "the shell preloads its active and fallback catalogs" do
+    for locale <- ["en-US", "zh-Hans-CN", "ja-JP", "ko-KR"] do
+      html = Assets.locale_preload_tags(locale) |> IO.iodata_to_binary()
+      assert preloads(html) == ["/assets/js/#{locale}.js", "/assets/js/en-US.js"] |> Enum.uniq()
     end
   end
 
-  test "other entries keep full catalogs and an unknown locale still preloads English" do
-    for entry <- ["auth", "setup", "console", "saas-account", nil] do
-      html = Assets.locale_preload_tags("zh-Hans-CN", entry) |> IO.iodata_to_binary()
-      assert preloads(html) == ["/assets/js/zh-Hans-CN-full.js", "/assets/js/en-US-full.js"]
-      refute html =~ "-pod.js"
-    end
-
-    html = Assets.locale_preload_tags("unknown-locale", "pod") |> IO.iodata_to_binary()
-    assert preloads(html) == ["/assets/js/en-US-pod.js"]
+  test "an unknown locale preloads English" do
+    html = Assets.locale_preload_tags("unknown-locale") |> IO.iodata_to_binary()
+    assert preloads(html) == ["/assets/js/en-US.js"]
   end
 
-  test "development leaves scoped catalogs to Vite" do
+  test "development leaves catalogs to Vite" do
     Application.put_env(:ankole, Assets, dev_server: "http://vite.test/")
-    assert Assets.locale_preload_tags("ja-JP", "pod") == []
+    assert Assets.locale_preload_tags("ja-JP") == []
   end
 
   defp tags(path, entry) do
@@ -156,10 +146,8 @@ defmodule AnkoleWeb.AssetsTest do
     }
 
     catalogs =
-      for locale <- ["en-US", "zh-Hans-CN", "ja-JP", "ko-KR"],
-          {query, name} <- [{"", "full"}, {"?pod", "pod"}],
-          into: %{} do
-        {"../locales/#{locale}.json#{query}", %{"file" => "js/#{locale}-#{name}.js"}}
+      for locale <- ["en-US", "zh-Hans-CN", "ja-JP", "ko-KR"], into: %{} do
+        {"../locales/#{locale}.json", %{"file" => "js/#{locale}.js"}}
       end
 
     Map.merge(entries, catalogs)

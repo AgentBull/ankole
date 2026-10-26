@@ -20,7 +20,7 @@ const STOCK = ${JSON.stringify(stockFieldID)};
 const RECORD = ${JSON.stringify(recordID)};
 export default {
   'GET /stock': async () => {
-    const result = await AnkoleRuntime.db.query(TABLE, {ids: [RECORD]});
+    const result = await AnkoleRuntime.base.query(TABLE, {ids: [RECORD]});
     return {available: result.records[0].data[STOCK], version: ${JSON.stringify(version)}};
   },
   'POST /reserve': async ({body, principal}) => {
@@ -29,14 +29,14 @@ export default {
       throw new AnkoleRuntime.HttpError(422, 'invalid_quantity', 'Enter a whole number greater than zero.');
     }
     for (let attempt = 0; attempt < 8; attempt++) {
-      const result = await AnkoleRuntime.db.query(TABLE, {ids: [RECORD]});
+      const result = await AnkoleRuntime.base.query(TABLE, {ids: [RECORD]});
       const record = result.records[0];
       const available = record.data[STOCK];
       if (quantity > available) {
         throw new AnkoleRuntime.HttpError(409, 'insufficient_stock', 'There are not enough samples available.', {available});
       }
       try {
-        await AnkoleRuntime.db.write(TABLE, {updates: [{id: RECORD,
+        await AnkoleRuntime.base.write(TABLE, {updates: [{id: RECORD,
           data: {[STOCK]: available - quantity}, expected_versions: {[STOCK]: record.versions[STOCK]}}]});
         console.info('Reserved', quantity, 'samples for', principal.uid);
         return {reserved: quantity, available: available - quantity, version: ${JSON.stringify(version)}};

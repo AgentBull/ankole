@@ -3,15 +3,11 @@ import i18n from 'i18next'
 import MF2 from 'i18next-mf2'
 import { initReactI18next } from 'react-i18next'
 
-export type LocaleScope = 'full' | 'pod'
-
-// ?pod is a build view of the same generated catalog. Other entries keep the full catalog.
-const catalogLoaders: Record<string, (scope: LocaleScope) => Promise<{ default: unknown }>> = {
-  'en-US': scope => (scope === 'pod' ? import('@ankole/locales/en-US.json?pod') : import('@ankole/locales/en-US.json')),
-  'ja-JP': scope => (scope === 'pod' ? import('@ankole/locales/ja-JP.json?pod') : import('@ankole/locales/ja-JP.json')),
-  'ko-KR': scope => (scope === 'pod' ? import('@ankole/locales/ko-KR.json?pod') : import('@ankole/locales/ko-KR.json')),
-  'zh-Hans-CN': scope =>
-    scope === 'pod' ? import('@ankole/locales/zh-Hans-CN.json?pod') : import('@ankole/locales/zh-Hans-CN.json')
+const catalogLoaders: Record<string, () => Promise<{ default: unknown }>> = {
+  'en-US': () => import('@ankole/locales/en-US.json'),
+  'ja-JP': () => import('@ankole/locales/ja-JP.json'),
+  'ko-KR': () => import('@ankole/locales/ko-KR.json'),
+  'zh-Hans-CN': () => import('@ankole/locales/zh-Hans-CN.json')
 }
 
 // Native labels are locale-invariant constants of the locale itself, so a
@@ -32,12 +28,11 @@ const loadedLocales = new Map<string, Promise<void>>()
  * returned promise settles never shows untranslated keys. `mountApp` awaits
  * the active locale and the en-US fallback before the first render.
  */
-export function loadLocale(locale: string, scope: LocaleScope = 'full'): Promise<void> {
+export function loadLocale(locale: string): Promise<void> {
   const supported = supportedLngs.includes(locale) ? locale : 'en-US'
-  const key = `${scope}:${supported}`
-  let loading = loadedLocales.get(key)
+  let loading = loadedLocales.get(supported)
   if (!loading) {
-    loading = catalogLoaders[supported]!(scope).then(module => {
+    loading = catalogLoaders[supported]!().then(module => {
       const catalog = clientCatalog(module.default)
       if (i18n.isInitialized) {
         i18n.addResourceBundle(supported, 'translation', catalog)
@@ -61,7 +56,7 @@ export function loadLocale(locale: string, scope: LocaleScope = 'full'): Promise
           supportedLngs
         })
     })
-    loadedLocales.set(key, loading)
+    loadedLocales.set(supported, loading)
   }
   return loading
 }

@@ -442,6 +442,14 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :record_only)
 
+      room =
+        Ankole.ExternalConversationsFixtures.external_conversation_fixture("lark:chat:group-a")
+
+      Ankole.SessionsCase.stub_driver(%{
+        agent_uid: agent.uid,
+        session_id: Ankole.Sessions.Key.conversation(room.id)
+      })
+
       %{signal: first_event} =
         emit_addressed_signal(
           agent.uid,
@@ -551,6 +559,11 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert Repo.aggregate(Signal, :count) == 0
 
+      agent_uid = agent.uid
+      session_id = Ankole.Sessions.Key.conversation(batch.conversation_id)
+      Ankole.Sessions.Events.subscribe(agent_uid, session_id)
+      Ankole.SessionsCase.stub_driver(%{agent_uid: agent_uid, session_id: session_id})
+
       early = DateTime.add(batch.available_at, -1, :millisecond)
 
       assert {:ok, %{status: :not_due, available_at: due_at}} =
@@ -559,6 +572,8 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert due_at == batch.available_at
+      refute_received {:session_event, ^agent_uid, ^session_id, :status}
+      refute_received {:inbox, _}
 
       assert {:ok, %{status: :accepted, signal: input}} =
                Ankole.Conversations.InboundBatches.finalize_inbound_batch_by_id(batch.id,
@@ -567,6 +582,16 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert input.type == "im.message.may_intervene"
       assert Repo.get!(InboundBatch, batch.id).batch_state == :finalized
+      assert_receive {:session_event, ^agent_uid, ^session_id, :status}
+      assert_receive {:inbox, signal_id}
+      assert signal_id == input.id
+
+      assert {:ok, %{status: :already_finalized}} =
+               Ankole.Conversations.InboundBatches.finalize_inbound_batch_by_id(batch.id,
+                 now: batch.available_at
+               )
+
+      refute_received {:session_event, ^agent_uid, ^session_id, :status}
     end
 
     test "may_intervene entries in the same room and thread finalize as one ambient input" do
@@ -1546,6 +1571,20 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      assert {:ok, _} =
+               Observe.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{source_event_id: "warmup", provider_message_id: "warmup"}),
+                 now: @base_time
+               )
+
+      conversation = External.get_conversation("lark:chat:group-a")
+      agent_uid = agent.uid
+      session_id = Ankole.Sessions.Key.conversation(conversation.id)
+      Ankole.Sessions.Events.subscribe(agent_uid, session_id)
+      Ankole.SessionsCase.stub_driver(%{agent_uid: agent_uid, session_id: session_id})
+
       assert {:ok, %{signal: compress_event}} =
                Observe.emit_entry(
                  agent.uid,
@@ -1557,6 +1596,9 @@ defmodule Ankole.Conversations.ObserveTest do
       assert compress_event.type == "command.compress"
       assert compress_event.type == "command.compress"
       assert compress_event.data["command"]["argsText"] == "release notes"
+      assert_receive {:session_event, ^agent_uid, ^session_id, :status}
+      assert_receive {:inbox, signal_id}
+      assert signal_id == compress_event.id
 
       assert {:ok, %{signal: input}} =
                Observe.emit_entry(
@@ -1576,6 +1618,9 @@ defmodule Ankole.Conversations.ObserveTest do
       assert input.type == "command.steer"
       assert input.data["command"]["argsText"] == "be concise"
       refute Map.has_key?(input.data["command"], "status")
+      assert_receive {:session_event, ^agent_uid, ^session_id, :status}
+      assert_receive {:inbox, steer_id}
+      assert steer_id == input.id
     end
 
     test "unmirrored durable reply makes a group reply retry explicit and rebases its session" do
@@ -2152,6 +2197,11 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert Repo.aggregate(Signal, :count) == 0
 
+      agent_uid = agent.uid
+      session_id = Ankole.Sessions.Key.conversation(first_batch.conversation_id)
+      Ankole.Sessions.Events.subscribe(agent_uid, session_id)
+      Ankole.SessionsCase.stub_driver(%{agent_uid: agent_uid, session_id: session_id})
+
       assert {:ok,
               %{
                 status: :accepted,
@@ -2175,6 +2225,9 @@ defmodule Ankole.Conversations.ObserveTest do
       assert first_event.type == "conversation.message.addressed"
       assert get_in(first_event.data, ["entry", "text"]) == "@Agent first"
       assert Ankole.Conversations.Delivery.Preview.lookup(first_event.id) == []
+      assert_receive {:session_event, ^agent_uid, ^session_id, :status}
+      assert_receive {:inbox, signal_id}
+      assert signal_id == first_event.id
     end
 
     test "addressed text followed by attachment waits on the attachment window and merges" do
@@ -2354,6 +2407,12 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, %{inbound_batch: pending_batch}} =
                Observe.emit_entry(agent.uid, "bot", pending, now: @base_time)
+
+      # Keep the input pending while this domain test checks attachment redelivery.
+      Ankole.SessionsCase.stub_driver(%{
+        agent_uid: agent.uid,
+        session_id: pending_batch.session_id
+      })
 
       assert {:ok, [%{signal: pending_event}]} =
                finalize_due_inbound_batch_events(now: pending_batch.available_at)

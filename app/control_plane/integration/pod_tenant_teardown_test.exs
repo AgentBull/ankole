@@ -1,6 +1,6 @@
 defmodule Ankole.Pod.TenantTeardownTest do
   @moduledoc """
-  Tenant teardown for the Page and Database tables.
+  Tenant teardown for Pages and Base storage.
 
   These tests run with committed transactions, so the deletion job reaches the
   real batches. Each table is filled for one tenant, another tenant keeps its
@@ -11,10 +11,10 @@ defmodule Ankole.Pod.TenantTeardownTest do
   use Ankole.DataCase, async: false
   @moduletag sandbox: false
 
-  alias Ankole.Pod.DbField
-  alias Ankole.Pod.DbRecord
-  alias Ankole.Pod.DbTable
-  alias Ankole.Pod.DbView
+  alias Ankole.Pod.BaseField
+  alias Ankole.Pod.BaseRecord
+  alias Ankole.Pod.BaseTable
+  alias Ankole.Pod.BaseView
   alias Ankole.Pod.Page
   alias Ankole.Pod.PageChange
   alias Ankole.Pod.PageContent
@@ -25,10 +25,10 @@ defmodule Ankole.Pod.TenantTeardownTest do
   @author "ankole:019a2b00-0000-7000-8000-000000000001:principal/system"
 
   @schemas [
-    DbRecord,
-    DbView,
-    DbField,
-    DbTable,
+    BaseRecord,
+    BaseView,
+    BaseField,
+    BaseTable,
     PageUserState,
     PageChange,
     PageContent,
@@ -54,7 +54,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
     %{keep: keep}
   end
 
-  test "the deletion job removes every Page and Database row of one tenant", %{
+  test "the deletion job removes every Page and Base row of one tenant", %{
     tenant: drop,
     keep: keep
   } do
@@ -100,6 +100,71 @@ defmodule Ankole.Pod.TenantTeardownTest do
       assert Repo.with_tenant(keep.id, fn -> MapSet.new(Repo.all(schema)) end) ==
                kept_rows[schema]
     end
+  end
+
+  test "tenant teardown removes physical records, edges, and states from its shard", %{
+    tenant: drop,
+    keep: keep
+  } do
+    fixtures =
+      for tenant <- [drop, keep], into: %{} do
+        {tenant.id,
+         Repo.with_tenant(tenant.id, fn ->
+           :ok = Tenants.ensure_scaffold(tenant)
+
+           actor =
+             Ankole.PrincipalsFixtures.actor_fixture(
+               Ankole.PrincipalsFixtures.human_fixture().principal.uid
+             )
+
+           {:ok, page} = Ankole.Pod.Pages.create(actor, %{type: "base"})
+           {:ok, %{tables: [table]}} = Ankole.Pod.Bases.list_tables(actor, page.id)
+
+           {:ok, link} =
+             Ankole.Pod.Bases.create_field(actor, table.id, %{
+               name: "Related",
+               type: "link",
+               config: %{"table_id" => table.id}
+             })
+
+           id = Ankole.Ecto.UUIDv7.autogenerate()
+
+           {:ok, _} =
+             Ankole.Pod.Bases.write_records(actor, table.id, %{
+               creates: [%{id: id, data: %{link.id => [id]}}]
+             })
+
+           %{
+             actor: actor,
+             table: table,
+             link: link,
+             id: id,
+             schema: Ankole.Pod.BaseRepo.tenant_schema!()
+           }
+         end)}
+      end
+
+    assert {:ok, _} = Tenants.delete(drop)
+    assert :ok = drain(drop.id)
+
+    Ankole.Pod.BaseRepo.with_shard(drop.base_db_id, fn ->
+      assert [[nil]] =
+               Ankole.Pod.BaseRepo.query!("SELECT to_regnamespace($1)::text", [
+                 fixtures[drop.id].schema
+               ]).rows
+    end)
+
+    Repo.with_tenant(keep.id, fn ->
+      saved = fixtures[keep.id]
+
+      assert {:ok, %{records: [record]}} =
+               Ankole.Pod.Bases.query(saved.actor, saved.table.id, %{})
+
+      assert record["data"][saved.link.id] == [saved.id]
+
+      assert {:ok, %{table: %{record_count: 1}}} =
+               Ankole.Pod.Bases.get_table(saved.actor, saved.table.id)
+    end)
   end
 
   test "tenant teardown removes published Applet backend references while another tenant retains them",
@@ -224,7 +289,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
         Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
           parent_id: page.id,
           acl_anchor_id: page.acl_anchor_id,
-          type: :database,
+          type: :base,
           title: "Database",
           position: "a1",
           created_by: @author,
@@ -233,13 +298,13 @@ defmodule Ankole.Pod.TenantTeardownTest do
         })
 
       table =
-        Ankole.Pod.PagesFixtures.create_record!(DbTable, :create_in_tx, %{
+        Ankole.Pod.PagesFixtures.create_record!(BaseTable, :create_in_tx, %{
           page_id: database.id,
           name: "Sales",
           position: "a0"
         })
 
-      Ankole.Pod.PagesFixtures.create_record!(DbField, :create_in_tx, %{
+      Ankole.Pod.PagesFixtures.create_record!(BaseField, :create_in_tx, %{
         table_id: table.id,
         name: "Title",
         position: "a0",
@@ -247,7 +312,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
         is_primary: true
       })
 
-      Ankole.Pod.PagesFixtures.create_record!(DbView, :create_in_tx, %{
+      Ankole.Pod.PagesFixtures.create_record!(BaseView, :create_in_tx, %{
         table_id: table.id,
         name: "Grid",
         position: "a0",
@@ -263,7 +328,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
         updated_by: @author,
         updated_at: now
       }
-      |> DbRecord.create_changeset()
+      |> BaseRecord.create_changeset()
       |> Repo.insert!()
     end)
   end

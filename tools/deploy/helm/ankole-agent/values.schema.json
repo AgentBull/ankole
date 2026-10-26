@@ -18,6 +18,9 @@
         "databaseURL": {
           "type": "string"
         },
+        "baseDBURLs": {
+          "type": "string"
+        },
         "postgresqlPassword": {
           "type": "string"
         },

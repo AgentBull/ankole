@@ -955,6 +955,7 @@ export type SetupPluginsResponses = {
   200: {
     enabledPluginIDs: Array<string>
     plugins: Array<{
+      activation: 'optional' | 'always'
       description?: {
         [key: string]: string
       } | null

@@ -8,7 +8,7 @@ import { MessageActions } from '../chat/message-actions'
 import { ChatModel } from './chat'
 import { ChatDrafts } from './chat-drafts'
 
-beforeAll(() => loadLocale('en-US', 'pod'))
+beforeAll(() => loadLocale('en-US'))
 
 function detail(agentUIDs: string[]): ConversationDetail {
   const agents = ['agent-a', 'agent-b'].map(uid => ({
@@ -89,9 +89,15 @@ function detail(agentUIDs: string[]): ConversationDetail {
   }
 }
 
-function commands(data: ConversationDetail, callableAgentUIDs = ['agent-a', 'agent-b'], draft = '') {
+function commands(
+  data: ConversationDetail,
+  callableAgentUIDs = ['agent-a', 'agent-b'],
+  draft = '',
+  prepare?: (model: InstanceType<typeof ChatModel>) => void
+) {
   const model = new ChatModel()
   model.draft.value = draft
+  prepare?.(model)
   const client = new QueryClient()
   let result!: ReturnType<typeof useChatCommands>
   function Subject() {
@@ -123,6 +129,71 @@ test('an anchor-page DM accepts a Human-only post without permission to invoke i
   expect(commands(shared, [], 'A teammate observation').result.canSubmit).toBe(true)
   shared.conversation.accessScope = 'participants'
   expect(commands(shared, [], 'A teammate observation').result.canSubmit).toBe(false)
+})
+
+test('retry refuses an unavailable selected recipient and keeps the failed message', () => {
+  for (const unavailable of ['inactive', 'not-callable', 'removed']) {
+    const data = detail([])
+    if (unavailable === 'inactive') data.conversation.agents[0]!.active = false
+    if (unavailable === 'removed') data.conversation.agents = data.conversation.agents.slice(1)
+    const callable = unavailable === 'not-callable' ? ['agent-b'] : ['agent-a', 'agent-b']
+    const { result, model } = commands(data, callable, 'Retry this message', model => {
+      model.targetAgentUID.value = 'agent-a'
+      const submission = model.submit(data.conversation.id, 'agent-b', () => 'failed-message')
+      model.failed(new Error('send failed'), submission.messageID)
+    })
+
+    expect(result.canSubmit).toBe(false)
+    expect(result.recipientAvailable).toBe(false)
+    result.submit()
+    expect(model.pending.value?.state).toBe('failed')
+    expect(model.draft.value).toBe('Retry this message')
+  }
+})
+
+test('a group broadcast does not require an individually callable recipient', () => {
+  expect(commands(detail([]), [], 'A group observation').result.canSubmit).toBe(true)
+})
+
+test('an edit uses its saved recipient independently of the composer selection', () => {
+  const data = detail(['agent-a'])
+  const { result } = commands(data, ['agent-a'], '', model => {
+    model.targetAgentUID.value = 'agent-b'
+    model.beginEdit({
+      messageID: data.messages[0]!.id,
+      text: 'Edited message',
+      links: [],
+      mentions: [],
+      queueVersion: 'agent-a-version',
+      kind: 'last',
+      hasAttachments: false,
+      agentUID: 'agent-a'
+    })
+  })
+  expect(result.canSubmit).toBe(true)
+  expect(result.recipientAvailable).toBe(true)
+})
+
+test('an answer uses the question recipient independently of the composer selection', () => {
+  const data = detail([])
+  data.pendingInteractions = [
+    {
+      interaction_id: 'question',
+      agentUID: 'agent-a',
+      messageID: 'question-message',
+      tool_call_id: 'question-call',
+      question: 'Where should the report go?',
+      choices: [],
+      allow_free_text: true,
+      state: 'pending'
+    }
+  ]
+  const { result } = commands(data, ['agent-a'], 'Save it here', model => {
+    model.targetAgentUID.value = 'agent-b'
+    model.startAnswer('question')
+  })
+  expect(result.canSubmit).toBe(true)
+  expect(result.recipientAvailable).toBe(true)
 })
 
 test('editing a single Agent request uses its actual target while another Agent works', () => {

@@ -26,7 +26,7 @@ const render = (element: Parameters<typeof renderToStaticMarkup>[0]) =>
   renderToStaticMarkup(element).replace(/[\u2066-\u2069]/g, '')
 
 beforeAll(async () => {
-  await Promise.all(['en-US', 'zh-Hans-CN', 'ja-JP', 'ko-KR'].map(locale => loadLocale(locale, 'pod')))
+  await Promise.all(['en-US', 'zh-Hans-CN', 'ja-JP', 'ko-KR'].map(locale => loadLocale(locale)))
 })
 
 const execution: ExecutionSummary = {
@@ -43,7 +43,7 @@ const execution: ExecutionSummary = {
     },
     {
       id: 'query',
-      tool: 'pod.db.query',
+      tool: 'pod.base.query',
       title: 'Queried Tasks (18 rows)',
       status: 'completed',
       duration_ms: 340,
@@ -352,9 +352,7 @@ test('room events identify the actor and action in all four locales and preserve
 test('editing a prior request keeps the artifact warning in its tooltip', () => {
   const html = render(<MessageActions text="Original request" onEdit={() => {}} />)
   expect(html).toContain('aria-label="Edit and regenerate"')
-  expect(html).toContain(
-    'Edit and regenerate · Regenerating keeps changes already made to pages, databases, and applets.'
-  )
+  expect(html).toContain('Edit and regenerate · Regenerating keeps changes already made to pages, bases, and applets.')
   expect(render(<MessageActions text="Latest answer" alwaysVisible />)).toContain('data-visible="true"')
 })
 

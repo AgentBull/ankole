@@ -30,12 +30,12 @@ test('move destinations omit the source, all its descendants, read-only pages', 
     page('sibling', ['page_view', 'page_edit'], 'root'),
     page('readonly', ['page_view']),
     page('unknown-actions', undefined, null, { role: 'manage' }),
-    page('database', ['page_view', 'page_edit'], null, { type: 'database' }),
+    page('base', ['page_view', 'page_edit'], null, { type: 'base' }),
     page('deleted', ['page_view', 'page_edit'], null, { deleted_at: '2026-10-18' }),
     page('shared', ['page_view', 'page_edit']),
     page('manage-without-edit', ['page_view', 'page_manage'], null, { role: 'manage' })
   ]
-  expect(moveDestinations(pages, 'source').map(page => page.id)).toEqual(['root', 'sibling', 'database', 'shared'])
+  expect(moveDestinations(pages, 'source').map(page => page.id)).toEqual(['root', 'sibling', 'base', 'shared'])
 })
 
 test('a malformed visible cycle cannot hang the destination picker', () => {

@@ -11,7 +11,7 @@ The control plane assembles the main Agent's model instructions. `Ankole.Session
 
 The context contains Agent identity and documents, effective Skills and plugins, conversation origin, and timezone. `SOUL.md` supplies behavior and judgment; `MISSION.md` supplies responsibilities. The domain owns these documents in PostgreSQL. Environment tools receive materialized runtime files through the workspace contract.
 
-The main prompt starts with identity, SOUL, and MISSION, followed by completion and authority instructions, available Job and Workflow policies, memory guidance, environment and tool guidance, the Skill catalog, and runtime context. The templates are in `app/control_plane_core/priv/sessions/prompts/`; the renderer is `app/control_plane_core/lib/ankole/sessions/prompt.ex`.
+The main prompt starts with identity, SOUL, and MISSION, followed by completion and authority instructions, available Job and Workflow policies, memory guidance, environment and tool guidance, the Skill catalog, and runtime context. The templates are in `app/control_plane/priv/sessions/prompts/`; the renderer is `app/control_plane/lib/ankole/sessions/prompt.ex`.
 
 The Skill catalog omits `brain-recall-only: true` entries. They remain in the effective set and can be discovered through Brain and loaded through `skill_view`. The runtime suffix names the Agent, `/workspace`, the current Session workspace, timezone, conversation start, and origin channel. The Lark adapter represents both Lark and Feishu; its domain selects the upstream API.
 

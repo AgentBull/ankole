@@ -80,7 +80,7 @@ If content goes past a limit, the package reports an error. It does not truncate
 
 A known element (an element in the vocabulary) can have attributes that are not in the vocabulary. The package keeps these attributes without change and reports them as warnings (section 6.4). The package also keeps an unknown element and all its attributes without change, and reports the element as a warning.
 
-`embed` holds only a reference. `ref` names the page that the embed shows. A database embed can also have `table` and `view`. The embedded page controls the format, existence, and lifecycle of these values. A page does not hold fields, records, views, or settings of the embedded page. The editor does not load the embedded page, read its assets, or delete it; those operations belong to the product that stores pages.
+`embed` holds only a reference. `ref` names the page that the embed shows. A base embed can also have `table` and `view`. The embedded page controls the format, existence, and lifecycle of these values. A page does not hold fields, records, views, or settings of the embedded page. The editor does not load the embedded page, read its assets, or delete it; those operations belong to the product that stores pages.
 
 The product gives two address forms. A page link uses `ankole:page/<page ID>` in `href`, and an image that a page owns uses `ankole:asset/<digest>/<file name>` in `src`. The package treats both as any other attribute value. It reads, prints, and copies them without change, and it does not resolve them.
 

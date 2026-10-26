@@ -10,8 +10,18 @@ import { EmailOtpForm } from './email-otp-form'
 import { InvitationJoin } from './invitation-join'
 import { JoinSpaceForm } from './join-space-form'
 import { SessionScreen } from './session-screen'
+import { AuthSlotsContext, type AuthAppSlots } from './slots'
+export type { AuthAppSlots } from './slots'
 
-export function AuthApp() {
+export function AuthApp({ slots = {} }: { slots?: AuthAppSlots } = {}) {
+  return (
+    <AuthSlotsContext value={slots}>
+      <AuthScreen />
+    </AuthSlotsContext>
+  )
+}
+
+function AuthScreen() {
   const status = Number(document.querySelector<HTMLMetaElement>('meta[name="ankole-response-status"]')?.content ?? 200)
   if (window.location.pathname.startsWith('/join/')) return <InvitationJoin />
   if (window.location.pathname !== '/sessions/new' || status >= 400) return <SessionScreen invalid={status >= 400} />

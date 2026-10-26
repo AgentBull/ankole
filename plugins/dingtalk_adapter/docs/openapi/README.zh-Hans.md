@@ -32,4 +32,4 @@ client =
   `topapi/user/getbyunionid`）；`Contact`、`Robot`、`Card` 分别封装通讯录、机器人
   发送/撤回/媒体上传与卡片实例/流式端点。
 
-在本目录运行 `mix test` 执行测试。
+在仓库根目录运行 `bun run control-plane:test:plugins dingtalk_adapter` 执行测试。

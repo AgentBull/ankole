@@ -26,10 +26,10 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
   test "an inactive Plugin keeps its provider visible and explains recovery", %{conn: conn} do
     alias Ankole.Plugins.Registry, as: PluginRegistry
-    original = :sys.get_state(PluginRegistry)
+    original = PluginRegistry.snapshot_for_test()
 
     on_exit(fn ->
-      :sys.replace_state(PluginRegistry, fn _state -> original end)
+      PluginRegistry.update_for_test(fn _state -> original end)
 
       Ankole.AgentWorkers.ProviderKind.refresh_from_specs(
         Map.values(original.discovered),
@@ -50,7 +50,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
     {:ok, _} = Ankole.Plugins.put_configured_enabled("vercel-worker-provider", false)
     {:ok, snapshot} = PluginRegistry.prepare_snapshot()
-    :sys.replace_state(PluginRegistry, fn _state -> snapshot end)
+    PluginRegistry.update_for_test(fn _state -> snapshot end)
 
     Ankole.AgentWorkers.ProviderKind.refresh_from_specs(
       Map.values(snapshot.discovered),

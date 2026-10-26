@@ -26,7 +26,7 @@ test('numeric predicates and totals retain PostgreSQL precision while unfiltered
   )
   expect(canAggregateLocally(schema, { metrics: [{ operation: 'count', alias: 'count' }] })).toBe(true)
 })
-test('locale-sensitive operations share the server owner unless the actual database proves compatibility', () => {
+test('locale-sensitive operations share the server owner unless the actual base proves compatibility', () => {
   const filter = {
     conjunction: 'and' as const,
     conditions: [{ field_id: 'name', operator: 'text_contains' as const, value: 'I' }]

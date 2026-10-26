@@ -16,13 +16,13 @@ defmodule AnkoleWeb.PodDatabaseControllerTest do
     tenant: tenant
   } do
     {conn, uid} = console_conn_with_principal(conn)
-    created = api_post(conn, "/api/v2/pod/pages", %{type: "database", title: "Orders"})
+    created = api_post(conn, "/api/v2/pod/pages", %{type: "base", title: "Orders"})
     assert %{"page" => %{"id" => page_id}} = api_response(created, 200)
 
     table_conn =
       created
       |> recycle_api()
-      |> api_post("/api/v2/pod/databases/#{page_id}/tables", %{name: "Orders"})
+      |> api_post("/api/v2/pod/bases/#{page_id}/tables", %{name: "Orders"})
 
     assert %{"table" => %{"id" => table_id}} = api_response(table_conn, 200)
 
@@ -114,7 +114,7 @@ defmodule AnkoleWeb.PodDatabaseControllerTest do
       |> recycle_api()
       |> api_post("/api/v2/pod/tables/#{table_id}/copy", %{parent_id: report.id})
 
-    assert %{"page" => %{"type" => "database"}, "table" => %{"record_count" => 1}} =
+    assert %{"page" => %{"type" => "base"}, "table" => %{"record_count" => 1}} =
              api_response(copied, 200)
 
     changed =

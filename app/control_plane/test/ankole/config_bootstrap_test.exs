@@ -45,6 +45,51 @@ defmodule Ankole.Config.BootstrapTest do
     end)
   end
 
+  test "Base defaults separate development shards and reuse the production FOSS database" do
+    url = "postgres://user:secret@localhost/control"
+
+    assert [%{id: "base_default", pool_size: 10, url: "ecto://user:secret@localhost/control"}] =
+             Bootstrap.base_databases(nil, url, :prod)
+
+    dev = Bootstrap.base_databases(nil, url, :dev)
+    assert length(dev) == 4
+    assert Enum.all?(dev, &(&1.pool_size == 2))
+    assert Enum.map(dev, & &1.id) == ~w(base_00 base_01 base_02 base_03)
+
+    assert Enum.all?(
+             Bootstrap.base_databases(nil, url, :test, "suite"),
+             &String.ends_with?(&1.url, "_test_suite")
+           )
+
+    saas = Bootstrap.base_databases(nil, url, :prod, nil, :saas)
+    assert length(saas) == 8
+    assert Enum.all?(saas, &(&1.pool_size == 5))
+  end
+
+  test "Base topology rejects ambiguous identities and unsupported connection parameters" do
+    url = "postgresql://localhost/base"
+
+    for suffix <- [
+          "?ankole_sharding=A",
+          "?ankole_sharding=a&ankole_sharding=b",
+          "?ankole_typo=1",
+          "?ankole_stock_only=yes",
+          "?ankole_pool_size=0",
+          "?sslmode=require",
+          ";ecto://localhost/second",
+          "?ankole_sharding=a;ecto://localhost/b?ankole_sharding=a"
+        ] do
+      assert_raise RuntimeError, fn -> Bootstrap.base_databases(url <> suffix, url, :prod) end
+    end
+
+    assert [%{id: "vip", stock_only: true, pool_size: 3, url: "ecto://localhost/base"}] =
+             Bootstrap.base_databases(
+               "  " <> url <> "?ankole_sharding=vip&ankole_stock_only=true&ankole_pool_size=3 ",
+               url,
+               :prod
+             )
+  end
+
   test "loads dev dotenv files with local override precedence and OS env priority" do
     root = tmp_root()
 

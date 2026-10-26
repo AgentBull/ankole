@@ -2,7 +2,7 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
-  alias Ankole.Pod.{Database, Page, Pages, PageUserState}
+  alias Ankole.Pod.{Bases, Page, Pages, PageUserState}
 
   for scope <- ~w(all space private shared recent favorites) do
     @scope scope
@@ -201,29 +201,29 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     other = human_fixture().principal
 
     {:ok, visible} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: "database"})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: "base"})
 
     {:ok, hidden} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
-        type: "database",
+        type: "base",
         private_owner_uid: other.uid
       })
 
     {:ok, deleted} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: "database"})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: "base"})
 
     {:ok, visible_table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), visible.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), visible.id, %{
         name: "Visible"
       })
 
     {:ok, hidden_table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(other.uid), hidden.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(other.uid), hidden.id, %{
         name: "Hidden"
       })
 
     {:ok, deleted_table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), deleted.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), deleted.id, %{
         name: "Deleted"
       })
 

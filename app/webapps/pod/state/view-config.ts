@@ -1,4 +1,4 @@
-import type { DatabaseView } from '@ankole/applet-sdk/types'
+import type { BaseView } from '@ankole/applet-sdk/types'
 import { z } from 'zod'
 
 const value = z.union([
@@ -30,7 +30,7 @@ const configSchema = z.looseObject({
 })
 
 export type ViewConfig = z.infer<typeof configSchema>
-export type ConfiguredView = Omit<DatabaseView, 'config'> & { config: ViewConfig }
+export type ConfiguredView = Omit<BaseView, 'config'> & { config: ViewConfig }
 export const parseViewConfig = (input: unknown) => configSchema.safeParse(input)
 
 export type EmbedView = { kind: 'saved'; id?: string } | { kind: 'inline'; config: ViewConfig } | { kind: 'invalid' }

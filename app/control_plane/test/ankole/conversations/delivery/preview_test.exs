@@ -629,6 +629,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     stop_preview_and_wait(signal.id)
 
     driver_name = Ankole.Sessions.driver_name(signal)
+    :ok = :global.unregister_name(driver_name)
     assert :yes = :global.register_name(driver_name, self())
     on_exit(fn -> :global.unregister_name(driver_name) end)
     assert :ok = Preview.recover(steer.id)
@@ -1033,10 +1034,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   test "preview posts its first message when the adapter cannot thread replies" do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(PostOnlySignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1045,7 +1046,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     %{subject: subject, signal: signal} = addressed_signal("post-only")
@@ -1064,10 +1065,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   test "an adapter that cannot edit gets no streaming preview" do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(ImmutableSignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1076,7 +1077,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     %{subject: subject, signal: signal} = addressed_signal("immutable")
@@ -1102,10 +1103,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   test "startup closes a completed event whose durable reply outlived an open preview" do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1117,7 +1118,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     on_exit(fn ->
       RecoveryReplyPreview.delete_recipient()
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     %{subject: subject, signal: signal} = addressed_signal("terminal-recover")
@@ -1190,10 +1191,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   test "a not-retryable refresh distinguishes operator repair from a permanent stop" do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1212,7 +1213,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     on_exit(fn ->
       RecoveryReplyPreview.delete_recipient()
       RecoveryReplyPreview.delete_refresh_result()
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     %{subject: subject, signal: signal} = addressed_signal("blocked-recover")
@@ -1326,10 +1327,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   test "an atom-valued adapter detail still persists the blocked recovery state" do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1351,7 +1352,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     on_exit(fn ->
       RecoveryReplyPreview.delete_recipient()
       RecoveryReplyPreview.delete_refresh_result()
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     %{subject: subject, signal: signal} = addressed_signal("atom-blocked")
@@ -1423,10 +1424,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   test "a plain-text fallback delegates preview recovery to durable intent ownership" do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1449,7 +1450,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     on_exit(fn ->
       RecoveryReplyPreview.delete_recipient()
       RecoveryReplyPreview.delete_refresh_result()
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     %{subject: subject, signal: signal} = addressed_signal("fallback-recover")
@@ -1706,8 +1707,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
 
-    %{signal: signal} =
-      emit_addressed_signal(
+    {:ok, %{signal: signal}} =
+      Ankole.SessionsCase.emit_entry(
         subject.uid,
         "mock",
         group_entry(%{
@@ -1717,7 +1718,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
           provider_thread_id: "mock-thread-#{suffix}",
           explicit: true,
           text: "ping"
-        })
+        }),
+        now: base_time()
       )
 
     %{subject: subject, signal: signal}
@@ -1809,10 +1811,10 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   defp use_mock_signal_provider_plugin(_context) do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(MockSignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -1821,7 +1823,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     :ok

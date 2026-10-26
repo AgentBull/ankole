@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.AppletsTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.Pod.{Applets, Database, Files, Pages}
+  alias Ankole.Pod.{Applets, Bases, Files, Pages}
   alias Ankole.Files, as: Drive
 
   setup do
@@ -75,8 +75,8 @@ defmodule Ankole.Pod.AppletsTest do
           "export default []",
           "export default {'GET /x': 2}",
           "export default {'GET /:a':()=>1,'GET /:b':()=>2}",
-          "await AnkoleRuntime.db.query('x',{}); export default {}",
-          "try { await AnkoleRuntime.db.query('x',{}) } catch {} export default {}"
+          "await AnkoleRuntime.base.query('x',{}); export default {}",
+          "try { await AnkoleRuntime.base.query('x',{}) } catch {} export default {}"
         ] do
       assert {:error, {:invalid_applet_routes, %{reason: reason}}} =
                publish(ctx.owner, page, 1, bad)
@@ -197,21 +197,21 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:error, :not_found} = call(ctx.owner, page.id, "GET", "/")
   end
 
-  test "Database capabilities use caller permissions, preserve field conflicts, and prevent GET writes",
+  test "Bases capabilities use caller permissions, preserve field conflicts, and prevent GET writes",
        ctx do
-    {:ok, db} =
+    {:ok, base} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
-        type: "database",
+        type: "base",
         private_owner_uid: ctx.owner
       })
 
     {:ok, table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), db.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), base.id, %{
         name: "Orders"
       })
 
     {:ok, field} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{
         name: "Label",
         type: "text"
       })
@@ -220,17 +220,17 @@ defmodule Ankole.Pod.AppletsTest do
 
     source = """
     export default {
-      'GET /schema':()=>AnkoleRuntime.db.schema('#{table.id}'),
-      'POST /write':r=>AnkoleRuntime.db.write('#{table.id}',r.body),
-      'GET /write':()=>AnkoleRuntime.db.write('#{table.id}',{creates:[{data:{'#{field.id}':'Forbidden'}}]}),
-      'POST /query':r=>AnkoleRuntime.db.query('#{table.id}',r.body)
+      'GET /schema':()=>AnkoleRuntime.base.schema('#{table.id}'),
+      'POST /write':r=>AnkoleRuntime.base.write('#{table.id}',r.body),
+      'GET /write':()=>AnkoleRuntime.base.write('#{table.id}',{creates:[{data:{'#{field.id}':'Forbidden'}}]}),
+      'POST /query':r=>AnkoleRuntime.base.query('#{table.id}',r.body)
     }
     """
 
     {:ok, _} = publish(ctx.owner, page, 0, source)
     share(ctx.owner, page.id, ctx.reader, "view")
     assert {:ok, %{"status" => 403}} = call(ctx.reader, page.id, "GET", "/schema")
-    share(ctx.owner, db.id, ctx.reader, "view")
+    share(ctx.owner, base.id, ctx.reader, "view")
     assert {:ok, %{"status" => 200}} = call(ctx.reader, page.id, "GET", "/schema")
     body = %{"creates" => [%{"data" => %{field.id => "First"}}]}
 
@@ -245,7 +245,7 @@ defmodule Ankole.Pod.AppletsTest do
              call(ctx.owner, page.id, "GET", "/write")
 
     assert {:ok, %{records: []}} =
-             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{})
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{})
 
     assert {:ok, %{"body" => %{"records" => [record]}}} =
              Applets.call(
@@ -352,19 +352,19 @@ defmodule Ankole.Pod.AppletsTest do
     owner = actor_fixture(ctx.owner)
     contributor = actor_fixture(ctx.reader)
 
-    {:ok, database} = Pages.create(owner, %{type: "database", private_owner_uid: ctx.owner})
-    {:ok, table} = Database.create_table(owner, database.id, %{name: "Evaluations"})
-    {:ok, field} = Database.create_field(owner, table.id, %{name: "Resume", type: "attachment"})
+    {:ok, base} = Pages.create(owner, %{type: "base", private_owner_uid: ctx.owner})
+    {:ok, table} = Bases.create_table(owner, base.id, %{name: "Evaluations"})
+    {:ok, field} = Bases.create_field(owner, table.id, %{name: "Resume", type: "attachment"})
     page = create(ctx.owner)
 
     source = """
     export default {
-      'POST /record':()=>AnkoleRuntime.db.write('#{table.id}',{creates:[{data:{}}]}),
-      'POST /file':()=>AnkoleRuntime.file.write('#{database.id}',{name:'resume.txt',bytes:new Uint8Array([65])}),
+      'POST /record':()=>AnkoleRuntime.base.write('#{table.id}',{creates:[{data:{}}]}),
+      'POST /file':()=>AnkoleRuntime.file.write('#{base.id}',{name:'resume.txt',bytes:new Uint8Array([65])}),
       'POST /submit':async r=>{
-        const file = await AnkoleRuntime.file.write('#{database.id}',{name:r.body.name,contentType:'text/plain',bytes:new Uint8Array(r.body.bytes)});
+        const file = await AnkoleRuntime.file.write('#{base.id}',{name:r.body.name,contentType:'text/plain',bytes:new Uint8Array(r.body.bytes)});
         const read = await AnkoleRuntime.file.read(file.path);
-        const record = await AnkoleRuntime.db.write('#{table.id}',{creates:[{data:{'#{field.id}':[file]}}]});
+        const record = await AnkoleRuntime.base.write('#{table.id}',{creates:[{data:{'#{field.id}':[file]}}]});
         return {file,record,isBytes:read.bytes instanceof Uint8Array,bytes:Array.from(read.bytes),byteLength:read.bytes.byteLength};
       }
     }
@@ -372,16 +372,16 @@ defmodule Ankole.Pod.AppletsTest do
 
     assert {:ok, _} = publish(ctx.owner, page, 0, source)
     share(ctx.owner, page.id, ctx.reader, "view")
-    share(ctx.owner, database.id, ctx.reader, "view")
+    share(ctx.owner, base.id, ctx.reader, "view")
 
     for path <- ["/record", "/file"] do
       assert {:ok, %{"status" => 403}} = call(ctx.reader, page.id, "POST", path)
     end
 
-    assert {:ok, %{records: []}} = Database.query(contributor, table.id, %{})
-    assert {:ok, %{files: []}} = Files.manifest(contributor, database.id)
+    assert {:ok, %{records: []}} = Bases.query(contributor, table.id, %{})
+    assert {:ok, %{files: []}} = Files.manifest(contributor, base.id)
 
-    share(ctx.owner, database.id, ctx.reader, "contribute")
+    share(ctx.owner, base.id, ctx.reader, "contribute")
 
     for {name, bytes} <- [{"resume.txt", [65, 66]}, {"empty.txt", []}] do
       assert {:ok, %{"status" => 200, "body" => result}} =
@@ -406,24 +406,24 @@ defmodule Ankole.Pod.AppletsTest do
       assert path == result["file"]["path"]
       assert result["file"]["name"] == name
       assert result["file"]["mime"] == "text/plain"
-      assert {:ok, database_id, relative} = Files.parse_path(path)
-      assert database_id == database.id
-      assert {:ok, _, contents} = Files.read(contributor, database.id, relative)
+      assert {:ok, base_id, relative} = Files.parse_path(path)
+      assert base_id == base.id
+      assert {:ok, _, contents} = Files.read(contributor, base.id, relative)
       assert contents == :erlang.list_to_binary(bytes)
     end
 
-    for {applet_role, database_role} <- [{"view", "view"}, {"edit", "view"}] do
+    for {applet_role, base_role} <- [{"view", "view"}, {"edit", "view"}] do
       share(ctx.owner, page.id, ctx.reader, applet_role)
-      share(ctx.owner, database.id, ctx.reader, database_role)
+      share(ctx.owner, base.id, ctx.reader, base_role)
 
       for path <- ["/record", "/file"] do
         assert {:ok, %{"status" => 403}} = call(ctx.reader, page.id, "POST", path)
       end
     end
 
-    assert {:ok, %{records: records}} = Database.query(contributor, table.id, %{})
+    assert {:ok, %{records: records}} = Bases.query(contributor, table.id, %{})
     assert length(records) == 2
-    assert {:ok, %{files: files}} = Files.manifest(contributor, database.id)
+    assert {:ok, %{files: files}} = Files.manifest(contributor, base.id)
     assert length(files) == 2
   end
 

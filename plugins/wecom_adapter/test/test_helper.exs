@@ -1,2 +1,5 @@
 ExUnit.start()
-{:ok, _supervisor} = WeComOpenAPI.Supervisor.start_link([])
+
+unless Process.whereis(WeComOpenAPI.Supervisor) do
+  {:ok, _supervisor} = WeComOpenAPI.Supervisor.start_link([])
+end

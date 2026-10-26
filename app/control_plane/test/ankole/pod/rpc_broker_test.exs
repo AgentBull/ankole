@@ -739,18 +739,18 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
   test "Applet RPC retains Agent identity, logs and the current RunRef on each capability write",
        ctx do
-    {:ok, database} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{type: "database"})
+    {:ok, base} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{type: "base"})
 
     {:ok, table} =
-      Ankole.Pod.Database.create_table(
+      Ankole.Pod.Bases.create_table(
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
-        database.id,
+        base.id,
         %{name: "Orders"}
       )
 
     {:ok, field} =
-      Ankole.Pod.Database.create_field(
+      Ankole.Pod.Bases.create_field(
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         table.id,
         %{type: "text", name: "Label"}
@@ -759,7 +759,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     {:ok, applet} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{type: "applet"})
 
-    for page <- [database, applet] do
+    for page <- [base, applet] do
       {:ok, _} =
         Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
           grants: [%{principal_uid: ctx.agent, role: "edit"}]
@@ -768,7 +768,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
     source = """
     export default {
-      'POST /write':async r=>{console.log('writing-as',r.principal.uid); const result=await AnkoleRuntime.db.write('#{table.id}',r.body);return {principal:r.principal,result}},
+      'POST /write':async r=>{console.log('writing-as',r.principal.uid); const result=await AnkoleRuntime.base.write('#{table.id}',r.body);return {principal:r.principal,result}},
       'GET /crash':()=>{console.warn('debug-log');throw new Error('agent-debug')}
     }
     """
@@ -823,7 +823,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
              RPCBroker.handle_write(ctx.ref, request("applets.call", attrs), ctx.ctx)
 
     assert {:ok, %{records: [record]}} =
-             Ankole.Pod.Database.query(
+             Ankole.Pod.Bases.query(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                table.id,
                %{}

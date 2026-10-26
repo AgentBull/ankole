@@ -24,7 +24,7 @@
 
 ## 构建与测试
 
-`FeishuOpenAPI` 内置在 `plugins/lark_adapter` Mix 项目中。可在 `plugins/lark_adapter` 目录下运行 `mix test`，或在仓库根目录运行 `bun run lark-adapter:test`。
+`FeishuOpenAPI` 位于 `plugins/lark_adapter` 的 Lark 插件源码中，由 `app/control_plane` Mix 项目编译。在仓库根目录运行 `bun run lark-adapter:test` 执行测试。
 
 ## 快速开始
 
@@ -499,10 +499,10 @@ FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
 ```
 
-然后运行：
+然后在仓库根目录运行：
 
 ```bash
-mix run scripts/feishu_business_e2e.exs
+elixir plugins/lark_adapter/scripts/feishu_business_e2e.exs
 ```
 
 默认的手工触发行为：
@@ -515,5 +515,5 @@ mix run scripts/feishu_business_e2e.exs
 ## 运行测试
 
 ```bash
-mix test
+bun run lark-adapter:test
 ```

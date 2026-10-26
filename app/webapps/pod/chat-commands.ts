@@ -17,7 +17,14 @@ import {
 import { restoreConversationFiles } from './native-transfers'
 import { modelSelectionKey } from './model-controls'
 import { acceptConversationResult, refreshConversationQueries } from './query-cache'
-import { ChatModel, chatCommandPolicy, draftLinks, draftMentions, type ChatEditSnapshot } from './state/chat'
+import {
+  ChatModel,
+  chatCommandPolicy,
+  chatRecipientAvailable,
+  draftLinks,
+  draftMentions,
+  type ChatEditSnapshot
+} from './state/chat'
 import type { ChatDrafts } from './state/chat-drafts'
 
 type Model = InstanceType<typeof ChatModel>
@@ -149,7 +156,14 @@ export function useChatCommands({
   const policy = (targetUID = agentUID) => {
     const editing = model.editing.value
     const slot = data?.pendingQueues.find(queue => queue.agentUID === targetUID)
-    return chatCommandPolicy({
+    const recipientUID =
+      data?.pendingInteractions.find(question => question.interaction_id === model.answeringInteractionID.value)
+        ?.agentUID ??
+      editing?.agentUID ??
+      model.targetAgentUID.value
+    const recipientAvailable =
+      !data || chatRecipientAvailable(recipientUID, data.conversation.agents, callableAgentUIDs)
+    const commandPolicy = chatCommandPolicy({
       sending,
       queuePending,
       modelSaving:
@@ -166,6 +180,7 @@ export function useChatCommands({
         ? model.hasText.value || editing.hasAttachments
         : model.hasContent.value && model.attachments.canSend.value
     })
+    return { ...commandPolicy, recipientAvailable, canSubmit: commandPolicy.canSubmit && recipientAvailable }
   }
   const latestInput = data?.latestInput
   const editTargetUID = latestInput?.agentUIDs.length === 1 ? latestInput.agentUIDs[0] : undefined

@@ -1,5 +1,6 @@
 import { batch, createModel, signal } from '@preact/signals-react'
-import type { RecordData, Value } from '@ankole/applet-sdk/types'
+import type { RecordData, RecordWrite, Value } from '@ankole/applet-sdk/types'
+import { withRecordIDs } from '@ankole/applet-sdk/records'
 
 export const RecordFormModel = createModel(() => {
   const values = signal<RecordData>({})
@@ -7,6 +8,7 @@ export const RecordFormModel = createModel(() => {
   const uploading = signal(new Set<string>())
   const error = signal<unknown>()
   const generation = signal(0)
+  let record: { id?: string; data: RecordData } = { data: {} }
   return {
     values,
     pending,
@@ -26,15 +28,16 @@ export const RecordFormModel = createModel(() => {
         error.value = undefined
       })
     },
-    async submit(create: (data: RecordData) => Promise<unknown>) {
+    async submit(write: (changes: RecordWrite) => Promise<unknown>) {
       if (pending.value || uploading.value.size) return
-      const data = values.value
+      record.data = values.value
       batch(() => {
         pending.value = true
         error.value = undefined
       })
       try {
-        await create(data)
+        await write(withRecordIDs({ creates: [record] }))
+        record = { data: {} }
         batch(() => {
           values.value = {}
           generation.value++

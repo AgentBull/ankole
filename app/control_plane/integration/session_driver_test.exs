@@ -3976,7 +3976,8 @@ defmodule Ankole.Sessions.DriverTest do
                    explicit: false
                  })
                ),
-               now: DateTime.add(now, -1, :second)
+               now: DateTime.add(now, -1, :second),
+               stub_driver: false
              )
 
     calls =
@@ -4017,7 +4018,8 @@ defmodule Ankole.Sessions.DriverTest do
                    explicit: true
                  })
                ),
-               now: now
+               now: now,
+               stub_driver: false
              )
 
     assert event.authorization_kind == "human"

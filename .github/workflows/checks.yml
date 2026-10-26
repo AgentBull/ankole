@@ -129,12 +129,7 @@ jobs:
       fail-fast: false
       matrix:
         project:
-          - plugins/lark_adapter
-          - plugins/dingtalk_adapter
-          - plugins/wecom_adapter
-          - plugins/slack_adapter
-          - plugins/microsoft365_adapter
-          - plugins/google_workspace_adapter
+          - app/control_plane
           - libs/im_transport
           - libs/feishu_protocol
           - tools/fake-feishu
@@ -148,6 +143,10 @@ jobs:
         working-directory: ${{ matrix.project }}
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.project == 'app/control_plane'
+        with:
+          bun-version: 1.4.4
       - uses: erlef/setup-beam@v1
         with:
           otp-version: '29'
@@ -172,15 +171,22 @@ jobs:
           path: |
             ${{ matrix.project }}/deps
             ${{ matrix.project }}/_build
-          key: mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), 'app/control_plane_core/mix.exs', 'app/control_plane_core/patches/**', 'app/kernel/mix.exs') }}
+            app/control_plane/deps
+          key: mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), 'app/control_plane/mix.lock', 'app/control_plane/config/**', 'app/control_plane/patches/**', 'app/kernel/mix.exs') }}
           restore-keys: |
             mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
       - run: mix test
+        if: matrix.project != 'app/control_plane'
+      - run: mix ankole.plugins.test
+        if: matrix.project == 'app/control_plane'
+      - name: Check compiled Plugin dependency boundaries without PostgreSQL
+        if: matrix.project == 'app/control_plane'
+        run: elixir -e 'ExUnit.start(); Code.require_file("integration/compile_cycles_test.exs")'
 
   control-plane:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       MIX_ENV: test
       MIX_TEST_PARTITION: ci
@@ -234,6 +240,7 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup default 1.98.1
       - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
       - run: bun run --filter @ankole/function-runtime type-check
       - run: bun run --filter @ankole/function-runtime test
       - run: bun run --filter @ankole/function-runtime test:integration
@@ -265,9 +272,9 @@ jobs:
           path: |
             app/control_plane/deps
             app/control_plane/_build
-          key: control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane_core/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane_core/mix.exs', 'app/control_plane_core/patches/**', 'app/kernel/mix.exs', 'plugins/*/mix.exs', 'libs/*/mix.exs') }}
+          key: control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane/patches/**', 'app/kernel/mix.exs', 'libs/*/mix.exs') }}
           restore-keys: |
-            control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane_core/config/**') }}-
+            control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
         working-directory: app/control_plane
       - run: bun run --filter @ankole/control-plane lint
@@ -287,6 +294,9 @@ jobs:
       - run: mix test
         working-directory: app/control_plane
       - run: mix test integration/subtraction_upgrade_test.exs integration/fake_feishu_standalone_e2e_test.exs
+        working-directory: app/control_plane
+      - name: Verify extension fixtures in FOSS and SaaS releases
+        run: mix test integration/edition_build_test.exs --trace
         working-directory: app/control_plane
       - name: Function Runtime logs
         if: failure()

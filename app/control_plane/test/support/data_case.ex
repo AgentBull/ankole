@@ -30,6 +30,13 @@ defmodule Ankole.DataCase do
       end
 
     Ankole.Repo.put_tenant_id(tenant.id)
+
+    on_exit(fn ->
+      Ankole.Repo.with_tenant(tenant.id, fn ->
+        {:ok, :ok} = Ankole.Pod.BaseRepo.delete_tenant(tenant.base_db_id)
+      end)
+    end)
+
     {:ok, tenant: tenant}
   end
 
@@ -79,7 +86,12 @@ defmodule Ankole.DataCase do
   end
 
   defp tenant_attributes do
+    id = Ankole.Ecto.UUIDv7.autogenerate()
+    {:ok, shard} = Ankole.Pod.BaseCluster.allocate(id)
+
     %{
+      id: id,
+      base_db_id: shard,
       slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
       display_name: "Test tenant"
     }

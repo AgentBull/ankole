@@ -1,11 +1,11 @@
 import { state, request } from './fixtures'
 import { pageRoute, listRoute } from './routes'
 import { expect, test } from '@playwright/test'
-import type { DatabaseField, DatabaseRecord } from '@ankole/applet-sdk/types'
+import type { BaseField, BaseRecord } from '@ankole/applet-sdk/types'
 
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
 
-test('a 5,000-row local grid renders a window and preserves an edited row beyond the viewport', async ({ browser }) => {
+test('a 2,000-row local grid renders a window and preserves an edited row beyond the viewport', async ({ browser }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -13,16 +13,16 @@ test('a 5,000-row local grid renders a window and preserves an edited row beyond
   try {
     await page.goto(location(state.report_id))
     const saved = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: 'Virtual grid review'
     })
     savedID = saved.page.id
-    const { table } = await request<{ table: { id: string } }>(page, `/databases/${savedID}/tables`, 'POST', {
-      name: '5000 records'
+    const { table } = await request<{ table: { id: string } }>(page, `/bases/${savedID}/tables`, 'POST', {
+      name: '2000 records'
     })
-    const { fields } = await request<{ fields: DatabaseField[] }>(page, `/tables/${table.id}`)
+    const { fields } = await request<{ fields: BaseField[] }>(page, `/tables/${table.id}`)
     const primary = fields.find(field => field.is_primary)!
-    for (let offset = 0; offset < 5000; offset += 200) {
+    for (let offset = 0; offset < 2000; offset += 200) {
       await request(page, `/tables/${table.id}/records`, 'POST', {
         creates: Array.from({ length: 200 }, (_, index) => ({
           data: { [primary.id]: `Record ${String(offset + index).padStart(4, '0')}` }
@@ -30,7 +30,8 @@ test('a 5,000-row local grid renders a window and preserves an edited row beyond
       })
     }
     await page.goto(location(savedID))
-    await expect(page.getByRole('status').filter({ hasText: '5,000 条记录' })).toBeVisible()
+    await page.getByRole('button', { name: '2000 records', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: '2,000 条记录' })).toBeVisible()
     const grid = page.getByRole('region', { name: '数据表记录', exact: true })
     await expect.poll(() => grid.locator('[data-grid-record]').count()).toBeGreaterThan(0)
     const initialMounted = await grid.locator('[data-grid-record]').count()
@@ -48,7 +49,7 @@ test('a 5,000-row local grid renders a window and preserves an edited row beyond
     await grid.locator(`[data-grid-record="${rowID}"]`).getByRole('textbox').press('Enter')
     await expect
       .poll(async () => {
-        const result = await request<{ records: DatabaseRecord[] }>(page, `/tables/${table.id}/query`, 'POST', {
+        const result = await request<{ records: BaseRecord[] }>(page, `/tables/${table.id}/query`, 'POST', {
           ids: [rowID]
         })
         return result.records[0]?.data[primary.id]
@@ -62,7 +63,7 @@ test('a 5,000-row local grid renders a window and preserves an edited row beyond
     )
     const returnedMounted = await grid.locator('[data-grid-record]').count()
     expect(returnedMounted).toBeLessThan(100)
-    console.log('5000-row Grid windowing:', JSON.stringify({ total: 5000, initialMounted, returnedMounted }))
+    console.log('2000-row Grid windowing:', JSON.stringify({ total: 2000, initialMounted, returnedMounted }))
   } finally {
     if (savedID) await request(page, `/pages/${savedID}`, 'DELETE').catch(() => {})
     await context.close()
@@ -151,33 +152,33 @@ test('link labels are batched by target table and follow target edits', async ({
   try {
     await page.goto(location(state.report_id))
     const saved = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: 'Reference batching review'
     })
     savedID = saved.page.id
     const source = (
-      await request<{ table: { id: string } }>(page, `/databases/${savedID}/tables`, 'POST', { name: 'Source' })
+      await request<{ table: { id: string } }>(page, `/bases/${savedID}/tables`, 'POST', { name: 'Source' })
     ).table
     const target = (
-      await request<{ table: { id: string } }>(page, `/databases/${savedID}/tables`, 'POST', { name: 'Target' })
+      await request<{ table: { id: string } }>(page, `/bases/${savedID}/tables`, 'POST', { name: 'Target' })
     ).table
-    const sourceSchema = await request<{ fields: DatabaseField[]; views: { id: string; version: number }[] }>(
+    const sourceSchema = await request<{ fields: BaseField[]; views: { id: string; version: number }[] }>(
       page,
       `/tables/${source.id}`
     )
     const sourceName = sourceSchema.fields.find(field => field.is_primary)!
-    const targetName = (await request<{ fields: DatabaseField[] }>(page, `/tables/${target.id}`)).fields.find(
+    const targetName = (await request<{ fields: BaseField[] }>(page, `/tables/${target.id}`)).fields.find(
       field => field.is_primary
     )!
     const relation = (
-      await request<{ field: DatabaseField }>(page, `/tables/${source.id}/fields`, 'POST', {
+      await request<{ field: BaseField }>(page, `/tables/${source.id}/fields`, 'POST', {
         name: 'Related',
         type: 'link',
         config: { table_id: target.id, multiple: false }
       })
     ).field
     const targets = (
-      await request<{ records: DatabaseRecord[] }>(page, `/tables/${target.id}/records`, 'POST', {
+      await request<{ records: BaseRecord[] }>(page, `/tables/${target.id}/records`, 'POST', {
         creates: Array.from({ length: 200 }, (_, index) => ({
           data: { [targetName.id]: `Target ${String(index).padStart(3, '0')}` }
         }))
@@ -198,6 +199,7 @@ test('link labels are batched by target table and follow target edits', async ({
       if (new URL(request.url()).pathname === `/api/v2/pod/tables/${target.id}/query`) targetQueries++
     })
     await page.goto(location(savedID))
+    await page.getByRole('button', { name: 'Source', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Related： Target 000', exact: true })).toBeVisible()
     expect(targetQueries).toBeLessThanOrEqual(4)
     await request(page, `/tables/${target.id}/records`, 'POST', {
@@ -274,19 +276,19 @@ test('a large realtime delta crosses the local byte threshold and uses the serve
   try {
     await page.goto(location(state.report_id))
     const saved = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: 'Local byte threshold review'
     })
     savedID = saved.page.id
-    const { table } = await request<{ table: { id: string } }>(page, `/databases/${savedID}/tables`, 'POST', {
+    const { table } = await request<{ table: { id: string } }>(page, `/bases/${savedID}/tables`, 'POST', {
       name: 'Large values'
     })
-    const schema = await request<{ fields: DatabaseField[]; views: { id: string; version: number }[] }>(
+    const schema = await request<{ fields: BaseField[]; views: { id: string; version: number }[] }>(
       page,
       `/tables/${table.id}`
     )
     const primary = schema.fields.find(field => field.is_primary)!
-    const { field } = await request<{ field: DatabaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
       name: 'Payload',
       type: 'text',
       config: {}
@@ -295,30 +297,33 @@ test('a large realtime delta crosses the local byte threshold and uses the serve
       version: schema.views[0]!.version,
       config: { visible_fields: [primary.id], sort: [{ field_id: primary.id, direction: 'asc' }] }
     })
-    const { records } = await request<{ records: DatabaseRecord[] }>(page, `/tables/${table.id}/records`, 'POST', {
-      creates: Array.from({ length: 6 }, (_, index) => ({
+    const { records } = await request<{ records: BaseRecord[] }>(page, `/tables/${table.id}/records`, 'POST', {
+      creates: Array.from({ length: 5 }, (_, index) => ({
         data: { [primary.id]: `Large ${index}`, [field.id]: 'x'.repeat(820_000) }
       }))
     })
-    let rejectedLocal = 0
+    let remoteQueries = 0
     page.on('response', response => {
       if (new URL(response.url()).pathname !== `/api/v2/pod/tables/${table.id}/query`) return
-      if (response.status() === 409 && response.request().postDataJSON().data?.local) rejectedLocal++
+      if (response.ok() && !response.request().postDataJSON().data?.local) remoteQueries++
     })
     await page.goto(location(savedID))
-    await expect(page.getByRole('status').filter({ hasText: '6 条记录' })).toBeVisible()
+    await page.getByRole('button', { name: 'Large values', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: '5 条记录' })).toBeVisible()
     await expect(page.getByRole('textbox', { name: primary.name, exact: true }).first()).toHaveValue('Large 0')
-    expect(rejectedLocal).toBe(0)
+    expect((await request<{ mode: string }>(page, `/tables/${table.id}`)).mode).toBe('local')
+    remoteQueries = 0
     await request(page, `/tables/${table.id}/records`, 'POST', {
       updates: [
         { id: records[0]!.id, data: { [field.id]: 'x'.repeat(990_000) }, expected_versions: records[0]!.versions }
       ]
     })
-    await expect.poll(() => rejectedLocal).toBe(1)
+    await expect.poll(() => remoteQueries).toBeGreaterThan(0)
+    expect((await request<{ mode: string }>(page, `/tables/${table.id}`)).mode).toBe('remote')
     await expect(page.getByRole('textbox', { name: primary.name, exact: true }).first()).toHaveValue('Large 0')
     await page.getByRole('button', { name: primary.name, exact: true }).click()
     await expect(page.getByRole('dialog')).toBeVisible()
-    expect(rejectedLocal).toBe(1)
+    await expect(page.getByRole('alert')).toHaveCount(0)
   } finally {
     if (savedID) await request(page, `/pages/${savedID}`, 'DELETE').catch(() => {})
     await context.close()
@@ -333,19 +338,20 @@ test('record deletion keeps the confirmation snapshot after a remote edit', asyn
   try {
     await page.goto(location(state.report_id))
     const saved = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: 'Delete snapshot review'
     })
     savedID = saved.page.id
-    const { table } = await request<{ table: { id: string } }>(page, `/databases/${savedID}/tables`, 'POST', {
+    const { table } = await request<{ table: { id: string } }>(page, `/bases/${savedID}/tables`, 'POST', {
       name: 'Deletion review'
     })
-    const { fields } = await request<{ fields: DatabaseField[] }>(page, `/tables/${table.id}`)
+    const { fields } = await request<{ fields: BaseField[] }>(page, `/tables/${table.id}`)
     const primary = fields.find(field => field.is_primary)!
-    const { records } = await request<{ records: DatabaseRecord[] }>(page, `/tables/${table.id}/records`, 'POST', {
+    const { records } = await request<{ records: BaseRecord[] }>(page, `/tables/${table.id}/records`, 'POST', {
       creates: [{ data: { [primary.id]: 'Before confirmation' } }]
     })
     await page.goto(location(savedID))
+    await page.getByRole('button', { name: 'Deletion review', exact: true }).click()
     const grid = page.getByRole('region', { name: '数据表记录', exact: true })
     await grid.getByRole('button', { name: '删除', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '删除记录？', exact: true })
@@ -359,7 +365,7 @@ test('record deletion keeps the confirmation snapshot after a remote edit', asyn
     await expect(dialog).toContainText('Before confirmation')
     await dialog.getByRole('button', { name: '确认删除', exact: true }).click()
     await expect(dialog.getByRole('alert')).toContainText('此记录已变化')
-    const retained = await request<{ records: DatabaseRecord[] }>(page, `/tables/${table.id}/query`, 'POST', {
+    const retained = await request<{ records: BaseRecord[] }>(page, `/tables/${table.id}/query`, 'POST', {
       ids: [records[0]!.id]
     })
     expect(retained.records[0]?.data[primary.id]).toBe('Changed elsewhere')

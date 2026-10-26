@@ -213,6 +213,12 @@ hooks run after commit.
 filter, target, policies, and enabled state. The globally unique Agent UID and
 binding name identify the row; every query also enforces its tenant scope.
 
+Creation and reactivation pass Binding attributes to the site's
+`:enable_signal_binding` Plugin hooks in the write transaction. The attributes
+include `agent_uid`, `name`, `adapter`, `config_ref`, and `enabled: true`.
+Edits and moves of an enabled Binding keep its admission. Messaging adapters
+and CloudEvents use the same write boundary and existing-row lock order.
+
 An adapter reads secrets through its own AppConfigure contract. A Binding
 contains a `config_ref`, not the provider secret. A `config` update is a patch:
 omitted fields keep their stored values. Console edit reads omit encrypted

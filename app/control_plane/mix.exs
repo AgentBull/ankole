@@ -1,4 +1,4 @@
-Code.require_file("../control_plane_core/patches/dependency_patches.exs", __DIR__)
+Code.require_file("patches/dependency_patches.exs", __DIR__)
 
 defmodule Ankole.MixProject do
   use Mix.Project
@@ -18,6 +18,7 @@ defmodule Ankole.MixProject do
         &(&1 == "test/ankole/persistence_boundary.exs")
       ],
       elixir: "~> 1.20",
+      elixirc_options: [warnings_as_errors: true],
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -38,6 +39,7 @@ defmodule Ankole.MixProject do
     [
       preferred_envs: [
         precommit: :test,
+        "ankole.plugins.test": :test,
         "e2e.ai_gateway_real_provider": :test,
         "e2e.gate": :test,
         "e2e.perf": :test,
@@ -50,10 +52,12 @@ defmodule Ankole.MixProject do
   defp elixirc_paths(:test),
     do:
       ["lib", "test/support" | e2e_support_paths()] ++
-        internal_paths(["control_plane/test/support"])
+        plugin_paths("lib") ++
+        plugin_paths("test/support") ++
+        internal_paths(["control_plane/lib", "control_plane/test/support"])
 
   defp elixirc_paths(_),
-    do: ["lib"]
+    do: ["lib"] ++ plugin_paths("lib") ++ internal_paths(["control_plane/lib"])
 
   # Repo-root e2e support modules (harness, scenarios) and the fake Feishu
   # platform owned by tools/fake-feishu compile into :test alongside
@@ -69,15 +73,13 @@ defmodule Ankole.MixProject do
     ]
   end
 
-  defp plugin_deps do
+  defp plugin_paths(directory) do
     roots = [Path.expand("../../plugins", __DIR__)] ++ internal_paths(["plugins"])
 
     for root <- roots,
-        project <- Path.wildcard(Path.join(root, "*/mix.exs")) do
-      path = Path.dirname(project)
-      app = String.to_atom("ankole_" <> Path.basename(path))
-      {app, [path: path, env: Mix.env()]}
-    end
+        path <- Path.wildcard(Path.join(root, "*/#{directory}")),
+        File.dir?(path),
+        do: path
   end
 
   defp edition do
@@ -96,7 +98,8 @@ defmodule Ankole.MixProject do
     end
   end
 
-  defp test_paths, do: ["test"] ++ internal_paths(["control_plane/test"])
+  defp test_paths,
+    do: ["test"] ++ plugin_paths("test") ++ internal_paths(["control_plane/test"])
 
   defp prepare_webapps(_args) do
     if edition() == :saas do
@@ -219,8 +222,53 @@ defmodule Ankole.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.4", []},
-      {:ankole_core, path: "../control_plane_core", env: Mix.env()}
-    ] ++ plugin_deps()
+      {:phoenix, "~> 1.8.15"},
+      {:phoenix_pubsub, "~> 2.4"},
+      {:phoenix_ecto, "~> 4.7"},
+      # Repo scopes JoinExpr predicates. Update this pin with its SQL contract tests.
+      {:ecto, "3.14.2"},
+      {:ecto_sql, "~> 3.14"},
+      {:postgrex, ">= 0.22.4"},
+      {:phoenix_html, "~> 4.3"},
+      {:phoenix_live_reload, "~> 1.7.0", only: :dev},
+      {:opentelemetry_api, "~> 1.5"},
+      {:opentelemetry, "~> 1.7"},
+      {:opentelemetry_exporter, "~> 1.11"},
+      {:req, "~> 0.7.3"},
+      {:finch, "~> 0.24"},
+      {:aws_signature, "~> 0.4.3"},
+      {:aws_credentials, "~> 1.1.1", runtime: false},
+      {:kubereq, "~> 0.4.5"},
+      {:gen_smtp, "~> 1.3"},
+      {:codepagex, "~> 0.1.13"},
+      {:mint_web_socket, "~> 1.0"},
+      {:localize, "~> 1.3"},
+      {:oban, "~> 2.24"},
+      {:crontab, "~> 1.2"},
+      {:open_api_spex, "~> 3.22"},
+      {:open_feature, "~> 0.1"},
+      {:attesto, "== 2.6.1"},
+      {:attesto_client, "== 2.5.0"},
+      {:ash, "== 3.36.1"},
+      {:ash_postgres, "== 2.15.1"},
+      {:ash_state_machine, "== 0.2.13"},
+      {:ash_json_api, "== 1.7.1"},
+      {:toml_elixir, "~> 3.2"},
+      {:yaml_elixir, "~> 2.12"},
+      {:ex_json_schema, "~> 0.11"},
+      {:tzdata, "~> 1.2"},
+      {:dotenvy, "~> 1.2"},
+      {:torque, "~> 0.5.0"},
+      {:protox, "~> 2.1"},
+      {:llm_db, "~> 2026.10"},
+      {:ankole_kernel, path: "../kernel"},
+      {:dns_cluster, "~> 0.3"},
+      {:bandit, "~> 1.12"},
+      {:plug, "~> 1.20"},
+      {:telemetry, "~> 1.4.2"},
+      {:im_transport, path: "../../libs/im_transport"},
+      {:feishu_protocol, path: "../../libs/feishu_protocol"}
+    ]
   end
 
   defp aliases do
@@ -281,6 +329,7 @@ defmodule Ankole.MixProject do
           "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs " <>
+            "../../tools/e2e/suites/pod_skill_lessons_real_llm_e2e_test.exs " <>
             "../../tools/e2e/suites/pod_content_real_llm_e2e_test.exs --trace"
         ],
         "e2e.ai_gateway_real_provider": [

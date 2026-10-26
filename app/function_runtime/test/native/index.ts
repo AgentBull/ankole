@@ -229,9 +229,9 @@ Deno.serve(async request => {
         key,
         buildAppletWorkerBootstrap(
           url.searchParams.has('retirement')
-            ? 'let count=0;export default {"POST /":async r=>{const value=++count;if(r.body?.hold)await AnkoleRuntime.db.query("retire",{});return value}}'
+            ? 'let count=0;export default {"POST /":async r=>{const value=++count;if(r.body?.hold)await AnkoleRuntime.base.query("retire",{});return value}}'
             : url.searchParams.has('capability')
-              ? 'export default {"POST /":()=>AnkoleRuntime.db.query("t")}'
+              ? 'export default {"POST /":()=>AnkoleRuntime.base.query("t")}'
               : 'export default {"POST /":()=>1}'
         ),
         { memoryLimitMb: 128, workerTimeoutMs: lifetimeMs, permissions: { ...basePermissions, allow_env: [] } }

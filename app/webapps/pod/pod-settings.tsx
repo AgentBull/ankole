@@ -29,6 +29,8 @@ import { podID } from '../common/browser-context'
 import * as api from './api/generated/sdk.gen'
 import type { PodAdminMembersResponse, PodMemberAccessReviewResponse } from './api/generated/types.gen'
 import { PodSettingsModel } from './state/pod-settings'
+import { SlotBoundary, SlotGate } from '../common/slots'
+import { usePodSlots, podSettingsSections, type PodSettingsTabSlot } from './slots'
 
 type Model = InstanceType<typeof PodSettingsModel>
 type Member = PodAdminMembersResponse['members'][number]
@@ -43,6 +45,7 @@ export function PodSettings() {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(PodSettingsModel)
+  const tabs = usePodSlots().settingsTabs ?? []
   return (
     <main className="mx-auto w-full max-w-5xl overflow-auto p-6 grid gap-6 content-start">
       <h1 className="text-2xl">{t('pod.settings.title')}</h1>
@@ -52,10 +55,13 @@ export function PodSettings() {
           model.section.value = value
         }}>
         <TabsList>
-          {['general', 'members', 'invitations', 'providers'].map(section => (
+          {podSettingsSections.map(section => (
             <TabsTrigger key={section} value={section}>
               {t(`pod.settings.${section}`)}
             </TabsTrigger>
+          ))}
+          {tabs.map(slot => (
+            <ExtensionTabTrigger key={slot.id} slot={slot} />
           ))}
         </TabsList>
       </Tabs>
@@ -63,8 +69,37 @@ export function PodSettings() {
       {model.section.value === 'members' && <Members model={model} />}
       {model.section.value === 'invitations' && <Invitations model={model} />}
       {model.section.value === 'providers' && <Providers model={model} />}
+      {tabs.map(slot => (
+        <ExtensionTabPanel key={slot.id} slot={slot} model={model} />
+      ))}
     </main>
   )
+}
+
+function ExtensionTabTrigger({ slot }: { slot: PodSettingsTabSlot }) {
+  const { t } = useTranslation()
+  return (
+    <SlotGate slot={slot}>
+      {visible => visible && <TabsTrigger value={slot.id}>{t(slot.labelKey)}</TabsTrigger>}
+    </SlotGate>
+  )
+}
+
+function ExtensionTabPanel({ slot, model }: { slot: PodSettingsTabSlot; model: Model }) {
+  return <SlotGate slot={slot}>{visible => <SettingsTabPanel slot={slot} model={model} visible={visible} />}</SlotGate>
+}
+
+function SettingsTabPanel({ slot, model, visible }: { slot: PodSettingsTabSlot; model: Model; visible: boolean }) {
+  useSignals()
+  useEffect(() => {
+    if (!visible && model.section.value === slot.id) model.section.value = 'general'
+  }, [visible, model, slot.id])
+  if (!visible) return null
+  return model.section.value === slot.id ? (
+    <SlotBoundary>
+      <slot.Component />
+    </SlotBoundary>
+  ) : null
 }
 
 function GeneralSettings({ model }: { model: Model }) {

@@ -80,7 +80,7 @@ async function invoke(
 describe('real edge-runtime protocol', () => {
   test('a canceled CPU-bound Applet leaves unrelated cold inspections available', async () => {
     const sha = await publish(
-      'export default {"POST /":async r=>{if(r.body==="loop"){await AnkoleRuntime.db.query("ready",{});while(true){}}return 1}}'
+      'export default {"POST /":async r=>{if(r.body==="loop"){await AnkoleRuntime.base.query("ready",{});while(true){}}return 1}}'
     )
     const prefix = `isolation-${crypto.randomUUID()}`
     const threadCount = availableParallelism()
@@ -145,7 +145,7 @@ describe('real edge-runtime protocol', () => {
   })
   test('a canceled CPU-bound Applet leaves its next invocation available on a fresh worker', async () => {
     const sha = await publish(
-      'let count=0; export default {"GET /ok":()=>++count,"POST /loop":async()=>{await AnkoleRuntime.db.query("started");while(true){}}}'
+      'let count=0; export default {"GET /ok":()=>++count,"POST /loop":async()=>{await AnkoleRuntime.base.query("started");while(true){}}}'
     )
     const page = crypto.randomUUID()
     expect((await invoke(sha, { method: 'GET', path: '/ok' }, { page, timeout: 10000 })).body).toBe(1)
@@ -191,10 +191,12 @@ describe('real edge-runtime protocol', () => {
     ).toEqual({ routes: ['GET /'] })
     const invalid = await post('/v1/applet/inspect', { source: 'export default {"GET /:x":()=>1,"GET /:y":()=>2}' })
     expect(invalid.status).toBe(422)
-    const guarded = await post('/v1/applet/inspect', { source: 'await AnkoleRuntime.db.query("t"); export default {}' })
+    const guarded = await post('/v1/applet/inspect', {
+      source: 'await AnkoleRuntime.base.query("t"); export default {}'
+    })
     expect(guarded.status).toBe(422)
     const caught = await post('/v1/applet/inspect', {
-      source: 'try { await AnkoleRuntime.db.query("t") } catch {} export default {}'
+      source: 'try { await AnkoleRuntime.base.query("t") } catch {} export default {}'
     })
     expect(caught.status).toBe(422)
   })
@@ -366,7 +368,7 @@ describe('real edge-runtime protocol', () => {
   })
   test('warm concurrent calls keep capability replies and logs within their invocation', async () => {
     const sha = await publish(
-      'export default {"POST /":async()=>{const value=await AnkoleRuntime.db.query("t");console.log(value);return value}}'
+      'export default {"POST /":async()=>{const value=await AnkoleRuntime.base.query("t");console.log(value);return value}}'
     )
     const [left, right] = await Promise.all([
       invoke(sha, undefined, {
@@ -385,7 +387,7 @@ describe('real edge-runtime protocol', () => {
     const healthyPage = crypto.randomUUID()
     expect((await invoke(healthy, undefined, { page: healthyPage })).status).toBe(200)
     const looping = await publish(
-      'export default {"POST /":async()=>{await AnkoleRuntime.db.query("started");while(true){}}}'
+      'export default {"POST /":async()=>{await AnkoleRuntime.base.query("started");while(true){}}}'
     )
     let entered!: () => void
     const running = new Promise<void>(resolve => {
@@ -415,7 +417,7 @@ describe('real edge-runtime protocol', () => {
     expect(terminal).toBe('failed')
   })
   test('GET cannot dispatch writes and completed invocations release admission slots', async () => {
-    const sha = await publish('export default {"GET /":()=>AnkoleRuntime.db.write("t",{}),"POST /":()=>1}')
+    const sha = await publish('export default {"GET /":()=>AnkoleRuntime.base.write("t",{}),"POST /":()=>1}')
     expect((await invoke(sha, { method: 'GET', path: '/' })).body.error.code).toBe('read_only_route')
     for (let i = 0; i < 40; i++) expect((await invoke(sha)).status).toBe(200)
   })

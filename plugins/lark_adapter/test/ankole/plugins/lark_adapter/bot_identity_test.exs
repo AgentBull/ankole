@@ -33,7 +33,13 @@ defmodule Ankole.Plugins.LarkAdapter.BotIdentityTest do
       end
     end)
 
-    start_supervised!(BotIdentity)
+    unless Process.whereis(BotIdentity), do: start_supervised!(BotIdentity)
+    :ok = BotIdentity.forget(@config)
+
+    on_exit(fn ->
+      if Process.whereis(BotIdentity), do: BotIdentity.forget(@config)
+    end)
+
     :ok
   end
 

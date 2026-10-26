@@ -227,11 +227,17 @@ defmodule Ankole.Upgrade202610 do
              )
 
            # A later run remains a no-op after the original tenant is renamed.
-           tenant = if rows != [], do: repo.get_by!(Tenant, slug: "default")
-           scope = if tenant, do: "tenant:" <> tenant.id
+           tenant_id =
+             if rows != [],
+               do:
+                 repo.one!(
+                   from tenant in Tenant, where: tenant.slug == "default", select: tenant.id
+                 )
+
+           scope = if tenant_id, do: "tenant:" <> tenant_id
 
            Enum.reduce_while(rows, {:ok, :migrated}, fn row, result ->
-             case migrate_identity_provider_row(row, tenant, scope) do
+             case migrate_identity_provider_row(row, tenant_id, scope) do
                :ok -> {:cont, result}
                {:error, reason} -> {:halt, {:error, {row.key, reason}}}
              end
@@ -244,13 +250,13 @@ defmodule Ankole.Upgrade202610 do
 
   defp migrate_identity_provider_row(
          %{value: %{"type" => "cipher", "value" => cipher}} = row,
-         tenant,
+         tenant_id,
          scope
        ) do
     with {:ok, value} <- Crypto.unseal(cipher, "global", row.key),
          {:ok, resealed} <- Crypto.seal(value, scope, row.key),
          {:ok, _} <-
-           Repo.with_tenant(tenant.id, fn ->
+           Repo.with_tenant(tenant_id, fn ->
              Ankole.Ash.create(AppConfig, :import_envelope, %{
                scope: scope,
                key: row.key,
@@ -370,8 +376,8 @@ defmodule Ankole.Upgrade202610 do
       end
     end)
 
-    Enum.each(Repo.all(Tenant), fn tenant ->
-      Repo.with_tenant(tenant.id, fn ->
+    Enum.each(Repo.all(from(tenant in Tenant, select: tenant.id)), fn tenant_id ->
+      Repo.with_tenant(tenant_id, fn ->
         {:ok, providers} =
           AppConfigure.get_tenant_by_key_in_tx("principals.identity_providers.active")
 
@@ -386,8 +392,8 @@ defmodule Ankole.Upgrade202610 do
           if declaration,
             do:
               backfill_identity(
-                tenant.id,
-                "tenant:" <> tenant.id,
+                tenant_id,
+                "tenant:" <> tenant_id,
                 provider["config_key"],
                 declaration[:module],
                 :identity_provider

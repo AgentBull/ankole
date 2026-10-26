@@ -390,6 +390,47 @@ defmodule Ankole.Sessions.TurnTest do
     assert {%{stage: :recording}, [:record]} = Turn.step(finished, :tools)
   end
 
+  test "Worker demand and resolution without an open do not send a close" do
+    run = tool_run([call("c1")])
+    event = %{"type" => "response.output_item.added", "item" => call("c1")}
+
+    {requested, [:request_worker]} =
+      Turn.step(turn(run, :requesting_model), {:model_events, [event]}, 0)
+
+    {tools, _} = Turn.step(turn(run, :boundary), {:resume, run.epoch, :executing_tools}, 0)
+    {opening, _} = Turn.step(tools, :tools, 1)
+    {waiting, _} = Turn.step(opening, {:completed, :worker_resolve, {:wait, :capacity}}, 2)
+
+    {unavailable, _} =
+      Turn.step(opening, {:completed, :worker_resolve, {:error, :worker_provider_missing}}, 2)
+
+    for current <- [requested, opening, waiting, unavailable] do
+      {_, commands} = Turn.step(current, {:completed, :finalize, {:ok, :done}}, 3)
+      refute Enum.any?(commands, &match?({:close_worker, _}, &1))
+    end
+  end
+
+  test "a workspace open remains owed a close across a committed round" do
+    run = tool_run([call("c1")])
+    row = %{transport_route: "test"}
+    {tools, _} = Turn.step(turn(run, :boundary), {:resume, run.epoch, :executing_tools}, 0)
+    {opening, _} = Turn.step(tools, :tools, 1)
+
+    {opened, commands} =
+      Turn.step(opening, {:completed, :worker_resolve, {:ok, row, :envelope}}, 2)
+
+    assert {:open_worker, row, :envelope} in commands
+
+    {committed, _} =
+      Turn.step(opened, {:completed, :record, {:ok, %{message: %{id: "journal"}}}}, 3)
+
+    assert committed.acquisition == {:idle, :requested}
+
+    {rebuilt, commands} = Turn.step(committed, {:completed, :finalize, {:ok, :done}}, 4)
+    assert [{:close_worker, _}] = Enum.filter(commands, &match?({:close_worker, _}, &1))
+    refute rebuilt.workspace_open_attempted?
+  end
+
   test "Worker acquisition uses one deadline and stops accepting events after the round commits" do
     run = tool_run([call("c1")])
     {turn, _} = Turn.step(turn(run, :boundary), {:resume, run.epoch, :executing_tools}, 100)

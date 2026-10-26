@@ -8,10 +8,10 @@ defmodule Ankole.Pod.ResourceActionsTest do
     owner = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :base})
 
     {:ok, table} =
-      Ankole.Pod.Database.create_table(
+      Ankole.Pod.Bases.create_table(
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         page.id,
         %{}
@@ -30,7 +30,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
                })
              end)
 
-    Ankole.DataCase.assert_persisted_equal(Repo.get!(Ankole.Pod.DbTable, table.id), initialized)
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Ankole.Pod.BaseTable, table.id), initialized)
 
     {:ok, state} =
       Repo.transact(fn _ ->
@@ -98,21 +98,21 @@ defmodule Ankole.Pod.ResourceActionsTest do
     Ankole.DataCase.assert_persisted_equal(Repo.get!(Page, page.id), page)
   end
 
-  test "Database counters and schema versions advance from stored state" do
+  test "Bases counters and schema versions advance from stored state" do
     owner = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :base})
 
     {:ok, table} =
-      Ankole.Pod.Database.create_table(
+      Ankole.Pod.Bases.create_table(
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         page.id,
         %{}
       )
 
-    [field] = Ankole.Pod.Database.fields(table.id)
-    view = Repo.get_by!(Ankole.Pod.DbView, table_id: table.id)
+    [field] = Ankole.Pod.Bases.fields(table.id)
+    view = Repo.get_by!(Ankole.Pod.BaseView, table_id: table.id)
 
     assert {:ok, {table, field, view}} =
              Repo.transact(fn _ ->
@@ -139,30 +139,30 @@ defmodule Ankole.Pod.ResourceActionsTest do
     assert Ankole.Pod.Serialization.json_value(field)["type"] == "text"
   end
 
-  test "Database actions reject changes to identity and creation facts" do
+  test "Bases actions reject changes to identity and creation facts" do
     owner = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :base})
 
     {:ok, table} =
-      Ankole.Pod.Database.create_table(
+      Ankole.Pod.Bases.create_table(
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         page.id,
         %{}
       )
 
-    [field] = Ankole.Pod.Database.fields(table.id)
-    view = Repo.get_by!(Ankole.Pod.DbView, table_id: table.id)
+    [field] = Ankole.Pod.Bases.fields(table.id)
+    view = Repo.get_by!(Ankole.Pod.BaseView, table_id: table.id)
 
     {:ok, %{records: [created]}} =
-      Ankole.Pod.Database.write_records(
+      Ankole.Pod.Bases.write_records(
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         table.id,
         %{creates: [%{}]}
       )
 
-    record = Repo.get_by!(Ankole.Pod.DbRecord, table_id: table.id, id: created.id)
+    record = Repo.get_by!(Ankole.Pod.BaseRecord, table_id: table.id, id: created.id)
 
     for {record, action, attrs} <- [
           {table, :commit_write,
@@ -180,7 +180,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
       assert reload(record) == record
     end
 
-    # Records belong to the Database subsystem's Ecto schema.
+    # Records belong to the Bases subsystem's Ecto schema.
     attrs = %{
       id: record.id,
       table_id: table.id,
@@ -188,43 +188,43 @@ defmodule Ankole.Pod.ResourceActionsTest do
       created_at: record.created_at
     }
 
-    changeset = Ankole.Pod.DbRecord.update_values_changeset(record, attrs)
+    changeset = Ankole.Pod.BaseRecord.update_values_changeset(record, attrs)
     refute changeset.valid?
     assert MapSet.new(Keyword.keys(changeset.errors)) == MapSet.new(Map.keys(attrs))
     assert {:error, _changeset} = Repo.update(changeset)
     assert reload(record) == record
   end
 
-  test "PostgreSQL rejects invalid Database counters, versions, and JSON shapes" do
+  test "PostgreSQL rejects invalid Bases counters, versions, and JSON shapes" do
     owner = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :base})
 
     {:ok, table} =
-      Ankole.Pod.Database.create_table(
+      Ankole.Pod.Bases.create_table(
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         page.id,
         %{}
       )
 
     {:ok, %{records: [_]}} =
-      Ankole.Pod.Database.write_records(
+      Ankole.Pod.Bases.write_records(
         Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
         table.id,
         %{creates: [%{}]}
       )
 
     for {sql, constraint} <- [
-          {"UPDATE db_tables SET record_count = -1", "db_tables_counters"},
-          {"UPDATE db_tables SET data_version = -1", "db_tables_counters"},
-          {"UPDATE db_tables SET next_auto_number = 0", "db_tables_counters"},
-          {"UPDATE db_fields SET version = 0", "db_fields_version"},
-          {"UPDATE db_views SET version = 0", "db_views_version"},
-          {"UPDATE db_fields SET config = '[]'::jsonb", "db_fields_config_object"},
-          {"UPDATE db_views SET config = '[]'::jsonb", "db_views_config_object"},
-          {"UPDATE db_records SET data = '[]'::jsonb", "db_records_value_objects"},
-          {"UPDATE db_records SET versions = '[]'::jsonb", "db_records_value_objects"}
+          {"UPDATE base_tables SET record_count = -1", "base_tables_counters"},
+          {"UPDATE base_tables SET data_version = -1", "base_tables_counters"},
+          {"UPDATE base_tables SET next_auto_number = 0", "base_tables_counters"},
+          {"UPDATE base_fields SET version = 0", "base_fields_version"},
+          {"UPDATE base_views SET version = 0", "base_views_version"},
+          {"UPDATE base_fields SET config = '[]'::jsonb", "base_fields_config_object"},
+          {"UPDATE base_views SET config = '[]'::jsonb", "base_views_config_object"},
+          {"UPDATE base_records SET data = '[]'::jsonb", "base_records_value_objects"},
+          {"UPDATE base_records SET versions = '[]'::jsonb", "base_records_value_objects"}
         ] do
       error =
         assert_raise Postgrex.Error, fn ->
@@ -237,19 +237,19 @@ defmodule Ankole.Pod.ResourceActionsTest do
     end
   end
 
-  test "a failed Database copy preserves its domain rejection and rolls back its new page" do
+  test "a failed Bases copy preserves its domain rejection and rolls back its new page" do
     owner = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :base})
 
     {:ok, %{tables: [table]}} =
-      Ankole.Pod.Database.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id)
+      Ankole.Pod.Bases.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id)
 
     before = Repo.aggregate(Page, :count)
 
     assert {:error, :invalid_query} =
-             Ankole.Pod.Database.copy_table(
+             Ankole.Pod.Bases.copy_table(
                Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                table.id,
                %{
@@ -258,7 +258,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
              )
 
     assert Repo.aggregate(Page, :count) == before
-    assert Repo.aggregate(Ankole.Pod.DbTable, :count) == 1
+    assert Repo.aggregate(Ankole.Pod.BaseTable, :count) == 1
   end
 
   defp reload(%schema{} = record) do

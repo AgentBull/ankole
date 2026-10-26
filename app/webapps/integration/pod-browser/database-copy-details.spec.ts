@@ -1,11 +1,11 @@
 import { state, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
 import { expect, test } from '@playwright/test'
-import type { DatabaseField, DatabaseRecord, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
+import type { BaseField, BaseRecord, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
 
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
 
-test('copying a shared database selects an editable destination and opens an independent persisted result', async ({
+test('copying a shared base selects an editable destination and opens an independent persisted result', async ({
   browser
 }) => {
   const ownerContext = await browser.newContext(),
@@ -27,21 +27,21 @@ test('copying a shared database selects an editable destination and opens an ind
       private_owner_uid: state.member.uid
     })
     const { page: source } = await request<{ page: { id: string } }>(member, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: `Shared source ${suffix}`,
       parent_id: folder.id
     })
-    const { table } = await request<{ table: { id: string } }>(member, `/databases/${source.id}/tables`, 'POST', {
+    const { table } = await request<{ table: { id: string } }>(member, `/bases/${source.id}/tables`, 'POST', {
       name: 'Source records'
     })
     const schema = await request<TableSchema>(member, `/tables/${table.id}`)
     const primary = schema.fields.find(field => field.is_primary)!
-    const { field: amount } = await request<{ field: DatabaseField }>(member, `/tables/${table.id}/fields`, 'POST', {
+    const { field: amount } = await request<{ field: BaseField }>(member, `/tables/${table.id}/fields`, 'POST', {
       name: 'Amount',
       type: 'number',
       config: {}
     })
-    const { records: sourceRecords } = await request<{ records: DatabaseRecord[] }>(
+    const { records: sourceRecords } = await request<{ records: BaseRecord[] }>(
       member,
       `/tables/${table.id}/records`,
       'POST',
@@ -71,6 +71,7 @@ test('copying a shared database selects an editable destination and opens an ind
     expect((await request<{ role: string }>(owner, `/pages/${folder.id}`)).role).toBe('view')
     expect((await request<{ role: string }>(owner, `/pages/${source.id}`)).role).toBe('edit')
     await owner.goto(location(source.id))
+    await owner.getByRole('button', { name: 'Source records', exact: true }).click()
     await expect(owner.getByRole('spinbutton', { name: 'Amount', exact: true })).toHaveValue('23')
     await owner.getByRole('button', { name: '复制当前结果', exact: true }).click()
     const dialog = owner.getByRole('dialog', { name: '复制数据表', exact: true })
@@ -115,6 +116,7 @@ test('copying a shared database selects an editable destination and opens an ind
     await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(copiedTitle)
     await expect(owner.getByRole('spinbutton', { name: 'Amount', exact: true })).toHaveValue('23')
     await member.goto(location(source.id))
+    await member.getByRole('button', { name: 'Source records', exact: true }).click()
     await member.getByRole('spinbutton', { name: 'Amount', exact: true }).fill('41')
     await member.getByRole('spinbutton', { name: 'Amount', exact: true }).press('Enter')
     await expect

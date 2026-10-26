@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { AggregateQuery, DatabaseField, DatabaseRecord, RecordQuery } from '@ankole/applet-sdk/types'
+import type { AggregateQuery, BaseField, BaseRecord, RecordQuery } from '@ankole/applet-sdk/types'
 import cases from './table-query-cases.json'
 import { aggregateLocalRecords, queryLocalRecords } from './table-query'
 
-const fields = cases.fields as DatabaseField[]
-const records = cases.records as DatabaseRecord[]
+const fields = cases.fields as BaseField[]
+const records = cases.records as BaseRecord[]
 describe('shared SQL and local table query contract', () => {
   for (const fixture of cases.queries) {
     test(fixture.name, () => {

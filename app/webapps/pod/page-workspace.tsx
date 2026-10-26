@@ -70,7 +70,7 @@ import { canMovePage } from './state/page-move'
 import './page-workspace.css'
 
 const AppletPage = lazy(() => import('./applet-page').then(module => ({ default: module.AppletPage })))
-const DatabasePage = lazy(() => import('./database-page').then(module => ({ default: module.DatabasePage })))
+const BasePage = lazy(() => import('./base-page').then(module => ({ default: module.BasePage })))
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
 
 export function PageRoute() {
@@ -444,10 +444,10 @@ function PageContent({
       return documentDraft ? <DocumentPage key={detail.page.id} detail={detail} model={documentDraft} /> : null
     case 'file':
       return <FilePage detail={detail} />
-    case 'database':
+    case 'base':
       return (
         <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
-          <DatabasePage detail={detail} />
+          <BasePage detail={detail} />
         </Suspense>
       )
     case 'applet':
@@ -811,7 +811,7 @@ function PageEmbed({
         {query.data.page.title || t('pod.content.untitled')}
         <RiExternalLinkLine aria-hidden />
       </Button>
-      {query.data.page.type === 'database' ? (
+      {query.data.page.type === 'base' ? (
         <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
           {view.kind === 'invalid' ? (
             <div className="space-y-2 p-4" role="alert">
@@ -821,7 +821,7 @@ function PageEmbed({
               </Button>
             </div>
           ) : (
-            <DatabasePage
+            <BasePage
               detail={query.data}
               tableID={attributes.table}
               viewID={view.kind === 'saved' ? view.id : undefined}

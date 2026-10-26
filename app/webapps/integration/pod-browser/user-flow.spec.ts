@@ -82,8 +82,8 @@ test('people and Agent-authored content follow the real Pod persistence, permiss
     await expect(owner.getByText('Research appendix', { exact: true }).first()).toBeVisible()
     await expect(owner.getByText('已自动保存', { exact: true })).toBeVisible()
 
-    await owner.goto(state.base_url + route(state.database_id))
-    await member.goto(state.base_url + route(state.database_id))
+    await owner.goto(state.base_url + route(state.base_id))
+    await member.goto(state.base_url + route(state.base_id))
     const amountOwner = owner.getByRole('spinbutton', { name: 'Amount', exact: true }).first()
     await amountOwner.fill('25')
     await amountOwner.blur()
@@ -388,11 +388,11 @@ test('a large business table uses global groups and per-group paging across its 
     await owner.goto(state.base_url + route(state.report_id))
     const title = `Large workflow ${crypto.randomUUID()}`
     const { page } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title,
       parent_id: state.report_id
     })
-    const { tables } = await request<{ tables: { id: string }[] }>(owner, `/databases/${page.id}`)
+    const { tables } = await request<{ tables: { id: string }[] }>(owner, `/bases/${page.id}`)
     expect(tables).toHaveLength(1)
     const table = tables[0]!
     const schema = await request<{ fields: { id: string; is_primary: boolean }[] }>(owner, `/tables/${table.id}`)
@@ -435,7 +435,7 @@ test('a large business table uses global groups and per-group paging across its 
       }
       await owner.setViewportSize({ width: 1440, height: 1000 })
     }
-    await expectDensity('.pod-database-grid [data-grid-record]', 'Name')
+    await expectDensity('.pod-base-grid [data-grid-record]', 'Name')
     const createView = async (type: string) => {
       await owner.getByRole('button', { name: '+ 视图', exact: true }).click()
       await owner.getByRole('textbox', { name: '视图名称', exact: true }).fill(type)
@@ -509,7 +509,7 @@ test('block-menu removal follows direct-child ownership and preserves references
     await expect(content(owner)).toBeVisible()
     await documentAction(owner, '新建页面')
     await owner.getByRole('textbox', { name: '标题', exact: true }).fill('Inline business data')
-    await choose(owner, '页面类型', 'Database')
+    await choose(owner, '页面类型', '多维表')
     await owner.getByRole('button', { name: '创建', exact: true }).click()
     const embedded = content(owner).locator('.embed')
     await expect(embedded).toContainText('Inline business data')
@@ -534,9 +534,7 @@ test('block-menu removal follows direct-child ownership and preserves references
     await owner.getByRole('button', { name: 'Block 菜单', exact: true }).click()
     await owner.getByRole('menuitem', { name: '删除 Block', exact: true }).click()
     await expect(embedded).toHaveCount(0)
-    expect((await request<{ page: { id: string } }>(owner, `/pages/${state.database_id}`)).page.id).toBe(
-      state.database_id
-    )
+    expect((await request<{ page: { id: string } }>(owner, `/pages/${state.base_id}`)).page.id).toBe(state.base_id)
   } finally {
     await context.close()
   }

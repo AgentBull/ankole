@@ -12,7 +12,7 @@
     "lint": "bun run type-check",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
-    "openapi:generate": "bun run --filter @ankole/openapi-client-generator generate && oxfmt console/api/v2/generated console/api/v2-site/generated common/api/generated pod/api/generated && if [ -d ../../internals/webapps/api/generated ]; then cd ../../internals && oxfmt webapps/api/generated; fi",
+    "openapi:generate": "bun run --filter @ankole/openapi-client-generator generate && oxfmt console/api/v2/generated console/api/v2-site/generated common/api/generated pod/api/generated && if [ \"$ANKOLE_EDITION\" = saas ]; then cd ../../internals && oxfmt webapps/api/generated webapps/pod-api/generated; fi",
     "test:pod": "bun --bun playwright test --config playwright.pod.config.ts"
   },
   "dependencies": {
@@ -22,6 +22,8 @@
     "@ankole/uikit": "workspace:*",
     "@office-kit/pptx": "0.25.0",
     "@office-kit/pptx-preview": "0.17.0",
+    "@openfeature/react-sdk": "1.4.1",
+    "@openfeature/web-sdk": "1.10.0",
     "@preact/signals-react": "3.12.0",
     "@remixicon/react": "4.9.0",
     "@tanstack/react-form": "1.33.5",

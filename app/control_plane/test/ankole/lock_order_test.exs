@@ -7,6 +7,19 @@ defmodule Ankole.LockOrderTest do
   alias Ankole.LockOrder
   alias Ankole.Schedule.Schemas.CronSchedule
 
+  test "a Base transaction rejects control-plane row locks, advisory locks, and checkouts" do
+    LockOrder.with_base_transaction(fn ->
+      assert_raise ArgumentError, ~r/rank 12/, fn ->
+        LockOrder.check_query(from(t in Ankole.Pod.BaseTable, lock: "FOR KEY SHARE"), nil)
+      end
+
+      assert_raise ArgumentError, ~r/rank 12/, fn -> LockOrder.check_advisory("any-owner") end
+      assert_raise ArgumentError, ~r/rank 12/, fn -> Ankole.Repo.checkout(fn -> :ok end) end
+    end)
+
+    assert :ok = LockOrder.check_control_plane_lock!()
+  end
+
   test "a trigger's consumer must be locked before its cron rule" do
     LockOrder.with_transaction(fn ->
       check_row_lock(CronSchedule, Ecto.UUID.generate())

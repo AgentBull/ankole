@@ -1,10 +1,10 @@
-import type { AggregateQuery, DatabaseField, RecordQuery, TableSchema } from '@ankole/applet-sdk/types'
+import type { AggregateQuery, BaseField, RecordQuery, TableSchema } from '@ankole/applet-sdk/types'
 
-const numeric = (field?: DatabaseField) =>
+const numeric = (field?: BaseField) =>
   field?.type === 'number' ||
   field?.type === 'auto_number' ||
   (field?.type === 'formula' && field.config.result_type === 'number')
-const datetime = (field?: DatabaseField) =>
+const datetime = (field?: BaseField) =>
   !!field &&
   (['datetime', 'created_at', 'updated_at'].includes(field.type) ||
     (field.type === 'formula' && field.config.result_type === 'datetime'))
@@ -14,7 +14,7 @@ const canonicalDatetime = (value: unknown) => {
   const date = new Date(value)
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 23) === value.slice(0, 23)
 }
-const array = (field?: DatabaseField) =>
+const array = (field?: BaseField) =>
   !!field &&
   (['user', 'link', 'attachment'].includes(field.type) || (field.type === 'select' && !!field.config.multiple))
 

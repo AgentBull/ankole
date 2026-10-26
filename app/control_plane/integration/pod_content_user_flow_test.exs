@@ -2,7 +2,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
   use Ankole.DataCase, async: false
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.Pod.{DbField, DbRecord, DbTable, Page, Pages}
+  alias Ankole.Pod.{BaseField, BaseRecord, BaseTable, Page, Pages}
   alias Ankole.Pod.Jobs.PurgePage
 
   setup %{tenant: tenant} do
@@ -114,23 +114,23 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     )
   end
 
-  test "a failed purge resumes after committed record batches and blocks restoration", ctx do
+  test "a failed purge resumes after committed shard cleanup and blocks restoration", ctx do
     {:ok, root} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
 
     {:ok, database} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
         parent_id: root.id,
-        type: "database"
+        type: "base"
       })
 
     table =
-      Ankole.Pod.PagesFixtures.create_record!(DbTable, :create_in_tx, %{
+      Ankole.Pod.PagesFixtures.create_record!(BaseTable, :create_in_tx, %{
         page_id: database.id,
         name: "Orders",
         position: "U"
       })
 
-    Ankole.Pod.PagesFixtures.create_record!(DbField, :create_in_tx, %{
+    Ankole.Pod.PagesFixtures.create_record!(BaseField, :create_in_tx, %{
       table_id: table.id,
       name: "Title",
       position: "U",
@@ -155,19 +155,27 @@ defmodule Ankole.Pod.ContentUserFlowTest do
             updated_at: now
           }
 
-    Repo.insert_all(DbRecord, rows)
+    Repo.insert_all(BaseRecord, rows)
     Ankole.Pod.PagesFixtures.update_record!(table, :commit_write, %{delta: 1005, inserted: 1005})
+
+    assert {:ok, _} =
+             Ankole.Pod.Bases.create_field(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               table.id,
+               %{name: "Related", type: "link", config: %{"table_id" => table.id}}
+             )
+
     {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
     root = Repo.get!(Page, root.id)
     Ankole.Pod.PagesFixtures.update_record!(root, :begin_purge)
 
     Repo.query!("""
     CREATE FUNCTION test_pod_purge_interrupt() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN RAISE EXCEPTION 'injected purge interruption after record batches'; END $$
+    BEGIN RAISE EXCEPTION 'injected purge interruption after shard cleanup'; END $$
     """)
 
     Repo.query!(
-      "CREATE TRIGGER test_pod_purge_interrupt BEFORE DELETE ON db_fields FOR EACH ROW EXECUTE FUNCTION test_pod_purge_interrupt()"
+      "CREATE TRIGGER test_pod_purge_interrupt BEFORE DELETE ON base_fields FOR EACH ROW EXECUTE FUNCTION test_pod_purge_interrupt()"
     )
 
     try do
@@ -180,15 +188,31 @@ defmodule Ankole.Pod.ContentUserFlowTest do
       assert [%Ash.Error.Unknown.UnknownError{error: native_error}] = error.errors
 
       assert native_error ==
-               "** (Postgrex.Error) ERROR P0001 (raise_exception) injected purge interruption after record batches"
+               "** (Postgrex.Error) ERROR P0001 (raise_exception) injected purge interruption after shard cleanup"
 
-      assert Repo.aggregate(DbRecord, :count) == 0
+      assert Repo.aggregate(BaseRecord, :count) == 0
+      assert Repo.get!(BaseTable, table.id).deleting_at
+
+      Ankole.Pod.BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+        assert [[nil]] =
+                 Ankole.Pod.BaseRepo.query!("SELECT to_regclass($1)::text", [
+                   Ankole.Pod.BaseRepo.table(table.id)
+                 ]).rows
+      end)
+
+      assert {:error, :not_found} =
+               Ankole.Pod.Bases.query(
+                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+                 table.id,
+                 %{}
+               )
+
       assert Repo.get(Page, root.id)
 
       assert {:error, :cannot_restore} =
                Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
     after
-      Repo.query!("DROP TRIGGER IF EXISTS test_pod_purge_interrupt ON db_fields")
+      Repo.query!("DROP TRIGGER IF EXISTS test_pod_purge_interrupt ON base_fields")
       Repo.query!("DROP FUNCTION IF EXISTS test_pod_purge_interrupt()")
     end
 
@@ -199,7 +223,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
 
     assert is_nil(Repo.get(Page, root.id))
     assert is_nil(Repo.get(Page, database.id))
-    assert Repo.aggregate(DbTable, :count) == 0
+    assert Repo.aggregate(BaseTable, :count) == 0
 
     assert :ok =
              PurgePage.perform(%Oban.Job{

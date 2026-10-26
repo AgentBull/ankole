@@ -492,10 +492,10 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
   end
 
   defp use_mock_signal_provider_plugin(_context) do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(MockSignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -504,7 +504,7 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     :ok

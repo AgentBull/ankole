@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -123,7 +123,7 @@ async function retireWarmWorker() {
         try {
           const frame = JSON.parse(String(event.data))
           if (frame.type === 'call') {
-            assert.equal(frame.operation, 'db.query')
+            assert.equal(frame.operation, 'base.query')
             assert.equal((await post('/retire', { key })).retired, true)
             await warm(key, 5000, true)
             replaced = await snapshot()
@@ -200,7 +200,7 @@ async function drain() {
         try {
           const frame = JSON.parse(String(event.data))
           if (frame.type === 'call') {
-            assert.equal(frame.operation, 'db.query')
+            assert.equal(frame.operation, 'base.query')
             await docker('kill', '--signal', 'TERM', container)
             await Bun.sleep(100)
             let accepts = false
@@ -230,6 +230,15 @@ async function drain() {
 }
 
 try {
+  const fixture = resolve(output, 'fixture')
+  const built = await Bun.build({
+    entrypoints: [resolve(runtimeRoot, 'test/native/index.ts')],
+    outdir: fixture,
+    target: 'browser',
+    external: ['node:*']
+  })
+  assert(built.success, `native fixture build failed: ${built.logs.join('\n')}`)
+  cpSync(resolve(import.meta.dir, 'events'), resolve(fixture, 'events'), { recursive: true })
   await docker(
     'run',
     '--detach',
@@ -240,7 +249,7 @@ try {
     '--publish',
     '127.0.0.1::9000',
     '--volume',
-    `${runtimeRoot}:/opt/ankole/function_runtime:ro`,
+    `${fixture}:/opt/ankole/function_runtime/test/native:ro`,
     image,
     'start',
     '--main-service',

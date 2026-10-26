@@ -1,21 +1,18 @@
-import { existsSync } from 'node:fs'
-
-const saas = existsSync('../../internals/webapps/openapi/saas-v2.json')
-  ? [
-      {
-        input: '../../internals/webapps/openapi/saas-v2.json',
-        output: { path: '../../internals/webapps/api/generated' },
-        plugins: [
-          {
-            name: '@hey-api/client-fetch',
-            runtimeConfigPath: '../../internals/webapps/api/client',
-            throwOnError: true
-          },
-          { name: '@hey-api/sdk', responseStyle: 'data' }
-        ]
-      }
-    ]
-  : []
+const saas = (process.env.ANKOLE_EDITION === 'saas' ? ['saas-v2', 'saas-pod-v2'] : []).map(name => ({
+  input: `../../internals/webapps/openapi/${name}.json`,
+  output: {
+    path: name === 'saas-v2' ? '../../internals/webapps/api/generated' : '../../internals/webapps/pod-api/generated'
+  },
+  plugins: [
+    {
+      name: '@hey-api/client-fetch',
+      runtimeConfigPath:
+        name === 'saas-v2' ? '../../internals/webapps/api/client' : '../../internals/webapps/pod-api/client',
+      throwOnError: true
+    },
+    { name: '@hey-api/sdk', responseStyle: 'data' }
+  ]
+}))
 
 export default [
   ...saas,

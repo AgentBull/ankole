@@ -263,7 +263,8 @@ defmodule Ankole.E2E.PodContentStory do
     finished
   end
 
-  defp configure_browser_origin!(port, tenant) do
+  @doc false
+  def configure_browser_origin!(port, tenant) do
     previous = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
     origin = AnkoleWeb.PodURL.origin(%{scheme: :http, port: port}, tenant)
     configured = Keyword.put(previous, :check_origin, [origin])

@@ -1,5 +1,6 @@
 import type { GetGlobalLibraryCapabilitiesResponse } from '../api/v2/generated/types.gen'
 import type { ListControlPlanePluginsResponse } from '../api/v2-site/generated/types.gen'
+import { localizedText } from '../../common/config-fields'
 import { matchesResourceSearch } from './resource-search'
 
 export type AgentLibraryCapabilitiesResponse = GetGlobalLibraryCapabilitiesResponse
@@ -57,19 +58,10 @@ export function filterControlPlanePlugins(items: ControlPlanePluginItem[], query
     matchesResourceSearch(
       query,
       item.id,
-      localizedJSONText(item.display_name, locale),
-      localizedJSONText(item.description, locale)
+      localizedText(item.display_name, locale),
+      localizedText(item.description, locale)
     )
   )
-}
-
-export function localizedJSONText(value: unknown, locale = 'en-US'): string {
-  if (typeof value === 'string') return value
-  if (!value || Array.isArray(value) || typeof value !== 'object') return value == null ? '' : String(value)
-  const localized = value as Record<string, unknown>
-  const candidate = localized[locale] ?? localized[locale.split('-')[0]] ?? localized['en-US'] ?? localized.en
-  if (typeof candidate === 'string') return candidate
-  return JSON.stringify(value)
 }
 
 export function humanizeAgentPluginID(id: string): string {

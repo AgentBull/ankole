@@ -10,7 +10,7 @@ for (const [locale, title] of [
   ['ko-KR', '본문']
 ] as const) {
   test(`the ${locale} Pod catalog supplies every editor interface label`, async () => {
-    await loadLocale(locale, 'pod')
+    await loadLocale(locale)
     const labels = editorLabels(locale)
     expect(labels.paragraph_title).toBe(title)
     for (const key of Object.keys(editorPhrases.phrases) as (keyof typeof labels)[]) {

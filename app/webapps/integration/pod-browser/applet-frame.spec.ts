@@ -221,17 +221,17 @@ test('an Applet viewer submits according to target permissions without losing lo
   const member = await memberContext.newPage()
   let submitted: { id: string; versions: Record<string, number> } | undefined
   let restoreReport: PageSharing | undefined
-  let restoreDatabase: PageSharing | undefined
+  let restoreBase: PageSharing | undefined
   try {
     await owner.goto(state.base_url + pageRoute(state.applet_id))
-    await member.goto(state.base_url + pageRoute(state.database_id))
-    const database = await request<{ actions: string[] }>(member, `/pages/${state.database_id}`)
-    expect(database.actions).toContain('page_write_records')
-    const originalDatabase = new PageSharingModel()
-    originalDatabase.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.database_id}/sharing`))
-    restoreDatabase = originalDatabase.body()
+    await member.goto(state.base_url + pageRoute(state.base_id))
+    const base = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
+    expect(base.actions).toContain('page_write_records')
+    const originalBase = new PageSharingModel()
+    originalBase.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
+    restoreBase = originalBase.body()
     const share = (role: 'view' | 'contribute') =>
-      requestWithSharingVersion(owner, `/pages/${state.database_id}/sharing`, 'PUT', {
+      requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
         inherit_permissions: false,
         grants: [
           { principal_uid: state.owner.uid, role: 'manage' },
@@ -296,13 +296,13 @@ test('an Applet viewer submits according to target permissions without losing lo
       grant => grant.principal_uid === state.member.uid && (grant.condition ?? 'true') === 'true'
     )
     expect(memberIndex).toBeGreaterThanOrEqual(0)
-    await requestWithSharingVersion(owner, `/pages/${state.database_id}/sharing`, 'PUT', {
+    await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
       inherit_permissions: true,
       grants: []
     })
     ancestor.update(memberIndex, { role: 'view' })
     await requestWithSharingVersion(owner, `/pages/${state.report_id}/sharing`, 'PUT', ancestor.body())
-    const target = await request<{ actions: string[] }>(member, `/pages/${state.database_id}`)
+    const target = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
     expect(target.actions).not.toContain('page_write_records')
     await expect(draft).toBeEditable()
     await expect(draft).toHaveValue('Unsubmitted member evaluation')
@@ -323,8 +323,8 @@ test('an Applet viewer submits according to target permissions without losing lo
         deletes: [{ id: submitted.id, expected_versions: submitted.versions }]
       })
     }
-    if (restoreDatabase) {
-      await requestWithSharingVersion(owner, `/pages/${state.database_id}/sharing`, 'PUT', restoreDatabase)
+    if (restoreBase) {
+      await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', restoreBase)
     }
     await requestWithSharingVersion(owner, `/pages/${state.applet_id}/sharing`, 'PUT', {
       inherit_permissions: true,
@@ -342,12 +342,12 @@ test('a rejected table write preserves the Applet draft until Page access is rev
   const owner = await ownerContext.newPage()
   const member = await memberContext.newPage()
   const appletSharing = new PageSharingModel()
-  const databaseSharing = new PageSharingModel()
+  const baseSharing = new PageSharingModel()
   try {
     await owner.goto(pageRoute(state.applet_id))
     appletSharing.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.applet_id}/sharing`))
-    databaseSharing.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.database_id}/sharing`))
-    await requestWithSharingVersion(owner, `/pages/${state.database_id}/sharing`, 'PUT', {
+    baseSharing.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
+    await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
       inherit_permissions: false,
       grants: [
         { principal_uid: state.owner.uid, role: 'manage' },
@@ -389,8 +389,8 @@ test('a rejected table write preserves the Applet draft until Page access is rev
     if (appletSharing.body()) {
       await requestWithSharingVersion(owner, `/pages/${state.applet_id}/sharing`, 'PUT', appletSharing.body())
     }
-    if (databaseSharing.body()) {
-      await requestWithSharingVersion(owner, `/pages/${state.database_id}/sharing`, 'PUT', databaseSharing.body())
+    if (baseSharing.body()) {
+      await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', baseSharing.body())
     }
     await Promise.all([ownerContext.close(), memberContext.close()])
   }

@@ -88,9 +88,9 @@ test('page creation, movement and copies offer destinations the current member c
         { principal_uid: state.member.uid, role: 'edit' }
       ]
     })
-    const database = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
+    const base = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       parent_id: parentID,
-      type: 'database',
+      type: 'base',
       title: 'Working data'
     })
 
@@ -172,7 +172,7 @@ test('page creation, movement and copies offer destinations the current member c
         await expect(member.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue('New shared work')
       }
 
-      await member.goto(state.base_url + pageRoute(database.page.id))
+      await member.goto(state.base_url + pageRoute(base.page.id))
       await member.getByRole('button', { name: '复制当前结果', exact: true }).click()
       const copy = member.getByRole('dialog')
       await copy.getByRole('combobox', { name: '保存到', exact: true }).click()
@@ -249,7 +249,7 @@ test('destination searches find editable work beyond thirty read-only matches', 
     })
     const source = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       parent_id: rootID,
-      type: 'database',
+      type: 'base',
       title: 'Working data to reorganize'
     })
     for (const id of [target.page.id, source.page.id]) {
@@ -321,7 +321,7 @@ test('structure edits and page management do not imply record submission', async
     await owner.goto(state.base_url + pageRoute(state.report_id))
     const source = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       title: 'Independent page capabilities',
-      type: 'database',
+      type: 'base',
       private_owner_uid: state.owner.uid
     })
     sourceID = source.page.id
@@ -410,7 +410,7 @@ test('a shared private project exposes its children and lets collaborators conti
     await owner.goto(state.base_url + pageRoute(state.report_id))
     const parent = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       title: 'Shared private business project',
-      type: 'database',
+      type: 'base',
       private_owner_uid: state.owner.uid
     })
     parentID = parent.page.id
@@ -499,12 +499,12 @@ test('an open record draft survives a permission change and submits once when wr
   try {
     await owner.goto(state.base_url + pageRoute(state.report_id))
     const created = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: 'Record draft continuity',
       private_owner_uid: state.owner.uid
     })
     id = created.page.id
-    const { tables } = await request<{ tables: { id: string }[] }>(owner, `/databases/${id}`)
+    const { tables } = await request<{ tables: { id: string }[] }>(owner, `/bases/${id}`)
     const tableID = tables[0]!.id
     const { fields } = await request<{ fields: { id: string; is_primary: boolean }[] }>(owner, `/tables/${tableID}`)
     const primary = fields.find(field => field.is_primary)!

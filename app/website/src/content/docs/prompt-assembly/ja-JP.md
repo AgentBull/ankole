@@ -11,7 +11,7 @@ description: メイン Agent の指示と Codex Job のコンテキストを組�
 
 Agent の識別情報と文書、有効な Skill とプラグイン、会話の開始チャネルとタイムゾーンが含まれます。`SOUL.md` は行動と判断、`MISSION.md` は責任を示します。ドメイン所有者が PostgreSQL に保存します。環境ツールは workspace 契約で実体化されたランタイムファイルを受け取ります。
 
-メインプロンプトは識別情報、SOUL、MISSION、完了と権限の指示、利用可能な Job と Workflow の方針、記憶、環境とツールの指示、Skill カタログ、ランタイムコンテキストの順です。テンプレートは `app/control_plane_core/priv/sessions/prompts/`、描画処理は `app/control_plane_core/lib/ankole/sessions/prompt.ex` にあります。
+メインプロンプトは識別情報、SOUL、MISSION、完了と権限の指示、利用可能な Job と Workflow の方針、記憶、環境とツールの指示、Skill カタログ、ランタイムコンテキストの順です。テンプレートは `app/control_plane/priv/sessions/prompts/`、描画処理は `app/control_plane/lib/ankole/sessions/prompt.ex` にあります。
 
 `brain-recall-only: true` の Skill はカタログから省略しますが、有効セットに残り、Brain で発見して `skill_view` で読み込めます。末尾には Agent、`/workspace`、現在の Session workspace、タイムゾーン、会話開始時刻と開始チャネルを記載します。Lark adapter は Lark と Feishu を表し、domain が上流 API を選びます。
 

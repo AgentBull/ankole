@@ -9,12 +9,7 @@ import {
   type Span,
   type TimeInput
 } from '@opentelemetry/api'
-import {
-  BasicTracerProvider,
-  BatchSpanProcessor,
-  type ReadableSpan,
-  type SpanExporter
-} from '@opentelemetry/sdk-trace-base'
+import { TracerProvider, BatchSpanProcessor, type ReadableSpan, type SpanExporter } from '@opentelemetry/sdk-trace'
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { redactText, sensitiveKey } from '../common/content-redaction'
@@ -49,7 +44,7 @@ export type WorkerTurnTrace = TurnTracePropagation & {
 type ExportOTLP = (payload: Uint8Array) => Promise<void>
 
 let exportOTLP: ExportOTLP | undefined
-let provider: BasicTracerProvider | undefined
+let provider: TracerProvider | undefined
 
 export function configureWorkerTracing(exporter: ExportOTLP): void {
   exportOTLP = exporter
@@ -188,7 +183,7 @@ export async function forceFlushWorkerTracing(): Promise<void> {
   if (!provider) return
 
   try {
-    await provider.forceFlush()
+    await provider.forceFlush({ timeoutMillis: 12_000 })
   } catch {
     // Trace export is best effort and cannot change Worker shutdown.
   }
@@ -198,11 +193,11 @@ function ensureProvider(): void {
   if (provider) return
   const exporter = new RuntimeFabricSpanExporter()
 
-  provider = new BasicTracerProvider({
+  provider = new TracerProvider({
     resource: workerResource(),
-    forceFlushTimeoutMillis: 12_000,
     spanProcessors: [
-      new BatchSpanProcessor(exporter, {
+      new BatchSpanProcessor({
+        exporter,
         exportTimeoutMillis: 10_000
       })
     ]

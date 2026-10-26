@@ -1,6 +1,6 @@
 import { state, request } from './fixtures'
 import { expect, test } from '@playwright/test'
-import type { DatabaseField, DatabaseRecord } from '@ankole/applet-sdk/types'
+import type { BaseField, BaseRecord } from '@ankole/applet-sdk/types'
 import { pageRoute } from './routes'
 
 test.setTimeout(30_000)
@@ -84,15 +84,15 @@ test('a virtualized row survives an attachment upload after focus and viewport l
     await page.goto(location(state.report_id))
     const saved = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
       title: 'Upload retention review',
-      type: 'database'
+      type: 'base'
     })
     id = saved.page.id
-    const { table } = await request<{ table: { id: string } }>(page, `/databases/${id}/tables`, 'POST', {
+    const { table } = await request<{ table: { id: string } }>(page, `/bases/${id}/tables`, 'POST', {
       name: 'Upload rows'
     })
-    const { fields } = await request<{ fields: DatabaseField[] }>(page, `/tables/${table.id}`)
+    const { fields } = await request<{ fields: BaseField[] }>(page, `/tables/${table.id}`)
     const primary = fields.find(field => field.is_primary)!
-    const { field } = await request<{ field: DatabaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
       name: 'Evidence',
       type: 'attachment',
       config: {}
@@ -130,7 +130,7 @@ test('a virtualized row survives an attachment upload after focus and viewport l
     gate.resolve()
     await expect
       .poll(async () => {
-        const { records } = await request<{ records: DatabaseRecord[] }>(page, `/tables/${table.id}/query`, 'POST', {
+        const { records } = await request<{ records: BaseRecord[] }>(page, `/tables/${table.id}/query`, 'POST', {
           ids: [rowID]
         })
         return records[0]?.data[field.id]

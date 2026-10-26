@@ -4,7 +4,6 @@
   "workspaces": [
     "app/*",
     "libs/*",
-    "plugins/*",
     "tools/*",
     "tools/deploy/cloudflare/*"
   ],
@@ -33,6 +32,7 @@
     "control-plane:setup": "bun run --filter @ankole/control-plane setup",
     "control-plane:dev": "bun run --filter @ankole/control-plane dev",
     "control-plane:test": "bun run --filter @ankole/control-plane test",
+    "control-plane:test:plugins": "bun run --filter @ankole/control-plane test:plugins",
     "control-plane:routes": "bun run --filter @ankole/control-plane routes",
     "webapps": "bun run --filter @ankole/webapps",
     "webapps:dev": "bun run --filter @ankole/webapps dev",
@@ -40,8 +40,7 @@
     "webapps:type-check": "bun run --filter @ankole/webapps type-check",
     "uikit": "bun run --filter @ankole/uikit",
     "uikit:type-check": "bun run --filter @ankole/uikit type-check",
-    "lark-adapter": "bun run --filter @ankole/lark-adapter",
-    "lark-adapter:test": "bun run --filter @ankole/lark-adapter test",
+    "lark-adapter:test": "bun run --filter @ankole/control-plane test:plugins lark_adapter",
     "analyze": "bun run kit analyze all",
     "analyze:smells": "bun run kit analyze smells",
     "analyze:unused": "bun run kit analyze unused",
@@ -52,7 +51,7 @@
     "turbo": "^2.11.10"
   },
   "devDependencies": {
-    "@types/bun": "1.4.3",
+    "@types/bun": "1.4.4",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
     "typescript": "^7.0.2"
@@ -60,7 +59,7 @@
   "overrides": {
     "mdast-util-gfm-strikethrough": "2.0.1"
   },
-  "packageManager": "bun@1.4.2",
+  "packageManager": "bun@1.4.4",
   "patchedDependencies": {
     "mdast-util-to-markdown@2.2.0": "libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch"
   }

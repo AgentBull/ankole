@@ -1,2 +1,5 @@
 ExUnit.start()
-{:ok, _supervisor} = MicrosoftOpenAPI.Supervisor.start_link([])
+
+unless Process.whereis(MicrosoftOpenAPI.Supervisor) do
+  {:ok, _supervisor} = MicrosoftOpenAPI.Supervisor.start_link([])
+end

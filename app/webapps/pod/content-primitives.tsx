@@ -8,7 +8,9 @@ export const typeLabels: Record<PageType, string> = {
   get doc() {
     return t('pod.content.document')
   },
-  database: 'Database',
+  get base() {
+    return t('pod.editor.base')
+  },
   get applet() {
     return t('pod.content.applet')
   },

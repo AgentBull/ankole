@@ -13,9 +13,11 @@ FROM oven/bun:1.4.4 AS build
 WORKDIR /build
 COPY package.json bun.lock ./
 COPY app/function_runtime/package.json ./app/function_runtime/package.json
+COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
 COPY libs/ankole-editor/patches ./libs/ankole-editor/patches
 RUN bun install --filter @ankole/function-runtime --production --frozen-lockfile --ignore-scripts
 COPY app/function_runtime/main ./app/function_runtime/main
+COPY libs/applet-sdk/src ./libs/applet-sdk/src
 RUN bun build app/function_runtime/main/index.ts --target=browser --external=node:* --outdir=build
 
 FROM ghcr.io/supabase/edge-runtime:v1.77.4

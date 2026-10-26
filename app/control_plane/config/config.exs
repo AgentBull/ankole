@@ -1,5 +1,5 @@
 import Config
-import_config "../../control_plane_core/config/config.exs"
+import_config "dependencies.exs"
 
 config :phoenix, :filter_parameters, [
   "password",
@@ -90,7 +90,11 @@ if edition == :saas do
   import_config source
 
   private_entries = Path.expand("../../../internals/webapps/entries.json", __DIR__)
-  private = private_entries |> File.read!() |> :json.decode()
+  manifest = private_entries |> File.read!() |> :json.decode()
+  private = Map.fetch!(manifest, "entries")
+  overrides = Map.get(manifest, "overrides", %{})
+  unknown = Map.keys(overrides) -- Map.keys(entries)
+  if unknown != [], do: raise("Unknown public webapp overrides: #{inspect(unknown)}")
   duplicates = Map.keys(entries) -- (Map.keys(entries) -- Map.keys(private))
   if duplicates != [], do: raise("Duplicate webapp entries: #{inspect(duplicates)}")
 
@@ -98,7 +102,7 @@ if edition == :saas do
          :webapp_entries,
          Map.merge(
            entries,
-           Map.new(private, fn {name, file} ->
+           Map.new(Map.merge(private, overrides), fn {name, file} ->
              {name, "/@fs/" <> Path.expand(file, Path.dirname(private_entries))}
            end)
          )

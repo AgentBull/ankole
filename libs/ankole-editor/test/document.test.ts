@@ -38,7 +38,7 @@ const pairs: [string, string, string, Element][] = [
     page(e('callout', { tone: 'warning' }, [p('本期数据包含新增产品。')]), e('embed', { ref: 'db_q3' }))
   ],
   [
-    'database embed with a table and a view',
+    'base embed with a table and a view',
     '<embed ref="db_q3" table="tbl_sales" view="viw_march" />',
     '<page><embed ref="db_q3" table="tbl_sales" view="viw_march" /></page>',
     page(e('embed', { ref: 'db_q3', table: 'tbl_sales', view: 'viw_march' }))

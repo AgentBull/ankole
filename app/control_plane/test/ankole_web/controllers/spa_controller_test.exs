@@ -123,6 +123,39 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/"
   end
 
+  test "the site Console shell uses the backend's bound tenant for feature targeting", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    flags = Application.get_env(:ankole, :feature_flags)
+    Application.put_env(:ankole, :feature_flags, [{"fixture.shell", [client_visible: true]}])
+    Ankole.AppConfigure.Registry.clear_for_test()
+
+    on_exit(fn ->
+      if flags == nil,
+        do: Application.delete_env(:ankole, :feature_flags),
+        else: Application.put_env(:ankole, :feature_flags, flags)
+
+      Ankole.AppConfigure.Registry.clear_for_test()
+      Cache.clear_for_test()
+    end)
+
+    {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+
+    {:ok, _} =
+      Ankole.AppConfigure.put_global_by_key("features.fixture.shell", %{
+        "enabled" => true,
+        "percent" => 0,
+        "targets" => %{tenant.id => true}
+      })
+
+    conn = conn |> active_admin_conn() |> get(~p"/site-admin-console")
+    assert Ankole.Features.boolean_value("fixture.shell")
+
+    assert html_response(conn, 200) =~
+             ~s(<meta name="ankole-features" content="{&quot;fixture.shell&quot;:true}">)
+  end
+
   defp assert_pod_login(conn, tenant, return_to) do
     uri = URI.parse(redirected_to(conn))
     assert uri.host in [nil, conn.host]

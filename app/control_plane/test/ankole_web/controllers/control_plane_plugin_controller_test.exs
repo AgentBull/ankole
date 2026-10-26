@@ -6,6 +6,14 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
+  defmodule MetadataFreePlugin do
+    @behaviour Ankole.Plugins.Plugin
+    @impl true
+    def plugin_id, do: "fixture-metadata-free"
+    @impl true
+    def activation, do: :always
+  end
+
   setup do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
@@ -29,10 +37,10 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
     conn = console_conn(conn)
 
     response = conn |> api(:get, ~p"/api/v2/site/control-plane-plugins") |> json_response(200)
-    assert [first | _rest] = response["control_plane_plugins"]
+    assert first = Enum.find(response["control_plane_plugins"], &(&1["activation"] == "optional"))
 
     assert Map.keys(first) |> Enum.sort() ==
-             ~w(active configured_enabled description display_name id restart_required)
+             ~w(activation active configured_enabled description display_name id restart_required)
 
     desired = not first["active"]
 
@@ -76,6 +84,64 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
                "enabled" => false
              })
              |> json_response(404)
+  end
+
+  test "Ash JSON:API rejects invalid configuration arguments before the operation", %{conn: conn} do
+    assert %{
+             "errors" => [
+               %{"code" => "invalid_body", "source" => %{"pointer" => "/data/enabled"}}
+             ]
+           } =
+             conn
+             |> console_conn()
+             |> api(:put, ~p"/api/v2/site/control-plane-plugins", %{
+               id: "missing",
+               enabled: %{}
+             })
+             |> json_response(400)
+  end
+
+  test "the Console lists a fixed Plugin without optional metadata and rejects its deactivation",
+       %{conn: conn} do
+    snapshot = Ankole.Plugins.Registry.snapshot_for_test()
+    {:ok, spec} = Ankole.Plugins.Spec.from_module(MetadataFreePlugin)
+
+    Ankole.Plugins.Registry.update_for_test(fn state ->
+      %{
+        state
+        | discovered: Map.put(state.discovered, spec.id, spec),
+          active: Map.put(state.active, spec.id, spec)
+      }
+    end)
+
+    on_exit(fn -> Ankole.Plugins.Registry.update_for_test(fn _ -> snapshot end) end)
+
+    conn = console_conn(conn)
+
+    plugin =
+      conn
+      |> api(:get, ~p"/api/v2/site/control-plane-plugins")
+      |> json_response(200)
+      |> Map.fetch!("control_plane_plugins")
+      |> Enum.find(&(&1["id"] == spec.id))
+
+    assert plugin["activation"] == "always"
+    assert plugin["configured_enabled"]
+    assert plugin["display_name"] == %{"default" => spec.id}
+    assert Map.has_key?(plugin, "description")
+    assert plugin["description"] == nil
+
+    type = Ankole.ControlPlanePlugins.ConsoleTypes.ControlPlanePluginItem
+    assert {:ok, constraints} = Ash.Type.init(type, [])
+    assert {:ok, _typed_plugin} = Ash.Type.cast_input(type, plugin, constraints)
+
+    assert %{"errors" => [%{"code" => "control_plane_plugin_always_enabled"}]} =
+             conn
+             |> api(:put, ~p"/api/v2/site/control-plane-plugins", %{
+               id: spec.id,
+               enabled: false
+             })
+             |> json_response(422)
   end
 
   test "an assigned Worker prevents disabling its Plugin through the Console", %{conn: conn} do

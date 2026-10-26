@@ -6,11 +6,10 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   @moduledoc """
   Real-LLM scenarios for the skill-lesson loop.
 
-  One scenario runs the whole production path: seeded evidence jobs, the
-  Dreaming trigger, a real reflection BackgroundAgentJob on the Docker worker,
-  the completion hook and its mechanical gates, rendered delivery, and then a
-  real lease review. The other proves a background job reaches instance memory
-  through the read-only `recall` operation of the AIGateway-hosted Brain tool.
+  Native Pod requests produce real execution evidence and a reflection on a
+  Docker Worker without external Bindings. A separate scenario uses seeded
+  evidence to check the completion gates, Skill rendering, and lease review.
+  Another checks instance memory through the Brain tool's `recall` operation.
   """
 
   import Ecto.Query
@@ -28,6 +27,10 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.Brain.SkillLessons
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Message, as: PublicMessage
+  alias Ankole.E2E.DockerWorker
+  alias Ankole.E2E.PodContentBrowser
   alias Ankole.Repo
   alias Ankole.Signals.Signal
 
@@ -43,6 +46,384 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   @job_deadline_ms 900_000
   @dispatch_deadline_ms 120_000
   @codename "ZUOYUN-7"
+
+  @doc """
+  Runs native Human requests, their Codex evidence Jobs, and a reflection on
+  the real Worker. Every evidence item and lesson comes from executed work.
+  """
+  def run_real_pod_skill_lesson_reflection_loop(%{agent: agent} = ctx) do
+    bindings_before = assert_no_external_bindings!(agent.uid)
+    put_coding_profile!(agent.uid, ctx.provider_id)
+    put_brain_maintainer_profile!(agent.uid, ctx.provider_id)
+
+    assert {:ok, _value} =
+             AppConfigure.put_global_by_key("brain.skill_learning_reflection_threshold", 2)
+
+    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, xlsx} = Library.skill_view(agent.uid, "xlsx")
+    assert xlsx["skill_name"] == "xlsx"
+    assert is_binary(xlsx["content"]) and xlsx["content"] != ""
+    assert agent_lessons(agent.uid) == []
+
+    started_at = DateTime.utc_now(:microsecond)
+    evidence_jobs = Enum.map(["A", "B"], &run_pod_lesson_evidence_job!(ctx, &1))
+    evidence_ids = MapSet.new(evidence_jobs, & &1.id)
+
+    signals = BackgroundAgentJobs.evidence_signals(agent.uid, 0, started_at)
+    assert MapSet.new(signals, & &1.job_id) == evidence_ids
+    assert Enum.all?(signals, &(&1.failed_call_count > 0))
+    assert_no_external_bindings!(agent.uid)
+
+    public_message_ids = public_message_ids(agent.uid)
+    refute Repo.exists?(from(intent in Intent, where: intent.agent_uid == ^agent.uid))
+
+    assert %{status: :ok, agents: agents} = SkillLessons.run_phase()
+
+    assert %{trigger: %{status: :reflection_created, job_id: reflection_id}} =
+             Map.fetch!(agents, agent.uid)
+
+    queued = Repo.get!(Job, reflection_id)
+    assert queued.reply_route == %{}
+    assert queued.authorization_kind == "service"
+    assert queued.human_uid == nil
+    assert queued.source_signal_id == nil
+    assert MapSet.new(queued.metadata["evidence_job_ids"]) == evidence_ids
+
+    dispatch_job!(agent.uid, reflection_id)
+    reflection = wait_for_terminal_job!(reflection_id)
+    assert_completed_worker_job!(reflection)
+
+    dispatch =
+      Repo.get_by!(Signal,
+        source_event_id: "background_agent_job:#{reflection.id}:dispatch"
+      )
+
+    assert dispatch.reply_binding_name == nil
+    assert dispatch.conversation_id == nil
+
+    assert {:ok, _completed} =
+             Ankole.E2E.WaitHelpers.wait_for_signal_completed(
+               ctx.container,
+               dispatch.id,
+               deadline(60_000)
+             )
+
+    Oban.drain_queue(queue: :default)
+    stamped = Repo.get!(Job, reflection.id)
+    output_text = stamped.result["output_text"]
+    reflection_messages = reflection_messages(stamped)
+
+    IO.puts(
+      "Pod Skill Lessons reflection trace: " <>
+        Ankole.JSON.encode!(%{
+          job_id: stamped.id,
+          runtime_thread_id: stamped.runtime_thread_id,
+          output_text: output_text,
+          messages: reflection_messages
+        })
+    )
+
+    assert is_binary(stamped.metadata["lessons_applied_at"]),
+           "reflection output was not applied: #{inspect(output_text)}"
+
+    lessons = agent_lessons(agent.uid)
+
+    assert lessons != [],
+           "real Worker evidence produced no accepted lesson: #{inspect(output_text)}"
+
+    assert Enum.any?(lessons, &(&1.skill_name == "xlsx")),
+           "the reflection did not retain a lesson for the exercised xlsx Skill"
+
+    delivery_checks =
+      for lesson <- lessons do
+        assert lesson.author_kind == :dreaming
+        assert MapSet.new(lesson.evidence_job_ids) == evidence_ids
+        assert is_binary(lesson.checked_release)
+        assert is_binary(lesson.checked_skill_hash)
+        assert %DateTime{} = lesson.review_after
+        assert lesson.retired_at == nil
+        assert lesson.content != ""
+
+        assert {:ok, rendered} = Library.skill_view(agent.uid, lesson.skill_name)
+        assert rendered["has_agent_overlay"]
+
+        assert rendered["content"] =~
+                 "Field notes (dated; verify against the current environment):"
+
+        assert rendered["content"] =~ lesson.content
+
+        %{
+          lesson_id: lesson.id,
+          skill_name: lesson.skill_name,
+          exact_content_present: String.contains?(rendered["content"], lesson.content)
+        }
+      end
+
+    assert public_message_ids(agent.uid) == public_message_ids
+    refute Repo.exists?(from(intent in Intent, where: intent.agent_uid == ^agent.uid))
+
+    refute Repo.exists?(
+             from(event in Signal,
+               where:
+                 event.agent_uid == ^agent.uid and
+                   event.session_id == ^stamped.owner_session_id
+             )
+           )
+
+    bindings_after = assert_no_external_bindings!(agent.uid)
+
+    emit_pod_lesson_evidence!(ctx, %{
+      evidence_jobs:
+        Enum.map(evidence_jobs, &Map.take(&1, [:id, :status, :runtime_thread_id, :attempts])),
+      evidence_signals: signals,
+      reflection:
+        Map.take(stamped, [
+          :id,
+          :status,
+          :reply_route,
+          :authorization_kind,
+          :human_uid,
+          :runtime_thread_id,
+          :attempts
+        ])
+        |> Map.put(:turns, completed_job_turns(stamped))
+        |> Map.put(:output_text, output_text)
+        |> Map.put(:messages, reflection_messages),
+      lessons:
+        Enum.map(
+          lessons,
+          &Map.take(&1, [:id, :skill_name, :content, :evidence_job_ids, :author_kind])
+        ),
+      skill_view_delivery: delivery_checks,
+      bindings_before: bindings_before,
+      bindings_after: bindings_after,
+      public_message_ids_before: public_message_ids,
+      public_message_ids_after: public_message_ids(agent.uid),
+      external_delivery_count:
+        Repo.aggregate(from(intent in Intent, where: intent.agent_uid == ^agent.uid), :count)
+    })
+
+    %{evidence_jobs: evidence_jobs, reflection: stamped, lessons: lessons}
+  end
+
+  defp run_pod_lesson_evidence_job!(ctx, label) do
+    request =
+      PodContentBrowser.send_message!(ctx, ctx.owner_uid,
+        text: """
+        Run this spreadsheet compatibility reproduction as exactly one background
+        Agent Job titled "Named-row workbook #{label}". Use the xlsx Skill in that
+        Job. Put the full instructions below in its task. Do not run the commands
+        in the main conversation, create a Workflow, or split it into more Jobs.
+
+        First load the xlsx Skill. Reproduce this actual openpyxl behavior by
+        running the following unmodified Python in a separate shell command:
+
+        from openpyxl import Workbook
+        Workbook().active.append({"revenue": 42, "cost": 17})
+
+        Preserve and inspect that command's real nonzero exit status and error.
+        Do not catch it, replace its output, or hide its status with a shell suffix.
+        The issue is field-name mapping keys; mappings keyed by Excel column
+        letters or indexes have different behavior.
+
+        Then repair the input by using explicit header order ["revenue", "cost"]
+        and a list of values in that order. Save named-rows-#{label}.xlsx in the
+        Job workspace. Read it back with openpyxl and verify the first two rows
+        are ["revenue", "cost"] and [42, 17]. This is a small execution task:
+        use no web research, no subagents, and no extra background Jobs.
+
+        Wait for this one Job to finish and report its verified result here.
+        """
+      )
+
+    input = Repo.get_by!(Signal, message_id: request["message_id"])
+    assert input.agent_uid == ctx.agent.uid
+    assert input.human_uid == ctx.owner_uid
+    assert input.authorization_kind == "human"
+    assert input.conversation_id == request["conversation_id"]
+    assert input.reply_binding_name == nil
+
+    assert {:ok, [job]} =
+             wait_until(deadline(180_000), fn ->
+               jobs =
+                 Repo.all(
+                   from(job in Job,
+                     where: job.agent_uid == ^ctx.agent.uid and job.source_signal_id == ^input.id,
+                     order_by: [asc: job.id]
+                   )
+                 )
+
+               if jobs != [], do: jobs
+             end)
+
+    assert job.human_uid == ctx.owner_uid
+    assert job.reply_route["conversation_id"] == input.conversation_id
+    assert job.reply_route["binding_name"] == nil
+    dispatch_job!(ctx.agent.uid, job.id)
+    finished = wait_for_terminal_job!(job.id)
+    assert_completed_worker_job!(finished)
+
+    items =
+      Repo.all(
+        from(item in TurnItem,
+          join: turn in Turn,
+          on: turn.id == item.turn_id,
+          where: turn.job_id == ^job.id,
+          select: item.item
+        )
+      )
+      |> Enum.map(&Ankole.AIGateway.OpaqueContent.reveal/1)
+
+    IO.puts(
+      "Pod Skill Lessons Job trace: " <>
+        Ankole.JSON.encode!(%{
+          job_id: finished.id,
+          task: finished.task,
+          output_text: finished.result["output_text"],
+          item_types: Enum.frequencies_by(items, & &1["type"]),
+          commands:
+            for item <- items, item["type"] == "commandExecution" do
+              Map.take(item, ["command", "status", "exitCode", "aggregatedOutput"])
+            end
+        })
+    )
+
+    assert Enum.any?(items, fn item ->
+             item["type"] == "commandExecution" and is_integer(item["exitCode"]) and
+               item["exitCode"] != 0 and
+               String.contains?(item["aggregatedOutput"] || "", "ValueError") and
+               String.contains?(item["aggregatedOutput"] || "", "revenue")
+           end),
+           "Job #{job.id} did not execute the required named-key failure"
+
+    workbook = "/workspace/jobs/#{finished.workspace_owner_job_id}/named-rows-#{label}.xlsx"
+
+    assert DockerWorker.exec!(ctx.container, [
+             "python3",
+             "-c",
+             "import sys; from openpyxl import load_workbook; " <>
+               "rows=list(load_workbook(sys.argv[1], data_only=True).active.values); " <>
+               "assert rows == [('revenue', 'cost'), (42, 17)], rows; " <>
+               "print('NAMED_ROWS_VERIFIED')",
+             workbook
+           ]) =~ "NAMED_ROWS_VERIFIED"
+
+    assert {:ok, completion} =
+             wait_until(deadline(60_000), fn ->
+               Repo.get_by(Signal,
+                 agent_uid: ctx.agent.uid,
+                 source_event_id:
+                   "background_agent_job:#{finished.id}:succeeded:#{finished.attempts}"
+               )
+             end)
+
+    for signal <- [input, completion] do
+      assert {:ok, _completed} =
+               Ankole.E2E.WaitHelpers.wait_for_signal_completed(
+                 ctx.container,
+                 signal.id,
+                 deadline(180_000)
+               )
+    end
+
+    assert Repo.exists?(
+             from(message in PublicMessage,
+               where:
+                 message.conversation_id == ^input.conversation_id and
+                   message.author_uid == ^ctx.agent.uid and message.author_type == :agent
+             )
+           )
+
+    assert_no_external_bindings!(ctx.agent.uid)
+    finished
+  end
+
+  defp assert_completed_worker_job!(job) do
+    assert job.status == :succeeded,
+           "Worker Job #{job.id} ended #{job.status}: #{inspect(job.error)}"
+
+    assert job.attempts > 0
+    assert is_binary(job.runtime_thread_id) and job.runtime_thread_id != ""
+
+    assert Repo.exists?(
+             from(turn in Turn,
+               where:
+                 turn.job_id == ^job.id and turn.runtime_thread_id == ^job.runtime_thread_id and
+                   turn.attempt == ^job.attempts and turn.kind == "agent" and
+                   turn.status == :completed and not is_nil(turn.completed_at)
+             )
+           ),
+           "Worker Job #{job.id} has no completed root Turn for its actual runtime"
+  end
+
+  defp assert_no_external_bindings!(agent_uid) do
+    count =
+      Repo.aggregate(
+        from(binding in Ankole.Signals.Binding, where: binding.agent_uid == ^agent_uid),
+        :count
+      )
+
+    assert count == 0
+    count
+  end
+
+  defp public_message_ids(agent_uid) do
+    Repo.all(
+      from(message in PublicMessage,
+        where: message.author_uid == ^agent_uid,
+        order_by: [asc: message.id],
+        select: message.id
+      )
+    )
+  end
+
+  defp completed_job_turns(job) do
+    Repo.all(
+      from(turn in Turn,
+        where:
+          turn.job_id == ^job.id and turn.runtime_thread_id == ^job.runtime_thread_id and
+            turn.attempt == ^job.attempts and turn.kind == "agent" and turn.status == :completed,
+        select: map(turn, [:id, :runtime_thread_id, :runtime_turn_id, :attempt, :status])
+      )
+    )
+  end
+
+  defp reflection_messages(job) do
+    Repo.all(
+      from(item in TurnItem,
+        join: turn in Turn,
+        on: turn.id == item.turn_id,
+        where:
+          turn.job_id == ^job.id and turn.runtime_thread_id == ^job.runtime_thread_id and
+            turn.attempt == ^job.attempts and turn.kind == "agent",
+        order_by: [asc: turn.started_at, asc: item.position],
+        select: item.item
+      )
+    )
+    |> Enum.map(&Ankole.AIGateway.OpaqueContent.reveal/1)
+    |> Enum.filter(&(&1["type"] == "agentMessage"))
+    |> Enum.map(&Map.take(&1, ["id", "text", "phase"]))
+  end
+
+  defp emit_pod_lesson_evidence!(ctx, evidence) do
+    container_name = DockerWorker.container_name(ctx.agent.uid)
+    assert %{status: "running"} = info = DockerWorker.container_info(container_name)
+    docker = System.find_executable("docker")
+    assert is_binary(docker)
+
+    assert {pid, 0} =
+             System.cmd(docker, ["inspect", "--format", "{{.State.Pid}}", container_name])
+
+    evidence =
+      Map.put(evidence, :worker, %{
+        agent_uid: ctx.agent.uid,
+        image: info.image,
+        container: container_name,
+        container_pid: pid |> String.trim() |> String.to_integer()
+      })
+
+    IO.puts("Pod Skill Lessons evidence: " <> Ankole.JSON.encode!(Ankole.JSON.plain(evidence)))
+  end
 
   @doc """
   Runs the whole production path and then one real lease review.
@@ -354,10 +735,9 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     }
   end
 
-  # The e2e stack has no LISTEN/NOTIFY delivery (the sandbox never commits), so
-  # a Job's dispatch event is pumped by hand, exactly as the deep-research
-  # scenarios do. The Worker may still be admitting itself when the Job lands,
-  # so the pump repeats until the Job leaves the queue.
+  # The scenarios pump the production dispatch Signal explicitly. The Worker
+  # can still be admitting itself when the Job arrives, so the pump repeats
+  # until the Job leaves the queue.
   defp dispatch_job!(agent_uid, job_id) do
     session_id = BackgroundAgentJobs.job_session_id(job_id)
 

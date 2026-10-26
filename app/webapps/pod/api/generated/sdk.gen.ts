@@ -48,54 +48,54 @@ import type {
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
+  PodBaseAggregateData,
+  PodBaseAggregateErrors,
+  PodBaseAggregateResponses,
+  PodBaseCopyData,
+  PodBaseCopyErrors,
+  PodBaseCopyResponses,
+  PodBaseFieldCreateData,
+  PodBaseFieldCreateErrors,
+  PodBaseFieldCreateResponses,
+  PodBaseFieldDeleteData,
+  PodBaseFieldDeleteErrors,
+  PodBaseFieldDeleteResponses,
+  PodBaseFieldUpdateData,
+  PodBaseFieldUpdateErrors,
+  PodBaseFieldUpdateResponses,
+  PodBaseQueryData,
+  PodBaseQueryErrors,
+  PodBaseQueryResponses,
+  PodBaseSchemaData,
+  PodBaseSchemaErrors,
+  PodBaseSchemaResponses,
+  PodBaseTableCreateData,
+  PodBaseTableCreateErrors,
+  PodBaseTableCreateResponses,
+  PodBaseTableDeleteData,
+  PodBaseTableDeleteErrors,
+  PodBaseTableDeleteResponses,
+  PodBaseTablesData,
+  PodBaseTablesErrors,
+  PodBaseTablesResponses,
+  PodBaseViewCreateData,
+  PodBaseViewCreateErrors,
+  PodBaseViewCreateResponses,
+  PodBaseViewDeleteData,
+  PodBaseViewDeleteErrors,
+  PodBaseViewDeleteResponses,
+  PodBaseViewUpdateData,
+  PodBaseViewUpdateErrors,
+  PodBaseViewUpdateResponses,
+  PodBaseWriteData,
+  PodBaseWriteErrors,
+  PodBaseWriteResponses,
   PodChatTeammatesData,
   PodChatTeammatesErrors,
   PodChatTeammatesResponses,
   PodConversationsData,
   PodConversationsErrors,
   PodConversationsResponses,
-  PodDatabaseAggregateData,
-  PodDatabaseAggregateErrors,
-  PodDatabaseAggregateResponses,
-  PodDatabaseCopyData,
-  PodDatabaseCopyErrors,
-  PodDatabaseCopyResponses,
-  PodDatabaseFieldCreateData,
-  PodDatabaseFieldCreateErrors,
-  PodDatabaseFieldCreateResponses,
-  PodDatabaseFieldDeleteData,
-  PodDatabaseFieldDeleteErrors,
-  PodDatabaseFieldDeleteResponses,
-  PodDatabaseFieldUpdateData,
-  PodDatabaseFieldUpdateErrors,
-  PodDatabaseFieldUpdateResponses,
-  PodDatabaseQueryData,
-  PodDatabaseQueryErrors,
-  PodDatabaseQueryResponses,
-  PodDatabaseSchemaData,
-  PodDatabaseSchemaErrors,
-  PodDatabaseSchemaResponses,
-  PodDatabaseTableCreateData,
-  PodDatabaseTableCreateErrors,
-  PodDatabaseTableCreateResponses,
-  PodDatabaseTableDeleteData,
-  PodDatabaseTableDeleteErrors,
-  PodDatabaseTableDeleteResponses,
-  PodDatabaseTablesData,
-  PodDatabaseTablesErrors,
-  PodDatabaseTablesResponses,
-  PodDatabaseViewCreateData,
-  PodDatabaseViewCreateErrors,
-  PodDatabaseViewCreateResponses,
-  PodDatabaseViewDeleteData,
-  PodDatabaseViewDeleteErrors,
-  PodDatabaseViewDeleteResponses,
-  PodDatabaseViewUpdateData,
-  PodDatabaseViewUpdateErrors,
-  PodDatabaseViewUpdateResponses,
-  PodDatabaseWriteData,
-  PodDatabaseWriteErrors,
-  PodDatabaseWriteResponses,
   PodDocumentWriteData,
   PodDocumentWriteErrors,
   PodDocumentWriteResponses,
@@ -249,17 +249,12 @@ export type Options<
 }
 
 /**
- * podDatabaseTableDelete operation on pod_database_operation resource
+ * podBaseTableDelete operation on pod_base_operation resource
  */
-export const podDatabaseTableDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseTableDeleteData, ThrowOnError>
-): RequestResult<PodDatabaseTableDeleteResponses, PodDatabaseTableDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<
-    PodDatabaseTableDeleteResponses,
-    PodDatabaseTableDeleteErrors,
-    ThrowOnError,
-    'data'
-  >({
+export const podBaseTableDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableDeleteData, ThrowOnError>
+): RequestResult<PodBaseTableDeleteResponses, PodBaseTableDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodBaseTableDeleteResponses, PodBaseTableDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}',
@@ -267,12 +262,12 @@ export const podDatabaseTableDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseSchema operation on pod_database_operation resource
+ * podBaseSchema operation on pod_base_operation resource
  */
-export const podDatabaseSchema = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseSchemaData, ThrowOnError>
-): RequestResult<PodDatabaseSchemaResponses, PodDatabaseSchemaErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodDatabaseSchemaResponses, PodDatabaseSchemaErrors, ThrowOnError, 'data'>({
+export const podBaseSchema = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseSchemaData, ThrowOnError>
+): RequestResult<PodBaseSchemaResponses, PodBaseSchemaErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodBaseSchemaResponses, PodBaseSchemaErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}',
@@ -406,12 +401,12 @@ export const podEmbedDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseQuery operation on pod_database_operation resource
+ * podBaseQuery operation on pod_base_operation resource
  */
-export const podDatabaseQuery = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseQueryData, ThrowOnError>
-): RequestResult<PodDatabaseQueryResponses, PodDatabaseQueryErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseQueryResponses, PodDatabaseQueryErrors, ThrowOnError, 'data'>({
+export const podBaseQuery = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseQueryData, ThrowOnError>
+): RequestResult<PodBaseQueryResponses, PodBaseQueryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseQueryResponses, PodBaseQueryErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/query',
@@ -432,19 +427,6 @@ export const podModelProfiles = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/agents/{uid}/model-profiles',
-    ...options
-  })
-
-/**
- * podDatabaseTables operation on pod_database_operation resource
- */
-export const podDatabaseTables = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseTablesData, ThrowOnError>
-): RequestResult<PodDatabaseTablesResponses, PodDatabaseTablesErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodDatabaseTablesResponses, PodDatabaseTablesErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/databases/{page_id}',
     ...options
   })
 
@@ -492,6 +474,19 @@ export const updateConversation = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podBaseTables operation on pod_base_operation resource
+ */
+export const podBaseTables = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTablesData, ThrowOnError>
+): RequestResult<PodBaseTablesResponses, PodBaseTablesErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodBaseTablesResponses, PodBaseTablesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/bases/{page_id}',
+    ...options
+  })
+
+/**
  * answerConversationInteraction operation on pod_chat_operation resource
  */
 export const answerConversationInteraction = <ThrowOnError extends boolean = true>(
@@ -531,12 +526,12 @@ export const changePodMembership = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseCopy operation on pod_database_operation resource
+ * podBaseCopy operation on pod_base_operation resource
  */
-export const podDatabaseCopy = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseCopyData, ThrowOnError>
-): RequestResult<PodDatabaseCopyResponses, PodDatabaseCopyErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseCopyResponses, PodDatabaseCopyErrors, ThrowOnError, 'data'>({
+export const podBaseCopy = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseCopyData, ThrowOnError>
+): RequestResult<PodBaseCopyResponses, PodBaseCopyErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseCopyResponses, PodBaseCopyErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/copy',
@@ -677,12 +672,12 @@ export const conversationExecution = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseAggregate operation on pod_database_operation resource
+ * podBaseAggregate operation on pod_base_operation resource
  */
-export const podDatabaseAggregate = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseAggregateData, ThrowOnError>
-): RequestResult<PodDatabaseAggregateResponses, PodDatabaseAggregateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseAggregateResponses, PodDatabaseAggregateErrors, ThrowOnError, 'data'>({
+export const podBaseAggregate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseAggregateData, ThrowOnError>
+): RequestResult<PodBaseAggregateResponses, PodBaseAggregateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseAggregateResponses, PodBaseAggregateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/aggregate',
@@ -711,12 +706,12 @@ export const disablePodMember = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseFieldCreate operation on pod_database_operation resource
+ * podBaseFieldCreate operation on pod_base_operation resource
  */
-export const podDatabaseFieldCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseFieldCreateData, ThrowOnError>
-): RequestResult<PodDatabaseFieldCreateResponses, PodDatabaseFieldCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseFieldCreateResponses, PodDatabaseFieldCreateErrors, ThrowOnError, 'data'>({
+export const podBaseFieldCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseFieldCreateData, ThrowOnError>
+): RequestResult<PodBaseFieldCreateResponses, PodBaseFieldCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseFieldCreateResponses, PodBaseFieldCreateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/fields',
@@ -836,6 +831,23 @@ export const postConversationMessage = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podBaseTableCreate operation on pod_base_operation resource
+ */
+export const podBaseTableCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableCreateData, ThrowOnError>
+): RequestResult<PodBaseTableCreateResponses, PodBaseTableCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseTableCreateResponses, PodBaseTableCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/bases/{page_id}/tables',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * unbindPodCredential operation on pod_member_account resource
  */
 export const unbindPodCredential = <ThrowOnError extends boolean = true>(
@@ -892,17 +904,12 @@ export const podSubjects = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseFieldDelete operation on pod_database_operation resource
+ * podBaseFieldDelete operation on pod_base_operation resource
  */
-export const podDatabaseFieldDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseFieldDeleteData, ThrowOnError>
-): RequestResult<PodDatabaseFieldDeleteResponses, PodDatabaseFieldDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<
-    PodDatabaseFieldDeleteResponses,
-    PodDatabaseFieldDeleteErrors,
-    ThrowOnError,
-    'data'
-  >({
+export const podBaseFieldDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseFieldDeleteData, ThrowOnError>
+): RequestResult<PodBaseFieldDeleteResponses, PodBaseFieldDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodBaseFieldDeleteResponses, PodBaseFieldDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/fields/{id}',
@@ -910,23 +917,21 @@ export const podDatabaseFieldDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseFieldUpdate operation on pod_database_operation resource
+ * podBaseFieldUpdate operation on pod_base_operation resource
  */
-export const podDatabaseFieldUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseFieldUpdateData, ThrowOnError>
-): RequestResult<PodDatabaseFieldUpdateResponses, PodDatabaseFieldUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodDatabaseFieldUpdateResponses, PodDatabaseFieldUpdateErrors, ThrowOnError, 'data'>(
-    {
-      responseStyle: 'data',
-      security: [{ name: 'Cookie', type: 'apiKey' }],
-      url: '/api/v2/pod/fields/{id}',
-      ...options,
-      headers: {
-        'Content-Type': 'application/vnd.api+json',
-        ...options.headers
-      }
+export const podBaseFieldUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseFieldUpdateData, ThrowOnError>
+): RequestResult<PodBaseFieldUpdateResponses, PodBaseFieldUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodBaseFieldUpdateResponses, PodBaseFieldUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/fields/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
     }
-  )
+  })
 
 /**
  * savePodIdentityProvider operation on pod_admin_operation resource
@@ -1112,12 +1117,12 @@ export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseViewCreate operation on pod_database_operation resource
+ * podBaseViewCreate operation on pod_base_operation resource
  */
-export const podDatabaseViewCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseViewCreateData, ThrowOnError>
-): RequestResult<PodDatabaseViewCreateResponses, PodDatabaseViewCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseViewCreateResponses, PodDatabaseViewCreateErrors, ThrowOnError, 'data'>({
+export const podBaseViewCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseViewCreateData, ThrowOnError>
+): RequestResult<PodBaseViewCreateResponses, PodBaseViewCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseViewCreateResponses, PodBaseViewCreateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/views',
@@ -1159,12 +1164,12 @@ export const createPodInvitation = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseViewDelete operation on pod_database_operation resource
+ * podBaseViewDelete operation on pod_base_operation resource
  */
-export const podDatabaseViewDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseViewDeleteData, ThrowOnError>
-): RequestResult<PodDatabaseViewDeleteResponses, PodDatabaseViewDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodDatabaseViewDeleteResponses, PodDatabaseViewDeleteErrors, ThrowOnError, 'data'>({
+export const podBaseViewDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseViewDeleteData, ThrowOnError>
+): RequestResult<PodBaseViewDeleteResponses, PodBaseViewDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodBaseViewDeleteResponses, PodBaseViewDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/views/{id}',
@@ -1172,12 +1177,12 @@ export const podDatabaseViewDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseViewUpdate operation on pod_database_operation resource
+ * podBaseViewUpdate operation on pod_base_operation resource
  */
-export const podDatabaseViewUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseViewUpdateData, ThrowOnError>
-): RequestResult<PodDatabaseViewUpdateResponses, PodDatabaseViewUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodDatabaseViewUpdateResponses, PodDatabaseViewUpdateErrors, ThrowOnError, 'data'>({
+export const podBaseViewUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseViewUpdateData, ThrowOnError>
+): RequestResult<PodBaseViewUpdateResponses, PodBaseViewUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodBaseViewUpdateResponses, PodBaseViewUpdateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/views/{id}',
@@ -1189,12 +1194,12 @@ export const podDatabaseViewUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDatabaseWrite operation on pod_database_operation resource
+ * podBaseWrite operation on pod_base_operation resource
  */
-export const podDatabaseWrite = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseWriteData, ThrowOnError>
-): RequestResult<PodDatabaseWriteResponses, PodDatabaseWriteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseWriteResponses, PodDatabaseWriteErrors, ThrowOnError, 'data'>({
+export const podBaseWrite = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseWriteData, ThrowOnError>
+): RequestResult<PodBaseWriteResponses, PodBaseWriteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseWriteResponses, PodBaseWriteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/records',
@@ -1275,23 +1280,6 @@ export const podDocumentWrite = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/content',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podDatabaseTableCreate operation on pod_database_operation resource
- */
-export const podDatabaseTableCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodDatabaseTableCreateData, ThrowOnError>
-): RequestResult<PodDatabaseTableCreateResponses, PodDatabaseTableCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodDatabaseTableCreateResponses, PodDatabaseTableCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/databases/{page_id}/tables',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

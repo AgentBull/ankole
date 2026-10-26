@@ -29,19 +29,19 @@
     "@ankole/browser": "workspace:*",
     "@bufbuild/protobuf": "2.16.0",
     "@ff-labs/fff-bun": "0.11.0",
-    "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/otlp-transformer": "^0.223.0",
-    "@opentelemetry/resources": "^2.12.0",
-    "@opentelemetry/sdk-trace-base": "^2.12.0",
-    "phoenix": "1.8.15",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/otlp-transformer": "^0.300.0",
+    "@opentelemetry/resources": "^3.0.0",
+    "@opentelemetry/sdk-trace": "^3.0.0",
+    "phoenix": "1.8.16",
     "pino": "^10.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@bufbuild/buf": "1.74.0",
+    "@bufbuild/buf": "1.75.0",
     "@bufbuild/protoc-gen-es": "2.16.0",
-    "@types/bun": "1.4.3",
+    "@types/bun": "1.4.4",
     "@types/phoenix": "^1.6.7",
-    "openai": "7.38.0"
+    "openai": "7.43.0"
   }
 }

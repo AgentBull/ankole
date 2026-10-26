@@ -21,4 +21,4 @@ or a handler crash withholds the ack so Slack redelivers the envelope. Regular
 Slack disconnect refreshes reconnect immediately, while credential failures
 stop the client.
 
-Run tests with `mix test` from this directory.
+Run tests with `bun run control-plane:test:plugins slack_adapter` from the repository root.

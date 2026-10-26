@@ -17,6 +17,14 @@ defmodule AnkoleWeb.SetupControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
+  defmodule FixedPlugin do
+    @behaviour Ankole.Plugins.Plugin
+    @impl true
+    def plugin_id, do: "fixture-fixed-setup"
+    @impl true
+    def activation, do: :always
+  end
+
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     Registry.clear_for_test()
@@ -236,7 +244,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     conn = api_get(conn, ~p"/api/v2/browser/setup/plugins")
     response = api_response(conn, 200)
 
-    assert response["enabledPluginIDs"] == ["lark-adapter"]
+    assert response["enabledPluginIDs"] == Enum.sort(["lark-adapter" | fixed_plugin_ids()])
     assert Enum.any?(response["plugins"], &(&1["id"] == "slack-adapter"))
 
     updated =
@@ -247,7 +255,9 @@ defmodule AnkoleWeb.SetupControllerTest do
       })
       |> api_response(200)
 
-    assert updated["enabledPluginIDs"] == ["lark-adapter", "slack-adapter"]
+    assert updated["enabledPluginIDs"] ==
+             Enum.sort(["lark-adapter", "slack-adapter" | fixed_plugin_ids()])
+
     assert {:ok, ["lark-adapter", "slack-adapter"]} = PluginsConfig.enabled_ids()
   end
 
@@ -259,5 +269,46 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> api_put(~p"/api/v2/browser/setup/plugins/enabled", %{"pluginIDs" => ["missing-plugin"]})
 
     assert api_error(conn, 400)["code"] =~ "unknown_plugin_ids"
+  end
+
+  test "setup keeps fixed build Plugins selected without adding them to the optional policy", %{
+    conn: conn
+  } do
+    snapshot = Ankole.Plugins.Registry.snapshot_for_test()
+    {:ok, spec} = Ankole.Plugins.Spec.from_module(FixedPlugin)
+
+    Ankole.Plugins.Registry.update_for_test(fn state ->
+      %{
+        state
+        | discovered: Map.put(state.discovered, spec.id, spec),
+          active: Map.put(state.active, spec.id, spec)
+      }
+    end)
+
+    on_exit(fn -> Ankole.Plugins.Registry.update_for_test(fn _ -> snapshot end) end)
+    assert {:ok, []} = PluginsConfig.put_enabled_ids([])
+    fixed_ids = fixed_plugin_ids()
+
+    conn = conn |> init_test_session(%{}) |> WebSession.put_setup_session()
+    conn = api_get(conn, ~p"/api/v2/browser/setup/plugins")
+    response = api_response(conn, 200)
+    assert response["enabledPluginIDs"] == fixed_ids
+    assert spec.id in response["enabledPluginIDs"]
+    assert %{"activation" => "always"} = Enum.find(response["plugins"], &(&1["id"] == spec.id))
+
+    for selected <- [[], [spec.id]] do
+      response =
+        conn
+        |> recycle()
+        |> api_put(~p"/api/v2/browser/setup/plugins/enabled", %{"pluginIDs" => selected})
+        |> api_response(200)
+
+      assert response["enabledPluginIDs"] == fixed_ids
+      assert {:ok, []} = PluginsConfig.enabled_ids()
+    end
+  end
+
+  defp fixed_plugin_ids do
+    for plugin <- Ankole.Plugins.list_discovered(), plugin.activation == :always, do: plugin.id
   end
 end

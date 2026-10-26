@@ -57,6 +57,10 @@ unconsumed signal Jobs (minimum 2, default 10), the Dreaming `skill_lessons`
 phase starts one reflection Job for that Agent. Brain records the Agent as
 the trusted creation source. This is independent service work; the presence of
 Human input in the evidence does not make the reflection a Human-owned task.
+Reflection Jobs use an empty reply route and an Agent-owned execution Session,
+so Agents that work through Pod can also produce lessons. A successful terminal
+commit queues lesson application in the same transaction. Reflection completion
+does not send a conversation notification.
 
 The reflection Job is a background Job marked with the
 `skill_lesson_reflection` metadata flag; every user-facing Job listing and

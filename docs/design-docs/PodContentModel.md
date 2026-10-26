@@ -2,12 +2,12 @@
 
 A Conversation holds the work process. A Page keeps the result. Pod content is
 shared by Humans and Agents through the same domain contracts. PostgreSQL owns
-pages, documents, Database records, revisions, permissions, and file references.
+pages, documents, Base records, revisions, permissions, and file references.
 Worker files, browser caches, and channel presence are not durable truth.
 
 The first product version lets Humans and AI collaborate on these same stored
 documents and business tables. An AI-generated applet is another interface to
-the same Database and runs as its current Human. GitHub Issues are test input;
+the same Base and runs as its current Human. GitHub Issues are test input;
 they do not define a separate first-version product or connector interface.
 
 ## Browser interactions
@@ -20,7 +20,7 @@ This reference does not add features outside the first-version scope. See
 [properties](https://www.notion.com/help/database-properties), and
 [trash](https://www.notion.com/help/duplicate-delete-and-restore-content).
 Calendar, timeline, form, and chart presentations are Applets, not built-in
-Database views.
+Base views.
 
 Page titles and document bodies share one recoverable draft and navigation
 guard. Failed saves retain input. Pending dialogs keep their submitted inputs
@@ -96,7 +96,7 @@ Model choices belong to the Chat, with null following the Agent default. Each
 accepted input captures its logical profile; later preference changes affect
 future replies. An input with a different profile from the active run must queue.
 
-Database cells keep the value and field versions from the start of an edit.
+Base cells keep the value and field versions from the start of an edit.
 Enter or Tab submits; Escape cancels; composition keys do not submit. A conflict
 keeps the draft for an explicit retry or discard. View changes preview locally;
 an editor can save them for everyone with the starting view version. A failed
@@ -120,9 +120,9 @@ the applet.
 ## Pages and access
 
 `Ankole.Pod.Pages` owns the page tree and lifecycle. A page is a `doc`,
-`database`, `applet`, or `file`. Every page type can have child pages. A new
-Database page has a `Table 1` table, a primary `Name` field, and a `Grid` view. Tables
-and records belong to a Database; they are not pages. Sibling positions use
+`base`, `applet`, or `file`. Every page type can have child pages. A new
+Base page has a `Table 1` table, a primary `Name` field, and a `Grid` view. Tables
+and records belong to a Base; they are not pages. Sibling positions use
 PostgreSQL `C` collation. Page moves lock the tenant tree before they check for
 cycles, so concurrent opposite moves cannot create a cycle. A move names one
 sibling with `after_id` or `before_id`, and the server makes the key under the
@@ -201,6 +201,8 @@ Move destination search supplies `exclude_subtree_of`. The server excludes
 that Page and all its descendants before the result limit, including descendants
 whose ancestors do not match the search text.
 Move, copy, and saved-artifact destinations also supply `required_action=page_edit`.
+Base copies start with the source parent as the destination. If that parent is
+not editable, the caller must select an editable destination before submission.
 The search checks both view and edit access before the result limit. Ordinary
 search uses `page_view`.
 List text queries match titles and document bodies within the requested
@@ -220,17 +222,17 @@ or its attempt is replaced.
 ### Persistence and transactions
 
 The root module `Ankole.Pod` is the Ash domain. Its durable resources are `Page`,
-`PageContent`, `PageChange`, `PageUserState`, `DbTable`, `DbField`, and
-`DbView`, and its `*.Browser` resources serve `/api/v2/pod` JSON:API routes.
+`PageContent`, `PageChange`, `PageUserState`, `BaseTable`, `BaseField`, and
+`BaseView`, and its `*.Browser` resources serve `/api/v2/pod` JSON:API routes.
 The browser actions validate query operators as finite enums, then convert
 them to the JSON strings consumed by the shared database query contract.
 Each Pod operation that writes, or reads under a row lock, runs in
 `Repo.transact_top_level/2` in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`,
-`Documents`, `Files`, `Applets`, `Database`, and `Jobs.PurgePage`). Its first
+`Documents`, `Files`, `Applets`, `Bases`, and `Jobs.PurgePage`). Its first
 step takes the Pod tree lock for topology and sharing writes, then checks and
 locks the Agent's turn. Content and record writes do not take the tree lock.
 The `*_in_tx` functions run the write steps; another Pod operation can call one
-of them in its own transaction, as a Database copy calls `Pages.create_in_tx/1`.
+of them in its own transaction, as a Base copy calls `Pages.create_in_tx/1`.
 Broadcasts to the page, access, and table topics run after commit
 (`after_commit`), and only when the transaction succeeds.
 
@@ -257,8 +259,10 @@ statement sets `REPEATABLE READ, READ ONLY`. SQL Sandbox savepoint tests use
 the outer test transaction. Committed concurrency tests use the full isolation
 contract. Reads that need row locks use `READ COMMITTED`. They acquire the
 Page or table lock before authorization and before loading protected data.
-`Database.query` locks its table for share. `Copy.table` locks source tables
-in ID order for update before it checks source access.
+`Bases.query` locks inline metadata for share and physical metadata for key share.
+The inline share lock keeps records and their version in one consistent read.
+`Copy.table` locks source tables in ID order for update before it checks source
+access.
 Page state reads use the same repeatable-read snapshot for authorization and
 state. Favorite and visit writes lock the Page for share before authorization
 and commit the state in that transaction.
@@ -270,9 +274,10 @@ Tenant deletion removes records and other children in batches before pages.
 Deletion marks a page as trash and hides its subtree. A scheduled purge starts
 after `pod.trash_retention_days` (default 30). The purge marks its start in the
 same transaction that checks eligibility. Restore is rejected after that mark.
-The purge job removes records, file references, grants, and child pages in
-batches; an interrupted job resumes from the remaining rows. It does not use
-foreign-key cascades to perform bulk deletion.
+The purge job marks and cleans each Base table through the Base cleanup contract.
+It then removes page resources, file references, grants, and child pages in
+bounded batches. The root stays present until cleanup completes, so an
+interrupted job can resume from the remaining resources.
 
 ## Documents and collaboration
 
@@ -368,42 +373,111 @@ Creating an inline page first creates its child in the tree. Deleting its direct
 child embed through the block menu trashes that child. Removing a reference with
 a selection or an Agent document rewrite leaves the page in the tree.
 
-## Database
+## Base
 
-`Ankole.Pod.Database` owns schemas, record writes, and query transactions.
-`db_tables`, `db_fields`, `db_views`, and `db_records` share
-their Database page's access and lifecycle. Schema operations do not run DDL.
-A table has one primary field and at most 100,000 records.
+`Ankole.Pod.Bases` owns table schemas, record writes, and queries. Tables,
+fields, and views are Ash resources. They share their Base page's access and
+lifecycle. Each table has one primary text field, at most 200 active fields,
+and at most 100,000 records. A primary value uses at most 2,048 UTF-8 bytes.
+The primary field permits name and position changes; its type is fixed as text.
 
-Tables, fields, and views are Ash resources in `Ankole.Pod`. Records are not:
-users define their fields at runtime, and record queries are built from user
-filters. The Database subsystem (`Ankole.Pod.Database` and its `Write`,
-`Records`, and `Schema` modules, `Ankole.Pod.Query`, `Ankole.Pod.Copy`, and
-`Ankole.Pod.Values`) owns `db_records` through the `Ankole.Pod.DbRecord` Ecto
-schema. Only this subsystem writes record rows; it reads tables, fields, and
-views through Ash. Create actions and the record create changeset set
-identity and ownership once. Field and view updates advance their stored
-version with SQL expressions. The locked write journal advances each affected
-table's stored version and counters once per commit. PostgreSQL checks reject
-negative counters, record counts above the limit, nonpositive schema versions,
-and JSON values that are not objects. Database authorization follows sorted
-table locks in the aggregate write transaction. `table_access/3` accepts `:read`, `:write_records`, or
-`:manage_schema`, or `:delete_table`. These intents require `page_view`,
-`page_write_records`, `page_edit`, and `page_manage`, respectively, on the host
-Page. A table with incoming link fields cannot be deleted until those fields
-are removed. Record copy, field conversion,
-and field-value removal use bounded SQL statements of the Database subsystem.
-Purge uses the same resource destroy actions in batches of 1,000 rows; the
-Database subsystem removes record rows in batches of the same size.
+An independent table with at most 2,000 records and 4,194,304 stored data bytes
+uses `inline` storage. Its records live in `base_records` in the control-plane
+database. The generated `data_bytes` column measures `octet_length(data::text)`;
+the write transaction sums those integers into `base_tables.record_bytes`.
+These thresholds are fixed system constants. Each inline write locks only its
+own metadata row `FOR NO KEY UPDATE`, and commits records, field versions,
+auto numbers, counters, and its data version in that database.
 
-Records use JSONB maps keyed by field UUID. The `versions` map holds a separate
-compare-and-set value per field. An update supplies the versions of changed
-fields; a delete supplies the complete version map. Independent field edits can
-both succeed. A batch of at most 200 records commits as a unit. Type conversion
-rejects invalid values unless the caller explicitly requests clearing them;
-conversion advances the affected field versions. Link changes update reverse
-links in the same transaction. Deleting one direction keeps the counterpart's
-values and makes it a one-way field.
+Crossing either threshold, or creating any link, promotes a table to `physical`
+storage. A link promotes both endpoint tables. Promotion is one-way. The
+operation takes metadata locks `FOR UPDATE`, imports the records with one JSON
+parameter and `jsonb_to_recordset`, and creates the indexes in a single shard
+transaction. It then removes the inline rows and marks the metadata physical.
+A retry drops incomplete physical tables and their referencing edge tables, then
+imports the authoritative inline records. Reads and writes
+use the same typed API in both modes.
+
+`Ankole.Pod.BaseRepo` routes physical operations to the tenant's fixed
+`base_db_id`. The active `Ankole.Repo` tenant context supplies the schema name
+`t_<tenant_hex>`. Physical tables use `tbl_<table_hex>` and columns use
+`f_<field_hex>`. Text, number, checkbox, datetime, and auto-number fields use
+`text`, `numeric`, `boolean`, `timestamptz`, and `bigint`; structured cells use
+`jsonb`. The table's system columns hold its ID, field versions, timestamps,
+and authors. Indexes cover the primary key, primary field with `COLLATE "C"`,
+auto numbers, and link edges. Text comparisons and sorting use the same `C`
+collation as the primary index. Case conversion and `ILIKE` use the database
+locale. The tenant's `_table_states` row owns each physical table's schema
+version, data version, count, and next auto number.
+
+Physical record writes hold the Agent commit authority and sorted active page
+metadata rows `FOR KEY SHARE` in the control plane. They lock the relevant shard
+state rows and commit all business changes in one shard transaction. They do not
+write control-plane counters. The key-share locks permit inline writes on the
+same page. All control-plane locks precede the shard transaction (lock rank 12).
+The shard transaction cannot acquire another control-plane lock or connection.
+It can read through the control-plane transaction's existing connection.
+
+A record batch has at most 200 operations. A cell update supplies the baseline
+versions of the changed fields; deletion supplies the complete version map.
+Different-cell edits can both succeed. Each affected table advances once per
+batch. Explicit clearing advances a cell version even if the value is absent.
+The browser and function SDK assign UUIDv7 IDs to creates in a `RecordWrite`
+before sending it. Retrying the same write reuses those IDs; a new `create` call
+starts a new operation. The record form keeps its create ID until it succeeds or
+the user closes it, including when the user edits a failed submission. A repeated
+create ID fails the storage primary-key constraint and rejects the batch with
+`record_exists` (HTTP 409). It cannot create a second record or overwrite the
+saved values. The user can close the form and review the saved record if the
+first response was lost.
+
+Links use ordered `lnk_<forward_field_hex>` edge tables with native cascading
+foreign keys. Field configuration records the edge name and `src` or `dst`
+role. Both directions enforce their single-value cardinality or a maximum of
+2,000 IDs per cell. Reads return the complete ordered array. A one-way child
+link can point to a parent with more than 2,000 children. Deleting one direction
+keeps the counterpart's edge and values. Disabling bidirectional writes gives
+each field an independent edge.
+
+Deleting a linked record updates surviving peer cell versions and timestamps
+for at most 2,000 affected records per field. Above that limit, foreign keys
+remove the edges, the affected table version advances, and `resync: true`
+requests a full client refresh. It does not send a partial cell value.
+
+Field and view changes lock page tables in ID order `FOR UPDATE`. For field
+changes, the control plane writes definitions before a single shard DDL
+transaction validates the old schema versions, changes physical objects, and
+advances state versions. `Bases.Schema` writes definitions through Ash;
+`Bases.DDL` owns stored value changes in both storage modes. Physical conversions
+read the affected column in batches and stage converted cells in a temporary
+PostgreSQL table until the column and edge changes can be applied. The transaction
+validates complete record sizes before commit. Type conversion
+stops at the first invalid cell unless `clear_invalid` is explicit. Unchanged
+select values keep their cell versions when the available options change.
+Conversion to a formula or system field removes the stored cell value and
+version; reads use the formula or the record's system columns. A physical
+field type change refreshes statistics with best-effort `ANALYZE` after commit.
+PostgreSQL's 1,600 historical column limit returns an error that asks the caller
+to copy the table.
+
+View changes write their definitions in the control plane and advance the
+table's data version in its storage database. They publish `schema_changed`
+after commit. The data version lets clients detect a missed event when they
+reconnect. The physical schema version and relations stay unchanged.
+
+Ordinary shard writes use the control-plane request's 15-second budget; schema
+changes and promotion use 60 seconds. A shard deadline is two seconds earlier.
+Transaction-local statement and transaction timeouts enforce the remaining
+budget; lock timeouts are five seconds for records and two seconds for DDL.
+A shard write probes the original control-plane connection immediately before
+its commit. A schema-version mismatch rejects access and logs an operator error.
+
+`table_access/3` maps `:read`, `:write_records`, `:manage_schema`, and
+`:delete_table` to `page_view`, `page_write_records`, `page_edit`, and
+`page_manage` on the host page. A table with incoming links cannot be deleted.
+Deletion first commits `deleting_at` and a cleanup job. Ordinary access excludes
+marked tables. Cleanup drops shard objects, then removes metadata; `PurgePage`
+resumes an interrupted cleanup and also handles deleted page subtrees.
 
 `Ankole.Pod.Formula` parses same-record expressions and generates typed SQL.
 Formula values and system fields are read-only. References use field identity,
@@ -421,8 +495,8 @@ batch, including both sides of a link. Each touched table advances once at
 commit. Repeated operations in a batch compare against the preceding operation's
 actual field versions; an old baseline rolls the whole batch back. Explicitly
 clearing a field advances its version even when its value is already absent.
-Field conversions stream rows in batches, validate final record bytes through
-the same owner as ordinary writes, and remain one atomic transaction.
+Field conversions validate final record bytes through the same owner as
+ordinary writes and commit atomically in their storage database.
 
 `Ankole.Pod.Query` owns typed filtering, sorting, keyset pagination, grouping,
 and aggregate SQL. It adds the record ID after explicit sort keys and handles
@@ -431,12 +505,13 @@ representations; they do not pass through JavaScript numeric rounding. Aggregate
 groups return `value_json` alongside display values, and grouped record queries
 use that exact JSON value. The group condition is ANDed outside any user filter.
 Large kanban views fetch full-table group counts and page each group separately.
-Queries hold a table share lock so schema and data
-version match the result. The statement timeout includes lock waiting.
+Physical reads hold metadata key-share locks and use one repeatable-read,
+read-only shard snapshot for records and `_table_states`. They verify the schema
+version before serving data. The statement timeout includes lock waiting.
 
-The GIN `jsonb_path_ops` index supplies containment candidates. Array equality
-also checks JSONB equality: containment alone accepts supersets and different
-orders. Other operations scan within the selected table. Statistics support
+The shared query compiler uses JSONB expressions for inline records and native
+columns and edge subqueries for physical records. Array equality checks JSONB
+equality as well as containment. Statistics support
 up to two group fields and date buckets in `system.timezone`. A count without
 a field counts rows; a count with a field counts its non-null values.
 
@@ -456,8 +531,8 @@ they share the table query, record writes, permissions, and realtime updates,
 and differ only in presentation. A built-in view type must be a way to browse
 the same records. Calendar, timeline, form, and chart presentations are Applets;
 they introduce time-axis, public submission, or encoding semantics that do not
-belong to the Database contract. An Applet that presents a table reads and
-writes through the same Database API.
+belong to the Base contract. An Applet that presents a table reads and
+writes through the same Base API.
 
 View changes use their own versions. Dragging in kanban writes the related field
 through the ordinary record contract. Inline views keep their configuration in
@@ -468,34 +543,35 @@ New fields, reverse fields, and views append after the last position by default.
 An explicit position is authoritative. These writes use the table
 locks; a new self-link also reserves its uninserted forward field's position.
 
-`database.copy` makes an independent table under a target document. It applies
+`base.copy` makes an independent table under a target document. It applies
 the source filter, assigns new IDs, and adds references to existing attachment
-bytes. Copied formulas refer to the copy's own fields. Links become fixed
-multiple-select options with the original record IDs and their current titles;
-they do not read the linked table. View configuration changes only field
+bytes. Source metadata locks keep the copy stable. Records move in batches
+through a temporary control-plane table, then into their destination storage.
+The temporary table belongs to the copy transaction. Copied formulas refer to
+the copy's own fields. Links become fixed
+multiple-select options with the original record IDs and their current titles.
+The copy reads the complete option set as IDs and titles; the saved options
+are independent of the linked table. View configuration changes only field
 references, not business values that happen to equal a field ID. Later source
-edits do not change the copy.
+edits do not change the copy. Copies that fit the fixed inline thresholds use
+inline storage; larger copies are created directly in the tenant shard.
 
-`pod.database.limits` has these configurable defaults:
+`pod.base.limits` has these configurable defaults:
 
 | Key | Default |
 | --- | --- |
-| `local_rows` | 5,000 |
-| `local_bytes` | 5,000,000 |
 | `query_rows` | 1,000 |
 | `record_bytes` | 1,000,000 |
 | `group_count` | 1,000 |
 | `statement_timeout_ms` | 5,000 |
 
-Both small-table thresholds must hold. `query_rows` bounds ordinary query
-pages; a complete small-table load uses `local_rows` and `local_bytes`.
-Schema mode is a row-count hint. The server decides local eligibility from
-its complete response size. When applying deltas, the client checks the UTF-8
-JSON size of its candidate snapshot and returns to that server check if the
-threshold is crossed. This client check is a performance optimization; it does
-not assume identical numeric encodings on both sides.
-Limits reject excess input or results rather than silently truncating them.
-There is no per-tenant query concurrency limit.
+`query_rows` bounds ordinary query pages. Both storage modes support local
+snapshots with at most 2,000 records and 4 MiB of serialized records, including
+formula results and record metadata. PostgreSQL checks the projected size
+before sending records to the browser. The schema reports this eligibility
+separately from the storage mode. The browser refreshes schema before merging
+a record delta and invalidates its snapshot on promotion or `resync`. Limits reject excess input
+or results explicitly.
 
 ## Files and Conversation origins
 
@@ -505,7 +581,7 @@ table. A unique index treats nulls as equal. Pod references live under
 `pages/<page-id>/`. `Ankole.Pod.Files` authorizes their page before access.
 
 A file-page replacement commits its bytes and revision together. Document assets
-and Database attachments use the full digest in their path. Removing a document
+and Base attachments use the full digest in their path. Removing a document
 reference leaves its asset available until page purge. See [Files](Files.md).
 
 File pages preview PDF, images, audio, video, workbooks, and presentations.
@@ -611,7 +687,7 @@ complete project to its destination. A project with `package.json` runs
 `bun install --ignore-scripts`.
 
 The SDK uses the current Human's ordinary Pod APIs and a shared QueryClient.
-The shared Database API owns table-cache refresh after writes and live events.
+The shared Base API owns table-cache refresh after writes and live events.
 One connection per table coordinates schema and snapshot changes, then refreshes
 the record and aggregate queries once. SDK hooks observe access revocation.
 The ContentProvider owns one cache observer for denied reads across Applet
@@ -642,7 +718,7 @@ result membership. `useChannel` uses `applet:<page-id>:<room>` for temporary mes
 and presence. The server checks each recipient's current authentication, Pod
 policy, and Page access before it sends a message or presence update. A failed
 check ends that recipient's subscription. Presence and channel messages are not
-saved or replayed. Applets can use network fetch. Page and Database authority
+saved or replayed. Applets can use network fetch. Page and Base authority
 remains with the server.
 
 ### Backend routes
@@ -723,13 +799,13 @@ at the same time. The call deadline includes replica admission and worker startu
 An expired call cannot start a handler.
 
 `AnkoleRuntime` capabilities call domain owners with the caller's
-identity and tenant: `db.schema`, `db.query`, `db.aggregate`, `db.write`,
+identity and tenant: `base.schema`, `base.query`, `base.aggregate`, `base.write`,
 `file.list`, `file.read`, and `file.write`. Each call repeats authorization;
 all calls require `page_view` on the Applet. Writes require the action on the
 target resource: `page_write_records` for records and record attachments, or
 `page_edit` for file content. They also enforce current RunRef or Job authority.
 The frontend SDK exposes the Applet Page's effective `actions`; the target
-Database API owns record-write authorization. GET handlers cannot write. Database writes keep
+Base API owns record-write authorization. GET handlers cannot write. Base writes keep
 field-version conflicts and normal broadcasts.
 There is no transaction across capability calls. A guarded inventory update
 reads the record, writes with its field versions, and rereads after a conflict.
@@ -768,7 +844,7 @@ handler check establishes logic only, not the authenticated Human interaction.
 
 ## External test data
 
-Tests can import external data through ordinary Database writes. Pod has no
+Tests can import external data through ordinary Base writes. Pod has no
 sync bindings, source cursors, reserved external IDs, or sync-owned fields.
 All stored records follow the same access and field-version contracts.
 
@@ -785,7 +861,7 @@ Provider and process integration results do not by themselves prove a complete
 model-driven user session.
 
 The dedicated `pod_content_real_llm` suite starts from a native Human business
-request. The actual model creates the report, Database, and applet through the
+request. The actual model creates the report, Base, and applet through the
 Worker CLI. A real authenticated Human follows the delivered Chat link, uses
 the applet inside the report to write the same table, and reloads it. A later
 request makes the AI update the original report from those records. The Human

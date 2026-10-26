@@ -1,1 +1,9 @@
-{"edition-fixture": "fixture.tsx"}
+{
+  "entries": {
+    "edition-fixture": "fixture.tsx"
+  },
+  "overrides": {
+    "auth": "auth.tsx",
+    "pod": "pod.tsx"
+  }
+}

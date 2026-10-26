@@ -8,14 +8,14 @@ defmodule Ankole.IdentityProviders.ObservationTest do
   alias Ankole.Principals.{HumanUser, Principal}
 
   setup do
-    original_registry = :sys.get_state(Ankole.Plugins.Registry)
+    original_registry = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, wecom} = Ankole.Plugins.Spec.from_module(Ankole.Plugins.WeComAdapter)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn state ->
+    Ankole.Plugins.Registry.update_for_test(fn state ->
       %{state | active: Map.put(state.active, wecom.id, wecom)}
     end)
 
-    on_exit(fn -> :sys.replace_state(Ankole.Plugins.Registry, fn _ -> original_registry end) end)
+    on_exit(fn -> Ankole.Plugins.Registry.update_for_test(fn _ -> original_registry end) end)
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
     assert {:ok, _} = Ankole.Plugins.put_configured_enabled("wecom-adapter", true)

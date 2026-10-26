@@ -64,6 +64,7 @@ import type {
 } from '../state/agent-library-capabilities'
 import { BackLink, PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
+import { localizedText } from '../../common/config-fields'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, SaveButton } from '../console-form'
 import { ResourceSearch } from '../console-list-page'
@@ -77,7 +78,6 @@ import {
   filterControlPlanePlugins,
   filterSkills,
   humanizeAgentPluginID,
-  localizedJSONText,
   parseAgentLibraryOverrideValue
 } from '../state/agent-library-capabilities'
 
@@ -674,20 +674,21 @@ function ControlPlanePluginCard({
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="normal-case">
-          {localizedJSONText(plugin.display_name, i18n.language) || plugin.id}
-        </CardTitle>
-        <CardDescription>{localizedJSONText(plugin.description, i18n.language)}</CardDescription>
+        <CardTitle className="normal-case">{localizedText(plugin.display_name, i18n.language) || plugin.id}</CardTitle>
+        <CardDescription>{localizedText(plugin.description, i18n.language)}</CardDescription>
         <CardAction>
           <Switch
             aria-label={t('console.agent_library_capabilities.configure_plugin', { id: plugin.id })}
             checked={plugin.configured_enabled}
-            disabled={pending}
+            disabled={pending || plugin.activation === 'always'}
             onCheckedChange={onChange}
           />
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2 border-t border-border pt-4">
+        {plugin.activation === 'always' ? (
+          <Badge variant="outline">{t('console.agent_library_capabilities.always_active')}</Badge>
+        ) : null}
         <Badge variant={plugin.active ? 'success' : 'outline'}>
           {plugin.active
             ? t('console.agent_library_capabilities.active_now')

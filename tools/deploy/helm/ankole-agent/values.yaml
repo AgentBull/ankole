@@ -12,6 +12,9 @@ serviceAccount:
   name: ""
 
 secrets:
+  # Empty uses DATABASE_URL with a separate pool and tenant schemas.
+  # Multiple URLs are separated by semicolons and require ankole_sharding IDs.
+  baseDBURLs: ""
   # Use an existing Secret instead of values below. See the README for its keys.
   existingSecret: ""
   # Empty values are generated on install and preserved during upgrades.

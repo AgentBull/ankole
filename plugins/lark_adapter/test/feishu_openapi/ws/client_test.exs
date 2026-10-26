@@ -8,6 +8,11 @@ defmodule FeishuOpenAPI.WS.ClientTest do
   alias FeishuOpenAPI.WS.{Client, Frame}
 
   test "callback failures keep the real WebSocket failure ack without disclosing private data" do
+    # CaptureLog cannot capture messages that the primary Logger filter drops.
+    previous_level = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: previous_level) end)
+
     secret = "private-websocket-callback-should-not-escape"
 
     for {mode, failure} <- [
@@ -73,26 +78,29 @@ defmodule FeishuOpenAPI.WS.ClientTest do
         end)
 
       log =
-        ExUnit.CaptureLog.capture_log([format: "$metadata$message\n", metadata: :all], fn ->
-          {:ok, pid} =
-            Client.start_link(
-              client: handshake_client("cli_ws_private_#{mode}", port),
-              dispatcher: dispatcher,
-              auto_reconnect: false
-            )
+        ExUnit.CaptureLog.capture_log(
+          [level: :info, format: "$metadata$message\n", metadata: :all],
+          fn ->
+            {:ok, pid} =
+              Client.start_link(
+                client: handshake_client("cli_ws_private_#{mode}", port),
+                dispatcher: dispatcher,
+                auto_reconnect: false
+              )
 
-          try do
-            assert_receive {:dispatch_ack, ^server, {:ok, ack}}, 1_000
-            assert {ack.seq_id, ack.log_id, ack.service, ack.method} == {7, 8, 9, 1}
-            assert Torque.decode!(ack.payload) == %{"code" => 500}
-            assert Client.status(pid) == :connected
-            refute ack.payload =~ secret
-            if mode == :returned, do: assert_receive({:callback_finished, :returned})
-          after
-            if Process.alive?(pid), do: Client.stop(pid)
-            send(server, :close)
+            try do
+              assert_receive {:dispatch_ack, ^server, {:ok, ack}}, 1_000
+              assert {ack.seq_id, ack.log_id, ack.service, ack.method} == {7, 8, 9, 1}
+              assert Torque.decode!(ack.payload) == %{"code" => 500}
+              assert Client.status(pid) == :connected
+              refute ack.payload =~ secret
+              if mode == :returned, do: assert_receive({:callback_finished, :returned})
+            after
+              if Process.alive?(pid), do: Client.stop(pid)
+              send(server, :close)
+            end
           end
-        end)
+        )
 
       assert log =~ "feishu_openapi.ws.dispatch_result"
       assert log =~ "failure=#{failure}"

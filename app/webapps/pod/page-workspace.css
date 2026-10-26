@@ -20,7 +20,7 @@
   padding: 72px 48px 140px;
 }
 
-.pod-page[data-page-type='database'] .pod-page-content,
+.pod-page[data-page-type='base'] .pod-page-content,
 .pod-page[data-page-type='applet'] .pod-page-content,
 .pod-page[data-page-type='file'] .pod-page-content {
   width: 100%;

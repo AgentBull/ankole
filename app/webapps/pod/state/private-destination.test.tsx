@@ -8,7 +8,7 @@ import { contentKeys } from '../content-api'
 import { ContentListRoute, ContentNavigation } from '../page-navigation'
 import { loadLocale } from '../../common/i18n'
 
-beforeAll(() => loadLocale('en-US', 'pod'))
+beforeAll(() => loadLocale('en-US'))
 
 describe('Private page creation', () => {
   for (const state of ['pending', 'error', 'ready', 'guest'] as const) {

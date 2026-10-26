@@ -5,9 +5,8 @@
     [
       "*.{heex,ex,exs}",
       "lib/**/*.{heex,ex,exs}",
-      "../control_plane_core/**/*.{heex,ex,exs}",
-      "../../plugins/*/{mix,.formatter}.exs",
-      "../../plugins/*/lib/**/*.{heex,ex,exs}",
+      "patches/*.exs",
+      "../../plugins/*/{lib,test,scripts}/**/*.{heex,ex,exs}",
       "../../libs/{im_transport,feishu_protocol}/**/*.{ex,exs}",
       "config/**/*.{heex,ex,exs}",
       "test/**/*.{heex,ex,exs}",

@@ -504,10 +504,10 @@ defmodule Ankole.SessionsCase do
   end
 
   def use_mock_signal_provider_plugin(_context) do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
     {:ok, spec} = Spec.from_module(MockSignalProviderPlugin)
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+    Ankole.Plugins.Registry.update_for_test(fn _state ->
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
@@ -516,7 +516,7 @@ defmodule Ankole.SessionsCase do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
       Ankole.AppConfigure.Registry.clear_for_test()
     end)
 
@@ -525,9 +525,12 @@ defmodule Ankole.SessionsCase do
 
   def emit_entry(agent_uid, binding_name, input, opts) do
     # Observation and batch finalization are top-level actions; each owns its
-    # transaction. Domain tests admit the input explicitly.
+    # transaction. Domain tests admit the input explicitly; Driver integration
+    # tests set stub_driver: false.
+    {stub_driver?, opts} = Keyword.pop(opts, :stub_driver, true)
+
     with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts) do
-      {:ok, maybe_finalize_test_inbound_batch(result)}
+      {:ok, maybe_finalize_test_inbound_batch(result, stub_driver?)}
     end
   end
 
@@ -754,7 +757,15 @@ defmodule Ankole.SessionsCase do
     flunk("expected final mirror for ai_message_id=#{ai_message_id}")
   end
 
-  defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
+  defp maybe_finalize_test_inbound_batch(
+         %{inbound_batch: %InboundBatch{} = batch} = result,
+         stub_driver?
+       ) do
+    key = %{agent_uid: batch.agent_uid, session_id: batch.session_id}
+
+    if stub_driver? and Ankole.Sessions.driver_pid(key) == :undefined,
+      do: stub_driver(key)
+
     finalize_result =
       Ankole.SignalsFixtures.finalize_due_inbound_batch_events(now: batch.available_at)
 
@@ -767,7 +778,7 @@ defmodule Ankole.SessionsCase do
     end
   end
 
-  defp maybe_finalize_test_inbound_batch(result), do: result
+  defp maybe_finalize_test_inbound_batch(result, _stub_driver?), do: result
 
   defp attach_existing_signal_from_batch(%InboundBatch{} = batch, result) do
     case Repo.get(InboundBatch, batch.id) do

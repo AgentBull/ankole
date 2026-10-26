@@ -19,4 +19,4 @@ Socket Mode handler 在 `SlackOpenAPI.EventTaskSupervisor` 中执行；只有 di
 handler 崩溃不回 ack，由 Slack 重投信封。Slack 的例行 disconnect 会立即重连，凭证类
 错误则停止客户端。
 
-在本目录执行 `mix test`。
+在仓库根目录执行 `bun run control-plane:test:plugins slack_adapter`。

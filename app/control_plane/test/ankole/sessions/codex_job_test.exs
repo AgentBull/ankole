@@ -6,6 +6,49 @@ defmodule Ankole.Sessions.CodexJobTest do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.AIGateway.Schemas.Conversation
 
+  test "a reflection without Bindings starts with its Agent context and a fenced attempt" do
+    %{principal: agent} = agent_fixture()
+    refute Repo.exists?(Ankole.Signals.Binding)
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    assert {:ok, %{job: job, dispatch_event: dispatch}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "created_by" => %{
+                 "principal_uid" => to_string(Ankole.ActorRef.from_principal(agent))
+               },
+               "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
+               "source_tool_call_id" => "skill-lessons:binding-free",
+               "title" => "Skill lessons reflection",
+               "task" => "Reflect over the evidence bundle.",
+               "metadata" => %{"skill_lesson_reflection" => true}
+             })
+
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    assert {:ok, run} = admit_job(key, now: DateTime.add(job.queued_at, 1, :second))
+    assert_receive {:actor_lane, envelope}, 200
+    turn_start = turn_start_payload!(envelope)
+
+    assert turn_start.signal.binding_name == ""
+    assert dispatch.reply_binding_name == nil
+    assert dispatch.conversation_id == nil
+    assert run.event.authorization_kind == "service"
+    assert run.job_ref.job_id == job.id
+    assert run.job_ref.signal_id == dispatch.id
+    assert run.job_ref.attempt == 1
+    assert run.epoch > 0
+    assert run.job.attempts == 1
+    assert run.job.status == :running
+    assert run.context.conversation.id == job.metadata["owner_conversation_id"]
+    assert turn_start.agent_context == Ankole.Sessions.TurnEnvelope.agent_context(run.context)
+    assert turn_start.agent_context.skills != []
+    assert is_binary(Ankole.RuntimeFabric.encode_envelope(envelope))
+    refute Repo.exists?(Ankole.Signals.Binding)
+  end
+
   test "dispatch starts a fenced non-conversation turn and increments attempts once" do
     %{principal: agent} = agent_fixture()
     route = unique_route()

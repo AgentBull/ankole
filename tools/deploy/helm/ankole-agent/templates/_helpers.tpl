@@ -233,6 +233,12 @@ the same release, and its runtime configuration reads these variables too.
     secretKeyRef:
       name: {{ include "ankole-agent.bootstrapSecretName" . }}
       key: DATABASE_URL
+- name: BASE_DB_URLS
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ankole-agent.bootstrapSecretName" . }}
+      key: BASE_DB_URLS
+      optional: true
 {{- if eq .Values.files.store "s3" }}
 - name: ANKOLE_FILES_S3_ACCESS_KEY_ID
   valueFrom:

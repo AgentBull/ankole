@@ -107,6 +107,48 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
     end
   end
 
+  test "reflection Jobs stay out of agent, Console and activity list pages", %{agent: agent} do
+    console_ids = console_pages([], 1)
+    assert {:ok, %{jobs: activity}} = Queries.list_activity(agent.uid, limit: 100)
+
+    agent_ids =
+      Map.new(["live", "stop"], fn status ->
+        assert {:ok, %{jobs: jobs}} =
+                 BackgroundAgentJobs.list_for_agent(agent.uid, status: status)
+
+        {status, Enum.map(jobs, & &1.job_id)}
+      end)
+
+    for status <- [:queued, :succeeded] do
+      assert {:ok, %{job: reflection}} =
+               BackgroundAgentJobs.create_with_dispatch(%{
+                 "agent_uid" => agent.uid,
+                 "created_by" => %{
+                   "principal_uid" => to_string(Ankole.ActorRef.from_principal(agent))
+                 },
+                 "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
+                 "source_tool_call_id" => "hidden-reflection-#{status}",
+                 "title" => "Internal reflection",
+                 "task" => "Reflect over the evidence bundle.",
+                 "metadata" => %{"skill_lesson_reflection" => true}
+               })
+
+      reflection
+      |> Ecto.Changeset.change(status: status)
+      |> Repo.update!()
+    end
+
+    assert console_pages([], 1) == console_ids
+    assert console_pages([search: "reflection"], 1) == []
+    assert {:ok, %{jobs: current_activity}} = Queries.list_activity(agent.uid, limit: 100)
+    assert Enum.map(current_activity, & &1.id) == Enum.map(activity, & &1.id)
+
+    for {status, expected_ids} <- agent_ids do
+      assert {:ok, %{jobs: jobs}} = BackgroundAgentJobs.list_for_agent(agent.uid, status: status)
+      assert Enum.map(jobs, & &1.job_id) == expected_ids
+    end
+  end
+
   test "a cursor belongs to its list and its parameters", %{agent: agent} do
     assert {:ok, %{next_cursor: console_cursor}} =
              Queries.list_for_console(limit: 1)

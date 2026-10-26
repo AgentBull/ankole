@@ -93,27 +93,27 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
   test "a dispatched write capability is not replayed after the worker loses its connection" do
     {package, context} =
       package(
-        "export default {'POST /':async()=>{await AnkoleRuntime.db.write('table',{});while(true){}}}"
+        "export default {'POST /':async()=>{await AnkoleRuntime.base.write('table',{});while(true){}}}"
       )
 
     {:ok, client, run_id} = AppletClient.start(package, context, timeout_ms: 150)
     monitor = Process.monitor(client)
 
-    assert_receive {:applet_runtime, ^run_id, :call, call_id, "db.write", ["table", %{}]},
+    assert_receive {:applet_runtime, ^run_id, :call, call_id, "base.write", ["table", %{}]},
                    5_000
 
     AppletClient.reply(client, call_id, {:ok, %{written: true}})
     assert_receive {:applet_runtime, ^run_id, :done, %{"status" => status}}, 5_000
     assert status in [500, 504]
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
-    refute_receive {:applet_runtime, _, :call, _, "db.write", _}, 200
+    refute_receive {:applet_runtime, _, :call, _, "base.write", _}, 200
   end
 
   test "worker startup consumes the call deadline and cannot dispatch a late write" do
     {package, context} =
       package("""
       await new Promise(resolve => setTimeout(resolve, 200));
-      export default {'POST /':()=>AnkoleRuntime.db.write('table', {})}
+      export default {'POST /':()=>AnkoleRuntime.base.write('table', {})}
       """)
 
     {:ok, client, run_id} = AppletClient.start(package, context, timeout_ms: 80)
@@ -124,7 +124,7 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
                    5_000
 
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
-    refute_receive {:applet_runtime, ^run_id, :call, _, "db.write", _}, 200
+    refute_receive {:applet_runtime, ^run_id, :call, _, "base.write", _}, 200
   end
 
   test "preflight, code upload and WebSocket upgrade share the call deadline", ctx do
@@ -171,11 +171,11 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
 
   test "received completion survives a closed transport without replaying its write" do
     {package, context} =
-      package("export default {'POST /':()=>AnkoleRuntime.db.write('table', {})}")
+      package("export default {'POST /':()=>AnkoleRuntime.base.write('table', {})}")
 
     {:ok, client, run_id} = AppletClient.start(package, context, timeout_ms: 5_000)
     monitor = Process.monitor(client)
-    assert_receive {:applet_runtime, ^run_id, :call, call_id, "db.write", _}, 5_000
+    assert_receive {:applet_runtime, ^run_id, :call, call_id, "base.write", _}, 5_000
     {:links, links} = Process.info(client, :links)
     [socket] = Enum.filter(links, &is_port/1)
 
@@ -207,7 +207,7 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
                    5_000
 
     assert_receive {:DOWN, ^monitor, :process, ^client, :normal}, 5_000
-    refute_receive {:applet_runtime, ^run_id, :call, _, "db.write", _}, 100
+    refute_receive {:applet_runtime, ^run_id, :call, _, "base.write", _}, 100
     refute_receive {:applet_runtime, ^run_id, :done, _}, 100
   end
 

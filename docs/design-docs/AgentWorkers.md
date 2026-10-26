@@ -414,7 +414,8 @@ for model providers that do not send that event.
 belong to the control plane, so it does not request a Worker.
 
 A completed run sends `WorkspaceClose` in a background task only if it tried
-to open a workspace. The next input does not wait for the close receipt.
+to open a workspace. The Driver keeps this fact across model rounds. The next
+input does not wait for the close receipt.
 The Worker ignores a late close for an older `signal_id`; a new open
 closes the older workspace, and idle expiry releases lost workspaces.
 Pure questions send no Worker messages. `worker.workspace_prepared` records

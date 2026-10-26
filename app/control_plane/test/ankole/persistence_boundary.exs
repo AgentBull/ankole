@@ -26,13 +26,13 @@
      [:alias_candidates, :merge_scan_scope, :exclude_recorded_and_principal_pairs]} =>
       :m4_read_model,
     {Ankole.Workflow.Queries, [:capacity_candidate]} => :m4_read_model,
-    # M7 dynamic schema: the Pod database subsystem owns db_records.
-    Ankole.Pod.Database => :m7_dynamic_schema,
-    Ankole.Pod.Database.Records => :m7_dynamic_schema,
-    Ankole.Pod.Database.Schema => :m7_dynamic_schema,
+    # M7 dynamic schema: the Pod database subsystem owns base_records.
+    Ankole.Pod.Bases => :m7_dynamic_schema,
+    Ankole.Pod.Bases.Records => :m7_dynamic_schema,
     Ankole.Pod.Query => :m7_dynamic_schema,
     Ankole.Pod.Copy => :m7_dynamic_schema,
-    Ankole.Pod.Values => :m7_dynamic_schema,
+    Ankole.Pod.BaseRepo => :m7_dynamic_schema,
+    Ankole.Pod.Bases.Promote => :m7_dynamic_schema,
     # M8 set maintenance: DDL, tenant teardown, merges, and the one-time upgrade.
     Ankole.Brain.SearchIndexes => :m8_set_maintenance,
     {Ankole.Brain.Merge,

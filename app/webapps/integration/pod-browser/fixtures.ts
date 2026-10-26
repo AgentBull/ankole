@@ -12,14 +12,14 @@ type State = {
   tenant_slug: string
   original_site_locale: string
   report_id: string
-  database_id: string
+  base_id: string
   table_id: string
   amount_field_id: string
   status_field_id: string
   applet_id: string
   runtime_test_applet_id: string
   backend_report_id: string
-  backend_database_id: string
+  backend_base_id: string
   backend_applet_id: string
   backend_table_id: string
   backend_stock_field_id: string

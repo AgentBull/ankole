@@ -79,51 +79,11 @@ export type PodAdminOperationFilter = {
 }
 
 /**
- * A "Resource object" representing a pod_chat_operation
+ * A "Resource object" representing a pod_base_field
  */
-export type PodChatOperation = {
+export type PodBaseField = {
   /**
-   * An attributes object for a pod_chat_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_chat_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_database_operation
- */
-export type PodDatabaseOperation = {
-  /**
-   * An attributes object for a pod_database_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_database_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_db_field
- */
-export type PodDbField = {
-  /**
-   * An attributes object for a pod_db_field
+   * An attributes object for a pod_base_field
    */
   attributes?: {
     /**
@@ -173,7 +133,7 @@ export type PodDbField = {
   }
   id: string
   /**
-   * A relationships object for a pod_db_field
+   * A relationships object for a pod_base_field
    */
   relationships?: {
     [key: string]: never
@@ -181,7 +141,7 @@ export type PodDbField = {
   type: string
 }
 
-export type PodDbFieldType = {
+export type PodBaseFieldType = {
   /**
    * Field included by default.
    */
@@ -233,11 +193,31 @@ export type PodDbFieldType = {
 }
 
 /**
- * A "Resource object" representing a pod_db_table
+ * A "Resource object" representing a pod_base_operation
  */
-export type PodDbTable = {
+export type PodBaseOperation = {
   /**
-   * An attributes object for a pod_db_table
+   * An attributes object for a pod_base_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_base_table
+ */
+export type PodBaseTable = {
+  /**
+   * An attributes object for a pod_base_table
    */
   attributes?: {
     /**
@@ -263,11 +243,23 @@ export type PodDbTable = {
     /**
      * Field included by default.
      */
+    record_bytes: number
+    /**
+     * Field included by default.
+     */
     record_count: number
+    /**
+     * Field included by default.
+     */
+    schema_version: number
+    /**
+     * Field included by default.
+     */
+    storage_mode: 'inline' | 'physical'
   }
   id: string
   /**
-   * A relationships object for a pod_db_table
+   * A relationships object for a pod_base_table
    */
   relationships?: {
     [key: string]: never
@@ -275,7 +267,7 @@ export type PodDbTable = {
   type: string
 }
 
-export type PodDbTableType = {
+export type PodBaseTableType = {
   /**
    * Field included by default.
    */
@@ -303,15 +295,27 @@ export type PodDbTableType = {
   /**
    * Field included by default.
    */
+  record_bytes: number
+  /**
+   * Field included by default.
+   */
   record_count: number
+  /**
+   * Field included by default.
+   */
+  schema_version: number
+  /**
+   * Field included by default.
+   */
+  storage_mode: 'inline' | 'physical'
 }
 
 /**
- * A "Resource object" representing a pod_db_view
+ * A "Resource object" representing a pod_base_view
  */
-export type PodDbView = {
+export type PodBaseView = {
   /**
-   * An attributes object for a pod_db_view
+   * An attributes object for a pod_base_view
    */
   attributes?: {
     /**
@@ -343,7 +347,7 @@ export type PodDbView = {
   }
   id: string
   /**
-   * A relationships object for a pod_db_view
+   * A relationships object for a pod_base_view
    */
   relationships?: {
     [key: string]: never
@@ -351,7 +355,7 @@ export type PodDbView = {
   type: string
 }
 
-export type PodDbViewType = {
+export type PodBaseViewType = {
   /**
    * Field included by default.
    */
@@ -382,6 +386,26 @@ export type PodDbViewType = {
    * Field included by default.
    */
   version: number
+}
+
+/**
+ * A "Resource object" representing a pod_chat_operation
+ */
+export type PodChatOperation = {
+  /**
+   * An attributes object for a pod_chat_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_chat_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 /**
@@ -490,7 +514,7 @@ export type PodPage = {
     /**
      * Field included by default.
      */
-    type: 'doc' | 'database' | 'applet' | 'file'
+    type: 'doc' | 'base' | 'applet' | 'file'
     /**
      * Field included by default.
      */
@@ -566,7 +590,7 @@ export type PodPageType = {
   /**
    * Field included by default.
    */
-  type: 'doc' | 'database' | 'applet' | 'file'
+  type: 'doc' | 'base' | 'applet' | 'file'
   /**
    * Field included by default.
    */
@@ -710,7 +734,7 @@ export type PodRealtimeFilter = {
   or?: Array<PodRealtimeFilter>
 }
 
-export type PodDatabaseTableDeleteData = {
+export type PodBaseTableDeleteData = {
   body?: never
   path: {
     id: string
@@ -719,27 +743,27 @@ export type PodDatabaseTableDeleteData = {
   url: '/api/v2/pod/tables/{id}'
 }
 
-export type PodDatabaseTableDeleteErrors = {
+export type PodBaseTableDeleteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseTableDeleteError = PodDatabaseTableDeleteErrors[keyof PodDatabaseTableDeleteErrors]
+export type PodBaseTableDeleteError = PodBaseTableDeleteErrors[keyof PodBaseTableDeleteErrors]
 
-export type PodDatabaseTableDeleteResponses = {
+export type PodBaseTableDeleteResponses = {
   /**
    * Success
    */
   200: {
-    table: PodDbTableType
+    table: PodBaseTableType
   }
 }
 
-export type PodDatabaseTableDeleteResponse = PodDatabaseTableDeleteResponses[keyof PodDatabaseTableDeleteResponses]
+export type PodBaseTableDeleteResponse = PodBaseTableDeleteResponses[keyof PodBaseTableDeleteResponses]
 
-export type PodDatabaseSchemaData = {
+export type PodBaseSchemaData = {
   body?: never
   path: {
     id: string
@@ -748,25 +772,23 @@ export type PodDatabaseSchemaData = {
   url: '/api/v2/pod/tables/{id}'
 }
 
-export type PodDatabaseSchemaErrors = {
+export type PodBaseSchemaErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseSchemaError = PodDatabaseSchemaErrors[keyof PodDatabaseSchemaErrors]
+export type PodBaseSchemaError = PodBaseSchemaErrors[keyof PodBaseSchemaErrors]
 
-export type PodDatabaseSchemaResponses = {
+export type PodBaseSchemaResponses = {
   /**
    * Success
    */
   200: {
-    fields: Array<PodDbFieldType>
+    fields: Array<PodBaseFieldType>
     limits: {
       group_count: number
-      local_bytes: number
-      local_rows: number
       query_rows: number
       record_bytes: number
       statement_timeout_ms: number
@@ -776,13 +798,13 @@ export type PodDatabaseSchemaResponses = {
       text_contains_ascii: boolean
     }
     mode: 'local' | 'remote'
-    table: PodDbTableType
+    table: PodBaseTableType
     timezone: string
-    views: Array<PodDbViewType>
+    views: Array<PodBaseViewType>
   }
 }
 
-export type PodDatabaseSchemaResponse = PodDatabaseSchemaResponses[keyof PodDatabaseSchemaResponses]
+export type PodBaseSchemaResponse = PodBaseSchemaResponses[keyof PodBaseSchemaResponses]
 
 export type UpdateConversationParticipantsData = {
   /**
@@ -1347,9 +1369,9 @@ export type PodEmbedDeleteResponses = {
 
 export type PodEmbedDeleteResponse = PodEmbedDeleteResponses[keyof PodEmbedDeleteResponses]
 
-export type PodDatabaseQueryData = {
+export type PodBaseQueryData = {
   /**
-   * Request body for the podDatabaseQuery operation on pod_database_operation resource
+   * Request body for the podBaseQuery operation on pod_base_operation resource
    */
   body?: {
     data: {
@@ -1383,16 +1405,16 @@ export type PodDatabaseQueryData = {
   url: '/api/v2/pod/tables/{id}/query'
 }
 
-export type PodDatabaseQueryErrors = {
+export type PodBaseQueryErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseQueryError = PodDatabaseQueryErrors[keyof PodDatabaseQueryErrors]
+export type PodBaseQueryError = PodBaseQueryErrors[keyof PodBaseQueryErrors]
 
-export type PodDatabaseQueryResponses = {
+export type PodBaseQueryResponses = {
   /**
    * Success
    */
@@ -1424,7 +1446,7 @@ export type PodDatabaseQueryResponses = {
   }
 }
 
-export type PodDatabaseQueryResponse = PodDatabaseQueryResponses[keyof PodDatabaseQueryResponses]
+export type PodBaseQueryResponse = PodBaseQueryResponses[keyof PodBaseQueryResponses]
 
 export type PodModelProfilesData = {
   body?: never
@@ -1457,35 +1479,6 @@ export type PodModelProfilesResponses = {
 }
 
 export type PodModelProfilesResponse = PodModelProfilesResponses[keyof PodModelProfilesResponses]
-
-export type PodDatabaseTablesData = {
-  body?: never
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/databases/{page_id}'
-}
-
-export type PodDatabaseTablesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodDatabaseTablesError = PodDatabaseTablesErrors[keyof PodDatabaseTablesErrors]
-
-export type PodDatabaseTablesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    tables: Array<PodDbTableType>
-  }
-}
-
-export type PodDatabaseTablesResponse = PodDatabaseTablesResponses[keyof PodDatabaseTablesResponses]
 
 export type DeleteConversationData = {
   body?: never
@@ -2000,6 +1993,35 @@ export type UpdateConversationResponses = {
 
 export type UpdateConversationResponse = UpdateConversationResponses[keyof UpdateConversationResponses]
 
+export type PodBaseTablesData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/bases/{page_id}'
+}
+
+export type PodBaseTablesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTablesError = PodBaseTablesErrors[keyof PodBaseTablesErrors]
+
+export type PodBaseTablesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    tables: Array<PodBaseTableType>
+  }
+}
+
+export type PodBaseTablesResponse = PodBaseTablesResponses[keyof PodBaseTablesResponses]
+
 export type AnswerConversationInteractionData = {
   /**
    * Request body for the answerConversationInteraction operation on pod_chat_operation resource
@@ -2293,9 +2315,9 @@ export type ChangePodMembershipResponses = {
 
 export type ChangePodMembershipResponse = ChangePodMembershipResponses[keyof ChangePodMembershipResponses]
 
-export type PodDatabaseCopyData = {
+export type PodBaseCopyData = {
   /**
-   * Request body for the podDatabaseCopy operation on pod_database_operation resource
+   * Request body for the podBaseCopy operation on pod_base_operation resource
    */
   body?: {
     data: {
@@ -2319,26 +2341,26 @@ export type PodDatabaseCopyData = {
   url: '/api/v2/pod/tables/{id}/copy'
 }
 
-export type PodDatabaseCopyErrors = {
+export type PodBaseCopyErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseCopyError = PodDatabaseCopyErrors[keyof PodDatabaseCopyErrors]
+export type PodBaseCopyError = PodBaseCopyErrors[keyof PodBaseCopyErrors]
 
-export type PodDatabaseCopyResponses = {
+export type PodBaseCopyResponses = {
   /**
    * Success
    */
   201: {
     page: PodPageType
-    table: PodDbTableType
+    table: PodBaseTableType
   }
 }
 
-export type PodDatabaseCopyResponse = PodDatabaseCopyResponses[keyof PodDatabaseCopyResponses]
+export type PodBaseCopyResponse = PodBaseCopyResponses[keyof PodBaseCopyResponses]
 
 export type RestorePodMemberData = {
   /**
@@ -2748,9 +2770,9 @@ export type ConversationExecutionResponses = {
 
 export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
 
-export type PodDatabaseAggregateData = {
+export type PodBaseAggregateData = {
   /**
-   * Request body for the podDatabaseAggregate operation on pod_database_operation resource
+   * Request body for the podBaseAggregate operation on pod_base_operation resource
    */
   body: {
     data: {
@@ -2780,16 +2802,16 @@ export type PodDatabaseAggregateData = {
   url: '/api/v2/pod/tables/{id}/aggregate'
 }
 
-export type PodDatabaseAggregateErrors = {
+export type PodBaseAggregateErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseAggregateError = PodDatabaseAggregateErrors[keyof PodDatabaseAggregateErrors]
+export type PodBaseAggregateError = PodBaseAggregateErrors[keyof PodBaseAggregateErrors]
 
-export type PodDatabaseAggregateResponses = {
+export type PodBaseAggregateResponses = {
   /**
    * Success
    */
@@ -2823,7 +2845,7 @@ export type PodDatabaseAggregateResponses = {
   }
 }
 
-export type PodDatabaseAggregateResponse = PodDatabaseAggregateResponses[keyof PodDatabaseAggregateResponses]
+export type PodBaseAggregateResponse = PodBaseAggregateResponses[keyof PodBaseAggregateResponses]
 
 export type DisablePodMemberData = {
   /**
@@ -2862,9 +2884,9 @@ export type DisablePodMemberResponses = {
 
 export type DisablePodMemberResponse = DisablePodMemberResponses[keyof DisablePodMemberResponses]
 
-export type PodDatabaseFieldCreateData = {
+export type PodBaseFieldCreateData = {
   /**
-   * Request body for the podDatabaseFieldCreate operation on pod_database_operation resource
+   * Request body for the podBaseFieldCreate operation on pod_base_operation resource
    */
   body?: {
     data: {
@@ -2899,25 +2921,25 @@ export type PodDatabaseFieldCreateData = {
   url: '/api/v2/pod/tables/{id}/fields'
 }
 
-export type PodDatabaseFieldCreateErrors = {
+export type PodBaseFieldCreateErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseFieldCreateError = PodDatabaseFieldCreateErrors[keyof PodDatabaseFieldCreateErrors]
+export type PodBaseFieldCreateError = PodBaseFieldCreateErrors[keyof PodBaseFieldCreateErrors]
 
-export type PodDatabaseFieldCreateResponses = {
+export type PodBaseFieldCreateResponses = {
   /**
    * Success
    */
   201: {
-    field: PodDbFieldType
+    field: PodBaseFieldType
   }
 }
 
-export type PodDatabaseFieldCreateResponse = PodDatabaseFieldCreateResponses[keyof PodDatabaseFieldCreateResponses]
+export type PodBaseFieldCreateResponse = PodBaseFieldCreateResponses[keyof PodBaseFieldCreateResponses]
 
 export type RequestPodEmailBindingData = {
   /**
@@ -3050,7 +3072,7 @@ export type PodPageChildrenResponses = {
       private_owner_uid?: string | null
       role: 'view' | 'contribute' | 'edit' | 'manage'
       title: string
-      type: 'doc' | 'database' | 'applet' | 'file'
+      type: 'doc' | 'base' | 'applet' | 'file'
     }>
     principal_uid: string
   }
@@ -3378,6 +3400,42 @@ export type PostConversationMessageResponses = {
 
 export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
 
+export type PodBaseTableCreateData = {
+  /**
+   * Request body for the podBaseTableCreate operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      name?: string | null
+    }
+  }
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/bases/{page_id}/tables'
+}
+
+export type PodBaseTableCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTableCreateError = PodBaseTableCreateErrors[keyof PodBaseTableCreateErrors]
+
+export type PodBaseTableCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseTableCreateResponse = PodBaseTableCreateResponses[keyof PodBaseTableCreateResponses]
+
 export type UnbindPodCredentialData = {
   body?: never
   path: {
@@ -3515,7 +3573,7 @@ export type PodSubjectsResponses = {
 
 export type PodSubjectsResponse = PodSubjectsResponses[keyof PodSubjectsResponses]
 
-export type PodDatabaseFieldDeleteData = {
+export type PodBaseFieldDeleteData = {
   body?: never
   path: {
     id: string
@@ -3526,29 +3584,29 @@ export type PodDatabaseFieldDeleteData = {
   url: '/api/v2/pod/fields/{id}'
 }
 
-export type PodDatabaseFieldDeleteErrors = {
+export type PodBaseFieldDeleteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseFieldDeleteError = PodDatabaseFieldDeleteErrors[keyof PodDatabaseFieldDeleteErrors]
+export type PodBaseFieldDeleteError = PodBaseFieldDeleteErrors[keyof PodBaseFieldDeleteErrors]
 
-export type PodDatabaseFieldDeleteResponses = {
+export type PodBaseFieldDeleteResponses = {
   /**
    * Success
    */
   200: {
-    field: PodDbFieldType
+    field: PodBaseFieldType
   }
 }
 
-export type PodDatabaseFieldDeleteResponse = PodDatabaseFieldDeleteResponses[keyof PodDatabaseFieldDeleteResponses]
+export type PodBaseFieldDeleteResponse = PodBaseFieldDeleteResponses[keyof PodBaseFieldDeleteResponses]
 
-export type PodDatabaseFieldUpdateData = {
+export type PodBaseFieldUpdateData = {
   /**
-   * Request body for the podDatabaseFieldUpdate operation on pod_database_operation resource
+   * Request body for the podBaseFieldUpdate operation on pod_base_operation resource
    */
   body: {
     data: {
@@ -3584,25 +3642,25 @@ export type PodDatabaseFieldUpdateData = {
   url: '/api/v2/pod/fields/{id}'
 }
 
-export type PodDatabaseFieldUpdateErrors = {
+export type PodBaseFieldUpdateErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseFieldUpdateError = PodDatabaseFieldUpdateErrors[keyof PodDatabaseFieldUpdateErrors]
+export type PodBaseFieldUpdateError = PodBaseFieldUpdateErrors[keyof PodBaseFieldUpdateErrors]
 
-export type PodDatabaseFieldUpdateResponses = {
+export type PodBaseFieldUpdateResponses = {
   /**
    * Success
    */
   200: {
-    field: PodDbFieldType
+    field: PodBaseFieldType
   }
 }
 
-export type PodDatabaseFieldUpdateResponse = PodDatabaseFieldUpdateResponses[keyof PodDatabaseFieldUpdateResponses]
+export type PodBaseFieldUpdateResponse = PodBaseFieldUpdateResponses[keyof PodBaseFieldUpdateResponses]
 
 export type SavePodIdentityProviderData = {
   /**
@@ -3829,7 +3887,7 @@ export type PodPageCreateData = {
       private_owner_uid?: string | null
       saved_from_message_id?: string | null
       title?: string | null
-      type?: 'doc' | 'database' | 'applet' | 'file' | null
+      type?: 'doc' | 'base' | 'applet' | 'file' | null
     }
   }
   path?: never
@@ -4035,9 +4093,9 @@ export type PodSpaceAgentDeleteResponses = {
 
 export type PodSpaceAgentDeleteResponse = PodSpaceAgentDeleteResponses[keyof PodSpaceAgentDeleteResponses]
 
-export type PodDatabaseViewCreateData = {
+export type PodBaseViewCreateData = {
   /**
-   * Request body for the podDatabaseViewCreate operation on pod_database_operation resource
+   * Request body for the podBaseViewCreate operation on pod_base_operation resource
    */
   body?: {
     data: {
@@ -4056,25 +4114,25 @@ export type PodDatabaseViewCreateData = {
   url: '/api/v2/pod/tables/{id}/views'
 }
 
-export type PodDatabaseViewCreateErrors = {
+export type PodBaseViewCreateErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseViewCreateError = PodDatabaseViewCreateErrors[keyof PodDatabaseViewCreateErrors]
+export type PodBaseViewCreateError = PodBaseViewCreateErrors[keyof PodBaseViewCreateErrors]
 
-export type PodDatabaseViewCreateResponses = {
+export type PodBaseViewCreateResponses = {
   /**
    * Success
    */
   201: {
-    view: PodDbViewType
+    view: PodBaseViewType
   }
 }
 
-export type PodDatabaseViewCreateResponse = PodDatabaseViewCreateResponses[keyof PodDatabaseViewCreateResponses]
+export type PodBaseViewCreateResponse = PodBaseViewCreateResponses[keyof PodBaseViewCreateResponses]
 
 export type PodAdminInvitationsData = {
   body?: never
@@ -4151,7 +4209,7 @@ export type CreatePodInvitationResponses = {
 
 export type CreatePodInvitationResponse = CreatePodInvitationResponses[keyof CreatePodInvitationResponses]
 
-export type PodDatabaseViewDeleteData = {
+export type PodBaseViewDeleteData = {
   body?: never
   path: {
     id: string
@@ -4162,29 +4220,29 @@ export type PodDatabaseViewDeleteData = {
   url: '/api/v2/pod/views/{id}'
 }
 
-export type PodDatabaseViewDeleteErrors = {
+export type PodBaseViewDeleteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseViewDeleteError = PodDatabaseViewDeleteErrors[keyof PodDatabaseViewDeleteErrors]
+export type PodBaseViewDeleteError = PodBaseViewDeleteErrors[keyof PodBaseViewDeleteErrors]
 
-export type PodDatabaseViewDeleteResponses = {
+export type PodBaseViewDeleteResponses = {
   /**
    * Success
    */
   200: {
-    view: PodDbViewType
+    view: PodBaseViewType
   }
 }
 
-export type PodDatabaseViewDeleteResponse = PodDatabaseViewDeleteResponses[keyof PodDatabaseViewDeleteResponses]
+export type PodBaseViewDeleteResponse = PodBaseViewDeleteResponses[keyof PodBaseViewDeleteResponses]
 
-export type PodDatabaseViewUpdateData = {
+export type PodBaseViewUpdateData = {
   /**
-   * Request body for the podDatabaseViewUpdate operation on pod_database_operation resource
+   * Request body for the podBaseViewUpdate operation on pod_base_operation resource
    */
   body: {
     data: {
@@ -4204,29 +4262,29 @@ export type PodDatabaseViewUpdateData = {
   url: '/api/v2/pod/views/{id}'
 }
 
-export type PodDatabaseViewUpdateErrors = {
+export type PodBaseViewUpdateErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseViewUpdateError = PodDatabaseViewUpdateErrors[keyof PodDatabaseViewUpdateErrors]
+export type PodBaseViewUpdateError = PodBaseViewUpdateErrors[keyof PodBaseViewUpdateErrors]
 
-export type PodDatabaseViewUpdateResponses = {
+export type PodBaseViewUpdateResponses = {
   /**
    * Success
    */
   200: {
-    view: PodDbViewType
+    view: PodBaseViewType
   }
 }
 
-export type PodDatabaseViewUpdateResponse = PodDatabaseViewUpdateResponses[keyof PodDatabaseViewUpdateResponses]
+export type PodBaseViewUpdateResponse = PodBaseViewUpdateResponses[keyof PodBaseViewUpdateResponses]
 
-export type PodDatabaseWriteData = {
+export type PodBaseWriteData = {
   /**
-   * Request body for the podDatabaseWrite operation on pod_database_operation resource
+   * Request body for the podBaseWrite operation on pod_base_operation resource
    */
   body?: {
     data: {
@@ -4260,16 +4318,16 @@ export type PodDatabaseWriteData = {
   url: '/api/v2/pod/tables/{id}/records'
 }
 
-export type PodDatabaseWriteErrors = {
+export type PodBaseWriteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodDatabaseWriteError = PodDatabaseWriteErrors[keyof PodDatabaseWriteErrors]
+export type PodBaseWriteError = PodBaseWriteErrors[keyof PodBaseWriteErrors]
 
-export type PodDatabaseWriteResponses = {
+export type PodBaseWriteResponses = {
   /**
    * Success
    */
@@ -4300,7 +4358,7 @@ export type PodDatabaseWriteResponses = {
   }
 }
 
-export type PodDatabaseWriteResponse = PodDatabaseWriteResponses[keyof PodDatabaseWriteResponses]
+export type PodBaseWriteResponse = PodBaseWriteResponses[keyof PodBaseWriteResponses]
 
 export type PodPageSharingData = {
   body?: never
@@ -4779,42 +4837,6 @@ export type PodDocumentWriteResponses = {
 }
 
 export type PodDocumentWriteResponse = PodDocumentWriteResponses[keyof PodDocumentWriteResponses]
-
-export type PodDatabaseTableCreateData = {
-  /**
-   * Request body for the podDatabaseTableCreate operation on pod_database_operation resource
-   */
-  body?: {
-    data: {
-      name?: string | null
-    }
-  }
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/databases/{page_id}/tables'
-}
-
-export type PodDatabaseTableCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodDatabaseTableCreateError = PodDatabaseTableCreateErrors[keyof PodDatabaseTableCreateErrors]
-
-export type PodDatabaseTableCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    table: PodDbTableType
-  }
-}
-
-export type PodDatabaseTableCreateResponse = PodDatabaseTableCreateResponses[keyof PodDatabaseTableCreateResponses]
 
 export type PodModelSelectionData = {
   body?: never

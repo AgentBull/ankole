@@ -164,18 +164,20 @@ defmodule Ankole.BackgroundAgentJobsTest do
     drain_driver_wakeup!(wakeup)
   end
 
-  test "a skill-lesson reflection job wakes no session and enqueues the apply worker" do
+  test "a route-free reflection commits its status and lesson application atomically" do
     %{principal: agent} = background_agent_fixture()
+    refute Repo.exists?(Ankole.Signals.Binding)
 
-    assert {:ok, %{job: reflection}} =
+    assert {:ok, %{job: reflection, dispatch_event: dispatch}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "created_by" => %{
+                 "principal_uid" => to_string(Ankole.ActorRef.from_principal(agent))
+               },
                "agent_uid" => agent.uid,
                "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
                "source_tool_call_id" => "skill-lessons:9000",
                "title" => "Skill lessons reflection",
                "task" => "Reflect over the evidence bundle.",
-               "reply_route" => %{"binding_name" => "lark"},
                "metadata" => %{
                  "skill_lesson_reflection" => true,
                  "through_job_id" => 9000,
@@ -183,6 +185,25 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  "human_input_job_ids" => [8999]
                }
              })
+
+    assert reflection.reply_route == %{}
+    assert reflection.authorization_kind == "service"
+    assert dispatch.reply_binding_name == nil
+    assert dispatch.conversation_id == nil
+
+    assert {:error, :job_not_found} =
+             BackgroundAgentJobs.send_message(reflection.id, %{
+               "agent_uid" => agent.uid,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "request_id" => "hidden-reflection-steer",
+               "message" => "Turn this reflection into ordinary work."
+             })
+
+    refute Repo.exists?(
+             from(event in Signal,
+               where: event.session_id == ^dispatch.session_id and event.type == "command.steer"
+             )
+           )
 
     Repo.update!(Ecto.Changeset.change(reflection, status: :running, attempts: 1))
 
@@ -194,13 +215,39 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     insert_turn!(running, 1, "thread-reflection", "turn-reflection", "completed")
 
+    completion = %{
+      "status" => "succeeded",
+      "result" => %{"output_text" => ~s({"adds": []})}
+    }
+
+    assert {:error, :reflection_rollback} =
+             Repo.transact(fn ->
+               assert {:ok, %{job: %{status: :succeeded}, wakeup_event: nil}} =
+                        BackgroundAgentJobs.Lifecycle.commit_status_in_tx(
+                          running.id,
+                          agent.uid,
+                          completion,
+                          []
+                        )
+
+               assert_enqueued(
+                 worker: Ankole.Brain.Jobs.ApplySkillLessons,
+                 args: %{job_id: running.id}
+               )
+
+               {:error, :reflection_rollback}
+             end)
+
+    assert Repo.reload!(running).status == :running
+    assert Repo.reload!(running).completed_at == nil
+    refute_enqueued(worker: Ankole.Brain.Jobs.ApplySkillLessons)
+
     assert {:ok, %{job: succeeded, wakeup_event: nil}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
-               "status" => "succeeded",
-               "result" => %{"output_text" => ~s({"adds": []})}
-             })
+             BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, completion)
 
     assert succeeded.status == :succeeded
+
+    refute Repo.exists?(from(job in Job, where: job.continued_from_job_id == ^reflection.id))
 
     # No wakeup event reached the synthetic owner session.
     refute Repo.exists?(
@@ -245,6 +292,63 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert wakeup.type == "background_agent_job.completed"
     assert wakeup.session_id == "signal-channel:plain-session"
+  end
+
+  test "a failed route-free reflection sends no notification and applies no lessons" do
+    %{principal: agent} = background_agent_fixture()
+
+    assert {:ok, %{job: reflection}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "created_by" => %{
+                 "principal_uid" => to_string(Ankole.ActorRef.from_principal(agent))
+               },
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
+               "source_tool_call_id" => "skill-lessons:failed",
+               "title" => "Skill lessons reflection",
+               "task" => "Reflect over the evidence bundle.",
+               "metadata" => %{"skill_lesson_reflection" => true}
+             })
+
+    assert {:ok, %{job: failed, wakeup_event: nil}} =
+             Repo.transact(fn ->
+               BackgroundAgentJobs.fail_admission_in_tx(
+                 reflection,
+                 "agent_config_invalid",
+                 DateTime.utc_now(:microsecond)
+               )
+             end)
+
+    assert failed.status == :failed
+    refute_enqueued(worker: Ankole.Brain.Jobs.ApplySkillLessons)
+
+    refute Repo.exists?(
+             from(event in Signal,
+               where: event.session_id == ^reflection.owner_session_id
+             )
+           )
+  end
+
+  test "ordinary service Jobs require a reply destination" do
+    %{principal: agent} = background_agent_fixture()
+
+    attrs = %{
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "agent_uid" => agent.uid,
+      "owner_session_id" => "ordinary-service",
+      "source_tool_call_id" => "ordinary-service-no-route",
+      "title" => "Ordinary service work",
+      "task" => "Report the result.",
+      "metadata" => %{"skill_lesson_reflection" => false}
+    }
+
+    assert {:error, :invalid_background_agent_job_reply_route} =
+             BackgroundAgentJobs.create_with_dispatch(attrs)
+
+    assert {:error, :background_agent_job_reply_route_binding_missing} =
+             BackgroundAgentJobs.create_with_dispatch(Map.put(attrs, "reply_route", %{}))
+
+    refute Repo.exists?(Job)
   end
 
   test "Jobs do not persist AIGateway credentials or a second model-profile copy" do

@@ -15,11 +15,11 @@ test('contributors fill the default table and upload record attachments while sc
   try {
     await owner.goto(state.base_url + pageRoute(state.report_id))
     const created = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title: 'Interview evaluations'
     })
     id = created.page.id
-    const { tables } = await request<{ tables: { id: string; name: string }[] }>(owner, `/databases/${id}`)
+    const { tables } = await request<{ tables: { id: string; name: string }[] }>(owner, `/bases/${id}`)
     expect(tables).toHaveLength(1)
     expect(tables[0]!.name).toBe('Table 1')
     const table = tables[0]!
@@ -73,7 +73,7 @@ test('contributors fill the default table and upload record attachments while sc
     await expect(dialog).toContainText('删除此数据表及其所有记录')
     await dialog.getByRole('button', { name: '删除数据表', exact: true }).click()
     await expect(dialog).toBeHidden()
-    expect((await request<{ tables: unknown[] }>(owner, `/databases/${id}`)).tables).toEqual([])
+    expect((await request<{ tables: unknown[] }>(owner, `/bases/${id}`)).tables).toEqual([])
   } finally {
     if (id) await request(owner, `/pages/${id}`, 'DELETE')
     await Promise.all([ownerContext.close(), memberContext.close()])

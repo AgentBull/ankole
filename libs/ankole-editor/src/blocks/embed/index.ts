@@ -7,7 +7,7 @@ import type { BlockDefinition } from '../../editor/block'
 import { insertBlock } from '../../editor/block-insert'
 
 /**
- * `embed`: a block that shows content that another page owns. `ref` names that page. A database
+ * `embed`: a block that shows content that another page owns. `ref` names that page. A base
  * embed can also carry `table` and `view`. The page holds only the embed; the embedded page owns
  * its fields, records, and views.
  */
@@ -29,14 +29,14 @@ export const EmbedRef = Mark.Type.define<string>('EmbedRef', {
   shape: { attribute: 'data-ref', value: 0 }
 })
 
-/** `table` of a database embed. */
+/** `table` of a base embed. */
 export const EmbedTable = Mark.Type.define<string>('EmbedTable', {
   target: Embed,
   validate: 'string',
   shape: { attribute: 'data-table', value: 0 }
 })
 
-/** `view` of a database embed. */
+/** `view` of a base embed. */
 export const EmbedView = Mark.Type.define<string>('EmbedView', {
   target: Embed,
   validate: 'string',
@@ -58,10 +58,10 @@ export function embedAttributes(node: Node | Plot.Tag): Record<string, string> {
 /** The card that shows an embed, in the editor and in read-only elements. */
 export function embedCard(
   attrs: Record<string, string>,
-  labels: Pick<EditorLabels, 'embed' | 'database' | 'unlinked'> = editorPhrases.phrases
+  labels: Pick<EditorLabels, 'embed' | 'base' | 'unlinked'> = editorPhrases.phrases
 ): Elt<string> {
   return Elt.mk('div', { class: 'embed', contenteditable: 'false' }, [
-    Elt.mk('span', [attrs.table === undefined ? labels.embed : labels.database]),
+    Elt.mk('span', [attrs.table === undefined ? labels.embed : labels.base]),
     Elt.mk('code', [attrs.ref ?? labels.unlinked])
   ])
 }
@@ -74,7 +74,7 @@ export const embed: BlockDefinition = {
     Decoration.Tag.shape.derived(Embed.type, state => {
       const labels = {
         embed: editorPhrases.get(state, 'embed'),
-        database: editorPhrases.get(state, 'database'),
+        base: editorPhrases.get(state, 'base'),
         unlinked: editorPhrases.get(state, 'unlinked')
       }
       return tag => embedCard({ ...extraOf(tag), ...embedAttributes(tag) }, labels)

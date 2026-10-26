@@ -51,7 +51,7 @@ System.at_exit(fn _ ->
   Ankole.AppConfigure.put_global_by_key("i18n.default_locale", original_site_locale)
 end)
 
-alias Ankole.Pod.{Database, Pages}
+alias Ankole.Pod.{Bases, Pages}
 alias AnkoleWeb.Session, as: WebSession
 
 tenant = Ankole.DataCase.create_tenant()
@@ -68,15 +68,13 @@ Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)
 {:ok, _} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
 limits = %{
-  "local_rows" => 5000,
-  "local_bytes" => 5_000_000,
   "query_rows" => 1000,
   "record_bytes" => 1_000_000,
   "group_count" => 1000,
   "statement_timeout_ms" => 5000
 }
 
-{:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.database.limits", limits)
+{:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.base.limits", limits)
 
 owner_account = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Browser owner"})
 member_account = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Browser member"})
@@ -232,22 +230,22 @@ end
 
 {:ok, data_page} =
   Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-    type: "database",
+    type: "base",
     title: "Browser sales",
     parent_id: report.id
   })
 
 {:ok, %{tables: [table]}} =
-  Database.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), data_page.id)
+  Bases.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), data_page.id)
 
 {:ok, amount} =
-  Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
+  Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
     name: "Amount",
     type: "number"
   })
 
 {:ok, status} =
-  Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
+  Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
     name: "Status",
     type: "select",
     config: %{
@@ -256,7 +254,7 @@ end
   })
 
 {:ok, _} =
-  Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
+  Bases.write_records(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
     creates: [%{data: %{amount.id => 10, status.id => "new"}}]
   })
 
@@ -417,24 +415,24 @@ candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> 
 
 {:ok, backend_database} =
   Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-    type: "database",
+    type: "base",
     title: "Sample inventory",
     parent_id: backend_report.id
   })
 
 {:ok, %{tables: [inventory]}} =
-  Database.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), backend_database.id)
+  Bases.list_tables(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), backend_database.id)
 
-inventory_name = Enum.find(Database.fields(inventory.id), & &1.is_primary)
+inventory_name = Enum.find(Bases.fields(inventory.id), & &1.is_primary)
 
 {:ok, stock} =
-  Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), inventory.id, %{
+  Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), inventory.id, %{
     name: "Available",
     type: "number"
   })
 
 {:ok, %{records: [sample]}} =
-  Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), inventory.id, %{
+  Bases.write_records(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), inventory.id, %{
     creates: [%{data: %{inventory_name.id => "Cedar sample kit", stock.id => 5}}]
   })
 
@@ -690,14 +688,14 @@ state = %{
   tenant_slug: tenant.slug,
   original_site_locale: original_site_locale,
   report_id: report.id,
-  database_id: data_page.id,
+  base_id: data_page.id,
   table_id: table.id,
   amount_field_id: amount.id,
   status_field_id: status.id,
   applet_id: applet.id,
   runtime_test_applet_id: runtime_test_applet.id,
   backend_report_id: backend_report.id,
-  backend_database_id: backend_database.id,
+  backend_base_id: backend_database.id,
   backend_applet_id: backend_applet.id,
   backend_table_id: inventory.id,
   backend_stock_field_id: stock.id,

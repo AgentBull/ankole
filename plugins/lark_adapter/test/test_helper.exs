@@ -1,2 +1,5 @@
 ExUnit.start()
-{:ok, _supervisor} = FeishuOpenAPI.Supervisor.start_link([])
+
+unless Process.whereis(FeishuOpenAPI.Supervisor) do
+  {:ok, _supervisor} = FeishuOpenAPI.Supervisor.start_link([])
+end

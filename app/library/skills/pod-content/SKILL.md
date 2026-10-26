@@ -1,17 +1,17 @@
 ---
 name: pod-content
-description: "Create and edit durable Pod pages, business databases, files, and React applets. Use when the user wants a document saved in the workspace, a shared business table, a data-backed applet, or an independent report copy."
+description: "Create and edit durable Pod pages, business Bases, files, and React applets. Use when the user wants a document saved in the workspace, a shared business table, a data-backed applet, or an independent report copy."
 default_enabled: true
 ankole-runtime: background_job
 category: productivity
-tags: [Pod, Pages, Database, Applets]
+tags: [Pod, Pages, Base, Applets]
 ---
 
 # Pod content
 
 Chat records the work process. A Page keeps the result. Use the real Pod
 contracts through `ankole-pod`; do not make a local file stand in for a saved
-page or use browser storage as the authoritative database.
+page or use browser storage as the authoritative base.
 
 Run `ankole-pod --help` before the first operation. It lists the current
 operations and parameter shapes. The CLI is available inside an active Agent turn or an authorized
@@ -26,7 +26,7 @@ Automation Job must hold its current execution attempt; review-required and
 expired attempts cannot access Pod. If access is denied, ask for the required
 sharing grant. Never use another identity or a hidden storage path.
 
-A page is the unit of permissions and lifecycle. Every page type can have children. A Database holds its tables; tables and records are not pages.
+A page is the unit of permissions and lifecycle. Every page type can have children. A Base holds its tables; tables and records are not pages.
 
 Creating a child requires edit access to its parent page. The child
 inherits that access; creation does not add a manage grant. Editing content,
@@ -68,12 +68,12 @@ in the page tree. Removing an embed from Markdown removes only the reference.
 The page link form is `ankole:page/<page-id>`.
 
 In document Markdown, put each inline embed on its own line. For an Applet,
-use `<embed ref="<applet-page-id>" />`. For a Database view, use
-`<embed ref="<database-page-id>" table="<table-id>" view="<view-id>" />`.
-Use the saved page and table IDs; read the view ID from `database.schema`.
+use `<embed ref="<applet-page-id>" />`. For a Base view, use
+`<embed ref="<base-page-id>" table="<table-id>" view="<view-id>" />`.
+Use the saved page and table IDs; read the view ID from `base.schema`.
 A Markdown page link opens the referenced page; the embed renders it inline.
 
-Use `files.upload` for a file page, document image, or Database attachment.
+Use `files.upload` for a file page, document image, or Base attachment.
 Image uploads return an `ankole:asset/<digest>/<name>` address for the document.
 Use `ankole-files get pages/<page-id>/<path> --pod` to read a page file into
 your workspace. Uploads and publication commit through the page owner; do not
@@ -84,8 +84,12 @@ purge begins. Deleting a chat does not delete the pages saved from it.
 
 ## Business data
 
-Create the Database and typed fields before the applet. A new Database has
-`Table 1` with a primary Name field; read it with `database.tables` before
+A primary text field accepts at most 2 KiB of UTF-8 text. A link cell accepts
+at most 2,000 IDs. Use a one-way child-to-parent link for a parent with more
+than 2,000 children. The same API serves inline and physical tables.
+
+Create the Base and typed fields before the applet. A new Base has
+`Table 1` with a primary Name field; read it with `base.tables` before
 creating another table. Keep the IDs
 returned by these operations and continue work on them. A rejected query does
 not remove already saved pages or tables. Read the CLI parameter shapes and
@@ -108,13 +112,13 @@ a link field must have that reference removed before deletion.
 Formula fields are read-only and are evaluated by the server. Reference
 same-record fields by name in formula source, such as `[Price] * [Quantity]`.
 Do not implement a second formula evaluator in the applet. Linked records
-must belong to the same Database.
+must belong to the same Base.
 
-For a report that must retain today's data, use `database.copy` with the
+For a report that must retain today's data, use `base.copy` with the
 source table, target document, and optional filter. The copy has new IDs and
 is independent. Formulas refer to the copied fields and recalculate when those
 fields change. Links become fixed multiple-select options with the original
-record IDs and current titles. A live dashboard references the source Database
+record IDs and current titles. A live dashboard references the source Base
 instead.
 
 ## React applets
@@ -153,7 +157,7 @@ Use `useRecords(tableID, query)` for records and its `create`, `update`, and
 `result.data?.records`; `useAggregate` holds groups at `result.data?.groups`.
 `usePod().actions` lists the selected user's permitted actions on the Applet
 page. View access permits use of the Applet. Record writes require contribution
-access to the target Database, and file content writes require edit access to
+access to the target Base, and file content writes require edit access to
 the target Page. Preserve form input when the target rejects a write.
 Handle the query's loading and error states before rendering its data.
 Retain the record when editing begins. Call
@@ -166,7 +170,7 @@ large table statistics. Use `usePod().pod` for the other Pod contracts.
 Use `useChannel(room)` for temporary presence, cursors, or drag state. Its
 `on(event, callback)` returns an unsubscribe function; register listeners in an
 effect and return that function as the effect's cleanup.
-Messages are not saved or replayed. Save durable results in Database. For
+Messages are not saved or replayed. Save durable results in Base. For
 many simultaneous votes, append one record per vote and aggregate them;
 do not repeatedly overwrite one counter.
 
@@ -184,7 +188,7 @@ new read. Open pages replace the old instance with the new revision.
 
 Use an optional `src/server/main.ts` for server validation, atomic record writes,
 file parsing, cross-table summaries, or model calls. Ordinary record CRUD still
-uses the frontend Database hooks. Import backend types with `import type`; the
+uses the frontend Base hooks. Import backend types with `import type`; the
 server entry has no runtime module:
 
 ```ts
@@ -215,7 +219,7 @@ bounded diagnostic logs and handler exception details.
 
 The function worker supplies Node built-ins, public `fetch`, an in-memory
 `/tmp`, published environment values, and `AnkoleRuntime` capabilities:
-`db.schema`, `db.query`, `db.aggregate`, `db.write`; `file.list`, `file.read`,
+`base.schema`, `base.query`, `base.aggregate`, `base.write`; `file.list`, `file.read`,
 `file.write`; and `ai.generateText`. Read their exact types in
 `/repo/libs/applet-sdk/src/server.ts`. Put publication environment values in
 `applet.env.json`, a flat string map of at most 64 KiB. Read each backend value
@@ -226,10 +230,10 @@ Module top-level code must not call AnkoleRuntime; inspection rejects such calls
 
 Each capability uses the current caller's permissions, not the author's.
 Viewing the applet does not grant access to its tables or files. GET handlers
-cannot write. The runtime cannot create pages or change Database structure.
+cannot write. The runtime cannot create pages or change Base structure.
 Function workers are reused by tenant, page, and publication revision. Keep
 request-specific state inside the handler. Calls have no cross-call transaction; a later failure does not undo committed writes. Put an atomic batch
-in one `db.write`, and include the field versions captured by the read.
+in one `base.write`, and include the field versions captured by the read.
 
 Model generation needs tenant `pod.applet.ai_agent_uid` configured to an active
 Agent. Use a model profile such as `light`, not a raw provider/model ID. The

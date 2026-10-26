@@ -252,10 +252,10 @@ defmodule Ankole.Conversations.LifecycleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      %{signal: original_input} =
-        emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
-
-      Ankole.SessionsCase.stub_driver(original_input)
+      {:ok, %{signal: original_input}} =
+        Ankole.SessionsCase.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+          now: @base_time
+        )
 
       assert {:ok, _consumed} =
                complete_signal(

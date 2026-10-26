@@ -2,7 +2,6 @@ defmodule Ankole.BackgroundAgentJobs.ResourceActionsTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.BackgroundAgentJobs.Schemas.Job
 
   setup do
@@ -27,23 +26,31 @@ defmodule Ankole.BackgroundAgentJobs.ResourceActionsTest do
     later = DateTime.add(first_at, 30)
 
     assert {:ok, waiting} =
-             Repo.transact(fn _ -> JobState.begin_worker_wait_in_tx(job, first_at) end)
+             Repo.transact(fn _ ->
+               Ankole.Ash.update_atomic(job, :begin_worker_wait, %{at: first_at})
+             end)
 
     assert waiting.worker_wait_started_at == first_at
     assert waiting.updated_at == first_at
 
     assert {:ok, ^waiting} =
-             Repo.transact(fn _ -> JobState.begin_worker_wait_in_tx(job, later) end)
+             Repo.transact(fn _ ->
+               Ankole.Ash.update_atomic(job, :begin_worker_wait, %{at: later})
+             end)
 
     assert {:ok, cleared} =
-             Repo.transact(fn _ -> JobState.clear_worker_wait_in_tx(job, later) end)
+             Repo.transact(fn _ ->
+               Ankole.Ash.update_atomic(job, :clear_worker_wait, %{at: later})
+             end)
 
     assert cleared.worker_wait_started_at == nil
     assert cleared.updated_at == later
 
     assert {:ok, ^cleared} =
              Repo.transact(fn _ ->
-               JobState.clear_worker_wait_in_tx(waiting, DateTime.add(later, 30))
+               Ankole.Ash.update_atomic(waiting, :clear_worker_wait, %{
+                 at: DateTime.add(later, 30)
+               })
              end)
 
     Ankole.DataCase.assert_persisted_equal(Repo.get!(Job, job.id), cleared)
@@ -54,7 +61,10 @@ defmodule Ankole.BackgroundAgentJobs.ResourceActionsTest do
              transition_job(job, :record_applied_signal, %{signal_id: job.source_signal_id})
 
     at = DateTime.add(job.updated_at, 30)
-    assert {:ok, touched} = Repo.transact(fn _ -> JobState.touch_in_tx(job, at) end)
+
+    assert {:ok, touched} =
+             Repo.transact(fn _ -> Ankole.Ash.update_atomic(job, :touch, %{at: at}) end)
+
     assert touched.updated_at == at
     persisted = Repo.get!(Job, job.id)
     Ankole.DataCase.assert_persisted_equal(%{persisted | updated_at: applied.updated_at}, applied)

@@ -1,14 +1,14 @@
 import { state, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
 import { expect, test, type Page } from '@playwright/test'
-import type { DatabaseField, DatabaseRecord, DatabaseView, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
+import type { BaseField, BaseRecord, BaseView, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
 
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
 
-async function database(page: Page, title: string) {
+async function base(page: Page, title: string) {
   await page.goto(location(state.report_id))
-  const { page: saved } = await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'database', title })
-  const { table } = await request<{ table: { id: string } }>(page, `/databases/${saved.id}/tables`, 'POST', {
+  const { page: saved } = await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'base', title })
+  const { table } = await request<{ table: { id: string } }>(page, `/bases/${saved.id}/tables`, 'POST', {
     name: 'Responses'
   })
   const schema = await request<TableSchema>(page, `/tables/${table.id}`)
@@ -29,6 +29,88 @@ async function choose(page: Page, name: string, option: string) {
   await expect(trigger).toHaveAttribute('aria-expanded', 'false')
 }
 
+test('the primary field can be renamed while its text type stays fixed', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let pageID: string | undefined
+  try {
+    const saved = await base(page, 'Primary field')
+    pageID = saved.pageID
+    await page.goto(location(saved.pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
+    await page.getByRole('button', { name: saved.primary.name, exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('combobox', { name: '字段类型', exact: true })).toBeDisabled()
+    await dialog.getByRole('textbox', { name: '字段名称', exact: true }).fill('Title')
+    await dialog.getByRole('button', { name: '保存字段', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    const schema = await request<TableSchema>(page, `/tables/${saved.tableID}`)
+    expect(schema.fields.find(field => field.is_primary)).toMatchObject({ name: 'Title', type: 'text' })
+  } finally {
+    if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
+    await context.close()
+  }
+})
+
+for (const mode of ['inline', 'physical'] as const) {
+  test(`a lost ${mode} create response can be retried without creating a second record`, async ({ browser }) => {
+    const context = await browser.newContext()
+    await context.addCookies(state.owner.cookies)
+    const page = await context.newPage()
+    let pageID: string | undefined
+    try {
+      const saved = await base(page, `Lost ${mode} response`)
+      pageID = saved.pageID
+      if (mode === 'physical') {
+        await request(page, `/tables/${saved.tableID}/fields`, 'POST', {
+          name: 'Related',
+          type: 'link',
+          config: { table_id: saved.tableID }
+        })
+      }
+      await page.goto(location(saved.pageID))
+      await page.getByRole('button', { name: 'Responses', exact: true }).click()
+      await page.getByRole('button', { name: '新增记录', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: '新增记录', exact: true })
+      const name = dialog.getByRole('textbox', { name: saved.primary.name, exact: true })
+      await name.fill('One order')
+      const recordsURL = `**/api/v2/pod/tables/${saved.tableID}/records`
+      let firstID = ''
+      await page.route(
+        recordsURL,
+        async route => {
+          firstID = route.request().postDataJSON().data.creates[0].id
+          const response = await route.fetch()
+          expect(response.ok()).toBe(true)
+          await route.abort('connectionfailed')
+        },
+        { times: 1 }
+      )
+      await dialog.getByRole('button', { name: '提交记录', exact: true }).click()
+      await expect(dialog.getByRole('alert')).toBeVisible()
+      await expect(name).toHaveValue('One order')
+      const committed = await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', {})
+      expect(committed.records).toHaveLength(1)
+      expect(committed.records[0]!.id).toBe(firstID)
+
+      const retry = page.waitForResponse(response => response.url().endsWith(`/tables/${saved.tableID}/records`))
+      await dialog.getByRole('button', { name: '提交记录', exact: true }).click()
+      const response = await retry
+      const rows = await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', {})
+      expect(rows.records).toEqual(committed.records)
+      expect(response.status()).toBe(409)
+      expect(response.request().postDataJSON().data.creates[0].id).toBe(firstID)
+      await expect(dialog.getByRole('alert')).toContainText('此记录已存在。请关闭表单并查看已保存的记录。')
+      await dialog.getByRole('button', { name: '取消', exact: true }).click()
+      await expect(page.locator(`[data-grid-record="${firstID}"]`)).toBeVisible()
+    } finally {
+      if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
+      await context.close()
+    }
+  })
+}
+
 test('an upload transport failure releases the edit snapshot before the next attachment change', async ({
   browser
 }) => {
@@ -37,18 +119,19 @@ test('an upload transport failure releases the edit snapshot before the next att
   const page = await context.newPage()
   let pageID: string | undefined
   try {
-    const saved = await database(page, 'Attachment upload recovery')
+    const saved = await base(page, 'Attachment upload recovery')
     pageID = saved.pageID
-    const { field } = await request<{ field: DatabaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
       name: 'Evidence',
       type: 'attachment',
       config: {}
     })
-    const { records } = await request<{ records: DatabaseRecord[] }>(page, `/tables/${saved.tableID}/records`, 'POST', {
+    const { records } = await request<{ records: BaseRecord[] }>(page, `/tables/${saved.tableID}/records`, 'POST', {
       creates: [{ data: { [saved.primary.id]: 'Before upload', [field.id]: [] } }]
     })
     const record = records[0]!
     await page.goto(location(saved.pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
     const row = page.locator(`[data-grid-record="${record.id}"]`)
     const file = row.getByLabel('添加附件', { exact: true })
     const uploadURL = `**/api/v2/pod/pages/${saved.pageID}/files`
@@ -97,18 +180,14 @@ test('new-record dialog retains failed answers, freezes a pending submission, an
   let release: (() => void) | undefined
   let releaseUpload: (() => void) | undefined
   try {
-    const saved = await database(page, 'Record response recovery')
-    const { field: attachment } = await request<{ field: DatabaseField }>(
-      page,
-      `/tables/${saved.tableID}/fields`,
-      'POST',
-      {
-        name: 'Evidence',
-        type: 'attachment',
-        config: {}
-      }
-    )
+    const saved = await base(page, 'Record response recovery')
+    const { field: attachment } = await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+      name: 'Evidence',
+      type: 'attachment',
+      config: {}
+    })
     await page.goto(location(saved.pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
     const dialog = () => page.getByRole('dialog', { name: '新增记录', exact: true })
     const open = async () => {
       await page.getByRole('button', { name: '新增记录', exact: true }).click()
@@ -143,7 +222,7 @@ test('new-record dialog retains failed answers, freezes a pending submission, an
       'INPUTS',
       await page.locator('input[aria-label="Name"]').evaluateAll(els => els.map(e => (e as HTMLInputElement).value))
     )
-    console.log('ROOT VALUE', await page.locator('.pod-database').innerText())
+    console.log('ROOT VALUE', await page.locator('.pod-base').innerText())
     await expect(name).toHaveValue('First response')
     await expect(dialog().getByText('Temporarily unavailable', { exact: true })).toBeVisible()
     await expect
@@ -225,11 +304,12 @@ test('record deletion requires confirmation, retains failures, and prevents clos
   const page = await context.newPage()
   let release: (() => void) | undefined
   try {
-    const saved = await database(page, 'Record lifecycle confirmation')
+    const saved = await base(page, 'Record lifecycle confirmation')
     await request(page, `/tables/${saved.tableID}/records`, 'POST', {
       creates: [{ data: { [saved.primary.id]: 'Keep until confirmed' } }]
     })
     await page.goto(location(saved.pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
     await page.getByRole('button', { name: '删除', exact: true }).click()
     const confirmation = page.getByRole('dialog', { name: '删除记录？', exact: true })
     await expect(confirmation).toContainText('无法从页面回收站恢复')
@@ -287,18 +367,19 @@ test('view settings preview locally, save explicitly, and keep the draft on a re
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   try {
-    const saved = await database(page, 'Shared view settings')
-    const { field } = await request<{ field: DatabaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+    const saved = await base(page, 'Shared view settings')
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
       name: 'State',
       type: 'select',
       config: { options: [{ id: 'todo', name: 'To do' }] }
     })
-    const { view } = await request<{ view: DatabaseView }>(page, `/tables/${saved.tableID}/views`, 'POST', {
+    const { view } = await request<{ view: BaseView }>(page, `/tables/${saved.tableID}/views`, 'POST', {
       name: 'Board',
       type: 'kanban',
       config: {}
     })
     await page.goto(location(saved.pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
     await expect(page.getByRole('navigation', { name: '数据视图' }).getByRole('button').first()).toHaveText('Grid')
     await expect(page.getByRole('button', { name: 'Grid', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: 'Board', exact: true }).click()
@@ -323,6 +404,7 @@ test('view settings preview locally, save explicitly, and keep the draft on a re
         .group_field_id
     ).toBe(field.id)
     await page.reload()
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
     await page.getByRole('button', { name: 'Board updated elsewhere', exact: true }).click()
     await expect(page.getByRole('combobox', { name: '选择分组字段', exact: true })).toContainText('State')
     await choose(page, '选择分组字段', saved.primary.name)

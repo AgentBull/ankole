@@ -912,10 +912,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert DockerWorker.container_info(DockerWorker.container_name(agent.uid)).status == "running"
 
     {:ok, database} =
-      Ankole.Pod.Pages.create(actor, %{type: "database", private_owner_uid: owner.uid})
+      Ankole.Pod.Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
 
-    {:ok, %{tables: [table]}} = Ankole.Pod.Database.list_tables(actor, database.id)
-    {:ok, schema} = Ankole.Pod.Database.get_table(actor, table.id)
+    {:ok, %{tables: [table]}} = Ankole.Pod.Bases.list_tables(actor, database.id)
+    {:ok, schema} = Ankole.Pod.Bases.get_table(actor, table.id)
     primary = Enum.find(schema.fields, & &1.is_primary)
 
     {:ok, applet} =
@@ -956,11 +956,11 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       ]);
       return {code, out, err};
     }
-    const record = await cli('ankole-pod', ['database.write', JSON.stringify({
+    const record = await cli('ankole-pod', ['base.write', JSON.stringify({
       id: data.table, creates: [{data: {[data.field]: data.kind}}]
     })]);
     if (record.code !== 0) throw new Error(record.err);
-    const schema = await cli('ankole-pod', ['database.create_field', JSON.stringify({
+    const schema = await cli('ankole-pod', ['base.create_field', JSON.stringify({
       id: data.table, name: 'From ' + data.kind, type: 'text'
     })]);
     const source = await cli('ankole-files', [
@@ -1059,10 +1059,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       end
     end
 
-    assert {:ok, %{records: records}} = Ankole.Pod.Database.query(actor, table.id, %{})
+    assert {:ok, %{records: records}} = Ankole.Pod.Bases.query(actor, table.id, %{})
     assert Enum.sort(Enum.map(records, & &1["data"][primary.id])) == ["human", "service"]
     assert Enum.all?(records, &String.ends_with?(&1["created_by"], "/" <> agent.uid))
-    assert {:ok, schema} = Ankole.Pod.Database.get_table(actor, table.id)
+    assert {:ok, schema} = Ankole.Pod.Bases.get_table(actor, table.id)
     assert Enum.any?(schema.fields, &(&1.name == "From service"))
     refute Enum.any?(schema.fields, &(&1.name == "From human"))
   end

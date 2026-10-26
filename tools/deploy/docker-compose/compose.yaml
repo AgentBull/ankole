@@ -6,6 +6,7 @@ x-control-plane-environment: &control-plane-environment
   # holds the same built-in cookie, so each deployment sets its own.
   RELEASE_COOKIE: ${RELEASE_COOKIE:?Set RELEASE_COOKIE in .env}
   DATABASE_URL: ecto://ankole:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgresql:5432/ankole
+  BASE_DB_URLS: ${BASE_DB_URLS:-}
   PHX_SERVER: "true"
   PHX_HOST: ${ANKOLE_HOST:?Set ANKOLE_HOST in .env}
   ANKOLE_SITE_ADMIN_CONSOLE_PATH: ${ANKOLE_SITE_ADMIN_CONSOLE_PATH:-/site-admin-console}

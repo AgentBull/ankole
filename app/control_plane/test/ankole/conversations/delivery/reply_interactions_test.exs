@@ -415,7 +415,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
   end
 
   test "a rolled-back intake leaves no supersede or driver job" do
-    %{event: source} = setup_interaction()
+    %{event: source} = setup_interaction(now: DateTime.add(DateTime.utc_now(), 3_600, :second))
     before_jobs = Repo.aggregate(Oban.Job, :count)
     before_signals = Repo.aggregate(Signal, :count)
 
@@ -579,7 +579,8 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
           source_event_id: unique_uid("interaction-source"),
           provider_message_id: unique_uid("trigger-message"),
           explicit: true
-        })
+        }),
+        Keyword.get(opts, :now, base_time())
       )
 
     action = %{

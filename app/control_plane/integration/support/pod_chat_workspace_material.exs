@@ -80,7 +80,7 @@ defmodule Ankole.PodChatWorkspaceMaterial do
           },
           %{
             "id" => "query-table",
-            "tool" => "pod.db.query",
+            "tool" => "base.query",
             "title" => "Queried Tasks (18 rows)",
             "status" => "completed",
             "duration_ms" => 340,

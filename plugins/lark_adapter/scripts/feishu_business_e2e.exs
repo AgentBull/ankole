@@ -1,3 +1,16 @@
+Mix.start()
+
+Mix.Project.in_project(
+  :ankole,
+  Path.expand("../../../app/control_plane", __DIR__),
+  fn _project ->
+    Mix.Task.run("loadconfig")
+    Mix.Task.run("compile")
+    {:ok, _applications} = Application.ensure_all_started(:req)
+    {:ok, _applications} = Application.ensure_all_started(:tzdata)
+  end
+)
+
 defmodule FeishuOpenAPIBusinessE2E do
   @moduledoc false
 

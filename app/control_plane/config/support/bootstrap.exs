@@ -8,6 +8,103 @@ defmodule Ankole.Config.Bootstrap do
 
   @phoenix_secret_key_base "phoenix.secret_key_base"
 
+  @doc "Parses the fixed Base shard topology before storage starts."
+  def base_databases(raw, database_url, env, partition \\ nil, edition \\ :foss) do
+    raw = if is_binary(raw) and String.trim(raw) == "", do: nil, else: raw
+
+    urls =
+      case raw do
+        nil when env in [:dev, :test] or edition == :saas ->
+          count = if env in [:dev, :test], do: 4, else: 8
+
+          for index <- 0..(count - 1) do
+            id = "base_" <> String.pad_leading(to_string(index), 2, "0")
+            suffix = if env == :test, do: "_test_#{partition || "default"}", else: ""
+            uri = URI.parse(database_url)
+            URI.to_string(%{uri | path: "/ankole_#{id}#{suffix}", query: "ankole_sharding=#{id}"})
+          end
+
+        nil ->
+          [database_url]
+
+        value ->
+          value |> String.split(";") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      end
+
+    if urls == [], do: raise("BASE_DB_URLS must contain at least one URL")
+
+    default_pool =
+      cond do
+        env in [:dev, :test] -> 2
+        edition == :saas -> 5
+        true -> 10
+      end
+
+    shards = Enum.map(urls, &base_database(&1, length(urls), default_pool))
+    ids = Enum.map(shards, & &1.id)
+    if Enum.uniq(ids) != ids, do: raise("BASE_DB_URLS has duplicate shard IDs")
+    shards
+  end
+
+  defp base_database(url, count, default_pool) do
+    uri = URI.parse(url)
+
+    unless uri.scheme in ["postgres", "postgresql", "ecto"] and is_binary(uri.host) and
+             is_binary(uri.path) and uri.path != "/",
+           do: raise("BASE_DB_URLS requires PostgreSQL database URLs")
+
+    pairs = if uri.query, do: Enum.to_list(URI.query_decoder(uri.query)), else: []
+
+    {custom, driver} =
+      Enum.split_with(pairs, fn {key, _} -> String.starts_with?(key, "ankole_") end)
+
+    keys = Enum.map(custom, &elem(&1, 0))
+
+    unless Enum.uniq(keys) == keys and
+             Enum.all?(keys, &(&1 in ~w(ankole_sharding ankole_stock_only ankole_pool_size))),
+           do: raise("BASE_DB_URLS has duplicate or unknown ankole_* parameters")
+
+    if Enum.any?(driver, fn {key, _} -> key == "sslmode" end),
+      do: raise("BASE_DB_URLS does not support sslmode; use the internal PostgreSQL network")
+
+    custom = Map.new(custom)
+    id = custom["ankole_sharding"] || if(count == 1, do: "base_default")
+
+    unless is_binary(id) and Regex.match?(~r/\A[a-z0-9_]{1,32}\z/, id),
+      do: raise("Each BASE_DB_URLS entry requires a unique ankole_sharding ID")
+
+    stock_only =
+      case custom["ankole_stock_only"] do
+        value when value in [nil, "false"] -> false
+        "true" -> true
+        _ -> raise "ankole_stock_only must be true or false"
+      end
+
+    pool =
+      case custom["ankole_pool_size"] do
+        nil ->
+          default_pool
+
+        value ->
+          case Integer.parse(value) do
+            {size, ""} when size > 0 -> size
+            _ -> raise "ankole_pool_size must be a positive integer"
+          end
+      end
+
+    %{
+      id: id,
+      stock_only: stock_only,
+      pool_size: pool,
+      url:
+        URI.to_string(%{
+          uri
+          | scheme: "ecto",
+            query: if(driver == [], do: nil, else: URI.encode_query(driver))
+        })
+    }
+  end
+
   @files_store_fields %{
     "fs" => {~w(root)a, []},
     "s3" => {~w(bucket region)a, ~w(endpoint root access_key_id secret_access_key)a},

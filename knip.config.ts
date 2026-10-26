@@ -6,6 +6,14 @@
 // lives in UNUSED_ALLOWLIST in tools/devkit/src/commands/analyze/config.ts.
 
 import type { KnipConfig } from 'knip'
+import { existsSync, readFileSync } from 'node:fs'
+
+const privateManifest = 'internals/webapps/entries.json'
+const privateEntries = existsSync(privateManifest) ? JSON.parse(readFileSync(privateManifest, 'utf8')) : {}
+const privateWebapps = [
+  ...Object.values(privateEntries.entries ?? {}),
+  ...Object.values(privateEntries.overrides ?? {})
+].map(file => `internals/webapps/${file}!`)
 
 const config: KnipConfig = {
   // An export with an internal production caller is live code.
@@ -18,8 +26,7 @@ const config: KnipConfig = {
       entry: [
         'tools/deploy/kubernetes/update-schema.ts!',
         'tools/e2e/support/pod_content_browser.mjs!',
-        'internals/webapps/account.tsx!',
-        'internals/webapps/pod.tsx!',
+        ...privateWebapps,
         'app/library/agent-plugins/lark/skills/lark-approvals/scripts/profile-setup.ts!'
       ]
     },

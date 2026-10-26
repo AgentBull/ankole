@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { state, request } from './fixtures'
 import { listRoute, pageRoute } from './routes'
 
-test('a database owns child documents and full-text search respects the private page tree', async ({ browser }) => {
+test('a base owns child documents and full-text search respects the private page tree', async ({ browser }) => {
   const ownerContext = await browser.newContext(),
     viewerContext = await browser.newContext()
   await ownerContext.addCookies(state.owner.cookies)
@@ -12,9 +12,9 @@ test('a database owns child documents and full-text search respects the private 
   let parent: string | undefined
   try {
     await owner.goto(state.base_url + pageRoute(state.report_id))
-    const title = `Private database ${crypto.randomUUID().slice(0, 8)}`
+    const title = `Private base ${crypto.randomUUID().slice(0, 8)}`
     const created = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
-      type: 'database',
+      type: 'base',
       title,
       private_owner_uid: state.owner.uid
     })

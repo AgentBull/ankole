@@ -16,7 +16,7 @@ import { isRecord } from '@agentbull/active-support'
 function ToolIcon({ tool }: { tool: string }) {
   const Icon = /bash|terminal|command|shell/.test(tool)
     ? RiTerminalBoxLine
-    : /database|db\.|query/.test(tool)
+    : /base|db\.|query/.test(tool)
       ? RiDatabase2Line
       : /brain|search|memory/.test(tool)
         ? RiSearchLine

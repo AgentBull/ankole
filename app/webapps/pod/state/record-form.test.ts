@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { RecordData } from '@ankole/applet-sdk/types'
+import type { RecordData, RecordWrite } from '@ankole/applet-sdk/types'
 import { RecordFormModel } from './record-form'
 
 const name = 'name'
@@ -8,8 +8,8 @@ describe('record form submissions', () => {
   test('a response waits for every attachment upload before capturing its values', async () => {
     const model = new RecordFormModel()
     const sent: RecordData[] = []
-    const create = async (data: RecordData) => {
-      sent.push(data)
+    const create = async (changes: RecordWrite) => {
+      sent.push(changes.creates![0]!.data!)
     }
     model.change(name, 'With attachments')
     model.upload('first', true)
@@ -30,8 +30,8 @@ describe('record form submissions', () => {
     const model = new RecordFormModel()
     const request = Promise.withResolvers<void>()
     const sent: RecordData[] = []
-    const create = (data: RecordData) => {
-      sent.push(data)
+    const create = (changes: RecordWrite) => {
+      sent.push(changes.creates![0]!.data!)
       return request.promise
     }
     model.change(name, 'First response')
@@ -48,8 +48,8 @@ describe('record form submissions', () => {
     model.change(name, 'Second response')
     expect(model.generation.value).toBe(1)
     expect(model.values.value).toEqual({ name: 'Second response' })
-    await model.submit(async data => {
-      sent.push(data)
+    await model.submit(async changes => {
+      sent.push(changes.creates![0]!.data!)
     })
     expect(sent.at(-1)).toEqual({ name: 'Second response' })
     expect(model.generation.value).toBe(2)
@@ -69,10 +69,29 @@ describe('record form submissions', () => {
     expect(model.generation.value).toBe(0)
     expect(model.pending.value).toBe(false)
     const sent: RecordData[] = []
-    await model.submit(async data => {
-      sent.push(data)
+    await model.submit(async changes => {
+      sent.push(changes.creates![0]!.data!)
     })
     expect(sent).toEqual([{ name: 'Keep this response', checked: false }])
     expect(model.error.value).toBeUndefined()
+  })
+
+  test('a retry keeps its create ID, including after edits, and a successful response starts a new ID', async () => {
+    const model = new RecordFormModel()
+    const requests: RecordWrite[] = []
+    const send = async (changes: RecordWrite) => {
+      requests.push(structuredClone(changes))
+      if (requests.length === 1) throw new Error('Response lost')
+    }
+    model.change(name, 'One order')
+    await model.submit(send)
+    model.change(name, 'Corrected order')
+    await model.submit(send)
+    model.change(name, 'Next order')
+    await model.submit(send)
+    expect(requests[0]!.creates![0]!.id).toMatch(/^[0-9a-f-]{14}7/)
+    expect(requests[1]!.creates![0]!.id).toBe(requests[0]!.creates![0]!.id)
+    expect(requests[1]!.creates![0]!.data).toEqual({ name: 'Corrected order' })
+    expect(requests[2]!.creates![0]!.id).not.toBe(requests[0]!.creates![0]!.id)
   })
 })

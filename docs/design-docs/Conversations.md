@@ -126,6 +126,12 @@ observation, Conversations owns batching and source tombstones, and Signals acce
 resulting stimulus. Adding an adapter does not copy these windows or recovery
 rules into that adapter.
 
+The outer intake transaction publishes its accepted Signals through
+`Signals.publish_committed/1` after commit. This includes direct inputs,
+scheduled batch finalization, and batches finalized by a later observation.
+Publication sends Session notifications and wakes ready input. The same
+transaction records the durable Driver wakeup.
+
 `InboundBatch` actions own the `open`, `finalized`, and `canceled` states.
 Only an open batch can change. A revision or terminal action increments the
 stored revision atomically; PostgreSQL rejects negative revisions. The deadline
@@ -413,8 +419,11 @@ names and Page titles with spaces. Page references and message quotes use the
 message's stored links in the current model input and conversation
 context. A reference identifies content; the Agent's tools check access when
 they read it. A reader without Chat permission can view a question but cannot
-submit its answer. New composer messages use queued delivery. The queue has a
-bounded scroll area with one-line previews and explicit order controls. Steer merges a selected
+submit its answer. Send and retry use the same submission decision. An explicit
+recipient must be active in the room and callable by the viewer. Edits use their
+saved Agent target, and answers use the question's Agent. New composer messages
+use queued delivery. The queue has a bounded scroll area with one-line previews
+and explicit order controls. Steer merges a selected
 pending input into the current turn. Each Agent's queue supports steering, editing, reordering, removal,
 and explicit resume after stop. Take back restores queued text, files, references,
 and Human mentions. An empty draft targets that Agent's queue; other Agent
@@ -801,6 +810,11 @@ presentation live in the Delivery-owned `delivery_previews` row, keyed by
 `Delivery.PreviewStates` owns these writes to the `Delivery.PreviewState`
 resource. Its checkpoint update locks and loads the Signal, applies the
 requested change, and persists the fenced checkpoint in one transaction.
+It owns reply eligibility, owner generation changes, the atomic transfer between
+old and new owners, and the comparison of durable presentation revisions. A
+transfer keeps an invisible old surface free of a continued presentation. A
+rejected transfer rolls back both owners. A stopped preview can store a newer
+presentation only for its current generation.
 Recovery, cleanup, and fallback use this same path. The preview process claims,
 hands off, and checkpoints its surface through `Delivery.PreviewStates`
 top-level transactions; the process itself opens no transaction. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative

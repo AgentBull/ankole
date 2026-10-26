@@ -143,7 +143,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
   end
 
   test "page and room authorization use trusted socket peer IP for joins and later checks", ctx do
-    for type <- ["doc", "applet", "database"] do
+    for type <- ["doc", "applet", "base"] do
       {:ok, page} =
         Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
           type: type,
@@ -167,9 +167,9 @@ defmodule AnkoleWeb.PodContentChannelTest do
           "applet" ->
             {PodRoomChannel, "applet:#{page.id}:restricted"}
 
-          "database" ->
+          "base" ->
             {:ok, table} =
-              Ankole.Pod.Database.create_table(
+              Ankole.Pod.Bases.create_table(
                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                 page.id,
                 %{name: "Records"}

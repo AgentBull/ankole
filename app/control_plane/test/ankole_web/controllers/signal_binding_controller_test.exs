@@ -1353,13 +1353,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   end
 
   defp without_plugin_registry(fun) do
-    registry = Process.whereis(Ankole.Plugins.Registry)
-    true = Process.unregister(Ankole.Plugins.Registry)
+    key = {Ankole.Plugins.Registry, Ankole.Plugins.Registry}
+    snapshot = :persistent_term.get(key)
+    :persistent_term.erase(key)
 
     try do
       fun.()
     after
-      true = Process.register(registry, Ankole.Plugins.Registry)
+      :persistent_term.put(key, snapshot)
     end
   end
 

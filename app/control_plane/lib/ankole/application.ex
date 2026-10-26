@@ -5,6 +5,7 @@ defmodule Ankole.Application do
 
   @impl true
   def start(_type, _args) do
+    {:ok, _provider} = Ankole.Features.initialize()
     :ok = AnkoleWeb.SiteAdminConsole.validate!()
     :ok = Ankole.IdentityProviders.SiteSources.validate!()
     :ok = AnkoleWeb.RequestLogger.attach()
@@ -47,6 +48,7 @@ defmodule Ankole.Application do
     children =
       [
         Ankole.Repo,
+        Ankole.Pod.BaseCluster,
         {Phoenix.PubSub, name: Ankole.PubSub},
         AnkoleWeb.PodPresence,
         Ankole.OIDC.SigningKey,

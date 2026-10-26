@@ -1,14 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { SidebarInset, SidebarProvider, SidebarTrigger, TooltipProvider, useSidebar } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import {
@@ -34,15 +24,15 @@ import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import './pod.css'
 
-const AccountNavigation = createContext<ReactNode>(null)
+import { SlotGate, validateSlotIDs } from '../common/slots'
+import { PodSlotsContext, usePodSlots, podSettingsSections, type PodAppSlots } from './slots'
+export type { PodAppSlots } from './slots'
 const routeFeedback = { pendingComponent: PodRouteLoading, pendingMs: 0, errorComponent: PodRouteError }
 const LazyChatRoute = lazyRouteComponent(() => import('./chat-page'), 'ChatRoute')
 const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'PageRoute')
 
-/** `accountNavigation` adds `DropdownMenuItem`s to the sidebar account menu. */
-type PodAppProps = { accountNavigation?: ReactNode }
-
-export function PodApp({ accountNavigation }: PodAppProps = {}) {
+export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
+  validateSlotIDs(slots.settingsTabs ?? [], podSettingsSections)
   const client = useQueryClient()
   const router = useMemo(() => {
     const rootRoute = createRootRoute({ component: PodShell })
@@ -97,13 +87,13 @@ export function PodApp({ accountNavigation }: PodAppProps = {}) {
     })
   }, [client])
   return (
-    <AccountNavigation value={accountNavigation}>
+    <PodSlotsContext value={slots}>
       <ContentProvider>
         <ChatDraftProvider>
           <RouterProvider router={router} />
         </ChatDraftProvider>
       </ContentProvider>
-    </AccountNavigation>
+    </PodSlotsContext>
   )
 }
 
@@ -131,7 +121,7 @@ function PodRouteError({ error }: { error: unknown }) {
 }
 
 function PodShell() {
-  const accountNavigation = useContext(AccountNavigation)
+  const { accountNavigation } = usePodSlots()
   const location = useLocation()
   const navigate = useNavigate()
   const [commandOpen, setCommandOpen] = useState(false)
@@ -207,7 +197,9 @@ function PodShell() {
         <SidebarProvider
           className="pod-shell h-svh overflow-hidden"
           style={{ '--sidebar-width': '248px' } as CSSProperties}>
-          <PodSidebar accountNavigation={accountNavigation} />
+          <SlotGate slot={accountNavigation}>
+            {enabled => <PodSidebar accountNavigation={enabled ? accountNavigation?.content : undefined} />}
+          </SlotGate>
           <SidebarInset className="min-h-0 overflow-hidden">
             <PodTopBar />
             <div className="min-h-0 flex-1 overflow-hidden">

@@ -225,10 +225,10 @@ test('an unfinished page chat survives closing and navigation and warns before r
       .getByRole('button', { name: 'Browser report', exact: true })
     if ((await parent.getAttribute('aria-expanded')) !== 'true') await parent.click()
     await page
-      .locator(`a[href*="${pageRoute(state.database_id)}"]`)
+      .locator(`a[href*="${pageRoute(state.base_id)}"]`)
       .first()
       .click()
-    await expect.poll(() => new URL(page.url()).pathname).toBe(pageRoute(state.database_id))
+    await expect.poll(() => new URL(page.url()).pathname).toBe(pageRoute(state.base_id))
     await page.goBack()
     await opener.click()
     panel = page.getByRole('complementary', { name: '页面对话', exact: true })

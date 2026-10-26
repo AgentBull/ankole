@@ -3,7 +3,7 @@ defmodule Ankole.Pod.AutomationAttemptTest do
   import Ankole.PrincipalsFixtures
   import Ankole.FilesFixtures
   alias Ankole.AutomationJobs
-  alias Ankole.Pod.{Database, Pages}
+  alias Ankole.Pod.{Bases, Pages}
   alias Ankole.Principals.WorkAccess
   alias Ankole.RuntimeFabric.V1, as: Proto
   alias Ankole.SessionsCase
@@ -15,8 +15,8 @@ defmodule Ankole.Pod.AutomationAttemptTest do
     owner_actor = actor_fixture(owner)
     route = "automation-pod-#{agent.uid}"
     {:ok, _} = SessionsCase.admit_worker(route, %{worker_id: agent.uid})
-    {:ok, page} = Pages.create(owner_actor, %{type: "database", private_owner_uid: owner.uid})
-    {:ok, %{tables: [table]}} = Database.list_tables(owner_actor, page.id)
+    {:ok, page} = Pages.create(owner_actor, %{type: "base", private_owner_uid: owner.uid})
+    {:ok, %{tables: [table]}} = Bases.list_tables(owner_actor, page.id)
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
@@ -38,13 +38,13 @@ defmodule Ankole.Pod.AutomationAttemptTest do
       ctx = %{route: route, agent: agent, proof: proof}
 
       assert {:ok, %{"records" => [_]}} =
-               rpc(ctx, "pod.write", "database.write", %{
+               rpc(ctx, "pod.write", "base.write", %{
                  id: table.id,
                  creates: [%{data: %{}}]
                })
 
       result =
-        rpc(ctx, "pod.write", "database.create_field", %{
+        rpc(ctx, "pod.write", "base.create_field", %{
           id: table.id,
           name: to_string(kind),
           type: "text"
@@ -54,15 +54,15 @@ defmodule Ankole.Pod.AutomationAttemptTest do
         do: assert(match?({:ok, _}, result)),
         else: assert(result == {:error, "forbidden"})
 
-      assert {:ok, _} = rpc(ctx, "pod.read", "database.schema", %{id: table.id})
+      assert {:ok, _} = rpc(ctx, "pod.read", "base.schema", %{id: table.id})
 
       stale = %{ctx | proof: %{proof | attempt_id: Ecto.UUID.generate()}}
 
       assert {:error, "automation_job_attempt_not_active"} =
-               rpc(stale, "pod.read", "database.schema", %{id: table.id})
+               rpc(stale, "pod.read", "base.schema", %{id: table.id})
 
       assert {:error, "automation_job_attempt_not_active"} =
-               rpc(stale, "pod.write", "database.write", %{
+               rpc(stale, "pod.write", "base.write", %{
                  id: table.id,
                  creates: [%{data: %{}}]
                })
@@ -74,7 +74,7 @@ defmodule Ankole.Pod.AutomationAttemptTest do
                })
 
       assert {:error, "automation_job_attempt_not_active"} =
-               rpc(ctx, "pod.read", "database.schema", %{id: table.id})
+               rpc(ctx, "pod.read", "base.schema", %{id: table.id})
     end
   end
 

@@ -2,7 +2,6 @@ defmodule Ankole.SubtractionUpgradeTest do
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.Pod.DbRecord
 
   defmodule UpgradeRepo do
     use Ecto.Repo, otp_app: :ankole, adapter: Ecto.Adapters.Postgres
@@ -100,8 +99,12 @@ defmodule Ankole.SubtractionUpgradeTest do
              @migration
            ]
 
-    assert UpgradeRepo.get_by!(DbRecord, id: record.id).data == record.data
-    assert UpgradeRepo.get_by!(DbRecord, id: record.id).versions == record.versions
+    assert SQL.query!(
+             UpgradeRepo,
+             "SELECT data,versions FROM db_records WHERE id=$1::text::uuid",
+             [record.id]
+           ).rows == [[record.data, record.versions]]
+
     assert SQL.query!(UpgradeRepo, "SELECT to_regclass('db_sync_bindings')").rows == [[nil]]
 
     assert SQL.query!(UpgradeRepo, "SELECT to_regclass('automation_jobs_tenant_id_id_index')").rows ==

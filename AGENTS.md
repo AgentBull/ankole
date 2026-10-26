@@ -28,7 +28,7 @@ Production code must reach the real domain contract and adapter. Only a unit tes
 
 ## Boundaries
 
-- A site owns the infrastructure; each tenant owns its organization and data. One site uses one PostgreSQL database. A tenant query needs an explicit process context through `Ankole.Repo`, and a missing context must fail. See [Tenants](docs/design-docs/Tenants.md).
+- A site owns the infrastructure; each tenant owns its organization and data. One site uses one control-plane PostgreSQL database; physical Base tables use the tenant's assigned Base shard. A tenant query needs an explicit process context through `Ankole.Repo`, and a missing context must fail. See [Tenants](docs/design-docs/Tenants.md).
 - Principal/AuthZ owns subjects and permissions. A Principal belongs to one tenant and has one globally unique opaque UID. Do not add another subject or authorization model.
 - An environment variable or a secret mount holds only a startup fact or credential that is needed before storage is reachable. Operator settings are declared `Ankole.AppConfigure` keys. Runtime-generated secrets live in the owning subsystem's encrypted storage.
 - Use the owning domain's schema and identifier shape. Do not add a local key strategy or a database-generated identifier.

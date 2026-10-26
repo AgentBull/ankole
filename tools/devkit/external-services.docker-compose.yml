@@ -9,12 +9,15 @@ services:
         "-c",
         "max_connections=${ANKOLE_POSTGRES_MAX_CONNECTIONS:-300}",
         "-c",
+        "max_locks_per_transaction=256",
+        "-c",
         "shared_preload_libraries=pg_search"
       ]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: just4local-dev
       POSTGRES_DB: ankole_dev
+      # Dev and test bootstrap creates four Base databases with this database's collation.
     ports:
       - "5433:5432"
     volumes:

@@ -26,7 +26,7 @@ for (const fixture of [
       savedID = saved.page.id
       await request(page, `/pages/${savedID}/content`, 'PUT', {
         base_revision: saved.page.revision,
-        xml: `<page><p>Before the view</p><embed ref="${state.database_id}" table="${state.table_id}" view="${JSON.stringify(fixture.config).replaceAll('"', '&quot;')}"/><p>After the view</p></page>`
+        xml: `<page><p>Before the view</p><embed ref="${state.base_id}" table="${state.table_id}" view="${JSON.stringify(fixture.config).replaceAll('"', '&quot;')}"/><p>After the view</p></page>`
       })
       await page.goto(location(savedID))
       await page.reload()
@@ -44,17 +44,17 @@ for (const fixture of [
         )
         .toContain('After the view remains editable')
       await embed.getByRole('button', { name: '放弃视图更改', exact: true }).click()
-      await expect(embed.locator('.pod-database-grid')).toBeVisible()
+      await expect(embed.locator('.pod-base-grid')).toBeVisible()
       await expect
         .poll(async () => (await request<{ content: { content: string } }>(page, `/pages/${savedID}`)).content.content)
         .not.toContain(fixture.removed)
       const content = (await request<{ content: { content: string } }>(page, `/pages/${savedID}`)).content.content
-      expect(content).toContain(`ref="${state.database_id}"`)
+      expect(content).toContain(`ref="${state.base_id}"`)
       expect(content).toContain(`table="${state.table_id}"`)
       expect(content).toContain('Before the view')
       expect(content).toContain('After the view remains editable')
       await page.reload()
-      await expect(page.locator('.editor-content .pod-database-grid')).toBeVisible()
+      await expect(page.locator('.editor-content .pod-base-grid')).toBeVisible()
       await expect(page.locator('.editor-content')).toContainText('After the view remains editable')
       expect(errors).toEqual([])
     } finally {

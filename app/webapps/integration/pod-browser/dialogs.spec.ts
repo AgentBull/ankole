@@ -1,6 +1,6 @@
 import { state, request } from './fixtures'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import type { DatabaseField, DatabaseTable, TableSchema } from '@ankole/applet-sdk/types'
+import type { BaseField, BaseTable, TableSchema } from '@ankole/applet-sdk/types'
 import { pageRoute } from './routes'
 
 async function choose(page: Page, trigger: Locator, option: string) {
@@ -45,11 +45,11 @@ test('sidebar creation focuses its title, keeps failed Chinese text and type, an
     const name = `季度销售复盘 ${crypto.randomUUID()}`
     await page.keyboard.insertText(name)
     const type = dialog.getByRole('combobox', { name: '页面类型', exact: true })
-    await choose(page, type, 'Database')
+    await choose(page, type, '多维表')
     await page.route('**/api/v2/pod/pages', async route => {
       if (route.request().method() !== 'POST') return route.continue()
       calls++
-      expect(route.request().postDataJSON().data).toMatchObject({ title: name, type: 'database' })
+      expect(route.request().postDataJSON().data).toMatchObject({ title: name, type: 'base' })
       expect(route.request().postDataJSON().data.parent_id).toBeUndefined()
       if (calls === 1) {
         return route.fulfill({
@@ -68,7 +68,7 @@ test('sidebar creation focuses its title, keeps failed Chinese text and type, an
     await title.press('Enter')
     await expect(dialog.getByText('Creation unavailable', { exact: true })).toBeVisible()
     await expect(title).toHaveValue(name)
-    await expect(type).toHaveText('Database')
+    await expect(type).toHaveText('多维表')
     await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
     await title.press('Enter')
     await started.promise
@@ -101,15 +101,15 @@ test('table and view forms submit with Enter while field and record deletion ret
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
-  let databaseID: string | undefined
+  let baseID: string | undefined
   try {
     await page.goto(pageRoute(state.report_id))
-    const { page: database } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
-      type: 'database',
+    const { page: base } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'base',
       title: `Dialog forms ${crypto.randomUUID()}`
     })
-    databaseID = database.id
-    await page.goto(pageRoute(database.id))
+    baseID = base.id
+    await page.goto(pageRoute(base.id))
     await page.getByRole('button', { name: '+ 数据表', exact: true }).click()
     const tableDialog = page.getByRole('dialog', { name: '新建数据表', exact: true })
     const tableName = tableDialog.getByRole('textbox', { name: '数据表名称', exact: true })
@@ -117,7 +117,7 @@ test('table and view forms submit with Enter while field and record deletion ret
     await tableName.fill('客户台账')
     await tableName.press('Enter')
     await expect(tableDialog).toHaveCount(0)
-    const { tables } = await request<{ tables: DatabaseTable[] }>(page, `/databases/${database.id}`)
+    const { tables } = await request<{ tables: BaseTable[] }>(page, `/bases/${base.id}`)
     expect(tables).toHaveLength(1)
     expect(tables[0]!.name).toBe('客户台账')
     const table = tables[0]!
@@ -131,7 +131,7 @@ test('table and view forms submit with Enter while field and record deletion ret
     await expect(viewDialog).toHaveCount(0)
     const schema = await request<TableSchema>(page, `/tables/${table.id}`)
     expect(schema.views.filter(view => view.name === '客户看板' && view.type === 'kanban')).toHaveLength(1)
-    const { field } = await request<{ field: DatabaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
       name: 'Keep field',
       type: 'text',
       config: {}
@@ -162,7 +162,7 @@ test('table and view forms submit with Enter while field and record deletion ret
     await expect(deleteRecord).toHaveCount(0)
     await expect(page.getByRole('textbox', { name: primary.name, exact: true })).toHaveValue('Keep record')
   } finally {
-    if (databaseID) await request(page, `/pages/${databaseID}`, 'DELETE')
+    if (baseID) await request(page, `/pages/${baseID}`, 'DELETE')
     await context.close()
   }
 })
@@ -178,15 +178,15 @@ test('390px long record and field dialogs scroll their body and keep actions vis
   })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
-  let databaseID: string | undefined
+  let baseID: string | undefined
   try {
     await page.goto(pageRoute(state.report_id))
-    const { page: database } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
-      type: 'database',
+    const { page: base } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'base',
       title: `Mobile forms ${crypto.randomUUID()}`
     })
-    databaseID = database.id
-    const { table } = await request<{ table: DatabaseTable }>(page, `/databases/${database.id}/tables`, 'POST', {
+    baseID = base.id
+    const { table } = await request<{ table: BaseTable }>(page, `/bases/${base.id}/tables`, 'POST', {
       name: 'Mobile records'
     })
     for (let index = 1; index <= 16; index++) {
@@ -204,7 +204,7 @@ test('390px long record and field dialogs scroll their body and keep actions vis
         options: Array.from({ length: 24 }, (_, index) => ({ id: String(index), name: `Option ${index + 1}` }))
       }
     })
-    await page.goto(pageRoute(database.id))
+    await page.goto(pageRoute(base.id))
     const fieldTrigger = page.getByRole('columnheader').getByRole('button', { name: 'Long select', exact: true })
     await fieldTrigger.click()
     const fieldDialog = page.getByRole('dialog', { name: '编辑字段', exact: true })
@@ -250,7 +250,7 @@ test('390px long record and field dialogs scroll their body and keep actions vis
     await expect(people).toBeFocused()
     await recordDialog.getByRole('button', { name: '取消', exact: true }).click()
   } finally {
-    if (databaseID) await request(page, `/pages/${databaseID}`, 'DELETE')
+    if (baseID) await request(page, `/pages/${baseID}`, 'DELETE')
     await context.close()
   }
 })

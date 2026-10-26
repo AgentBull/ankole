@@ -1,10 +1,10 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { match } from '@agentbull/active-support'
-import type { DatabaseField, FieldType } from '@ankole/applet-sdk/types'
-import { fieldOptions, type Option } from '../database-field-types'
+import type { BaseField, FieldType } from '@ankole/applet-sdk/types'
+import { fieldOptions, type Option } from '../base-field-types'
 
 export const FieldEditorModel = createModel(() => {
-  const original = signal<DatabaseField>()
+  const original = signal<BaseField>()
   const definitionDirty = signal(false)
   const open = signal(false)
   const name = signal('')
@@ -99,7 +99,7 @@ export const FieldEditorModel = createModel(() => {
     setConfirmation: (value: 'delete' | 'change' | 'clear' | undefined) => {
       confirmation.value = value
     },
-    load(field?: DatabaseField) {
+    load(field?: BaseField) {
       batch(() => {
         original.value = field
         definitionDirty.value = false

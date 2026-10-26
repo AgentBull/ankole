@@ -2,37 +2,29 @@ defmodule Ankole.DependencyPatchesTest do
   use ExUnit.Case, async: false
   @moduletag timeout: 900_000
   @root Path.expand("../../..", __DIR__)
-  @patches Path.join(@root, "app/control_plane_core/patches")
+  @patches Path.join(@root, "app/control_plane/patches")
 
-  test "the host, core, and all standalone plugins use the shared aliases and separate build stamps" do
+  test "the application uses the dependency patches in its edition build tree" do
     script = """
     Mix.start()
     Mix.env(:test)
     root = #{inspect(@root)}
-    projects = [{:ankole, "app/control_plane"}, {:ankole_core, "app/control_plane_core"}] ++
-      for file <- Path.wildcard(Path.join(root, "plugins/*/mix.exs")) do
-        name = file |> Path.dirname() |> Path.basename()
-        {String.to_atom("ankole_" <> name), Path.dirname(file)}
+    Mix.Project.in_project(:ankole, Path.join(root, "app/control_plane"), fn _ ->
+      for task <- [:"deps.compile", :"deps.loadpaths"] do
+        [callback, original] = Mix.Project.config()[:aliases][task]
+        true = original == Atom.to_string(task)
+        {:module, Ankole.Mix.DependencyPatches} = :erlang.fun_info(callback, :module)
       end
-    paths = for {app, path} <- projects do
-      Mix.Project.in_project(app, Path.expand(path, root), fn _ ->
-        for task <- [:"deps.compile", :"deps.loadpaths"] do
-          [callback, original] = Mix.Project.config()[:aliases][task]
-          true = original == Atom.to_string(task)
-          {:module, Ankole.Mix.DependencyPatches} = :erlang.fun_info(callback, :module)
-        end
-        true = Mix.Project.deps_path() == Path.join(root, "app/control_plane/deps")
-        Mix.Project.build_path()
-      end)
-    end
-    true = length(projects) == length(Enum.uniq(paths))
-    IO.puts("all-build-trees-wired")
+      true = Mix.Project.deps_path() == Path.join(root, "app/control_plane/deps")
+      true = Mix.Project.build_path() == Path.join(root, "app/control_plane/_build/foss/test")
+      IO.puts("application-build-wired")
+    end)
     """
 
     assert command!(@root, "elixir", ["-e", script], [
              {"MIX_BUILD_PATH", nil},
              {"ANKOLE_EDITION", "foss"}
-           ]) =~ "all-build-trees-wired"
+           ]) =~ "application-build-wired"
   end
 
   test "normal compilation replaces stale dependencies and their consumers in each warm build tree" do
@@ -140,7 +132,7 @@ defmodule Ankole.DependencyPatchesTest do
 
     File.write!(Path.join(directory, "config/config.exs"), """
     import Config
-    import_config #{inspect(Path.join(@root, "app/control_plane_core/config/config.exs"))}
+    import_config #{inspect(Path.join(@root, "app/control_plane/config/dependencies.exs"))}
     """)
 
     File.write!(Path.join(directory, "mix.exs"), """

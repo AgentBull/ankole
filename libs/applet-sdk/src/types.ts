@@ -3,7 +3,7 @@ import type { Query, QueryClient } from '@tanstack/react-query'
 export type Value = string | number | boolean | null | unknown[] | Record<string, unknown>
 export type RecordData = Record<string, Value>
 export type Versions = Record<string, number>
-export type DatabaseRecord = {
+export type BaseRecord = {
   id: string
   data: RecordData
   versions: Versions
@@ -27,7 +27,7 @@ export type FieldType =
   | 'updated_at'
   | 'created_by'
   | 'updated_by'
-export type DatabaseField = {
+export type BaseField = {
   id: string
   name: string
   type: FieldType
@@ -37,7 +37,7 @@ export type DatabaseField = {
   position?: string
 }
 export type ViewType = 'grid' | 'kanban' | 'gallery'
-export type DatabaseView = {
+export type BaseView = {
   id: string
   name: string
   type: ViewType
@@ -45,14 +45,14 @@ export type DatabaseView = {
   version: number
   position?: string
 }
-export type DatabaseTable = { id: string; page_id: string; name: string; data_version: number; record_count: number }
+export type BaseTable = { id: string; page_id: string; name: string; data_version: number; record_count: number }
 export type TableSchema = {
-  table: DatabaseTable
-  fields: DatabaseField[]
-  views: DatabaseView[]
+  table: BaseTable
+  fields: BaseField[]
+  views: BaseView[]
   mode: 'local' | 'remote'
   timezone?: string
-  limits?: { group_count: number; local_bytes?: number }
+  limits?: { group_count: number }
   local_query?: { text_contains_ascii: boolean; jsonb_compare: boolean }
 }
 export type Condition = {
@@ -72,7 +72,7 @@ export type RecordQuery = {
   group?: { field_id: string; value?: Value; value_json?: string | null }
 }
 export type RecordsResult = {
-  records: DatabaseRecord[]
+  records: BaseRecord[]
   data_version: number
   page_token?: string | null
   complete: boolean
@@ -89,8 +89,9 @@ export type RecordWrite = {
   updates?: { id: string; data: RecordData; expected_versions: Versions }[]
   deletes?: { id: string; expected_versions: Versions }[]
 }
-export type WriteResult = { records: DatabaseRecord[]; deleted_ids: string[]; data_version: number }
+export type WriteResult = { records: BaseRecord[]; deleted_ids: string[]; data_version: number }
 export type TableEvent = {
+  resync?: boolean
   data_version?: number
   changed_ids?: string[]
   deleted_ids?: string[]
@@ -106,7 +107,7 @@ export type EphemeralChannel = {
   close(): void
 }
 export type PodAPI = { request<T>(path: string, method?: string, body?: unknown): Promise<T> }
-export type DatabaseAPI = {
+export type BaseAPI = {
   schema(tableID: string): Promise<TableSchema>
   records(tableID: string, query: RecordQuery): Promise<RecordsResult>
   aggregate(tableID: string, query: AggregateQuery): Promise<AggregateResult>
@@ -136,7 +137,7 @@ export type AppletRuntime = {
   routes: RoutesAPI
   queryClient: QueryClient
   readDenial(query: Query): unknown
-  database: DatabaseAPI
+  base: BaseAPI
   pod: PodAPI
   channel(name: string): EphemeralChannel
   principal?: { uid: string; name?: string }

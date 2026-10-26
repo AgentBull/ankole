@@ -1,6 +1,6 @@
 defmodule Ankole.EditionBuildTest do
   use ExUnit.Case, async: false
-  @moduletag timeout: 900_000
+  @moduletag timeout: 1_800_000
   @root Path.expand("../../..", __DIR__)
 
   test "FOSS and SaaS source builds deliver separate releases without source-tree runtime dependencies" do
@@ -22,6 +22,8 @@ defmodule Ankole.EditionBuildTest do
       {"ANKOLE_FILES_FS_ROOT", Path.join(checkout, "files")},
       {"ANKOLE_AGENT_COMPUTER_IMAGE", "edition-build-fixture"},
       {"ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT", "ws://site.example.test/runtime-fabric/worker"},
+      {"ANKOLE_FUNCTION_RUNTIME_URL", "http://127.0.0.1:5435"},
+      {"ANKOLE_FUNCTION_RUNTIME_TOKEN", "edition-build-fixture"},
       {"PHX_SERVER", "false"},
       {"DATABASE_URL", System.fetch_env!("DATABASE_URL")},
       # Cargo locks its shared cache. Native library output stays in the copied checkout.
@@ -31,6 +33,7 @@ defmodule Ankole.EditionBuildTest do
 
     # No private checkout exists during the first FOSS build.
     foss = [{"ANKOLE_EDITION", "foss"} | base_env]
+    command!(control_plane, "mix", ["ankole.openapi.check"], foss)
     command!(control_plane, "mix", ["assets.build"], foss)
     command!(control_plane, "mix", ["release", "--overwrite"], foss)
     foss_release = Path.join(control_plane, "_build/foss/prod/rel/ankole")
@@ -45,7 +48,10 @@ defmodule Ankole.EditionBuildTest do
     saas = [{"ANKOLE_EDITION", "saas"} | base_env]
     webapps = Path.join(checkout, "app/webapps")
     check_webapp_preparation!(checkout, webapps, saas)
+    command!(control_plane, "mix", ["ankole.openapi.check", "--write"], saas)
+    command!(webapps, "bun", ["run", "openapi:generate"], saas)
     check_private_type_checks!(checkout, webapps, saas)
+    command!(control_plane, "mix", ["ankole.openapi.check"], saas)
     command!(control_plane, "mix", ["assets.build"], saas)
     command!(webapps, "bun", ["run", "test"], saas)
     command!(control_plane, "mix", ["release", "--overwrite"], saas)
@@ -236,6 +242,8 @@ defmodule Ankole.EditionBuildTest do
     check.("private frontend manifest", Enum.any?(manifest, fn {_key, value} -> value["name"] == "edition-fixture" end), expected)
     css = Path.wildcard(Path.join(AnkoleWeb.Assets.directory(), "css/*.css")) |> Enum.map_join(&File.read!/1)
     check.("private CSS", String.contains?(css, "123.456px"), expected)
+    javascript = Path.wildcard(Path.join(AnkoleWeb.Assets.directory(), "js/*.js")) |> Enum.map_join(&File.read!/1)
+    check.("auth entry override and lazy challenge", String.contains?(javascript, "Pass fixture challenge"), expected)
     locales = Ankole.I18n.Loader.load_all(Ankole.I18n.Config.locales_dir())
     check.("private catalog", Map.has_key?(locales["en-US"].messages, "edition_fixture.message"), expected)
     check.("private migrations", Enum.any?(Ankole.Migrations.paths(), &String.ends_with?(&1, "internal_migrations")), expected)
@@ -271,7 +279,6 @@ defmodule Ankole.EditionBuildTest do
   defp copy_checkout(checkout) do
     for relative <- [
           "app/control_plane",
-          "app/control_plane_core",
           "app/kernel",
           "plugins",
           "app/webapps",

@@ -218,6 +218,7 @@ export type Tenant = {
    * An attributes object for a tenant
    */
   attributes?: {
+    base_db_id: string
     /**
      * Field included by default.
      */
@@ -1361,9 +1362,10 @@ export type ListControlPlanePluginsResponses = {
    */
   200: {
     control_plane_plugins: Array<{
+      activation: 'optional' | 'always'
       active: boolean
       configured_enabled: boolean
-      description: unknown
+      description?: unknown | null
       display_name: unknown
       id: string
       restart_required: boolean
@@ -1404,9 +1406,10 @@ export type ConfigureControlPlanePluginResponses = {
    */
   200: {
     control_plane_plugins: Array<{
+      activation: 'optional' | 'always'
       active: boolean
       configured_enabled: boolean
-      description: unknown
+      description?: unknown | null
       display_name: unknown
       id: string
       restart_required: boolean
@@ -1581,6 +1584,7 @@ export type CreateTenantData = {
   body: {
     data: {
       attributes?: {
+        base_db_id?: string | null
         brain_packs?: Array<string> | null
         display_name: string
         slug: string

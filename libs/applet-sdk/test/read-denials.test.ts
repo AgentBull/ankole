@@ -62,7 +62,7 @@ test('distinct SDK generations use one host cache subscription that the host can
     queryClient: client,
     readDenial: denials.get,
     routes: { key: () => ['generation-fixture'], call: unused },
-    database: {
+    base: {
       key: () => ['generation-fixture', 'table'],
       schema: unused,
       records: unused,

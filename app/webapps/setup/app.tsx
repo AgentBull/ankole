@@ -356,7 +356,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
           return (
             <label key={plugin.id} className="flex items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
               <Checkbox
-                disabled={mutation.isPending}
+                disabled={mutation.isPending || plugin.activation === 'always'}
                 checked={checked}
                 onCheckedChange={value => model.setPluginSelected(plugin.id, value === true)}
               />
@@ -364,6 +364,11 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
                 <span className="break-words text-sm font-semibold leading-5">
                   {localizedText(plugin.displayName, i18next.language) ?? plugin.id}
                 </span>
+                {plugin.activation === 'always' && (
+                  <span className="text-xs text-muted-foreground">
+                    {t('console.agent_library_capabilities.always_active')}
+                  </span>
+                )}
                 {plugin.description ? (
                   <span className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
                     {localizedText(plugin.description, i18next.language)}

@@ -18,7 +18,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import type { ChatModel } from '../state/chat'
-import { shouldSendOnEnter, chatRecipientAvailable, hasDraftMention } from '../state/chat'
+import { shouldSendOnEnter, hasDraftMention } from '../state/chat'
 import type { ChatCommands } from '../chat-commands'
 import type { ConversationDetail, PodAgent } from '../api'
 import {
@@ -116,13 +116,7 @@ export function Composer({
   const recipientNames = new Map(
     [...(detail?.conversation.agents ?? []), ...agents].map(agent => [agent.uid, agent.displayName])
   )
-  const selectedTargetUnavailable =
-    !!detail &&
-    !chatRecipientAvailable(
-      answerQuestion?.agentUID ?? model.editing.value?.agentUID ?? model.targetAgentUID.value,
-      detail.conversation.agents,
-      agents.map(agent => agent.uid)
-    )
+  const selectedTargetUnavailable = !commands.recipientAvailable
   const restricted =
     agentsLoaded &&
     !humanOnly &&
@@ -213,7 +207,7 @@ export function Composer({
     } else if (command === 'stop') stop()
   }
   const send = () => {
-    if (sending || answering || !canSubmit || selectedTargetUnavailable || (answerID && !answerAvailable)) return
+    if (sending || answering || !canSubmit || (answerID && !answerAvailable)) return
     setPicker(undefined)
     if (model.editing.value) {
       submit()
@@ -549,7 +543,7 @@ export function Composer({
                       ? 'pod.chat_timeline.answer'
                       : 'pod.chat.send'
                 )}
-                disabled={!canSubmit || answering || selectedTargetUnavailable || (!!answerID && !answerAvailable)}>
+                disabled={!canSubmit || answering || (!!answerID && !answerAvailable)}>
                 {commands.pendingQueueAction?.action === 'edit' ||
                 commands.pendingQueueAction?.action === 'edit_last' ? (
                   <RiLoader4Line className="animate-spin" aria-hidden />

@@ -38,4 +38,4 @@ client =
   and `Card` wrap the directory, robot messaging/recall/media, and card
   instance/streaming endpoints.
 
-Run tests with `mix test` from this directory.
+Run tests with `bun run control-plane:test:plugins dingtalk_adapter` from the repository root.

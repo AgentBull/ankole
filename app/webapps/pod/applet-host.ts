@@ -135,27 +135,27 @@ export function mountApplet(
         if (!disposed) onError(error)
       })
   }
-  const database = {
-    ...runtime.database,
+  const base = {
+    ...runtime.base,
     schema(tableID: string) {
       current()
-      return runtime.database.schema(tableID)
+      return runtime.base.schema(tableID)
     },
-    records(...args: Parameters<AppletRuntime['database']['records']>) {
+    records(...args: Parameters<AppletRuntime['base']['records']>) {
       current()
-      return runtime.database.records(...args)
+      return runtime.base.records(...args)
     },
-    aggregate(...args: Parameters<AppletRuntime['database']['aggregate']>) {
+    aggregate(...args: Parameters<AppletRuntime['base']['aggregate']>) {
       current()
-      return runtime.database.aggregate(...args)
+      return runtime.base.aggregate(...args)
     },
-    async write(...args: Parameters<AppletRuntime['database']['write']>) {
+    async write(...args: Parameters<AppletRuntime['base']['write']>) {
       current()
-      return runtime.database.write(...args)
+      return runtime.base.write(...args)
     },
-    subscribe(tableID: string, callback: Parameters<AppletRuntime['database']['subscribe']>[1]) {
+    subscribe(tableID: string, callback: Parameters<AppletRuntime['base']['subscribe']>[1]) {
       current()
-      const unsubscribe = runtime.database.subscribe(tableID, event => {
+      const unsubscribe = runtime.base.subscribe(tableID, event => {
         if (!disposed) callback(event)
       })
       const stop = () => {
@@ -176,7 +176,7 @@ export function mountApplet(
       return runtime.theme
     },
     revision,
-    database,
+    base,
     routes: {
       key: routes.key,
       call(request) {

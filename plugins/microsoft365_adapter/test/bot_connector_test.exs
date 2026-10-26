@@ -151,7 +151,9 @@ defmodule MicrosoftOpenAPI.BotConnectorTest do
   end
 
   test "bot openid metadata resolves signing keys by kid and caches them" do
-    metadata_url = "https://login.bot.test/v1/.well-known/openidconfiguration-#{System.unique_integer([:positive])}"
+    metadata_url =
+      "https://login.bot.test/v1/.well-known/openidconfiguration-#{System.unique_integer([:positive])}"
+
     parent = self()
 
     Req.Test.stub(__MODULE__, fn conn ->

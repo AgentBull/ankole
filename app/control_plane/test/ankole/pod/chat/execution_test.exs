@@ -133,8 +133,8 @@ defmodule Ankole.Pod.Chat.ExecutionTest do
 
     calls = [
       {"page", "pages.read", %{"page" => %{"title" => "Q4 roadmap"}}},
-      {"schema", "database.schema", %{"table" => %{"name" => "Candidates"}}},
-      {"table", "database.query", %{"records" => [%{}, %{}], "complete" => true}},
+      {"schema", "base.schema", %{"table" => %{"name" => "Candidates"}}},
+      {"table", "base.query", %{"records" => [%{}, %{}], "complete" => true}},
       {"denied", "pages.read", nil}
     ]
 

@@ -2,7 +2,7 @@ defmodule Ankole.Pod.HomePlanTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Database, Documents, PageChange, PageContent, Pages}
+  alias Ankole.Pod.{Access, Bases, Documents, PageChange, PageContent, Pages}
 
   test "contributors write records while editors own structure and managers delete tables" do
     owner = human_fixture().principal
@@ -10,10 +10,10 @@ defmodule Ankole.Pod.HomePlanTest do
     agent = agent_fixture().principal
     owner_actor = actor_fixture(owner)
 
-    {:ok, page} = Pages.create(owner_actor, %{type: "database", private_owner_uid: owner.uid})
-    assert {:ok, %{tables: [table]}} = Database.list_tables(owner_actor, page.id)
+    {:ok, page} = Pages.create(owner_actor, %{type: "base", private_owner_uid: owner.uid})
+    assert {:ok, %{tables: [table]}} = Bases.list_tables(owner_actor, page.id)
     assert table.name == "Table 1"
-    assert [%{name: "Name", is_primary: true}] = Database.fields(table.id)
+    assert [%{name: "Name", is_primary: true}] = Bases.fields(table.id)
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
@@ -30,50 +30,50 @@ defmodule Ankole.Pod.HomePlanTest do
 
     for actor <- [human_actor, mixed_actor] do
       assert {:ok, %{records: [record]}} =
-               Database.write_records(actor, table.id, %{creates: [%{data: %{}}]})
+               Bases.write_records(actor, table.id, %{creates: [%{data: %{}}]})
 
       assert {:ok, %{records: []}} =
-               Database.write_records(actor, table.id, %{
+               Bases.write_records(actor, table.id, %{
                  deletes: [%{id: record.id, expected_versions: record.versions}]
                })
 
       assert {:error, :forbidden} =
-               Database.create_field(actor, table.id, %{name: "Hidden", type: "text"})
+               Bases.create_field(actor, table.id, %{name: "Hidden", type: "text"})
 
-      assert {:error, :forbidden} = Database.create_table(actor, page.id, %{name: "Hidden"})
-      assert {:error, :forbidden} = Database.delete_table(actor, table.id)
+      assert {:error, :forbidden} = Bases.create_table(actor, page.id, %{name: "Hidden"})
+      assert {:error, :forbidden} = Bases.delete_table(actor, table.id)
       assert {:error, :forbidden} = Pages.update(actor, page.id, %{title: "Hidden"})
       assert {:error, :forbidden} = Pages.create(actor, %{parent_id: page.id})
     end
 
     assert {:ok, _} =
-             Database.create_field(actor_fixture(agent), table.id, %{name: "Notes", type: "text"})
+             Bases.create_field(actor_fixture(agent), table.id, %{name: "Notes", type: "text"})
 
-    assert {:error, :forbidden} = Database.delete_table(actor_fixture(agent), table.id)
-    assert {:ok, _} = Database.delete_table(owner_actor, table.id)
-    assert {:ok, %{tables: []}} = Database.list_tables(owner_actor, page.id)
+    assert {:error, :forbidden} = Bases.delete_table(actor_fixture(agent), table.id)
+    assert {:ok, _} = Bases.delete_table(owner_actor, table.id)
+    assert {:ok, %{tables: []}} = Bases.list_tables(owner_actor, page.id)
   end
 
   test "table deletion requires removal of incoming link fields" do
     owner = human_fixture().principal
     actor = actor_fixture(owner)
-    {:ok, page} = Pages.create(actor, %{type: "database"})
-    {:ok, %{tables: [target]}} = Database.list_tables(actor, page.id)
-    {:ok, source} = Database.create_table(actor, page.id, %{name: "References"})
+    {:ok, page} = Pages.create(actor, %{type: "base"})
+    {:ok, %{tables: [target]}} = Bases.list_tables(actor, page.id)
+    {:ok, source} = Bases.create_table(actor, page.id, %{name: "References"})
 
     {:ok, link} =
-      Database.create_field(actor, source.id, %{
+      Bases.create_field(actor, source.id, %{
         name: "Target",
         type: "link",
         config: %{"table_id" => target.id}
       })
 
-    assert {:error, :table_referenced} = Database.delete_table(actor, target.id)
-    assert {:ok, _} = Database.get_table(actor, target.id)
-    assert {:ok, _} = Database.delete_field(actor, link.id, link.version)
-    assert {:ok, _} = Database.delete_table(actor, target.id)
-    assert {:error, :not_found} = Database.get_table(actor, target.id)
-    assert {:ok, %{tables: [remaining]}} = Database.list_tables(actor, page.id)
+    assert {:error, :table_referenced} = Bases.delete_table(actor, target.id)
+    assert {:ok, _} = Bases.get_table(actor, target.id)
+    assert {:ok, _} = Bases.delete_field(actor, link.id, link.version)
+    assert {:ok, _} = Bases.delete_table(actor, target.id)
+    assert {:error, :not_found} = Bases.get_table(actor, target.id)
+    assert {:ok, %{tables: [remaining]}} = Bases.list_tables(actor, page.id)
     assert remaining.id == source.id
   end
 
@@ -81,8 +81,8 @@ defmodule Ankole.Pod.HomePlanTest do
     owner = human_fixture().principal
     human = human_fixture().principal
     actor = actor_fixture(owner)
-    {:ok, page} = Pages.create(actor, %{type: "database", private_owner_uid: owner.uid})
-    {:ok, %{tables: [table]}} = Database.list_tables(actor, page.id)
+    {:ok, page} = Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
+    {:ok, %{tables: [table]}} = Bases.list_tables(actor, page.id)
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
@@ -99,10 +99,10 @@ defmodule Ankole.Pod.HomePlanTest do
     rejected = AuthZ.Actor.new(human, authn: %{"ip" => "10.0.0.2"})
 
     assert {:ok, %{records: [_]}} =
-             Database.write_records(admitted, table.id, %{creates: [%{data: %{}}]})
+             Bases.write_records(admitted, table.id, %{creates: [%{data: %{}}]})
 
     assert {:error, :forbidden} =
-             Database.write_records(rejected, table.id, %{creates: [%{data: %{}}]})
+             Bases.write_records(rejected, table.id, %{creates: [%{data: %{}}]})
 
     {:ok, _} =
       AuthZ.create_permission_grant(%{
@@ -120,7 +120,7 @@ defmodule Ankole.Pod.HomePlanTest do
     outsider = human_fixture().principal
     actor = actor_fixture(owner)
 
-    for type <- ~w(doc database applet file) do
+    for type <- ~w(doc base applet file) do
       assert {:ok, parent} = Pages.create(actor, %{type: type, private_owner_uid: owner.uid})
       assert {:ok, child} = Pages.create(actor, %{parent_id: parent.id, title: "Manual"})
       assert child.parent_id == parent.id
@@ -216,7 +216,7 @@ defmodule Ankole.Pod.HomePlanTest do
           {"edit", ~w(page_view page_edit)},
           {"manage", ~w(page_view page_manage)}
         ] do
-      {:ok, page} = Pages.create(actor, %{type: "database", private_owner_uid: owner.uid})
+      {:ok, page} = Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
 
       {:ok, _} =
         Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
@@ -229,20 +229,20 @@ defmodule Ankole.Pod.HomePlanTest do
       assert Enum.find(listed, &(&1.id == page.id)).actions == actions
       assert {:ok, %{pages: searched}} = Pages.search(caller, "")
       assert Enum.find(searched, &(&1.id == page.id)).actions == actions
-      assert {:ok, %{tables: [table]}} = Database.list_tables(caller, page.id)
+      assert {:ok, %{tables: [table]}} = Bases.list_tables(caller, page.id)
 
       assert {:error, :forbidden} =
-               Database.write_records(caller, table.id, %{creates: [%{data: %{}}]})
+               Bases.write_records(caller, table.id, %{creates: [%{data: %{}}]})
 
       if role == "edit" do
         assert {:ok, _} = Pages.update(caller, page.id, %{title: "Editable structure"})
-        assert {:ok, _} = Database.create_field(caller, table.id, %{name: "Notes", type: "text"})
+        assert {:ok, _} = Bases.create_field(caller, table.id, %{name: "Notes", type: "text"})
         assert {:error, :forbidden} = Pages.delete(caller, page.id)
       else
         assert {:error, :forbidden} = Pages.update(caller, page.id, %{title: "Not editable"})
 
         assert {:error, :forbidden} =
-                 Database.create_field(caller, table.id, %{name: "Notes", type: "text"})
+                 Bases.create_field(caller, table.id, %{name: "Notes", type: "text"})
       end
 
       assert {:ok, _} = Pages.move(caller, page.id, %{parent_id: destination.id})
@@ -263,8 +263,8 @@ defmodule Ankole.Pod.HomePlanTest do
     human = human_fixture().principal
     colleague = human_fixture().principal
     actor = actor_fixture(owner)
-    {:ok, page} = Pages.create(actor, %{type: "database", private_owner_uid: owner.uid})
-    {:ok, %{tables: [table]}} = Database.list_tables(actor, page.id)
+    {:ok, page} = Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
+    {:ok, %{tables: [table]}} = Bases.list_tables(actor, page.id)
 
     grants = [
       %{
@@ -289,12 +289,12 @@ defmodule Ankole.Pod.HomePlanTest do
                })
 
       assert {:ok, %{records: [_]}} =
-               Database.write_records(writer, table.id, %{creates: [%{data: %{}}]})
+               Bases.write_records(writer, table.id, %{creates: [%{data: %{}}]})
 
       assert {:ok, _} = Pages.authorize(reader, page.id, "page_view")
 
       assert {:error, :forbidden} =
-               Database.write_records(reader, table.id, %{creates: [%{data: %{}}]})
+               Bases.write_records(reader, table.id, %{creates: [%{data: %{}}]})
     end
   end
 
@@ -303,7 +303,7 @@ defmodule Ankole.Pod.HomePlanTest do
     human = human_fixture().principal
     actor = actor_fixture(owner)
     {:ok, source} = Pages.create(actor, %{private_owner_uid: owner.uid})
-    {:ok, target} = Pages.create(actor, %{type: "database", private_owner_uid: owner.uid})
+    {:ok, target} = Pages.create(actor, %{type: "base", private_owner_uid: owner.uid})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(owner.uid, source.id, %{

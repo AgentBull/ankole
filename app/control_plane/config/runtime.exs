@@ -33,6 +33,17 @@ case config_env() do
     :ok
 end
 
+config :ankole, Ankole.Pod.BaseCluster,
+  databases:
+    Ankole.Config.Bootstrap.base_databases(
+      Ankole.Config.Bootstrap.env_string("BASE_DB_URLS"),
+      Ankole.Config.Bootstrap.env!("DATABASE_URL"),
+      config_env(),
+      Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION"),
+      Application.get_env(:ankole, :edition, :foss)
+    ),
+  create_databases: config_env() in [:dev, :test]
+
 config :ankole,
        :site_admin_console_path,
        System.get_env("ANKOLE_SITE_ADMIN_CONSOLE_PATH", "/site-admin-console")

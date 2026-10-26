@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.PageSchemaTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Pod.{DbField, DbRecord, DbTable, DbView}
+  alias Ankole.Pod.{BaseField, BaseRecord, BaseTable, BaseView}
   alias Ankole.Pod.{Page, PageChange, PageContent, PageUserState}
 
   @schemas [
@@ -9,10 +9,10 @@ defmodule Ankole.Pod.PageSchemaTest do
     PageContent,
     PageChange,
     PageUserState,
-    DbTable,
-    DbField,
-    DbView,
-    DbRecord
+    BaseTable,
+    BaseField,
+    BaseView,
+    BaseRecord
   ]
   @author "ankole:019a2b00-0000-7000-8000-000000000001:principal/system"
 
@@ -39,7 +39,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     refute action_changeset(content, :replace, %{plain_text: nil}).valid?
   end
 
-  test "all Page and Database schemas require a tenant context for reads and writes" do
+  test "all Page and Bases schemas require a tenant context for reads and writes" do
     Repo.without_tenant(fn ->
       for schema <- @schemas do
         assert_raise Ankole.TenantContextMissing, fn -> Repo.all(schema) end
@@ -62,7 +62,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     assert Repo.get!(Page, page.id).title == page.title
   end
 
-  test "the database rejects a missing tenant and invalid page states", %{tenant: tenant} do
+  test "the base rejects a missing tenant and invalid page states", %{tenant: tenant} do
     page = new_page()
     args = [tenant.id, page.id]
     where = " WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid"
@@ -99,7 +99,7 @@ defmodule Ankole.Pod.PageSchemaTest do
 
   test "composite references cannot cross a tenant boundary" do
     other = create_tenant()
-    foreign_page = Repo.with_tenant(other.id, fn -> new_page(%{type: :database}) end)
+    foreign_page = Repo.with_tenant(other.id, fn -> new_page(%{type: :base}) end)
     foreign_table = Repo.with_tenant(other.id, fn -> new_table(foreign_page) end)
 
     assert_constraint(
@@ -115,15 +115,15 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
 
     assert_constraint(
-      action_changeset(DbTable, %{page_id: foreign_page.id, name: "Table", position: "a"}),
-      "db_tables_tenant_id_page_id_fkey"
+      action_changeset(BaseTable, %{page_id: foreign_page.id, name: "Table", position: "a"}),
+      "base_tables_tenant_id_page_id_fkey"
     )
 
     assert {:error, changeset} =
-             foreign_table.id |> record_attrs() |> DbRecord.create_changeset() |> Repo.insert()
+             foreign_table.id |> record_attrs() |> BaseRecord.create_changeset() |> Repo.insert()
 
     assert {_message,
-            [constraint: :foreign, constraint_name: "db_records_tenant_id_table_id_fkey"]} =
+            [constraint: :foreign, constraint_name: "base_records_tenant_id_table_id_fkey"]} =
              changeset.errors[:table_id]
 
     assert_constraint(
@@ -231,7 +231,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     assert insert!(PageChange, Map.merge(change_attrs(page.id, :change), payload)).client_seq == 0
   end
 
-  test "the database rejects a non-array change payload", %{tenant: tenant} do
+  test "the base rejects a non-array change payload", %{tenant: tenant} do
     page = new_page()
     insert!(PageChange, change_attrs(page.id, :change))
 
@@ -267,7 +267,7 @@ defmodule Ankole.Pod.PageSchemaTest do
           {PageContent, [:page_id]},
           {PageChange, [:tenant_id, :page_id, :revision]},
           {PageUserState, [:tenant_id, :principal_uid, :page_id]},
-          {DbRecord, [:tenant_id, :table_id, :id]}
+          {BaseRecord, [:tenant_id, :table_id, :id]}
         ] do
       %{rows: [[stored_fields]]} =
         Repo.query!(
@@ -288,27 +288,27 @@ defmodule Ankole.Pod.PageSchemaTest do
   end
 
   test "field names and the primary field are unique" do
-    table = new_table(new_page(%{type: :database}))
+    table = new_table(new_page(%{type: :base}))
     attrs = %{table_id: table.id, name: "Title", position: "a", type: :text, is_primary: true}
-    insert!(DbField, attrs)
+    insert!(BaseField, attrs)
 
     assert_constraint(
-      action_changeset(DbField, %{attrs | is_primary: false}),
-      "db_fields_name_index"
+      action_changeset(BaseField, %{attrs | is_primary: false}),
+      "base_fields_name_index"
     )
 
     assert_constraint(
-      action_changeset(DbField, %{attrs | name: "Other"}),
-      "db_fields_one_primary_index"
+      action_changeset(BaseField, %{attrs | name: "Other"}),
+      "base_fields_one_primary_index"
     )
   end
 
   test "accepts the declared view and field types", %{tenant: tenant} do
-    table = new_table(new_page(%{type: :database}))
+    table = new_table(new_page(%{type: :base}))
 
-    for type <- Ash.Resource.Info.attribute(DbView, :type).constraints[:one_of] do
+    for type <- Ash.Resource.Info.attribute(BaseView, :type).constraints[:one_of] do
       view =
-        insert!(DbView, %{
+        insert!(BaseView, %{
           table_id: table.id,
           name: "View",
           position: "a",
@@ -318,9 +318,9 @@ defmodule Ankole.Pod.PageSchemaTest do
       assert Repo.reload!(view).type == type
     end
 
-    for type <- Ash.Resource.Info.attribute(DbField, :type).constraints[:one_of] do
+    for type <- Ash.Resource.Info.attribute(BaseField, :type).constraints[:one_of] do
       field =
-        insert!(DbField, %{
+        insert!(BaseField, %{
           table_id: table.id,
           name: to_string(type),
           position: "a",
@@ -330,19 +330,19 @@ defmodule Ankole.Pod.PageSchemaTest do
       assert Repo.reload!(field).type == type
     end
 
-    view = Repo.one!(from v in DbView, limit: 1)
-    field = Repo.one!(from f in DbField, limit: 1)
+    view = Repo.one!(from v in BaseView, limit: 1)
+    field = Repo.one!(from f in BaseField, limit: 1)
 
     assert_sql_constraint(
-      "UPDATE db_views SET type = 'timeline' WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid",
+      "UPDATE base_views SET type = 'timeline' WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid",
       [tenant.id, view.id],
-      "db_views_type_check"
+      "base_views_type_check"
     )
 
     assert_sql_constraint(
-      "UPDATE db_fields SET type = 'rich_text' WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid",
+      "UPDATE base_fields SET type = 'rich_text' WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid",
       [tenant.id, field.id],
-      "db_fields_type_check"
+      "base_fields_type_check"
     )
   end
 
@@ -413,7 +413,7 @@ defmodule Ankole.Pod.PageSchemaTest do
   defp new_page(attrs \\ %{}), do: insert!(Page, page_attrs(attrs))
 
   defp new_table(page),
-    do: insert!(DbTable, %{page_id: page.id, name: "Table", position: "a"})
+    do: insert!(BaseTable, %{page_id: page.id, name: "Table", position: "a"})
 
   defp record_attrs(table_id),
     do: %{

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { createReadDenials } from '@ankole/applet-sdk'
-import { createDatabaseAPI } from './database-api'
+import { createBaseAPI } from './base-api'
 import { isRealtimeAccessDenied, PodRealtime } from './realtime'
 import { podLocation } from '../common/browser-context'
 import { contentKeys } from './content-api'
@@ -14,7 +14,7 @@ function createContent(client: ReturnType<typeof useQueryClient>) {
   const readDenials = createReadDenials(client.getQueryCache())
   return {
     realtime,
-    database: createDatabaseAPI(client, realtime),
+    base: createBaseAPI(client, realtime),
     readDenial: readDenials.get,
     dispose() {
       readDenials.dispose()

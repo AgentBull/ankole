@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { localizedText } from '../../common/config-fields'
 import type {
   AgentLibrarySkillCapabilityItem,
   AgentPluginCapabilityItem,
@@ -13,7 +14,6 @@ import {
   filterControlPlanePlugins,
   filterSkills,
   humanizeAgentPluginID,
-  localizedJSONText,
   parseAgentLibraryOverrideValue
 } from './agent-library-capabilities'
 
@@ -70,16 +70,21 @@ describe('Agent Library capability state', () => {
   test('searches localized Control Plane Plugin text in the active locale', () => {
     const plugin: ControlPlanePluginItem = {
       active: true,
+      activation: 'optional',
       configured_enabled: true,
-      description: { 'en-US': 'Lark messaging', 'zh-Hans-CN': '飞书消息' },
-      display_name: { 'en-US': 'Lark Adapter', 'zh-Hans-CN': '飞书适配器' },
+      description: { default: 'Lark messaging', 'zh-Hans-CN': '飞书消息' },
+      display_name: { default: 'Lark Adapter', 'zh-Hans-CN': '飞书适配器' },
       id: 'lark-adapter',
       restart_required: false
     }
 
     expect(filterControlPlanePlugins([plugin], '飞书', 'zh-Hans-CN')).toEqual([plugin])
     expect(filterControlPlanePlugins([plugin], '飞书', 'en-US')).toEqual([])
-    expect(localizedJSONText(plugin.display_name, 'zh-Hans-CN')).toBe('飞书适配器')
+    expect(localizedText(plugin.display_name, 'zh-Hans-CN')).toBe('飞书适配器')
+    for (const locale of ['en-US', 'ja-JP', 'ko-KR']) {
+      expect(localizedText(plugin.display_name, locale)).toBe('Lark Adapter')
+      expect(filterControlPlanePlugins([plugin], 'messaging', locale)).toEqual([plugin])
+    }
   })
 
   test('preserves scope in detail links and humanizes stable IDs', () => {

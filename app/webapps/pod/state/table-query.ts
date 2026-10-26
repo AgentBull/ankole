@@ -4,15 +4,15 @@ import type {
   AggregateQuery,
   AggregateResult,
   Condition,
-  DatabaseField,
-  DatabaseRecord,
+  BaseField,
+  BaseRecord,
   Filter,
   GroupBy,
   RecordQuery,
   Value
 } from '@ankole/applet-sdk/types'
 
-export function fieldValue(record: DatabaseRecord, field: DatabaseField): Value {
+export function fieldValue(record: BaseRecord, field: BaseField): Value {
   const value = ['created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type)
     ? (record[field.type as 'created_at'] ?? null)
     : (record.data[field.id] ?? null)
@@ -123,7 +123,7 @@ function jsonbContains(value: unknown, contained: unknown): boolean {
   return isEqual(value, contained)
 }
 
-function filterRecords(records: DatabaseRecord[], fields: DatabaseField[], filter?: Filter) {
+function filterRecords(records: BaseRecord[], fields: BaseField[], filter?: Filter) {
   if (!filter?.conditions.length) return records
   const byID = new Map(fields.map(field => [field.id, field]))
   return records.filter(record => {
@@ -136,11 +136,7 @@ function filterRecords(records: DatabaseRecord[], fields: DatabaseField[], filte
   })
 }
 
-export function queryLocalRecords(
-  records: DatabaseRecord[],
-  fields: DatabaseField[],
-  query: RecordQuery
-): DatabaseRecord[] {
+export function queryLocalRecords(records: BaseRecord[], fields: BaseField[], query: RecordQuery): BaseRecord[] {
   const byID = new Map(fields.map(field => [field.id, field]))
   const selected = filterRecords(records, fields, query.filter).filter(record => {
     if (query.ids && !query.ids.includes(record.id)) return false
@@ -206,14 +202,14 @@ function bucket(value: Value, group: GroupBy, timezone: string): Value {
 }
 
 export function aggregateLocalRecords(
-  records: DatabaseRecord[],
-  fields: DatabaseField[],
+  records: BaseRecord[],
+  fields: BaseField[],
   query: AggregateQuery,
   dataVersion: number,
   timezone = 'UTC'
 ): AggregateResult {
   const byID = new Map(fields.map(field => [field.id, field]))
-  const groups = new Map<string, { values: Value[]; records: DatabaseRecord[] }>()
+  const groups = new Map<string, { values: Value[]; records: BaseRecord[] }>()
   const groupBy = query.group_by ?? []
   if (groupBy.length > 2) throw new Error(t('pod.content.you_can_group_by_up_to_two_fields'))
   if (!groupBy.length) groups.set('[]', { values: [], records: [] })

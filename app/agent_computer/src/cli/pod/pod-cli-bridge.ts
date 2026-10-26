@@ -14,10 +14,10 @@ const readOperations = [
   'pages.read',
   'pages.sharing',
   'files.manifest',
-  'database.tables',
-  'database.schema',
-  'database.query',
-  'database.aggregate'
+  'base.tables',
+  'base.schema',
+  'base.query',
+  'base.aggregate'
 ] as const
 const readOperationNames = new Set<string>(readOperations)
 const writeOperations = [
@@ -34,16 +34,16 @@ const writeOperations = [
   'files.upload',
   'applets.publish',
   'applets.call',
-  'database.create_table',
-  'database.delete_table',
-  'database.create_field',
-  'database.update_field',
-  'database.delete_field',
-  'database.create_view',
-  'database.update_view',
-  'database.delete_view',
-  'database.write',
-  'database.copy'
+  'base.create_table',
+  'base.delete_table',
+  'base.create_field',
+  'base.update_field',
+  'base.delete_field',
+  'base.create_view',
+  'base.update_view',
+  'base.delete_view',
+  'base.write',
+  'base.copy'
 ] as const
 const Command = z.object({
   operation: z.enum([...readOperations, ...writeOperations]),

@@ -27,7 +27,7 @@ import {
 import type {
   AggregateQuery,
   AppletRuntime,
-  DatabaseRecord,
+  BaseRecord,
   EphemeralChannel,
   PresenceMember,
   RecordData,
@@ -59,7 +59,7 @@ function useTableUpdates(tableID: string) {
   const [revoked, setRevoked] = useState(false)
   useEffect(() => {
     setRevoked(false)
-    return runtime.database.subscribe(tableID, event => {
+    return runtime.base.subscribe(tableID, event => {
       if (event.access_revoked) setRevoked(true)
     })
   }, [runtime, tableID])
@@ -137,10 +137,10 @@ export function useRecords(tableID: string, options: RecordQuery & { pageSize?: 
   const { pageSize, ...rest } = options
   const query: RecordQuery = pageSize === undefined ? rest : { ...rest, page_size: pageSize }
   const { runtime, revoked } = useTableUpdates(tableID)
-  const queryKey = [...runtime.database.key(tableID), 'records', query]
+  const queryKey = [...runtime.base.key(tableID), 'records', query]
   const read = useQuery({
     queryKey,
-    queryFn: () => runtime.database.records(tableID, query),
+    queryFn: () => runtime.base.records(tableID, query),
     enabled: !revoked
   })
   const records = useReadResult(
@@ -150,7 +150,7 @@ export function useRecords(tableID: string, options: RecordQuery & { pageSize?: 
   )
   const write = useRecordWrites(tableID)
   const pending = useMutationState({
-    filters: { mutationKey: [...runtime.database.key(tableID), 'write'], status: 'pending' },
+    filters: { mutationKey: [...runtime.base.key(tableID), 'write'], status: 'pending' },
     select: mutation => mutation.state.variables as RecordWrite
   })
   const preview = records.data && {
@@ -173,10 +173,10 @@ export function useAggregate(tableID: string, options: AggregateQuery & { groupB
   const { groupBy, ...rest } = options
   const query = groupBy === undefined ? rest : { ...rest, group_by: groupBy }
   const { runtime, revoked } = useTableUpdates(tableID)
-  const queryKey = [...runtime.database.key(tableID), 'aggregate', query]
+  const queryKey = [...runtime.base.key(tableID), 'aggregate', query]
   const result = useQuery({
     queryKey,
-    queryFn: () => runtime.database.aggregate(tableID, query),
+    queryFn: () => runtime.base.aggregate(tableID, query),
     enabled: !revoked
   })
   return useReadResult(
@@ -242,7 +242,7 @@ export function useRouteMutation<Data = unknown, Error = globalThis.Error, Conte
 }
 
 /** Record versions come from this read, including absence of an unwritten field. */
-export function expectedVersions(record: DatabaseRecord, data: RecordData) {
+export function expectedVersions(record: BaseRecord, data: RecordData) {
   return Object.fromEntries(
     Object.keys(data)
       .filter(id => Object.hasOwn(record.versions, id))
@@ -253,8 +253,8 @@ export function expectedVersions(record: DatabaseRecord, data: RecordData) {
 export function useRecordWrites(tableID: string) {
   const runtime = usePod()
   const mutation = useMutation({
-    mutationKey: [...runtime.database.key(tableID), 'write'],
-    mutationFn: (changes: RecordWrite) => runtime.database.write(tableID, changes)
+    mutationKey: [...runtime.base.key(tableID), 'write'],
+    mutationFn: (changes: RecordWrite) => runtime.base.write(tableID, changes)
   })
   return {
     write: mutation,

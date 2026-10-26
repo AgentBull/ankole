@@ -149,7 +149,7 @@ defmodule AnkoleWeb.PodPageControllerTest do
 
     {:ok, target} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
-        type: "database",
+        type: "base",
         private_owner_uid: other.uid
       })
 

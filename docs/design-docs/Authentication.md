@@ -61,6 +61,17 @@ verification checks remain usable. PostgreSQL owns each challenge's attempt
 budget. A node restart can clear the rate windows and preserve the challenge
 budget.
 
+The Auth HTML shell supplies public feature decisions in its
+`ankole-features` meta element. Site login uses the site context; Pod login
+uses its tenant context. The official OpenFeature provider loads this
+snapshot before the first render. A backend consumer evaluates its feature
+at its own operation boundary.
+
+A build can wrap the Auth SPA with `AuthAppSlots.emailOtpChallenge` and run
+an outer request Plug before the core OTP challenge endpoint. The slot's
+attempt state supplies request headers for sending and resending a code.
+See [Webapp entries and slots](Plugins.md#webapp-entries-and-slots).
+
 ## Email transport and setup
 
 The global encrypted `authn.email.mail` setting holds the SMTP server, port,

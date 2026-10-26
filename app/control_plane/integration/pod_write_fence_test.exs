@@ -3,8 +3,10 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
   use Ankole.DataCase, async: false
   @moduletag sandbox: false
 
+  import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
+
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.Pod.{DbRecord, Documents, Files, Page, PageChange, Pages, RPCBroker}
+  alias Ankole.Pod.{BaseRecord, Documents, Files, Page, PageChange, Pages, RPCBroker}
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Sessions.{Admission, CodexJob, Run, RunRef}
   alias Ankole.SessionsCase
@@ -119,30 +121,48 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
   end
 
   test "every Pod RPC write retains its final transaction fence", ctx do
-    database = shared_page(ctx, "database")
+    database = shared_page(ctx, "base")
 
     {:ok, table} =
-      Ankole.Pod.Database.create_table(
+      Ankole.Pod.Bases.create_table(
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         database.id,
         %{name: "Shared"}
       )
 
     {:ok, field} =
-      Ankole.Pod.Database.create_field(
+      Ankole.Pod.Bases.create_field(
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         table.id,
         %{type: "text", name: "Value"}
       )
 
     {:ok, view} =
-      Ankole.Pod.Database.create_view(
+      Ankole.Pod.Bases.create_view(
         Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
         table.id,
         %{type: "grid", name: "Grid 2"}
       )
 
+    {:ok, _} =
+      Ankole.Pod.Bases.create_field(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        table.id,
+        %{type: "link", name: "Parent", config: %{"table_id" => table.id}}
+      )
+
     applet = shared_page(ctx, "applet")
+
+    publish_files =
+      for {path, content} <- [
+            {"src/main.ts", "export {}"},
+            {"dist/index.html", "<!doctype html><p>Published</p>"}
+          ] do
+        {:ok, stored} = Ankole.Files.store(content)
+        %{path: path, sha256: stored.sha256, source: "agent"}
+      end
+
+    assert {:ok, _} = Ankole.Files.commit(ctx.agent, publish_files)
 
     {:ok, _} = Run.finalize(ctx.run, :silent)
 
@@ -152,23 +172,20 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
           {"pages.move", %{id: database.id, private_owner_uid: ctx.owner}},
           {"pages.delete", %{id: database.id}},
           {"pages.restore", %{id: database.id}},
-          {"database.create_table", %{id: database.id, name: "Forbidden"}},
-          {"database.create_field", %{id: table.id, name: "Forbidden", type: "text"}},
-          {"database.update_field", %{id: field.id, name: "Forbidden", version: field.version}},
-          {"database.delete_field", %{id: field.id, version: field.version}},
-          {"database.create_view", %{id: table.id, name: "Forbidden", type: "grid"}},
-          {"database.update_view", %{id: view.id, name: "Forbidden", version: view.version}},
-          {"database.delete_view", %{id: view.id, version: view.version}},
-          {"database.write", %{id: table.id, creates: [%{data: %{field.id => "Forbidden"}}]}},
-          {"database.copy", %{id: table.id, title: "Forbidden"}},
+          {"base.create_table", %{id: database.id, name: "Forbidden"}},
+          {"base.create_field", %{id: table.id, name: "Forbidden", type: "text"}},
+          {"base.update_field", %{id: field.id, name: "Forbidden", version: field.version}},
+          {"base.delete_field", %{id: field.id, version: field.version}},
+          {"base.create_view", %{id: table.id, name: "Forbidden", type: "grid"}},
+          {"base.update_view", %{id: view.id, name: "Forbidden", version: view.version}},
+          {"base.delete_view", %{id: view.id, version: view.version}},
+          {"base.write", %{id: table.id, creates: [%{data: %{field.id => "Forbidden"}}]}},
+          {"base.copy", %{id: table.id, title: "Forbidden"}},
           {"applets.publish",
            %{
              id: applet.id,
              base_revision: 0,
-             files: [
-               %{path: "src/main.ts", sha256: String.duplicate("0", 64)},
-               %{path: "dist/index.html", sha256: String.duplicate("0", 64)}
-             ]
+             files: publish_files
            }}
         ] do
       assert {:error, %{"code" => "run_closed"}} =
@@ -178,7 +195,14 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
 
     assert Repo.aggregate(Page, :count) == 2
     assert Repo.get!(Page, database.id).title == "Shared"
-    assert Repo.aggregate(DbRecord, :count) == 0
+    assert Repo.aggregate(BaseRecord, :count) == 0
+
+    assert {:ok, %{records: []}} =
+             Ankole.Pod.Bases.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               table.id,
+               %{}
+             )
 
     assert {:ok, _} =
              Documents.write(
@@ -187,6 +211,84 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
                0,
                "<page />"
              )
+  end
+
+  test "Run finalization waits for an admitted physical record commit", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner)
+    page = shared_page(ctx, "base")
+    {:ok, %{tables: [table]}} = Ankole.Pod.Bases.list_tables(actor, page.id)
+
+    {:ok, _} =
+      Ankole.Pod.Bases.create_field(actor, table.id, %{
+        name: "Link",
+        type: "link",
+        config: %{"table_id" => table.id}
+      })
+
+    owner = self()
+    request = pod_request("base.write", %{id: table.id, creates: [%{data: %{}}]})
+
+    assert {:ok, {writer, closer}} =
+             Ankole.Pod.BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+               Ankole.Pod.BaseRepo.transact(fn ->
+                 Ankole.Pod.BaseRepo.query!(
+                   "SELECT table_id FROM #{Ankole.Pod.BaseRepo.states()} WHERE table_id=$1::text::uuid FOR UPDATE",
+                   [table.id]
+                 )
+
+                 writer =
+                   Task.async(fn ->
+                     Repo.with_tenant(ctx.tenant.id, fn ->
+                       Repo.checkout(fn ->
+                         [[pid]] = Repo.query!("SELECT pg_backend_pid()", []).rows
+                         send(owner, {:writer_backend, pid})
+                         RPCBroker.handle_write(ctx.ref, request, ctx.ctx)
+                       end)
+                     end)
+                   end)
+
+                 assert_receive {:writer_backend, writer_pid}, 5_000
+
+                 assert {:ok, true} =
+                          wait_until(deadline(3_000), fn ->
+                            Ankole.Pod.BaseRepo.query!("SELECT pg_stat_clear_snapshot()", [])
+
+                            Ankole.Pod.BaseRepo.query!(
+                              "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%_table_states%FOR UPDATE%' LIMIT 1",
+                              []
+                            ).rows != []
+                          end)
+
+                 closer =
+                   Task.async(fn ->
+                     Repo.with_tenant(ctx.tenant.id, fn ->
+                       Repo.checkout(fn ->
+                         [[pid]] = Repo.query!("SELECT pg_backend_pid()", []).rows
+                         send(owner, {:closer_backend, pid})
+                         Run.finalize(ctx.run, :silent)
+                       end)
+                     end)
+                   end)
+
+                 assert_receive {:closer_backend, closer_pid}, 5_000
+
+                 assert {:ok, true} =
+                          wait_until(deadline(2_000), fn ->
+                            Repo.query!("SELECT $1::integer=ANY(pg_blocking_pids($2::integer))", [
+                              writer_pid,
+                              closer_pid
+                            ]).rows == [[true]]
+                          end)
+
+                 {:ok, {writer, closer}}
+               end)
+             end)
+
+    assert {:ok, _} = Task.await(writer, 15_000)
+    assert {:ok, _} = Task.await(closer, 15_000)
+    assert {:ok, %{records: [_]}} = Ankole.Pod.Bases.query(actor, table.id, %{})
+    assert {:error, %{"code" => "run_closed"}} = RPCBroker.handle_write(ctx.ref, request, ctx.ctx)
+    assert {:ok, %{records: [_]}} = Ankole.Pod.Bases.query(actor, table.id, %{})
   end
 
   defp shared_page(ctx, type) do

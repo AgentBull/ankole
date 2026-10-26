@@ -1,4 +1,4 @@
-/** Browser integration of the real SDK; DatabaseAPI, channel, and host boundaries use explicit fixtures. */
+/** Browser integration of the real SDK; BaseAPI, channel, and host boundaries use explicit fixtures. */
 import { useEffect, useState } from 'react'
 import type { RecordsResult } from '@ankole/applet-sdk/types'
 import { QueryClient } from '@tanstack/react-query'
@@ -13,13 +13,13 @@ import {
   useRouteMutation,
   usePod
 } from '@ankole/applet-sdk'
-import type { AppletRuntime, RouteCall, DatabaseRecord, RecordWrite, TableEvent } from '@ankole/applet-sdk/types'
+import type { AppletRuntime, RouteCall, BaseRecord, RecordWrite, TableEvent } from '@ankole/applet-sdk/types'
 import { loadLocale } from '../../../common/i18n'
 import { InternalAPIError } from '../../../common/internal-api-client'
 
 await loadLocale('en-US')
 const host = document.querySelector('#applet')!
-let record: DatabaseRecord = {
+let record: BaseRecord = {
   id: 'record',
   data: { amount: 1 },
   versions: { amount: 1 },
@@ -29,7 +29,7 @@ let record: DatabaseRecord = {
   updated_by: 'human'
 }
 const tables = new Set<(event: TableEvent) => void>()
-const databaseReads = { records: 0, aggregate: 0 }
+const baseReads = { records: 0, aggregate: 0 }
 let tableRevoked = false
 const events = new Map<string, Set<(payload: unknown) => void>>()
 let sent: RecordWrite | undefined
@@ -63,8 +63,8 @@ const client = new QueryClient({
 const readDenials = createReadDenials(client.getQueryCache())
 window.addEventListener('pagehide', readDenials.dispose, { once: true })
 function tableChanged(event: TableEvent) {
-  if (event.access_revoked) client.removeQueries({ queryKey: runtime.database.key('table') })
-  else void client.invalidateQueries({ queryKey: runtime.database.key('table') })
+  if (event.access_revoked) client.removeQueries({ queryKey: runtime.base.key('table') })
+  else void client.invalidateQueries({ queryKey: runtime.base.key('table') })
   for (const notify of tables) notify(event)
 }
 function errorStatus(error: unknown) {
@@ -126,18 +126,18 @@ const runtime: AppletRuntime = {
   },
   queryClient: client,
   readDenial: readDenials.get,
-  database: {
+  base: {
     key: id => ['sdk-fixture', id],
     schema: async () => {
       throw new Error('This fixture only exercises record reads')
     },
     aggregate: async () => {
-      databaseReads.aggregate++
+      baseReads.aggregate++
       checkRead()
       return { groups: [{ values: [], metrics: { count: 1 } }], data_version: record.versions.amount! }
     },
     records: async () => {
-      databaseReads.records++
+      baseReads.records++
       checkRead()
       return { records: [record], data_version: record.versions.amount!, complete: true }
     },
@@ -164,7 +164,7 @@ const runtime: AppletRuntime = {
         }
         return { records: [record], deleted_ids: [], data_version: record.versions.amount! }
       } finally {
-        await client.invalidateQueries({ queryKey: runtime.database.key('table') })
+        await client.invalidateQueries({ queryKey: runtime.base.key('table') })
       }
     },
     subscribe: (_id, listener) => {
@@ -240,7 +240,7 @@ function App() {
   const rows = useRecords('table')
   const aggregate = useAggregate('table', { metrics: [{ operation: 'count', alias: 'count' }] })
   const room = useChannel('room')
-  const [edit, setEdit] = useState<DatabaseRecord>()
+  const [edit, setEdit] = useState<BaseRecord>()
   const [readSnapshot, setReadSnapshot] = useState<RecordsResult>()
   const [received, setReceived] = useState(0)
   // Intentionally register before the channel effect creates its handle.
@@ -313,7 +313,7 @@ for (const status of [200, 401, 403, 404, 503]) {
   button.addEventListener('click', () => {
     readStatus = status
     // No access_revoked event: this exercises an authoritative HTTP read independently of the live channel.
-    void client.invalidateQueries({ queryKey: runtime.database.key('table') })
+    void client.invalidateQueries({ queryKey: runtime.base.key('table') })
   })
   controls.append(button)
 }
@@ -369,9 +369,9 @@ controls.append(manualWrite)
 const cacheReadReport = document.createElement('output')
 cacheReadReport.dataset.cacheReadStates = ''
 controls.append(cacheReadReport)
-const databaseReadReport = document.createElement('output')
-databaseReadReport.dataset.databaseReads = ''
-controls.append(databaseReadReport)
+const baseReadReport = document.createElement('output')
+baseReadReport.dataset.baseReads = ''
+controls.append(baseReadReport)
 const revokeTable = document.createElement('button')
 revokeTable.textContent = 'Revoke table access'
 revokeTable.addEventListener('click', () => {
@@ -408,7 +408,7 @@ fail.addEventListener('click', () => {
 })
 controls.append(fail)
 const report = () => {
-  databaseReadReport.textContent = JSON.stringify(databaseReads)
+  baseReadReport.textContent = JSON.stringify(baseReads)
   controls.querySelector('[data-lifecycle]')!.textContent = JSON.stringify({
     opens,
     closes,
@@ -417,7 +417,7 @@ const report = () => {
   })
   controls.querySelector('[data-request]')!.textContent = JSON.stringify(sent)
   const confirmed = client.getQueriesData<RecordsResult>({
-    queryKey: [...runtime.database.key('table'), 'records']
+    queryKey: [...runtime.base.key('table'), 'records']
   })[0]?.[1]
   controls.querySelector('[data-confirmed]')!.textContent = String(confirmed?.records[0]?.data.amount ?? '')
   routeReport.textContent = JSON.stringify({ calls: routeCalls, aborted: routeAborted })

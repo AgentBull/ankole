@@ -1,4 +1,6 @@
 import { matchRoute, validateRoutes } from './routes.ts'
+import { withRecordIDs } from '@ankole/applet-sdk/records'
+import type { RecordWrite } from '@ankole/applet-sdk/types'
 
 type InvocationState = {
   ws: WebSocket
@@ -21,6 +23,7 @@ const { Buffer } = await import("node:buffer");
 const importApplet = () => import(import.meta.url);
 const validateRoutes = ${validateRoutes.toString()};
 const matchRoute = ${matchRoute.toString()};
+const withRecordIDs = ${withRecordIDs.toString()};
 (${appletWorker.toString()})(${inspectOnly}, __ankoleAppletReady.promise);
 }
 ${source}
@@ -71,7 +74,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
   }
   async function call(operation: string, args: unknown[]) {
     const state = store()
-    if (state.method === 'GET' && (operation === 'db.write' || operation === 'file.write')) {
+    if (state.method === 'GET' && (operation === 'base.write' || operation === 'file.write')) {
       throw hostError({ status: 500, code: 'read_only_route', message: 'GET routes cannot write data' })
     }
     const callId = ++state.nextCall
@@ -87,11 +90,11 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
   Object.defineProperty(globalThis, 'AnkoleRuntime', {
     value: Object.freeze({
       HttpError,
-      db: Object.freeze({
-        schema: (tableId: string) => call('db.schema', [tableId]),
-        query: (tableId: string, query = {}) => call('db.query', [tableId, query]),
-        aggregate: (tableId: string, query: unknown) => call('db.aggregate', [tableId, query]),
-        write: (tableId: string, changes: unknown) => call('db.write', [tableId, changes])
+      base: Object.freeze({
+        schema: (tableId: string) => call('base.schema', [tableId]),
+        query: (tableId: string, query = {}) => call('base.query', [tableId, query]),
+        aggregate: (tableId: string, query: unknown) => call('base.aggregate', [tableId, query]),
+        write: (tableId: string, changes: RecordWrite) => call('base.write', [tableId, withRecordIDs(changes)])
       }),
       file: Object.freeze({
         list: (pageId: string) => call('file.list', [pageId]),

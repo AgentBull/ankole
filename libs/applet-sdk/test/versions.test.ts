@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
 import { expectedVersions } from '../src/index'
-import type { DatabaseRecord } from '../src/types'
+import type { BaseRecord } from '../src/types'
 
 test('a field update only expects written fields and retains absence for unwritten fields', () => {
-  const record: DatabaseRecord = {
+  const record: BaseRecord = {
     id: 'record',
     data: { a: 1, b: 2 },
     versions: { a: 3, b: 4 },

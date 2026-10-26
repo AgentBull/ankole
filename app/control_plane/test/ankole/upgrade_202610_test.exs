@@ -177,6 +177,7 @@ defmodule Ankole.Upgrade202610Test do
     key = "principals.identity_providers.lark.migration-#{Ecto.UUID.generate()}"
     value = %{"appID" => "migration-fixture", "appSecret" => "migration-secret"}
     seed_config(key, value)
+    Repo.query!("ALTER TABLE tenants DROP COLUMN base_db_id")
 
     assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
     scope = "tenant:" <> original.id

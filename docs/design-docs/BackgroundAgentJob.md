@@ -247,6 +247,10 @@ conversation. A success notification includes the final Codex response.
 Stopping a Job does not send a notification. The parent turn for a terminal
 notification always ends with a visible reply.
 
+Brain Skill reflection Jobs use an empty reply route and an Agent-owned
+execution Session. Success queues lesson application in the terminal-commit
+transaction; these internal Jobs complete without conversation delivery.
+
 A waiting notification gives the parent only each question's header, text,
 secret flag, and labeled choices. Codex thread, turn, item, question, and option
 IDs remain in Job metadata for resume and do not enter the parent prompt.
@@ -804,9 +808,11 @@ only the fields that it owns. Status reports cannot change authorization,
 ownership, runtime configuration, or attempt counters. Unknown fields fail
 validation before the write. A terminal Job cannot return to `queued` or
 `running`.
-The Console query, list, and detail schemas share one status projection from
-this declaration. Turn schemas also read their enum from the Turn resource,
-and the Turn state machine also decides each checkpoint transition.
+The Job resource supplies status sets and status casts. The Console query, list,
+and detail schemas share one status projection from this declaration. Worker
+wait clocks use the resource's atomic actions. Turn schemas also read their enum
+from the Turn resource, and the Turn state machine decides each checkpoint
+transition.
 
 The transition action is the only discriminator of a status commit.
 `worker_report` takes its target from the reported status; a report without a

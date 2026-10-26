@@ -94,15 +94,14 @@ Automation scripts, and is available while its Worker is absent. See
 
 | Path | What it contains |
 | --- | --- |
-| `app/control_plane/` | Elixir control plane application: OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and tests |
-| `app/control_plane_core/` | Phoenix APIs, Ecto schemas, and the domain modules that the control plane runs |
+| `app/control_plane/` | Elixir control plane application: domain modules, Phoenix APIs, OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and tests |
 | `app/kernel/` | Shared Rust kernel and host bindings |
 | `app/agent_computer/` | Bun worker, tools, Codex runner, and browser runtime |
 | `app/webapps/` | Auth, setup, Pod, and console React applications |
 | `app/library/` | Built-in Skills, Agent Plugins, and Agent templates |
 | `app/locales/` | Shared translation catalogs |
-| `plugins/` | First-party control-plane plugins |
-| `libs/` | Provider clients and shared UI code |
+| `plugins/` | First-party control-plane Plugin source and provider clients compiled by the control plane |
+| `libs/` | Shared libraries, including transport, the Feishu frame codec, and UI code |
 | `tools/devkit/` | Workspace development commands |
 | `tools/e2e/` | End-to-end runner, support services, and suites |
 | `docs/` | Current public architecture and operations documents |
@@ -201,9 +200,9 @@ and runs Skills without help from a Control Plane Plugin.
 
 ## Where to Change Code
 
-- Add a model provider under `app/control_plane_core/lib/ankole/ai_gateway/providers/`
+- Add a model provider under `app/control_plane/lib/ankole/ai_gateway/providers/`
   or through the `ai_gateway.provider` plugin contract.
-- Add a main Agent tool under `app/control_plane_core/lib/ankole/sessions/tools/`.
+- Add a main Agent tool under `app/control_plane/lib/ankole/sessions/tools/`.
   Add an environment or Codex Job tool under `app/agent_computer/src/tools/`
   and regenerate its declared Worker catalog.
 - Add a message provider through `signals.adapter` with `observe_module` and `deliver_module`.

@@ -69,9 +69,10 @@ async function sendMessage() {
   const submitted = response.request().postDataJSON().data
   const detail = await response.json()
   await expect(input).toHaveValue('')
-  const submittedBubble = composer.locator('div.whitespace-pre-wrap').filter({ hasText: state.text })
+  const submittedBubble = composer.locator(`[data-chat-message-id="${submitted.messageID}"]`)
   await expect(submittedBubble).toHaveCount(1)
   await expect(submittedBubble).toBeVisible()
+  await expect(submittedBubble).toContainText(state.text)
   if (state.page_id) {
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(detail.conversation.id))
     expect(detail.conversation.pageID).toBe(state.page_id)

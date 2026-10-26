@@ -1,0 +1,327 @@
+defmodule Ankole.Plugins.Spec do
+  @moduledoc """
+  Validates a plugin module's callbacks into a normalized `Spec` struct.
+
+  This is the gate that turns a discovered module into a usable plugin. It runs
+  at boot (via the registry), so validation is strict for plugin-owned shape:
+  plugin identity, localized text, AppConfigure declarations, supervision
+  children, and the generic adapter declaration envelope. Contract-specific
+  callback semantics stay with the subsystem that consumes that contract.
+  """
+
+  alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.PatternDefinition
+
+  # Plugin/adapter ids are lowercase slugs. Contract ids additionally allow dots
+  # so subsystem contracts can be namespaced, e.g. "signals.adapter".
+  @id_pattern ~r/\A[a-z][a-z0-9_-]*\z/
+  @contract_id_pattern ~r/\A[a-z][a-z0-9_.-]*\z/
+
+  @enforce_keys [:module, :id]
+  defstruct [
+    :module,
+    :id,
+    :display_name,
+    :description,
+    activation: :optional,
+    hooks: [],
+    app_config_definitions: [],
+    app_config_patterns: [],
+    adapter_declarations: [],
+    children: []
+  ]
+
+  @type localized_text :: Ankole.Plugins.Plugin.localized_text()
+  @type t :: %__MODULE__{
+          module: module(),
+          id: String.t(),
+          display_name: localized_text() | nil,
+          description: localized_text() | nil,
+          activation: :optional | :always,
+          hooks: [{atom(), module()}],
+          app_config_definitions: [Definition.t()],
+          app_config_patterns: [PatternDefinition.t()],
+          adapter_declarations: [map()],
+          children: [Supervisor.child_spec()]
+        }
+
+  @doc """
+  Builds a normalized plugin spec from a loaded plugin module.
+
+  The identity callback must be present and valid. Activation defaults to
+  `:optional`; other optional callbacks default to an empty list or `nil`.
+  Errors include the module so a boot failure identifies the Plugin.
+  """
+  @spec from_module(module()) :: {:ok, t()} | {:error, term()}
+  def from_module(module) when is_atom(module) do
+    with {:module, ^module} <- Code.ensure_loaded(module),
+         :ok <- require_callback(module, :plugin_id, 0),
+         {:ok, id} <- normalize_id(module.plugin_id()),
+         {:ok, activation} <- activation(module),
+         {:ok, hooks} <- optional_list(module, :hooks, &hook?/1),
+         {:ok, display_name} <- optional_localized_text(module, :display_name),
+         {:ok, description} <- optional_localized_text(module, :description),
+         {:ok, definitions} <- optional_list(module, :app_config_definitions, &definition?/1),
+         {:ok, patterns} <- optional_list(module, :app_config_patterns, &pattern?/1),
+         {:ok, adapter_declarations} <- optional_adapter_declarations(module),
+         {:ok, children} <- optional_children(module) do
+      {:ok,
+       %__MODULE__{
+         module: module,
+         id: id,
+         activation: activation,
+         hooks: hooks,
+         display_name: display_name,
+         description: description,
+         app_config_definitions: definitions,
+         app_config_patterns: patterns,
+         adapter_declarations: adapter_declarations,
+         children: children
+       }}
+    else
+      {:error, reason} -> {:error, {module, reason}}
+      {:error, _what, _reason} -> {:error, {module, :not_loaded}}
+    end
+  end
+
+  def from_module(module), do: {:error, {module, :invalid_module}}
+
+  @doc """
+  Builds one configuration field for a plugin adapter declaration.
+
+  Fields use the basic form unless `:advanced` is set. Each adapter owns its text and constraints.
+  """
+  @spec field(String.t(), localized_text(), localized_text(), atom(), keyword()) :: map()
+  def field(path, label, description, type, opts) do
+    opts
+    |> Map.new()
+    |> Map.put_new(:advanced, false)
+    |> Map.merge(%{
+      path: path,
+      label: label,
+      description: description,
+      type: Atom.to_string(type)
+    })
+  end
+
+  @doc """
+  Returns whether a value is a valid plugin id.
+  """
+  @spec valid_id?(term()) :: boolean()
+  def valid_id?(id) when is_binary(id), do: Regex.match?(@id_pattern, id)
+  def valid_id?(_id), do: false
+
+  defp require_callback(module, function, arity) do
+    case function_exported?(module, function, arity) do
+      true -> :ok
+      false -> {:error, {:missing_callback, function, arity}}
+    end
+  end
+
+  defp activation(module) do
+    value =
+      if function_exported?(module, :activation, 0), do: module.activation(), else: :optional
+
+    if value in [:optional, :always],
+      do: {:ok, value},
+      else: {:error, {:invalid_activation, value}}
+  end
+
+  defp hook?({point, module}) when is_atom(point) and is_atom(module) do
+    point in Ankole.Plugins.Hook.points() and
+      Code.ensure_loaded?(module) and function_exported?(module, :before_commit_in_tx, 2)
+  end
+
+  defp hook?(_value), do: false
+
+  defp normalize_id(id) when is_binary(id) do
+    case valid_id?(id) do
+      true -> {:ok, id}
+      false -> {:error, {:invalid_plugin_id, id}}
+    end
+  end
+
+  defp normalize_id(id), do: {:error, {:invalid_plugin_id, id}}
+
+  defp optional_localized_text(module, function) do
+    case function_exported?(module, function, 0) do
+      true -> normalize_localized_text(apply(module, function, []), function)
+      false -> {:ok, nil}
+    end
+  end
+
+  defp normalize_localized_text(nil, _function), do: {:ok, nil}
+
+  defp normalize_localized_text(value, function) when is_map(value) do
+    case localized_text_map?(value) do
+      true -> {:ok, value}
+      false -> {:error, {:invalid_localized_text, function, value}}
+    end
+  end
+
+  defp normalize_localized_text(value, function),
+    do: {:error, {:invalid_localized_text, function, value}}
+
+  defp localized_text_map?(value) when is_map(value) do
+    is_binary(Map.get(value, "default")) and Enum.all?(value, &localized_text_entry?/1)
+  end
+
+  defp localized_text_map?(_value), do: false
+
+  defp localized_text_entry?({locale, text}) when is_binary(locale) and is_binary(text), do: true
+  defp localized_text_entry?(_entry), do: false
+
+  defp optional_list(module, function, item_valid?) do
+    values =
+      case function_exported?(module, function, 0) do
+        true -> apply(module, function, [])
+        false -> []
+      end
+
+    normalize_list(values, function, item_valid?)
+  end
+
+  defp normalize_list(values, function, item_valid?) when is_list(values) do
+    case Enum.all?(values, item_valid?) do
+      true -> {:ok, values}
+      false -> {:error, {:invalid_list_items, function}}
+    end
+  end
+
+  defp normalize_list(values, function, _item_valid?),
+    do: {:error, {:invalid_list, function, values}}
+
+  defp optional_children(module) do
+    values =
+      case function_exported?(module, :children, 0) do
+        true -> module.children()
+        false -> []
+      end
+
+    case is_list(values) do
+      true -> {:ok, values}
+      false -> {:error, {:invalid_list, :children, values}}
+    end
+  end
+
+  defp definition?(%Definition{}), do: true
+  defp definition?(_value), do: false
+
+  defp pattern?(%PatternDefinition{}), do: true
+  defp pattern?(_value), do: false
+
+  defp map?(value), do: is_map(value)
+
+  defp optional_adapter_declarations(module) do
+    values =
+      case function_exported?(module, :adapter_declarations, 0) do
+        true -> module.adapter_declarations()
+        false -> []
+      end
+
+    with {:ok, declarations} <- normalize_list(values, :adapter_declarations, &map?/1),
+         :ok <- validate_adapter_declarations(declarations) do
+      {:ok, declarations}
+    end
+  end
+
+  defp validate_adapter_declarations(declarations) do
+    Enum.reduce_while(declarations, :ok, fn declaration, :ok ->
+      case validate_adapter_declaration(declaration) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:invalid_adapter_declaration, reason}}}
+      end
+    end)
+  end
+
+  defp validate_adapter_declaration(declaration) do
+    with :ok <- validate_declaration_keys(declaration),
+         {:ok, contract_id} <- declaration_text(declaration, :contract_id),
+         :ok <- validate_contract_id(contract_id),
+         {:ok, adapter_id} <- declaration_text(declaration, :id),
+         :ok <- validate_adapter_id(adapter_id),
+         :ok <- validate_optional_adapter_id(declaration, :plugin_id),
+         :ok <- validate_optional_declaration_localized_text(declaration, :display_name),
+         :ok <- validate_optional_module(declaration, :module) do
+      :ok
+    end
+  end
+
+  defp validate_declaration_keys(declaration) do
+    case Enum.find(Map.keys(declaration), &(not is_atom(&1))) do
+      nil -> :ok
+      key -> {:error, {:invalid_adapter_declaration_key, key}}
+    end
+  end
+
+  defp validate_contract_id(contract_id) do
+    case Regex.match?(@contract_id_pattern, contract_id) do
+      true -> :ok
+      false -> {:error, {:invalid_contract_id, contract_id}}
+    end
+  end
+
+  defp validate_adapter_id(adapter_id) do
+    case valid_id?(adapter_id) do
+      true -> :ok
+      false -> {:error, {:invalid_adapter_id, adapter_id}}
+    end
+  end
+
+  defp validate_optional_adapter_id(declaration, key) do
+    case declaration_text(declaration, key) do
+      {:ok, value} -> validate_adapter_id(value)
+      {:error, {:missing_adapter_text, ^key}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_optional_module(declaration, key) do
+    case declaration_module(declaration, key) do
+      {:ok, _module} -> :ok
+      {:error, {:missing_adapter_module, ^key}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_optional_declaration_localized_text(declaration, key) do
+    case declaration_value(declaration, key) do
+      {:ok, value} ->
+        case localized_text_map?(value) do
+          true -> :ok
+          false -> {:error, {:invalid_adapter_localized_text, key, value}}
+        end
+
+      :error ->
+        :ok
+    end
+  end
+
+  defp declaration_module(declaration, key) do
+    case declaration_value(declaration, key) do
+      {:ok, module} when is_atom(module) ->
+        case Code.ensure_loaded(module) do
+          {:module, ^module} -> {:ok, module}
+          {:error, reason} -> {:error, {:adapter_module_not_loaded, key, module, reason}}
+        end
+
+      {:ok, module} ->
+        {:error, {:invalid_adapter_module, key, module}}
+
+      :error ->
+        {:error, {:missing_adapter_module, key}}
+    end
+  end
+
+  defp declaration_text(declaration, key) do
+    case declaration_value(declaration, key) do
+      {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
+      {:ok, value} -> {:error, {:invalid_adapter_text, key, value}}
+      :error -> {:error, {:missing_adapter_text, key}}
+    end
+  end
+
+  defp declaration_value(declaration, key) do
+    Map.fetch(declaration, key)
+  end
+end

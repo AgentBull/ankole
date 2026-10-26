@@ -1,5 +1,25 @@
 # Changelog
 
+## Version 2.0.0-alpha.25 (2026-10-26)
+
+- Rename Database pages and APIs to Base (多维表). Update callers to `/bases`, `pod_base_operation`, and `AnkoleRuntime.base`.
+- Keep small independent Base tables inline and automatically move large or linked tables to typed PostgreSQL shard tables. Primary fields have a fixed text type and accept up to 2 KiB of UTF-8 text.
+- Keep the original copy destination visible when it is read-only, and require a new selection before copying a Base table.
+- Keep a record form's identity across failed submissions. Repeated creates return a clear conflict in both Base storage modes without changing saved records or counters.
+- Save Base views without changing physical table schemas or link constraints. Notify connected clients and refresh saved views when clients reconnect.
+- Apply the same field conversion rules in both Base storage modes. Preserve unaffected cell versions when select options change, and derive formula and system fields without stored cell values.
+- Support browser snapshots for small physical Base tables and include formula results in the 4 MiB snapshot limit.
+- Process Base copies and physical field conversions in bounded batches while preserving copy options, record sizes, and atomic rollback.
+- Keep healthy Base shards available when another shard cannot connect. Reconnecting pools initialize and verify their shard identity.
+- Require PostgreSQL 18. FOSS uses its existing database by default; `BASE_DB_URLS` supports multiple shards, closed allocation, and dedicated tenant placement. Independent shard backups must recover to at least the control-plane recovery time.
+
+- Source builds can add site Plugin hooks, Pod settings tabs, account navigation, and email sign-in challenges. The HTML shell supplies Plugin and feature snapshots before the first render. All SPAs load extension labels. Fixed build Plugins stay enabled in setup and the Console.
+- Support direct OpenFeature SDK evaluation without wrapper-specific context. Preserve the SDK evaluation details and flag key.
+- Show Control Plane Plugin names and descriptions with the declared locale fallback. Use the same request context for HTML feature snapshots and backend evaluation.
+- Check Binding admission when a route is created or reactivated. Keep enabled routes editable and movable when a Plugin limits new routes.
+- Read Tenant IDs during the application-identity data upgrade so it can run before the Base storage migration.
+- Let Agents learn Skill lessons from completed Pod work without an external chat Binding.
+
 ## Version 2.0.0-alpha.24 (2026-10-25)
 
 - Accept surrounding whitespace in Agent UIDs when binding Automation Jobs,

@@ -16,7 +16,6 @@ import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin, type UserConfig, type ViteDevServer } from 'vite'
-import { podLocaleCatalogPlugin } from './scripts/pod-locale-catalog.ts'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -211,7 +210,6 @@ function forcedExitTimer(): ReturnType<typeof setTimeout> {
 export default defineConfig(({ command }): UserConfig => ({
   base: command === 'build' ? '/assets/' : '/',
   plugins: [
-    podLocaleCatalogPlugin(localeDirectory),
     {
       name: 'ankole-edition-styles',
       enforce: 'pre',

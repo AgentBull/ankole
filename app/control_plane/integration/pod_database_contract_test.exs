@@ -1,13 +1,11 @@
-defmodule Ankole.Pod.DatabaseContractTest do
+defmodule Ankole.Pod.BasesContractTest do
   use Ankole.DataCase, async: false
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
-  alias Ankole.Pod.{Database, DbRecord, DbTable, Pages}
+  alias Ankole.Pod.{Bases, BaseRecord, BaseTable, Pages}
 
   @limits %{
-    "local_rows" => 5000,
-    "local_bytes" => 5_000_000,
     "query_rows" => 1000,
     "record_bytes" => 1_000_000,
     "group_count" => 1000,
@@ -16,14 +14,14 @@ defmodule Ankole.Pod.DatabaseContractTest do
   setup %{tenant: tenant} do
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
     Ankole.AppConfigure.Cache.clear_for_test()
-    {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.database.limits", @limits)
+    {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.base.limits", @limits)
     human = human_fixture().principal
 
     {:ok, page} =
-      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{type: "database"})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{type: "base"})
 
     {:ok, table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(human.uid), page.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(human.uid), page.id, %{
         name: "Orders"
       })
 
@@ -47,19 +45,19 @@ defmodule Ankole.Pod.DatabaseContractTest do
   test "independent writers merge different fields and one stale same-field writer is rejected",
        ctx do
     {:ok, amount} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Amount",
         type: "number"
       })
 
     {:ok, note} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Note",
         type: "text"
       })
 
     {:ok, %{records: [record]}} =
-      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+      Bases.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{amount.id => 1, note.id => "before"}}]
       })
 
@@ -67,7 +65,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     results =
       concurrent(ctx.tenant.id, patches, fn patch ->
-        Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        Bases.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           updates: [
             %{
               id: record.id,
@@ -79,12 +77,12 @@ defmodule Ankole.Pod.DatabaseContractTest do
       end)
 
     assert Enum.all?(results, &match?({:ok, _}, &1))
-    current = Repo.get_by!(DbRecord, table_id: ctx.table.id, id: record.id)
+    current = Repo.get_by!(BaseRecord, table_id: ctx.table.id, id: record.id)
     assert current.data == %{amount.id => 2, note.id => "after"}
 
     results =
       concurrent(ctx.tenant.id, [3, 4], fn value ->
-        Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        Bases.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           updates: [
             %{id: record.id, data: %{amount.id => value}, expected_versions: %{amount.id => 2}}
           ]
@@ -99,7 +97,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
        ctx do
     {:ok, _} =
       Ankole.AppConfigure.put_tenant_by_key(
-        "pod.database.limits",
+        "pod.base.limits",
         Map.put(@limits, "statement_timeout_ms", 15_000)
       )
 
@@ -108,7 +106,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
     assert {:ok, tasks} =
              Repo.transact(fn repo ->
                table =
-                 repo.one!(from t in DbTable, where: t.id == ^ctx.table.id, lock: "FOR UPDATE")
+                 repo.one!(from t in BaseTable, where: t.id == ^ctx.table.id, lock: "FOR UPDATE")
 
                %{rows: [[holder]]} = repo.query!("SELECT pg_backend_pid()")
 
@@ -124,14 +122,14 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
                            case operation do
                              :query ->
-                               Database.query(
+                               Bases.query(
                                  Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
                                  ctx.table.id,
                                  %{}
                                )
 
                              :write ->
-                               Database.write_records(
+                               Bases.write_records(
                                  Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
                                  ctx.table.id,
                                  %{
@@ -167,20 +165,20 @@ defmodule Ankole.Pod.DatabaseContractTest do
   test "100000 rows use bounded SQL filter, sort, group, and aggregate and row 100001 rolls back",
        ctx do
     {:ok, amount} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Amount",
         type: "number"
       })
 
     {:ok, tag} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Group",
         type: "select",
         config: %{"options" => Enum.map(0..9, &%{"id" => "g#{&1}", "name" => "Group #{&1}"})}
       })
 
     {:ok, total} =
-      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+      Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Total",
         type: "formula",
         config: %{"source" => "[Amount] * 2"}
@@ -204,18 +202,27 @@ defmodule Ankole.Pod.DatabaseContractTest do
       }
     end)
     |> Stream.chunk_every(1000)
-    |> Enum.each(&Repo.insert_all(DbRecord, &1))
+    |> Enum.each(&Repo.insert_all(BaseRecord, &1))
 
-    table = Repo.get!(DbTable, ctx.table.id)
+    table = Repo.get!(BaseTable, ctx.table.id)
 
     Ankole.Pod.PagesFixtures.update_record!(table, :commit_write, %{
       delta: 100_000,
       inserted: 100_000
     })
 
+    assert {:ok, _} =
+             Bases.create_field(actor_fixture(ctx.uid), ctx.table.id, %{
+               name: "Parent",
+               type: "link",
+               config: %{"table_id" => ctx.table.id}
+             })
+
+    assert {:ok, %{mode: "remote"}} = Bases.get_table(actor_fixture(ctx.uid), ctx.table.id)
+
     {filter_us, {:ok, filtered}} =
       :timer.tc(fn ->
-        Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           filter: %{conditions: [%{field_id: tag.id, operator: "is", value: "g2"}]},
           page_size: 200
         })
@@ -225,7 +232,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     {sort_us, {:ok, sorted}} =
       :timer.tc(fn ->
-        Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           sort: [%{field_id: amount.id, direction: "desc"}],
           page_size: 200
         })
@@ -235,7 +242,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     {aggregate_us, {:ok, aggregate}} =
       :timer.tc(fn ->
-        Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        Bases.aggregate(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           group_by: [%{field_id: tag.id}],
           metrics: [
             %{operation: "count", alias: "count"},
@@ -249,7 +256,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
     assert Enum.sum(Enum.map(aggregate.groups, & &1.metrics["total"])) == 10_000_100_000
 
     assert {:error, :record_limit} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
                ctx.table.id,
                %{
@@ -257,8 +264,10 @@ defmodule Ankole.Pod.DatabaseContractTest do
                }
              )
 
-    assert Repo.aggregate(from(r in DbRecord, where: r.table_id == ^ctx.table.id), :count) ==
-             100_000
+    assert Repo.aggregate(from(r in BaseRecord, where: r.table_id == ^ctx.table.id), :count) == 0
+
+    assert {:ok, %{table: %{record_count: 100_000}}} =
+             Bases.get_table(actor_fixture(ctx.uid), ctx.table.id)
 
     IO.puts(
       "Pod 100000-row SQL milliseconds: " <>
@@ -280,7 +289,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
                    """
                    SELECT count(*) FROM pg_stat_activity
                    WHERE datname = current_database() AND pid = ANY($1::integer[])
-                     AND wait_event_type = 'Lock' AND query LIKE '%db_tables%'
+                     AND wait_event_type = 'Lock' AND query LIKE '%base_tables%'
                      AND pg_blocking_pids(pid) && $2::integer[]
                    """,
                    [backends, [holder | backends]]
@@ -288,6 +297,239 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
                blocked == length(backends)
              end)
+  end
+
+  test "physical writes do not wait for an inline writer on the same page", ctx do
+    {:ok, physical} = Bases.create_table(actor_fixture(ctx.uid), ctx.page.id, %{name: "Physical"})
+
+    {:ok, _} =
+      Bases.create_field(actor_fixture(ctx.uid), physical.id, %{
+        name: "Parent",
+        type: "link",
+        config: %{"table_id" => physical.id}
+      })
+
+    assert {:ok, :written} =
+             Repo.transact(fn ->
+               Repo.one!(
+                 from(t in BaseTable, where: t.id == ^ctx.table.id, lock: "FOR NO KEY UPDATE")
+               )
+
+               writer =
+                 Task.async(fn ->
+                   Repo.with_tenant(ctx.tenant.id, fn ->
+                     Bases.write_records(actor_fixture(ctx.uid), physical.id, %{
+                       creates: [%{data: %{}}]
+                     })
+                   end)
+                 end)
+
+               assert {:ok, _} = Task.await(writer, 5_000)
+               {:ok, :written}
+             end)
+  end
+
+  test "an inline write completes while a physical writer waits on the same page", ctx do
+    actor = actor_fixture(ctx.uid)
+    {:ok, physical} = Bases.create_table(actor, ctx.page.id, %{name: "Physical"})
+
+    {:ok, _} =
+      Bases.create_field(actor, physical.id, %{
+        name: "Parent",
+        type: "link",
+        config: %{"table_id" => physical.id}
+      })
+
+    base_repo = Ankole.Pod.BaseRepo
+
+    base_repo.with_shard(ctx.tenant.base_db_id, fn ->
+      assert {:ok, writer} =
+               base_repo.transact(fn ->
+                 [[holder]] = base_repo.query!("SELECT pg_backend_pid()", []).rows
+
+                 base_repo.query!(
+                   "SELECT table_id FROM #{base_repo.states()} WHERE table_id=$1::text::uuid FOR UPDATE",
+                   [physical.id]
+                 )
+
+                 writer =
+                   Task.async(fn ->
+                     Repo.with_tenant(ctx.tenant.id, fn ->
+                       Bases.write_records(actor, physical.id, %{creates: [%{data: %{}}]})
+                     end)
+                   end)
+
+                 assert {:ok, true} =
+                          wait_until(deadline(5_000), fn ->
+                            base_repo.query!("SELECT pg_stat_clear_snapshot()", [])
+
+                            [[waiting]] =
+                              base_repo.query!(
+                                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                                [holder]
+                              ).rows
+
+                            waiting
+                          end)
+
+                 assert {:ok, _} =
+                          Bases.write_records(actor, ctx.table.id, %{creates: [%{data: %{}}]})
+
+                 assert Task.yield(writer, 0) == nil
+                 {:ok, writer}
+               end)
+
+      assert {:ok, _} = Task.await(writer, 5_000)
+    end)
+  end
+
+  test "slow DDL exceeds the shard deadline and leaves a usable unchanged table", ctx do
+    actor = actor_fixture(ctx.uid)
+
+    {:ok, _} =
+      Bases.create_field(actor, ctx.table.id, %{
+        name: "Parent",
+        type: "link",
+        config: %{"table_id" => ctx.table.id}
+      })
+
+    {:ok, field} = Bases.create_field(actor, ctx.table.id, %{name: "Value", type: "text"})
+    {:ok, before} = Bases.get_table(actor, ctx.table.id)
+    base_repo = Ankole.Pod.BaseRepo
+
+    base_repo.with_shard(ctx.tenant.base_db_id, fn ->
+      base_repo.query!(
+        """
+        CREATE FUNCTION test_base_slow_ddl() RETURNS event_trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF current_query() LIKE '%tbl_#{base_repo.hex(ctx.table.id)}%' THEN PERFORM pg_sleep(4); END IF;
+        END $$
+        """,
+        []
+      )
+
+      base_repo.query!(
+        "CREATE EVENT TRIGGER test_base_slow_ddl ON ddl_command_start WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION test_base_slow_ddl()",
+        []
+      )
+
+      try do
+        result =
+          try do
+            Ankole.Pod.Access.write(
+              nil,
+              fn ->
+                Ankole.Pod.Bases.Schema.update_field_in_tx(actor, field.id, %{
+                  type: "number",
+                  version: field.version
+                })
+              end,
+              timeout: 3_000
+            )
+          rescue
+            error in [Postgrex.Error, DBConnection.ConnectionError] -> {:error, error}
+          end
+
+        assert {:error, _} = result
+      after
+        base_repo.query!("DROP EVENT TRIGGER test_base_slow_ddl", [])
+        base_repo.query!("DROP FUNCTION test_base_slow_ddl()", [])
+      end
+    end)
+
+    assert {:ok, after_timeout} = Bases.get_table(actor, ctx.table.id)
+    assert after_timeout == before
+
+    assert {:ok, _} =
+             Bases.update_field(actor, field.id, %{type: "number", version: field.version})
+
+    assert {:ok, _} =
+             Bases.write_records(actor, ctx.table.id, %{creates: [%{data: %{field.id => 42}}]})
+  end
+
+  test "view edits succeed while a shard reader holds the link relation", ctx do
+    actor = actor_fixture(ctx.uid)
+
+    {:ok, link} =
+      Bases.create_field(actor, ctx.table.id, %{
+        name: "Parent",
+        type: "link",
+        config: %{"table_id" => ctx.table.id}
+      })
+
+    Ankole.Pod.BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+      assert {:ok, :checked} =
+               Ankole.Pod.BaseRepo.transact(fn ->
+                 Ankole.Pod.BaseRepo.query!(
+                   "SELECT src_id,dst_id FROM #{Ankole.Pod.BaseRepo.edge(link.config["edge_table"])}",
+                   []
+                 )
+
+                 writer =
+                   Task.async(fn ->
+                     Repo.with_tenant(ctx.tenant.id, fn ->
+                       assert {:ok, view} =
+                                Bases.create_view(actor, ctx.table.id, %{
+                                  name: "Work",
+                                  type: "grid"
+                                })
+
+                       assert {:ok, saved} =
+                                Bases.update_view(actor, view.id, %{
+                                  version: view.version,
+                                  name: "Current work"
+                                })
+
+                       Bases.delete_view(actor, saved.id, saved.version)
+                     end)
+                   end)
+
+                 assert {:ok, _} = Task.await(writer, 10_000)
+                 {:ok, :checked}
+               end)
+    end)
+  end
+
+  test "a blocked physical DDL rolls back its control-plane field definition", ctx do
+    {:ok, _} =
+      Bases.create_field(actor_fixture(ctx.uid), ctx.table.id, %{
+        name: "Parent",
+        type: "link",
+        config: %{"table_id" => ctx.table.id}
+      })
+
+    {:ok, text} =
+      Bases.create_field(actor_fixture(ctx.uid), ctx.table.id, %{name: "Value", type: "text"})
+
+    Ankole.Pod.BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+      assert {:ok, :checked} =
+               Ankole.Pod.BaseRepo.transact(fn ->
+                 Ankole.Pod.BaseRepo.query!(
+                   "LOCK TABLE #{Ankole.Pod.BaseRepo.table(ctx.table.id)} IN ACCESS SHARE MODE",
+                   []
+                 )
+
+                 writer =
+                   Task.async(fn ->
+                     Repo.with_tenant(ctx.tenant.id, fn ->
+                       try do
+                         Bases.update_field(actor_fixture(ctx.uid), text.id, %{
+                           type: "number",
+                           version: text.version
+                         })
+                       rescue
+                         error in Postgrex.Error -> {:error, error.postgres.code}
+                       end
+                     end)
+                   end)
+
+                 assert {:error, :lock_not_available} = Task.await(writer, 10_000)
+                 {:ok, :checked}
+               end)
+    end)
+
+    assert Enum.find(Bases.fields(ctx.table.id), &(&1.id == text.id)).type == :text
+    assert {:ok, _} = Bases.query(actor_fixture(ctx.uid), ctx.table.id, %{})
   end
 
   defp concurrent(tenant, inputs, fun) do

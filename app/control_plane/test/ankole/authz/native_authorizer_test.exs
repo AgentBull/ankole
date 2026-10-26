@@ -4,7 +4,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
   require Ash.Query
   alias Ankole.AuthZ.{Actor, Root}
   alias Ankole.{AuthZ, Repo}
-  alias Ankole.Pod.{Database, DbField, DbRecord, Page, Pages}
+  alias Ankole.Pod.{Bases, BaseField, BaseRecord, Page, Pages}
   alias Ankole.Principals.PodAdminOperations
 
   test "protected operations reject a bare Principal and an ungranted Actor, then accept the Pod administrator" do
@@ -160,7 +160,7 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
     end
   end
 
-  test "Database writes, schema changes and copies keep the interactive Human permission intersection" do
+  test "Bases writes, schema changes and copies keep the interactive Human permission intersection" do
     owner = human_fixture().principal
     outsider = human_fixture().principal
     agent = agent_fixture().principal
@@ -172,12 +172,12 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
 
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-        type: "database",
+        type: "base",
         parent_id: parent.id
       })
 
     {:ok, table} =
-      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id, %{
+      Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), page.id, %{
         name: "Protected"
       })
 
@@ -194,37 +194,37 @@ defmodule Ankole.AuthZ.NativeAuthorizerTest do
     batch = %{creates: [%{data: %{}}]}
 
     assert {:ok, _} =
-             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), table.id)
+             Bases.get_table(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), table.id)
 
     assert {:error, :forbidden} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(actor),
                table.id,
                batch
              )
 
     assert {:error, :forbidden} =
-             Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(actor), table.id, %{
+             Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(actor), table.id, %{
                name: "Denied",
                type: "text"
              })
 
     assert {:error, :forbidden} =
-             Database.copy_table(Ankole.PrincipalsFixtures.actor_fixture(actor), table.id, %{
+             Bases.copy_table(Ankole.PrincipalsFixtures.actor_fixture(actor), table.id, %{
                parent_id: parent.id
              })
 
-    assert Repo.aggregate(DbRecord, :count) == 0
-    refute Repo.get_by(DbField, table_id: table.id, name: "Denied")
+    assert Repo.aggregate(BaseRecord, :count) == 0
+    refute Repo.get_by(BaseField, table_id: table.id, name: "Denied")
 
     assert {:ok, %{records: [record]}} =
-             Database.write_records(
+             Bases.write_records(
                Ankole.PrincipalsFixtures.actor_fixture(Actor.new(agent)),
                table.id,
                batch
              )
 
-    assert Repo.get_by!(DbRecord, id: record.id, table_id: table.id).created_by.uid == agent.uid
+    assert Repo.get_by!(BaseRecord, id: record.id, table_id: table.id).created_by.uid == agent.uid
   end
 
   test "domain point checks require both the Agent and its interactive Human" do

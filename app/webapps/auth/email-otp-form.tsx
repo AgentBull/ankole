@@ -2,20 +2,51 @@ import { Button, Field, FieldLabel, Input } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
-import { useId } from 'react'
+import { useId, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestEmailOtp, verifyEmailOtp } from '../common/api/generated/sdk.gen'
 import { ErrorBlock } from '../common/error-block'
 import { classifyLoginError, LoginModel } from './state/login-model'
+import { SlotBoundary, SlotGate } from '../common/slots'
+import { useAuthSlots, type AuthAppSlots, type AuthChallengeState } from './slots'
 
 export function EmailOtpForm({ flow }: { flow: string }) {
+  const slot = useAuthSlots().emailOtpChallenge
+  return (
+    <SlotGate slot={slot}>
+      {enabled => <EmailOtpFields key={flow} flow={flow} slot={enabled ? slot : undefined} />}
+    </SlotGate>
+  )
+}
+
+function EmailOtpFields({ flow, slot }: { flow: string; slot: AuthAppSlots['emailOtpChallenge'] }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(LoginModel)
   const emailID = useId()
   const codeID = useId()
+  const challengeEnabled = slot !== undefined
+  const [attempt, setAttempt] = useState({ enabled: challengeEnabled, number: 0 })
+  if (attempt.enabled !== challengeEnabled) {
+    setAttempt({ enabled: challengeEnabled, number: attempt.number + 1 })
+  }
+  const resetAttempt = () => setAttempt(current => ({ ...current, number: current.number + 1 }))
+  const attemptKey = `${flow}:${model.email.value}:${attempt.number}`
+  const currentAttempt = useRef(attemptKey)
+  currentAttempt.current = attemptKey
+  const [challenge, setChallenge] = useState<AuthChallengeState & { attemptKey: string }>()
+  const challengeReady = !challengeEnabled || (challenge?.attemptKey === attemptKey && challenge.ready)
+  const onChallengeStateChange = useCallback(
+    (state: AuthChallengeState) => {
+      if (currentAttempt.current === attemptKey) setChallenge({ ...state, attemptKey })
+    },
+    [attemptKey]
+  )
+  const challengeHeaders = challengeEnabled && challengeReady ? challenge?.headers : undefined
   const request = useMutation({
-    mutationFn: () => requestEmailOtp({ body: { data: { flow, email: model.email.value } } }),
+    mutationFn: () =>
+      requestEmailOtp({ headers: challengeHeaders, body: { data: { flow, email: model.email.value } } }),
+    onSettled: resetAttempt,
     onSuccess: () => {
       model.resetCode()
       verify.reset()
@@ -53,7 +84,7 @@ export function EmailOtpForm({ flow }: { flow: string }) {
       className="grid gap-5"
       onSubmit={event => {
         event.preventDefault()
-        if (pending || waiting) return
+        if (pending || waiting || (!request.data && !challengeReady)) return
         model.clearFormError()
         request.data ? verify.mutate() : request.mutate()
       }}>
@@ -71,6 +102,7 @@ export function EmailOtpForm({ flow }: { flow: string }) {
           onChange={event => {
             model.email.value = event.target.value
             model.changeAccount()
+            resetAttempt()
           }}
         />
       </Field>
@@ -100,17 +132,30 @@ export function EmailOtpForm({ flow }: { flow: string }) {
           </Field>
         </>
       )}
+      {slot && (
+        <SlotBoundary>
+          <slot.Component key={attemptKey} attemptKey={attemptKey} onChallengeStateChange={onChallengeStateChange} />
+        </SlotBoundary>
+      )}
       {errorText && (
         <p role="alert" className="text-sm text-destructive-foreground">
           {errorText}
         </p>
       )}
-      <Button type="submit" className="w-full" disabled={pending || waiting} aria-busy={pending}>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={pending || waiting || (!request.data && !challengeReady)}
+        aria-busy={pending}>
         {pending ? t('common.loading') : request.data ? t('auth.verify_code') : t('auth.send_code')}
       </Button>
       {request.data && (
         <div className="flex gap-3">
-          <Button type="button" variant="ghost" disabled={pending || waiting} onClick={() => request.mutate()}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={pending || waiting || !challengeReady}
+            onClick={() => request.mutate()}>
             {t('auth.resend_code')}
           </Button>
           <Button
@@ -121,6 +166,7 @@ export function EmailOtpForm({ flow }: { flow: string }) {
               request.reset()
               verify.reset()
               model.resetCode()
+              resetAttempt()
             }}>
             {t('auth.change_email')}
           </Button>

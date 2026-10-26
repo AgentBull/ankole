@@ -10,6 +10,199 @@ defmodule Ankole.Conversations.Delivery.ReplyPreviewCheckpointTest do
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.Delivery.PreviewAdapter
 
+  test "owner claims check the Session fence before replacing the generation" do
+    %{subject: subject, current: current, opts: opts} = owner_signals("claim-owner")
+
+    assert {:ok, owner} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id
+             )
+
+    assert PreviewStates.owner_generation(owner) == 1
+    refute Map.has_key?(PreviewStates.get(owner).checkpoint, "presentation")
+
+    stale_run = %{
+      agent_uid: subject.uid,
+      session_id: current.session_id,
+      signal_id: current.id,
+      epoch: -1
+    }
+
+    assert {:error, :stale_driver} = PreviewStates.authorize_owner(run: stale_run)
+
+    assert {:error, :stale_driver} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id,
+               run: stale_run
+             )
+
+    assert PreviewStates.owner_generation(PreviewStates.load_signal(current.id)) == 1
+
+    assert {:ok, replacement} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id
+             )
+
+    assert PreviewStates.owner_generation(replacement) == 2
+  end
+
+  test "a handoff freezes visible content and advances beyond both stored generations" do
+    %{subject: subject, current: current, next: next, opts: opts} = owner_signals("owner-handoff")
+
+    assert {:ok, owner} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id
+             )
+
+    assert {:ok, _next} =
+             PreviewStates.put_checkpoint(next.id, %{
+               "owner_generation" => 7,
+               "continued_to_signal_id" => Ecto.UUID.generate()
+             })
+
+    presentation =
+      ReplyPresentation.new(state: "working")
+      |> Map.put("answer", "The visible answer")
+      |> Map.put("thought", "Transient reasoning")
+
+    assert {:ok, %{old_owner: previous, new_owner: adopted}} =
+             PreviewStates.switch_owner(
+               owner,
+               next,
+               1,
+               presentation,
+               opts ++ [visible?: true, refresh?: true]
+             )
+
+    previous_checkpoint = PreviewStates.get(previous).checkpoint
+    assert previous_checkpoint["presentation_owner"] == false
+    assert previous_checkpoint["continued_to_signal_id"] == next.id
+    assert previous_checkpoint["presentation"]["state"] == "continued"
+    assert previous_checkpoint["presentation"]["answer"] == "The visible answer"
+    refute Map.has_key?(previous_checkpoint["presentation"], "thought")
+    assert previous_checkpoint["refresh_pending"] == true
+    assert previous_checkpoint["refresh_reason"] == "owner_handoff"
+
+    adopted_checkpoint = PreviewStates.get(adopted).checkpoint
+    assert PreviewStates.owner_generation(adopted) == 8
+    assert adopted_checkpoint["presentation_owner"] == true
+    refute Map.has_key?(adopted_checkpoint, "continued_to_signal_id")
+    assert adopted_checkpoint["stream_signal_id"] == current.id
+    assert adopted_checkpoint["subject_uid"] == subject.uid
+    assert adopted_checkpoint["conversation_id"] == opts[:conversation_id]
+    assert adopted_checkpoint["presentation"]["state"] == "working"
+    assert PreviewStates.current_presentation_owner(current.id, next).id == next.id
+  end
+
+  test "an invisible handoff records no continued presentation and rolls back a rejected transfer" do
+    %{subject: subject, current: current, next: next, opts: opts} = owner_signals("empty-handoff")
+
+    assert {:ok, owner} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id
+             )
+
+    # A transferred target cannot be revived by another stream. Its rejection
+    # occurs after the old owner's proposed update, so both writes must roll back.
+    assert {:ok, _next} =
+             PreviewStates.put_checkpoint(next.id, %{
+               "owner_generation" => 3,
+               "presentation_owner" => false,
+               "stream_signal_id" => current.id
+             })
+
+    assert {:error, :stale_reply_preview_owner} =
+             PreviewStates.switch_owner(
+               owner,
+               next,
+               1,
+               ReplyPresentation.new(),
+               opts ++ [visible?: false, refresh?: false]
+             )
+
+    unchanged = PreviewStates.load_signal(current.id)
+    assert PreviewStates.get(unchanged).checkpoint == PreviewStates.get(owner).checkpoint
+
+    assert {:ok, replacement} =
+             PreviewStates.claim_owner(next.id, subject.uid, opts[:conversation_id], next.id)
+
+    assert {:ok, %{old_owner: previous, new_owner: adopted}} =
+             PreviewStates.switch_owner(
+               owner,
+               replacement,
+               1,
+               ReplyPresentation.new(),
+               opts ++ [visible?: false, refresh?: false]
+             )
+
+    previous_checkpoint = PreviewStates.get(previous).checkpoint
+    assert previous_checkpoint["presentation_owner"] == false
+    refute Map.has_key?(previous_checkpoint, "presentation")
+    assert PreviewStates.owner_generation(adopted) == 5
+  end
+
+  test "presentation checkpoints keep newer durable revisions and reject a replaced owner" do
+    %{subject: subject, current: current, opts: opts} = owner_signals("presentation-order")
+
+    assert {:ok, _owner} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id
+             )
+
+    presentation =
+      ReplyPresentation.new(state: "working")
+      |> Map.put("revision", 2)
+      |> Map.put("answer", "Committed content")
+
+    assert {:ok, stored} =
+             PreviewStates.checkpoint_presentation(current.id, 1, presentation, opts)
+
+    checkpoint = PreviewStates.get(stored).checkpoint
+
+    assert {:ok, unchanged} =
+             PreviewStates.checkpoint_presentation(
+               current.id,
+               1,
+               Map.put(presentation, "answer", "Equal revision"),
+               opts
+             )
+
+    assert PreviewStates.get(unchanged).checkpoint == checkpoint
+
+    assert {:ok, replacement} =
+             PreviewStates.claim_owner(
+               current.id,
+               subject.uid,
+               opts[:conversation_id],
+               current.id
+             )
+
+    newer = presentation |> Map.put("revision", 3) |> Map.put("answer", "New content")
+    assert {:ok, unchanged} = PreviewStates.checkpoint_presentation(current.id, 1, newer, opts)
+    assert PreviewStates.get(unchanged).checkpoint == PreviewStates.get(replacement).checkpoint
+
+    assert {:ok, updated} = PreviewStates.checkpoint_presentation(current.id, 2, newer, opts)
+    assert PreviewStates.get(updated).checkpoint["presentation"]["answer"] == "New content"
+  end
+
   test "persists a bounded card checkpoint and reuses one pending mutation identity" do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
@@ -310,5 +503,39 @@ defmodule Ankole.Conversations.Delivery.ReplyPreviewCheckpointTest do
            ] == [
              %{"index" => 0, "message_id" => "message-new"}
            ]
+  end
+
+  defp owner_signals(prefix) do
+    %{principal: subject} = agent_fixture()
+    binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
+
+    [current, next] =
+      Enum.map(["current", "next"], fn suffix ->
+        %{signal: signal} =
+          emit_addressed_signal(
+            subject.uid,
+            "mock",
+            group_entry(%{
+              source_event_id: prefix <> ":" <> suffix,
+              provider_conversation_id: "mock:" <> prefix,
+              provider_message_id: prefix <> ":" <> suffix,
+              explicit: true,
+              text: "Reply to this input"
+            })
+          )
+
+        signal
+      end)
+
+    %{
+      subject: subject,
+      current: current,
+      next: next,
+      opts: [
+        subject_uid: subject.uid,
+        conversation_id: Ecto.UUID.generate(),
+        stream_signal_id: current.id
+      ]
+    }
   end
 end

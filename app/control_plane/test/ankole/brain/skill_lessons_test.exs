@@ -19,14 +19,6 @@ defmodule Ankole.Brain.SkillLessonsTest do
     agent = background_agent_fixture().principal
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
-    assert {:ok, _binding} =
-             Ankole.SignalsFixtures.raw_binding_fixture(%{
-               agent_uid: agent.uid,
-               name: "lark-main",
-               adapter: "lark",
-               config_ref: "cfg-lesson-test"
-             })
-
     %{agent: agent}
   end
 
@@ -107,8 +99,8 @@ defmodule Ankole.Brain.SkillLessonsTest do
     }
   end
 
-  defp signal_job_with_steering!(agent) do
-    job = create_job!(agent)
+  defp signal_job_with_steering!(agent, attrs \\ %{}) do
+    job = create_job!(agent, attrs)
 
     record_evidence_turn!(job, [
       task_message(job.task),
@@ -116,8 +108,8 @@ defmodule Ankole.Brain.SkillLessonsTest do
     ])
   end
 
-  defp signal_job_with_failure!(agent) do
-    job = create_job!(agent)
+  defp signal_job_with_failure!(agent, attrs \\ %{}) do
+    job = create_job!(agent, attrs)
 
     record_evidence_turn!(job, [
       task_message(job.task),
@@ -137,14 +129,42 @@ defmodule Ankole.Brain.SkillLessonsTest do
     assert trigger == %{status: :below_threshold, signal_jobs: 1}
   end
 
-  test "phase creates one reflection job at the threshold and respects the watermark", %{
+  test "native work creates one reflection without Bindings and respects the watermark", %{
     agent: agent
   } do
     assert {:ok, _value} =
              AppConfigure.put_global_by_key("brain.skill_learning_reflection_threshold", 2)
 
-    first = signal_job_with_steering!(agent)
-    second = signal_job_with_failure!(agent)
+    %{principal: human} = human_fixture()
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+    conversation_id = Ecto.UUID.generate()
+
+    Ankole.SessionsCase.stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: Ankole.Sessions.Key.conversation(conversation_id)
+    })
+
+    assert {:ok, detail} =
+             Ankole.ConversationsFixtures.create(human.uid, %{
+               conversation_id: conversation_id,
+               message_id: Ecto.UUID.generate(),
+               agent_uid: agent.uid,
+               text: "Build the quarterly workbook."
+             })
+
+    source = Repo.get_by!(Ankole.Signals.Signal, message_id: hd(detail.messages).id)
+
+    attrs = %{
+      "source_signal_id" => source.id,
+      "owner_session_id" => source.session_id,
+      "reply_route" => %{"conversation_id" => conversation_id}
+    }
+
+    first = signal_job_with_steering!(agent, attrs)
+    second = signal_job_with_failure!(agent, attrs)
+    assert first.authorization_kind == "human"
+    assert second.authorization_kind == "human"
+    refute Repo.exists?(Ankole.Signals.Binding)
 
     assert %{status: :ok, agents: agents} = SkillLessons.run_phase()
 
@@ -152,6 +172,9 @@ defmodule Ankole.Brain.SkillLessonsTest do
              Map.fetch!(agents, agent.uid)
 
     reflection = Repo.get!(Job, reflection_id)
+    assert reflection.reply_route == %{}
+    assert reflection.authorization_kind == "service"
+    assert reflection.human_uid == nil
     assert reflection.metadata["skill_lesson_reflection"] == true
     assert reflection.metadata["through_job_id"] == second.id
     assert Enum.sort(reflection.metadata["evidence_job_ids"]) == [first.id, second.id]
@@ -161,6 +184,23 @@ defmodule Ankole.Brain.SkillLessonsTest do
     assert reflection.task =~ "不要再扩大范围"
     assert reflection.task =~ "openpyxl 3.1.2"
     assert reflection.task =~ "next call in turn: python3 build.py --list"
+
+    dispatch =
+      Repo.get_by!(Ankole.Signals.Signal,
+        source_event_id: "background_agent_job:#{reflection.id}:dispatch"
+      )
+
+    assert dispatch.reply_binding_name == nil
+    assert dispatch.conversation_id == nil
+    assert dispatch.authorization_kind == "service"
+
+    assert {:ok, context} =
+             Ankole.Sessions.Context.resolve(
+               agent.uid,
+               BackgroundAgentJobs.job_session_id(reflection.id)
+             )
+
+    assert context.conversation.id == reflection.metadata["owner_conversation_id"]
 
     # An in-flight reflection blocks a second trigger.
     assert %{status: :ok, agents: agents} = SkillLessons.run_phase()

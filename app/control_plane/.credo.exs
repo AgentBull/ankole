@@ -6,7 +6,6 @@
         included:
           [
             "lib/",
-            "../control_plane_core/lib/",
             "../../plugins/*/lib/",
             "../../libs/im_transport/lib/",
             "../../libs/feishu_protocol/lib/"
@@ -22,7 +21,7 @@
       checks: %{
         # `mix credo --strict` runs the Credo default check set plus `extra`.
         # Each check in `disabled` had the given number of findings across the
-        # control plane, core, plugins, and shared libraries when the default
+        # control plane, plugins, and shared libraries when the default
         # set was switched on (2026-10-21). Enable a check again in the change
         # that removes its findings.
         disabled: [

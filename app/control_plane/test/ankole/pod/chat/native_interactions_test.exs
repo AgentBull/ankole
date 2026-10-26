@@ -339,7 +339,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
 
   test "Pod RPC reads use the speaking Human intersection even with a privileged room member",
        ctx do
-    alias Ankole.Pod.{Database, Pages, RPCBroker}
+    alias Ankole.Pod.{Bases, Pages, RPCBroker}
     alias Ankole.RuntimeFabric.V1.PodRequest
     alias Ankole.Sessions.RunRef
     alice = actor_fixture(ctx.alice)
@@ -350,14 +350,14 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert {:ok, database} =
              Pages.create(alice, %{
                title: "Private budget",
-               type: "database",
+               type: "base",
                private_owner_uid: ctx.alice.uid
              })
 
-    assert {:ok, table} = Database.create_table(alice, database.id, %{name: "Budget"})
+    assert {:ok, table} = Bases.create_table(alice, database.id, %{name: "Budget"})
 
     assert {:ok, %{records: [_]}} =
-             Database.write_records(alice, table.id, %{creates: [%{data: %{}}]})
+             Bases.write_records(alice, table.id, %{creates: [%{data: %{}}]})
 
     for page <- [document, database] do
       assert {:ok, _} =
@@ -382,7 +382,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     }
 
     query = %PodRequest{
-      operation: "database.query",
+      operation: "base.query",
       params_json: Ankole.JSON.encode!(%{id: table.id})
     }
 

@@ -24,7 +24,7 @@ This makes it a good fit if you want one small client that can call any Feishu/L
 
 ## Build and Test
 
-`FeishuOpenAPI` is part of the `plugins/lark_adapter` Mix project. Run `mix test` from `plugins/lark_adapter` (or `bun run lark-adapter:test` from the repository root).
+`FeishuOpenAPI` is part of the Lark Plugin source under `plugins/lark_adapter`, compiled by the `app/control_plane` Mix project. Run `bun run lark-adapter:test` from the repository root.
 
 ## Quick Start
 
@@ -510,10 +510,10 @@ FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
 ```
 
-Then run:
+Then run from the repository root:
 
 ```bash
-mix run scripts/feishu_business_e2e.exs
+elixir plugins/lark_adapter/scripts/feishu_business_e2e.exs
 ```
 
 Default manual trigger behavior:
@@ -526,5 +526,5 @@ Default manual trigger behavior:
 ## Running Tests
 
 ```bash
-mix test
+bun run lark-adapter:test
 ```

@@ -12,6 +12,62 @@ The site administration assignment and AuthZ roles belong to their domain
 owners. SaaS databases enforce the reserved-slug constraint; FOSS databases
 use the public slug contract.
 
+## Base storage placement
+
+A site has one control-plane PostgreSQL database. Each tenant has an immutable
+`base_db_id` for its physical Base tables. `Tenants.create_in_tx/1` hashes the
+tenant UUID across open shards with `:erlang.phash2/2`; an explicit configured
+shard ID supports dedicated tenants. A stock-only shard serves its assigned
+tenants and explicit assignments. If no shard is open, automatic creation
+returns `no_allocatable_base_db`. Requests read the tenant's assignment inside
+the control-plane transaction.
+
+`BASE_DB_URLS` is a semicolon-separated list of `postgres://`, `postgresql://`,
+or `ecto://` URLs. Whitespace around entries is allowed. `ankole_sharding`
+is a unique ID with one to 32 lowercase letters, digits, or underscores. One
+URL may omit the ID and use `base_default`. Multiple URLs must specify every ID.
+`ankole_stock_only` is `true` or `false` (default `false`);
+`ankole_pool_size` is a positive integer. Startup rejects duplicate or unknown
+`ankole_*` keys and `sslmode`. Connections use the internal PostgreSQL network.
+
+| Environment | Default topology when `BASE_DB_URLS` is unset | Pool per shard |
+| --- | --- | --- |
+| FOSS production | `DATABASE_URL`, ID `base_default` | 10 |
+| Development | `ankole_base_00` through `ankole_base_03` | 2 |
+| Test | Four databases with `_test_<partition>` suffix | 2 |
+| SaaS production | `ankole_base_00` through `ankole_base_07` | 5 |
+
+Only development and test create missing databases. They use `template0` and
+the control-plane locale provider, collation, and character rules. Production
+operators provision independent databases. FOSS needs no `CREATEDB` permission
+when it uses the control-plane database. The Base pool is separate even when
+both repos connect to the same database.
+
+All databases require PostgreSQL 18. Startup checks each reachable shard's
+locale against the control plane and initializes `public._ankole_shard`, a
+singleton identity row. An unavailable shard's pool reconnects independently;
+healthy shards remain available. Each connection checks the version, locale,
+and identity in `after_connect`. A shard first reached on reconnect initializes
+its identity in a transaction. Reachable identity or locale mismatches, and a
+topology that omits any assigned shard, including a deleting tenant's shard,
+prevent startup. BaseRepo uses unnamed prepared statements for PgBouncer transaction pooling. Operators
+can set PgBouncer `server_lifetime` to recycle backend catalog caches and raise
+PostgreSQL `max_locks_per_transaction` for large tenants.
+
+Physical objects live in `t_<tenant_hex>`. `BaseRepo.tenant_schema!/0` derives
+this name only from the active Repo tenant; a missing context fails. Reviewed
+physical SQL modules declare `@raw_sql_scope :tenant_schema`. Static boundary
+checks require each statement to use a context-derived schema helper. A helper
+in another statement cannot exempt a query. The query-escape inventory records
+these calls. Tenant deletion drops tables in batches of 100, then drops the
+schema with a 15-second lock timeout, before removing the tenant row.
+
+A single-database FOSS deployment can use one atomic `pg_dump`. With independent
+shards, every shard's point-in-time recovery target must be at or later than
+the control-plane recovery target. A newer shard can rebuild interrupted
+promotions on retry. A schema-version mismatch requires operator repair and
+rejects affected table operations.
+
 ## Durable ownership
 
 `Ankole.Tenants` owns tenant lifecycle. PostgreSQL owns tenant membership and
@@ -287,8 +343,8 @@ The deletion job processes bounded, idempotent batches; PostgreSQL constraints
 and the final transaction prevent a concurrent write from leaving orphan rows.
 Its table list names child rows before their parents, so each batch deletes rows
 of one table and the cascade foreign keys do not carry bulk data. The Pod content
-tables enter the list as `db_records`, `db_views`,
-`db_fields`, `db_tables`, `page_user_states`, `page_changes`, `page_contents`,
+tables enter the list as `base_records`, `base_views`,
+`base_fields`, `base_tables`, `page_user_states`, `page_changes`, `page_contents`,
 then `pages`.
 Page batches delete leaves first, so a parent cannot cascade through a large
 subtree in one batch.

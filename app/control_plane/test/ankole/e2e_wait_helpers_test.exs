@@ -107,8 +107,8 @@ defmodule Ankole.E2E.WaitHelpersTest do
 
     Ankole.SignalsFixtures.binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
 
-    %{signal: signal} =
-      Ankole.SignalsFixtures.emit_addressed_signal(
+    {:ok, %{signal: signal}} =
+      emit_entry(
         agent.uid,
         "mock",
         Ankole.SignalsFixtures.group_entry(%{
@@ -117,7 +117,8 @@ defmodule Ankole.E2E.WaitHelpersTest do
           provider_message_id: "human-wait-helper-#{suffix}",
           explicit: true,
           text: text
-        })
+        }),
+        now: @base_time
       )
 
     assert {:ok, run} =

@@ -32,10 +32,10 @@ it('installs the Pod CLI with the editor codec and real applet build dependencie
     const build = Bun.spawnSync(['ankole-pod', 'applet', 'build', directory])
     expect(build.stderr.toString()).toBe('')
     expect(build.exitCode).toBe(0)
-    const script = await Bun.file(`${directory}/dist/app.js`).text()
+    const script = await Bun.file(`${directory}/dist/main.js`).text()
     expect(script).toContain('@ankole/applet-sdk')
     expect(script).not.toContain('jsxDEV')
-    expect(await Bun.file(`${directory}/dist/index.html`).text()).toContain('./app.js')
+    expect(await Bun.file(`${directory}/dist/index.html`).text()).toContain('./main.js')
     const { parseMarkdown, printXml } = await import('@ankole/block-editor/document')
     expect(printXml(parseMarkdown('## Saved report'))).toContain('Saved report')
   } finally {

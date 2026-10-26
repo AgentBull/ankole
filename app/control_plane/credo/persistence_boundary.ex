@@ -23,11 +23,11 @@ defmodule Ankole.Credo.PersistenceBoundary do
       lock, or a `Repo` transaction outside the registered exception modules.
       A `lock:` keyword is an Ecto lock only in an Ecto `from` query; in a
       code interface `query:` keyword it is an Ash lock.
-    * `:consumer_ash` - an Ash call in `ankole_web`, a plugin, or the control
-      plane application. `Ash.PlugHelpers` only puts request values on a
+    * `:consumer_ash` - an Ash call in `ankole_web`, a plugin, or a control
+      plane entry point. `Ash.PlugHelpers` only puts request values on a
       connection, so it is not an Ash call.
     * `:raw_sql_tenant` - raw SQL that reads or changes a table without a
-      `tenant_id` predicate, in a module without `@raw_sql_scope :site`.
+      `tenant_id` predicate or a reviewed `:site` or `:tenant_schema` scope.
     * `:ecto_source` and `:ash_call` - candidates that the boundary test
       classifies with the compiled resources: `ecto_resource` is an Ecto query
       of an Ash resource, and `cross_domain_ash` is an Ash call on a resource of
@@ -43,7 +43,20 @@ defmodule Ankole.Credo.PersistenceBoundary do
                 )
   @owners ["/lib/ankole/ash.ex", "/lib/ankole/errors.ex", "/lib/ankole_web/console_errors.ex"]
   @owner_dirs ["/lib/ankole/ash/", "/lib/ankole/errors/"]
-  @consumer_paths ["/lib/ankole_web/", "../../plugins/", "../../internals/plugins/"]
+  @application_root Path.expand("..", __DIR__)
+  @consumer_files Enum.map(
+                    ~w(application credential_upgrade migrations release upgrade_202610),
+                    &Path.join(@application_root, "lib/ankole/#{&1}.ex")
+                  )
+  @consumer_dirs Enum.map(
+                   [
+                     "lib/ankole_web",
+                     "lib/mix/tasks",
+                     "../../plugins",
+                     "../../internals/plugins"
+                   ],
+                   &Path.expand(&1, @application_root)
+                 )
   @repo_reads [
     :all,
     :one,
@@ -199,7 +212,9 @@ defmodule Ankole.Credo.PersistenceBoundary do
       module: nil,
       function: nil,
       aliases: %{},
+      bindings: %{},
       site_sql?: false,
+      tenant_schema_sql?: false,
       ecto_query?: false,
       owner?: owner?(path),
       consumer?: consumer?(path)
@@ -211,13 +226,15 @@ defmodule Ankole.Credo.PersistenceBoundary do
     |> Enum.reverse()
   end
 
-  defp owner?(path),
-    do: Enum.any?(@owners, &String.ends_with?(path, &1)) or Enum.any?(@owner_dirs, &(path =~ &1))
+  defp owner?(path) do
+    path = Path.expand(path)
+    Enum.any?(@owners, &String.ends_with?(path, &1)) or Enum.any?(@owner_dirs, &(path =~ &1))
+  end
 
-  defp consumer?(path),
-    do:
-      Enum.any?(@consumer_paths, &String.contains?(path, &1)) or
-        String.starts_with?(path, "lib/")
+  defp consumer?(path) do
+    path = Path.expand(path)
+    path in @consumer_files or Enum.any?(@consumer_dirs, &String.starts_with?(path, &1 <> "/"))
+  end
 
   # The walk keeps the lexical module, function, and aliases of each node.
   defp walk({:defmodule, _meta, [name, [do: body]]}, context, acc) do
@@ -229,7 +246,8 @@ defmodule Ankole.Credo.PersistenceBoundary do
       | module: module,
         function: nil,
         aliases: aliases,
-        site_sql?: site_sql?(body)
+        site_sql?: site_sql?(body),
+        tenant_schema_sql?: scope_declared?(body, :tenant_schema)
     }
 
     {_ast, acc} = walk(body, module_context, acc)
@@ -238,7 +256,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
 
   defp walk({definition, _meta, [head | rest]}, context, acc)
        when definition in [:def, :defp, :defmacro, :defmacrop] do
-    context = %{context | function: function_name(head)}
+    context = %{context | function: function_name(head), bindings: %{}}
     {_ast, acc} = walk(head_patterns(head), context, acc)
     walk(rest, context, acc)
   end
@@ -246,7 +264,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
   defp walk({:__block__, _meta, expressions}, context, acc) do
     {_context, acc} =
       Enum.reduce(expressions, {context, acc}, fn expression, {context, acc} ->
-        context = put_alias(expression, context)
+        context = expression |> put_alias(context) |> put_binding(expression)
         {_ast, acc} = walk(expression, context, acc)
         {context, acc}
       end)
@@ -338,7 +356,10 @@ defmodule Ankole.Credo.PersistenceBoundary do
         repo_call(acc, function, args, meta, context, first)
 
       module in @sql_modules and function in [:query, :query!, :stream] ->
-        raw_call(acc, Enum.at(args, 1), meta, context)
+        raw_call(acc, Enum.at(args, 1), Enum.at(args, 2), meta, context)
+
+      module == Ankole.Pod.Query and function == :execute ->
+        raw_call(acc, Enum.at(args, 1), Enum.at(args, 2), meta, context)
 
       module == Ecto.Query and function == :from ->
         add(acc, :ecto_source, meta, context, first, module?(first))
@@ -367,6 +388,13 @@ defmodule Ankole.Credo.PersistenceBoundary do
   defp classify({function, meta, args}, %{module: Ankole.Repo} = context, acc)
        when is_atom(function) and is_list(args) and function in @repo_calls,
        do: add(acc, :persistence, meta, context, nil, true)
+
+  defp classify(
+         {:execute, meta, [_table, sql, params]},
+         %{module: Ankole.Pod.Query} = context,
+         acc
+       ),
+       do: raw_call(acc, sql, params, meta, context)
 
   defp classify(_call, _context, acc), do: acc
 
@@ -402,17 +430,33 @@ defmodule Ankole.Credo.PersistenceBoundary do
         |> add(:repo_transact, meta, context, nil, true)
 
       function in @raw_sql ->
-        raw_call(acc, List.first(args), meta, context)
+        raw_call(acc, List.first(args), Enum.at(args, 1), meta, context)
 
       true ->
         acc
     end
   end
 
-  defp raw_call(acc, sql, meta, context) do
+  defp raw_call(
+         acc,
+         {:sql, _, nil},
+         _params,
+         meta,
+         %{module: Ankole.Pod.Query, function: :execute} = context
+       ),
+       do: add(acc, :persistence, meta, context, nil, true)
+
+  defp raw_call(acc, sql, params, meta, context) do
     acc
     |> add(:persistence, meta, context, nil, true)
-    |> add(:raw_sql_tenant, meta, context, nil, not context.site_sql? and not tenant_sql?(sql))
+    |> add(
+      :raw_sql_tenant,
+      meta,
+      context,
+      nil,
+      not context.site_sql? and not tenant_sql?(sql) and
+        not (context.tenant_schema_sql? and scoped_statement?(sql, params, context))
+    )
   end
 
   defp ash_call(acc, module, function, meta, context, first) do
@@ -481,7 +525,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
   defp call_target?(form), do: not is_tuple(form)
 
   defp repo?({:repo, _meta, context}, _module) when is_atom(context), do: true
-  defp repo?(_target, module), do: module == Ankole.Repo
+  defp repo?(_target, module), do: module in [Ankole.Repo, Ankole.Pod.BaseRepo]
 
   defp ash_module?(module) when is_atom(module) and not is_nil(module) do
     case Module.split(module) do
@@ -512,6 +556,80 @@ defmodule Ankole.Credo.PersistenceBoundary do
     do: parts |> Enum.filter(&is_binary/1) |> Enum.join(" ") |> tenant_sql?()
 
   defp tenant_sql?(_dynamic), do: false
+
+  defp put_binding(context, {:=, _, [{name, _, nil}, value]}) when is_atom(name),
+    do: %{context | bindings: Map.put(context.bindings, name, schema_helpers(value, context))}
+
+  defp put_binding(context, _expression), do: context
+
+  defp scoped_statement?(sql, params, context) do
+    helpers = schema_helpers(sql, context)
+    literals = sql_literals(sql)
+    references = Regex.scan(~r/\b(?:FROM|JOIN)\s+([a-z_][a-z_0-9.]*)/i, literals)
+
+    catalogs =
+      references != [] and
+        Enum.all?(references, fn [_, table] -> String.starts_with?(table, "pg_") end)
+
+    :base in helpers or (:source in helpers and :scope in helpers) or temporary_sql?(literals) or
+      (catalogs and :base in schema_helpers(params, context))
+  end
+
+  defp temporary_sql?(sql) do
+    references = Regex.scan(~r/\b(?:FROM|JOIN|INTO|TABLE)\s+([a-z_][a-z_0-9.]*)/i, sql)
+
+    references != [] and
+      Enum.all?(references, fn [_, name] ->
+        name == "pg_temp.ankole_base_conversions" or name == "jsonb_to_recordset"
+      end)
+  end
+
+  defp sql_literals(sql) do
+    {_ast, parts} =
+      Macro.prewalk(sql, [], fn
+        part, parts when is_binary(part) -> {part, [part | parts]}
+        node, parts -> {node, parts}
+      end)
+
+    parts |> Enum.reverse() |> Enum.join(" ")
+  end
+
+  defp schema_helpers(ast, context) do
+    {_ast, helpers} =
+      Macro.prewalk(ast, [], fn
+        {name, _, nil} = node, found when is_atom(name) ->
+          {node, Map.get(context.bindings, name, []) ++ found}
+
+        {{:., _, [target, helper]}, _, args} = node, found when is_list(args) ->
+          {node, schema_helper(resolve(target, context), helper, args) ++ found}
+
+        {helper, _, args} = node, found when is_atom(helper) and is_list(args) ->
+          {node, schema_helper(context.module, helper, args) ++ found}
+
+        node, found ->
+          {node, found}
+      end)
+
+    Enum.uniq(helpers)
+  end
+
+  defp schema_helper(Ankole.Pod.BaseRepo, helper, args)
+       when (helper in [:tenant_schema!, :states] and args == []) or
+              (helper in [:table, :edge] and length(args) == 1),
+       do: [:base]
+
+  defp schema_helper(Ankole.Pod.Query, helper, [_]) when helper in [:source, :scope], do: [helper]
+  defp schema_helper(_module, _helper, _args), do: []
+
+  defp scope_declared?(body, scope) do
+    {_ast, found} =
+      Macro.prewalk(body, false, fn
+        {:@, _, [{:raw_sql_scope, _, [^scope]}]} = node, _found -> {node, true}
+        node, found -> {node, found}
+      end)
+
+    found
+  end
 
   defp site_sql?(body) do
     {_ast, found} =

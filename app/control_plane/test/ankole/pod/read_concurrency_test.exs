@@ -3,7 +3,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
   @moduletag sandbox: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Database, Pages}
+  alias Ankole.Pod.{Access, Bases, Pages}
 
   setup %{tenant: tenant} do
     owner = human_fixture().principal
@@ -171,16 +171,16 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
       revoker = prepare_revocation(unquote(revocation), ctx)
 
       {:ok, page} =
-        Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{type: "database"})
+        Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{type: "base"})
 
       {:ok, table} =
-        Database.create_table(
+        Bases.create_table(
           Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
           page.id,
           %{}
         )
 
-      field = hd(Database.fields(table.id))
+      field = hd(Bases.fields(table.id))
       parent = self()
 
       writer =
@@ -190,7 +190,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
               {:ok, _} = revoker.()
 
               {:ok, _} =
-                Database.write_records_in_tx(
+                Bases.write_records_in_tx(
                   Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                   table.id,
                   %{
@@ -223,7 +223,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
       assert {:error, :forbidden} = Task.await(reader, 5_000)
 
       assert {:ok, %{records: [record]}} =
-               Database.query(
+               Bases.query(
                  Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                  table.id,
                  %{}
@@ -416,10 +416,10 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
   end
 
   defp read_operation(:query, uid, id),
-    do: Database.query(Ankole.PrincipalsFixtures.actor_fixture(uid), id, %{})
+    do: Bases.query(Ankole.PrincipalsFixtures.actor_fixture(uid), id, %{})
 
   defp read_operation(:copy, uid, id),
-    do: Database.copy_table(Ankole.PrincipalsFixtures.actor_fixture(uid), id, %{})
+    do: Bases.copy_table(Ankole.PrincipalsFixtures.actor_fixture(uid), id, %{})
 
   defp backend_pid, do: Repo.query!("SELECT pg_backend_pid()").rows |> hd() |> hd()
 

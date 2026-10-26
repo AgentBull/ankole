@@ -26,14 +26,14 @@ Read operations:
   pages.read       {id} — returns Markdown and the current page revision
   pages.sharing    {id}
   files.manifest   {id}
-  database.tables  {id: database_page_id}
-  database.schema  {id: table_id}
-  database.query   {id, filter?, sort?, page_size?, page_token?, ids?}
-  database.aggregate {id, filter?, group_by?, metrics}
+  base.tables  {id: base_page_id}
+  base.schema  {id: table_id}
+  base.query   {id, filter?, sort?, page_size?, page_token?, ids?}
+  base.aggregate {id, filter?, group_by?, metrics}
 
 Write operations:
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
-  pages.create     {type: doc|database|applet|file, title, parent_id?, private_owner_uid?}
+  pages.create     {type: doc|base|applet|file, title, parent_id?, private_owner_uid?}
   pages.update     {id, title?, icon?}
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
@@ -42,22 +42,22 @@ Write operations:
   pages.append     {id, base_revision, markdown}
   pages.patch      {id, base_revision, edits:[{old_text,new_text,replace_all?}]}
   files.upload     {id, local_path, role: file|asset|attachment, base_revision?}
-  database.create_table {id: database_page_id, name}
-  database.delete_table {id: table_id} — requires manage access
-  database.create_field {id: table_id, name, type, config?}
-  database.update_field {id: field_id, version, ...changes}
-  database.delete_field {id: field_id, version}
-  database.create_view  {id: table_id, name, type, config?}
-  database.update_view  {id: view_id, version, ...changes}
-  database.delete_view  {id: view_id, version}
-  database.write    {id: table_id, creates?:[{data}], updates?:[{id,data,expected_versions}], deletes?:[{id,expected_versions}]}
-  database.copy     {id: table_id, parent_id: report_page_id, filter?}
+  base.create_table {id: base_page_id, name}
+  base.delete_table {id: table_id} — requires manage access
+  base.create_field {id: table_id, name, type, config?}
+  base.update_field {id: field_id, version, ...changes}
+  base.delete_field {id: field_id, version}
+  base.create_view  {id: table_id, name, type, config?}
+  base.update_view  {id: view_id, version, ...changes}
+  base.delete_view  {id: view_id, version}
+  base.write    {id: table_id, creates?:[{data}], updates?:[{id,data,expected_versions}], deletes?:[{id,expected_versions}]}
+  base.copy     {id: table_id, parent_id: report_page_id, filter?}
   applets.call      {id, method: GET|POST|PUT|PATCH|DELETE, path, query?, body?}
     Returns {status, body?, logs?}, including handler errors. Never replay a
     write after a disconnect: first read its saved result.
 
-Database parameter shapes:
-  Read database.schema before writing; data keys and field_id values are the
+Base parameter shapes:
+  Read base.schema before writing; data keys and field_id values are the
   returned field UUIDs, not field names. Reuse the saved page and table IDs.
   filter: {conjunction:"and"|"or", conditions:[{field_id, operator, value?}]}
     operator: is|contains|is_empty|is_not_empty|gt|gte|lt|lte|text_contains
@@ -99,7 +99,7 @@ read again and reconsider the change. Do not retry an old write blindly.
 Use ankole-files get pages/<page-id>/<path> --pod to read a page file.
 
 Applets export provider = defineApplet(App) from src/main.tsx, use the Pod
-components and @ankole/applet-sdk hooks, and save business data in Database.
+components and @ankole/applet-sdk hooks, and save business data in Base.
 Applet init accepts a new directory or an existing empty directory.
 The Worker includes the actual SDK at /repo/libs/applet-sdk/src/index.tsx
 and its query, aggregate, and record types at /repo/libs/applet-sdk/src/types.ts.
@@ -116,7 +116,7 @@ Optional src/server/main.ts
 exports a default route table typed with import type { Routes } from
 '@ankole/applet-sdk/server'. Build bundles it into server/main.js as ESM with external node:* builtins.
 The runtime provides Node builtins, temporary /tmp files, fetch, process.env from
-applet.env.json, and AnkoleRuntime db, file, ai and HttpError. GET handlers cannot write.
+applet.env.json, and AnkoleRuntime base, file, ai and HttpError. GET handlers cannot write.
 Applet pull restores source and package files, then runs bun install --ignore-scripts.
 Use useRoute/useRouteMutation in the frontend; route writes do not refresh queries
 unless the applet explicitly invalidates them.
@@ -136,7 +136,7 @@ export async function initializeApplet(directory: string) {
   await mkdir(join(directory, 'src'))
   await writeFile(
     join(directory, 'src/main.tsx'),
-    `import { defineApplet } from '@ankole/applet-sdk'\n\nfunction App() {\n  return <main><h1>新小程序</h1><p>使用 Database 保存业务数据。</p></main>\n}\n\nexport const provider = defineApplet(App)\n`,
+    `import { defineApplet } from '@ankole/applet-sdk'\n\nfunction App() {\n  return <main><h1>新小程序</h1><p>使用 Base 保存业务数据。</p></main>\n}\n\nexport const provider = defineApplet(App)\n`,
     { flag: 'wx' }
   )
   await writeFile(join(directory, 'src/style.css'), '.ankole-applet { padding: 1rem; }\n', { flag: 'wx' })

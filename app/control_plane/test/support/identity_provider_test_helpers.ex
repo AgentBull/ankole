@@ -8,9 +8,9 @@ defmodule Ankole.IdentityProviderTestHelpers do
 
   @spec update_lark_identity_declaration((map() -> map())) :: :ok
   def update_lark_identity_declaration(fun) when is_function(fun, 1) do
-    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    original_state = Ankole.Plugins.Registry.snapshot_for_test()
 
-    :sys.replace_state(Ankole.Plugins.Registry, fn state ->
+    Ankole.Plugins.Registry.update_for_test(fn state ->
       update_in(state.active["lark-adapter"].adapter_declarations, fn declarations ->
         Enum.map(declarations, fn declaration ->
           case Map.get(declaration, :contract_id) do
@@ -22,7 +22,7 @@ defmodule Ankole.IdentityProviderTestHelpers do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.Plugins.Registry.update_for_test(fn _state -> original_state end)
     end)
 
     :ok

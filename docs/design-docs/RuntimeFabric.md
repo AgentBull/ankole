@@ -341,7 +341,7 @@ control plane.
 structure and current protocol version. The generated package namespace
 is `ankole.runtime_fabric.v1`.
 
-`Ankole.RuntimeFabric` in `app/control_plane_core` owns the Elixir Protox
+`Ankole.RuntimeFabric` in `app/control_plane` owns the Elixir Protox
 codec and protocol checks. The protocol files stay in `app/kernel/proto`.
 The Worker uses protobuf-es. Generate committed
 TypeScript output with `bun run gen:proto`. Each host uses its generated enum

@@ -1,7 +1,7 @@
 import { state, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
 import { expect, test, type Browser, type Page } from '@playwright/test'
-import type { DatabaseField, DatabaseRecord, DatabaseView, Filter } from '@ankole/applet-sdk/types'
+import type { BaseField, BaseRecord, BaseView, Filter } from '@ankole/applet-sdk/types'
 
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
 
@@ -29,17 +29,17 @@ async function businessTable(browser: Browser) {
     member = await memberContext.newPage()
   await owner.goto(location(state.report_id))
   const { page } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
-    type: 'database',
-    title: `Database controls ${crypto.randomUUID()}`,
+    type: 'base',
+    title: `Base controls ${crypto.randomUUID()}`,
     parent_id: state.report_id
   })
-  const { table } = await request<{ table: { id: string } }>(owner, `/databases/${page.id}/tables`, 'POST', {
+  const { table } = await request<{ table: { id: string } }>(owner, `/bases/${page.id}/tables`, 'POST', {
     name: 'Business records'
   })
-  const schema = () => request<{ fields: DatabaseField[]; views: DatabaseView[] }>(owner, `/tables/${table.id}`)
+  const schema = () => request<{ fields: BaseField[]; views: BaseView[] }>(owner, `/tables/${table.id}`)
   const primary = (await schema()).fields.find(field => field.is_primary)!
   const addField = async (name: string, type: string, config = {}) =>
-    (await request<{ field: DatabaseField }>(owner, `/tables/${table.id}/fields`, 'POST', { name, type, config })).field
+    (await request<{ field: BaseField }>(owner, `/tables/${table.id}/fields`, 'POST', { name, type, config })).field
   const revenue = await addField('Revenue', 'number')
   const stage = await addField('Stage', 'select', {
     options: [
@@ -48,13 +48,15 @@ async function businessTable(browser: Browser) {
     ]
   })
   const memo = await addField('Memo', 'text')
-  const { records } = await request<{ records: DatabaseRecord[] }>(owner, `/tables/${table.id}/records`, 'POST', {
+  const { records } = await request<{ records: BaseRecord[] }>(owner, `/tables/${table.id}/records`, 'POST', {
     creates: [{ data: { [primary.id]: 'Oak', [revenue.id]: 10, [stage.id]: 'open', [memo.id]: 'Keep this value' } }]
   })
   const read = async () =>
-    (await request<{ records: DatabaseRecord[] }>(owner, `/tables/${table.id}/query`, 'POST', {})).records
+    (await request<{ records: BaseRecord[] }>(owner, `/tables/${table.id}/query`, 'POST', {})).records
   await owner.goto(location(page.id))
   await member.goto(location(page.id))
+  await owner.getByRole('button', { name: 'Business records', exact: true }).click()
+  await member.getByRole('button', { name: 'Business records', exact: true }).click()
   await expect(owner.getByRole('spinbutton', { name: 'Revenue', exact: true })).toHaveValue('10')
   await expect(owner.getByRole('columnheader').first()).toHaveText(primary.name)
   await expect(owner.getByRole('columnheader').nth(1)).toHaveText('Revenue')
@@ -85,7 +87,7 @@ test('cell drafts survive another person’s edit, require explicit conflict ret
     await cell.fill('17')
     const remoteUpdate = owner.waitForResponse(async response => {
       if (!response.url().includes(`/tables/${table.id}/query`) || response.status() !== 201) return false
-      const body = (await response.json()) as { records: DatabaseRecord[] }
+      const body = (await response.json()) as { records: BaseRecord[] }
       return body.records.some(record => record.data[revenue.id] === 22)
     })
     await other.fill('22')

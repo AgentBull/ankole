@@ -15,6 +15,8 @@ defmodule Ankole.Sessions.CommandsTest do
   test "an idle steer prepares its instructions without a Worker" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
+    room = Ankole.ExternalConversationsFixtures.external_conversation_fixture("lark:chat:group-a")
+    stub_driver(%{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(room.id)})
 
     {:ok, %{signal: event}} =
       emit_entry(agent.uid, "bot", group_entry(%{text: "/steer Change course", explicit: true}),

@@ -410,13 +410,13 @@ defmodule Ankole.Pod.PagesTest do
 
     {:ok, child} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
-        type: "database",
+        type: "base",
         parent_id: parent.id
       })
 
     {:ok, referenced} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{
-        type: "database",
+        type: "base",
         private_owner_uid: ctx.reader.uid
       })
 

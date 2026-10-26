@@ -145,6 +145,50 @@ undecryptable row returns an error instead of hiding the problem.
 
 Environment variables never override an AppConfigure value.
 
+## Feature policies
+
+`Ankole.Features.Config` declares boolean features from the build's
+`:feature_flags` application configuration. Each entry is
+`{key, [default: boolean, client_visible: boolean]}`. The default is false;
+client visibility is false unless declared. Each feature registers one global
+AppConfigure key, `features.<key>`. The AppConfigure Registry rejects duplicate
+keys during startup.
+
+The value has exactly these fields:
+
+```json
+{"enabled": true, "percent": 100, "targets": {}}
+```
+
+`enabled` sets the master switch. `targets` maps an OpenFeature targeting key
+to a boolean override. Feature evaluation uses the current tenant ID when a
+request has a tenant context, and `site` otherwise. A consumer can pass an
+explicit context to `evaluate_details/2` or `boolean_value/2`.
+An enabled feature uses a target override first, then its percentage.
+`percent` is an integer from 0 through 100. SHA-256 over
+`<key>:<targeting_key>` gives the bucket; increasing the percentage preserves
+every selected target. Policies use site storage and reject tenant and Agent
+writes.
+
+The official OpenFeature provider reads registered keys through AppConfigure:
+its cache for ordinary evaluation and PostgreSQL for `_in_tx` evaluation.
+AppConfigure owns declaration metadata and default values. `_in_tx` calls
+require a transaction. `evaluate_details/1` returns the SDK's `OpenFeature.EvaluationDetails`,
+including the flag key. Direct official SDK calls use the supplied OpenFeature
+context and cached policies. The provider uses `site` when that context has no
+targeting key. The Ankole facade supplies the current request's tenant or site.
+The HTML shell uses the same bound request context. Login pages bind the
+transaction's context through the browser authentication owner before evaluation.
+Feature decisions belong to the consumer. Plugin activation belongs to the
+site's immutable boot snapshot.
+
+`SpaController` writes `client_visible` features into the HTML shell's
+`ankole-features` meta element. The shell uses `cache-control: private,
+no-store`. Before the first render, `mountApp` initializes the official
+OpenFeature Web provider from that snapshot. React components use the
+OpenFeature hooks. Backend consumers evaluate the feature at their own
+operation boundary.
+
 ## Row Format in PostgreSQL
 
 Global rows use the site-owned `site_app_configurations` table and the

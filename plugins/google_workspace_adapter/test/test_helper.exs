@@ -1,2 +1,5 @@
 ExUnit.start()
-{:ok, _supervisor} = GoogleOpenAPI.Supervisor.start_link([])
+
+unless Process.whereis(GoogleOpenAPI.Supervisor) do
+  {:ok, _supervisor} = GoogleOpenAPI.Supervisor.start_link([])
+end

@@ -9,6 +9,7 @@
     "test:native": "bun test/native/run.ts"
   },
   "dependencies": {
+    "@ankole/applet-sdk": "workspace:*",
     "acorn": "8.18.0"
   }
 }

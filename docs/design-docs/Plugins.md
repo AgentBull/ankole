@@ -246,43 +246,85 @@ source files.
 
 Plugin IDs must be unique across the declared modules.
 Duplicate IDs stop application startup.
-The Registry keeps the active list in memory for the current process.
+The Registry publishes the active list as an immutable `:persistent_term`
+snapshot. Reads use that snapshot directly. The GenServer owns startup and
+snapshot publication.
 
 ### Fixed source builds
 
 `ANKOLE_EDITION=foss|saas` selects the source build; the default is `foss`.
 A FOSS build compiles public Plugins and ignores `internals` source and
-migrations. A SaaS build also compiles `internals/control_plane/lib` into
-`:ankole_core` and includes the selected private Plugin Mix projects. Missing
-private source fails the build. One release has one Repo and one migration
-ledger.
+migrations. A SaaS build also compiles `internals/control_plane/lib` and
+`internals/plugins/*/lib`. Missing private source fails the build.
 
-The Mix dependencies have one direction:
-
-```text
-:ankole (assembly and release)
-  -> :ankole_core (domain and web code; no application callback)
-  -> :ankole_<plugin> -> :ankole_core
-                     -> shared libraries when required
-```
-
-`app/control_plane` owns configuration, migrations, deployment commands, test
-support, and the application supervisor. `app/control_plane_core`
-owns the public domain and web source. Each `plugins/<name>` directory is a
-local Mix project named `:ankole_<name>`. Private projects use the same name
-rule under `internals/plugins`. The assembly includes these projects at build
-time. They do not depend on the assembly application.
+`app/control_plane` is one Mix project and one `:ankole` OTP application. It
+owns domain and web code, configuration, migrations, deployment commands,
+test support, and the application supervisor. It compiles source from each
+`plugins/<name>/lib` directory into the same application. One release has one
+Repo and one migration ledger. FOSS and SaaS use separate build directories.
 
 The six provider clients are internal modules of their matching Plugins. Their
-module names and provider error types are distinct. Plugin applications have
-no application callback. Their caches, token supervisors, and connections start
-as children of the active Plugin cohort, after Repo and AppConfigure are ready.
-The core package does not start a Repo or a Plugin when used as a dependency.
+module names and provider error types are distinct. Plugin caches, token
+supervisors, and connections start as children of the active Plugin cohort,
+after Repo and AppConfigure are ready.
 
-All projects use the host's lockfile and downloaded dependencies. Each direct
-Mix invocation has its own build directory. A host build compiles its selected
-dependencies together. Run a provider client's unit tests from its Plugin
-project; the test helper starts only that client's supervisor.
+The source dependency direction is from a concrete Plugin to its domain
+contracts. A domain module cannot statically reference a concrete Plugin, and
+one Plugin cannot statically reference another Plugin.
+`mix ankole.compile_cycles` checks compile, export, and runtime references from the
+compiled xref graph. Two exact references are allowed for persisted Slack and
+Microsoft credential migration: `Ankole.Upgrade202610` can call
+`Ankole.Plugins.SlackAdapter.Config` and
+`Ankole.Plugins.Microsoft365Adapter.Config`. Plugin selection uses the configured
+module list at runtime.
+
+`im_transport`, `feishu_protocol`, the Kernel, and the fake Feishu platform keep
+their own Mix projects. They own reusable contracts with independent callers.
+
+Run `bun run control-plane:test:plugins` from the repository root for the six
+provider clients' unit tests without PostgreSQL. Add a Plugin directory name,
+such as `lark_adapter`, to select one client. The command compiles the
+`:ankole` application, skips application
+startup, and uses each client's test helper to start only its supervisor.
+The ordinary control-plane test suite also runs these tests.
+
+### Webapp entries and slots
+
+`app/webapps/entries.json` declares public SPA entries. The private
+`internals/webapps/entries.json` has an `entries` map for additional SPAs and
+an optional `overrides` map for public entry wrappers. An additional entry
+must have a unique name. An override must name a public entry. Both maps
+resolve source files inside the private webapp directory. Phoenix and Vite
+use the same selected entry names.
+
+A wrapper passes typed `slots` to the public root component. Public roots use
+empty slots by default. `PodAppSlots` supplies account-menu content and lazy
+settings tabs. Each contribution declares its owning `pluginId`. The host
+renders it only when that Plugin is in the HTML shell's site activation
+snapshot. Each tab also declares `id`, `labelKey`, optional `when`, and a lazy
+`Component`. IDs must be unique and must not claim `general`, `members`,
+`invitations`, or `providers`. A slot without `when` is enabled with its Plugin.
+OpenFeature evaluates a declared `when` condition. A hidden active
+tab returns the settings view to `general`. A Suspense boundary loads the
+selected extension component.
+
+Every SPA loads the build's merged locale catalog. Extension labels can use
+their own namespaces in the private TOML catalogs.
+
+`AuthAppSlots.emailOtpChallenge` supplies a lazy component and an optional
+`when` key. The component receives `attemptKey` and
+`onChallengeStateChange({ready, headers})`. The form requires a ready challenge
+before it requests or resends an email code. The current attempt supplies the
+request headers. Sending a request or changing the flow, email, or condition
+resets the challenge. A condition change preserves the entered email and code.
+Verification of a delivered email code uses the core login contract.
+
+The HTML shell supplies `ankole-active-plugins` and `ankole-features` meta
+elements. They contain the active site Plugin IDs and the public feature
+snapshot. `mountApp` loads the official OpenFeature Web `InMemoryProvider`
+and supplies active Plugin IDs through React context before the first render.
+React components read feature values through
+`OpenFeatureProvider` and the official hooks.
 
 ### Share an implementation only when its contract matches
 
@@ -324,9 +366,9 @@ checkpoint keys belong to each adapter even when two implementations are
 identical. The Lark string-array validator uses its own whitespace
 rules. Shared code must not grow provider-selection branches.
 
-`mix ankole.compile_cycles` checks the assembly and every local Mix dependency.
-CI runs it in test and production environments. A smaller assembly-only xref
-graph is not evidence that the core or Plugin graphs have no compile cycle.
+`mix ankole.compile_cycles` also rejects dependency cycles that contain a
+compile-time dependency in the control plane and each local Mix dependency.
+CI runs it in test and production environments.
 
 Fixed build composition is separate from `plugins.enabled_ids`. The selected
 HTTP entry, Host policy, site authentication sources, AppConfigure declarations,
@@ -344,8 +386,16 @@ injection.
 
 ### Enable a Control Plane Plugin
 
-The global AppConfigure key `plugins.enabled_ids` lists active Plugins. A
-missing or empty list enables none. An operator must enable each new Plugin.
+A Plugin's `activation/0` callback returns `:optional` by default. The global
+AppConfigure key `plugins.enabled_ids` selects optional Plugins. An empty
+list activates none of them. A Plugin with `activation: :always` is part of
+the selected source build and remains active. The SaaS platform uses this
+mode. The Console identifies these Plugins as included in the build and
+rejects a disable request.
+
+Setup shows fixed Plugins as selected and disables their checkboxes. Its
+selection response includes fixed Plugins; the saved enable list contains
+only optional Plugins.
 
 The Plugin cohort reads the list during startup and resolves one immutable boot
 snapshot. A later change takes effect only after a restart.
@@ -367,6 +417,7 @@ The write body uses `{ "data": { "id": string, "enabled": boolean } }` with
 
 Each response row includes these fields:
 
+- `activation`
 - `configured_enabled`
 - `active`
 - `restart_required`
@@ -440,6 +491,53 @@ an entry keeps only the generic shape check of `Plugins.Spec`.
 
 Control Plane Plugins do not control Agent capabilities. A control-plane
 adapter and a related Agent Plugin can have different enabled states.
+
+### Features and domain transaction hooks
+
+`Ankole.Features` uses the official OpenFeature Elixir SDK for dynamic
+consumer decisions. A feature's declared policy can change without a Plugin
+restart. `evaluate_details/1` returns the SDK's `OpenFeature.EvaluationDetails`,
+including the flag key. An undeclared key raises `ArgumentError`. See
+[App Configuration](AppConfiguration.md#feature-policies).
+
+Plugins declare transaction hooks through `hooks/0`, with entries such as
+`[create_agent: MyPlugin.Quota]`. The module implements
+`Ankole.Plugins.Hook.before_commit_in_tx/2`. The Registry indexes these
+contributions from active Plugins at startup. Dispatch uses Plugin ID order,
+then each Plugin's declaration order. The callback returns `:ok` or
+`{:error, reason}`; an error rolls back the calling transaction.
+`Ankole.Plugins.Hook.points/0` declares `:create_agent`, `:create_invitation`,
+and `:enable_signal_binding`. The payload contains the attributes at that
+domain's transaction boundary. Hooks use the domain's existing lock order.
+A consumer owns its rules and can inspect the current tenant. The host owns
+activation and dispatch.
+
+The Binding hook receives the attributes for the `Signals.Binding` write,
+including `agent_uid`, `name`, `adapter`, `config_ref`, and `enabled: true`.
+It checks creation and reactivation. An enabled Binding keeps its admission
+during edits and moves within its tenant. The domain locks an existing Binding
+before it checks an enable transition.
+
+`Plugins.Spec` validates each adapter declaration's shape at startup. The
+Registry indexes validated active declarations by contract and adapter ID.
+`Ankole.Plugins.fetch_adapter/2` resolves that immutable site snapshot.
+`veto_disable` keeps the owning subsystem's checks inside the transaction
+that changes the next-start selection.
+
+### Extension HTTP routes
+
+A build-selected outer router can run a request Plug before it forwards to the
+core router with `AnkoleWeb.runtime_forward`. A Plug uses the core operation's
+method and path when it adds an admission challenge.
+
+The SaaS router mounts `/api/v2/saas/*` on the site Host and
+`/api/v2/saas-pod/*` on a Pod Host. Pod routes require the browser session,
+CSRF proof, tenant binding, and the resource's Principal/AuthZ declaration.
+The Pod router calls `AnkoleWeb.JSONAPI.Context.before_dispatch/3` with `:pod`.
+Each extension domain declares typed JSON:API actions with the native
+AuthZ authorizer. OpenAPI output is separate: `saas-v2.json` and
+`saas-pod-v2.json`. `mix ankole.openapi.check` checks both selected documents;
+the webapp generator produces a client for each.
 
 ### Declare a Worker Provider Kind
 

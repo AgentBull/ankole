@@ -57,7 +57,7 @@ export interface HttpError extends Error {
 }
 export type AnkoleRuntimeAPI = {
   HttpError: new (status: number, code: string, message?: string, details?: unknown) => HttpError
-  db: {
+  base: {
     schema(tableId: string): Promise<TableSchema>
     query(tableId: string, query?: Omit<RecordQuery, 'local'>): Promise<RecordsResult>
     aggregate(tableId: string, query: AggregateQuery): Promise<AggregateResult>

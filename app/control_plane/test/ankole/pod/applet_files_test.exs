@@ -78,7 +78,7 @@ defmodule Ankole.Pod.AppletFilesTest do
     contributor = human_fixture().principal
     actor = actor_fixture(owner)
 
-    for type <- ["database", "doc"] do
+    for type <- ["base", "doc"] do
       {:ok, page} = Pages.create(actor, %{type: type, private_owner_uid: owner.uid})
 
       {:ok, _} =
@@ -90,13 +90,13 @@ defmodule Ankole.Pod.AppletFilesTest do
         Files.upload(
           actor_fixture(contributor),
           page.id,
-          if(type == "database", do: "attachment", else: "asset"),
+          if(type == "base", do: "attachment", else: "asset"),
           nil,
           "resume.txt",
           "resume"
         )
 
-      if type == "database",
+      if type == "base",
         do: assert(match?({:ok, _}, result)),
         else: assert(result == {:error, :forbidden})
     end

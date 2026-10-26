@@ -44,7 +44,7 @@ defmodule Ankole.E2E.PodContentEvidence do
         """)
 
         repo.query!("""
-        CREATE TRIGGER #{name} AFTER INSERT OR UPDATE ON db_records
+        CREATE TRIGGER #{name} AFTER INSERT OR UPDATE ON base_records
         FOR EACH ROW WHEN (NEW.tenant_id = '#{observer.tenant_id}'::uuid)
         EXECUTE FUNCTION #{name}.capture()
         """)
@@ -67,7 +67,7 @@ defmodule Ankole.E2E.PodContentEvidence do
     {:ok, writes} =
       Repo.transact(fn repo ->
         repo.query!("SET LOCAL lock_timeout = '5s'")
-        repo.query!("DROP TRIGGER IF EXISTS #{observer.name} ON db_records")
+        repo.query!("DROP TRIGGER IF EXISTS #{observer.name} ON base_records")
 
         %{rows: [[present]]} =
           repo.query!("SELECT to_regclass($1) IS NOT NULL", [observer.name <> ".writes"])

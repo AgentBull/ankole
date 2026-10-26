@@ -20,13 +20,18 @@ export const localeDirectory = path.join(artifactRoot, 'locales')
 export const assetsDirectory = path.join(artifactRoot, 'webapps/assets')
 
 export function webappEntries(): Record<string, string> {
-  const publicRoot = path.join(repositoryRoot, 'app/webapps')
-  const entries = readEntries(publicRoot)
+  const entries = publicEntries()
   if (edition === 'saas') {
     const privateRoot = path.join(repositoryRoot, 'internals/webapps')
-    const privateEntries = readEntries(privateRoot)
+    const manifest = JSON.parse(readFileSync(path.join(privateRoot, 'entries.json'), 'utf8'))
+    const privateEntries = readEntries(privateRoot, manifest.entries)
+    const overrides = readEntries(privateRoot, manifest.overrides ?? {})
     for (const [name, file] of Object.entries(privateEntries)) {
       if (name in entries) throw new Error(`Duplicate webapp entry: ${name}`)
+      entries[name] = file
+    }
+    for (const [name, file] of Object.entries(overrides)) {
+      if (!(name in publicEntries())) throw new Error(`Unknown public webapp override: ${name}`)
       entries[name] = file
     }
   }
@@ -50,8 +55,12 @@ export function prepareEdition(): void {
   prepareLocales()
 }
 
-function readEntries(root: string): Record<string, string> {
-  const entries: unknown = JSON.parse(readFileSync(path.join(root, 'entries.json'), 'utf8'))
+function publicEntries(): Record<string, string> {
+  const root = path.join(repositoryRoot, 'app/webapps')
+  return readEntries(root, JSON.parse(readFileSync(path.join(root, 'entries.json'), 'utf8')))
+}
+
+function readEntries(root: string, entries: unknown): Record<string, string> {
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new Error('Invalid webapp entries')
   return Object.fromEntries(
     Object.entries(entries).map(([name, relative]) => {

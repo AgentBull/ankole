@@ -90,14 +90,14 @@ defmodule Ankole.CredoTest do
              check(
                Ankole.Credo.AshBoundary,
                "defmodule Sample, do: def(f(q), do: Ankole.Ash.read!(q))",
-               "../control_plane_core/lib/ankole_web/sample.ex"
+               "lib/ankole_web/sample.ex"
              )
 
     assert [_, _] =
              check(
                Ankole.Credo.AshBoundary,
                "defmodule Sample, do: def(f(q), do: Ash.read!(q))",
-               "../control_plane_core/lib/ankole_web/sample.ex"
+               "lib/ankole_web/sample.ex"
              )
 
     assert [] =

@@ -18,13 +18,11 @@ defmodule Ankole.TenancyGuardTest do
   @reviewed_query_escapes %{
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_authn_configurations" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:email_only_tenant?" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/site_credentials.ex:pending_memberships" =>
-      2,
-    "across_tenants:../control_plane_core/lib/ankole/principals/site_credentials.ex:list" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/invitations.ex:locate" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/invitations.ex:pending" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/browser_sessions/identity.ex:identities" =>
-      1,
+    "across_tenants:lib/ankole/principals/site_credentials.ex:pending_memberships" => 2,
+    "across_tenants:lib/ankole/principals/site_credentials.ex:list" => 1,
+    "across_tenants:lib/ankole/principals/invitations.ex:locate" => 1,
+    "across_tenants:lib/ankole/principals/invitations.ex:pending" => 1,
+    "across_tenants:lib/ankole/browser_sessions/identity.ex:identities" => 1,
     "raw_sql:lib/ankole/credential_upgrade.ex:table?" => 1,
     "raw_sql:lib/ankole/credential_upgrade.ex:preflight!" => 2,
     "raw_sql:lib/ankole/credential_upgrade.ex:connect_oidc_evidence!" => 2,
@@ -34,131 +32,141 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/webhook.ex:consumers_for_app" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole_web/browser_auth.ex:perform_logout_confirmation" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:read_principals" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:revoke_human_work_in_tx" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/app_configure.ex:platform_application_in_other_tenant?" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:lock_principals" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/ash.ex:read_across_tenants!" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:list_for_human" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:lock_revocation_parents_in_tx" =>
-      2,
-    "across_tenants:../control_plane_core/lib/ankole/automation_jobs.ex:count_running_runs_for_human" =>
-      2,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assigned_worker" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_worker_count" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_workers" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/browser_sessions/pod_access.ex:save_pod_authentications" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/client_authentication.ex:put_client_tenant" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/logout.ex:deliver_browser" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:find_request" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:prepare" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:end_authentication_in_tx" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/tokens.ex:access_context" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals.ex:list_platform_subject_bindings" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals.ex:resolve_tenant" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_cleanup.ex:cleanup_in_tx" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:valid_subject_now?" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/signals.ex:count_admitted_attempts_for_human" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/signals.ex:due_sessions_across_tenants" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:config_ref_shared?" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:site_application_bound_in_other_tenant?" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/webhooks.ex:endpoint_across_tenants" =>
-      1,
+    "across_tenants:lib/ankole_web/browser_auth.ex:perform_logout_confirmation" => 1,
+    "across_tenants:lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:read_principals" => 1,
+    "across_tenants:lib/ankole/work/owner.ex:revoke_human_work_in_tx" => 1,
+    "across_tenants:lib/ankole/app_configure.ex:platform_application_in_other_tenant?" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:lock_principals" => 1,
+    "across_tenants:lib/ankole/ash.ex:read_across_tenants!" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:list_for_human" => 1,
+    "across_tenants:lib/ankole/work/owner.ex:lock_revocation_parents_in_tx" => 2,
+    "across_tenants:lib/ankole/automation_jobs.ex:count_running_runs_for_human" => 2,
+    "across_tenants:lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" => 1,
+    "across_tenants:lib/ankole/agent_workers.ex:assigned_worker" => 1,
+    "across_tenants:lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" => 1,
+    "across_tenants:lib/ankole/agent_workers.ex:provider_worker_count" => 1,
+    "across_tenants:lib/ankole/agent_workers.ex:provider_workers" => 1,
+    "across_tenants:lib/ankole/browser_sessions/pod_access.ex:save_pod_authentications" => 1,
+    "across_tenants:lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" => 1,
+    "across_tenants:lib/ankole/oidc/client_authentication.ex:put_client_tenant" => 1,
+    "across_tenants:lib/ankole/oidc/logout.ex:deliver_browser" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:find_request" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:prepare" => 1,
+    "across_tenants:lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
+    "across_tenants:lib/ankole/oidc/sessions.ex:end_authentication_in_tx" => 1,
+    "across_tenants:lib/ankole/oidc/tokens.ex:access_context" => 1,
+    "across_tenants:lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" => 1,
+    "across_tenants:lib/ankole/principals.ex:list_platform_subject_bindings" => 1,
+    "across_tenants:lib/ankole/principals.ex:resolve_tenant" => 1,
+    "across_tenants:lib/ankole/principals/work_cleanup.ex:cleanup_in_tx" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:valid_subject_now?" => 1,
+    "across_tenants:lib/ankole/signals.ex:count_admitted_attempts_for_human" => 1,
+    "across_tenants:lib/ankole/signals.ex:due_sessions_across_tenants" => 1,
+    "across_tenants:lib/ankole/signals/bindings.ex:config_ref_shared?" => 1,
+    "across_tenants:lib/ankole/signals/bindings.ex:site_application_bound_in_other_tenant?" => 1,
+    "across_tenants:lib/ankole/signals/webhooks.ex:endpoint_across_tenants" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:agents" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:legacy_intents" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:legacy_jobs" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" =>
-      1,
-    "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock!" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/ai_gateway/provider_configs.ex:provider_references" =>
-      1,
-    "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_ids" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:suffix_messages" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_link_column" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_links" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_timelines" => 4,
-    "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/brain/search_indexes.ex:ensure_hnsw_index" => 3,
-    "raw_sql:../control_plane_core/lib/ankole/brain/search_indexes.ex:index_definition" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/conversations/attachments.ex:next_attachment_id" =>
-      1,
+    "across_tenants:lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" => 1,
+    "raw_sql:lib/ankole/pod/access.ex:path" => 1,
+    "raw_sql:lib/ankole/pod/access.ex:reanchor_pass_through_children" => 1,
+    "raw_sql:lib/ankole/pod/access/graph.ex:query_reachable" => 1,
+    "raw_sql:lib/ankole/pod/base_cluster.ex:check_identity!" => 1,
+    "raw_sql:lib/ankole/pod/base_cluster.ex:ensure_database!" => 2,
+    "raw_sql:lib/ankole/pod/base_cluster.ex:init" => 3,
+    "raw_sql:lib/ankole/pod/base_cluster.ex:initialize_connection!" => 5,
+    "raw_sql:lib/ankole/pod/base_repo.ex:delete_tenant" => 5,
+    "raw_sql:lib/ankole/pod/base_repo.ex:ensure_schema!" => 3,
+    "raw_sql:lib/ankole/pod/base_repo.ex:run" => 3,
+    "raw_sql:lib/ankole/pod/bases.ex:query_capabilities" => 1,
+    "raw_sql:lib/ankole/pod/bases.ex:query_transaction" => 1,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:add_column!" => 1,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:alter_table" => 4,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:apply_changes" => 1,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:change_edges" => 4,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:change_inline_tables" => 1,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:conversions" => 1,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:convert_links" => 1,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:convert_stored_values" => 2,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:put_values!" => 2,
+    "raw_sql:lib/ankole/pod/bases/links.ex:bump_field!" => 1,
+    "raw_sql:lib/ankole/pod/bases/links.ex:clean_incoming" => 1,
+    "raw_sql:lib/ankole/pod/bases/links.ex:constrain" => 2,
+    "raw_sql:lib/ankole/pod/bases/links.ex:create!" => 2,
+    "raw_sql:lib/ankole/pod/bases/links.ex:initialize_field" => 1,
+    "raw_sql:lib/ankole/pod/bases/links.ex:remove_constraints" => 1,
+    "raw_sql:lib/ankole/pod/bases/links.ex:replace" => 3,
+    "raw_sql:lib/ankole/pod/bases/links.ex:reverse_capacity" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:analyze" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:commit" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:create_table!" => 2,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:delete" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:drop!" => 5,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:fetch" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:index!" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:insert_rows!" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:save" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:state" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:validate_sizes" => 1,
+    "raw_sql:lib/ankole/pod/bases/physical.ex:versions" => 1,
+    "raw_sql:lib/ankole/pod/bases/promote.ex:records" => 1,
+    "raw_sql:lib/ankole/pod/bases_write.ex:commit" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:attachment_paths" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:batches" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:begin_stage" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:copy_field" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:end_stage" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:records" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:stage" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:store_records" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:table_in_tx" => 1,
+    "raw_sql:lib/ankole/pod/copy.ex:validate_sizes" => 1,
+    "raw_sql:lib/ankole/pod/jobs/purge_page.ex:descendants" => 1,
+    "raw_sql:lib/ankole/pod/pages/queries.ex:shared_root_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/queries.ex:state_page_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/queries.ex:trash_candidates" => 1,
+    "raw_sql:lib/ankole/pod/query.ex:execute" => 2,
+    "sql_fragment:lib/ankole/pod/pages/queries.ex:exclude_subtree" => 1,
+    "raw_sql:lib/ankole/advisory_lock.ex:lock" => 1,
+    "raw_sql:lib/ankole/advisory_lock.ex:lock!" => 1,
+    "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_ids" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:suffix_messages" => 1,
+    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_link_column" => 2,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 4,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_hnsw_index" => 3,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:index_definition" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
+    "raw_sql:lib/ankole/conversations/attachments.ex:next_attachment_id" => 1,
     # Reviewed owner queries bind tenant at every recursive and DML entry;
     # lock_tree binds the tenant advisory key, and conversions/copies also bind table.
-    "raw_sql:../control_plane_core/lib/ankole/files/schemas/drive_file.ex:remove_paths_in_tx" =>
+    "raw_sql:lib/ankole/files/schemas/drive_file.ex:remove_paths_in_tx" => 1,
+    "raw_sql:lib/ankole/authz/engine/snapshot.ex:load_snapshot" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_batch" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
+    "sql_fragment:lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" => 1,
+    "sql_fragment:lib/ankole/browser_sessions/revocation.ex:cleanup_expired" => 1,
+    "sql_fragment:lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
       1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:path" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/authz/engine/snapshot.ex:load_snapshot" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/access/graph.ex:query_reachable" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:reanchor_pass_through_children" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/pages/queries.ex:shared_root_ids" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/pages/queries.ex:state_page_ids" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/pages/queries.ex:trash_candidates" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:convert_values" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:persist_conversion" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:remove_field_values" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_field" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_attachments" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_records" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:table_in_tx" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:update_count" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:validate_record_sizes" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex:descendants" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/query.ex:records" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/query.ex:aggregate" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/database.ex:query_transaction" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/database.ex:query_capabilities" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_batch" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
-    "sql_fragment:../control_plane_core/lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" =>
+    "sql_fragment:lib/ankole/conversations/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
       1,
-    "sql_fragment:../control_plane_core/lib/ankole/browser_sessions/revocation.ex:cleanup_expired" =>
-      1,
-    "sql_fragment:../control_plane_core/lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
-      1,
-    "sql_fragment:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
-      1,
-    "sql_fragment:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" =>
-      1,
-    "sql_fragment:../control_plane_core/lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
+    "sql_fragment:lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" => 1,
+    "sql_fragment:lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
     # The subtree seed and recursive child lookup both bind Repo.tenant_id!().
-    "sql_fragment:../control_plane_core/lib/ankole/pod/pages/queries.ex:exclude_subtree" => 1,
-    "sql_fragment:../control_plane_core/lib/ankole/sessions/console_queries/prepare.ex:filter_min_messages" =>
-      1,
-    "sql_fragment:../control_plane_core/lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
+    "sql_fragment:lib/ankole/sessions/console_queries/prepare.ex:filter_min_messages" => 1,
+    "sql_fragment:lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
   }
 
   # Independent classification: changing a tenant schema to :site must fail.
@@ -177,11 +185,11 @@ defmodule Ankole.TenancyGuardTest do
       "An invitation code identifies one Pod before tenant selection.",
     "pages_pkey" => "The application generates each page's globally unique UUIDv7.",
     "page_contents_pkey" => "A globally unique page id owns the document.",
-    "db_tables_pkey" => "The application generates each table's globally unique UUIDv7.",
-    "db_fields_pkey" => "The application generates each field's globally unique UUIDv7.",
-    "db_fields_one_primary_index" => "A globally unique table id owns its primary field.",
-    "db_fields_name_index" => "Field names are unique within a globally unique table id.",
-    "db_views_pkey" => "The application generates each view's globally unique UUIDv7.",
+    "base_tables_pkey" => "The application generates each table's globally unique UUIDv7.",
+    "base_fields_pkey" => "The application generates each field's globally unique UUIDv7.",
+    "base_fields_one_primary_index" => "A globally unique table id owns its primary field.",
+    "base_fields_name_index" => "Field names are unique within a globally unique table id.",
+    "base_views_pkey" => "The application generates each view's globally unique UUIDv7.",
     "session_round_states_pkey" => "A globally generated gateway Message id owns the row.",
     "cron_schedules_agent_name_index" => "The key includes a globally unique Principal uid.",
     "cron_schedules_idempotency_index" => "The key includes a globally unique Principal uid.",
@@ -680,7 +688,6 @@ defmodule Ankole.TenancyGuardTest do
   defp source_files,
     do:
       Path.wildcard("lib/**/*.ex") ++
-        Path.wildcard("../control_plane_core/lib/**/*.ex") ++
         Path.wildcard("../../plugins/**/lib/**/*.ex")
 
   defp query_escapes(ast, file) do
@@ -692,7 +699,14 @@ defmodule Ankole.TenancyGuardTest do
 
           {_body, found} =
             Macro.prewalk(body, [], fn node, found ->
-              case query_escape_kind(node) do
+              kind =
+                if file == "lib/ankole/pod/base_repo.ex" and
+                     match?(
+                       {call, _, args} when call in [:query, :query!] and is_list(args),
+                       node
+                     ), do: :raw_sql, else: query_escape_kind(node)
+
+              case kind do
                 nil -> {node, found}
                 kind -> {node, ["#{kind}:#{file}:#{name}" | found]}
               end
@@ -722,6 +736,8 @@ defmodule Ankole.TenancyGuardTest do
          "Repo",
          "repo",
          "Ankole.Repo",
+         "BaseRepo",
+         "Ankole.Pod.BaseRepo",
          "Postgrex"
        ],
        do: :raw_sql
