@@ -1,21 +1,21 @@
 ---
 title: Agent Library
-description: Agent Plugins, Skills, Control Plane Plugins를 전역으로 또는 에이전트 하나에 대해 활성화합니다.
+description: 테넌트 및 에이전트별 Agent Plugins와 Skills, 그리고 사이트 범위의 Control Plane Plugins를 관리합니다.
 section: User guide
 order: 32
 ---
 
-Agent Library는 Agent가 사용할 수 있는 작업 방법과 확장을 결정합니다. Console은 그것들을 세 가지 유형으로 구분합니다.
+Site Admin Console의 **Agent Library** 페이지는 서로 독립된 두 가지 확장 경계를 관리합니다. 테넌트 및 개별 Agent 범위의 모델 능력(**Agent Plugins**와 **Skills**), 그리고 엄격히 **사이트 범위(site-scoped)** 인 플랫폼 확장(**Control Plane Plugins**, 범위가 **Global defaults**로 설정된 경우에만 표시됨)입니다.
 
-이것들은 이 인스턴스에 이미 설치된 신뢰할 수 있는 구성 요소입니다. Agent Library는 공개 마켓플레이스가 아닙니다. 여기서 항목을 활성화해도 인터넷에서 알 수 없는 코드를 다운로드하지 않습니다.
+이 세 가지는 모두 현재 배포 인스턴스에 컴파일되거나 패키징된 신뢰할 수 있는 퍼스트파티 구성 요소입니다. Agent Library는 공개 마켓플레이스가 아니며, 여기서 항목을 활성화해도 인터넷에서 알 수 없는 코드를 다운로드하지 않습니다.
 
 ## 세 가지 능력 유형 이해하기
 
-| 유형 | 용도 | 변경이 적용되는 시점 |
-|---|---|---|
-| **Agent Plugin** | 관련된 Skills, MCP 능력, workspace 템플릿을 묶음 | Agent의 다음 turn |
-| **Skill** | 반복 가능한 한 종류의 작업을 위한 지침과 리소스 | Agent의 다음 turn |
-| **Control Plane Plugin** | chat 어댑터, identity 소스, 설정, 서비스를 control plane에 추가 | control plane의 다음 시작 |
+| 유형 | 범위 | 용도 | 변경이 적용되는 시점 |
+|---|---|---|---|
+| **Agent Plugin** | 테넌트 기본값 + 에이전트별 재정의 | 관련된 Skills, MCP 능력, workspace 템플릿을 묶음 | Agent의 다음 turn |
+| **Skill** | 테넌트 기본값 + 에이전트별 재정의 | 반복 가능한 한 종류의 작업을 위한 지침과 리소스 | Agent의 다음 turn |
+| **Control Plane Plugin** | 사이트 범위 전용 (`/api/v2/site/control-plane-plugins`) | 컴파일 타임 풀스택 플랫폼 확장(서브시스템 어댑터, OTP 서비스, HTTP 플러그, 확장 라우트, 도메인 훅, 설정 필드, Web UI 슬롯) | 빌드 시 상시 활성 고정(`activation: :always`) 또는 control plane의 다음 시작(`activation: :optional`) |
 
 ### Agent Plugin: 하나의 패키지를 공유하는 능력
 
@@ -77,11 +77,18 @@ Deep Research 진입 Skill은 원래 대화에서 요청을 확인하고 Job을 
 
 Brain은 Skill의 이름, 설명, 태그를 검색합니다. 일치하면 Agent는 `skill_view`를 호출합니다. `skill_view`는 `ankole-runtime`에 따라 호환되는 실행 표면에서는 Skill을 로드하고, 그렇지 않으면 올바른 라우팅 또는 거부 결과를 반환합니다. Skill이나 부모 Agent Plugin을 비활성화하면 해당 Agent는 Brain에서 Skill을 발견하거나 로드할 수 없습니다. 이 의미 검색 경로를 사용하려면 Brain이 활성화되어 있어야 합니다. 이 모드는 필요할 때만 사용할 수 있고 모든 Prompt를 계속 차지해서는 안 되는 배포 방법론과 SOP에 적합합니다.
 
-### Control Plane Plugin: 관리 플랫폼 확장
+### Control Plane Plugin: 사이트 범위 풀스택 플랫폼 확장
 
-Control Plane Plugin은 OpenAI Plugin이 아니며 Agent의 작업 컨텍스트에도 들어가지 않습니다. Ankole 컨트롤 플레인을 확장합니다.
+Control Plane Plugin은 OpenAI Plugin이 아니며 Agent의 작업 컨텍스트에 들어가지 않고, 테넌트 범위나 개별 Agent 범위로 동작하지도 않습니다. 릴리스에 정적으로 컴파일되어 부팅 시 불변 `:persistent_term` 스냅샷으로 고정되는 사이트 범위 확장입니다.
 
-Control Plane Plugin은 Channel Providers, identity 소스, 시스템 설정, 감독 서비스를 제공할 수 있습니다. 이러한 구성 요소는 시작 구조를 바꾸므로, 활성화 또는 비활성화 조치는 다음 컨트롤 플레인 시작 시에만 적용됩니다.
+Control Plane Plugin은 풀스택에 걸쳐 다음 확장 지점을 제공할 수 있습니다.
+
+- 서브시스템 어댑터(`signals.adapter`, `principals.identity_provider`, `ai_gateway.provider`, `agent_workers.provider`) 및 감독 OTP 프로세스(`children/0`)
+- 외곽 HTTP 엣지 `Plug`와 범위 분리된 확장 JSON:API 라우트
+- 동기식 도메인 트랜잭션 `hooks/0`(`Ankole.Plugins.Hook`)
+- 선언적 `AppConfigure` 설정 필드(`ConfigFields`) 및 타입 안전 Web UI 슬롯(`entries.json` `overrides`)
+
+각 Control Plane Plugin은 `activation: :optional | :always`를 선언합니다. 선택적 플러그인(기본값 `:optional`)은 `plugins.enabled_ids`로 제어되며 다음 컨트롤 플레인 시작 시 적용됩니다. `activation: :always`를 선언한 플랫폼 플러그인은 소스 빌드와 함께 상시 활성 상태로 고정되며 비활성화할 수 없습니다. 재시작 없이 즉시 적용되는 동적 런타임 스위치나 점진적 배포에는 OpenFeature(`Ankole.Features`)를 사용합니다.
 
 ## Agent Plugins와 Skills 관리
 
@@ -118,15 +125,15 @@ Agent Library 범위를 대상 Agent로 바꾼 다음 Skill 카드를 찾습니�
 
 ## Control Plane Plugins 관리
 
-### 활성화 또는 비활성화
+### 선택적 사이트 플러그인 활성화 또는 비활성화
 
-Channel Providers, identity 소스 등 유사한 플랫폼 능력은 Control Plane Plugins에서 비롯됩니다.
+Control Plane Plugins는 엄격히 사이트 범위(`/api/v2/site/control-plane-plugins`)이며, Site Admin Console(`/site-admin-console`)에서 Agent Library 범위를 **Global defaults**로 설정했을 때만 나타납니다.
 
-1. **Control Plane Plugins** 탭을 엽니다.
-2. Plugin을 찾아 **Enabled next start**로 설정합니다.
+1. Site Admin Console에서 **Agent Library**를 열고 범위를 **Global defaults**로 유지한 채 **Control Plane Plugins** 탭을 엽니다.
+2. 선택적 Plugin(`activation: :optional`)을 찾아 **Enabled next start**로 설정합니다. `activation: :always` 플러그인은 빌드 시 상시 활성으로 고정되어 비활성화 토글이 제공되지 않습니다.
 3. 저장하고 컨트롤 플레인을 다시 시작합니다.
-4. Agent Library로 돌아와 **Active now**인지 확인합니다.
-5. Plugin이 제공하는 Channel Provider, identity 소스 또는 설정을 구성합니다.
+4. **Control Plane Plugins** 탭으로 돌아와 **Active now**인지 확인합니다.
+5. Plugin이 제공하는 Channel Provider, identity 소스, Worker 제공자 또는 설정을 구성합니다.
 
 Docker Compose:
 
@@ -140,7 +147,7 @@ Kubernetes:
 kubectl -n ankole rollout restart deployment/ankole-control-plane
 ```
 
-Control Plane Plugin 비활성화도 다음 시작 시 적용됩니다. 기존 Channel Provider나 identity 소스를 사용할 수 없게 만들 수 있습니다. 비활성화하기 전에 활성 구성 중 그것에 의존하는 것이 없는지 확인하십시오.
+선택적 Control Plane Plugin 비활성화도 다음 시작 시 적용됩니다. 설정 트랜잭션 안에서 `veto_disable` 참조 검사가 강제되므로, 어느 테넌트에든 해당 플러그인의 Worker 제공자 종류가 할당된 Agent Worker(일시 중지된 Worker나 삭제 중인 Agent 포함)가 남아 있으면 Worker 제공자 Plugin을 비활성화할 수 없습니다. 비활성화하기 전에 활성 Channel Provider, identity 소스 또는 Worker가 이에 의존하고 있지 않은지 확인하십시오. 재시작 없이 적용되는 동적 기능 플래그는 OpenFeature(`Ankole.Features`)를 사용합니다.
 
 ## 문제 해결
 
@@ -154,7 +161,9 @@ Control Plane Plugin 비활성화도 다음 시작 시 적용됩니다. 기존 C
 
 ### Control Plane Plugins
 
-- **Control Plane Plugin이 Enabled next start라고 표시함:** 설정은 저장되었지만 컨트롤 플레인이 다시 시작되지 않았습니다.
+- **Control Plane Plugins 탭이 보이지 않음:** Control Plane Plugins는 사이트 범위 전용입니다. Site Admin Console(`/site-admin-console`)을 열고 **Agent Library** 범위를 **Global defaults**로 전환하십시오.
+- **Control Plane Plugin이 Enabled next start라고 표시함:** 설정이 `plugins.enabled_ids`에 저장되었으며, 부트 스냅샷을 갱신하려면 컨트롤 플레인을 다시 시작해야 합니다.
+- **Control Plane Plugin을 비활성화할 수 없음:** 해당 Plugin이 `activation: :always`(빌드 고정 활성)를 선언했거나, 테넌트에 해당 Worker 제공자 종류가 할당된 Agent Worker가 남아 있어 `veto_disable`이 변경을 거부한 것입니다.
 - **다시 시작 후 컨트롤 플레인이 시작되지 않음:** 시작 로그를 읽고 Plugin 구성이나 의존성을 고친 다음 다시 시작하십시오.
 - **Channel Provider가 여전히 없음:** Plugin이 **Active now**인지 확인한 다음 그 Channel Provider 구성을 살펴보십시오.
 

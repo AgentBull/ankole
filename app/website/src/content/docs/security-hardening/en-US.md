@@ -16,9 +16,9 @@ The agent runs under its Principal, and what that Principal can do is fenced by 
 - **One Principal per agent, one purpose per agent.** A customer-success agent and a coding agent should be different Principals, so a compromise of one is not a compromise of both.
 - **Grant the minimum that does the job.** A grant to read a channel is narrower than a grant to write to every channel; a grant scoped to a specific resource pattern is narrower than a wildcard. See [Principal and AuthZ](../principal-authz/).
 - **Sync directory groups, then grant to groups.** Synced AuthZ groups let you scope authority by team membership, and revoke it by removing the group membership in the source directory — not by editing grants one by one when someone leaves.
-- **Disable, do not delete, when in doubt.** A disabled Principal loses authority across the instance immediately; you can re-enable it. A deleted Principal's uid is gone.
+- **Choose between Suspend and Offboard carefully.** Principals have no delete action. **Suspend** (`disposition: :suspended`) immediately revokes browser sessions, tokens, and active work, and retains personal `SiteCredential` bindings so you can restore access later. **Offboard** (`disposition: :offboarded`) revokes sessions, tokens, and active work, and also releases unshared `SiteCredential` bindings and Pod email bindings. Use **Offboard** when a person leaves the organization.
 
-The audit surface is `/permission-grants` and `/principals/:uid/grants`. Read them periodically; a grant that made sense at creation can drift into too much.
+The audit endpoints are `/api/v2/permission-grants` and `/api/v2/principals/:uid/grants`. Read them regularly to detect permission drift.
 
 ## Surface 2: Credentials that Agents use
 
@@ -27,7 +27,7 @@ Store credentials for Agent tools in **Environment variables** in the Console, w
 - **Reveal values sparingly.** Enter a replacement value to rotate a credential. Do not reveal the old value only to check it. See [Environment variables](../worker-env/).
 - **Scope secrets per agent when you can.** A global secret reaches every agent; a per-agent secret reaches one. Prefer the per-agent form unless the secret is genuinely shared.
 - **Do not override reserved names.** In the Console, you cannot set `PATH`, `HOME`, `WORKER_ID`, `DATABASE_URL`, names that start with `ANKOLE_`, or the other reserved names that [Environment variables](../worker-env/) lists. Do not bypass this restriction.
-- **Rotate the bootstrap secret on a cadence.** `ANKOLE_SECRET_BASE` derives other keys; rotating it is a deployment-restart operation, and the blast radius of a compromised `ANKOLE_SECRET_BASE` is the whole instance. Worker credentials are not bootstrap secrets, and you never set one: the control plane creates a random credential for each Worker generation, stores its digest for authentication, and encrypts the retry value needed to repeat the same launch.
+- **Rotate bootstrap secrets on a regular schedule.** `ANKOLE_SECRET_BASE` derives encryption keys across the deployment, and `ANKOLE_FUNCTION_RUNTIME_TOKEN` authenticates internal traffic between the control plane and `ankole-function-runtime`. Rotating bootstrap secrets requires a deployment restart. Worker credentials are not bootstrap secrets, and you do not set them: the control plane creates a random credential for each Worker generation, stores its digest for authentication, and encrypts the retry value needed to repeat that launch.
 
 ## Surface 3: SSRF and model-controlled fetches
 
@@ -56,21 +56,21 @@ Ankole needs some ingress; it rarely needs all of it. Tighten to what each trans
 - **Webhook delegation URLs are credentials.** `/webhooks/v1/event-callbacks/*` must be reachable when an Agent delegates detection to an external system. Redact the complete path in ingress, proxy, CDN, and application logs. The URL authorizes only a wake-up, so the Agent must verify current external state before a consequential action.
 - **The Console itself** should be behind your admin network or VPN, not open to the public internet. The bearer gate stops unauthorized access, but there is no reason to expose the admin surface to the world.
 
-## Surface 6: Worker containers and the control plane
+## Surface 6: Worker containers, Function Runtime, and the control plane
 
-Each Agent has its own Worker container or Pod, and Agents never share a Worker, a cache disk, or a credential. The container is the only isolation boundary: commands, the Codex app-server, Automation scripts, and the browser run as the Worker's user without an inner sandbox, and these Agent processes run as uid 1000 with no capabilities or sudo.
+Each Agent has its own Worker container or Pod, and Agents never share a Worker, a cache disk, or a credential. Stateless TypeScript programs (Workflows, PTC, and Applet backends) run in the separate `ankole-function-runtime` service without database credentials or a Kubernetes ServiceAccount token. The container is the isolation boundary: Worker commands, the Codex app-server, Automation scripts, and the browser run without an inner sandbox as uid 1000 with no Linux capabilities or sudo.
 
 - Commands run as uid 1000 without sudo. Agents can install user packages in Home, but cannot install system packages. Sessions of one Agent share its files and processes.
 - **The Worker credential stands for one Agent only.** The Worker keeps it in memory and removes it from the environment of its commands. A credential of another Agent, or of a Worker that was replaced, cannot connect.
 - **Protect the control plane as a root-equivalent component.** It creates Workers through the Docker socket or through a namespace Role that creates and deletes Pods, Secrets, and PVCs. Access to the Docker socket is equal to root access on the host.
 - **Add gVisor on Kubernetes.** Set `podTemplate.spec.runtimeClassName` in the Kubernetes provider YAML to the cluster's gVisor RuntimeClass, for example `gvisor`. Instance-setting changes replace idle Workers in that pool. Helm's `worker.runtimeClassName` initializes the generated provider on first startup; after import, edit the provider in the Console.
-- **Limit what Workers can reach.** With Docker Compose, Worker containers join the `ankole_workers` network: they reach the control plane and the internet, but not PostgreSQL. On a cloud virtual machine, set the instance metadata hop limit to 1 or block `169.254.169.254` for containers. With Helm, `networkPolicy.enabled` makes Worker Pods accept no connection and reach only the control plane, DNS, and public addresses, not the private ranges and the node metadata address in `networkPolicy.workerDeniedCIDRs`. Also set the instance metadata hop limit of the nodes to 1.
+- **Limit what Workers and `ankole-function-runtime` can reach.** With Docker Compose, Worker containers join the `ankole_workers` bridge and `ankole-function-runtime` joins the `ankole_functions` bridge: both reach the control plane and the internet, and neither can reach PostgreSQL on the internal `ankole_backend` network. On a cloud virtual machine, set the instance metadata hop limit to 1 or block `169.254.169.254` for containers. With Helm, `networkPolicy.enabled` makes Worker Pods accept no inbound connections and reach only the control plane, DNS, and public addresses outside `networkPolicy.workerDeniedCIDRs`, while a dedicated `NetworkPolicy` restricts `ankole-function-runtime` to control-plane ingress and public egress outside `functionRuntime.deniedCIDRs` (private and metadata CIDRs). Also set the instance metadata hop limit of the nodes to 1.
 
 ## The audit posture
 
 Hardening is not a one-time pass; it is a posture. Two habits keep it:
 
-- **Read the grants periodically.** `/permission-grants` and `/principals/:uid/grants` show what every Principal can do. Drift happens.
+- **Read the grants regularly.** `/api/v2/permission-grants` and `/api/v2/principals/:uid/grants` show what every Principal can do. Permission drift can occur over time.
 - **Test the restore.** The [backup-and-restore](../backup-and-restore/) discipline is a security control — a backup you cannot restore is no recovery from a compromise.
 
 ## What this guide is not

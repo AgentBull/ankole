@@ -41,20 +41,20 @@ and `check: :public`. These actions do not require a tenant Principal. Their
 own authentication and setup checks validate the browser proof or activation
 credential. The verifier rejects a public check in a protected scope.
 
-`ActorGuardrail` checks active status, tenant scope, and Guest admission.
-`GrantCheck` evaluates concrete resources and actions with the decision snapshot
+`Ankole.AuthZ.Checks.ActorGuardrail` checks active status, tenant scope, and Guest admission.
+`Ankole.AuthZ.Checks.GrantCheck` evaluates concrete resources and actions with the decision snapshot
 and Kernel. Target selectors resolve in the data tenant. A site request without
 a data tenant resolves in the privileged tenant. Site decisions then use the
 privileged tenant. An interactive Human and an Agent must both pass their checks.
 
 `Pod.Access.Graph` owns the read-only anchor graph and permission projection.
-`PodAnchorFilter` evaluates that graph in a repeatable-read transaction
+`Ankole.AuthZ.Checks.PodAnchorFilter` evaluates that graph in a repeatable-read transaction
 and adds one Page query filter for permitted containers and self pages. Its
 result projection computes each page's role from that same graph. Directory
 queries select only the navigation fields covered by the directory index;
 a detail read loads the document fields. The `position` column uses `C`
 collation for both ordering and cursor comparisons.
-`LockedAccess` checks records inside the transaction, after the owner takes tree
+`Ankole.AuthZ.Checks.LockedAccess` checks records inside the transaction, after the owner takes tree
 and row locks. Table writes use internal Ash operations in that transaction.
 
 `Ankole.Ash.read_authorized`, `read_one_authorized`, and
@@ -127,7 +127,8 @@ Metadata uses the durable JSON object type.
 
 Each aggregate write that locks a group, a Principal, or the Pod tree runs in
 `Repo.transact_top_level/2`, and the `/api/v2` Console routes use generic
-actions on `Group`, `Membership`, and `Grant`. `Store` and `Grants` run the
+actions on `Group`, `Membership`, and `Grant`. `Ankole.AuthZ.Administration.Store`
+and `Ankole.AuthZ.Administration.Grants` run the
 steps and lock contracts inside the caller's transaction: another domain calls
 them, for example `Store.replace_static_group_members/3` or
 `Grants.upsert_permission_grant/1`.
@@ -145,7 +146,7 @@ the locked rule's Page-grant policy before this concurrency rejection.
 an adapter that observes the change. Ash policies do not make permission
 decisions.
 
-`Ankole.AuthZ.Snapshot` assembles the decision snapshot for each check. It is a
+`Ankole.AuthZ.Engine.Snapshot` assembles the decision snapshot for each check. It is a
 read model in the persistence boundary. One tenant-bound SQL statement loads
 the Principal, static memberships, computed groups, and candidate grants.
 The Pod snapshot includes conditional Userset grants. PostgreSQL evaluates
@@ -251,9 +252,12 @@ A stored grant can use a glob pattern. Colons separate resource segments.
 
 The kernel translates colons to path separators before `globset` matching.
 
-Site Console resources use `site_console:`. Pod space administration checks
-`tenant_console:pod_space`. Runtime Agent resources use `agent:<uid>` and
-`agent:<uid>:tool:<name>`. Pod grants use
+Site Console resources use `site_console:`. Pod administration resources use
+`tenant_console:` (including `tenant_console:pod_space`,
+`tenant_console:pod_settings`, `tenant_console:principals`,
+`tenant_console:principal:<uid>`, `tenant_console:group:pod_admin`,
+`tenant_console:invitations`, and `tenant_console:identity_providers`). Runtime
+Agent resources use `agent:<uid>` and `agent:<uid>:tool:<name>`. Pod grants use
 `pod:space:**`, `pod:private:<uid>:**`, `pod:**:<page-id>:**`, or
 `pod:**:<page-id>:page`. A bare `**` grant is invalid. Console administration
 does not give runtime Agent or Private access.
@@ -387,10 +391,12 @@ normal authorization. See [Pod content model](PodContentModel.md).
 
 ## Create the First Administrator
 
-Every tenant receives the computed `all_humans` group. The privileged tenant
-also receives the built-in static `siteadmin` group. A site administrator must
-be an active human Principal in that tenant and a member of that group.
-A same-named group in another tenant does not grant site access.
+Every tenant receives the computed `all_humans` group and the built-in static
+`pod_admin` group. `pod_admin` grants `tenant_console:**` operations in that
+tenant. The privileged tenant also receives the built-in static `siteadmin`
+group. A site administrator must be an active human member in the privileged
+tenant and a member of `siteadmin`. A same-named group in another tenant does
+not grant site access.
 
 AuthZ computes the `all_humans` group.
 It uses this CEL condition:
@@ -399,15 +405,18 @@ It uses this CEL condition:
 principal.type == "human" && principal.membership == "member" && principal.status == "active"
 ```
 
-The first administrator must be an active Human member. Guests cannot join
-the built-in administrator group. One transaction
-creates both groups, adds that human to `siteadmin`, and creates Console grants.
+Built-in administrator group members must be active Human members. Guests and
+Agents cannot join `siteadmin` or `pod_admin`. During first-time site setup,
+one transaction creates the built-in groups, adds the first human to both
+`siteadmin` and `pod_admin`, and creates the `site_console:**` and
+`tenant_console:**` grants. Creating an additional tenant adds its initial
+administrator to that tenant's `pod_admin` group.
 
 The same Principal can safely repeat the first claim. After that, another
 Principal cannot claim the first-administrator role.
 
-The built-in administrator receives these actions over `site_console:**`
-and `tenant_console:**`:
+`siteadmin` receives these actions over `site_console:**` and
+`tenant_console:**`, and `pod_admin` receives them over `tenant_console:**`:
 
 - `read`
 - `update`
@@ -419,10 +428,12 @@ and `tenant_console:**`:
 The setup bootstrap can repair these grants after root setup completes.
 
 AuthZ prevents manual removal or disabling of the last active Human
-administrator. Confirmed provider departure can disable that Human. The public
-setup remains closed. `recover_admin_in_tx/1` permits the audited operator
-recovery described in [Human Offboarding](HumanOffboarding.md) only when no
-active administrator remains.
+administrator in `siteadmin` or in any tenant's `pod_admin` group. Confirmed
+provider departure can disable that Human. The public setup remains closed.
+`recover_admin_in_tx/1` and `recover_pod_admin_in_tx/1` permit the audited
+operator recovery described in [Human Offboarding](HumanOffboarding.md) (via
+`mix ankole.admin.recover`, optionally with `--tenant SLUG`) when no active
+administrator remains in that group.
 
 `restoration_review/1` projects direct grants, static memberships, computed
 group rules, and all Userset grants in the selected tenant for explicit approval

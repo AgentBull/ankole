@@ -72,7 +72,7 @@ control plane は `Ankole.Sessions.Tools.Jobs.visible_trajectory/1` で保存済
 
 ## このガイドがそうでないもの
 
-ChatML 仕様ではありません。正規の ChatML 形式は標準であり、Ankole の読み取り時プロジェクションはその形状を保つもので、再定義しません。軌跡を読む消費者向け API でもありません。Console のルート（`/ai-gateway/conversations/:id/messages`、`/background-agent-jobs/:id`）はオペレーターサーフェスであり、[Console API reference](../console-api/) に文書化されています。そして保存ページの代わりでもありません。これは両方にまたがる形式レベルの見方です。
+ChatML 仕様ではありません。正規の ChatML 形式は標準であり、Ankole の読み取り時プロジェクションはその形状を保つもので、再定義しません。軌跡を読む消費者向け API でもありません。Console のルート（`/api/v2/ai-gateway/conversations/:id/messages`、`/api/v2/background-agent-jobs/:id`）はオペレーターサーフェスであり、[Console API reference](../console-api/) に文書化されています。そして保存ページの代わりでもありません。これは両方にまたがる形式レベルの見方です。
 
 ## 次のステップ
 

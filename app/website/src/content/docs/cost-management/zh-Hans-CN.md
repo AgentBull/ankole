@@ -23,7 +23,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
 | `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
 
-Brain 从 [AppConfigure](../app-configuration/) 读取站点级 embedding 模型和租户级 rerank 模型。为每个租户选择负责维护 Brain 的活跃 Agent：Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。该 Agent 的 `light` profile 用于从对话和 Source 中抽取知识，`heavy` profile 用于 Dreaming 和技能教训复审，`web_fetch` profile 用于读取 URL Source。未配置 `web_fetch` 或 Provider 请求失败时，Source 抓取会失败。停用维护 Agent 后，模型调用和 URL Source 抓取都会停止，直到重新启用或更换 Agent。**Brain → 健康**会显示所选 Agent 和各 profile 的状态。完整行为见 [Brain](../brain/)。
+Brain 从 [AppConfigure](../app-configuration/) 读取站点级 embedding 模型和租户级 rerank 模型。通过租户配置 `brain.maintainer_agent_uid` 为每个租户选择负责维护 Brain 的活跃 Agent：Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。该 Agent 的 `light` profile 用于从对话和 Source 中抽取知识，`heavy` profile 用于 Dreaming 和技能教训复审，`web_fetch` profile 用于读取 URL Source。未配置 `web_fetch` 或 Provider 请求失败时，Source 抓取会失败。停用维护 Agent 后，模型调用和 URL Source 抓取都会停止，直到重新启用或更换 Agent。**Brain → 健康**会显示所选 Agent 和各 profile 的状态；完整行为见 [Brain](../brain/)。同样，租户配置 `pod.applet.ai_agent_uid` 用于指定承载 Pod Applet `ctx.ai` 模型调用的活跃 Agent，并将对应模型调用与 token 用量归集到该 Agent。
 
 两招最省：
 
@@ -45,11 +45,11 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 - **agent 不需要联网时解绑它们。** 一个纯内部助手不该绑 `web_search`；这个槽存在就是一张调用的许可。
 - **知道 URL 时优先 `web_fetch` 而非 `web_search`。** 抓已知来源是一次调用；搜索是一次调用加 agent 决定做的若干次抓取。
 
-`worker.rendered_fetch_idle_ttl_ms` AppConfigure 键控制渲染后的抓取结果缓存多久——更高的 TTL 节省同一 URL 的重复抓取，代价是陈旧。
+`worker.rendered_fetch_idle_ttl_ms` AppConfigure 键控制渲染版 `web_fetch` 浏览器边车路由在空闲多久后释放，用于回收空闲浏览器资源，而不是缓存 URL 响应内容。
 
 ## 杠杆 4：agent 循环预算
 
-三个 AppConfigure 键限制每回合花费：
+三个租户级（`scope: :tenant`）AppConfigure 键限制每回合花费：
 
 | 键 | 限制什么 |
 |---|---|
@@ -57,7 +57,7 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 | `ai_agent.max_output_tokens` | 每回合输出 token 上限 |
 | `ai_agent.inactivity_timeout_ms` | 回合多久无活动后会被回收 |
 
-`max_iterations` 限制单个 Agent 回合的模型迭代次数，避免本可用两次工具调用完成的任务反复调用模型。`max_output_tokens` 限制单次响应大小。两项都是实例级默认值，应按常见回合设置；复杂回合达到上限时，Agent 会基于已有内容给出最终回答。
+`max_iterations` 限制单个 Agent 回合的模型迭代次数，避免本可用两次工具调用完成的任务反复调用模型。`max_output_tokens` 限制单次响应大小。这些 `ai_agent.*` 配置均为租户级默认值（`scope: :tenant`，未覆盖时继承站点默认值），应按各租户的常见回合形态设置；复杂回合达到上限时，Agent 会基于已有内容给出最终回答。
 
 ## 杠杆 5：Workflow fanout 与任务尝试
 
@@ -81,7 +81,7 @@ Workflow 没有覆盖整批任务的 token 或金额预算。每个任务仍受�
 |---|---|---|
 | `max_execution_attempts` | 5 | 任务在 `failed` 前最多重试五次 |
 | `max_consecutive_turn_failures` | 5 | 连续回合失败后任务放弃 |
-| `max_running_per_agent` | 3 | 每个 agent 最多三个运行中任务 |
+| `max_running_per_agent` | 3（默认） | 每个 agent 并发运行任务上限，可按租户通过 `agent_computer.background_agent_job.max_running_per_agent`（`1..64`）配置 |
 | 重试延迟 | ~30 秒 | 重试之间的下限 |
 
 一个任务临时失败五次，就花五次运行的 token。多数时候上限保护你——配置错误快速失败并保持失败。要盯的是第三个：一个有三个并发任务的 agent 在同时跑三个模型循环。若不需要这种并行，用“一次只做一件事”这样的人设，花费会比上限允许的更低。
@@ -98,9 +98,9 @@ Workflow 没有覆盖整批任务的 token 或金额预算。每个任务仍受�
 
 调整模型或并发之前，先找到产生调用的 Agent、会话、Workflow 或后台任务：
 
-- `GET /ai-gateway/conversations` 显示近期回合做过的模型调用——哪些 profile 解析了、多少次调用、哪些 provider。这是看花费是在 `primary`（量）、`heavy`（少数昂贵调用）、还是 `web_search`（许多小调用）的最快途径。
-- 让主 Agent 查看 Workflow。任务计数可以说明 fanout 和失败调用；当前版本没有 Workflow Console 页面，也不提供单次运行的费用汇总。
-- `GET /background-agent-jobs` 显示任务 `attempts`——一个 `attempts: 5` 的任务花了五次运行。
+- `GET /api/v2/ai-gateway/conversations` 显示近期回合做过的模型调用——哪些 profile 解析了、多少次调用、哪些 provider。这是看花费是在 `primary`（量）、`heavy`（少数昂贵调用）、还是 `web_search`（许多小调用）的最快途径。
+- 让主 Agent 查看 Workflow。任务计数可以说明 fanout 和失败调用；系统不提供单独的 Workflow Console 页面或单次运行的金额汇总。
+- `GET /api/v2/background-agent-jobs` 显示任务 `attempts`——一个 `attempts: 5` 的任务花了五次运行。
 - 结构化控制面日志带着 provider 调用的事件名和字段；你的日志摄入器可按 provider 和 agent 聚合。
 
 修复从不是"少用 agent"，而是"这个具体杠杆对这个 agent 的工作设错了"。
@@ -118,7 +118,7 @@ Workflow 没有覆盖整批任务的 token 或金额预算。每个任务仍受�
 ## 下一步
 
 - Agent 的模型档案，读 [Agent](../agents/#配置模型)。
-- agent 循环旋钮及其键，读 [环境变量](../environment-variables/)。
+- agent 循环与运行时配置键（`ai_agent.*` 等），读 [AppConfigure](../app-configuration/)。
 - 相关会话与后台任务接口，读 [Console API 参考](../console-api/)。
 - 有界子 Agent fanout 及其限制，读 [Workflow](../workflows/)。
 - 任务上限，读 [后台 Agent 任务](../background-jobs/)。

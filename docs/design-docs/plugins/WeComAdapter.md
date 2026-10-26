@@ -1,7 +1,7 @@
 # WeCom Adapter
 
 The WeCom Adapter receives messages from one WeCom AI bot and sends Agent
-replies. It also signs operators in through a WeCom self-built app and imports
+replies. It also signs people in through a WeCom self-built app and imports
 WeCom users and departments. WeCom splits these functions across two product
 surfaces, so the chat face and the identity face use different credentials.
 

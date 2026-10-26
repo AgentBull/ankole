@@ -48,7 +48,7 @@ Most changes apply to later work. If the page says that a change applies at the 
 
 ## Reset a setting
 
-When you no longer need a custom value, open the setting and select **Reset to default**. This removes the override at the selected scope and makes Ankole use the default declared by the installed version.
+When you do not need a custom value, open the setting and select **Reset to default**. This removes the override at the selected scope and makes Ankole use the default declared by the installed version.
 
 Resetting is different from entering the current default as a custom value. A reset follows a changed default in a later version. A stored custom value does not.
 
@@ -65,6 +65,19 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
 | `ai_agent.library.skill_defaults` | Tenant | Default enablement for Skills |
+| `agent_computer.background_agent_job.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
+| `automation_jobs.max_running_per_agent` | Tenant | Maximum concurrently running automation scripts per Agent; default `10`, valid range `1`–`64` |
+
+### Pod, Base, and Applet
+
+| Key | Scope | Purpose |
+|---|---|---|
+| `pod.allow_external_guests` | Tenant | Allow invited external guests to access shared Pod pages; default `true` |
+| `pod.applet.limits` | Tenant | Applet invocation limits (`timeout_ms: 60000`, `heap_mb: 128`) |
+| `pod.applet.ai_agent_uid` | Tenant | Active Agent whose model profiles and usage own Applet `ctx.ai` calls; empty disables Applet AI |
+| `pod.base.limits` | Tenant | Base query and record limits (`query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
+| `pod.trash_retention_days` | Tenant | Positive integer days to retain deleted pages before automatic purge (default `30`), or `"unlimited"` to retain deleted pages without automatic purge |
+| `pod.ot_replay_window` | Tenant | Number of recent document change batches retained for OT replay; default `1000` |
 
 ### Workflows
 
@@ -107,13 +120,31 @@ Read [Brain](../brain/) for its knowledge behavior and model requirements. Read 
 
 See [LLM observability](../llm-observability/) for Langfuse, LangSmith, VictoriaTraces, and other OTLP/HTTP receivers.
 
-### Identity, Plugins, and tenant defaults
+### Passwordless Email OTP and Pod login policy
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `principals.identity_providers.active` | Tenant, read-only | Identity sources available for administrator sign-in; managed on the Identity Provider page |
+| `authn.email.mail` | Site, encrypted | SMTP mail transport (`server`, `from`, `port`, `ssl`, and optional credentials) for passwordless Email OTP sign-in; empty disables Email OTP |
+| `authn.email.code_ttl_seconds` | Site | Verification-code lifetime in seconds; default `600` |
+| `authn.email.send_window_seconds` | Site | Rate-limit window in seconds for sending Email OTP codes; default `60` |
+| `authn.email.send_email_limit` | Site | Maximum codes sent to one email address per send window; default `3` |
+| `authn.email.send_source_limit` | Site | Maximum codes sent from one source address per send window; default `20` |
+| `authn.email.send_channel_limit` | Site | Maximum codes sent across the channel per send window; default `100` |
+| `authn.email.failure_window_seconds` | Site | Rate-limit window in seconds for failed code verifications; default `600` |
+| `authn.email.failure_email_limit` | Site | Maximum failed verifications for one email address per failure window; default `10` |
+| `authn.email.failure_source_limit` | Site | Maximum failed verifications from one source address per failure window; default `100` |
+| `principals.pod_login_policy` | Tenant, managed elsewhere | Pod member login and invitation policy (`allow_email_otp`, `allow_member_credential_change`, `allowed_email_domains`, `require_sso_for_members`, `allow_invite_links`); managed in Pod Settings |
+
+### Identity, Plugins, feature flags, and tenant defaults
+
+| Key | Scope | Purpose |
+|---|---|---|
+| `principals.identity_providers.active` | Tenant, read-only | Active tenant Identity Providers that authenticate Pod workspace members and administrators; managed in Pod Settings and on the Identity Provider page |
 | `principals.identity_providers.directory_full_sync_interval_minutes` | Tenant | Full organization-directory synchronization interval |
-| `plugins.enabled_ids` | Site | Control Plane Plugins to enable at the next start |
+| `tenants.privileged_tenant_id` | Site, read-only | ID of the tenant whose `siteadmin` group administers this site |
+| `plugins.enabled_ids` | Site, managed elsewhere | Optional (`:optional`) Control Plane Plugins to enable at the next start; `:always` plugins stay active with the build |
+| `features.<flag>` | Site | Feature availability policy (`{enabled, percent, targets}`) backing OpenFeature (`Ankole.Features.Config`) |
+| `signals.show_dead_letter_error_details` | Site | Whether dead-letter notices sent to Conversations include bounded, redacted Session turn error details; default `false` |
 | `system.timezone` | Tenant | Default time zone for schedules and other control-plane features |
 | `i18n.default_locale` | Tenant | Default language for the Ankole interface |
 

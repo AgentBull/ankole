@@ -47,17 +47,17 @@ Which NAICS code fits stripe.com?
 - **Value:** あなたの `ctxt_secret_...` key
 - **Encrypted storage:** on
 
-名前は完全に一致させる必要があります。Skill が宣言するのはこの名前だけで、他は受け付けないためです。すべての Agent に設定するか、credits を消費させる Agent を 1 つに限定したい場合は、**Console → Agents → 対象の Agent → Environment variables** でその Agent だけに設定します。スコープのルールは[環境変数](../worker-env/)を参照してください。
+名前は完全に一致させる必要があります。Skill が宣言するのはこの名前だけで、他は受け付けないためです。テナントまたはサイトのスコープで設定するか、credits を消費させる Agent を 1 つに限定したい場合は、**Console → Agents → 対象の Agent → Environment variables** でその Agent だけに設定します。スコープのルールは[環境変数](../worker-env/)を参照してください。
 
 ### 3. Skill を有効にする
 
-**Console → Agent Library** を開き、`context-dev` を見つけて有効にします。インスタンス全体か、必要な Agent に対してです。デフォルトと上書きのモデルは[Agent Library](../skills/)を参照してください。
+**Console → Agent Library** を開き、`context-dev` を見つけて有効にします。テナント全体か、必要な Agent に対してです。デフォルトと上書きのモデルは[Agent Library](../skills/)を参照してください。
 
 Skill は Agent の次の turn から有効になります。無効にすると、次の turn、次の Background Agent Job、次の Automation Job attempt から接続が取り除かれます。
 
 ### 4. 動作を確認する
 
-有効にした Agent に、既知のドメインのブランドプロフィールなど、小さなことを依頼します。返信に `401` が含まれる場合は、key が欠落しているか間違っています。変数名が正確に `CONTEXT_DEV_API_KEY` であること、"Not set" と表示されていないこと、Agent レベルの値がグローバル値を上書きしていないことを確認してください。
+有効にした Agent に、既知のドメインのブランドプロフィールなど、小さなことを依頼します。返信に `401` が含まれる場合は、key が欠落しているか間違っています。変数名が正確に `CONTEXT_DEV_API_KEY` であること、"Not set" と表示されていないこと、そして Agent の割り当て値やテナントの override がテナントまたはサイトの `WorkerEnv` 値を誤って上書きしていないことを確認してください。
 
 ## Ankole の接続方法
 

@@ -7,6 +7,25 @@ defmodule Ankole.KernelTest do
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   @aead_ciphertext "vveE4WxRjp0KO8YVx7o09aQ5_q9ZzqX2.gb1S9PmqEp_5UuejAzvKErXrdE4-sQ"
 
+  test "native rebuild inputs include Rust sources and exclude generated dependencies and outputs" do
+    root = Path.expand("../..", __DIR__)
+
+    resources =
+      NativeKernel.__info__(:attributes)
+      |> Keyword.get_values(:external_resource)
+      |> List.flatten()
+      |> Enum.map(&Path.relative_to(&1, root))
+
+    for input <- ["Cargo.toml", "Cargo.lock", "build.rs", "src/lib.rs", "src/nif_exports.rs"] do
+      assert input in resources
+    end
+
+    refute Enum.any?(resources, fn path ->
+             hd(Path.split(path)) in ~w(_build deps node_modules priv target) or
+               Path.extname(path) == ".node"
+           end)
+  end
+
   test "derive_key uses the shared BLAKE3 vector" do
     assert NativeKernel.derive_key("seed", "tenant-A", "scope-a") ==
              "0553f445a2fb3dfc0fab4efa1e1ed31ef6a103277286cf63874904e341ee0d20"

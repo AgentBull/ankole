@@ -90,7 +90,9 @@ Skill、コマンドラインツール、または MCP サービスが API key �
 
 ## chat channel を接続する
 
-新しい Agent は、Slack、Microsoft Teams、Lark、Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または専用のメールボックスからメッセージを受け取る前に、signal routing ルールが必要です。
+**Pod Chat** では、ワークスペースのメンバーは Signal Binding を設定することなく、有効な Agent に直接ダイレクトメッセージ（`dm`）を送ったり、グループ会話（`group`）へ即座に追加したりできます。
+
+Signal Binding は外部 IM チャネルおよびメールボックスを管理します。Slack、Microsoft Teams、Lark、Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または専用のメールボックスからメッセージを受け取るには、signal routing ルールを設定します。
 
 **Console → Signal routing** を開き、チャットアプリケーションとターゲット Agent を選択します。1 つのチャットアプリケーションに複数のルールを作成でき、異なる Agent 用に別々の bot アプリケーションを作成できます。
 

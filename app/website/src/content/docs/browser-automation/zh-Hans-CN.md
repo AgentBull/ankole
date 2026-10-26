@@ -30,8 +30,8 @@ skill 自带的 description 是模型判断要不要用它的契约：当工作�
 
 browser 是 skill，所以你通过 [Agent Library](../agent-library/) 开启它，而不是通过工具开关。因为 `default_enabled` 是 `true`，新建的 agent 默认就有浏览器，除非你收窄它。两层：
 
-1. **实例级默认值**——Skill 默认设置 `default_enabled: true`。保持这个值时，每个 Agent 都可以使用浏览器。
-2. **按 agent 覆盖**——为不该有浏览器的 agent 收窄它，或为你之前收窄过的 agent 放开它。
+1. **租户默认值**——Skill 默认设置 `default_enabled: true`。保持启用时，租户中的每个 Agent 都可以使用浏览器。
+2. **按 agent 覆盖**——为不该使用浏览器的 agent 关闭它，或在租户默认关闭时为指定 agent 单独启用它。
 
 两层都通过 Console 的 library-capability 路由设置，见 [Console API 参考](../console-api/)。读某个 agent 的 `library-capabilities` 会触发一次 skill 同步，所以你看到的是注册表对当前文件系统重对账后的结果，不是过期快照。
 

@@ -19,7 +19,7 @@ The list is working state in `Ankole.Sessions.Run`, not organizational knowledge
 
 The question can be open-ended or provide two to four distinct choices. The question limit is 2,000 characters, each label 200, and each optional description 500. An action that the user can decline includes a no-action choice.
 
-A successful result records the normalized question and choices and ends the current turn. The Agent calls no further tools and adds no final answer; the user's next message starts the continuation. The question and reply remain in the durable conversation record.
+A successful result records the normalized question and choices and ends the current turn. The Agent calls no further tools and adds no final answer. In native **Pod Chat**, the control plane stores the snapshot in `rich_content["clarify"]` and renders an interactive **`ChoiceCard`** whose interaction checkpoint moves through `pending -> answered | superseded` (a newer question from the same Agent marks an earlier unresolved one `superseded`). A room member can answer on the `ChoiceCard`—by selecting a choice or entering text with first-answer-wins locking (concurrent attempts receive HTTP `409`)—or reply with a free-text message in Pod Chat or an external chat channel to start the continuation turn. The question and accepted reply remain in the durable conversation record.
 
 ## Background Jobs and operation
 

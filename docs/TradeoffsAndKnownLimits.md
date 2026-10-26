@@ -9,8 +9,9 @@ A site can contain several tenants. Principal, AuthZ, conversation and Brain
 queries are restricted to the selected tenant. Missing tenant context fails.
 Site administrators can select any tenant's data context.
 
-All tenants trust the site operator and share PostgreSQL, model providers,
-Worker providers and the control-plane plugins. Tenant filtering is not a
+All tenants trust the site operator and share the control-plane PostgreSQL
+database (with tenant-assigned Base shards), model providers, Worker providers,
+Function Runtime, and the control-plane plugins. Tenant filtering is not a
 sandbox for hostile plugins or a substitute for protecting the control plane.
 Use separate deployments when organizations cannot share that infrastructure.
 See [Tenants](design-docs/Tenants.md).
@@ -94,7 +95,7 @@ Workers never write AIGateway messages, Signal rows, or provider outbox rows
 directly.
 
 AIGateway stores one Response and publishes model events. It does not complete
-an Signal or mark a provider delivery as complete.
+a Signal or mark a provider delivery as complete.
 
 The control-plane Driver runs the main model loop. Its final transaction
 checks the persisted Driver fence, completes the Signals, and records the
@@ -138,7 +139,7 @@ The AI message stays recorded against the event that opened the Turn, because
 that Turn produced it. One Turn therefore writes its record under two
 Signals. Neither event alone answers "what did this Turn reply". The
 `ai_message_id` on the outbox row is the link, so a reader starts from the
-outbox and follows it to the message. A reader that starts from an Signal
+outbox and follows it to the message. A reader that starts from a Signal
 and expects both parts under it finds only one of them.
 
 This split is the cost of anchoring the reply where the user is looking. Ankole
@@ -203,7 +204,7 @@ Authentication identifies the Principal. Every conversation, message, artifact,
 and compaction query also filters by that Principal.
 
 AIGateway stores metadata without interpreting it. It does not inspect
-`signal_id` or check whether an Signal remains active.
+`signal_id` or check whether a Signal remains active.
 
 One WebSocket generates one Response at a time. AIGateway rejects
 `background=true`. The Session Driver orders Session model requests.

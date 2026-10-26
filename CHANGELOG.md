@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.27 (2026-10-26)
+
+- Translate Applets as 小应用 in Simplified Chinese interfaces and starter templates.
+
 ## Version 2.0.0-alpha.26 (2026-10-26)
 
 - Internal changes only.

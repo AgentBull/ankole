@@ -1,6 +1,6 @@
 ---
 title: Skill 및 Control Plane Plugin 개발
-description: Agent에 작업 방식을 추가하거나, identity, channel, configuration 및 supervised service를 control plane에 추가하는 방법을 설명합니다.
+description: Agent에 작업 방식을 추가하거나, 사이트 범위 adapter, 설정, 도메인 트랜잭션 hook, supervised service 및 Web UI 슬롯을 control plane에 추가하는 방법을 설명합니다.
 section: Developer guide
 order: 113
 ---
@@ -11,10 +11,11 @@ Skill과 Control Plane Plugin은 모두 Ankole을 확장하지만, 해결하는 
 |---|---|
 | Agent에게 특정 유형의 작업 수행 방법 가르치기 | Skill |
 | Agent에게 MCP 기반 워크플로와 사용 지침 제공하기 | Skill |
-| IdP, chat adapter 또는 Provider 종류 추가하기 | Control Plane Plugin |
-| control plane에 설정 또는 supervised service 추가하기 | Control Plane Plugin |
+| IdP, chat adapter, LLM Provider 또는 Worker provider 종류 추가하기 | Control Plane Plugin |
+| 사이트 범위 설정, supervised service, 도메인 트랜잭션 hook, 확장 `/api/v2` 라우트 또는 Web UI 슬롯 추가하기 | Control Plane Plugin |
+| 재시작 없이 런타임에서 소비자 정책을 동적으로 전환하기 | OpenFeature(`Ankole.Features`) |
 
-Skill은 Agent가 읽는 파일의 집합입니다. 새로운 control-plane 빌드가 필요하지 않습니다. Control Plane Plugin은 control plane에 컴파일되는 first-party Elixir 모듈입니다. 등록이 필요하며, 다음 control plane 시작 시 활성화됩니다.
+Skill은 Agent가 읽는 파일의 집합입니다. 새로운 control-plane 빌드가 필요하지 않습니다. Control Plane Plugin은 릴리스에 컴파일되는 사이트 범위의 first-party 풀스택 확장입니다(테넌트나 개별 Agent 범위로 분리되지 않음). `:optional` Plugin은 `siteadmin`이 활성화한 뒤 다음 control plane 시작 시 활성화되며, `:always` Plugin은 소스 빌드와 함께 고정 활성화됩니다.
 
 ## Skill 작성
 
@@ -104,7 +105,7 @@ dependency는 Skill이 활성화된 동안에만 사용할 수 있습니다. `SK
 
 ## Control Plane Plugin 개발
 
-control plane이 소유한 기능에는 Control Plane Plugin을 사용하십시오. 모듈은 `Ankole.Plugins.Plugin`을 구현합니다. 가장 작은 유효한 Plugin은 안정적인 ID 하나를 가집니다.
+control plane이 소유한 사이트 범위 기능에는 Control Plane Plugin을 사용하십시오. 모듈은 `Ankole.Plugins.Plugin`을 구현합니다. 가장 작은 유효한 Plugin은 안정적인 ID 하나를 가집니다.
 
 ```elixir
 defmodule Ankole.Plugins.MyPlugin do
@@ -115,15 +116,19 @@ defmodule Ankole.Plugins.MyPlugin do
 end
 ```
 
-Plugin ID에는 소문자 slug를 사용하십시오. 다른 callback은 필요할 때만 구현하십시오.
+Plugin ID에는 소문자 slug를 사용하십시오. 선택적 callback은 필요할 때만 구현하십시오.
 
 | Callback | 목적 |
 |---|---|
-| `display_name/0`, `description/0` | Console에 표시되는 이름과 설명 |
-| `adapter_declarations/0` | IdP, chat 및 기타 adapter 선언 |
+| `activation/0` | `:optional`(기본값, `plugins.enabled_ids`로 선택해 다음 시작 시 적용) 또는 `:always`(빌드와 함께 고정 활성화, Console 토글 없음) |
+| `display_name/0`, `description/0` | Site Admin Console에 표시되는 현지화된 이름과 설명 |
+| `adapter_declarations/0` | IdP, chat, LLM Provider, Worker provider(`agent_workers.provider_kind`) 또는 webhook adapter 선언 |
+| `hooks/0` | 동기식 도메인 트랜잭션 hook(`Ankole.Plugins.Hook`을 구현하는 `[{hook_point, module}]`) 선언 |
 | `app_config_definitions/0` | 고정 AppConfigure 설정 선언 |
 | `app_config_patterns/0` | 동적 ID를 가진 설정 선언 |
-| `children/0` | connection, registry, reconciler 시작 |
+| `children/0` | Plugin supervisor 아래에서 connection, registry, reconciler 시작 |
+
+풀스택 빌드 확장은 코어 라우터 바깥에 요청 Plug를 감싸거나, 타입 지정 `/api/v2/*` JSON:API 라우트를 마운트하거나, `entries.json`의 `overrides`를 통해 타입 지정 Web UI 슬롯(`PodAppSlots`, `ConsoleAppSlots`, `AuthAppSlots`)을 바인딩할 수도 있습니다.
 
 ### Plugin 등록
 
@@ -135,7 +140,7 @@ config :ankole, :control_plane_plugin_modules, [
 ]
 ```
 
-그러면 Plugin이 Console catalog에 표시됩니다. 관리자가 Plugin을 활성화한 후, 다음 control-plane 시작 시 설정, adapter, supervised process가 등록됩니다. Plugin은 hot loading을 지원하지 않습니다.
+그러면 Plugin이 **Site Admin Console**(`/site-admin-console`의 **Global defaults** 범위, `GET` / `PUT /api/v2/site/control-plane-plugins`)의 사이트 범위 catalog에 표시됩니다. `siteadmin`이 `:optional` Plugin을 활성화하면 다음 control-plane 시작 시 불변 `:persistent_term` 부트 스냅샷으로 확정되며 설정, adapter, hook, supervised process가 등록됩니다(어느 테넌트든 해당 Worker provider 종류를 참조하는 동안에는 `veto_disable`이 비활성화를 차단합니다). `:always` Plugin은 릴리스에 컴파일되어 있으면 자동으로 활성화됩니다. Plugin은 hot loading을 지원하지 않으므로, 재시작 없이 동적으로 전환해야 하는 정책에는 OpenFeature(`Ankole.Features`)를 사용하십시오.
 
 ### adapter 선언
 
@@ -154,17 +159,19 @@ def adapter_declarations do
 end
 ```
 
-adapter별 필드는 소유 subsystem이 정의합니다. chat adapter는 [Signals](../signals/) contract를 따릅니다. IdP와 model Provider는 기존 registry를 사용합니다. Plugin 내부에 병렬 configuration 경로를 만들지 마십시오.
+adapter별 필드는 소유 subsystem이 정의합니다. chat adapter는 [Signals](../signals/) contract를 따릅니다. IdP, 모델 Provider, Worker provider는 기존 registry를 사용합니다. Plugin 내부에 병렬 configuration 경로를 만들지 마십시오.
 
-### 설정과 service 선언
+### 설정, hook 및 service 선언
 
 운영자가 runtime에 관리하는 설정에는 `app_config_definitions/0` 또는 `app_config_patterns/0`을 사용하십시오. environment variable은 database를 사용할 수 있기 전에 존재해야 하는 시작 시점의 사실에만 사용하십시오.
+
+도메인 트랜잭션(`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`)에 동기식 승인 또는 쿼터 검사를 연결하려면 `hooks/0`을 사용하십시오. 각 hook 모듈은 `Ankole.Plugins.Hook.before_commit_in_tx/2`를 구현하며 호출자의 트랜잭션 안에서 `:ok` 또는 `{:error, reason}`을 반환합니다(오류 반환 시 트랜잭션이 롤백됩니다).
 
 `children/0`는 표준 OTP child specification을 반환합니다. connection과 reconciler는 Plugin supervisor 아래에 두십시오. 이들은 Plugin이 활성화될 때 시작되고, 다음 control-plane 시작 시 비활성화된 후 중지됩니다.
 
 ### Plugin 검증
 
-control-plane 테스트와 정적 검사를 실행하십시오. Console에서 Plugin을 활성화하고 control plane을 다시 시작합니다. Plugin이 활성 상태이고 설정이 표시되며, 선언된 각 adapter가 실제 connection을 완료하는지 확인합니다. Plugin이 외부 protocol을 구현하는 경우 관련 integration test를 실행하십시오.
+control-plane 테스트와 정적 검사를 실행하십시오. `:optional` Plugin은 **Site Admin Console**(`/site-admin-console`)에서 활성화한 뒤 control plane을 다시 시작하고, `:always` Plugin은 시작 시 바로 활성화되는지 확인합니다. Plugin이 활성 상태이고 설정이 표시되며 hook이 계약을 강제하고, 선언된 각 adapter가 실제 connection을 완료하는지 확인합니다. Plugin이 외부 protocol을 구현하는 경우 관련 integration test를 실행하십시오.
 
 ## 계속 보기
 

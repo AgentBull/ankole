@@ -64,19 +64,19 @@ Enter a replacement value to rotate a credential. Do not reveal the old value on
 
 A turn that seems stuck is usually waiting on the model or a provider, not on Ankole. Before cancelling anything:
 
-1. Check `/ai-gateway/conversations` for the turn's recent model calls — if there is a long gap, the provider is the holdup.
-2. Check the worker logs for an in-flight tool call — a slow tool looks like a stuck turn.
-3. Only if the turn is genuinely wedged, the agent's session can be steered or the turn allowed to time out; cancellation of a background job is `POST /background-agent-jobs/:id/cancel`, which lets an in-flight turn finish.
+1. Check `/api/v2/ai-gateway/conversations` for the turn's recent model calls. If there is a long gap, the provider is the holdup.
+2. Check the worker logs for an in-flight tool call. A slow tool looks like a stuck turn.
+3. Only if the turn is genuinely stuck, steer the Agent's session or let the turn time out. Cancel a background job with `POST /api/v2/background-agent-jobs/:id/cancel`, which lets an in-flight turn finish.
 
 Cancelling aggressively is how operators create half-done side effects.
 
 ## Disable a binding quietly
 
-`DELETE /agents/:agent_uid/signal-bindings/:binding_name` is a *disable*, not a hard delete — the configuration stays recoverable. Use it when you want an agent silent in a channel without losing the setup (revoked credentials, a holiday, an incident). Re-enable with `PATCH`.
+`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` disables the binding rather than deleting it permanently — the configuration stays recoverable. Use it when you want an Agent silent in a channel without losing the setup (for example, during revoked credentials, a holiday, or an incident). Re-enable it with `PATCH`.
 
 ## Back up before you upgrade, every time
 
-A Helm rollback does not reverse a database migration. The two-minute `pg_dump` before an upgrade is the difference between "rolled back" and "restored from backup, lost a day." See [Backup and restore](../backup-and-restore/) for the commands.
+A Helm rollback does not reverse a database migration. Run `pg_dump` for the control-plane PostgreSQL database and any configured `BASE_DB_URLS` shard databases before every upgrade, and preserve your deployment bootstrap secrets (`ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`, and `ANKOLE_FUNCTION_RUNTIME_TOKEN`). See [Backup and restore](../backup-and-restore/) for the commands.
 
 ## Adjust the correct durable document
 

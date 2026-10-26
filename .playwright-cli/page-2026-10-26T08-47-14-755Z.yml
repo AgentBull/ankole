@@ -1,0 +1,22 @@
+- generic [ref=e2]:
+  - main [ref=e62]:
+    - button "展开侧栏" [ref=e128]
+    - generic [ref=e64]:
+      - generic [ref=e65]:
+        - heading "空间" [level=1] [ref=e66]
+        - button "新建页面" [expanded] [ref=e102] [cursor=pointer]
+        - menu "新建页面" [active] [ref=e133]:
+          - menuitem "文档" [ref=e134] [cursor=pointer]
+          - menuitem "多维表" [ref=e135] [cursor=pointer]
+          - menuitem "小程序" [ref=e136] [cursor=pointer]
+          - menuitem "文件" [ref=e137] [cursor=pointer]
+      - list [ref=e103]:
+        - listitem [ref=e104]:
+          - link "Browser report" [ref=e105] [cursor=pointer]:
+            - /url: /pages/AaF3YUN6dRKnD1RM-OXTEQ
+            - generic [ref=e109]: 文档
+        - listitem [ref=e110]:
+          - link "Sample operations" [ref=e111] [cursor=pointer]:
+            - /url: /pages/AaF3YUsedpe873TFW-rTYA
+            - generic [ref=e115]: 文档
+  - region "Notifications alt+T"

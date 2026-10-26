@@ -85,7 +85,7 @@ domain ID when one exists.
 
 Examples include:
 
-- `signal_id` for an Actor turn
+- `signal_id` for a Session turn
 - `rpc_request_id` for a RuntimeFabric RPC
 - `transfer_id` for a file transfer
 
@@ -120,7 +120,7 @@ workerLogger.notice('worker.ready_sent', 'worker ready sent', {
 
 const turnLogger = workerLogger.child({
   component: 'turn',
-  fields: { signal_id: actorEventID }
+  fields: { signal_id: signalId }
 })
 ```
 

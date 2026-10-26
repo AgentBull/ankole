@@ -42,9 +42,9 @@ The site proof's `console_authenticated` flag is set through a successful Consol
 login. Console requests also check the privileged tenant, current Human access,
 and `siteadmin`. Pod proofs have independent scope and access versions.
 
-Pod login uses additive authentication mode. SaaS entry selects the same mode
-for additional credentials. A trusted server entry sets this mode. Each open
-HTML document pins its authentication reference and Pod ID.
+Pod login and additional credential flows use additive authentication mode. A
+trusted server entry sets this mode. Each open HTML document pins its
+authentication reference and Pod ID.
 
 `GET /api/v2/browser/session` returns activated Pod identities, pending Pods,
 and proved site authentications. A zero-Pod site proof is a valid session.
@@ -89,17 +89,20 @@ Only an identity chooser reads all authentication cookies. Stream frames keep
 the selected proof and check its current server state each time.
 
 The shell emits `ankole-authentication` and `ankole-pod` metadata. Browser API
-requests send `x-ankole-authentication` and `x-ankole-pod`. EventSource and file
-subresources cannot send these headers, so Pod conversation event URLs and
-`GET /api/v2/pod/pages/:id/files/content` carry the same references in
-their query. These requests still require the selected proof cookie and browser
-group, so an open document keeps its identity when another account becomes
-active. Other API, navigation and OIDC authorization URLs cannot select another
-logged-in account by adding an identity parameter. Shareable links contain only
-the tenant and resource.
+requests send `x-ankole-authentication` and `x-ankole-pod`. EventSource, file
+subresources, and sandboxed Applet frames cannot send these headers, so Pod
+conversation event URLs and `GET /api/v2/pod/pages/:id/files/content` carry the
+same references in their query, and
+`GET /pod/applet-frame/:authentication_ref/:id/:revision/*path` carries the
+authentication reference in its path. These requests still require the selected
+proof cookie and browser group, so an open document keeps its identity when
+another account becomes active. Other API, navigation, and OIDC authorization
+URLs cannot select another logged-in account by adding an identity parameter.
+Shareable links contain only the tenant and resource.
 
 Pod API gates check the selected tenant, authentication, current Human access,
-and binding. Conversation operations check participant membership. A Console
+and binding. Conversation operations check participant membership or, for a
+Page-anchored thread, `page_view` on its anchor Page. A Console
 API requires current siteadmin membership; Pod login does not grant access to
 v2 management operations or native Console file transfers. Protected responses cannot enter a shared cache.
 Pod query keys include both identity and tenant. Console data selection is local
@@ -235,7 +238,6 @@ groups with no retained RP association. Foreign keys then remove their
 independent authentications and proofs. Tenant deletion removes its access
 proofs and native authentication rows through the tenant deletion owner.
 
-The edition Host policy declares classification, the shared cookie domain,
-tenant origins, and canonical origins through `RequestHost` callbacks. FOSS
-origins retain the request scheme and port. SaaS route admission is an explicit
-Host policy; a route declaration alone does not grant access from a Pod Host.
+The configured `RequestHost` policy declares host classification, the shared
+cookie domain, tenant origins, canonical origins, and explicit per-host route
+admission; a route declaration alone does not grant access from a Pod Host.

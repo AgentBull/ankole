@@ -7,11 +7,11 @@ order: 3
 
 이 페이지는 Ankole에 포함된 엔터프라이즈 identity 및 채팅 어댑터를 안내합니다. 먼저 플랫폼이 **Identity Provider(IdP)**, **Channel Provider**, 또는 둘 다를 제공하는지 결정하세요. 그런 다음 해당하는 상세 가이드를 여세요.
 
-최초 실행 설정 중 `/setup`은 선택한 IdP의 로그인 콜백 URL과 가이드 링크를 보여 줍니다. 설정 후에는 **Console → Identity Providers**에서 identity 설정을 관리하고, **Console → Signal Routing**에서 채팅 애플리케이션을 Agent에 바인딩하세요.
+최초 실행 설정 중 `/setup`은 선택한 IdP의 로그인 콜백 URL과 가이드 링크를 보여 줍니다. 엔터프라이즈 Identity Provider는 Pod 관리자(`pod_admin`)가 **Pod Settings**(`/api/v2/pod/admin/identity-providers`)에서 관리하며, 사이트 관리자도 Site Console(**Console → Identity Providers**)에서 관리할 수 있습니다. 사이트 수준의 패스워드리스 Email OTP SMTP 설정(`authn.email.*`)은 Site Console에서 관리합니다. 외부 채팅 애플리케이션은 **Console → Signal Routing**에서 Agent에 바인딩하세요.
 
 ## Identity Providers
 
-IdP는 조직 로그인을 제공하며 직원, 부서 또는 그룹을 동기화할 수 있습니다. 스페이스 관리자는 스페이스 설정에서 조직 공급자를 구성합니다. 이메일 코드 로그인은 사이트 SMTP 서비스를 사용하며 발신 서비스가 구성되면 표시됩니다. 초기 설정에서 실제 이메일 코드를 인증하거나 조직 SSO를 완료해야 첫 관리자를 만들 수 있습니다. Ankole은 사용자 비밀번호를 저장하지 않습니다. 아래 자격 증명 이름은 폼과 일치합니다. 권한, 콜백 URL 및 확인 절차는 연결된 가이드를 참조하세요.
+IdP는 조직 로그인을 제공하며 직원, 부서 또는 그룹을 동기화할 수 있습니다. Pod 관리자(`pod_admin`)는 **Pod Settings**에서 엔터프라이즈 공급자를 구성하며, 사이트 관리자도 **Console → Identity Providers**에서 관리할 수 있습니다. 패스워드리스 Email OTP 로그인은 Site Console에 구성된 사이트 SMTP 설정(`authn.email.*`)을 사용하며 발신 서비스가 구성되면 표시됩니다. 초기 설정에서 실제 이메일 코드를 인증하거나 조직 SSO를 완료해야 첫 관리자를 만들 수 있습니다. Ankole은 사용자 비밀번호를 저장하지 않습니다. 아래 자격 증명 이름은 폼과 일치합니다. 권한, 콜백 URL 및 확인 절차는 연결된 가이드를 참조하세요.
 
 | 플랫폼 | 외부 애플리케이션 | 주요 구성 | 상세 가이드 |
 |---|---|---|---|
@@ -51,8 +51,8 @@ Identity Provider 또는 signal routing 규칙을 편집할 때 Console은 암�
 
 ## 검증 순서
 
-1. IdP 로그인을 검증하고 첫 번째 관리자가 Console을 열 수 있는지 확인합니다.
-2. 전체 디렉터리 동기화를 실행하고 Principals and permission groups를 확인합니다.
+1. 엔터프라이즈 IdP SSO 로그인 또는 패스워드리스 SMTP Email OTP 로그인을 검증하고, 첫 번째 관리자가 `siteadmin` 및 `pod_admin` 권한으로 Pod 워크스페이스를 열고 `/site-admin-console`에서 Site Admin Console에 접근할 수 있는지 확인합니다.
+2. 엔터프라이즈 IdP를 구성한 경우 전체 디렉터리 동기화를 실행하고 Principals and permission groups를 확인합니다.
 3. 채팅 라우팅 규칙을 생성합니다. 먼저 직접 메시지나 명시적 멘션으로 테스트합니다.
 4. Agent가 메시지를 수신하고 답변을 보내는지 확인합니다. 그런 다음 그룹 관찰, 실시간 디렉터리 동기화, 카드 같은 고급 기능을 활성화합니다.
 

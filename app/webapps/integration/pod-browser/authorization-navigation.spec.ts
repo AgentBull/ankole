@@ -28,13 +28,10 @@ test('a collapsed Space loads root permissions after reload for page creation an
     const create = space.getByRole('button', { name: '新建页面', exact: true })
     await expect(create).toBeVisible()
     await create.click()
-    const dialog = page.getByRole('dialog', { name: '新建页面', exact: true })
-    const title = `Collapsed Space page ${suffix()}`
-    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title)
     const created = page.waitForResponse(
       response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
     )
-    await dialog.getByRole('button', { name: '创建', exact: true }).click()
+    await page.getByRole('menuitem', { name: '文档', exact: true }).click()
     const response = await created
     expect(response.status()).toBe(201)
     const result = (await response.json()) as {

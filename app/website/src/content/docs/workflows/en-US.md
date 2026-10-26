@@ -68,15 +68,19 @@ const summary = await agent(`Summarize these reviews: ${JSON.stringify(successfu
 return { reviews, summary }
 ```
 
-The program and its `args` do not change after the run starts. A control-plane restart replays the fixed program from persisted task results. A successful task that is already stored is not created again, but an interrupted task can be retried. Do not treat task execution as exactly once.
+The program and its `args` do not change after the run starts. The control plane sends each orchestration step to `POST /v1/program/run` on the stateless `ankole-function-runtime` service. Each step runs in a fresh worker with network, filesystem, environment, process, and FFI permissions denied, and deterministic `Math.random()` and `Date.now()` values. The worker does not stay alive while tasks run.
+
+A control-plane restart replays the fixed program from persisted task results against a 6 MiB durable memo budget. A successful task that is already stored is not created again, and any divergence in replayed `agent()` call order or arguments fails the run. An interrupted task can be retried, so do not treat task execution as exactly once.
 
 ## What each subagent can access
 
-Each `agent()` call runs in an independent, short-lived conversation. It receives the Agent identity and mission plus the task prompt. It does not receive the original conversation transcript or the result of another task unless the program includes that result in a later prompt.
+Each `agent()` call runs in an independent conversation (`wf_task:<call_id>`) on the control plane without holding an Agent Worker slot. It receives the Agent identity and mission plus the task prompt. It does not receive the original conversation transcript or the result of another task unless the program includes that result in a later prompt.
 
-A Workflow task can use Web tools and, when Brain is enabled, the read-only `recall` and `get_page` tools. Its only durable write is `submit_result`. It does not receive shell, file, MCP, Skill, schedule, Workflow, or Background Agent Job tools, and it cannot create nested work.
+A Workflow task can use Web tools and, when Brain is enabled, the read-only `recall` and `get_page` tools. It does not receive shell, file, MCP, Skill, Brain write, or schedule tools directly, and it cannot start another Workflow (orchestration depth is one).
 
-Each call can make at most three complete task attempts. A successful call resolves to the submitted value. A call that exhausts its attempts resolves to `null`; the program can record the failure and continue, or make the final result explain why the run is incomplete. One failed task does not automatically make the whole Workflow fail.
+When a task needs workspace execution or multi-hour work, it can delegate [Background Agent Jobs](../background-jobs/) (`create_background_job`, `show_background_job_details`, `send_message_to_background_job`, `stop_background_job`) and call `sleep` (from 1 minute to 48 hours, up to 16 sleeps per call) to hibernate without holding a concurrency slot until a delegated Job lifecycle event, an owner message, or its deadline wakes it. Setting `attention: true` on `sleep` notifies the main Agent so it can inspect the task note and reply. When the work is ready, the task finishes by calling `submit_result`.
+
+Within each wake segment, a call can make at most three task attempts. A successful call resolves to the submitted value. A call that exhausts its attempts resolves to `null`; the program can record the failure and continue, or make the final result explain why the run is incomplete. One failed task does not automatically make the whole Workflow fail.
 
 ## Require structured results
 
@@ -86,17 +90,18 @@ The schema is a closed subset of OpenAPI 3 JSON Schema, not the complete specifi
 
 If no schema is supplied, the task returns a string. The program must return its aggregate result. A string becomes the final text; another JSON value becomes JSON text.
 
-## Read, list, or cancel runs
+## Read, message, list, or cancel runs
 
 Ask the main Agent to use these operations:
 
-- `show_workflow` reports the status, task counts, up to ten failure summaries, and any terminal error. A completed result is read from byte offset `0` in segments of at most 8,000 UTF-8 bytes.
+- `show_workflow` reports the status, task counts, up to 32 live tasks (including sleep `note`, `attention`, and wake deadlines), up to ten failure summaries, and any terminal error. A completed result is read from byte offset `0` in segments of at most 8,000 UTF-8 bytes.
+- `send_message_to_workflow_task` appends an asynchronous message (`run_id`, `call_seq`) to wake or inform a live task, such as answering a task that slept with `attention: true`.
 - `list_workflows` lists this Agent's live or finished runs, up to 32 at a time. Finished runs include `completed`, `failed`, and `cancelled`.
-- `cancel_workflow` is idempotent. It prevents new tasks and late results from reviving the run, then asks running task turns to stop. A model call can take a short time to stop.
+- `cancel_workflow` is idempotent. It prevents new tasks and late results from reviving the run, then asks running task turns and delegated Background Agent Jobs to stop. A model call can take a short time to stop.
 
 Completed and failed runs wake the original conversation. A cancelled run does not send that completion event, so ask the Agent to confirm its state if you need confirmation.
 
-There is no Workflow page in the Console in the current version. The main Agent's Workflow tools are the supported user surface.
+In the Console, the Home background activity area displays read-only Workflow activity (live calls, status counts, sleep notes, deadlines, attention flags, and bounded error summaries under `site_console:agent:<agent_uid>:workflow`). Starting, messaging, reading full results, and cancelling runs use the main Agent's Workflow tools.
 
 ## Control cost and capacity
 
@@ -107,11 +112,15 @@ Every task attempt is a complete model turn and can also make paid Web calls. Co
 | Concurrent tasks in one run | 8 | 32 |
 | Running Workflow tasks for one Agent | 8 | 64 |
 | Subagent calls in one run | 32 | 1,024 |
-| Attempts for one subagent call | up to 3 | 3 |
+| Attempts per wake segment | up to 3 | 3 |
+| Sleeps for one subagent call | — | 16 |
+| One sleep duration | — | 1 minute to 48 hours |
 | Stored program | — | 256 KiB |
 | Stored `args` | — | 64 KiB |
 | One call argument object | — | 8 KiB |
+| One owner task message | — | 8 KiB |
 | One submitted result value | — | 24 KiB |
+| Durable memo budget | — | 6 MiB |
 | Final aggregate result | — | 1 MiB |
 
 An administrator can set the first three instance limits in [AppConfigure](../app-configuration/) within their hard ranges. A run request cannot raise the deployment limits. Workflow has no batch-wide token or currency budget; every task still uses the ordinary per-turn iteration, output-token, and inactivity limits. See [Cost management](../cost-management/) for the related controls.

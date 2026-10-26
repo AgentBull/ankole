@@ -5,7 +5,7 @@ section: Reference
 order: 202
 ---
 
-このページは PostgreSQL、デプロイの秘密情報、ファイルストア、プロセス設定の起動変数です。Worker provider の設定は PostgreSQL に YAML として保存します。
+このページは PostgreSQL、Pod Base シャードデータベース、`ankole-function-runtime`、デプロイの秘密情報、オブジェクトストア、プロセス設定の起動変数リファレンスです。Worker provider の設定は PostgreSQL に YAML として保存します。
 
 インスタンスの実行中に管理者が変更できるランタイム設定については、[アプリケーション設定](../app-configuration/)を参照してください。それらの設定を `.env` や Kubernetes Secret に入れないでください。
 
@@ -15,37 +15,44 @@ order: 202
 
 | 変数 | 必須 | 意味 |
 |---|---|---|
-| `DATABASE_URL` | はい | control plane 用の PostgreSQL 接続文字列 |
-| `ANKOLE_SECRET_BASE` | はい | インスタンス全体の secret base。他のキーの導出に使われる |
-| `RELEASE_COOKIE` | はい | Erlang distribution cookie。同じデプロイのすべてのコントロールプレーンノードが同じ値を使う |
-| `POSTGRES_PASSWORD` | バンドル版 PostgreSQL のみ | PostgreSQL のパスワード（バンドル版 PostgreSQL を有効にした場合に必須。それ以外は外部 Secret が提供する） |
-| `ANKOLE_HOST` | Compose | デプロイメントが提供される DNS 名 |
+| `DATABASE_URL` | はい（`prod`） | control plane（`Ankole.Repo`）用の PostgreSQL 18+ 接続文字列 |
+| `BASE_DB_URLS` | いいえ | 物理 Pod Base シャード（`Ankole.Pod.BaseRepo`）用の `;` 区切り PostgreSQL 18+ 接続 URL（任意）。クエリパラメータ `ankole_sharding`、`ankole_pool_size`、`ankole_stock_only` に対応します。単一 DB の FOSS 構成で未設定の場合は `DATABASE_URL` を `base_default` として使用し、`sslmode` は拒否します |
+| `ANKOLE_SECRET_BASE` | はい（`prod`） | サイト全体の secret base。暗号化キーや署名キーの導出に使われます |
+| `RELEASE_COOKIE` | はい（`prod`） | Erlang distribution cookie。同じデプロイのすべてのコントロールプレーンノードが同じ値を使います |
+| `ANKOLE_FUNCTION_RUNTIME_TOKEN` | はい（`prod`） | control plane と `ankole-function-runtime` が共有する内部 Bearer シークレット |
+| `ANKOLE_FUNCTION_RUNTIME_URL` | はい（`prod`） | `ankole-function-runtime` の内部 HTTP URL（例：Compose では `http://function-runtime:9000`） |
+| `POSTGRES_PASSWORD` | バンドル版 PostgreSQL のみ | PostgreSQL のパスワード（バンドル版 PostgreSQL を有効にした場合に必須。それ以外は `DATABASE_URL` または外部 Secret で指定） |
+| `ANKOLE_HOST` | Compose | デプロイメントが提供される公開 DNS 名 |
 | `ACME_EMAIL` | Compose | Caddy が Let's Encrypt に使うメールアドレス |
-| `ANKOLE_DOCKER_GID` | Compose | Docker socket のグループ ID。control plane は非特権ユーザーとして実行され、このグループを通じて socket を使用する |
+| `ANKOLE_DOCKER_GID` | Compose | Docker socket のグループ ID。control plane は非特権ユーザーとして実行され、このグループを通じて socket を使用します |
 
 これらの値は `.env` または Secret に保管してください。バージョン管理にコミットしてはなりません。Docker Compose の `.env.example` が開始時の構成です。
 
 Worker 用のキーを `.env` や Secret に設定する必要はありません。control plane が各 Worker に専用の credential を渡します。
 
-Helm chart の `values.yaml` には、関連する Kubernetes の値 `ankoleSecretBase`、`releaseCookie`、`databaseURL`、`postgresqlPassword` がリストされています。
+Helm chart の `values.yaml` では、関連する設定キーとして `secrets.ankoleSecretBase`、`secrets.releaseCookie`、`secrets.functionRuntimeToken`、`secrets.databaseURL`、`secrets.baseDBURLs`、`secrets.postgresqlPassword`、`controlPlane.siteAdminConsolePath`、`functionRuntime.*` が定義されています。
 
 ## ランタイム調整（プロセス環境）
 
-これらは起動時に読み取られ、実行中のプロセスを調整します。secret ではありません。
+これらは起動時に読み取られ、control plane または `ankole-function-runtime` プロセスを調整します。secret ではありません。
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
 | `ANKOLE_ENV` | — | デプロイメント環境のラベル（例：`prod`、`dev`） |
 | `ANKOLE_LOG_LEVEL` | `info` | ログレベル（`debug`、`info`、`warning`、`error`） |
-| `ANKOLE_DATABASE_POOL_SIZE` | `10` | control-plane のデータベース接続プールサイズ |
+| `POOL_SIZE` | `10` | control-plane プロセスが直接読み取る `Ankole.Repo` のデータベース接続プールサイズ |
+| `ANKOLE_DATABASE_POOL_SIZE` | `10` | Docker Compose の `.env` 変数（`compose.yaml` が `POOL_SIZE` にマッピング） |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | バンドル版サーバー用の PostgreSQL の `max_connections` 設定 |
+| `ANKOLE_SITE_ADMIN_CONSOLE_PATH` | `/site-admin-console` | Site Admin Console の URL パス |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | リリース既定値 | Docker Compose での `ankole-function-runtime` コンテナイメージ |
+| `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` | `32` | `ankole-function-runtime` コンテナあたりの最大同時実行数 |
 | `ANKOLE_LIBRARY_ROOT` | chart のデフォルト | 同梱の Agent Library（`app/library`）へのパス |
 | `ANKOLE_INTERNAL_SKILLS_ROOT` | — | 内部 Skill bundle へのパス |
-| `ANKOLE_AI_GATEWAY_BASE_URL` | — | AIGateway のベース URL の上書き（ほとんど必要ない） |
+| `ANKOLE_AI_GATEWAY_BASE_URL` | — | AIGateway のベース URL の上書き |
 
 ## ファイルストア（プロセス起動）
 
-コントロールプレーンは各 Agent のドライブをファイルストアに保存します。対象は添付ファイル、生成画像、送信したファイル、インストール済み Skill、Automation Job のスクリプト、Agent が保存したファイルです。Worker はストレージの認証情報を受け取らず、ファイルのバイトはコントロールプレーンを経由します。
+`ANKOLE_FILES_STORE` はコントロールプレーンのオブジェクトストア（`Ankole.ObjectStore`）を設定し、各 Agent のドライブ（添付ファイル、生成画像、送信したファイル、インストール済み Skill、Automation Job のスクリプト、Agent が保存したファイル）に加え、Pod の `file` ページ、Pod ドキュメント/Base/Chat 添付ファイル、およびコンパイル済み Applet バンドルを保存します。Worker はストレージの認証情報を受け取らず、ファイルのバイトはコントロールプレーンを経由します。対応するすべての OpenDAL backend については[control plane ドライブ・オブジェクトストレージの設定](../drive-storage/)を参照してください。
 
 | 変数 | 必須 | 意味 |
 |---|---|---|

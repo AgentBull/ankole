@@ -24,7 +24,7 @@ export const quickstartLabels = {
 
 export const agentInstallPrompt = [
   'https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankole のプライベートデプロイメントインスタンスのデプロイと設定を手伝ってください。',
-  'まず、私の環境を調査し、Docker Compose、Kubernetes、またはソースからのインストールのいずれかを推奨してください。次に、Identity Provider（IdP）、LLM Provider、Agent、Channel Provider、Signal Routing Rule（Signal Binding）のセットアップを手伝ってください。IdP と IM プラットフォームを指定していない場合は、使用したい identity ソースとチャットプラットフォームを尋ねてください。勝手に選択しないでください。',
+  'まず、私の環境を調査し、Docker Compose、Kubernetes、またはソースからのインストールのいずれかを推奨してください。次に、パスワードレスのメール認証（Email OTP）またはエンタープライズ SSO の Identity Provider（IdP）によるサインインと、LLM Provider、Agent、Channel Provider、Signal Routing Rule（Signal Binding）のセットアップを手伝ってください。サインイン方式と IM プラットフォームを指定していない場合は、使用したいサインイン方式（SMTP メール認証またはエンタープライズ IdP）とチャットプラットフォームを尋ねてください。勝手に選択しないでください。',
   'chat やコマンドの出力に secret を露出しないでください。選択した IM で実際の Agent の返信を受け取ったときにだけ、作業は完了とみなします。'
 ].join(' ')
 
@@ -34,7 +34,7 @@ export const deploymentTabs = [
     label: 'Docker Compose',
     badge: 'シングルホスト推奨',
     summary:
-      "1 台のホストで PostgreSQL、control plane、Caddy を実行し、選択した provider が Agent ごとに Worker を作成します。",
+      "1 台のホストで PostgreSQL 18、ankole-function-runtime、control plane、Caddy を実行し、選択した provider が Agent ごとに Worker を作成します。",
     prerequisites: [
       'Linux amd64 または arm64 のコンテナを実行できる Linux、macOS、または Windows ホスト',
       'Compose プラグイン付きの Docker Engine、または Docker Desktop',
@@ -59,7 +59,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '3 つの独立した secret を生成する',
+          title: '4 つの独立した secret を生成する',
           body: ['このコマンドをコピーして実行してください。その完全な出力を .env に貼り付けます。'],
           code: [
             {
@@ -67,13 +67,16 @@ export const deploymentTabs = [
               code: [
                 "printf '%s\\n' \\",
                 "  '# PostgreSQL database password' \\",
-                '  "POSTGRES_PASSWORD=$(openssl rand -hex 32)" \\',
+                '  "POSTGRES_PASSWORD=$(openssl rand -hex 24)" \\',
                 "  '' \\",
                 "  '# ANKOLE master encryption key' \\",
                 '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
                 "  '' \\",
                 "  '# Erlang distribution cookie of the control plane' \\",
-                '  "RELEASE_COOKIE=$(openssl rand -hex 32)"'
+                '  "RELEASE_COOKIE=$(openssl rand -hex 32)" \\',
+                "  '' \\",
+                "  '# Shared token between the control plane and ankole-function-runtime' \\",
+                '  "ANKOLE_FUNCTION_RUNTIME_TOKEN=$(openssl rand -hex 32)"'
               ].join('\n')
             }
           ]
@@ -120,7 +123,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose は PostgreSQL を待ち、データベース移行を完了してから control plane と Caddy を起動します。"
+            "Compose は PostgreSQL 18 と ankole-function-runtime を起動し、データベース移行を完了してから control plane と Caddy を起動します。"
           ]
         },
         {
@@ -142,12 +145,16 @@ export const deploymentTabs = [
         {
           title: '検証済みのイメージを固定する',
           body: [
-            'control plane のイメージは同じソースリビジョンの Worker イメージを指定し、control plane はそのイメージですべての Worker を作成します。管理された rollout のためには、control plane のイメージを不変の digest に固定してください。その digest は Worker イメージも固定します。'
+            'control plane のイメージは同じソースリビジョンの Worker イメージを指定し、control plane はそのイメージですべての Worker を作成します。管理された rollout のためには、同じリリースの control plane イメージと ankole-function-runtime イメージの両方を不変の digest に固定してください。'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
               description: 'control plane のイメージ、または不変の digest。Worker イメージも指定します。'
+            },
+            {
+              name: 'ANKOLE_FUNCTION_RUNTIME_IMAGE',
+              description: '同じリリースの Function Runtime イメージ、または不変の digest。'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
@@ -168,7 +175,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "全書き込みを停止し、PostgreSQL、ファイルストア、全 Home、元の ANKOLE_SECRET_BASE を保存します。隔離リソースで完全復元を検証してください。手順はバックアップガイドを参照してください。"
+            "全書き込みを停止し、PostgreSQL（および専用の BASE_DB_URLS シャードデータベースがある場合はそれらもすべて）、ankole_files_data、全 Home、デプロイメント secret（ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を保存します。control plane を停止しただけでは Worker は停止しません。隔離リソースで完全復元を検証してください。手順はバックアップガイドを参照してください。"
           ]
         },
         {
@@ -252,14 +259,16 @@ export const deploymentTabs = [
                 'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
                 'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
                 'RELEASE_COOKIE="$(openssl rand -hex 32)"',
+                'ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"',
                 '',
                 'kubectl -n ankole create secret generic ankole-bootstrap \\',
                 '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
                 '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
                 '  --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \\',
+                '  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \\',
                 '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
                 '',
-                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE'
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN'
               ].join('\n')
             }
           ]
@@ -389,14 +398,14 @@ export const deploymentTabs = [
             },
             {
               name: 'DATABASE_URL',
-              description: '外部データベースの URL を ankole-bootstrap に保存します。'
+              description: '外部データベースの URL（および ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を ankole-bootstrap に保存します。'
             }
           ]
         },
         {
-          title: 'Worker のセキュリティプロファイルを確認する',
+          title: 'Worker と Function Runtime のセキュリティプロファイルを確認する',
           body: [
-            'Worker Pod に追加のカーネル権限は必要ありません。コンテナが各 Agent の分離境界です。chart は control plane に Pod、Secret、PVC を作成・削除する namespace の Role を与え、Worker Pod には権限を持たない専用の ServiceAccount を与えます。'
+            'Worker Pod に追加のカーネル権限は必要ありません。コンテナが各 Agent の分離境界です。chart は control plane に Pod、Secret、PVC を作成・削除する namespace の Role を与え、Worker Pod には権限を持たない専用の ServiceAccount を与え、ankole-function-runtime はデータベース認証情報や ServiceAccount トークンなしで実行します。'
           ],
           fields: [
             {
@@ -406,7 +415,7 @@ export const deploymentTabs = [
             {
               name: 'networkPolicy.enabled',
               value: 'true',
-              description: '任意。有効にすると、Worker Pod は接続を受け付けず、control plane、DNS、公開アドレスにだけ到達できます。'
+              description: '任意。有効にすると、Worker Pod は接続を受け付けず control plane、DNS、公開アドレスにだけ到達でき、ankole-function-runtime は functionRuntime.deniedCIDRs を遮断します。'
             }
           ],
           caution:
@@ -415,7 +424,7 @@ export const deploymentTabs = [
         {
           title: '一致するイメージを固定してアップグレードする',
           body: [
-            "同じ検証済みリビジョンの control plane と Worker イメージを固定します。helm upgrade の前に PostgreSQL、ファイルストア、全 Home、元の暗号化キーを保存します。"
+            "同じ検証済みリビジョンの controlPlane.image、functionRuntime.image、および（個別指定する場合は）worker.image を固定します。helm upgrade の前に PostgreSQL（および専用の BASE_DB_URLS シャードデータベース）、ファイルストア、全 Home、bootstrap secret（ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を保存します。"
           ],
           caution:
             'Helm の rollback はデータベースの migration を元に戻しません。アプリケーションの rollback が古いスキーマも必要とする場合は、データベースのバックアップを復元してください。'
@@ -436,7 +445,7 @@ export const deploymentTabs = [
     value: 'source',
     label: 'ソースからインストールする',
     summary:
-      "ソースからの開発は PostgreSQL、Phoenix、Console、フロントエンドを起動します。control plane が Agent ごとに Docker Worker を作成します。",
+      "ソースからの開発は PostgreSQL 18、ankole-function-runtime、Phoenix、Console、フロントエンドを起動します。control plane が Agent ごとに Docker Worker を作成します。",
     prerequisites: [
       'macOS または Linux。Windows では WSL2 を使用してください',
       'システムパッケージをインストールできるアカウント',
@@ -491,7 +500,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '依存関係をインストールして PostgreSQL を初期化する',
+          title: '依存関係をインストールしてローカルサービスを起動する',
           code: [
             {
               language: 'bash',
@@ -502,6 +511,9 @@ export const deploymentTabs = [
                 'bun run control-plane:setup'
               ].join('\n')
             }
+          ],
+          body: [
+            'bun run services:start は Docker 上で PostgreSQL 18 と ankole-function-runtime を起動し、その後 control-plane:setup がデータベースを初期化します。'
           ]
         },
         {
@@ -549,7 +561,7 @@ export const deploymentTabs = [
           ],
           body: [
             'Agent を作成するまで、Worker コンテナはありません。各 Worker コンテナは、ローカルの Agent Computer ソースを watch モードで実行します。',
-            'bun dev ターミナルで Ctrl+C を使い、control plane と Worker を停止してください。終了時に PostgreSQL も別途停止してください。'
+            'bun dev ターミナルで Ctrl+C を使い、control plane と Worker を停止してください。終了時は bun run services:stop で PostgreSQL 18 と ankole-function-runtime を停止してください。'
           ]
         },
         {
@@ -565,6 +577,71 @@ export const deploymentTabs = [
 ]
 
 export const identityTabs = [
+  {
+    value: 'email_otp',
+    label: 'メール認証',
+    summary:
+      '自社の SMTP サーバーと 6 桁の確認コードでパスワードレスサインインを初期設定します。メール認証単独で運用することも、後からエンタープライズ SSO の Identity Provider を追加することもできます。',
+    prerequisites: [
+      '有効な TLS 証明書を持ち、最初の管理者にメールを送信できる SMTP サーバー',
+      '6 桁の確認コードを受信できる最初の管理者のメールボックス'
+    ],
+    basic: {
+      title: 'パスワードレスのメール認証（Email OTP）を設定する',
+      steps: [
+        {
+          title: '/setup で「メール認証」を選択する',
+          body: [
+            'https://<ANKOLE_HOST>/setup を開き、activation code を入力し、Plugins と業種のステップを確認して、ユーザーサインインで メール認証 を選択してください。'
+          ]
+        },
+        {
+          title: 'SMTP と管理者の情報を入力する',
+          bullets: [
+            'SMTP サーバー と ポート: 送信メールホストとポート（通常は STARTTLS の 587 または暗黙 TLS の 465）',
+            '送信元メール: 確認コードや招待メールの From アドレス',
+            'SMTP ユーザー名 と SMTP パスワード: リレーが認証を求める場合の任意設定',
+            '暗黙 TLS を使用（通常はポート 465）: 暗黙 TLS の場合のみオンにする',
+            '管理者の表示名 と 管理者メール: 最初の管理者の表示名と受信メールアドレス'
+          ],
+          body: [
+            'コードを送信 を選択してください。Ankole は初期設定を確定する前に、指定された SMTP サーバー経由で 6 桁の確認コードを送信します。'
+          ]
+        },
+        {
+          title: '6 桁のコードを確認して初期設定を完了する',
+          body: [
+            '受信トレイに届いた 6 桁の確認コード を入力し、確認して初期設定を完了 を選択してください。',
+            '確認が成功すると、暗号化された authn.email.mail 設定が保存され、検証済みの email_otp SiteCredential が紐付けられ、最初のユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'SMTP の CLI 修復と Pod 招待',
+      summary: 'CLI から SMTP 設定を修復したり、エンタープライズ SSO なしでメンバーを招待したりできます。',
+      steps: [
+        {
+          title: 'CLI から SMTP 設定を修復する',
+          code: [
+            {
+              language: 'bash',
+              code: 'mix ankole.authn.mail.put /secure/path/mail.json'
+            }
+          ],
+          body: [
+            'リリースコンテナ内では Ankole.Release.put_authn_mail(json) を呼び出します。JSON の内容は secret として保護してください。'
+          ]
+        },
+        {
+          title: 'メンバーを招待するか後からエンタープライズ SSO を追加する',
+          body: [
+            'Pod 管理者は Pod 設定からメール招待を送信でき、後から Console → Identity Providers でエンタープライズ SSO を追加することもできます。'
+          ]
+        }
+      ]
+    }
+  },
   {
     value: 'slack',
     label: 'Slack',
@@ -667,7 +744,7 @@ export const identityTabs = [
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            'Slack が Ankole に戻ると、このユーザーが最初の root administrator になります。Console → Identity Providers を開き、slack-main を選択して Run full sync を選択してください。',
+            'Slack が Ankole に戻ると、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、slack-main を選択して Run full sync を選択してください。',
             '同期が終わったら、Console → Principals と Principal groups で、ワークスペースのメンバーと Slack のユーザーグループを確認してください。'
           ]
         }
@@ -770,7 +847,7 @@ export const identityTabs = [
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            'サインインの後、このユーザーが最初の root administrator になります。Console → Identity Providers を開き、entra-id-main を選択して Run full sync を選択してください。',
+            'サインインの後、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、entra-id-main を選択して Run full sync を選択してください。',
             '同期が終わったら、Principals と Principal groups で、テナントのユーザーとグループを確認してください。'
           ]
         }
@@ -899,7 +976,7 @@ export const identityTabs = [
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            'サインインの後、このユーザーが最初の root administrator になります。Console → Identity Providers を開き、google-workspace-main を選択して Run full sync を選択してください。',
+            'サインインの後、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、google-workspace-main を選択して Run full sync を選択してください。',
             '同期が終わったら、Principals と Principal groups で、Workspace のユーザー、グループ、メンバーシップを確認してください。'
           ]
         }
@@ -1246,7 +1323,7 @@ export const identityTabs = [
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            '最初にサインインしたメンバーが最初の root administrator になります。Console → Identity Providers を開き、wecom-main を選択してフル同期を実行してください。',
+            '最初にサインインしたメンバーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、wecom-main を選択してフル同期を実行してください。',
             'Principals と Principal groups で、メンバーと部門を確認してください。'
           ]
         }
@@ -1960,14 +2037,14 @@ export const channelTabs = [
         {
           title: 'Telegram ユーザーをアカウントにマッピングする',
           body: [
-            'Telegram ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Telegram の identity を既存のアカウント（たとえばローカルパスワードのアカウント）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンな bot の場合にだけ選択してください。'
+            'Telegram ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Telegram の identity を既存のアカウント（たとえば事前作成したメンバー）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンな bot の場合にだけ選択してください。'
           ]
         },
         {
           title: '会話がセッションにどう対応するかを知る',
           bullets: [
-            'プライベートチャット、グループ、スーパーグループは、それぞれ 1 つの Agent セッションを形成します。',
-            'スーパーグループ内の各フォーラムトピックは、別のセッションです。',
+            'プライベートチャット、グループ、スーパーグループは、それぞれ 1 つの Conversation を形成します。',
+            'スーパーグループ内の各フォーラムトピックは、別の Conversation です。',
             'チャンネル投稿、他の bot からのメッセージ、匿名またはゲストの送信者は無視されます。'
           ]
         },
@@ -2054,14 +2131,14 @@ export const channelTabs = [
         {
           title: 'Discord ユーザーをアカウントにマッピングする',
           body: [
-            'Discord ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Discord の identity を既存のアカウント（たとえばローカルパスワードのアカウント）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンなサーバーの場合にだけ選択してください。'
+            'Discord ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Discord の identity を既存のアカウント（たとえば事前作成したメンバー）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンなサーバーの場合にだけ選択してください。'
           ]
         },
         {
           title: '会話がセッションにどう対応するかを知る',
           bullets: [
-            'ダイレクトメッセージと各サーバーチャンネルは、それぞれ 1 つの Agent セッションを形成します。',
-            '各スレッドは別のセッションです。',
+            'ダイレクトメッセージと各サーバーチャンネルは、それぞれ 1 つの Conversation を形成します。',
+            '各スレッドは別の Conversation です。',
             '他の bot からのメッセージ、webhook の投稿、システム通知、テキストも添付ファイルもないメッセージは無視されます。',
             'Agent のテキストがユーザー、ロール、または everyone に通知することはありません。Ankole は送信するすべてのメッセージでメンションの解析を無効にします。'
           ]
@@ -2163,13 +2240,13 @@ export const channelTabs = [
         {
           title: 'LINE ユーザーをアカウントにマッピングする',
           body: [
-            'LINE ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、LINE の表示名とともに アイデンティティ → 保留中のマッピング に表示され、管理者が LINE の identity を既存のアカウント（たとえばローカルパスワードのアカウント）に紐付けます。その後、ユーザーはメッセージを再送信します。LINE のユーザー ID は channel を所有する LINE Developers の provider に属するため、異なる provider の下にある channel には別々のマッピングが必要です。'
+            'LINE ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、LINE の表示名とともに アイデンティティ → 保留中のマッピング に表示され、管理者が LINE の identity を既存のアカウント（たとえば事前作成したメンバー）に紐付けます。その後、ユーザーはメッセージを再送信します。LINE のユーザー ID は channel を所有する LINE Developers の provider に属するため、異なる provider の下にある channel には別々のマッピングが必要です。'
           ]
         },
         {
           title: 'グループでの Agent の動作を知る',
           bullets: [
-            '1 対 1 のチャット、グループ、複数人チャットは、それぞれ 1 つの Agent セッションを形成します。LINE にはスレッドがありません。',
+            '1 対 1 のチャット、グループ、複数人チャットは、それぞれ 1 つの Conversation を形成します。LINE にはスレッドがありません。',
             'グループでは、bot への @ メンション、または bot のメッセージの引用が Agent 宛になります。グループでの返信は質問者を引用します。',
             'ユーザーが送信取消したメッセージは、セッションの context から削除されます。'
           ]
@@ -2368,7 +2445,7 @@ export const channelTabs = [
         {
           title: 'メールの送信者がアカウントになる方法を知る',
           body: [
-            'インターネット上の誰でもメールボックスに書き込めて、From アドレスはそれ自体では何も証明しないため、Ankole はメールの送信者をプロフィールのメールアドレスやローカルサインインのメールアドレスで照合することはありません。送信者は、明示的なメールの identity 紐付けによってのみ既知になります。ディレクトリ同期とプロバイダーのサインインは、プロバイダーが報告するアドレスを紐付けるため、同期されたディレクトリの社員は手動の手順なしに受け入れられます。それ以外のアドレスは、管理者が アイデンティティ → 保留中のマッピング から紐付けます。独立アカウントを自動作成 は、そのアドレスを識別子とするアカウントを作成します。公開メールボックスの場合にのみ使用してください。'
+            'インターネット上の誰でもメールボックスに書き込めて、From アドレスはそれ自体では何も証明しないため、Ankole はメールの送信者を未連携のプロフィールメールアドレスや SiteCredential のログインメールアドレスだけでは照合しません。送信者は、明示的な Pod のメール（email）identity 紐付けによってのみ既知になります。ディレクトリ同期とエンタープライズプロバイダーのサインインは、プロバイダーが報告するアドレスを紐付けるため、同期されたディレクトリの社員は手動の手順なしに受け入れられます。それ以外のアドレスは、管理者が アイデンティティ → 保留中のマッピング から紐付けます。独立アカウントを自動作成 は、そのアドレスを識別子とするアカウントを作成します。公開メールボックスの場合にのみ使用してください。'
           ]
         },
         {
@@ -2453,6 +2530,11 @@ Agent が Worker を共有することはありません。同僚がそれぞれ
 | **Identity Provider (IdP)** | Console の SSO を提供し、社員、連絡先、組織構造を同期する外部の identity ソース | IdP |
 | **Chat platform** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メールボックスなどの外部の会話プラットフォーム | Platform |
 | **Channel Provider** | メッセージを受信して Agent の返信を送信する 1 つのチャットアプリまたは bot 設定 | Channel Provider |
+| **Conversation** | 人と Agent の共有スペース。ネイティブメッセージは Ankole を権威とし、外部メッセージは外部ホストを権威とします | Conversation |
+| **Message** | 会話の参加者から見える確定済みの記録 | Message |
+| **Signal** | メッセージ、時刻、外部イベント、またはタスク完了から生じる永続的な刺激 | Signal |
+| **Session** | signal キューと復旧可能な作業を持つ実行コンテキスト。会話をまたぎません | Session |
+| **Delivery** | 外部の会話へ送信するメッセージの永続的な送信意図、試行、結果 | Delivery |
 | **Signal Routing Rule (Signal Binding)** | signal ソースから Agent にメッセージまたはイベントを送信するルール | Routing rule |
 | **LLM Provider** | モデルサービスのエンドポイント、credential、利用可能なモデルを保存する設定 | LLM Provider |
 | **Background Agent Jobs profile (内部キー: `coding`)** | Background Agent Jobs の AIGateway provider とモデルを選択します | Background Agent Jobs |
@@ -2485,24 +2567,25 @@ Worker の installation 名は 1–20 文字で、小文字、数字、ハイフ
 
 <span id="identity-providers" aria-hidden="true" />
 
-## 2. 最初に identity provider をセットアップする
+## 2. サインインと identity を最初にセットアップする
 
-Ankole はエンタープライズ内のプライベートデプロイメント用に設計されています。1 つのサイトに複数のテナントを配置できます。各テナントの Agent、社員、システムサービスは Principal として表現され、AuthZ が権限を管理します。identity provider の設定前に Console で対象テナントを選択してください。
+Ankole はエンタープライズ内のプライベートデプロイメント用に設計されています。1 つのサイトに複数のテナントを配置できます。各テナントの Agent、社員、システムサービスは Principal として表現され、AuthZ が権限を管理します。`/setup` を完了すると、最初の管理者に `siteadmin`（`/site-admin-console` の Site Admin Console 用）と既定 Pod の `pod_admin` の両方が付与されます。テナント固有の設定を行う前に、Console で対象テナントを選択してください。
 
-Hermes Agent や OpenClaw と同様に、Ankole はチャットチャンネルに接続します。また、エンタープライズの identity ソースにも接続し、社員、ディレクトリの連絡先、組織構造を同期します。チャットチャンネルを設定する前に、Identity Provider（IdP）を設定してください。
+`/setup` では、パスワード不要の **メール認証（Email OTP）**（`email_otp`。SMTP サーバーと 6 桁の確認コードを使用）または、社員、ディレクトリの連絡先、組織構造も同期する **エンタープライズ SSO Identity Provider（IdP）** のいずれかを選択できます。チャットチャンネルを設定する前に、サインイン方式を設定してください。
 
 | 設定 | 制御するもの | 設定場所 |
 |---|---|---|
-| **Identity Provider (IdP)** | Console の SSO、およびエンタープライズのディレクトリから同期される社員、連絡先、組織構造、権限グループ | 最初に `/setup`、その後 **Console → Identity Providers** |
+| **メール認証（`email_otp`）** | パスワード不要の 6 桁メール確認（`authn.email.mail` SMTP トランスポートと `SiteCredential` 紐付け）およびメール招待 | `/setup`（**メール認証**）、または CLI `mix ankole.authn.mail.put` |
+| **Identity Provider (IdP)** | エンタープライズ SSO、およびエンタープライズのディレクトリから同期される社員、連絡先、組織構造、権限グループ | 最初に `/setup`、その後 **Console → Identity Providers** |
 | **Channel Provider** | メッセージを受信して Agent の返信を送信する IM アプリまたは bot | **Console → Signal Routing** |
 
-identity ソースとチャットチャンネルには異なるプラットフォームを使用できます。社員は Google Workspace でサインインし、Slack で Agent と会話できます。Entra ID が identity を提供し、Lark、Slack、DingTalk、Teams、または WeCom が会話を運ぶこともできます。
+サインイン方式とチャットチャンネルには異なるプラットフォームを使用できます。メール認証や Google Workspace でブートストラップして Slack で Agent と会話することも、Entra ID で identity を提供しながら Lark、Slack、DingTalk、Teams、または WeCom で会話を運ぶこともできます。
 
-### お使いの IdP のセットアップを完了する
+### お使いのサインイン方式のセットアップを完了する
 
-エンタープライズが使用する identity ソースを選択してください。各タブは provider のコンソールから始まり、最初のサインインとディレクトリ同期で終わります。
+**メール認証**または組織が使用するエンタープライズの identity ソースを選択してください。エンタープライズ SSO の各タブは provider のコンソールから始まり、最初のサインインとディレクトリ同期で終わります。
 
-アダプタを初めて有効にする場合は、最初のサインインの後に control plane を再起動してください。この再起動で、ディレクトリ接続や Graph サブスクリプションなどのプラグインのバックグラウンド作業が開始されます。
+エンタープライズアダプタを初めて有効にする場合は、最初のサインインの後に control plane を再起動してください。この再起動で、ディレクトリ接続や Graph サブスクリプションなどのプラグインのバックグラウンド作業が開始されます。
 
 <QuickstartTabs
   client:visible
@@ -2576,7 +2659,7 @@ Console で、**Signal Routing → New routing rule** を開き、設定して�
 
 <DocsKnowledgeNote
   label="💡 知っていましたか？"
-  text="現在、1 つの routing ルールは 1 つの signal ソースを 1 つの Agent に送信します。チャットアプリが最も一般的なソースです。将来のルールは、チャンネル、会話、または別の条件で Agent を選択できます。Salesforce などの外部システムも、Agent が行動できるイベントを送信できるようになります。このモジュールが Signal Routing と呼ばれるのは、チャットチャンネルだけでなく、Agent の仕事を開始できるすべての signal を処理するためです。"
+  text="Signal Routing Rule はソースからのメッセージやイベントを対象 Agent に送ります。チャットアダプタはメッセージを Conversation に記録してから Signal を作成し、CloudEvents エンドポイントも外部システムのイベントを受け取れます。複数の Agent が Conversation の履歴を共有でき、各 Agent は自身の Session でその履歴を処理します。"
 />
 
 <QuickstartDisclosure

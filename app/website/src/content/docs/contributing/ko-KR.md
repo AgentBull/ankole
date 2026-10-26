@@ -22,9 +22,9 @@ Ankole에 기여한다는 것은 첫 편집 전에 두 문서를 읽고, 그 문
 
 1. **저장소를 얻고 환경을 선택하세요** — 클론하고 macOS/Linux/WSL2 또는 GitHub Codespaces를 선택합니다.
 2. **시스템 도구를 설치하고 검증하세요** — `bash tools/devkit/scripts/env-setup.sh`를 실행한 다음 `bun`, `elixir`, `rustc`, `cargo clippy`, `docker`가 모두 작동하는지 확인합니다. 각 `kit` 명령이 무엇을 하는지는 [kit CLI reference](../kit-cli/)를 참조하세요.
-3. **의존성을 설치하고 PostgreSQL을 초기화하세요** — `bun install`, `bun run services:start`, `bun run control-plane:setup`.
+3. **의존성을 설치하고 로컬 서비스를 초기화하세요** — `bun install`, `bun run services:start`(PostgreSQL 18 및 `Function Runtime` / `ankole-function-runtime` 시작), 그리고 `bun run control-plane:setup`.
 4. **완전한 개발 환경을 시작하세요** — `bun dev`.
-5. **최초 제품 설정을 완료하세요** — 활성화, Feishu 테스트 앱 생성, OIDC 구성, Console에서 런타임 구성.
+5. **최초 제품 설정을 완료하세요** — `/setup`에서 활성화하고, 패스워드리스 SMTP 이메일 OTP 또는 Feishu 앱 OAuth로 첫 관리자 로그인을 완료하며(전체 Feishu 엔드투엔드 테스트를 실행할 때는 Feishu 테스트 앱 생성), `/site-admin-console`의 Site Admin Console에서 런타임을 구성합니다.
 6. **엔드투엔드 경로를 증명하세요** — 실제 Feishu 메시지가 agent에 도달하고 예상된 답변을 반환합니다.
 
 설정은 페이지가 열렸을 때 끝나는 것이 아닙니다. 실제 메시지가 왕복했을 때 끝납니다. 짧은 경로는 [Quick start](../quickstart/)를, 전체 수락은 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 참조하세요.
@@ -38,7 +38,7 @@ Ankole에 기여한다는 것은 첫 편집 전에 두 문서를 읽고, 그 문
 - **가장 작은 올바른 변경.** 선택된 방향을 따르고 시스템이 유지할 수 있는 계약을 보존하며 이해 가능한 가장 작은 변경을 선호하세요. 약간의 중복은 복잡성을 키우는 추상화보다 낫습니다.
 - **Worse is better.** 단순성이 인터페이스 균일성이나 이론적 완전성을 이깁니다. 단순성이 이길 때는, 조용히 잘못된 결과를 만들기보다 계약을 좁히거나 지원하지 않는 경우를 명시적으로 거부하세요.
 - **목표 충실성(objective fidelity).** 요청된 작업을 하지, 더 저렴한 대리물을 하지 마세요. 초록 테스트가 목표가 아니라, 소유 추상화를 통과하는 실제 경로가 목표입니다.
-- **서브시스템 경계.** PostgreSQL은 지속적 사실을 소유하고, Elixir control plane은 지속적 상태와 감독을 소유하고, Rust kernel은 공유 네이티브 프리미티브를 소유하고, Bun Agent Computer Worker는 실행을 소유합니다. 경계를 가로지르는 변경은 그 경계를 존중해야지, 덮어서는 안 됩니다.
+- **서브시스템 경계.** PostgreSQL은 지속적 사실을 소유하고, Elixir control plane은 지속적 상태와 감독을 소유하고, Rust kernel은 공유 네이티브 프리미티브를 소유하고, Bun Agent Computer Worker는 Agent별 실행을 소유하며, `Function Runtime`(`app/function_runtime/`)은 무상태 Applet 백엔드와 결정론적 프로그램 격리 실행을 담당합니다. 경계를 가로지르는 변경은 그 경계를 존중해야지, 덮어서는 안 됩니다.
 
 ## changelog 규칙
 
@@ -48,7 +48,7 @@ Ankole에 기여한다는 것은 첫 편집 전에 두 문서를 읽고, 그 문
 - 버전은 사용자나 운영자가 업그레이드 후 알아차릴 것을 기록합니다: 새 기능, 동작 변경, 제거, 그들이 겪었을 수 있는 장애의 수정, 필요한 조치. 문서, 테스트, 도구, 의존성, 리팩터링은 기록하지 않습니다. 그런 변화가 없는 버전은 `Internal changes only.`라고만 씁니다.
 - 버전은 `MAJOR.MINOR.PATCH`를 사용합니다. 기본은 `PATCH`입니다. `MINOR`는 제품에 이전에 없던 기능이나 사람이 조치해야 하는 파괴적 변경을 위한 것입니다. `MAJOR`와 사전 릴리스 접미사는 유지보수자의 결정을 따릅니다.
 
-changelog는 유일한 changelog이자 버전 단위입니다 — 별도의 릴리스 노트 파일은 없습니다. `main` 런타임 이미지 빌드가 이미지 쌍 검증을 통과한 후, 워크플로는 control-plane 및 Worker 이미지 태그에 최신 버전을 사용하고 정확히 그 섹션에서 불변 GitHub Release를 만듭니다. changelog를 변경의 일부로 취급하고, 사후 서류 작업으로 취급하지 마세요.
+changelog는 유일한 changelog이자 버전 단위입니다 — 별도의 릴리스 노트 파일은 없습니다. `main` 런타임 이미지 빌드가 동일 버전의 세 가지 런타임 이미지(`ankole-control-plane`, `ankole-agent-computer`, `ankole-function-runtime`) 검증을 모두 통과한 후, 워크플로는 세 이미지 태그에 최신 버전을 사용하고 정확히 그 섹션에서 불변 GitHub Release를 만듭니다. changelog를 변경의 일부로 취급하고, 사후 서류 작업으로 취급하지 마세요.
 
 ## 올바른 검사 실행
 

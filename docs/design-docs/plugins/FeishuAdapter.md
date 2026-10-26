@@ -121,24 +121,23 @@ Direct messages give explicit input. A structured mention of the current bot
 makes a group message explicit. Conversations applies the binding policy to
 other group messages.
 
-Every Lark identity path selects `external_id` in this order: normalized
-`email`, `user_id`, `union_id`, then `open_id`. The email itself is the primary
-external ID when it is available; it is not only contact-match input. This
-keeps the normal identifier readable when Lark supplies an opaque or generated
-`user_id`.
+Every Lark identity path selects an immutable `external_id` strictly in this
+order: `user_id`, `union_id`, then `open_id`. Mutable contact addresses never
+act as the primary Lark `external_id`.
 
-The adapter writes every remaining ID as a provider-scoped alias for the same
-Principal in the same transaction. Message admission, directory sync, IM group
-membership, and card operators use this rule. A conflict with an existing
+The adapter writes every remaining Lark ID as a provider-scoped alias for the
+same Principal in the same transaction. Message admission, directory sync, IM
+group membership, and card operators use this rule. A conflict with an existing
 alias fails the complete write; the adapter does not move an alias between
 Principals. An external-tenant member can have no `user_id`, so `union_id` or
 `open_id` becomes the primary external ID. Only a person with none of these
-values is ignored.
+immutable IDs is ignored. Both `enterprise_email` (`work_email`) and `email`
+bind under the `email` external-identity namespace.
 
 The adapter also declares an `author_hydrator`. On an identity miss, the
-gateway fetches the sender's contact profile once. If the result supplies an
-email, that normalized email becomes the primary external ID and the webhook
-IDs become aliases before admission continues.
+gateway fetches the sender's contact profile once, resolves `[user_id, union_id,
+open_id]`, and supplies `email`, `mobile`, and `display_name` as contact and
+profile facts before admission continues.
 
 An inbound Turn exposes its public Conversation UUID in
 `<agent_environment_info>`. A display name is a separate optional fact.
@@ -146,8 +145,7 @@ The message webhook does not supply one, so identity admission projects a name
 already synchronized from Contact into the current event. For a group message,
 the control-plane prompt renderer writes `speaker` as `name(uid)` and repeats
 the `uid` when no name is known. Human Principal UIDs are opaque UUIDv7
-values; the normalized email and Lark IDs are provider-scoped external
-identities.
+values; the Lark IDs and `email` rows are provider-scoped external identities.
 
 Reaction events use the operator `user_id` when it is present. They use the
 operator `open_id` as the stable reaction actor key when Feishu omits
@@ -408,16 +406,21 @@ and submissions stay in the human-initiated main Turn.
 
 ## Import People and Departments
 
-OIDC login resolves the person to `user_id`. Full sync writes users, departments,
-and memberships to Principal and AuthZ records.
+OIDC login resolves the person through `[user_id, union_id, open_id]`. Full sync
+runs under `DirectoryAccess` and writes users, departments, memberships, and
+`email` contact identities (for both `enterprise_email` and `email`) to
+Principal and AuthZ records. It records `:offboarded` for `is_resigned` or
+`is_exited`, `:suspended` for `is_frozen`, and `:healthy` recovery when those
+flags are false.
 
-Real-time user events upsert the user data in the event when it contains a
-`user_id`. An incomplete user event, a department event, or a scope change
-enqueues a full sync. Disabling WebSocket sync does not disable full directory
-sync.
+Real-time `contact.user.*` events (with `contact.user.deleted_v3` treated as a
+departure) pass `[user_id, union_id, open_id]` to
+`DirectoryAccess.receive_event/2`. An incomplete user event, a department event,
+or a scope change enqueues a full sync. Disabling WebSocket sync does not
+disable full directory sync.
 
-Authentication does not grant console access. AuthZ must resolve the person as
-an active human administrator.
+Authentication does not grant console access. AuthZ must resolve the person's
+grants for Site Console or Pod administration.
 
 ## Restart and Recovery
 

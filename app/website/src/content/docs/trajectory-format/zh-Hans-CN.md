@@ -72,7 +72,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 ## 本指南不是什么
 
-它不是 ChatML 规范——规范 ChatML 格式是一个标准，Ankole 的读取投影保持这一形态，不重新定义它。它不是读取轨迹的消费者面向 API——Console 路由（`/ai-gateway/conversations/:id/messages`、`/background-agent-jobs/:id`）是运维界面，见 [Console API 参考](../console-api/)。它也不是存储页的替代；本页是跨两者的格式层视图。
+它不是 ChatML 规范——规范 ChatML 格式是一个标准，Ankole 的读取投影保持这一形态，不重新定义它。它不是读取轨迹的消费者面向 API——Console 路由（`/api/v2/ai-gateway/conversations/:id/messages`、`/api/v2/background-agent-jobs/:id`）是运维界面，见 [Console API 参考](../console-api/)。它也不是存储页的替代；本页是跨两者的格式层视图。
 
 ## 下一步
 

@@ -1,6 +1,6 @@
 ---
 title: Develop Skills and Control Plane Plugins
-description: Add a work method for Agents, or add identity, channel, configuration, and supervised services to the control plane.
+description: Add a work method for Agents, or add site-scoped adapters, configuration, domain hooks, supervised services, and UI slots to the control plane.
 section: Developer guide
 order: 113
 ---
@@ -11,10 +11,11 @@ Skills and Control Plane Plugins both extend Ankole, but they solve different pr
 |---|---|
 | Teach an Agent how to perform a type of work | Skill |
 | Give an Agent an MCP-backed workflow and usage instructions | Skill |
-| Add an IdP, chat adapter, or Provider kind | Control Plane Plugin |
-| Add control-plane settings or a supervised service | Control Plane Plugin |
+| Add an IdP, chat adapter, LLM Provider, or Worker provider kind | Control Plane Plugin |
+| Add site-scoped settings, supervised services, domain transaction hooks, extension `/api/v2` routes, or Web UI Slots | Control Plane Plugin |
+| Switch consumer behavior dynamically at runtime without a restart | OpenFeature (`Ankole.Features`) |
 
-A Skill is a set of files that an Agent reads. It does not require a new control-plane build. A Control Plane Plugin is a first-party Elixir module compiled into the control plane. It needs registration and activates at the next control-plane start.
+A Skill is a set of files that an Agent reads. It does not require a new control-plane build. A Control Plane Plugin is a site-scoped, first-party full-stack extension compiled into the release (never tenant-scoped or Agent-scoped). An `:optional` Plugin activates on the next control-plane start after a `siteadmin` enables it, while an `:always` Plugin is fixed active with the source build.
 
 ## Write a Skill
 
@@ -104,7 +105,7 @@ For a `brain-recall-only` Skill, also confirm that the normal Prompt does not li
 
 ## Develop a Control Plane Plugin
 
-Use a Control Plane Plugin for capabilities owned by the control plane. The module implements `Ankole.Plugins.Plugin`. The smallest valid Plugin has one stable ID:
+Use a Control Plane Plugin for site-scoped capabilities owned by the control plane. The module implements `Ankole.Plugins.Plugin`. The smallest valid Plugin has one stable ID:
 
 ```elixir
 defmodule Ankole.Plugins.MyPlugin do
@@ -115,15 +116,19 @@ defmodule Ankole.Plugins.MyPlugin do
 end
 ```
 
-Use a lowercase slug for the Plugin ID. Implement other callbacks only when needed:
+Use a lowercase slug for the Plugin ID. Implement optional callbacks only when needed:
 
 | Callback | Purpose |
 |---|---|
-| `display_name/0`, `description/0` | Name and description shown in the Console |
-| `adapter_declarations/0` | Declare IdP, chat, or other adapters |
+| `activation/0` | `:optional` (default, selected via `plugins.enabled_ids` for next start) or `:always` (fixed active with the build; no Console toggle) |
+| `display_name/0`, `description/0` | Localized name and description shown in the Site Admin Console |
+| `adapter_declarations/0` | Declare IdP, chat, LLM Provider, Worker provider (`agent_workers.provider_kind`), or webhook adapters |
+| `hooks/0` | Declare synchronous domain transaction hooks (`[{hook_point, module}]` implementing `Ankole.Plugins.Hook`) |
 | `app_config_definitions/0` | Declare fixed AppConfigure settings |
 | `app_config_patterns/0` | Declare settings with dynamic IDs |
-| `children/0` | Start connections, registries, or reconcilers |
+| `children/0` | Start connections, registries, or reconcilers under the Plugin supervisor |
+
+A full-stack build extension can also wrap the core router with an outer request Plug, mount typed `/api/v2/*` JSON:API routes, and bind typed Web UI Slots (`PodAppSlots`, `ConsoleAppSlots`, `AuthAppSlots`) through `entries.json` `overrides`.
 
 ### Register the Plugin
 
@@ -135,7 +140,7 @@ config :ankole, :control_plane_plugin_modules, [
 ]
 ```
 
-The Plugin then appears in the Console catalog. After an administrator enables it, the next control-plane start registers its settings, adapters, and supervised processes. Plugins do not support hot loading.
+The Plugin then appears in the site-scoped catalog in the **Site Admin Console** (`/site-admin-console` under **Global defaults** scope, `GET` / `PUT /api/v2/site/control-plane-plugins`). When a `siteadmin` enables an `:optional` Plugin, the next control-plane start resolves it into the immutable `:persistent_term` boot snapshot and registers its settings, adapters, hooks, and supervised processes (`veto_disable` blocks disabling a Worker-provider Plugin while any tenant references its Worker kind). An `:always` Plugin is active whenever compiled into the release. Plugins do not support hot loading; use OpenFeature (`Ankole.Features`) for policies that must switch dynamically without a restart.
 
 ### Declare an adapter
 
@@ -154,17 +159,19 @@ def adapter_declarations do
 end
 ```
 
-The owning subsystem defines the adapter-specific fields. A chat adapter follows the [Signals](../signals/) contract. IdPs and model Providers use their existing registries. Do not create a parallel configuration path inside the Plugin.
+The owning subsystem defines the adapter-specific fields. A chat adapter follows the [Signals](../signals/) contract. IdPs, LLM Providers, and Worker providers use their existing registries. Do not create a parallel configuration path inside the Plugin.
 
-### Declare settings and services
+### Declare settings, hooks, and services
 
 Use `app_config_definitions/0` or `app_config_patterns/0` for settings that operators manage at runtime. Use environment variables only for startup facts that must exist before the database is available.
+
+Use `hooks/0` to attach synchronous admission or quota checks to domain transactions (`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`). Each hook module implements `Ankole.Plugins.Hook.before_commit_in_tx/2` and returns `:ok` or `{:error, reason}` inside the caller's transaction.
 
 `children/0` returns standard OTP child specifications. Put connections and reconcilers under the Plugin supervisor. They start when the Plugin activates and stop after disablement at the next control-plane start.
 
 ### Verify the Plugin
 
-Run the control-plane tests and static checks. Enable the Plugin in the Console and restart the control plane. Confirm that it is active, its settings are visible, and each declared adapter completes a real connection. Run the related integration test when the Plugin implements an external protocol.
+Run the control-plane tests and static checks. For an `:optional` Plugin, enable it in the **Site Admin Console** (`/site-admin-console`) and restart the control plane; an `:always` Plugin activates directly on start. Confirm that it is active, its settings are visible, its hooks enforce their contract, and each declared adapter completes a real connection. Run the related integration test when the Plugin implements an external protocol.
 
 ## Continue
 

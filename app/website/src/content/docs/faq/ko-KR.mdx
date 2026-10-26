@@ -22,7 +22,7 @@ export const commonIssues = [
     symptom: '페이지가 타임아웃되거나, 연결을 거부하거나, 502를 반환하거나, 빈 화면으로 남습니다. Provider setup이 아직 시작되지 않았습니다.',
     cause: 'control plane이 정상이 아니거나, DNS, 리버스 프록시, Ingress가 control plane으로 트래픽을 보내지 않습니다. 이후의 Provider 오류는 대개 그 결과입니다.',
     resolution: [
-      'control plane, PostgreSQL, 리버스 프록시를 확인하세요. 로그에서 첫 번째 오류를 수정하세요.',
+      'control-plane, function-runtime, PostgreSQL, 리버스 프록시를 확인하세요. 로그에서 첫 번째 오류를 수정하세요.',
       'control plane에 직접 접근이 되면 DNS, TLS, 프록시 대상을 확인하세요.',
       '데이터베이스나 영구 볼륨을 삭제하지 마세요. 시작 실패가 데이터 손상을 증명하지는 않습니다.'
     ],
@@ -34,11 +34,11 @@ export const commonIssues = [
   {
     question: '첫 설정용 activation code는 어디에 있나요?',
     symptom: '/setup이 activation code를 요구하지만, 시작 터미널은 닫혀 있거나 로그에서 코드를 찾을 수 없습니다.',
-    cause: 'control plane은 이 code를 첫 설정에만 사용합니다. 첫 번째 관리자가 로그인하면 만료됩니다.',
+    cause: 'control plane은 이 code를 첫 설정에만 사용합니다. 첫 번째 siteadmin 관리자가 로그인하면 만료됩니다.',
     resolution: [
       '설정이 완료되지 않았다면 Quick start에서 배포 방법을 선택하고 해당 탭의 로그 명령을 사용하세요.',
       'SETUP ACTIVATION CODE를 검색하세요. 브라우저 저장소나 데이터베이스 행에서 코드를 추측하지 마세요.',
-      '인스턴스에 root 관리자가 이미 있다면 다시 활성화하지 말고 설정된 IdP로 로그인하세요.'
+      '사이트에 이미 siteadmin(또는 Pod의 pod_admin) 관리자가 있다면 다시 활성화하지 말고 패스워드리스 이메일 OTP(authn.email.mail 기반 SiteCredential) 또는 구성된 엔터프라이즈 IdP SSO로 로그인하세요.'
     ],
     links: [
       { href: '../quickstart/#deployment', label: 'activation code 읽기' }
@@ -54,7 +54,7 @@ export const commonIssues = [
       'control plane이 시작되지 않으면 로그에서 첫 번째 플러그인 초기화 오류를 수정하세요.'
     ],
     links: [
-      { href: '../skills/', label: 'Agent Library에서 Plugins 활성화' }
+      { href: '../control-plane-plugins/', label: 'Control Plane Plugins 관리' }
     ]
   },
   {
@@ -550,14 +550,14 @@ export const channelTabs = [
   }
 ]
 
-이 페이지는 제품 개요가 아니며 각 provider 설정 가이드를 반복하지 않습니다. 가장 먼저 실패한 경계를 찾은 다음 관련 identity 또는 채팅 provider를 선택하세요. [Quick start](../quickstart/)는 설치와 첫 설정에 있어 여전히 source of truth입니다.
+이 페이지는 제품 개요가 아니며 각 provider 설정 가이드를 반복하지 않습니다. 가장 먼저 실패한 경계를 찾은 다음 관련 identity 또는 채팅 provider를 선택하세요. 설치와 첫 설정의 기준 문서는 [Quick start](../quickstart/)입니다.
 
 ## 실패한 경계 찾기
 
 | 관찰된 현상 | 먼저 확인할 것 |
 |---|---|
-| `/setup` 또는 Console이 열리지 않음 | 배포, control plane, DNS, HTTPS |
-| Console은 열리지만 로그인이 실패하거나 디렉터리가 불완전함 | Identity Provider (IdP) |
+| `/setup` 또는 Console이 열리지 않음 | 배포, `control-plane`, `function-runtime`, PostgreSQL, DNS, HTTPS |
+| Console 또는 Pod은 열리지만 로그인이 실패하거나 디렉터리가 불완전함 | 엔터프라이즈 IdP SSO, 패스워드리스 이메일 OTP(`authn.email.mail` 기반 `SiteCredential`), `principals.pod_login_policy` 및 `siteadmin` / `pod_admin` 멤버십 |
 | Console에서는 Agent가 작동하지만 특정 IM이 메시지를 받지 못함 | 해당 Channel Provider와 signal routing 규칙 |
 | IM 메시지는 Ankole에 들어오지만 Agent가 답변을 생성하지 못함 | LLM Provider, model profile, Worker |
 | 하나의 플랫폼만 실패 | 아래에서 해당 Provider를 선택하고 다른 플랫폼의 수정 방법을 적용하지 마세요 |
@@ -576,7 +576,7 @@ IdP는 로그인, 연락처, 조직 동기화를 소유합니다. 엔터프라�
 
 <FaqProviderTabs
   client:visible
-  ariaLabel="Choose an identity provider"
+  ariaLabel="Identity Provider 선택"
   defaultValue="slack"
   labels={faqLabels}
   tabs={identityTabs}
@@ -588,7 +588,7 @@ IdP는 로그인, 연락처, 조직 동기화를 소유합니다. 엔터프라�
 
 <FaqProviderTabs
   client:visible
-  ariaLabel="Choose a chat platform"
+  ariaLabel="채팅 플랫폼 선택"
   defaultValue="slack"
   labels={faqLabels}
   tabs={channelTabs}

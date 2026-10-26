@@ -1,11 +1,11 @@
 ---
-title: control plane ドライブのストレージ設定
-description: OpenDAL ベースの Agent ドライブにローカルファイル、クラウドバケット、データベース、SFTP、WebDAV を設定し、移行とバックアップを行います。
+title: control plane ドライブ・オブジェクトストレージの設定
+description: Ankole.ObjectStore（Agent ドライブ、Pod file ページ、各種添付ファイル、コンパイル済み Applet バンドル）にローカルファイル、クラウドバケット、データベース、SFTP、WebDAV を設定し、移行とバックアップを行います。
 section: Guides
 order: 318
 ---
 
-Agent ドライブは control plane が管理し、Worker 停止中も利用できます。PostgreSQL はパス、権限、内容参照を保存し、OpenDAL はファイルのバイトを保存します。Ankole は `fs`、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp`、`webdav` に対応します。
+`ANKOLE_FILES_STORE` は control plane のオブジェクトストア（`Ankole.ObjectStore`）を設定し、Agent ドライブ（Worker 停止中も利用可能）、Pod の `file` ページ、Pod ドキュメント/Base/Chat および会話の添付ファイル、コンパイル済み Applet バンドルを保存します。PostgreSQL はパス、権限、内容参照を保存し、OpenDAL backend はコンテンツアドレス指定の blob バイトを保存します。Ankole は `fs`、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp`、`webdav` に対応します。
 
 これはサイトの起動設定で、全 tenant が同じ object store を使います。WorkerProvider の Home、キャッシュ、Cloudflare R2 バックアップは別設定です。[WorkerProvider](../worker-providers/)と[ファイル管理](../file-management/)を参照してください。
 
@@ -20,7 +20,7 @@ Agent ドライブは control plane が管理し、Worker 停止中も利用で�
 
 複数 control plane レプリカでは共有リモートストレージを使い、backend の場所と root を一致させます。公式 Helm は `files.store: fs` で 2 レプリカ以上を拒否します。S3 ドライブは個別 WorkerProvider のレプリカ制約を解除しません。
 
-現行のデプロイガイドは、定期発火、チャット接続、scheduler 復元などの singleton が複数ノードで検証されるまで `controlPlane.replicaCount: 1` を要求します。複数レプリカには共有リモートストレージが必要です。デプロイ全体の複数レプリカ検証も必要です。[レプリカの説明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)を参照してください。
+定期発火、チャット接続、scheduler のハイドレーションなどの singleton プロセスは単一ノードで動作するため、`controlPlane.replicaCount: 1` を設定します。共有リモートストレージは複数レプリカの前提条件ですが、それ単体で複数レプリカ構成が成立するわけではありません。[レプリカの説明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)を参照してください。
 
 ## 環境変数
 
@@ -120,7 +120,7 @@ files:
     root: /ankole/production/
 ```
 
-`secrets.existingSecret` は両変数を持つ bootstrap Secret を参照できます。この Secret にはデプロイに必要な DB 認証情報、元の `ANKOLE_SECRET_BASE`、`RELEASE_COOKIE` も必要です。Chart は `secrets.filesS3AccessKeyID` と `secrets.filesS3SecretAccessKey` も受け付けます。実際の鍵を values にコミットしないでください。
+`secrets.existingSecret` は両方の S3 認証変数を持つ bootstrap Secret を参照できます。この Secret にはデプロイに必要な DB 認証情報（`DATABASE_URL`、および同梱 PostgreSQL 有効時の `POSTGRES_PASSWORD`）、元の `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、`RELEASE_COOKIE` も含める必要があります。Chart は `secrets.filesS3AccessKeyID` と `secrets.filesS3SecretAccessKey` も受け付けます。実際の鍵を values にコミットしないでください。
 
 ## Cloudflare R2 と他の S3 互換サービス
 
@@ -182,7 +182,7 @@ docker compose -f compose.yaml -f compose.files-s3.yaml up -d
 
 ## バックアップと回収
 
-DB は参照、バケット/フォルダーはバイトを保持するため、一緒に復元します。control plane はドライブパスや未完了添付から参照されない内容を回収します。参照中 object を削除する有効期限規則を設定しないでください。
+DB は参照、バケット/フォルダーは blob バイトを保持するため、一緒に復元します。control plane のガベージコレクションは、Agent ドライブ、Pod `file` ページ、Pod ドキュメント/Base/Chat および会話の添付ファイル、コンパイル済み Applet バンドルのいずれからも参照されなくなった blob を削除します。参照中 object を削除する有効期限規則を設定しないでください。
 
 S3 は multipart upload を使い、プロセス中断で未完了 upload が残る場合があります。作業時間に適した期間で未完了 upload を中止する lifecycle rule を設定します。`fs` は開くときに 1 日以上変更されていない一時ファイルをクリーンアップします。これはバックアップではありません。
 

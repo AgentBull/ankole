@@ -17,6 +17,18 @@ defmodule Ankole.Kernel do
     features: ["nif"],
     mode: @rustler_mode
 
+  # The Cargo root also contains Mix and Bun outputs. Rustler lists those as
+  # external resources, but they are not inputs to the native library.
+  resources = Module.get_attribute(__MODULE__, :external_resource)
+  Module.delete_attribute(__MODULE__, :external_resource)
+
+  for resource <- resources,
+      root = resource |> Path.relative_to(Path.expand("../..", __DIR__)) |> Path.split() |> hd(),
+      root not in ~w(_build deps node_modules priv target),
+      Path.extname(resource) != ".node" do
+    @external_resource resource
+  end
+
   @type error_reason :: String.t()
 
   @doc "Decodes an image and returns a WebP data URL within the model's byte and dimension limits."

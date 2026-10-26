@@ -5,9 +5,9 @@ section: User guide
 order: 31
 ---
 
-**You typically do not need the file browser described on this page. Send files directly to the Agent in chat to create, read, modify, organize, or transfer files. Use the Console file browser only to recover undelivered artifacts, inspect saved outputs, or organize folders manually.**
+**You typically do not need the file browser described on this page. Send files directly to the Agent in chat, or share files in your Pod workspace through Pod `file` pages and document/Base/Chat attachments. Use the Console file browser only to recover undelivered artifacts, inspect saved outputs, or organize an Agent's private drive folders manually.**
 
-Each Agent has a control-plane drive for attachments, images, published files, installed Skills, and Automation scripts. The Console can upload, download, move, and delete these files even while no Worker runs. Session and Job workspaces live in persistent Home and are not drive folders.
+Each Agent has its own private control-plane drive for attachments, images, published files, installed Skills, and Automation scripts. Workspace-shared Pod `file` pages and Pod attachments are managed in the Pod workspace under Pod page permissions rather than inside an individual Agent's Console drive. The Console can upload, download, move, and delete an Agent's drive files even while no Worker runs. Session and Job workspaces live in persistent Home and are not drive folders.
 
 Operators can configure local folders, S3, or R2 with [Control-plane drive storage](../drive-storage/). For files in legacy Home, see [Upgrade from 1.0 to 2.0](../upgrade-to-2/).
 
@@ -55,11 +55,11 @@ Files under `skills/` are the installed Skills. A change there changes the Skill
 
 The drive and persistent Home survive Worker instance replacement. Files that an Agent only writes to its workspace stay in Home; publish them to the drive to make them available in the Console. See [Workers](../worker-management/) for storage limits.
 
-The Agent's `MISSION`, `SOUL`, and `DESIGN` documents are managed in the Agent editor. They are projected to the Worker and are not drive files. See [Agents](../agents/) for those documents.
+The Agent's `MISSION`, `SOUL`, `DESIGN`, and `CONFIDENTIALITY POLICY` (`ConfidentialityPolicy.md`) documents are managed in the Agent editor. They are projected to the Worker and are not drive files. See [Agents](../agents/) for those documents.
 
 ## Common problems
 
 - **The Agent cannot find an uploaded file:** include the exact drive path in your message. The Agent fetches it with `ankole-files get`.
 - **A generated artifact is missing:** ask the Agent to save it to its drive, or confirm that the Job finished.
 - **An upload fails with a size error:** one file can have at most 100 MiB.
-- **An attachment shows as not available:** it arrived before the drive existed or its download failed. Ask the sender to send it again.
+- **An attachment shows as not available:** its download from the external channel failed or its upload did not complete. Ask the sender to send it again.

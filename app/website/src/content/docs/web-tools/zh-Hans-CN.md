@@ -43,7 +43,7 @@ Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取�
 
 ## 当前内置 Provider
 
-以后也可以通过 Control Plane Plugin 添加更多 Provider 类型。以下是 Ankole 当前内置的类型。
+Control Plane Plugin 也可以添加更多 Provider 类型。以下是 Ankole 内置的类型。
 
 ### `web_search` Provider
 
@@ -52,9 +52,9 @@ Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取�
 | **Parallel** | 是 | 同一 Provider 同时提供搜索和正文提取；支持搜索目标、多条查询、模式和总字符预算 | 希望用一套凭据完成搜索与阅读，或处理研究型查询 |
 | **Bright Data SERP** | 否 | 通过 SERP API 搜索；必须填写 Zone，可指定国家、语言和 Google 域名 | 需要控制搜索地区、语言或本地化结果 |
 | **Jina Search** | 否 | 支持地区、位置、语言、页码、缓存和搜索引擎选项 | 需要直接的网页搜索，并希望控制地域、分页或缓存 |
-| **AgentBull Cloud** | 否 | 聚合多个搜索来源；支持来源范围、时间范围和跳过缓存 | 需要聚合搜索，或需要明确限制来源和时间 |
+| **AgentBull Cloud** | 是 | 聚合搜索、网页正文提取与模型能力（`llm`、`embedding`、`rerank`、`image_generate`）；支持来源范围、时间范围和跳过缓存 | 希望用一把聚合 API Key 同时覆盖 Web 工具与模型，或需要明确限制来源和时间 |
 
-Parallel 只需添加一个 Provider 实例，就可以同时分配给 `web_search` 和 `web_fetch`。
+Parallel 或 AgentBull Cloud 只需添加一个 Provider 实例，就可以同时分配给 `web_search` 和 `web_fetch`。
 
 Jina Search 与 Jina Reader 是两个不同的 Provider 类型。即使它们使用同一套 Jina 凭据，也要分别添加，再分配给对应档案。
 
@@ -63,6 +63,7 @@ Jina Search 与 Jina Reader 是两个不同的 Provider 类型。即使它们使
 | Provider | 同时支持 `web_search` | 主要差异 | 适合的情况 |
 |---|---|---|---|
 | **Parallel** | 是 | 使用与 Parallel Search 相同的 Provider 和凭据提取正文 | 已经使用 Parallel 搜索，希望保持一套配置 |
+| **AgentBull Cloud** | 是 | 复用同一 AgentBull Cloud Provider 与 API Key 提取公开网页正文 | 已经使用 AgentBull Cloud 访问模型或搜索，希望共用一套凭据 |
 | **Jina Reader** | 否 | 把公开网页转换为 Markdown；支持保留链接、目标选择器、等待选择器、缓存、引擎和 token 上限 | 阅读文章正文，或从页面中提取指定区域 |
 
 `web_fetch` 面向公开 HTTPS 页面。它不负责登录，也不是 PDF、图片、压缩包或音视频下载器。

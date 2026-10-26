@@ -237,13 +237,15 @@ or `email`. The built-in `cloudevents` source uses `event_source` and has no
 IM group-message or sender-mapping policy.
 
 The Console catalog and binding list use `GET /api/v2/signal-adapters` and
-`GET /api/v2/signal-bindings`. The Agent binding routes are
+`GET /api/v2/signal-bindings` (authorized by `site_console:signal_bindings`
+with `read`). The Agent binding routes are
 `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` for read, edit, and
 delete, and `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name`
 for create or enable. These JSON:API actions call the existing Bindings
 owner; it keeps commit and adapter-hook authority. An edit on the same Agent
-requires its binding update permission. A move requires binding delete on the
-source Agent and binding update on the target Agent. The permission check
+requires `site_console:agent:<agent_uid>:signal_bindings` with `update`. A move
+requires `delete` on the source Agent's `site_console:agent:<agent_uid>:signal_bindings`
+resource and `update` on the target Agent's resource. The permission check
 uses the same target Agent as the move. A refusal changes neither binding.
 The edit response omits secrets. Delivery requeue uses
 `POST /api/v2/agents/:agent_uid/signal-deliveries/requeue` and the
@@ -600,7 +602,7 @@ backwards on concurrent redelivery.
 | `signal_webhook_endpoints` | Signals.Webhooks; callback capabilities and terminal state |
 | `conversations`, `conversation_messages`, `external_message_refs` | Conversations; shared public history and provider references |
 | `conversation_inbound_batches`, `conversation_input_tombstones` | Conversations; input batching and removal facts |
-| `deliveries` | Conversations.Delivery; provider intents, attempts, and results |
+| `deliveries`, `delivery_previews` | Conversations.Delivery; provider intents, live preview state, attempts, and results |
 | `sessions`, `session_round_states` | Sessions; execution context and recovery |
 
 - One accepted event has one Signal per Agent, source, and source event ID.

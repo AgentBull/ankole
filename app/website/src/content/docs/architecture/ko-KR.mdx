@@ -17,15 +17,15 @@ Agent는 몇 시간 동안 작업하고, 공유 Company Brain을 사용하고, �
 
 <DocsArchitectureDiagram lang="ko-KR" />
 
-하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고, Agent마다 Agent Computer Worker가 한 대씩 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리하며 Worker를 만듭니다. 각 Worker는 자신의 Agent가 일하는 컴퓨팅 환경을 제공합니다.
+하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인 하나, stateless `Function Runtime`(`ankole-function-runtime`) 서비스, 그리고 Agent마다 한 대의 Agent Computer Worker가 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리하고, Pod 협업 워크스페이스를 운영하며, Pod Applet 백엔드 함수와 결정론적 TypeScript 프로그램을 위해 `Function Runtime` isolate를 호출하고 Worker를 만듭니다. 각 Worker는 자신의 Agent가 일하는 전용 컴퓨팅 환경을 제공합니다.
 
-Pod와 외부 어댑터는 대화 발언을 기록합니다. Signals는 발언, 외부 이벤트, 시간 자극을 접수하고 Sessions는 해당 작업을 실행합니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
+Pod(페이지, 실시간 문서, 물리 샤드 기반 2계층 Base 테이블, Applet, 멀티플레이어 Pod Chat)와 외부 어댑터는 대화 발언을 기록합니다. Signals는 발언, 외부 이벤트, 시간 자극을 접수하고 Sessions는 해당 작업을 실행합니다. 통합 인증과 Identity Provider가 패스워드리스 Email OTP(`SiteCredential`), 엔터프라이즈 SSO, 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
 
-## 컨트롤 플레인과 Agent Computer Worker
+## 컨트롤 플레인, Function Runtime 및 Agent Computer Worker
 
 ### 컨트롤 플레인은 상태를 저장하고 결정을 내립니다
 
-Elixir/OTP 컨트롤 플레인은 Console, Principal과 접근 권한, 시스템 구성, 신호 라우팅, 실행 세션, Brain, Background Agent Jobs, AIGateway, Control Plane Plugins를 소유합니다.
+Elixir/OTP 컨트롤 플레인은 Pod(페이지, 문서, Base 테이블과 물리 샤드, Applet, 멀티플레이어 Pod Chat), Console, Principal과 접근 권한, 시스템 구성, 신호 라우팅, 실행 세션, Brain, Workflow, Background Agent Jobs, AIGateway, Control Plane Plugins를 소유합니다.
 
 이 모든 모듈은 같은 규칙을 사용합니다. 사용자에게 보이는 결과를 바꾸는 상태는 실행이나 외부 전달을 구동하기 전에 PostgreSQL에 기록됩니다.
 
@@ -73,7 +73,7 @@ signal은 실행 세션을 직접 지정할 수 있습니다. 그렇지 않으�
 
 `Ankole.Sessions`는 큐, Admission, Driver, Run, 도구, 복구를 소유합니다. 하나의 실행 세션은 동시에 하나의 Run을 실행합니다. 실행을 시작할 때마다 Admission이 테넌트, Agent 상태, 권한, 할당량을 확인합니다.
 
-각 Agent는 대화에서 자신의 실행 세션을 가지며 모든 대화 참여자가 그 작업을 볼 수 있습니다. 지칭된 턴은 요청자의 권한을 사용합니다. 자발적인 개입은 기본적으로 Agent 자신의 권한을 사용합니다. 기존 개입 정책이 특정 사람을 현재 요청자로 판단한 경우에만 그 사람의 권한을 사용합니다.
+각 Agent는 대화에서 자신의 실행 세션을 가지며 모든 대화 참여자가 그 작업을 볼 수 있습니다. 대화형 턴과 사람이 트리거한 턴 — 사람이 깨운 `may_intervene` 턴 포함(Agent 메시지는 결코 다른 Agent를 깨우지 않음) — 은 **`Human ∩ Agent` 권한 교집합**(`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`) 아래에서 실행되며, 사람과 Agent 모두 접근 권한을 보유해야 합니다. 대화형 사람이 없는 자율 비인간 턴(`cron`, `webhook`, 백그라운드 서비스 트리거)은 Agent 자신의 권한으로 실행됩니다.
 
 cron 규칙과 백그라운드 작업은 별도의 실행 세션을 가지며 대상 대화에 결과를 발언합니다. 대화의 다음 턴은 새 발언을 읽고 다른 실행 세션의 내부 작업은 가져오지 않습니다.
 
@@ -131,19 +131,19 @@ AIGateway는 기록을 저장하지 않는 호출과 이어 갈 수 있는 모�
 
 Worker는 Provider마다 별도의 수명 주기를 구현하지 않습니다.
 
-tool 카탈로그가 크면 모델은 Tool Search를 통해 필요할 때 tool을 검색하거나, 제한된 sandbox 안에서 많은 tool을 호출하고 결과만 반환하는 프로그램 하나를 제출할 수 있습니다. 네이티브 지원이 있는 Provider는 이 호출들을 그대로 전달하고, AIGateway는 다른 모든 Provider를 위해 gateway에서 같은 capability를 제공합니다. 또한 Provider 하나가 ChatGPT 구독 같은 계정 credential을 포함해 여러 credential을 풀로 보유할 수 있습니다. 실패 귀속, 재시도, 사용량 기록은 credential별로 유지됩니다.
+tool 카탈로그가 크면 모델은 Tool Search를 통해 필요할 때 tool을 검색하거나, Programmatic Tool Calling을 통해 많은 tool을 호출하고 결과만 반환하는 프로그램 하나를 제출할 수 있습니다. AIGateway와 Workflow는 stateless `ankole-function-runtime` isolate(`POST /v1/program/run`)에서 결정론적 TypeScript 프로그램을 실행합니다. 네이티브 지원이 있는 Provider는 네이티브 호출을 그대로 전달하고, AIGateway는 다른 모든 Provider를 위해 gateway에서 같은 capability를 제공합니다. 또한 Provider 하나가 ChatGPT 구독 같은 계정 credential을 포함해 여러 credential을 풀로 보유할 수 있습니다. 실패 귀속, 재시도, 사용량 기록은 credential별로 유지됩니다.
 
 [AIGateway](../ai-gateway/)와 [LLM Provider 추가](../adding-a-provider/)를 참조하십시오.
 
 ## 엔터프라이즈 identity, 접근, 확장
 
-Ankole은 사람, Agent, 시스템 서비스를 Principal로 나타냅니다. Identity Provider가 Console SSO를 제공하고 직원, 연락처, 조직 디렉터리를 동기화합니다.
+Ankole은 사람, Agent, 시스템 서비스를 Principal로 나타냅니다. Pod와 Console 전반의 통합 패스워드리스 인증은 개인 `SiteCredential` Email OTP와 테넌트 엔터프라이즈 Identity Provider(OIDC/OAuth SSO 및 조직 디렉터리 동기화)를 통해 비밀번호를 저장하지 않고 워크스페이스 구성원과 관리자를 인증합니다.
 
 채팅 channel이 메시지를 보내고 받습니다. 이 Provider들은 서로 다른 플랫폼을 사용할 수 있습니다.
 
 AuthZ는 Principal, 권한 그룹, 리소스, 작업, 조건에서 런타임에 결정합니다. 접근은 prompt의 문장이 아니며 모델이 스스로 권한을 가졌다고 선언할 수 없습니다.
 
-Control Plane Plugins는 IdP, 채팅 channel, 그 밖의 컨트롤 플레인 capability를 연결합니다. Agent Plugins는 tool과 workspace 템플릿을 추가합니다.
+컴파일 타임에 결합되는 사이트 범위 Control Plane Plugins는 서브시스템 어댑터(Signals, Identity Provider, AI Gateway provider, Worker provider), 감독되는 OTP 프로세스, 외부 HTTP plug, 범위가 지정된 확장 JSON:API 라우트, 도메인 트랜잭션 훅, `AppConfigure` 구성 필드 및 타입이 지정된 UI 슬롯을 제공합니다. Agent Plugins는 tool과 workspace 템플릿을 추가합니다.
 
 Skill은 어떤 유형의 작업을 수행하는 방법을 설명하며 메인 Agent나 Background Agent Jobs로 제한할 수 있습니다.
 
@@ -153,19 +153,19 @@ Skill은 어떤 유형의 작업을 수행하는 방법을 설명하며 메인 A
 
 ## 내구성 경계
 
-PostgreSQL은 identity, 접근, 구성, 메시지, 세션, Job, memory, 전달 상태, audit 기록 같은 내구성 있는 도메인 사실을 저장합니다. 시스템이 결과를 커밋했는지 결정할 때 이 기록들을 사용하십시오.
+PostgreSQL 18+ 컨트롤 플레인 데이터베이스는 identity, 접근, 구성, Pod 메타데이터 및 문서, 메시지, 세션, Job, memory, 전달 상태, audit 기록 같은 내구성 있는 도메인 사실을 저장하며, 물리 **Base 샤드 데이터베이스(`BASE_DB_URLS`)**는 테넌트 Base 테이블 행을 저장합니다. 시점 복구(PITR) 시 모든 Base 샤드의 복구 목표 시점은 컨트롤 플레인 데이터베이스 복구 목표 시점 이상(`>=`)이어야 합니다. 시스템이 결과를 커밋했는지 결정할 때 이 PostgreSQL 기록들을 사용하십시오.
 
-control plane 파일 저장소는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 저장합니다. 영구 Home은 작업 공간, 사용자 패키지, Codex 스레드를 따로 보존합니다. PostgreSQL, 파일 저장소, 모든 Home, 원래 암호화 키를 함께 백업하세요.
+오브젝트 스토리지(control plane 파일 저장소)는 Pod 파일, Pod 및 대화 첨부 파일, 컴파일된 Applet 번들, 게시한 파일, Skill, Automation 스크립트를 저장합니다. 영구 Home은 작업 공간, 사용자 패키지, Codex 스레드를 따로 보존합니다. 컨트롤 플레인 PostgreSQL 데이터베이스, 모든 물리 Base 샤드 데이터베이스, 오브젝트 스토리지, 모든 Home, 원래 배포 암호화 키를 함께 백업하세요.
 
-RuntimeFabric, Worker 프로세스, 스트림 미리 보기, `/var/cache/ankole`은 다시 만들 수 있습니다. 영구 Home은 인스턴스 삭제 후에도 유지해야 하며 스토리지 백업이 필요합니다. [백업 및 복원](../backup-and-restore/)을 참조하세요.
+RuntimeFabric, `ankole-function-runtime` isolate, Worker 프로세스, 스트림 미리 보기, `/var/cache/ankole`은 stateless이거나 다시 만들 수 있습니다. 영구 Home은 인스턴스 삭제 후에도 유지해야 하며 스토리지 백업이 필요합니다. [백업 및 복원](../backup-and-restore/)을 참조하세요.
 
 ## 세 가지 deployment 형태
 
-| 형태 | 컨트롤 플레인과 Worker | 영속화 |
+| 형태 | 컨트롤 플레인, Function Runtime 및 Worker | 영속화 |
 | --- | --- | --- |
-| **Docker Compose · 단일 호스트 권장** | Linux, macOS, Windows 호스트 하나가 컨트롤 플레인을 실행하고, 컨트롤 플레인이 Docker socket을 통해 Agent마다 Worker 컨테이너 하나를 만듦 | PostgreSQL, 파일 저장소, Agent별 전용 영구 Home volume |
-| **Kubernetes · 엔터프라이즈 deployment 권장** | 컨트롤 플레인 하나가 Kubernetes API를 통해 Agent마다 Worker Pod 하나를 만듦 | PostgreSQL, 파일 저장소, Home PVC 또는 공유 스토리지. 캐시 volume은 별도 |
-| **소스 설치** | `bun dev`가 컨트롤 플레인을 실행하고, 컨트롤 플레인이 Agent마다 Docker Worker 컨테이너를 만듦. 컨테이너는 로컬 Agent Computer 소스를 watch 모드로 실행 | PostgreSQL, `var/ankole-dev/files`, 전용 Docker 영구 Home volume |
+| **Docker Compose · 단일 호스트 권장** | Linux, macOS, Windows 호스트 하나가 컨트롤 플레인과 `ankole-function-runtime`을 실행하고, 컨트롤 플레인이 Docker socket을 통해 Agent마다 Worker 컨테이너 하나를 만듦 | PostgreSQL 18+(구성된 `BASE_DB_URLS` 샤드 포함), 오브젝트 스토리지, Agent별 전용 영구 Home volume |
+| **Kubernetes · 엔터프라이즈 deployment 권장** | Helm 배포가 컨트롤 플레인과 `ankole-function-runtime` Deployment를 실행하고, 컨트롤 플레인이 Kubernetes API를 통해 Agent마다 Worker Pod 하나를 만듦 | PostgreSQL 18+와 물리 Base 샤드 데이터베이스, 오브젝트 스토리지, Home PVC 또는 공유 스토리지. 캐시 volume은 별도 |
+| **소스 설치** | `bun run services:start`가 PostgreSQL 18과 `ankole-function-runtime`을 시작하고, `bun dev`가 컨트롤 플레인을 실행해 Agent마다 watch 모드의 Docker Worker 컨테이너를 만듦 | PostgreSQL 18, `var/ankole-dev/files`, 전용 Docker 영구 Home volume |
 
 논리적 경계는 모든 형태에서 같습니다. 인스턴스에는 컨트롤 플레인이 하나 있으며, 컨트롤 플레인이 각 Agent에 자신의 Worker를 제공합니다. 전체 절차는 [빠른 시작](../quickstart/#deployment)을 참조하십시오.
 

@@ -68,15 +68,19 @@ const summary = await agent(`汇总这些评审：${JSON.stringify(successful)}`
 return { reviews, summary }
 ```
 
-运行开始后，程序和 `args` 都不能修改。控制面重启时，会根据已持久保存的任务结果重放固定程序。已经保存成功结果的任务不会重新创建，但被中断的任务可能重试，因此不要把任务执行理解为严格一次。
+运行开始后，程序和 `args` 都不能修改。控制面会把每个编排步骤发送到无状态 `ankole-function-runtime` 服务的 `POST /v1/program/run`。每个步骤都在全新的隔离 worker 中执行，禁止网络、文件系统、环境变量、进程和 FFI 权限，并使用确定性的 `Math.random()` 与 `Date.now()`；任务执行期间该 worker 不会常驻等待。
+
+控制面重启时，会在 6 MiB 持久 memo 预算内根据已保存的任务结果重放固定程序。已经保存成功结果的任务不会重新创建，若重放时的 `agent()` 调用顺序或参数与记录不一致，运行会直接失败。被中断的任务可能重试，因此不要把任务执行理解为严格一次。
 
 ## 每个子 Agent 可以访问什么
 
-每次 `agent()` 调用都在独立、短期的会话中运行。子 Agent 会得到 Agent 的身份、使命和当前任务提示，但不会得到原会话转写。除非编排程序把前一阶段的结果写进后续提示，否则任务之间也看不到彼此的结果。
+每次 `agent()` 调用都在控制面上的独立会话（`wf_task:<call_id>`）中运行，不占用 Agent Worker 槽位。子 Agent 会得到 Agent 的身份、使命和当前任务提示，但不会得到原会话转写。除非编排程序把前一阶段的结果写进后续提示，否则任务之间也看不到彼此的结果。
 
-Workflow 任务可以使用 Web 工具；Brain 启用时，还可以使用只读的 `recall` 和 `get_page`。它唯一可以持久写入的工具是 `submit_result`。任务没有 shell、文件、MCP、Skill、调度、Workflow 或后台 Agent 任务工具，也不能继续创建嵌套任务。
+Workflow 任务可以使用 Web 工具；Brain 启用时，还可以使用只读的 `recall` 和 `get_page`。任务不能直接使用 shell、文件、MCP、Skill、Brain 写入或调度工具，也不能再创建新的 Workflow（编排嵌套深度固定为 1）。
 
-每次调用最多进行三次完整任务尝试。成功调用会得到提交值；三次尝试都失败时，调用结果为 `null`。程序可以记录失败并继续，也可以在最终结果中说明为何未完整完成。单个任务失败不会自动让整个 Workflow 失败。
+当任务需要工作区执行或跨数小时处理时，它可以委派[后台 Agent 任务](../background-jobs/)（`create_background_job`、`show_background_job_details`、`send_message_to_background_job`、`stop_background_job`），并调用 `sleep`（单次 1 分钟到 48 小时，每次调用最多休眠 16 次）在不占用并发槽位的情况下休眠，直到委派任务的生命周期事件、主会话发来的消息或截止时间将其唤醒。在 `sleep` 上设置 `attention: true` 会通知主 Agent 查看休眠说明并回复。结果就绪后，任务通过 `submit_result` 提交结构化输出并结束。
+
+在每个唤醒段内，单次调用最多进行三次任务尝试。成功调用会得到提交值；尝试耗尽时调用结果为 `null`。程序可以记录失败并继续，也可以在最终结果中说明为何未完整完成。单个任务失败不会自动让整个 Workflow 失败。
 
 ## 要求结构化结果
 
@@ -86,17 +90,18 @@ Workflow 任务可以使用 Web 工具；Brain 启用时，还可以使用只读
 
 未指定 schema 时，任务返回字符串。编排程序必须返回最终汇总结果：字符串会直接成为结果文本，其他 JSON 值会编码为 JSON 文本。
 
-## 读取、列出或取消运行
+## 读取、向任务发消息、列出或取消运行
 
 可以让主 Agent 使用以下操作：
 
-- `show_workflow` 返回状态、任务计数、最多十条失败摘要和终态错误。已完成结果从字节偏移量 `0` 开始读取，每段最多包含 8,000 个 UTF-8 字节。
+- `show_workflow` 返回状态、任务计数、最多 32 个活跃任务（含休眠 `note`、`attention` 与唤醒截止时间）、最多十条失败摘要和终态错误。已完成结果从字节偏移量 `0` 开始读取，每段最多包含 8,000 个 UTF-8 字节。
+- `send_message_to_workflow_task` 按 `run_id` 和 `call_seq` 异步追加一条主会话消息，用于唤醒活跃任务或回复携带 `attention: true` 休眠的任务。
 - `list_workflows` 列出当前 Agent 的运行中或已结束 Workflow，每页最多 32 条。已结束状态包括 `completed`、`failed` 和 `cancelled`。
-- `cancel_workflow` 是幂等操作。它先阻止新任务和迟到结果重新激活运行，再请求正在执行的任务回合停止。已经发出的模型调用可能需要短暂时间才能停止。
+- `cancel_workflow` 是幂等操作。它先阻止新任务和迟到结果重新激活运行，再请求正在执行的任务回合以及任务委派的后台 Agent 任务停止。已经发出的模型调用可能需要短暂时间才能停止。
 
 完成和失败会唤醒原会话；取消不会发送该完成事件。需要确认取消结果时，可以让 Agent 再查询一次状态。
 
-当前版本没有 Workflow Console 页面。主 Agent 的 Workflow 工具是受支持的用户入口。
+在 Console 中，首页后台活动区域提供只读的 Workflow 活动视图（基于 `site_console:agent:<agent_uid>:workflow` 权限展示活跃调用、状态计数、休眠说明、截止时间、`attention` 标记与有界错误摘要）。启动运行、向任务发消息、读取完整结果与取消运行均通过主 Agent 的 Workflow 工具完成。
 
 ## 控制成本和容量
 
@@ -107,11 +112,15 @@ Workflow 任务可以使用 Web 工具；Brain 启用时，还可以使用只读
 | 单次运行的并发任务 | 8 | 32 |
 | 单个 Agent 正在运行的 Workflow 任务 | 8 | 64 |
 | 单次运行的子 Agent 调用 | 32 | 1,024 |
-| 单次子 Agent 调用的尝试次数 | 最多 3 | 3 |
+| 每个唤醒段的任务尝试次数 | 最多 3 | 3 |
+| 单次子 Agent 调用的休眠次数 | — | 16 |
+| 单次休眠时长 | — | 1 分钟至 48 小时 |
 | 已保存程序 | — | 256 KiB |
 | 已保存 `args` | — | 64 KiB |
 | 单次调用参数对象 | — | 8 KiB |
+| 单条主会话任务消息 | — | 8 KiB |
 | 单次提交结果值 | — | 24 KiB |
+| 持久 memo 预算 | — | 6 MiB |
 | 最终汇总结果 | — | 1 MiB |
 
 管理员可以在 [AppConfigure](../app-configuration/) 中按硬限制范围设置前三项实例上限，单次运行请求不能抬高实例上限。Workflow 没有覆盖整批任务的 token 或金额预算；每个任务仍受普通回合的迭代次数、输出 token 和无活动超时限制。相关控制方法见[成本管理](../cost-management/)。

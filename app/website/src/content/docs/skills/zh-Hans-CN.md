@@ -1,21 +1,21 @@
 ---
 title: Agent 能力库
-description: 为全部或单个 Agent 启用 Agent Plugin、Skill 和 Control Plane Plugin。
+description: 管理租户与单 Agent 级的 Agent Plugin、Skill，以及站点级的 Control Plane Plugin。
 section: User guide
 order: 32
 ---
 
-Agent 能力库决定 Agent 可以使用哪些工作方法和扩展能力。Console 把它们分成三类：
+站点管理控制台中的 **Agent 能力库** 页面统一呈现两类边界完全正交的扩展：作用于租户与单个 Agent 的模型能力（**Agent Plugin** 与 **Skill**），以及严格属于**站点级（Site-Scoped）**的平台扩展（**Control Plane Plugin**，仅在作用域设为**全局默认值**时可见）。
 
-这些能力都是当前实例中已经安装的受信任组件。Agent 能力库不是公开插件市场；在这里启用一项能力，不会从互联网下载未知代码。
+这三类组件都是随当前部署构建安装的受信任一方组件。Agent 能力库不是公开插件市场；在这里启用一项能力，不会从互联网下载未知代码。
 
 ## 先分清三类能力
 
-| 类型 | 作用 | 何时生效 |
-|---|---|---|
-| **Agent Plugin** | 把相关 Skills、MCP 能力和工作区模板组织成一套能力 | Agent 的下一轮工作 |
-| **Skill** | 教 Agent 完成一种可重复工作的说明和配套资源 | Agent 的下一轮工作 |
-| **Control Plane Plugin** | 为控制面增加聊天适配器、身份源、配置项或后台服务 | 控制面下次启动 |
+| 类型 | 作用域 | 作用 | 何时生效 |
+|---|---|---|---|
+| **Agent Plugin** | 租户默认值 + 单 Agent 覆盖 | 把相关 Skills、MCP 能力和工作区模板组织成一套能力 | Agent 的下一轮工作 |
+| **Skill** | 租户默认值 + 单 Agent 覆盖 | 教 Agent 完成一种可重复工作的说明和配套资源 | Agent 的下一轮工作 |
+| **Control Plane Plugin** | 仅站点级（`/api/v2/site/control-plane-plugins`） | 编译期装入的全栈平台扩展（子系统适配器、OTP 进程、外层 HTTP Plug、扩展路由、领域事务钩子、配置表单与前端强类型 UI 插槽） | 随构建固定启用（`activation: :always`），或控制面下次启动生效（`activation: :optional`） |
 
 ### Agent Plugin：一组可以共同启用的能力
 
@@ -75,11 +75,18 @@ Deep Research 的入口 Skill 使用 `main`，因为它要先在原对话中确�
 
 Brain 会搜索 Skill 的名称、描述和标签。命中后，Agent 调用 `skill_view`；它会遵守 `ankole-runtime`，在兼容的执行位置加载 Skill，或返回正确的路由或拒绝结果。关闭该 Skill 或它所属的 Agent Plugin 后，当前 Agent 既不能通过 Brain 发现它，也不能加载它。这条语义发现路径要求 Brain 已启用。这种模式适合需要按需使用、但不应长期占用每个 Prompt 的随产品发布的方法论和 SOP。
 
-### Control Plane Plugin：扩展管理平台
+### Control Plane Plugin：站点级全栈平台扩展
 
-Control Plane Plugin 不属于 OpenAI Plugin，也不会进入 Agent 的工作上下文。它扩展的是 Ankole 控制面。
+Control Plane Plugin 不属于 OpenAI Plugin，不进入 Agent 的工作上下文，也绝不按租户或单个 Agent 启停。它是构建期静态编译、站点级（Site-Scoped）启停的全栈扩展，节点启动时解析一次并固化至 `:persistent_term` 快照。
 
-聊天渠道、身份源提供商、系统配置和受监督后台服务都可以由 Control Plane Plugin 提供。它们会改变控制面的启动结构，所以只能在控制面下次启动时启用或关闭。
+Control Plane Plugin 可以跨前后端贡献以下扩展点：
+
+- 子系统驱动适配器（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）与受监督 OTP 进程（`children/0`）
+- 外层 HTTP 前置 `Plug` 与双作用域扩展 JSON:API 路由
+- 同步领域写事务钩子 `hooks/0`（`Ankole.Plugins.Hook`）
+- 声明式 `AppConfigure` 配置字段（`ConfigFields`）与前端强类型 Web UI 插槽（`entries.json` `overrides`）
+
+每个 Control Plane Plugin 声明 `activation: :optional | :always`。可选插件（`:optional`，默认值）由全局 `plugins.enabled_ids` 控制，修改后在控制面下次启动时生效；平台级插件（`activation: :always`）随当前构建版本固定启用，不可关闭。对于需要免重启热切换或按目标/百分比灰度的运行时开关，Ankole 使用独立的 OpenFeature 层（`Ankole.Features`）。
 
 ## 管理 Agent Plugin 和 Skill
 
@@ -114,15 +121,15 @@ Agent 可以在完整 Skill 说明中收到带日期的过程注意事项。Drea
 
 ## 管理 Control Plane Plugin
 
-### 启用或关闭
+### 启用或关闭可选站点插件
 
-聊天渠道和身份源等能力由 Control Plane Plugin 提供。设置方法如下：
+Control Plane Plugin 严格属于站点级（`/api/v2/site/control-plane-plugins`），仅在站点管理控制台（`/site-admin-console`）将能力库作用域设为**全局默认值**时可见：
 
-1. 打开 **Control Plane Plugins** 标签页。
-2. 找到需要的 Plugin，并设置为**下次启动开启**。
+1. 在站点管理控制台中打开 **Agent 能力库**，保持顶部作用域为**全局默认值**，切换到 **Control Plane Plugins** 标签页。
+2. 找到目标可选插件（`activation: :optional`），设置为**下次启动开启**。声明为 `activation: :always` 的插件随构建固定启用，不提供关闭开关。
 3. 保存后重启控制面。
-4. 回到 Agent 能力库，确认状态变为**当前已运行**。
-5. 再去配置该 Plugin 提供的聊天渠道、身份源或系统设置。
+4. 回到 **Control Plane Plugins** 标签页，确认状态变为**当前已运行**。
+5. 再去配置该 Plugin 提供的聊天渠道、身份源、Worker 算力提供方或系统设置。
 
 Docker Compose：
 
@@ -136,7 +143,7 @@ Kubernetes：
 kubectl -n ankole rollout restart deployment/ankole-control-plane
 ```
 
-关闭 Control Plane Plugin 也要等下次启动才生效。它可能让现有聊天渠道或身份源不可用；关闭前先确认没有正在使用它的配置。
+关闭可选 Control Plane Plugin 同样在下次启动时生效。配置事务会执行 `veto_disable` 引用校验：对于提供 Worker 算力驱动的插件，只要任意租户下仍有分配了该驱动类型的 Agent Worker（含已暂停的 Worker 或正在删除中的 Agent），系统都会拒绝停用。关闭插件前请确认没有在用的聊天渠道、身份源或 Worker 依赖它。需要免重启热切换的功能开关请使用 OpenFeature（`Ankole.Features`）。
 
 ## 排查问题
 
@@ -150,7 +157,9 @@ kubectl -n ankole rollout restart deployment/ankole-control-plane
 
 ### Control Plane Plugin
 
-- **Control Plane Plugin 显示下次启动开启**：设置已保存，但控制面还没有重启。
+- **看不到 Control Plane Plugins 标签页**：Control Plane Plugin 仅限站点级。请确认已打开站点管理控制台（`/site-admin-console`），并将 **Agent 能力库**顶部作用域切换为**全局默认值**。
+- **Control Plane Plugin 显示下次启动开启**：设置已写入 `plugins.enabled_ids`，需重启控制面以重新生成启动快照。
+- **Control Plane Plugin 无法关闭**：该插件声明了 `activation: :always`（随构建固定启用），或者某租户下仍有 Agent Worker 引用了该插件提供的 Worker 驱动类型而触发了 `veto_disable` 拦截。
 - **重启后控制面无法启动**：查看启动日志，检查 Plugin 需要的配置和依赖；先修正问题，再重新启动。
 - **聊天渠道仍未出现**：确认 Plugin 已经是**当前已运行**，再检查该聊天渠道的具体配置。
 

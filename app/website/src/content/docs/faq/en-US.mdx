@@ -22,7 +22,7 @@ export const commonIssues = [
     symptom: 'The page times out, refuses the connection, returns 502, or stays blank. Provider setup has not started yet.',
     cause: 'The control plane is not healthy, or DNS, the reverse proxy, or the Ingress does not send traffic to it. Later Provider errors are usually consequences.',
     resolution: [
-      'Check the control plane, PostgreSQL, and reverse proxy. Fix the first error in the logs.',
+      'Check control-plane, function-runtime, PostgreSQL, and the reverse proxy. Fix the first error in the logs.',
       'If direct control-plane access works, check DNS, TLS, and the proxy target.',
       'Do not delete the database or persistent volume. A startup failure does not prove data damage.'
     ],
@@ -34,11 +34,11 @@ export const commonIssues = [
   {
     question: 'Where is the activation code for first-time setup?',
     symptom: '/setup asks for the activation code, but the startup terminal is closed or the code is lost in the logs.',
-    cause: 'The control plane uses this code only for first-time setup. It expires after the first administrator signs in.',
+    cause: 'The control plane uses this code only for first-time setup. It expires after the first siteadmin administrator signs in.',
     resolution: [
       'If setup is not complete, select your deployment method in Quick start and use the log command in that tab.',
       'Search for SETUP ACTIVATION CODE. Do not guess the code from browser storage or database rows.',
-      'If the instance already has a root administrator, sign in through the configured IdP instead of activating it again.'
+      'If the site already has an administrator in siteadmin (or pod_admin for a Pod), sign in with passwordless Email OTP (SiteCredential via authn.email.mail) or the configured enterprise IdP SSO instead of activating setup again.'
     ],
     links: [
       { href: '../quickstart/#deployment', label: 'Read the activation code' }
@@ -54,7 +54,7 @@ export const commonIssues = [
       'If the control plane does not start, fix the first plugin initialization error in its logs.'
     ],
     links: [
-      { href: '../skills/', label: 'Enable Plugins in Agent Library' }
+      { href: '../control-plane-plugins/', label: 'Manage Control Plane Plugins' }
     ]
   },
   {
@@ -550,14 +550,14 @@ export const channelTabs = [
   }
 ]
 
-This page is not a product overview and does not repeat each provider setup guide. Find the earliest failed boundary, then select the relevant identity or chat provider. [Quick start](../quickstart/) remains the source of truth for installation and first-time setup.
+This page is not a product overview and does not repeat each provider setup guide. Find the earliest failed boundary, then select the relevant identity or chat provider. [Quick start](../quickstart/) is the source of truth for installation and first-time setup.
 
 ## Find the failed boundary
 
 | What you observe | Check first |
 |---|---|
-| `/setup` or the Console does not open | Deployment, control plane, DNS, and HTTPS |
-| The Console opens, but sign-in fails or the directory is incomplete | Identity Provider (IdP) |
+| `/setup` or the Console does not open | Deployment, `control-plane`, `function-runtime`, PostgreSQL, DNS, and HTTPS |
+| The Console or Pod opens, but sign-in fails or the directory is incomplete | Enterprise IdP SSO, passwordless Email OTP (`SiteCredential` via `authn.email.mail`), `principals.pod_login_policy`, and `siteadmin` / `pod_admin` membership |
 | The Agent works in the Console, but one IM gets no message | That Channel Provider and its signal routing rule |
 | The IM message enters Ankole, but the Agent cannot generate a reply | LLM Provider, model profiles, and Worker |
 | Only one platform fails | Select that Provider below; do not apply another platform's fix |

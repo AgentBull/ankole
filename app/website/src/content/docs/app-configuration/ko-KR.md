@@ -65,6 +65,19 @@ Skill, 명령줄 도구, 또는 MCP 서비스가 API 키 같은 사용자 지정
 | `ai_agent.inactivity_timeout_ms` | 테넌트 | 턴을 종료하기 전에 비활성 모델 또는 제공자를 기다리는 시간 |
 | `ai_agent.library.agent_plugin_defaults` | 테넌트 | Agent Plugin의 기본 활성화 상태 |
 | `ai_agent.library.skill_defaults` | 테넌트 | Skill의 기본 활성화 상태 |
+| `agent_computer.background_agent_job.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 BackgroundAgentJob 수; 기본값 `3`, 유효 범위 `1`–`64` |
+| `automation_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 자동화 스크립트 수; 기본값 `10`, 유효 범위 `1`–`64` |
+
+### Pod, Base 및 Applet
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `pod.allow_external_guests` | 테넌트 | 초대된 외부 게스트가 공유된 Pod 페이지에 접근하도록 허용; 기본값 `true` |
+| `pod.applet.limits` | 테넌트 | Applet 호출 한도(기본값 `timeout_ms: 60000`, `heap_mb: 128`) |
+| `pod.applet.ai_agent_uid` | 테넌트 | Applet `ctx.ai` 호출의 모델 profile과 사용량을 소유하는 활성 Agent; 비어 있으면 Applet AI 비활성화 |
+| `pod.base.limits` | 테넌트 | Base 쿼리 및 레코드 한도(기본값 `query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
+| `pod.trash_retention_days` | 테넌트 | 삭제된 페이지를 자동 영구 정리하기 전까지 보관하는 양의 정수 일수(기본값 `30`), 또는 자동 정리 없이 보관하는 `"unlimited"` |
+| `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수; 기본값 `1000` |
 
 ### Workflow
 
@@ -107,13 +120,31 @@ Workflow 생성 요청은 이 상한을 높일 수 없습니다. 요청한 `conc
 
 Langfuse, LangSmith, VictoriaTraces 및 다른 OTLP/HTTP receiver 구성은 [LLM observability](../llm-observability/)를 참조하십시오.
 
-### Identity, 플러그인 및 테넌트 기본값
+### 패스워드리스 Email OTP 및 Pod 로그인 정책
 
 | 키 | 범위 | 용도 |
 |---|---|---|
-| `principals.identity_providers.active` | 테넌트, 읽기 전용 | 관리자 로그인에 사용 가능한 Identity 소스; Identity Provider 페이지에서 관리 |
+| `authn.email.mail` | 사이트, 암호화 | 패스워드리스 Email OTP 로그인용 SMTP 메일 전송 설정(`server`, `from`, `port`, `ssl` 및 선택적 자격 증명); 비어 있으면 Email OTP 비활성화 |
+| `authn.email.code_ttl_seconds` | 사이트 | 인증 코드 유효 시간(초); 기본값 `600` |
+| `authn.email.send_window_seconds` | 사이트 | Email OTP 코드 발송 속도 제한 윈도우(초); 기본값 `60` |
+| `authn.email.send_email_limit` | 사이트 | 발송 윈도우당 하나의 이메일 주소로 보낼 수 있는 최대 코드 수; 기본값 `3` |
+| `authn.email.send_source_limit` | 사이트 | 발송 윈도우당 하나의 출발지 주소에서 보낼 수 있는 최대 코드 수; 기본값 `20` |
+| `authn.email.send_channel_limit` | 사이트 | 발송 윈도우당 채널 전체에서 보낼 수 있는 최대 코드 수; 기본값 `100` |
+| `authn.email.failure_window_seconds` | 사이트 | 코드 검증 실패 속도 제한 윈도우(초); 기본값 `600` |
+| `authn.email.failure_email_limit` | 사이트 | 실패 윈도우당 하나의 이메일 주소에 허용되는 최대 검증 실패 횟수; 기본값 `10` |
+| `authn.email.failure_source_limit` | 사이트 | 실패 윈도우당 하나의 출발지 주소에 허용되는 최대 검증 실패 횟수; 기본값 `100` |
+| `principals.pod_login_policy` | 테넌트, 다른 곳에서 관리 | Pod 구성원 로그인 및 초대 정책(`allow_email_otp`, `allow_member_credential_change`, `allowed_email_domains`, `require_sso_for_members`, `allow_invite_links`); Pod Settings에서 관리 |
+
+### Identity, 플러그인, 기능 플래그 및 테넌트 기본값
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `principals.identity_providers.active` | 테넌트, 읽기 전용 | Pod 워크스페이스 구성원과 관리자를 인증하는 활성 테넌트 Identity Provider; Pod Settings 및 Identity Provider 페이지에서 관리 |
 | `principals.identity_providers.directory_full_sync_interval_minutes` | 테넌트 | 전체 조직 디렉터리 동기화 간격 |
-| `plugins.enabled_ids` | 사이트 | 다음 시작 시 활성화할 Control Plane Plugin |
+| `tenants.privileged_tenant_id` | 사이트, 읽기 전용 | 이 사이트를 관리하는 `siteadmin` 그룹이 속한 특권 테넌트 ID |
+| `plugins.enabled_ids` | 사이트, 다른 곳에서 관리 | 다음 시작 시 활성화할 `:optional` Control Plane Plugin; `:always` 플러그인은 빌드와 함께 항상 활성 상태 유지 |
+| `features.<flag>` | 사이트 | OpenFeature를 뒷받침하는 기능 가용성 정책(`{enabled, percent, targets}`, `Ankole.Features.Config`) |
+| `signals.show_dead_letter_error_details` | 사이트 | Conversation에 전송되는 데드레터 알림에 길이 제한 및 마스킹된 Session 턴 오류 세부 정보를 포함할지 여부; 기본값 `false` |
 | `system.timezone` | 테넌트 | 스케줄 및 기타 제어 플레인 기능의 기본 시간대 |
 | `i18n.default_locale` | 테넌트 | Ankole 인터페이스의 기본 언어 |
 

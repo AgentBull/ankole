@@ -16,9 +16,9 @@ agent는 자신의 Principal 아래에서 실행되며, 그 Principal이 할 수
 - **agent당 하나의 Principal, agent당 하나의 목적.** 고객 성공 agent와 코딩 agent는 서로 다른 Principal이어야 합니다. 하나가 침해되어도 둘 다 침해되지 않도록 하기 위해서입니다.
 - **작업을 수행할 수 있는 최소한만 부여하세요.** channel 읽기 grant는 모든 channel에 쓰기 grant보다 좁고, 특정 resource pattern에 한정된 grant는 와일드카드보다 좁습니다. [Principal and AuthZ](../principal-authz/) 문서를 참조하세요.
 - **디렉터리 그룹을 동기화한 다음 그룹에 부여하세요.** 동기화된 AuthZ 그룹을 사용하면 팀 멤버십으로 권한 범위를 정하고, 누군가 퇴사할 때 grant를 하나씩 편집하는 대신 소스 디렉터리에서 그룹 멤버십을 제거하여 권한을 철회할 수 있습니다.
-- **의심스러우면 삭제하지 말고 비활성화하세요.** 비활성화된 Principal은 즉시 instance 전체에서 권한을 잃으며, 다시 활성화할 수 있습니다. 삭제된 Principal의 uid는 사라집니다.
+- **일시 중지(Suspend)와 퇴사 처리(Offboard)를 명확히 구분하세요.** Principal에는 삭제 작업이 없습니다. **일시 중지(`disposition: :suspended`)** 는 세션, 토큰, 진행 중인 작업을 즉시 철회하되 나중에 접근을 복구할 수 있도록 개인 `SiteCredential`을 유지합니다. **퇴사 처리(`disposition: :offboarded`)** 는 세션, 토큰, 작업을 철회할 뿐 아니라 공유되지 않은 `SiteCredential`과 Pod 이메일 바인딩까지 해제하며, 구성원이 조직을 떠날 때 반드시 사용해야 합니다.
 
-감사(audit) 표면은 `/permission-grants`와 `/principals/:uid/grants`입니다. 주기적으로 읽으세요. 생성 당시에는 합리적이었던 grant도 너무 많은 권한으로 어긋날(drift) 수 있습니다.
+감사(audit) 엔드포인트는 `/api/v2/permission-grants`와 `/api/v2/principals/:uid/grants`입니다. 주기적으로 확인하세요. 생성 당시에는 합리적이었던 grant도 너무 많은 권한으로 어긋날(drift) 수 있습니다.
 
 ## 표면 2: Agent가 사용하는 자격 증명
 
@@ -27,7 +27,7 @@ Agent 도구용 자격 증명은 Console에서 **Environment variables**에 secr
 - **값을 아껴서 공개하세요.** 자격 증명을 회전하려면 교체 값을 입력하세요. 확인만 하려고 이전 값을 공개하지 마세요. [Environment variables](../worker-env/) 문서를 참조하세요.
 - **가능하면 비밀을 agent별로 범위를 한정하세요.** 전역 비밀은 모든 agent에 닿지만, agent별 비밀은 하나에만 닿습니다. 비밀이 실제로 공유되는 경우가 아니면 agent별 형태를 선호하세요.
 - **예약된 이름을 덮어쓰지 마세요.** Console에서 `PATH`, `HOME`, `WORKER_ID`, `DATABASE_URL`, `ANKOLE_`로 시작하는 이름, [Environment variables](../worker-env/)에 나열된 다른 예약 이름은 설정할 수 없습니다. 이 제한을 우회하지 마세요.
-- **bootstrap 비밀을 주기적으로 회전하세요.** `ANKOLE_SECRET_BASE`는 다른 키를 파생합니다. 이것을 회전하는 것은 deployment 재시작 작업이며, `ANKOLE_SECRET_BASE`가 노출될 때의 영향 반경(blast radius)은 instance 전체입니다. Worker 자격 증명은 bootstrap 비밀이 아니며 직접 설정하지도 않습니다. control plane은 Worker generation마다 무작위 자격 증명을 만듭니다. 인증용 digest를 저장하고 같은 generation의 시작을 재시도하는 데 필요한 값은 암호화해 보관합니다.
+- **bootstrap 비밀을 주기적으로 회전하세요.** `ANKOLE_SECRET_BASE`는 암호화 키를 파생하고, `ANKOLE_FUNCTION_RUNTIME_TOKEN`은 control plane과 `ankole-function-runtime` 사이의 내부 트래픽을 인증합니다. bootstrap 비밀을 회전하는 것은 deployment 재시작 작업이며, `ANKOLE_SECRET_BASE`가 노출될 때의 영향 반경(blast radius)은 instance 전체입니다. Worker 자격 증명은 bootstrap 비밀이 아니며 직접 설정하지도 않습니다. control plane은 Worker generation마다 무작위 자격 증명을 만들고, 인증용 digest를 저장하며 같은 generation의 시작을 재시도하는 데 필요한 값은 암호화해 보관합니다.
 
 ## 표면 3: SSRF 및 model이 제어하는 fetch
 
@@ -56,21 +56,21 @@ Ankole은 어느 정도의 인그레스가 필요하며, 전부가 필요한 경
 - **Webhook delegation URL은 자격 증명입니다.** Agent가 감지(detection)를 외부 시스템에 위임할 때 `/webhooks/v1/event-callbacks/*`는 도달 가능해야 합니다. 인그레스, 프록시, CDN, 애플리케이션 로그에서 전체 경로를 편집(redact)하세요. URL은 깨우기만 인가하므로, Agent는 결과에 영향을 주는 작업 전에 현재 외부 상태를 확인해야 합니다.
 - **Console 자체**는 공개 인터넷에 열려 있지 않고 관리자 네트워크 또는 VPN 뒤에 있어야 합니다. bearer 게이트가 무단 접근을 막지만, 관리자 표면을 세상에 노출할 이유는 없습니다.
 
-## 표면 6: Worker 컨테이너와 control plane
+## 표면 6: Worker 컨테이너, Function Runtime 및 control plane
 
-각 Agent는 자신의 Worker 컨테이너 또는 Pod를 가지며, Agent끼리 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 컨테이너가 유일한 격리 경계입니다. 명령, Codex app-server, Automation 스크립트, 브라우저는 내부 sandbox 없이 Worker의 사용자로 실행되며, Agent 프로세스는 uid 1000으로 실행되며 capabilities와 sudo가 없습니다。
+각 Agent는 자신의 Worker 컨테이너 또는 Pod를 가지며, Agent끼리 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 무상태 TypeScript 프로그램(Workflow, PTC, Applet 백엔드)은 데이터베이스 자격 증명이나 Kubernetes ServiceAccount 토큰 없이 별도의 `ankole-function-runtime` 서비스에서 실행됩니다. 컨테이너가 격리 경계입니다. Worker 명령, Codex app-server, Automation 스크립트, 브라우저는 내부 sandbox 없이 Worker의 사용자로 실행되며, Agent 프로세스는 uid 1000으로 실행되고 capabilities와 sudo가 없습니다.
 
 - 명령은 sudo 없이 uid 1000으로 실행됩니다. Home에 사용자 패키지를 설치할 수 있지만 시스템 패키지는 설치할 수 없습니다. 같은 Agent의 Session은 파일과 프로세스를 공유합니다.
 - **Worker 자격 증명은 하나의 Agent만 대표합니다.** Worker는 자격 증명을 메모리에 보관하고 명령의 environment에서는 제거합니다. 다른 Agent의 자격 증명이나 교체된 Worker의 자격 증명으로는 연결할 수 없습니다.
 - **control plane을 root와 동등한 구성 요소로 보호하세요.** control plane은 Docker socket, 또는 Pod, Secret, PVC를 만들고 삭제하는 namespace Role을 통해 Worker를 만듭니다. Docker socket에 대한 접근은 호스트의 root 접근과 같습니다.
 - **Kubernetes에서는 gVisor를 추가하세요.** Kubernetes provider YAML의 `podTemplate.spec.runtimeClassName`을 클러스터의 gVisor RuntimeClass(예: `gvisor`)로 설정하세요. 인스턴스 설정을 바꾸면 해당 pool의 Worker는 유휴 시 교체됩니다. Helm의 `worker.runtimeClassName`은 첫 시작에서 생성하는 provider의 초기값입니다. 가져온 뒤에는 Console에서 provider를 수정하세요.
-- **Worker가 도달할 수 있는 범위를 제한하세요.** Docker Compose에서는 Worker 컨테이너가 `ankole_workers` 네트워크에 참여하여 control plane과 인터넷에 도달하지만 PostgreSQL에는 도달하지 않습니다. 클라우드 가상 머신에서는 인스턴스 메타데이터 hop limit을 1로 설정하거나 컨테이너에서 `169.254.169.254`를 차단하세요. Helm에서는 `networkPolicy.enabled`를 켜면 Worker Pod가 어떤 연결도 받지 않고 control plane, DNS, 공개 주소에만 도달하며, `networkPolicy.workerDeniedCIDRs`의 private 대역과 노드 메타데이터 주소에는 도달하지 않습니다. 노드의 인스턴스 메타데이터 hop limit도 1로 설정하세요.
+- **Worker와 `ankole-function-runtime`이 도달할 수 있는 범위를 제한하세요.** Docker Compose에서는 Worker 컨테이너가 `ankole_workers` 브리지에, `ankole-function-runtime`이 `ankole_functions` 브리지에 참여하여 둘 다 control plane과 인터넷에는 도달하지만 내부 `ankole_backend` 네트워크의 PostgreSQL에는 도달하지 않습니다. 클라우드 가상 머신에서는 인스턴스 메타데이터 hop limit을 1로 설정하거나 컨테이너에서 `169.254.169.254`를 차단하세요. Helm에서는 `networkPolicy.enabled`를 켜면 Worker Pod가 인바운드 연결을 받지 않고 control plane, DNS, `networkPolicy.workerDeniedCIDRs` 밖의 공개 주소에만 도달하며, 전용 `NetworkPolicy`가 `ankole-function-runtime`을 control plane 인그레스와 `functionRuntime.deniedCIDRs`(사설 및 메타데이터 CIDR) 밖의 공개 이그레스로 제한합니다. 노드의 인스턴스 메타데이터 hop limit도 1로 설정하세요.
 
 ## 감사 자세
 
 강화는 일회성 작업이 아니라 자세(posture)입니다. 두 가지 습관이 그것을 유지합니다:
 
-- **grant를 주기적으로 읽으세요.** `/permission-grants`와 `/principals/:uid/grants`는 모든 Principal이 무엇을 할 수 있는지 보여 줍니다. 어긋남(drift)은 생기기 마련입니다.
+- **grant를 주기적으로 읽으세요.** `/api/v2/permission-grants`와 `/api/v2/principals/:uid/grants`는 모든 Principal이 무엇을 할 수 있는지 보여 줍니다. 어긋남(drift)은 생기기 마련입니다.
 - **복원을 테스트하세요.** [backup-and-restore](../backup-and-restore/) 규율은 보안 통제입니다. 복원할 수 없는 백업은 침해로부터의 복구가 아닙니다.
 
 ## 이 가이드가 아닌 것

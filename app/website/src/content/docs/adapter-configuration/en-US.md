@@ -7,11 +7,11 @@ order: 3
 
 This page lists the enterprise identity and chat adapters included with Ankole. First determine whether a platform supplies an **Identity Provider (IdP)**, a **Channel Provider**, or both. Then consult the applicable configuration guide.
 
-During first-run setup, `/setup` shows the login callback URL and a guide link for the selected IdP. After setup, manage identity settings under **Console → Identity Providers**. Bind chat applications to Agents under **Console → Signal Routing**.
+During first-run setup, `/setup` shows the login callback URL and a guide link for the selected IdP. Pod administrators (`pod_admin`) manage tenant enterprise identity providers in **Pod Settings** (`/api/v2/pod/admin/identity-providers`), and site administrators manage identity providers in **Console → Identity Providers** alongside site-level passwordless Email OTP SMTP settings (`authn.email.*`). Bind external chat applications to Agents under **Console → Signal Routing**.
 
 ## Identity Providers
 
-An IdP provides organization sign-in and can synchronize employees, departments, or groups. Each Pod administrator configures its enterprise providers in Space settings. Email-code sign-in uses the site SMTP service and appears when mail delivery is configured. During setup, verify a real email code or complete enterprise SSO to create the first administrator. Ankole stores no user passwords. The credential names below match the Ankole form. Use the linked guides for provider permissions, callback URLs, and verification steps.
+An IdP provides organization sign-in and can synchronize employees, departments, or groups. Pod administrators (`pod_admin`) configure enterprise identity providers in **Pod Settings**, and site administrators can also manage them in **Console → Identity Providers**. Passwordless Email OTP sign-in uses the site SMTP settings (`authn.email.*`) configured in the Site Console and appears when mail delivery is configured. During setup, verify a real email code or complete enterprise SSO to create the first administrator. Ankole stores no user passwords. The credential names below match the Ankole form. Use the linked guides for provider permissions, callback URLs, and verification steps.
 
 | Platform | External application | Main configuration | Detailed guide |
 |---|---|---|---|
@@ -51,8 +51,8 @@ When you edit an Identity Provider or signal routing rule, the Console only indi
 
 ## Verification order
 
-1. Verify IdP sign-in and confirm that the first administrator can open the Console.
-2. Run a full directory sync and check the Principals and permission groups.
+1. Verify Enterprise IdP SSO sign-in or passwordless SMTP Email OTP sign-in. Confirm that the first administrator opens the Pod workspace with `siteadmin` and `pod_admin` access and can open the Site Admin Console at `/site-admin-console`.
+2. When an enterprise IdP is configured, run a full directory sync and check the Principals and permission groups.
 3. Create the chat routing rule. Test it first with a direct message or an explicit mention.
 4. Confirm that the Agent receives the message and sends a reply. Then enable advanced functions such as group observation, real-time directory sync, or cards.
 

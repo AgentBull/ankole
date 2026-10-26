@@ -5,12 +5,16 @@ operators. A tenant owns its people, Agents, Brain, integrations, conversations,
 and work. Every Principal belongs to one tenant. A site administrator can select
 another tenant's data without changing their own identity or authorization.
 
-Private SaaS builds present a tenant as a Pod. Self-service creation composes
-`Tenants.create/1`, Human creation, an explicit external identity binding, and
-the browser access proof in one transaction. The creator is a member of the Pod and its built-in `pod_admin` group.
-The site administration assignment and AuthZ roles belong to their domain
-owners. SaaS databases enforce the reserved-slug constraint; FOSS databases
-use the public slug contract.
+Each standard tenant (`hybrid_tenant = false`) owns one Pod workspace. The
+`tenants` table also carries `hybrid_tenant` (`boolean NOT NULL DEFAULT false`,
+and a `false` to `true` transition is forbidden). When `hybrid_tenant` is
+`true`, tenant creation skips default Agent and welcome Page scaffolding, and
+workspace domains (`Pod`, `Files`, `Conversations`, `AgentWorkers`,
+`FunctionRuntime`, `Signals`, and external `IdentityProviders`) reject
+operations for that tenant while organization profile, member, invitation, and
+personal account settings remain available. Site administration assignment and
+AuthZ roles belong to their domain owners, and slug validation enforces format
+rules plus any build-configured reserved-slug constraint.
 
 ## Base storage placement
 
@@ -32,16 +36,16 @@ URL may omit the ID and use `base_default`. Multiple URLs must specify every ID.
 
 | Environment | Default topology when `BASE_DB_URLS` is unset | Pool per shard |
 | --- | --- | --- |
-| FOSS production | `DATABASE_URL`, ID `base_default` | 10 |
+| Production (single DB) | `DATABASE_URL`, ID `base_default` | 10 |
 | Development | `ankole_base_00` through `ankole_base_03` | 2 |
 | Test | Four databases with `_test_<partition>` suffix | 2 |
-| SaaS production | `ankole_base_00` through `ankole_base_07` | 5 |
+| Multi-shard edition default | `ankole_base_00` through `ankole_base_07` | 5 |
 
 Only development and test create missing databases. They use `template0` and
 the control-plane locale provider, collation, and character rules. Production
-operators provision independent databases. FOSS needs no `CREATEDB` permission
-when it uses the control-plane database. The Base pool is separate even when
-both repos connect to the same database.
+operators provision independent databases. A single-database deployment needs no
+`CREATEDB` permission when it uses the control-plane database. The Base pool is
+separate even when both repos connect to the same database.
 
 All databases require PostgreSQL 18. Startup checks each reachable shard's
 locale against the control plane and initializes `public._ankole_shard`, a
@@ -62,7 +66,7 @@ in another statement cannot exempt a query. The query-escape inventory records
 these calls. Tenant deletion drops tables in batches of 100, then drops the
 schema with a 15-second lock timeout, before removing the tenant row.
 
-A single-database FOSS deployment can use one atomic `pg_dump`. With independent
+A single-database deployment can use one atomic `pg_dump`. With independent
 shards, every shard's point-in-time recovery target must be at or later than
 the control-plane recovery target. A newer shard can rebuild interrupted
 promotions on retry. A schema-version mismatch requires operator repair and
@@ -84,9 +88,8 @@ requires a deletion marker. `Ankole.Tenants` runs each lifecycle operation
 (create, scaffold, profile change, suspend, resume, begin deletion,
 site-administration transfer) in `Repo.transact_top_level/2`. Each lifecycle
 write locks the site-administration row and then the tenant row, and checks the
-protected tenant. Another domain runs the same steps in its transaction through
-the `_in_tx` functions, for example `Tenants.create_in_tx/1` in SaaS Pod
-creation. `Tenant` declares generic actions for the site JSON:API at
+protected tenant. Another domain or build extension runs the same steps in its transaction through
+the `_in_tx` functions, such as `Tenants.create_in_tx/1`. `Tenant` declares generic actions for the site JSON:API at
 `/api/v2/site/tenants` (list, Brain pack names, create, profile change,
 suspension as `POST`/`DELETE …/suspension`, begin deletion) and
 `/api/v2/site/privileged-tenant` (read, transfer). The
@@ -222,7 +225,7 @@ The site administration Console is served at the configured
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (default `/site-admin-console`); invalid or
 occupied paths fail startup. The configured path is sent only with an
 authenticated administrator response, rather than bundled into public assets.
-Sign-in without a return path opens the Pod at `/pod`. The Pod
+Sign-in without a return path opens the Pod at `/` on its canonical Pod host. The Pod
 session response includes the Console URL only when the current Pod Human is a
 siteadmin. The Pod sidebar then shows a Console link. The Console
 requires its own Console login.
@@ -255,8 +258,9 @@ The privileged tenant cannot be suspended or deleted; transfer its role first.
 Each tenant has a built-in `pod_admin` group. It grants `tenant_console:**`
 operations in that Pod. Its members must be active human members. Guest and
 Agent Principals cannot join it. A manual removal, membership change, or exit
-must preserve one active human administrator. The first FOSS administrator joins
-both administrator groups. A SaaS Pod creator joins the new Pod's `pod_admin`.
+must preserve one active human administrator. First-run site setup adds the
+initial administrator to both `siteadmin` and `pod_admin`; creating an
+additional tenant adds its initial administrator to that tenant's `pod_admin`.
 
 Pod settings owns the display name, Guest admission, login policy, members,
 credential assistance, invitations, and enterprise provider configuration.
@@ -274,8 +278,10 @@ unpadded base64url (22 characters). Durable storage, internal `ankole:page`
 references and the private browser API at `/api/v2/pod` keep full UUIDs.
 
 The Host selects the tenant. Normal navigation does not carry `tenant_id` or
-use a `/pod` prefix. Legacy browser paths redirect to the canonical host and
-short path. Unknown or unavailable tenant hosts fail closed. Open documents
+use a `/pod` prefix. Requests that carry a `/pod` prefix, a `tenant_id` query
+parameter, or a full UUID in `/pages/:id` or `/conversations/:id` redirect to
+the canonical Pod host and short-UUID path. Unknown or unavailable tenant hosts
+fail closed. Open documents
 pin their authentication and tenant on API requests; a conflicting tenant hint
 cannot override the Host. The site shares its browser group and independent
 account proof cookies across Pod subdomains. Login flows, API authorization and
@@ -354,8 +360,7 @@ A failed batch can retry from durable facts. Deletion is not an export or an
 undo operation.
 
 This boundary provides tenant storage, scaffold creation, lifecycle, and work
-entry. A private site account product can compose `Tenants.create/1`, Human
-creation, and identity binding in the same Repo transaction. It does not replace
-tenant isolation or create a second Principal model. Registration, email
-credentials, self-service pages, and billing belong to that product. Trusted site
-operators and control-plane plugins hold infrastructure authority.
+entry. An extension can compose `Tenants.create_in_tx/1`, Human creation, site
+credential binding, `pod_admin` assignment, and browser session activation in
+one top-level transaction without creating a second Principal model. Trusted
+site operators and control-plane plugins hold infrastructure authority.

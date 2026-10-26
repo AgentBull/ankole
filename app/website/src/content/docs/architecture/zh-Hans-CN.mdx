@@ -17,15 +17,15 @@ Harness 识别每个行动主体，执行访问规则，恢复中断的长任务
 
 <DocsArchitectureDiagram lang="zh-Hans-CN" />
 
-每个私有部署实例包含一个逻辑控制面，并为每个 Agent 提供一台 Agent Computer Worker。控制面管理身份、状态和调度，并负责创建 Worker。每台 Worker 为它的 Agent 提供执行环境。
+每个私有部署实例包含一个逻辑控制面、无状态的 `Function Runtime`（`ankole-function-runtime`）服务，并为每个 Agent 提供一台 Agent Computer Worker。控制面管理身份、状态和调度，运行 Pod 协作工作区，通过 `Function Runtime` isolate 执行 Pod Applet 后端函数与确定性 TypeScript 程序，并负责创建 Worker。每台 Worker 为它的 Agent 提供专属执行环境。
 
-Pod 和外部适配器记录对话发言；Signals 接纳发言、外部事件和定时刺激，Sessions 执行相应工作。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
+Pod（页面、实时文档、基于物理分片的双层 Base 多维表、Applet 小应用以及多人协作 Pod Chat）和外部适配器记录对话发言；Signals 接纳发言、外部事件和定时刺激，Sessions 执行相应工作。统一认证与身份提供商提供免密 Email OTP（`SiteCredential`）、企业 SSO 与组织目录同步。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
 
-## 控制面与 Agent Computer Worker
+## 控制面、Function Runtime 与 Agent Computer Worker
 
 ### 控制面保存状态并提交决策
 
-控制面使用 Elixir/OTP，负责 Console、主体与权限、系统配置、信号路由、执行会话、Brain、后台 Agent 任务、AIGateway 和 Control Plane Plugin。
+控制面使用 Elixir/OTP，负责 Pod（页面、文档、Base 多维表与物理分片、Applet 小应用和多人 Pod Chat）、Console、主体与权限、系统配置、信号路由、执行会话、Brain、Workflow、后台 Agent 任务、AIGateway 和 Control Plane Plugin。
 
 所有会改变用户可见结果的状态都先写入 PostgreSQL，再驱动执行或对外投递。进程重启后，已接收的消息、任务状态、记忆和审计记录仍然保留。
 
@@ -69,7 +69,7 @@ signal 可以显式指定执行会话；也可以由对话参与关系或信号�
 
 `Ankole.Sessions` 拥有队列、Admission、Driver、Run、工具和恢复。一个执行会话同时只运行一个 Run。每次开始执行时，Admission 检查租户、Agent 状态、授权与配额。
 
-每个 Agent 在对话中拥有自己的执行会话，其中的工作对全体参与者可见。点名的一轮采用请求人的授权；主动介入默认以 Agent 自己的身份执行。现有介入策略认定某个人是当前请求人时，才改用这个人的授权。
+每个 Agent 在对话中拥有自己的执行会话，其中的工作对全体参与者可见。交互式及由人类触发的回合——包括人类唤醒的 `may_intervene` 主动介入回合（Agent 消息绝不会唤醒其他 Agent）——均在 **`Human ∩ Agent` 权限交集**（`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`）下执行，要求人类与 Agent 双方同时具备访问权限。无交互人类参与的自主非人类回合（`cron`、`webhook` 及后台服务触发器）使用 Agent 自身的权限运行。
 
 cron 规则和后台任务在独立执行会话中工作，再向目标对话发言。对话的下一轮读取这些新发言，不引入其他执行会话的内部过程。
 
@@ -119,17 +119,17 @@ Agent 的模型档案指定执行所用的模型。每个租户选择 Brain 维�
 
 AIGateway 支持不保存历史的单次调用和可继续的模型会话状态。AIGateway 负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，并统一处理各 Provider 的生命周期。
 
-工具数量较多时，模型可以通过 Tool Search 按需检索工具，也可以提交程序，在受限沙盒中批量调用工具并返回结果。原生支持这些能力的 Provider 直接处理请求，其他 Provider 由 AIGateway 提供对应实现。一个 Provider 可以配置多个凭证组成凭证池，其中包括 ChatGPT 订阅等账号凭证。系统按单个凭证记录失败、重试和用量。
+工具数量较多时，模型可以通过 Tool Search 按需检索工具，也可以通过编程式工具调用（Programmatic Tool Calling）提交程序，批量调用工具并只返回结果。AIGateway 与 Workflow 在无状态 `ankole-function-runtime` isolate（`POST /v1/program/run`）中运行确定性 TypeScript 程序。原生支持这些能力的 Provider 直接处理原生请求，其他 Provider 由 AIGateway 在网关内提供相同能力。一个 Provider 可以配置多个凭证组成凭证池，其中包括 ChatGPT 订阅等账号凭证。系统按单个凭证记录失败、重试和用量。
 
 参见 [AIGateway](../ai-gateway/) 和 [添加 LLM Provider](../adding-a-provider/)。
 
 ## 企业身份、权限与扩展
 
-Ankole 将人员、Agent 和系统服务统一表示为主体（Principal）。身份提供商（IdP）负责 Console 的 SSO 登录，并同步员工、通讯录和组织目录。聊天渠道负责收发消息。身份提供商和聊天平台可以不同。
+Ankole 将人员、Agent 和系统服务统一表示为主体（Principal）。统一的免密认证覆盖 Pod 与 Console：个人 `SiteCredential` 邮箱验证码（Email OTP）以及租户级企业身份提供商（OIDC/OAuth SSO 与组织架构目录同步）共同认证工作区成员与管理员，系统不存储用户密码。聊天渠道负责收发消息，身份提供商和聊天平台可以不同。
 
 AuthZ 根据主体、权限组、资源、动作和条件，在运行时作出授权决定。AuthZ 判定由运行时执行，提示词和模型输出不能授予权限。
 
-Control Plane Plugin 将 IdP、聊天渠道和其他控制面能力接入实例。Agent Plugin 为 Agent 增加工具和工作区模板。Skill 描述完成某类工作的步骤，并可限定在主 Agent 或后台任务中使用。
+编译期集成的站点级 Control Plane Plugin 可以提供各子系统适配器（Signals、身份提供商、AI Gateway Provider、Worker Provider）、受监督的 OTP 进程、外层 HTTP Plug、带作用域的扩展 JSON:API 路由、领域事务钩子、`AppConfigure` 配置字段和类型化 UI 插槽。Agent Plugin 为 Agent 增加工具和工作区模板。Skill 描述完成某类工作的步骤，并可限定在主 Agent 或后台任务中使用。
 
 外部 MCP 服务器通过 Skill 接入。Skill 声明连接，Worker 为每次执行生成配置，并在执行结束后删除配置。模型只会看到当前 Skill 声明的 MCP 工具。
 
@@ -137,19 +137,19 @@ Control Plane Plugin 将 IdP、聊天渠道和其他控制面能力接入实例�
 
 ## 持久化边界
 
-PostgreSQL 保存身份、权限、配置、消息、会话、任务、记忆、投递状态和审计记录等权威领域状态。需要判断一项工作是否已经提交时，以这些记录为准。
+PostgreSQL 18+ 控制面数据库保存身份、权限、配置、Pod 元数据与文档、消息、会话、任务、记忆、投递状态和审计记录等权威领域状态；物理 **Base 分片数据库（`BASE_DB_URLS`）**保存租户 Base 物理表数据。执行时间点恢复（PITR）时，每个 Base 分片的恢复目标时间必须大于或等于（`>=`）控制面数据库的恢复目标时间。需要判断一项工作是否已经提交时，以这些 PostgreSQL 记录为准。
 
-控制面的云盘文件存储保存附件、发布的文件、Skill 和 Automation 脚本。持久 Home 单独保存工作区、用户软件与 Codex 线程。PostgreSQL、云盘文件存储、全部 Home 与原部署加密密钥需要一起备份。
+对象存储（控制面文件存储）保存 Pod 文件、Pod 与会话附件、编译后的 Applet 产物包、发布的文件、Skill 和 Automation 脚本。持久 Home 单独保存工作区、用户软件与 Codex 线程。控制面 PostgreSQL 数据库、全部物理 Base 分片数据库、对象存储、全部 Home 与原部署加密密钥需要一起备份。
 
-RuntimeFabric、Worker 进程、流式预览和 `/var/cache/ankole` 可以重建。持久 Home 必须撑过实例删除，并需要存储备份。参见[备份与还原](../backup-and-restore/)。
+RuntimeFabric、`ankole-function-runtime` isolate、Worker 进程、流式预览和 `/var/cache/ankole` 为无状态或可重建状态。持久 Home 必须撑过实例删除，并需要存储备份。参见[备份与还原](../backup-and-restore/)。
 
 ## 三种部署形态
 
-| 形态 | 控制面与 Worker | 持久化 |
+| 形态 | 控制面、Function Runtime 与 Worker | 持久化 |
 | --- | --- | --- |
-| **Docker Compose · 单机推荐** | 一台 Linux、macOS 或 Windows 主机运行控制面，控制面通过 Docker socket 为每个 Agent 创建一个 Worker 容器 | PostgreSQL、云盘文件存储与每个 Agent 的独享持久 Home 卷 |
-| **Kubernetes · 企业级推荐** | 一个控制面通过 Kubernetes API 为每个 Agent 创建一个 Worker Pod | PostgreSQL、云盘文件存储与持久 Home PVC 或共享存储；缓存卷独立 |
-| **源码安装** | `bun dev` 运行控制面，控制面为每个 Agent 创建一个 Docker Worker 容器，容器以 watch 模式运行本地 Agent Computer 源码 | PostgreSQL、`var/ankole-dev/files` 与独享 Docker 持久 Home 卷 |
+| **Docker Compose · 单机推荐** | 一台 Linux、macOS 或 Windows 主机运行控制面与 `ankole-function-runtime`，控制面通过 Docker socket 为每个 Agent 创建一个 Worker 容器 | PostgreSQL 18+（及配置的 `BASE_DB_URLS` 分片库）、对象存储与每个 Agent 的独享持久 Home 卷 |
+| **Kubernetes · 企业级推荐** | Helm 部署运行控制面与 `ankole-function-runtime` Deployment，控制面通过 Kubernetes API 为每个 Agent 创建一个 Worker Pod | PostgreSQL 18+ 与物理 Base 分片数据库、对象存储与持久 Home PVC 或共享存储；缓存卷独立 |
+| **源码安装** | `bun run services:start` 启动 PostgreSQL 18 与 `ankole-function-runtime`；`bun dev` 运行控制面，并以 watch 模式为每个 Agent 创建 Docker Worker 容器 | PostgreSQL 18、`var/ankole-dev/files` 与独享 Docker 持久 Home 卷 |
 
 三种部署方式使用相同的逻辑边界。每个实例包含一个控制面，由控制面为每个 Agent 提供自己的 Worker。完整步骤见 [快速开始](../quickstart/#1-部署-ankole)。
 

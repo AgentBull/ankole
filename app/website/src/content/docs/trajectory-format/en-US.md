@@ -72,7 +72,7 @@ The two do not mix. A conversation's messages are AIGateway's; a job's trajector
 
 ## What this guide is not
 
-It is not a ChatML specification — the canonical ChatML format is a standard, and Ankole's read-time projection keeps that shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
+It is not a ChatML specification — the canonical ChatML format is a standard, and Ankole's read-time projection keeps that shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/api/v2/ai-gateway/conversations/:id/messages`, `/api/v2/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
 
 ## Next steps
 

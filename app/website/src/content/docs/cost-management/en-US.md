@@ -1,124 +1,119 @@
 ---
 title: Cost management
-description: The levers that control what Ankole spends — model profiles, reasoning effort, web tools, turn budgets, Workflow fanout, and background-job caps.
+description: The configuration levers that control Ankole token and tool spend across model profiles, reasoning effort, web tools, turn budgets, Workflow fanout, background-job caps, and per-Agent token quotas.
 section: Guides
 order: 314
 ---
 
-Most of what Ankole spends is model tokens, and most of *that* is decided by a small set of configuration levers, not by usage you cannot shape. This page names the levers, says what each one costs and saves, and gives the order to pull them when the bill is too high. Every lever here is a real knob in the control plane; none of it is "use the agent less."
+Model tokens account for most of Ankole's operational cost. Control-plane settings govern which model runs, how many iterations a turn executes, and how much background fanout or retry work can occur. Every lever on this page maps to a concrete control-plane setting.
 
-The decisive property, stated up front: cost is a function of *which model runs, how many times, and for how long*. The levers map to those three: the model-profile tiers pick the model, the agent-loop budgets cap the iterations, and the Workflow and Job caps bound fanout and retries. Pull the one that matches where the spend is.
+## Lever 1: model-profile tiers
 
-## Lever 1: the model-profile tiers
+Eight built-in Agent profiles control separate paid paths. Five select language models, and three bind web-search, web-fetch, and image-generation capabilities.
 
-The eight built-in Agent profiles control separate paid paths. Five select language models. Three bind web-search, web-fetch, and image-generation capabilities.
-
-| Slot | When it runs | Cost lever |
+| Slot | When it runs | Cost impact |
 |---|---|---|
-| `primary` | the main reasoning model — most turns | the single biggest cost line |
-| `light` | high-volume, low-stakes paths | should be genuinely cheap |
-| `heavy` | hard synthesis | expensive; used rarely if `primary` is well-tuned |
-| Background Agent Jobs (`coding` internally) | every Background Agent Job | selects the provider and model for durable background work |
-| `vision_fallback` | when `primary` cannot handle an image | only bound if the agent sees images |
-| `web_search`, `web_fetch` | web tools | see Lever 3 |
-| `image_generate` | image generation | expensive per call; only bound if used |
+| `primary` | Main reasoning model for most turns | Largest single cost driver |
+| `light` | High-volume, low-complexity paths | Keep bound to a low-cost model |
+| `heavy` | Complex synthesis | High cost per call; used sparingly when `primary` fits normal work |
+| Background Agent Jobs (`coding` internally) | Every Background Agent Job | Selects the provider and model for durable background work |
+| `vision_fallback` | When `primary` cannot process an image | Bind only when the Agent receives images |
+| `web_search`, `web_fetch` | Web tools | See Lever 3 |
+| `image_generate` | Image generation | High cost per call; bind only when needed |
 
-Brain reads the site embedding model and the tenant rerank model from [AppConfigure](../app-configuration/). Select an active Brain maintainer Agent for each tenant: all Brain model calls run as this Agent and attribute usage to it. Its `light` profile extracts conversations and Sources, its `heavy` profile runs Dreaming and Skill lesson review, and its `web_fetch` profile reads URL Sources. An absent `web_fetch` profile or a failed Provider request makes the Source fetch fail. Disabling the maintainer stops model calls and URL Source fetching until the Agent is enabled or replaced. **Brain → Health** reports the selected Agent and profile status. See [Brain](../brain/) for the full behavior.
+Two tenant-scoped [AppConfigure](../app-configuration/) keys attribute subsystem model calls to designated Agents:
 
-Two moves save the most:
+- **`brain.maintainer_agent_uid`**: Selects the active Brain maintainer Agent for the tenant. All Brain model calls run as this Agent and attribute usage to it (`light` extracts conversations and Sources, `heavy` runs Dreaming and Skill lesson review, and `web_fetch` reads URL Sources). Brain also reads the site embedding model and tenant rerank model from `AppConfigure`. Disabling the maintainer Agent stops Brain model calls and URL Source fetching until the Agent is enabled or replaced. **Brain → Health** reports the selected Agent and profile status; see [Brain](../brain/).
+- **`pod.applet.ai_agent_uid`**: Selects the active Agent for Pod Applet `ctx.ai` model calls in the tenant and attributes those calls and token usage to that Agent.
 
-- **Bind `light` to something genuinely cheap.** It exists for the high-volume path; a `light` that is nearly as expensive as `primary` defeats the slot.
-- **Turn `primary` down, not up, by default.** An agent that "feels expensive" is often a `primary` bound too heavy for the work it actually does. Move up only when quality demands it.
+Two profile adjustments save the most spend:
 
-Unbind a slot the agent does not use. `vision_fallback` then cannot incur calls. An empty `image_generate` profile can still use native image generation when the main provider declares that capability. Background Agent Jobs are different: if their profile is unset, they still run through AIGateway with the Agent's `heavy` profile as the fallback. Configure this profile when Jobs need a different provider or model.
+- **Bind `light` to a low-cost model.** `light` serves high-volume paths; binding it to a model priced near `primary` removes that savings tier.
+- **Size `primary` for normal turns.** Start with a smaller model for `primary` and move to a larger tier only when task quality requires it.
+
+Unbind slots that an Agent does not use so `vision_fallback` cannot incur calls. An empty `image_generate` profile can still use native image generation when the main provider declares that capability. Background Agent Jobs fall back to the Agent's `heavy` profile through AIGateway when their dedicated profile is unset; configure the Background Agent Job profile when Jobs require a separate provider or model.
 
 ## Lever 2: reasoning effort
 
-For providers that support Codex reasoning effort, `model_reasoning_effort` is a seven-step dial: `minimal | low | medium | high | xhigh | max | ultra`. Lower effort is cheaper and faster; higher effort is better on hard problems and costs more. The default is `high`.
+For providers that support Codex reasoning effort, `model_reasoning_effort` offers seven levels: `minimal | low | medium | high | xhigh | max | ultra`. Lower effort reduces latency and token cost; higher effort improves hard synthesis at higher token cost. The default is `high`.
 
-This is a finer-grained lever than swapping the model. An agent whose `primary` is fine at `medium` but configured at `high` spends more for no visible gain. Set it on the `primary` profile to match the agent's actual work; raise it for the one agent that does hard synthesis, not for all of them.
+Adjust `model_reasoning_effort` on an Agent's `primary` profile before switching to a larger model. Reserve `high` and above for Agents that perform difficult synthesis rather than routine operational turns.
 
-## Lever 3: web tools, on demand
+## Lever 3: web tools
 
-`web_search` and `web_fetch` are independent profiles, and each call costs. Two moves:
+`web_search` and `web_fetch` are independent profiles that bill per call:
 
-- **Unbind them when the agent does not need the web.** An internal-only assistant should not have `web_search` bound; the slot existing is a license to call.
-- **Prefer `web_fetch` over `web_search` when you know the URL.** Fetching a known source is one call; searching is one call plus the fetches the agent decides to make.
+- **Unbind unused web slots.** Internal-only Agents should leave `web_search` unbound so the model cannot invoke external search.
+- **Prefer `web_fetch` over `web_search` when the URL is known.** Fetching a known URL takes one call, whereas searching adds a search call plus follow-up fetches.
 
-The `worker.rendered_fetch_idle_ttl_ms` AppConfigure key controls how long a rendered fetch result is cached — a higher TTL saves repeat fetches of the same URL at the cost of staleness.
+The `worker.rendered_fetch_idle_ttl_ms` [AppConfigure](../app-configuration/) key sets the idle timeout before an unused rendered `web_fetch` browser sidecar route is released. It controls Worker browser memory retention rather than caching URL responses.
 
 ## Lever 4: agent-loop budgets
 
-Three AppConfigure keys cap the per-turn spend:
+Three tenant-scoped (`scope: :tenant`) [AppConfigure](../app-configuration/) keys cap per-turn spend:
 
 | Key | What it caps |
 |---|---|
-| `ai_agent.max_iterations` | the agent loop's iteration budget per turn |
-| `ai_agent.max_output_tokens` | the per-turn output token cap |
-| `ai_agent.inactivity_timeout_ms` | how long a turn may be inactive before it is reaped |
+| `ai_agent.max_iterations` | Agent-loop model iterations per turn |
+| `ai_agent.max_output_tokens` | Output token cap per turn |
+| `ai_agent.inactivity_timeout_ms` | Maximum idle time before an inactive turn is reaped |
 
-`max_iterations` is the one that bounds a chatty agent loop. A loop that calls ten tools where two would do hits the model ten times; a lower cap forces the agent to converge. `max_output_tokens` bounds the size of each response. These are instance-wide defaults — set them to the shape of a normal turn, and accept that a genuinely hard turn may hit the cap and produce a "synthesize what you have" final answer.
+`ai_agent.max_iterations` bounds multi-step tool loops, and `ai_agent.max_output_tokens` bounds the size of each model response. Both `ai_agent.*` keys are tenant-scoped defaults (inheriting the site default when a tenant has no override). Size them for normal turns in each tenant; when a complex turn reaches `max_iterations`, the loop forces the Agent to synthesize a final answer from the results collected so far.
 
 ## Lever 5: Workflow fanout and task attempts
 
-Each Workflow `agent()` attempt is a complete model turn. One call can make at most three attempts, so a run that creates many calls can multiply model and Web-tool use even when the main conversation makes only one Workflow request.
+Each Workflow `agent()` attempt runs a complete model turn. One call can make up to three attempts, so a Workflow run with wide fanout multiplies model and web-tool usage from a single conversation request.
 
 | AppConfigure key | Default | Maximum | What it controls |
 |---|---:|---:|---|
-| `workflow.max_concurrency_per_run` | 8 | 32 | Tasks from one run that can execute at the same time |
-| `workflow.max_running_per_agent` | 8 | 64 | Running Workflow tasks across one Agent's runs |
+| `workflow.max_concurrency_per_run` | 8 | 32 | Tasks from one run that can execute concurrently |
+| `workflow.max_running_per_agent` | 8 | 64 | Running Workflow tasks across all runs of one Agent |
 | `workflow.max_agent_calls_per_run` | 32 | 1,024 | Total subagent calls one run can create |
 
-Concurrency changes elapsed time; it does not reduce the total number of model calls. Set the call limit from the finite input size, and request only the concurrency that the deployment needs. A run can request lower `concurrency` and `max_agent_calls` values, but it cannot change the cross-run `max_running_per_agent` limit or raise an AppConfigure limit.
+Concurrency changes elapsed wall-clock time; it does not reduce total model calls. Set `max_agent_calls` from the finite input size, and request only the concurrency required. A run can request lower `concurrency` and `max_agent_calls` values, but it cannot change `workflow.max_running_per_agent` or exceed an `AppConfigure` limit.
 
-Workflow has no batch-wide token or currency budget. Every task still uses the normal per-turn iteration, output-token, and inactivity limits. Use a narrow prompt and a small structured result for each task, handle `null` failures, and split a large collection into separate runs when one aggregate would be too large. See [Workflows](../workflows/) for the task and result limits.
+Workflow enforces per-turn iteration, output-token, and inactivity limits on each task rather than a batch-wide token budget. Keep task prompts narrow, return compact structured results, handle `null` failures explicitly, and split large collections across runs when needed. See [Workflows](../workflows/).
 
 ## Lever 6: background-job retry and slot caps
 
-Background jobs can spend tokens on retries, and the caps are the lever:
+Background Agent Jobs consume tokens across execution attempts and concurrent slots:
 
 | Cap | Value | Effect |
 |---|---|---|
-| `max_execution_attempts` | 5 | a job retries up to five times before `failed` |
-| `max_consecutive_turn_failures` | 5 | consecutive turn failures before the job gives up |
-| `max_running_per_agent` | 3 | at most three running jobs per agent |
-| retry delay | ~30s | the floor between retries |
+| `max_execution_attempts` | 5 | Maximum execution attempts before a job transitions to `failed` |
+| `max_consecutive_turn_failures` | 5 | Consecutive turn failures before a job stops |
+| `max_running_per_agent` | 3 (default) | Concurrent running jobs per Agent, configurable per tenant via `agent_computer.background_agent_job.max_running_per_agent` (`1..64`) |
+| retry delay | ~30s | Minimum delay between retry attempts |
 
-A job that fails transiently five times spends five runs' worth of tokens. Most of the time the caps protect you — a configuration error fails fast and stays failed. The lever to watch is the third one: an agent with three concurrent jobs is running three model loops at once. If you do not need that parallelism, the persona ("do one thing at a time") is cheaper than the cap allows.
+A job that hits transient failures five times consumes five runs of tokens, whereas configuration errors fail fast. Lower `agent_computer.background_agent_job.max_running_per_agent` (or instruct the Agent in its persona to run one job at a time) when a tenant does not need three concurrent background model loops per Agent.
 
-## Lever 7: the per-Agent token quota
+## Lever 7: per-Agent token quota
 
-The six levers above shape how much one turn costs. The token quota caps the total: it limits the tokens that one Agent can consume in a repeating period, and AIGateway rejects the Agent's model calls when the usage reaches the limit until the period ends.
+The six levers above bound per-turn and per-job behavior. The per-Agent token quota caps total token consumption over a repeating period: when an Agent reaches its limit, AIGateway rejects further model calls for that Agent until the period ends.
 
-Set it on the Agent page: a period in days, a period start time, and a token limit. The Agent page shows the used share of the limit and the end of the current period. A chat message that arrives at the limit gets a reply with the used tokens, the limit, and the time the period ends. A Background Agent Job at the limit fails instead of waiting. **Reset period** starts a new period at once when a legitimate spike must continue.
+Configure the period length (in days), period start time, and token limit on the Agent page. Conversations that hit the limit receive a reply with the used tokens, limit, and period end time; Background Agent Jobs at the limit fail immediately. Use **Reset period** to start a new period immediately during an authorized traffic spike. See [Agents](../agents/#set-a-token-quota).
 
-Use the quota as a stop, not as a budget planner. It does not slow the Agent down as it approaches the limit, and one call can end above the limit by its own usage. Size it from the observed spend below, with room for the heaviest normal week. See [Agents](../agents/#set-a-token-quota) for the fields.
+## Inspect where spend occurs
 
-## Where the spend actually is
+Before changing models or concurrency, inspect the Agent, conversation, Workflow, or Background Agent Job that generated the calls:
 
-Before you change models or concurrency, inspect the Agent, conversation, Workflow, or Background Agent Job that made the calls:
+- `GET /api/v2/ai-gateway/conversations` lists recent model calls, resolved profiles, call counts, and providers so you can distinguish high-volume `primary` traffic, expensive `heavy` calls, and frequent `web_search` calls.
+- Ask the main Agent to inspect its Workflow run. Task counts show total fanout and failed attempts (Ankole does not expose a separate Workflow Console page or per-run currency total).
+- `GET /api/v2/background-agent-jobs` reports job `attempts` so you can spot jobs that consumed multiple retry runs.
+- Structured control-plane logs emit provider call events with Agent and provider fields for aggregation in your log store.
 
-- `GET /ai-gateway/conversations` shows the model calls recent turns made — which profiles resolved, how many calls, which providers. This is the fastest way to see whether the spend is `primary` (volume), `heavy` (a few expensive calls), or `web_search` (many small calls).
-- Ask the main Agent to show the Workflow. Its task counts reveal the fanout and failed calls. The current version has no Workflow Console page or per-run cost total.
-- `GET /background-agent-jobs` shows job `attempts` — a job with `attempts: 5` spent five runs.
-- The structured control-plane logs carry the event names and fields for provider calls; your log ingester can aggregate by provider and by agent.
+## Worked example
 
-The fix is never "use the agent less." It is "this specific lever is set wrong for this specific agent's work."
+Suppose a tenant's weekly token spend doubles while `primary` call volume stays flat, and `/api/v2/ai-gateway/conversations` shows a tenfold jump in `web_search` calls from a channel assistant configured with `may_intervene`. Updating the Agent's persona instructions ("run `web_search` only when a participant asks an explicit factual question") or narrowing its Signal Binding policy resolves the spend at its source without throttling normal turns.
 
-## A worked example
+## Scope of cost controls
 
-A deployment instance's bill doubles in a week. The conversations surface shows `primary` calls are normal, but `web_search` calls are up tenfold — a team-assistant agent with `may_intervene` started searching on every channel message. The fix is the persona ("search only when someone asks a factual question"), not a cost lever. The bill was a symptom of a judgment problem; the persona is where judgment lives.
-
-This is the pattern: cost problems are often behavior problems in disguise, and the behavior lever is the persona or the binding policy, not a token cap.
-
-## What cost management is not
-
-It is not a real-time spend dashboard — Ankole does not emit one. It is not a way to cap spend at a dollar amount; the levers cap *calls and iterations*, and the dollar amount is the provider's rate times those. And it is not a substitute for reading the conversations surface; the levers are only worth pulling once you know which one is set wrong.
+Ankole controls model selection, reasoning effort, tool availability, loop iterations, concurrency, and token quotas; it does not emit a real-time currency billing dashboard, because currency cost depends on your upstream provider's pricing tiers. Inspect conversation and job logs first, then adjust the specific lever responsible for the usage.
 
 ## Next steps
 
-- For Agent model profiles, read [Agents](../agents/#configure-models).
-- For the agent-loop knobs and their keys, read [Environment variables](../environment-variables/).
-- For the related conversation and Job endpoints, read [Console API reference](../console-api/).
-- For bounded subagent fanout and its limits, read [Workflows](../workflows/).
-- For the Job caps, read [Background Agent Jobs](../background-jobs/).
+- For Agent model profiles and quotas, read [Agents](../agents/#configure-models).
+- For `ai_agent.*`, `brain.*`, `pod.applet.*`, and `agent_computer.*` runtime settings, read [AppConfigure](../app-configuration/).
+- For conversation and Background Agent Job endpoints, read [Console API reference](../console-api/).
+- For bounded subagent fanout, read [Workflows](../workflows/).
+- For Background Agent Job execution limits, read [Background Agent Jobs](../background-jobs/).

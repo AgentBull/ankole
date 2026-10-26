@@ -1,6 +1,6 @@
 ---
 title: 开发 Skill 与 Control Plane Plugin
-description: 为 Agent 增加工作方法，或为控制面增加身份源、聊天适配器、配置项和后台服务。
+description: 为 Agent 增加工作方法，或为站点级控制面增加适配器、配置项、领域事务钩子、后台服务与前端插槽。
 section: Developer guide
 order: 113
 ---
@@ -11,10 +11,11 @@ Skill 和 Control Plane Plugin 都能扩展 Ankole，但它们解决的问题不
 |---|---|
 | 教 Agent 怎样完成某类工作 | Skill |
 | 给 Agent 提供 MCP-backed 工作流及其使用方法 | Skill |
-| 增加身份源、聊天适配器或 Provider 类型 | Control Plane Plugin |
-| 增加控制面配置项或受监督后台进程 | Control Plane Plugin |
+| 增加身份源、聊天适配器、LLM Provider 或 Worker Provider 类型 | Control Plane Plugin |
+| 增加站点级控制面配置项、受监督后台进程、领域事务钩子、扩展 `/api/v2` 路由或前端 UI 插槽 | Control Plane Plugin |
+| 在运行期不重启控制面的前提下动态切换业务策略 | OpenFeature（`Ankole.Features`） |
 
-Skill 是 Agent 读取的文件，不需要重新编译控制面。Control Plane Plugin 是编译进控制面的第一方 Elixir 模块，需要注册，并在控制面下次启动时激活。
+Skill 是 Agent 读取的文件，不需要重新编译控制面。Control Plane Plugin 是编译进发布产物的站点级第一方全栈扩展（绝不按租户或单个 Agent 划分作用域）：`:optional` Plugin 由 `siteadmin` 启用后在控制面下次启动时激活，`:always` Plugin 则随源码构建固定保持激活。
 
 ## 编写 Skill
 
@@ -104,7 +105,7 @@ dependencies:
 
 ## 开发 Control Plane Plugin
 
-Control Plane Plugin 适合扩展控制面拥有的能力。模块实现 `Ankole.Plugins.Plugin`，最小实现只有一个稳定的 Plugin ID：
+Control Plane Plugin 适合扩展控制面拥有的站点级能力。模块实现 `Ankole.Plugins.Plugin`，最小实现只有一个稳定的 Plugin ID：
 
 ```elixir
 defmodule Ankole.Plugins.MyPlugin do
@@ -115,15 +116,19 @@ defmodule Ankole.Plugins.MyPlugin do
 end
 ```
 
-Plugin ID 使用小写 slug。其他回调按需要实现：
+Plugin ID 使用小写 slug。其他可选回调按需要实现：
 
 | 回调 | 用途 |
 |---|---|
-| `display_name/0`、`description/0` | Console 中显示的名称与说明 |
-| `adapter_declarations/0` | 声明身份源、聊天渠道或其他适配器 |
+| `activation/0` | `:optional`（默认，通过 `plugins.enabled_ids` 选择并在下次启动生效）或 `:always`（随构建固定激活，无 Console 开关） |
+| `display_name/0`、`description/0` | Site Admin Console 中显示的本地化名称与说明 |
+| `adapter_declarations/0` | 声明身份源、聊天渠道、LLM Provider、Worker Provider（`agent_workers.provider_kind`）或 Webhook 适配器 |
+| `hooks/0` | 声明同步领域事务钩子（`[{hook_point, module}]`，实现 `Ankole.Plugins.Hook`） |
 | `app_config_definitions/0` | 声明固定的 AppConfigure 配置项 |
 | `app_config_patterns/0` | 声明带动态 ID 的配置项 |
-| `children/0` | 启动长连接、Registry 或定期调和进程 |
+| `children/0` | 在 Plugin 监督树下启动长连接、Registry 或定期调和进程 |
+
+作为全栈构建期扩展，发布包还可以在核心路由外层包裹边缘请求 Plug、挂载类型化的 `/api/v2/*` JSON:API 扩展路由，并通过前端构建清单 `entries.json` 的 `overrides` 绑定类型化 Web UI 插槽（`PodAppSlots`、`ConsoleAppSlots`、`AuthAppSlots`）。
 
 ### 注册 Plugin
 
@@ -135,7 +140,7 @@ config :ankole, :control_plane_plugin_modules, [
 ]
 ```
 
-注册后，Plugin 会出现在 Console 的目录中。管理员启用它后，控制面会在下一次启动时注册配置项、适配器和受监督进程。Plugin 不支持热加载。
+注册后，Plugin 会出现在 **Site Admin Console**（`/site-admin-console` 的 **Global defaults** 作用域，`GET` / `PUT /api/v2/site/control-plane-plugins`）的站点级目录中。`siteadmin` 启用某个 `:optional` Plugin 后，控制面会在下一次启动时将其解析为不可变的 `:persistent_term` 启动快照，并注册配置项、适配器、事务钩子和受监督进程（若任一租户仍引用某 Worker Provider 类型，`veto_disable` 会阻止停用该 Plugin）。`:always` Plugin 只要编译进发布包即自动激活。Plugin 不支持热加载；需要在运行期免重启切换策略时，请使用 OpenFeature（`Ankole.Features`）。
 
 ### 声明适配器
 
@@ -154,17 +159,19 @@ def adapter_declarations do
 end
 ```
 
-适配器的专属字段由对应子系统定义。聊天适配器应遵循 [Signals](../signals/) 的契约；身份源和模型 Provider 也应使用各自现有的注册表，不要在 Plugin 内另建平行配置。
+适配器的专属字段由对应子系统定义。聊天适配器应遵循 [Signals](../signals/) 的契约；身份源、模型 Provider 和 Worker Provider 也应使用各自现有的注册表，不要在 Plugin 内另建平行配置。
 
-### 声明配置与后台进程
+### 声明配置、事务钩子与后台进程
 
 运维人员需要在运行期管理的设置应通过 `app_config_definitions/0` 或 `app_config_patterns/0` 声明。只有数据库可用前必须存在的启动参数才使用环境变量。
+
+需要为领域写操作（`:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records`、`:admit_compute`）附加同步准入或配额校验时，使用 `hooks/0` 声明钩子模块。每个钩子实现 `Ankole.Plugins.Hook.before_commit_in_tx/2`，在调用方事务内返回 `:ok` 或 `{:error, reason}`（返回错误会直接回滚事务）。
 
 `children/0` 返回标准 OTP child spec。长连接和调和进程必须进入 Plugin 的监督树，随 Plugin 激活而启动，并在停用后的下次控制面启动时停止。
 
 ### 验证 Plugin
 
-先运行控制面测试和静态检查，再从 Console 启用 Plugin 并重启控制面。确认它显示为已激活，配置项可见，声明的适配器能完成一次真实连接。若它包含外部协议，还要运行对应的集成测试。
+先运行控制面测试和静态检查。对于 `:optional` Plugin，从 **Site Admin Console**（`/site-admin-console`）启用并重启控制面；`:always` Plugin 会在启动时直接激活。确认它显示为已激活、配置项可见、事务钩子按契约生效，且声明的适配器能完成一次真实连接。若它包含外部协议，还要运行对应的集成测试。
 
 ## 继续阅读
 

@@ -4,10 +4,6 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
@@ -22,12 +18,11 @@ import {
   useTreeItemDrag
 } from '@ankole/uikit'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  RiAddLine,
   RiArrowRightSLine,
   RiDeleteBinLine,
   RiFolderLine,
@@ -51,11 +46,11 @@ import {
   pageSearchQuery,
   cachedPages,
   type Page,
-  type PageScope,
-  type PageType
+  type PageScope
 } from './content-api'
 import { contentError } from './content-errors'
-import { Choice, ContentError, TextField, typeLabels } from './content-primitives'
+import { ContentError, typeLabels } from './content-primitives'
+import { CreatePageButton } from './page-create-menu'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { MovePageDialog } from './page-move-dialog'
 import { SpaceSettingsButton } from './space-settings'
@@ -171,12 +166,13 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCreate: boolean }) {
-  const [panel, setPanel] = useState<'children' | 'create'>()
-  const children = useInfiniteQuery({ ...pageChildrenQuery('space', pageID), enabled: panel === 'children' })
+  const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
+  const children = useInfiniteQuery({ ...pageChildrenQuery('space', pageID), enabled: open })
   const pages = children.data?.pages.flatMap(batch => batch.pages) ?? []
   return (
     <>
-      <Popover open={panel === 'children'} onOpenChange={open => setPanel(open ? 'children' : undefined)}>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger render={<Button size="sm" variant="ghost" />}>
           <RiNodeTree aria-hidden className="size-4" />
           {t('pod.content.child_pages')}
@@ -195,7 +191,7 @@ export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCre
                   <Link
                     className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-foreground no-underline hover:bg-accent"
                     to={podLocation(`/pages/${page.id}`).pathname}
-                    onClick={() => setPanel(undefined)}>
+                    onClick={() => setOpen(false)}>
                     <PageIcon page={page} />
                     <span className="truncate">{page.title || t('pod.content.untitled')}</span>
                   </Link>
@@ -216,13 +212,17 @@ export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCre
             </Button>
           )}
           {canCreate && (
-            <Button variant="outline" size="sm" onClick={() => setPanel('create')}>
-              {t('pod.sidebar.new_subpage')}
-            </Button>
+            <CreatePageButton
+              parentID={pageID}
+              label={t('pod.sidebar.new_subpage')}
+              onCreated={page => {
+                setOpen(false)
+                void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+              }}
+            />
           )}
         </PopoverContent>
       </Popover>
-      {panel === 'create' && <CreatePageDialog parentID={pageID} onClose={() => setPanel(undefined)} />}
     </>
   )
 }
@@ -365,7 +365,7 @@ function PageTreeRow({
   const client = useQueryClient()
   const pages = siblings
   const [renaming, setRenaming] = useState(false)
-  const [dialog, setDialog] = useState<'create' | 'move'>()
+  const [moving, setMoving] = useState(false)
   const keepFocusInRow = useRef(false)
   const menuFinalFocus = () => {
     const restore = !keepFocusInRow.current
@@ -407,8 +407,7 @@ function PageTreeRow({
         keepFocusInRow.current = true
         setRenaming(true)
       }}
-      onCreateChild={() => setDialog('create')}
-      onMoveTo={() => setDialog('move')}
+      onMoveTo={() => setMoving(true)}
     />
   )
   return (
@@ -466,8 +465,7 @@ function PageTreeRow({
         </ContextMenuTrigger>
         <ContextMenuContent finalFocus={menuFinalFocus}>{menu}</ContextMenuContent>
       </ContextMenu>
-      {dialog === 'create' && <CreatePageDialog parentID={page.id} onClose={() => setDialog(undefined)} />}
-      {dialog === 'move' && <MovePageDialog page={page} close={() => setDialog(undefined)} />}
+      {moving && <MovePageDialog page={page} close={() => setMoving(false)} />}
     </>
   )
 }
@@ -523,122 +521,6 @@ function PageRenameField({ page, onDone }: { page: Page; onDone(): void }) {
         }
       }}
     />
-  )
-}
-
-type CreatePageOptions = {
-  parentID?: string
-  scope?: 'space' | 'private'
-  privateOwner?: string
-  onCreated?: (page: Page) => void
-  returnFocus?: RefObject<HTMLElement | null>
-}
-
-export function CreatePageButton({
-  parentID,
-  scope,
-  privateOwner,
-  compact = false,
-  onCreated
-}: CreatePageOptions & { compact?: boolean }) {
-  const [open, setOpen] = useState(false)
-  const destinations = useInfiniteQuery({ ...pageChildrenQuery('space'), enabled: !parentID && scope === undefined })
-  const capabilities = destinations.data?.pages[0]
-  const effectiveScope = scope ?? (capabilities?.can_create_space ? 'space' : 'private')
-  const owner = privateOwner ?? (scope === undefined ? capabilities?.principal_uid : undefined)
-  const unavailable =
-    !parentID &&
-    scope === undefined &&
-    (!capabilities || destinations.isError || (!capabilities.can_create_space && !capabilities.can_create_private))
-  const waitingForIdentity = !parentID && effectiveScope === 'private' && !owner
-  return (
-    <>
-      <Button
-        variant={compact ? 'ghost' : 'outline'}
-        size={compact ? 'icon-sm' : 'sm'}
-        aria-label={t('pod.content.new_page')}
-        title={t('pod.content.new_page')}
-        disabled={unavailable || waitingForIdentity}
-        onClick={() => setOpen(true)}>
-        {compact ? <RiAddLine aria-hidden className="size-4" /> : t('pod.content.new_page')}
-      </Button>
-      {open && (
-        <CreatePageDialog
-          parentID={parentID}
-          scope={effectiveScope}
-          privateOwner={owner}
-          onCreated={onCreated}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
-  )
-}
-
-export function CreatePageDialog({
-  parentID,
-  scope = 'space',
-  privateOwner,
-  onCreated,
-  onClose,
-  returnFocus
-}: CreatePageOptions & { onClose(): void }) {
-  const [type, setType] = useState<PageType>('doc')
-  const [title, setTitle] = useState('')
-  const navigate = useNavigate()
-  const client = useQueryClient()
-  const waitingForIdentity = !parentID && scope === 'private' && !privateOwner
-  const create = useMutation({
-    mutationFn: () => {
-      if (waitingForIdentity) throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_the'))
-      return pageAPI.create({
-        type,
-        title: title.trim(),
-        ...(parentID ? { parent_id: parentID } : scope === 'private' ? { private_owner_uid: privateOwner } : {})
-      })
-    },
-    onSuccess: async ({ page }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
-      onClose()
-      if (onCreated) onCreated(page)
-      else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
-    }
-  })
-  return (
-    <Dialog open onOpenChange={next => !create.isPending && !next && onClose()}>
-      <DialogContent
-        className="pod-dialog"
-        closeLabel={t('common.close')}
-        finalFocus={returnFocus}
-        showCloseButton={!create.isPending}
-        render={
-          <form
-            onSubmit={event => {
-              event.preventDefault()
-              if (!waitingForIdentity && !create.isPending) create.mutate()
-            }}
-          />
-        }>
-        <DialogTitle>{t('pod.content.new_page')}</DialogTitle>
-        <TextField label={t('pod.content.title')} value={title} onChange={setTitle} disabled={create.isPending} />
-        <Choice
-          label={t('pod.content.page_type')}
-          value={type}
-          onChange={setType}
-          options={typeLabels}
-          disabled={create.isPending}
-        />
-        <ContentError error={create.error} />
-        <DialogFooter>
-          <Button type="button" variant="ghost" disabled={create.isPending} onClick={onClose}>
-            {t('pod.content.cancel')}
-          </Button>
-          <Button type="submit" variant="outline" disabled={waitingForIdentity || create.isPending}>
-            {create.isPending ? t('pod.content.creating') : t('pod.content.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 

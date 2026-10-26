@@ -1205,8 +1205,8 @@ the notification owned by the originating session.
 
 Success requires a nonempty Codex final response. A phased assistant message
 must have `phase: final_answer`. Commentary and partial answers stay in the Turn
-trajectory and cannot become the Job result. A missing or null phase keeps the
-pinned Codex protocol's legacy behavior: the last lead message is a candidate
+trajectory and cannot become the Job result. When `phase` is missing or null,
+under the pinned Codex protocol contract the last lead message is a candidate
 only until the lead thread starts another work item (a command, file change,
 tool call, or collaboration item; an automatic compaction is not work), and a
 new lead Turn clears the previous candidate. If no final report is present, the same thread gets one
@@ -1256,7 +1256,7 @@ prose for an outbound file path.
 
 The Home background activity area reads queued, running and waiting-on-user Jobs
 for one selected Agent in the current tenant. It uses the
-`background_agent_jobs` read permission, owner Session and source Signal links,
+`site_console:background_agent_jobs` `read` permission, owner Session and source Signal links,
 native status, admission timestamps and bounded error summaries. Its query
 filters activity before cursor pagination and does not load task text, result
 bodies, metadata or Turn trajectories; the Job detail is the

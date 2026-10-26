@@ -30,8 +30,8 @@ Use `web_search` or `web_fetch` instead when you only want to find a page or rea
 
 Browser is a skill, so you turn it on through the [Agent Library](../agent-library/), not through a tool flag. Because `default_enabled` is `true`, a fresh agent already has the browser available unless you narrow it. The two layers:
 
-1. **Instance-wide default** — the skill ships `default_enabled: true`. Leave it alone to keep the browser available to every agent.
-2. **Per-agent override** — narrow it for an agent that should not have a browser, or widen it for one you previously narrowed.
+1. **Tenant default** — the skill ships `default_enabled: true` in the tenant's Agent Library defaults. Leave it enabled to keep the browser available to every agent in the tenant.
+2. **Per-agent override** — disable it for an agent that must not use a browser, or enable it for one when the tenant default is disabled.
 
 Both layers are set through the Console's library-capability routes, covered in the [Console API reference](../console-api/). Reading an agent's `library-capabilities` triggers a skill sync, so what you see is the registry reconciled against the current filesystem, not a stale snapshot.
 

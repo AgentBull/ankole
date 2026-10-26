@@ -23,12 +23,12 @@ order: 200
 
 | 命令 | 做什么 |
 |---|---|
-| `kit external-services start` | 启动 devkit Docker Compose 服务（PostgreSQL 等）。包裹为 `bun run services:start`。 |
+| `kit external-services start` | 启动 devkit Docker Compose 服务（PostgreSQL 18 与 `ankole-function-runtime`）。包裹为 `bun run services:start`。 |
 | `kit external-services stop` | 停止 devkit Compose 服务。包裹为 `bun run services:stop`。 |
 | `kit external-services status` | 报告 devkit 服务健康。包裹为 `bun run services:status`。 |
-| `kit dev` | 启动完整开发环境——Phoenix 和前端资源，并使用 Docker Worker 后端，为每个 Agent 创建一个 Worker 容器。包裹为 `bun run dev`。保持该终端开着。 |
+| `kit dev` | 启动完整开发环境——PostgreSQL 18、`ankole-function-runtime`、Phoenix 与前端资源，并使用 Docker Worker 后端为每个 Agent 创建一个 Worker 容器。包裹为 `bun run dev`。保持该终端开着。 |
 
-`kit dev` 是跑起整套栈的那一条命令。它启动或检查 PostgreSQL、创建并迁移本地数据库、构建缺失或过期的 worker 镜像，并以 Docker Worker 后端启动控制面。创建 Agent 时，控制面为它创建 Worker 容器；容器用 `bun --watch` 运行本地 Agent Computer 源码。用 `docker ps -a --filter label=ankole.installation=dev` 列出这些容器。不要再开第二个 `kit dev`；在它的终端按 `Ctrl+C` 停止，这也会删除 `dev` 安装的 Worker 容器，因此重启后，控制面会在已有 Agent 下次需要 Worker 时重新创建它。
+`kit dev` 是启动整套本地栈的命令。它启动或检查 PostgreSQL 18 与 `ankole-function-runtime`、创建并迁移本地控制面数据库（`ankole_dev`）、构建缺失或过期的 worker 镜像，并以 Docker Worker 后端启动控制面。未设置 `BASE_DB_URLS` 时，控制面开发引导还会自动创建并准备四个本地 Base 分片数据库（`ankole_base_00` 至 `ankole_base_03`）。创建 Agent 时，控制面为它创建 Worker 容器；容器用 `bun --watch` 运行本地 Agent Computer 源码。用 `docker ps -a --filter label=ankole.installation=dev` 列出这些容器。不要再开第二个 `kit dev`；在它的终端按 `Ctrl+C` 停止，这也会删除 `dev` 安装的 Worker 容器，因此重启后，控制面会在已有 Agent 下次需要 Worker 时重新创建它。
 
 ## 数据库生命周期
 
@@ -41,7 +41,7 @@ order: 200
 | `kit app-db rebuild` | 删除、创建并迁移 app 数据库。需要 `--yes`；重建后跑 Ecto migration。 |
 | `kit app-db migrate` | 对已配置的本地数据库跑控制面 Ecto migration。 |
 
-选项跨命令通用：`--start-services` 在操作前启动 Compose，`--pull-images` 先拉最新服务镜像，以及等待控制服务就绪的健康检查等待时长。`app-db rebuild` 会删除本地 `ankole_dev` 数据库——只在数据确实可丢弃时才跑。
+`create`、`drop` 和 `rebuild` 共享以下选项：`--start-services` 在操作前启动 Compose，`--pull` 先拉取最新服务镜像，`--wait-timeout` 设置等待服务健康检查的秒数（默认 `60`）。`app-db rebuild` 会删除本地 `ankole_dev` 数据库——只在数据确实可丢弃时才运行。
 
 ## 设置与检查
 

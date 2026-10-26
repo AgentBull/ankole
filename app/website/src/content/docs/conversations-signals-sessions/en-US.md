@@ -15,7 +15,7 @@ Three facts have different owners: a **conversation** preserves participants' me
 
 The conversation record contains messages that participants can see. The work log contains model calls and tool results. Each Agent in a conversation has its own session and model state. The work in each session is visible to all conversation participants. The session does not cross conversations.
 
-An addressed turn uses the requester's authorization. An intervention uses the Agent's identity by default. Existing intervention policy can identify a person as the current requester and use that person's authorization. Visibility follows the conversation; execution follows the identity for that turn.
+Interactive and human-triggered turns (including human-woken `may_intervene` turns; Agent messages never wake Agents) execute under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`). Autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) execute under the Agent's own permissions. Visibility follows the conversation; execution permissions follow the turn's `AuthZ.Actor`.
 
 ### Admit every stimulus through Signals
 
@@ -59,11 +59,11 @@ qm's SPEC still uses “tape” as a design term. It records the completed switc
 
 - **More concepts and code.** Conversations, signals, sessions, delivery, and model state need separate owners.
 - **Two records to inspect.** Diagnosis can require both conversation messages and the session's work log.
-- **Shared work can disclose results to the group.** Data obtained with a requester's authority enters the conversation's shared context. qm instead filters history for the audience. Future function-call permissions must use the current turn's identity. [qm source][Q-audience]
+- **Shared work can disclose results to the group.** Data obtained under a turn's authority enters the conversation's shared context. Tool-invocation checks (`agent:<uid>:tool:<tool_name>` with action `invoke` and `context.request.args`) and Pod operations evaluate against the current turn's `AuthZ.Actor`. qm instead filters history for the audience. [qm source][Q-audience]
 - **A heavier deployment.** PostgreSQL transactions and a control plane add latency and operations compared with a local file harness.
 - **Partial text is not durable.** A crash can lose unfinished text. Recovery can repeat model calls, reuses recorded tool results, and does not blindly repeat uncertain operations. External side effects have no exactly-once guarantee. pi durable publishes progress only after storage commit. [Source][P-guide]
 - **Platform constraints.** Stateful requests need a wire format that can replay stored items without loss.
-- **One contract requires migration.** Every producer and adapter must adopt it.
+- **One admission contract for all sources.** Every producer and adapter must conform to the Signals admission contract.
 - **Cron history grows.** Stable cron sessions retain context and require compaction. qm starts a fresh session for each fire. [Source][Q-cron]
 
 ## When another approach fits better

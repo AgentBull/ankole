@@ -23,12 +23,12 @@ order: 200
 
 | 명령 | 역할 |
 |---|---|
-| `kit external-services start` | devkit Docker Compose service(PostgreSQL 등)를 시작합니다. `bun run services:start`로 래핑되어 있습니다. |
+| `kit external-services start` | devkit Docker Compose service(PostgreSQL 18 및 `ankole-function-runtime`)를 시작합니다. `bun run services:start`로 래핑되어 있습니다. |
 | `kit external-services stop` | devkit Compose service를 중지합니다. `bun run services:stop`으로 래핑되어 있습니다. |
 | `kit external-services status` | devkit service 상태를 보고합니다. `bun run services:status`로 래핑되어 있습니다. |
-| `kit dev` | 완전한 개발 환경(Phoenix와 프런트엔드 자산, 그리고 Agent마다 Worker container를 하나 만드는 Docker Worker backend)을 시작합니다. `bun run dev`로 래핑되어 있습니다. 이 터미널을 열어 둡니다. |
+| `kit dev` | 완전한 개발 환경(PostgreSQL 18, `ankole-function-runtime`, Phoenix와 프런트엔드 자산, 그리고 Agent마다 Worker container를 하나 만드는 Docker Worker backend)을 시작합니다. `bun run dev`로 래핑되어 있습니다. 이 터미널을 열어 둡니다. |
 
-`kit dev`는 전체 스택을 실행하는 유일한 명령입니다. PostgreSQL을 시작하거나 확인하고, 로컬 database를 생성 및 migrate하며, 없거나 오래된 worker image를 빌드하고, Docker Worker backend로 control plane을 시작합니다. control plane은 Agent가 생성될 때 그 Agent의 Worker container를 만들고, container는 로컬 Agent Computer 소스를 `bun --watch`로 실행합니다. container 목록은 `docker ps -a --filter label=ankole.installation=dev`로 확인합니다. 두 번째 `kit dev`를 시작하지 마십시오. 해당 터미널에서 `Ctrl+C`로 중지하십시오. 이때 `dev` 설치의 Worker container도 제거되므로, 재시작 후에는 기존 Agent가 다음에 Worker를 필요로 할 때 control plane이 그 Worker를 다시 만듭니다.
+`kit dev`는 전체 로컬 스택을 실행하는 명령입니다. PostgreSQL 18과 `ankole-function-runtime`을 시작하거나 확인하고, 로컬 control-plane database(`ankole_dev`)를 생성 및 migrate하며, 없거나 오래된 worker image를 빌드하고, Docker Worker backend로 control plane을 시작합니다. `BASE_DB_URLS`가 설정되지 않은 경우, control plane 개발 부트스트랩은 네 개의 로컬 Base 샤드 database(`ankole_base_00`~`ankole_base_03`)도 자동으로 생성하고 준비합니다. control plane은 Agent가 생성될 때 그 Agent의 Worker container를 만들고, container는 로컬 Agent Computer 소스를 `bun --watch`로 실행합니다. container 목록은 `docker ps -a --filter label=ankole.installation=dev`로 확인합니다. 두 번째 `kit dev`를 시작하지 마십시오. 해당 터미널에서 `Ctrl+C`로 중지하십시오. 이때 `dev` 설치의 Worker container도 제거되므로, 재시작 후에는 기존 Agent가 다음에 Worker를 필요로 할 때 control plane이 그 Worker를 다시 만듭니다.
 
 ## 데이터베이스 라이프사이클
 
@@ -41,7 +41,7 @@ order: 200
 | `kit app-db rebuild` | app database를 삭제하고 생성한 다음 migrate합니다. `--yes`가 필요하며, 재생성 후 Ecto migration을 실행합니다. |
 | `kit app-db migrate` | 구성된 로컬 database에 control-plane Ecto migration을 실행합니다. |
 
-다음 옵션이 이 명령들에 공통으로 적용됩니다. `--start-services`는 작업 전에 Compose를 시작하고, `--pull-images`는 먼저 최신 service image를 가져오며, health-check 대기 시간은 service 준비 상태를 기다리는 시간을 제어합니다. 특히 `app-db rebuild` 명령은 로컬 `ankole_dev` database를 삭제하므로, 데이터를 실제로 버려도 되는 경우에만 실행하십시오.
+`create`, `drop`, `rebuild`에는 다음 공통 옵션이 적용됩니다. `--start-services`는 작업 전에 Compose를 시작하고, `--pull`은 먼저 최신 service image를 가져오며, `--wait-timeout`은 service health-check를 기다리는 시간(초, 기본값 `60`)을 제어합니다. 특히 `app-db rebuild` 명령은 로컬 `ankole_dev` database를 삭제하므로, 데이터를 실제로 버려도 되는 경우에만 실행하십시오.
 
 ## 설정과 조회
 

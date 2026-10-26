@@ -5,7 +5,7 @@ section: Reference
 order: 203
 ---
 
-Console API는 browser session cookie를 사용합니다. `RequireSiteAdminSession`은 매 요청에서 Console context, Human 취소 상태, 현재 site administrator membership을 확인합니다. 인증 실패는 `401`을 반환합니다. GET과 HEAD 이외의 요청에는 shell의 `x-csrf-token` header가 필요합니다. CSRF 증명이 없거나 유효하지 않으면 `403`을 반환합니다.
+Console API는 다중 계정 브라우저 인증을 사용합니다. `Cookie` 헤더로 봉인된 session cookie를 전송하고 `x-ankole-authentication`으로 활성 계정을 선택합니다. `RequireSiteAdminSession`은 활성 관리자 세션을 확인하고 Human 접근 상태를 검사하여 `Ankole.AuthZ` 액터(`console_rest`)를 바인딩하며, `Ankole.AuthZ.Authorizer`가 각 Ash 작업을 `site_console:**` 및 `tenant_console:**` 권한으로 인가합니다. 인증 실패는 `401`을 반환합니다. GET과 HEAD 이외의 요청에는 shell의 `x-csrf-token` header가 필요하며, CSRF 증명이 없거나 유효하지 않거나 인가가 거부되면 `403`을 반환합니다.
 
 Console 구성, 집계 보기, 감사 대상 secret 작업은 `/api/v2`를 사용합니다. 사이트 관리 라우트는 `/api/v2/site`를, 테넌트 라우트는 선택한 데이터 테넌트를 사용합니다. 표에는 각 라우트의 전체 경로를 표시합니다.
 
@@ -13,7 +13,7 @@ v2 요청은 `application/vnd.api+json`을 사용합니다. 각 작업의 OpenAP
 
 테넌트 라우트에서는 `x-ankole-tenant: <테넌트 UUID>`로 데이터 테넌트를 선택합니다. 헤더가 없으면 호출자의 테넌트를 사용합니다. 유효하지 않거나 사용할 수 없거나 삭제 중인 테넌트는 `404`와 `data_tenant_unavailable`을 반환합니다. 이 헤더는 호출자의 신원이나 사이트 관리 권한을 바꾸지 않으며 사이트 라우트의 범위도 선택하지 않습니다.
 
-`/api/v2/openapi.json`과 `/api/v2/site/openapi.json`은 Console 작업을 설명하며 해당 라우트와 같은 인증이 필요합니다. 파일 업로드와 다운로드는 아래의 native 라우트를 유지합니다. 런타임 AI 호출, OIDC 프로토콜, 웹훅, private browser API는 각각의 계약을 사용합니다.
+`/api/v2/openapi.json`과 `/api/v2/site/openapi.json`은 Console 및 사이트 관리 작업을 설명하며 해당 라우트와 같은 인증이 필요합니다. 다른 브라우저 JSON:API 범위도 각자 OpenAPI 3.1 문서를 게시합니다: `/api/v2/pod/openapi.json`(Pod 워크스페이스 및 `pod_admin`용 `/api/v2/pod/admin/*` 라우트) 및 `/api/v2/browser/openapi.json`(브라우저 인증 및 초기 설정)입니다. 파일 업로드와 다운로드는 아래의 `/api/v2` native 라우트를 사용합니다. 런타임 AI 호출, OIDC 프로토콜, 웹훅은 각각의 계약을 사용합니다.
 
 ## 구성 표면
 
@@ -94,9 +94,9 @@ Library 기본값은 선택한 테넌트에 속합니다. Agent 재정의도 해
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v2/agent-library/capabilities` | 전역 라이브러리 능력 목록 |
-| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | 플러그인의 전역 기본 상태 설정 |
-| `PUT` | `/api/v2/agent-library/skills/:id` | 스킬의 전역 기본 상태 설정 |
+| `GET` | `/api/v2/agent-library/capabilities` | 테넌트 라이브러리 능력 목록 |
+| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | 플러그인의 테넌트 기본 상태 설정 |
+| `PUT` | `/api/v2/agent-library/skills/:id` | 스킬의 테넌트 기본 상태 설정 |
 | `GET` | `/api/v2/agents/:agent_uid/library-capabilities` | 에이전트의 유효 능력 목록 |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 에이전트 하나의 플러그인 재정의 |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 에이전트 하나의 스킬 재정의 |
@@ -106,7 +106,7 @@ Library 기본값은 선택한 테넌트에 속합니다. Agent 재정의도 해
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 활성화된 Skill에 사람의 교훈 추가 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 교훈 폐기 |
 
-능력은 전역으로 활성화된 다음 Agent별로 좁히거나 넓힐 수 있습니다. Skill 교훈은 Skill 소스를 변경하지 않고 Agent 하나에 추가 작업 지침을 제공합니다. 목록에는 증거와 폐기 이력도 포함됩니다. 폐기된 교훈은 더 이상 전달되지 않으며, 사람이 취소한 내용은 Dreaming의 재학습 금지 목록에 남습니다. 수명 주기와 제한은 [Skill 교훈](../skill-lessons/)을 참고하십시오.
+능력은 테넌트에서 활성화된 다음 Agent별로 좁히거나 넓힐 수 있습니다. Skill 교훈은 Skill 소스를 변경하지 않고 Agent 하나에 추가 작업 지침을 제공합니다. 목록에는 증거와 폐기 이력도 포함됩니다. 폐기된 교훈은 전달되지 않으며, 사람이 취소한 내용은 Dreaming의 재학습 금지 목록에 남습니다. 수명 주기와 제한은 [Skill 교훈](../skill-lessons/)을 참고하십시오.
 
 ### 환경 변수(WorkerEnv)
 
@@ -136,7 +136,7 @@ Agent 연결은 전용 값을 사용하거나 테넌트 값, 사이트 기본값
 | `GET` | `/api/v2/site/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
 | `PUT` | `/api/v2/site/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
 
-Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터가 그 예입니다.
+Control Plane Plugins는 컴파일 시점에 포함되는 퍼스트파티 확장으로, Signals 어댑터, Identity Provider 어댑터, AI Gateway 프로바이더, Worker 프로바이더 같은 컨트롤 플레인 기능을 추가합니다. `activation: :always`인 플러그인은 빌드와 함께 항상 활성화됩니다. `PUT /api/v2/site/control-plane-plugins`는 다음 재시작 시 적용할 `:optional` 플러그인을 전환하며, 구성된 Worker 프로바이더처럼 활성 리소스가 있는 플러그인이 비활성화되지 않도록 각 하위 시스템의 `veto_disable` 검사를 실행합니다.
 
 ### Identity providers와 AppConfiguration
 
@@ -174,10 +174,10 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 
 - **실행 중인 Agents**: `/api/v2/agents/:agent_uid/sessions`, Agent별 cron 일정과 checkback 관리. 목록 엔드포인트는 테넌트 전체 범위이며 `agent` 필터를 받습니다.
 - **Workers**: `/api/v2/agent-workers`에서 각 Agent의 Worker 상태를 확인합니다.
-- **Agent drive**: `/api/v2/agents/:agent_uid/files`는 파일 목록과 삭제에, `/api/v2/agents/:agent_uid/file-moves`는 이동에 사용합니다. `POST /api/v1/agents/:agent_uid/files`는 multipart 업로드를, `GET /api/v1/agents/:agent_uid/files/content`는 바이트 다운로드를 처리합니다. native 전송에도 같은 browser session, CSRF, 테넌트 선택, 파일 권한을 적용합니다. control plane이 파일을 소유합니다.
+- **Agent drive**: `/api/v2/agents/:agent_uid/files`는 파일 목록과 삭제에, `/api/v2/agents/:agent_uid/file-moves`는 이동에 사용합니다. `POST /api/v2/agents/:agent_uid/files`는 multipart 업로드를, `GET /api/v2/agents/:agent_uid/files/content`는 바이트 다운로드를 처리합니다. native 전송에도 같은 browser session, CSRF, 테넌트 선택, 파일 권한을 적용합니다. control plane이 파일을 소유합니다.
 - **Jobs**: `/api/v2/background-agent-jobs`(목록, 읽기, 취소).
 - **AI 활동**: `/api/v2/ai-gateway/conversations`, 대화별 메시지.
-- **Principals 및 AuthZ**: `/api/v2/principals`, `/api/v2/principal-groups`, `/api/v2/permission-grants` — [Principal 및 AuthZ](../principal-authz/) 페이지의 권한 모델.
+- **Principals, AuthZ 및 OIDC 클라이언트**: `/api/v2/principals`(`PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, `POST /api/v2/principals/:uid/access-restorations` 포함), `/api/v2/principal-groups`, `/api/v2/permission-grants`, 그리고 `/api/v2/oidc-clients` — [Principal 및 AuthZ](../principal-authz/) 페이지의 권한 모델을 따릅니다.
 
 ## 여기에 없는 것에 대한 참고
 

@@ -26,7 +26,7 @@ receives the rendered notes with the Skill content.
 | `review_after` | Lease end; `NULL` for human lessons |
 | `retired_at`, `retire_reason` | Terminal state: `obsolete`, `lapsed`, or `human_revoked` |
 
-The Lesson resource owns `teach_human`, `teach_dreaming`, `renew`, and
+The `AgentSkillLesson` resource owns `teach_human`, `teach_dreaming`, `renew`, and
 `retire` actions. Content is immutable. Native constraints enforce the
 lease and retirement shape. Review locks all candidate rows in ID order before
 writing verdicts; Human retirement locks the same row. A stale resource action
@@ -36,7 +36,7 @@ use atoms in memory and text in PostgreSQL and JSON responses.
 Each lesson write (`apply_adds` for reflection adds, `teach` for an operator
 lesson, `apply_reviews` for review verdicts, and `revoke` for human retirement)
 runs in `Repo.transact_top_level/2`, and the Console `/api/v2` routes expose
-generic actions on `Lesson`. `apply_adds` and `teach` synchronize the Skill
+generic actions on `AgentSkillLesson`. `apply_adds` and `teach` synchronize the Skill
 catalog in the same transaction. `Ankole.AIAgent` is the Ash domain of the
 library resources; other domains read lesson rows through its functions.
 

@@ -18,7 +18,8 @@ import { ContentListRoute } from './page-navigation'
 import { ContentProvider } from './content-context'
 import { ContentError } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
-import { pageQuery } from './content-api'
+import { contentKeys, pageQuery, type PageDetail } from './content-api'
+import { prefetchBase } from './base-api'
 import { podLocation, podRouteID } from '../common/browser-context'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
@@ -62,6 +63,8 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
           const pageID = podRouteID(params.pageID)
           if (!pageID) throw new Response('Page not found', { status: 404 })
           await client.prefetchQuery(pageQuery(pageID))
+          const detail = client.getQueryData<PageDetail>(contentKeys.page(pageID))
+          if (detail?.page.type === 'base') void prefetchBase(client, pageID)
           return null
         },
         component: LazyPageRoute,

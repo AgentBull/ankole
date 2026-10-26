@@ -5,7 +5,7 @@ section: Reference
 order: 203
 ---
 
-Console API は browser session cookie を使用します。`RequireSiteAdminSession` は各 request で Console context、Human の失効状態、現在の site administrator membership を確認します。認証に失敗すると `401` を返します。GET と HEAD 以外の request は shell の `x-csrf-token` header が必要です。CSRF 証明がない場合、または無効な場合は `403` を返します。
+Console API はマルチアカウント対応のブラウザ認証を使用します。`Cookie` ヘッダーで封印された session cookie を送り、`x-ankole-authentication` で操作対象のアカウントを選択します。`RequireSiteAdminSession` は有効な管理者 session を解決し、Human のアクセス状態を確認して `Ankole.AuthZ` の actor（`console_rest`）を束縛し、`Ankole.AuthZ.Authorizer` が各 Ash action を `site_console:**` および `tenant_console:**` 権限で認可します。認証に失敗すると `401` を返します。GET と HEAD 以外の request は shell の `x-csrf-token` header が必要です。CSRF 証明の欠落・無効、または認可拒否の場合は `403` を返します。
 
 Console の設定、集約ビュー、監査対象の secret 操作は `/api/v2` を使用します。site 管理 route は `/api/v2/site`、tenant route は選択したデータ tenant を使用します。表には各 route の完全なパスを示します。
 
@@ -13,7 +13,7 @@ v2 request は `application/vnd.api+json` を使用します。各操作の Open
 
 tenant route では `x-ankole-tenant: <tenant UUID>` でデータ tenant を選択します。省略時は呼び出し元の tenant を使用します。無効、利用不可、または削除中の tenant は `404` と `data_tenant_unavailable` を返します。この header は呼び出し元の identity や site 管理権限を変更せず、site route の scope も選択しません。
 
-`/api/v2/openapi.json` と `/api/v2/site/openapi.json` は Console 操作を記述し、それらの route と同じ認証が必要です。file upload と download は下記の native route を使用します。runtime AI 呼び出し、OIDC protocol、webhook、private browser API はそれぞれの契約を使用します。
+`/api/v2/openapi.json` と `/api/v2/site/openapi.json` は Console および site 管理操作を記述し、それらの route と同じ認証が必要です。他のブラウザ JSON:API scope もそれぞれ OpenAPI 3.1 ドキュメントを公開します。具体的には `/api/v2/pod/openapi.json`（Pod ワークスペースおよび `pod_admin` 向けの `/api/v2/pod/admin/*` route）と `/api/v2/browser/openapi.json`（ブラウザ認証とセットアップ）です。file upload と download は下記の `/api/v2` native route を使用します。runtime AI 呼び出し、OIDC protocol、webhook はそれぞれの契約を使用します。
 
 ## configuration の surface
 
@@ -94,9 +94,9 @@ Library のデフォルトは選択した tenant に属します。Agent の ove
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/api/v2/agent-library/capabilities` | tenantな library 能力を一覧表示 |
-| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | plugin のtenantな既定状態を設定 |
-| `PUT` | `/api/v2/agent-library/skills/:id` | skill のtenantな既定状態を設定 |
+| `GET` | `/api/v2/agent-library/capabilities` | テナントのライブラリ機能を一覧表示 |
+| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | プラグインのテナント既定状態を設定 |
+| `PUT` | `/api/v2/agent-library/skills/:id` | スキルのテナント既定状態を設定 |
 | `GET` | `/api/v2/agents/:agent_uid/library-capabilities` | agent の実効能力を一覧表示 |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 1 つの agent に対して plugin を override |
 | `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの agent に対して skill を override |
@@ -106,7 +106,7 @@ Library のデフォルトは選択した tenant に属します。Agent の ove
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 有効な Skill に人の教訓を追加 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
 
-能力はまずtenantに有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
+能力はまずテナントで有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ### 環境変数（WorkerEnv）
 
@@ -136,7 +136,7 @@ Agent の割り当ては専用値を使用するか、tenant 値、site デフ�
 | `GET` | `/api/v2/site/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
 | `PUT` | `/api/v2/site/control-plane-plugins` | plugin を有効化または無効化 |
 
-Control Plane Plugin は、signals adapter のように、control plane 自身の動作を変えるファーストパーティ拡張です。
+Control Plane Plugin はコンパイル時に組み込まれるファーストパーティ拡張であり、Signals adapter、Identity Provider adapter、AI Gateway provider、Worker provider などの control plane 機能を追加します。`activation: :always` のプラグインはビルドとともに常時有効です。`PUT /api/v2/site/control-plane-plugins` は次回起動時の `:optional` プラグインを切り替え、設定済み Worker provider などの有効なリソースを持つプラグインが無効化されないよう各 subsystem の `veto_disable` 検査を実行します。
 
 ### Identity provider と AppConfiguration
 
@@ -172,12 +172,12 @@ Control Plane Plugin は、signals adapter のように、control plane 自身�
 
 configuration に加えて、Console はシステムの残りの部分に対する observability の経路でもあります。既に解説した各 subsystem は、ここに読み取り用の surface を持ちます。
 
-- **処理中の Agent**: `/api/v2/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはtenant 全体で、`agent` フィルターを取ります。
+- **処理中の Agent**: `/api/v2/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはテナント全体で、`agent` フィルターを取ります。
 - **Worker**: `/api/v2/agent-workers` で各 Agent の Worker 状態を一覧表示します。
-- **Agent drive**: `/api/v2/agents/:agent_uid/files` は file の一覧と削除、`/api/v2/agents/:agent_uid/file-moves` は移動に使用します。`POST /api/v1/agents/:agent_uid/files` は multipart upload、`GET /api/v1/agents/:agent_uid/files/content` は byte download です。native 転送も同じ browser session、CSRF、tenant 選択、file 権限を使用します。control plane が file を所有します。
+- **Agent drive**: `/api/v2/agents/:agent_uid/files` は file の一覧と削除、`/api/v2/agents/:agent_uid/file-moves` は移動に使用します。`POST /api/v2/agents/:agent_uid/files` は multipart upload、`GET /api/v2/agents/:agent_uid/files/content` は byte download です。native 転送も同じ browser session、CSRF、tenant 選択、file 権限を使用します。control plane が file を所有します。
 - **Job**: `/api/v2/background-agent-jobs`（一覧表示、読み取り、cancel）。
 - **AI の活動**: `/api/v2/ai-gateway/conversations`。conversation ごとの message。
-- **Principal と AuthZ**: `/api/v2/principals`、`/api/v2/principal-groups`、`/api/v2/permission-grants`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
+- **Principal、AuthZ、OIDC クライアント**: `/api/v2/principals`（`PATCH /api/v2/principals/:uid/membership`、`POST /api/v2/principals/:uid/access-disables`、`POST /api/v2/principals/:uid/access-restorations` を含む）、`/api/v2/principal-groups`、`/api/v2/permission-grants`、および `/api/v2/oidc-clients`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
 
 ## ここに含まれないものについて
 

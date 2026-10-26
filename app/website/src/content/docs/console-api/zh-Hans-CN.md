@@ -5,7 +5,7 @@ section: Reference
 order: 203
 ---
 
-Console API 使用浏览器会话 cookie。`RequireSiteAdminSession` 每次请求都检查 Console 上下文、Human 撤销状态和当前站点管理员成员资格，认证失败返回 `401`。GET 和 HEAD 以外的请求必须携带外壳中的 `x-csrf-token`；CSRF 凭据缺失或无效返回 `403`。
+Console API 使用多账号浏览器认证：通过 `Cookie` 发送密封的会话 cookie，并通过 `x-ankole-authentication` 选择当前激活账号。`RequireSiteAdminSession` 解析当前有效的管理员会话、检查 Human 访问状态并绑定 `Ankole.AuthZ` 调用主体（`console_rest`），再由 `Ankole.AuthZ.Authorizer` 按 `site_console:**` 与 `tenant_console:**` 权限对每个 Ash 操作鉴权。认证失败返回 `401`。GET 和 HEAD 以外的请求必须携带外壳中的 `x-csrf-token`；CSRF 凭据缺失或无效，或者鉴权被拒绝时返回 `403`。
 
 Console 配置、聚合视图和可审计的 secret 操作使用 `/api/v2`。站点管理路由使用 `/api/v2/site`，租户路由使用当前选择的数据租户。表中给出每条路由的完整路径。
 
@@ -13,7 +13,7 @@ v2 请求使用 `application/vnd.api+json`。每个操作的 OpenAPI schema 定�
 
 租户路由通过 `x-ankole-tenant: <租户 UUID>` 指定数据租户；不传时使用调用方所属租户。无效、不可用或正在删除的租户返回 `404`，错误为 `data_tenant_unavailable`。该请求头不会改变调用方身份或站点管理权限，也不为站点路由选择作用域。
 
-`/api/v2/openapi.json` 与 `/api/v2/site/openapi.json` 描述 Console 操作，需要与这些路由相同的认证。文件上传和下载保留下文列出的原生端点。运行时 AI 调用、OIDC 协议、webhook 与私有浏览器 API 各有独立契约。
+`/api/v2/openapi.json` 与 `/api/v2/site/openapi.json` 描述 Console 与站点管理操作，需要与这些路由相同的认证。其他浏览器 JSON:API 作用域也各自发布 OpenAPI 3.1 文档：`/api/v2/pod/openapi.json`（Pod 工作区以及面向 `pod_admin` 的 `/api/v2/pod/admin/*` 路由）与 `/api/v2/browser/openapi.json`（浏览器认证与初始化设置）。文件上传和下载使用下文列出的原生 `/api/v2` 端点。运行时 AI 调用、OIDC 协议与 webhook 各有独立契约。
 
 ## 配置界面
 
@@ -94,7 +94,7 @@ Library 默认值属于所选租户；Agent 覆盖也在该租户内生效。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/v2/agent-library/capabilities` | 列出全局 library 能力 |
+| `GET` | `/api/v2/agent-library/capabilities` | 列出租户 library 能力 |
 | `PUT` | `/api/v2/agent-library/agent-plugins/:id` | 设定一个 plugin 的租户默认状态 |
 | `PUT` | `/api/v2/agent-library/skills/:id` | 设定一个 skill 的租户默认状态 |
 | `GET` | `/api/v2/agents/:agent_uid/library-capabilities` | 列出一个 agent 的有效能力 |
@@ -136,7 +136,7 @@ Agent 挂载可使用专用值，也可依次继承租户值和站点默认值�
 | `GET` | `/api/v2/site/control-plane-plugins` | 列出 Control Plane Plugin 及其状态 |
 | `PUT` | `/api/v2/site/control-plane-plugins` | 启用或禁用 plugin |
 
-Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 signals adapter。
+Control Plane Plugin 是编译进控制面的第一方扩展，用来增加 Signals 适配器、身份源适配器、AI Gateway provider 和 Worker provider 等控制面能力。声明 `activation: :always` 的插件随构建常驻启用；`PUT /api/v2/site/control-plane-plugins` 用于切换下次启动时的 `:optional` 插件列表，并运行各子系统的 `veto_disable` 校验，防止仍在被已配置资源（例如已配置的 Worker provider）使用的插件被禁用。
 
 ### 身份源提供商与 AppConfiguration
 
@@ -153,7 +153,7 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 | `PUT` | `/api/v2/app-configurations/:key` | 设定一个配置值 |
 | `POST` | `/api/v2/app-configurations/:key/decryptions` | 解密一个 secret 配置值 |
 
-`AppConfiguration` 按站点或租户作用域存储声明的运维设置。`/api/v2/site/app-configurations` 管理站点键，`/api/v2/app-configurations` 管理租户键。两者均支持列表、读取单个键、设置、删除覆盖与可审计的解密。启动凭据与启动事实仍放在环境变量或 secret mount 中。
+`AppConfiguration` 按站点或租户作用域存储声明的运维设置。`/api/v2/site/app-configurations` 管理站点键，`/api/v2/app-configurations` 管理租户键。两者均支持列表、读取单个键、设置、删除覆盖与可审计的解密。启动凭据与启动事实放在环境变量或 secret mount 中。
 
 ### 租户管理
 
@@ -174,10 +174,10 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 
 - **进行中的 agent**：`/api/v2/agents/:agent_uid/sessions`，每个 agent 的 cron schedule 与 checkback 管理；列表端点为租户级，接受 `agent` 筛选。
 - **Worker**：`/api/v2/agent-workers` 列出每个 Agent 的 Worker 状态。
-- **Agent 网盘**：`/api/v2/agents/:agent_uid/files` 列出和删除文件，`/api/v2/agents/:agent_uid/file-moves` 移动文件。`POST /api/v1/agents/:agent_uid/files` 上传 multipart 数据，`GET /api/v1/agents/:agent_uid/files/content` 下载字节。这两个原生端点使用相同的浏览器会话、CSRF、租户选择与文件权限，文件由控制面管理。
+- **Agent 网盘**：`/api/v2/agents/:agent_uid/files` 列出和删除文件，`/api/v2/agents/:agent_uid/file-moves` 移动文件。`POST /api/v2/agents/:agent_uid/files` 上传 multipart 数据，`GET /api/v2/agents/:agent_uid/files/content` 下载字节。这两个原生端点使用相同的浏览器会话、CSRF、租户选择与文件权限，文件由控制面管理。
 - **任务**：`/api/v2/background-agent-jobs`（列出、读取、取消）。
 - **AI 活动**：`/api/v2/ai-gateway/conversations`，按会话读取消息。
-- **主体与 AuthZ**：`/api/v2/principals`、`/api/v2/principal-groups`、`/api/v2/permission-grants`。权限模型见 [主体与 AuthZ](../principal-authz/)。
+- **主体、AuthZ 与 OIDC 客户端**：`/api/v2/principals`（包括 `PATCH /api/v2/principals/:uid/membership`、`POST /api/v2/principals/:uid/access-disables` 与 `POST /api/v2/principals/:uid/access-restorations`）、`/api/v2/principal-groups`、`/api/v2/permission-grants` 以及 `/api/v2/oidc-clients`。权限模型见 [主体与 AuthZ](../principal-authz/)。
 
 ## 关于这里不包含什么
 

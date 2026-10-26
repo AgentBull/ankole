@@ -262,6 +262,9 @@ owns domain and web code, configuration, migrations, deployment commands,
 test support, and the application supervisor. It compiles source from each
 `plugins/<name>/lib` directory into the same application. One release has one
 Repo and one migration ledger. FOSS and SaaS use separate build directories.
+Development builds reload the application and its local dependencies. Protocol
+consolidation is disabled in development so dependency reloads do not cause a
+full protocol scan on each HTTP request.
 
 The six provider clients are internal modules of their matching Plugins. Their
 module names and provider error types are distinct. Plugin caches, token
@@ -307,6 +310,12 @@ snapshot. Each tab also declares `id`, `labelKey`, optional `when`, and a lazy
 OpenFeature evaluates a declared `when` condition. A hidden active
 tab returns the settings view to `general`. A Suspense boundary loads the
 selected extension component.
+
+`ConsoleAppSlots` supplies lazy extension `routes` and `navSections` (checked for
+unique IDs that do not collide with core Console routes, with `scope: 'site' |
+'tenant'` controlling the top-bar tenant selector), `tenantDetailSections` on
+`/tenants/$tenantID`, and `homeWidgets` on the Console home page, all gated by
+the owning `pluginId` and optional `when` condition.
 
 Every SPA loads the build's merged locale catalog. Extension labels can use
 their own namespaces in the private TOML catalogs.
@@ -388,10 +397,9 @@ injection.
 
 A Plugin's `activation/0` callback returns `:optional` by default. The global
 AppConfigure key `plugins.enabled_ids` selects optional Plugins. An empty
-list activates none of them. A Plugin with `activation: :always` is part of
-the selected source build and remains active. The SaaS platform uses this
-mode. The Console identifies these Plugins as included in the build and
-rejects a disable request.
+list activates none of them. A Plugin with `activation: :always` is part of the selected source build and
+remains active. The Console identifies these Plugins as included in the build
+and rejects a disable request.
 
 Setup shows fixed Plugins as selected and disables their checkboxes. Its
 selection response includes fixed Plugins; the saved enable list contains
@@ -507,10 +515,15 @@ contributions from active Plugins at startup. Dispatch uses Plugin ID order,
 then each Plugin's declaration order. The callback returns `:ok` or
 `{:error, reason}`; an error rolls back the calling transaction.
 `Ankole.Plugins.Hook.points/0` declares `:create_agent`, `:create_invitation`,
-and `:enable_signal_binding`. The payload contains the attributes at that
-domain's transaction boundary. Hooks use the domain's existing lock order.
-A consumer owns its rules and can inspect the current tenant. The host owns
-activation and dispatch.
+`:enable_signal_binding`, `:enable_identity_provider`, `:store_file`,
+`:commit_files`, `:create_pod_page`, `:restore_pod_page`,
+`:insert_base_records`, and `:admit_compute`. The payload contains the
+attributes at that domain's transaction boundary. Hooks use the domain's
+existing lock order. A consumer owns its rules and can inspect the current
+tenant. The host owns activation and dispatch. `AgentWorkers` (scoped to active
+execution runs, excluding warm-idle keepalive) and `FunctionRuntime` also expose
+execution-duration reporting and stop controls so an active Plugin can enforce
+compute limits without placing policy branches in core domains.
 
 The Binding hook receives the attributes for the `Signals.Binding` write,
 including `agent_uid`, `name`, `adapter`, `config_ref`, and `enabled: true`.
@@ -530,14 +543,13 @@ A build-selected outer router can run a request Plug before it forwards to the
 core router with `AnkoleWeb.runtime_forward`. A Plug uses the core operation's
 method and path when it adds an admission challenge.
 
-The SaaS router mounts `/api/v2/saas/*` on the site Host and
-`/api/v2/saas-pod/*` on a Pod Host. Pod routes require the browser session,
-CSRF proof, tenant binding, and the resource's Principal/AuthZ declaration.
-The Pod router calls `AnkoleWeb.JSONAPI.Context.before_dispatch/3` with `:pod`.
-Each extension domain declares typed JSON:API actions with the native
-AuthZ authorizer. OpenAPI output is separate: `saas-v2.json` and
-`saas-pod-v2.json`. `mix ankole.openapi.check` checks both selected documents;
-the webapp generator produces a client for each.
+An extension router can mount scoped JSON:API routes on the site Host and on
+Pod Hosts. Pod extension routes require the browser session, CSRF proof, tenant
+binding, and the resource's Principal/AuthZ declaration, and call
+`AnkoleWeb.JSONAPI.Context.before_dispatch/3` with `:pod`. Each extension
+domain declares typed JSON:API actions with the native AuthZ authorizer and
+publishes separate OpenAPI documents checked by `mix ankole.openapi.check` for
+client generation.
 
 ### Declare a Worker Provider Kind
 

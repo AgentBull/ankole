@@ -229,9 +229,10 @@ resolved, the run records `long_lived_reply_owner_not_found` in its error
 instead of sending the notice to an ended task.
 
 The Console API is read-only. It lists jobs in the selected tenant or
-filters them by Agent. The list requires `automation_jobs/read`. It reads one
-job and its recent runs through the owning Agent path. The detail read requires
-`agent:<agent_uid>:automation_jobs/read`. It shows the attempt count, terminal
+filters them by Agent. The list requires `site_console:automation_jobs` with the
+`read` action. It reads one job and its recent runs through the owning Agent
+path. The detail read requires `site_console:agent:<agent_uid>:automation_jobs`
+with the `read` action. It shows the attempt count, terminal
 result, exit code, error, and bounded logs. The `/api/v2` JSON:API serves these
 reads: `GET /automation-jobs`, `GET /agents/:agent_uid/automation-jobs/:id`, and
 `GET /agents/:agent_uid/automation-jobs/:automation_job_id/runs`.
@@ -239,7 +240,7 @@ reads: `GET /automation-jobs`, `GET /agents/:agent_uid/automation-jobs/:id`, and
 ### Live activity in Console Home
 
 Home can inspect queued and running Automation runs for an explicitly selected
-Agent, under the `agent:<agent_uid>:automation_jobs` read permission.
+Agent, under the `site_console:agent:<agent_uid>:automation_jobs` `read` permission.
 The query starts from runs and reads their definitions through the Run `job`
 relationship without filtering the definition status. A cancelled definition can
 therefore still show its admitted running attempt, consistent with the

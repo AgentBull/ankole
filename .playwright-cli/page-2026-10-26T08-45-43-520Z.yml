@@ -1,0 +1,45 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e6]:
+      - generic [ref=e8]:
+        - button "搜索或跳转" [ref=e9] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e13]: ⌘K
+        - button "新建页面" [disabled]
+        - button "收起侧栏" [ref=e14]
+      - generic [ref=e15]:
+        - tablist "侧栏分类" [ref=e17]:
+          - tab "主页" [selected] [ref=e18] [cursor=pointer]
+          - tab "对话" [ref=e19] [cursor=pointer]
+        - tabpanel "主页" [ref=e21]:
+          - generic [ref=e22]:
+            - navigation "页面导航" [ref=e23]:
+              - link "与我共享" [ref=e24] [cursor=pointer]:
+                - /url: /content/shared
+              - link "最近访问" [ref=e28] [cursor=pointer]:
+                - /url: /content/recent
+              - link "收藏" [ref=e32] [cursor=pointer]:
+                - /url: /content/favorites
+              - link "回收站" [ref=e36] [cursor=pointer]:
+                - /url: /content/trash
+            - region "空间" [ref=e40]:
+              - generic [ref=e41]:
+                - button "空间" [expanded] [ref=e42] [cursor=pointer]
+                - link "空间" [ref=e45] [cursor=pointer]:
+                  - /url: /content/space
+              - status [ref=e46]: 正在加载…
+            - region "Private" [ref=e47]:
+              - generic [ref=e48]:
+                - button "Private" [expanded] [ref=e49] [cursor=pointer]
+                - link "Private" [ref=e52] [cursor=pointer]:
+                  - /url: /content/private
+                - generic [ref=e53]:
+                  - button "新建页面" [disabled]
+              - status [ref=e54]: 正在加载…
+      - button "账户菜单：⁨正在加载…⁩，⁨⁩" [ref=e56] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e57]: 正
+        - generic [ref=e58]: 正在加载…
+    - main [ref=e62]:
+      - generic [ref=e64]:
+        - heading "空间" [level=1] [ref=e66]
+        - status [ref=e67]: 正在加载…
+  - region "Notifications alt+T"

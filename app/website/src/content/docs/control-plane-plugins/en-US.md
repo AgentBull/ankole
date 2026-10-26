@@ -1,79 +1,89 @@
 ---
 title: Control Plane Plugins
-description: The first-party Elixir extension model — discovered and active plugins, subsystem contracts, AppConfigure keys, supervised children, and the next-start enable boundary.
+description: First-party Elixir extensions for the control plane, including activation modes, subsystem contracts, transaction hooks, Cohort supervision, and next-start configuration.
 section: Developer guide
 order: 110
 ---
 
-Control Plane Plugins are how an Ankole deployment instance extends its own control plane — adds a signal adapter, an identity provider, an AppConfigure key, or a supervised process — without the control plane growing those things as one-off code paths. This page maps the model against the real code in `Ankole.Plugins`.
+Control Plane Plugins extend an Ankole site with trusted first-party Elixir and OTP code. A plugin can add `AppConfigure` keys, subsystem adapters, synchronous transaction hooks, and supervised processes through `Ankole.Plugins`.
 
-The decisive property, stated up front: these are first-party Elixir modules compiled into the release, not a marketplace of installable extensions. A plugin is discovered and validated at boot, opted into through a single global enable list, and activated only on the next process start. There is no hot-load, no third-party discovery, no isolation machinery — by design.
+Control Plane Plugins are first-party Elixir modules compiled into the release (`:control_plane_plugin_modules`). Ankole discovers and validates these modules at startup. Ankole does not provide a marketplace, runtime code loading, or plugin sandboxes. Optional plugins use the global enable list and activate on the next process start, while fixed build plugins with `activation: :always` are always active when compiled into the build.
 
-## Two stages with different meanings
+## Discovered and active plugins
 
-A plugin's lifecycle has two stages, and the distinction is load-bearing:
+A plugin has two states at runtime:
 
-- **Discovered** — every plugin module found and validated at boot. This is the full catalog the operator can see, whether or not it is enabled.
-- **Active** — the discovered plugins that are in the global enable list. Only active plugins register their AppConfigure keys and start their supervised children.
+- **Discovered**: Every plugin module compiled into the release and validated at startup. Operators can inspect the full discovered catalog in the Site Admin Console.
+- **Active**: Every discovered plugin that has `activation/0` set to `:always`, or has `activation/0` set to `:optional` and appears in `plugins.enabled_ids` (plus all discovered plugins while first-run setup is incomplete). Only active plugins register `AppConfigure` definitions, publish subsystem adapters and domain hooks, and start supervised child processes.
 
-A plugin that is discovered but not active is visible but inert. Its declarations do not reach the subsystems that would consume them, and its children do not run. This is what lets an operator survey the whole catalog before committing to one.
+A discovered plugin that is inactive stays visible in the catalog, and its saved `AppConfigure` values remain in PostgreSQL, but it registers no runtime definitions, adapters, hooks, or processes.
 
 ## The plugin contract
 
-A plugin is an Elixir module that implements a small set of callbacks against `Ankole.Plugins.Plugin`. Only one is required:
+A plugin module implements the `Ankole.Plugins.Plugin` behaviour. Only one callback is required:
 
-- **`plugin_id/0`** — the plugin's identity, a lowercase slug matching `~r/\A[a-z][a-z0-9_-]*\z/`.
+- **`plugin_id/0`**: A unique lowercase identifier that matches `~r/\A[a-z][a-z0-9_-]*\z/`.
 
-The rest are optional and default to empty or nil when the module does not export them:
+All other callbacks are optional:
 
-- **`display_name/0`**, **`description/0`** — localized text for the operator surface.
-- **`app_config_definitions/0`**, **`app_config_patterns/0`** — AppConfigure keys the plugin contributes.
-- **`adapter_declarations/0`** — the generic envelope that lets a plugin plug into a subsystem contract.
-- **`children/0`** — supervised child specs the plugin wants started.
+- **`activation/0`**: Returns `:optional | :always` (default `:optional`). `:optional` plugins follow `plugins.enabled_ids`. `:always` plugins stay active whenever compiled into the selected source build and reject disable requests.
+- **`display_name/0`**, **`description/0`**: Localized text maps for operator interfaces.
+- **`app_config_definitions/0`**, **`app_config_patterns/0`**: `Ankole.AppConfigure` keys and pattern definitions owned by the plugin.
+- **`adapter_declarations/0`**: Atom-keyed adapter declarations that connect the plugin to subsystem contracts, using `Ankole.Plugins.ConfigField` schemas for browser forms.
+- **`hooks/0`**: `[{hook_point, module}]` entries for synchronous in-transaction domain hooks. Each hook module implements `Ankole.Plugins.Hook.before_commit_in_tx/2` on declared hook points (`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`) and can return `{:error, reason}` to roll back the calling transaction.
+- **`children/0`**: `Supervisor.child_spec()` entries started under the plugin runtime supervisor.
 
-`Spec.from_module/1` reads these callbacks at boot and normalizes them into a `Spec`. Validation is strict for plugin-owned shape — identity, localized text, AppConfigure declarations, children, and the adapter declaration envelope — and errors are wrapped with the offending module, so a boot failure points at the responsible plugin.
+`Ankole.Plugins.Spec.from_module/1` reads these callbacks at startup and builds a validated `Spec`. If any module fails shape validation, duplicates an ID, or fails contract validation, startup stops with an error that names the responsible module.
 
-## Subsystem contracts
+## Subsystem contracts and site contribution points
 
-A plugin plugs into a subsystem through a named contract, and contract ids may contain dots so subsystems can namespace them. The contracts in actual use:
+`Ankole.Plugins.Contracts` defines the five subsystem adapter contracts. Each contract provides startup `validate` checks, plus optional `refresh` publication and `veto_disable` transaction guards:
 
-- **`signals.adapter`** — declare a Signal adapter that Signals resolves into its adapter registry. This is how a new chat or event provider becomes available as a binding target.
-- **`signals.webhook_handler`** — declare a handler for the `/webhooks/v1/:handler_id/:instance_id/:kind` front door. The handler owns provider authentication and calls into ingress with a normalized fact.
-- **`principals.identity_provider`** — declare an identity provider the operator can configure for admin sign-in.
+- **`signals.adapter`**: Declares a messaging or event adapter validated by `Ankole.Signals.Adapters` for Signal Bindings and Conversations delivery.
+- **`signals.webhook_handler`**: Declares an HTTP webhook handler validated by `Ankole.Signals.WebhookHandlers` for `/webhooks/v1/:handler_id/:instance_id/:kind`.
+- **`principals.identity_provider`**: Declares an enterprise identity and directory adapter validated by `Ankole.IdentityProviders`.
+- **`ai_gateway.provider`**: Declares a model provider adapter validated by `Ankole.AIGateway.Providers`, with a `refresh` callback that publishes active declarations to AI Gateway.
+- **`agent_workers.provider_kind`**: Declares an Agent Worker infrastructure kind (`Ankole.AgentWorkers.ProviderKind`), with `refresh` publication from discovered and active specs and `veto_disable` (`Ankole.AgentWorkers.Providers.veto_disable_in_tx/2`) to block disabling a plugin while any tenant still has an assigned Worker row for one of its kinds.
 
-Contract-specific callback semantics stay with the subsystem that consumes the contract. The plugin registry only holds the generic adapter declaration envelope; the subsystem (`Signals.Adapters`, for example) reads the declarations for its own contract id and interprets them. That separation keeps the registry a dumb catalog and the subsystem the smart consumer.
+Across a site build, first-party extensions also use compile-time, site-scoped contribution points:
 
-## The enable boundary: next process start
+- **`Ankole.Plugins.ConfigField`**: Publishes typed configuration fields from plugin adapters to Console and Pod forms.
+- **Domain transaction hooks (`hooks/0`)**: Runs synchronous `Ankole.Plugins.Hook.before_commit_in_tx/2` checks inside the owning domain's transaction and lock order.
+- **Outer HTTP plugs**: Runs build-selected request plugs (such as admission challenges) in an outer router before forwarding to the core router with `AnkoleWeb.runtime_forward`.
+- **Dual-scoped extension JSON:API routes**: Mounts typed extension JSON:API routes under scoped `/api/v2/*` paths on the site Host and Pod Hosts, authorized through `Ankole.AuthZ.Authorizer`.
+- **Typed UI slots (`entries.json` `overrides`)**: Wraps public webapps (`PodAppSlots`, `ConsoleAppSlots`, `AuthAppSlots`) with lazy components gated by the HTML shell's active site plugin snapshot (`ankole-active-plugins`) and optional `when` feature conditions.
 
-Plugins are instance-wide and fail closed, so the operator explicitly opts them in through one durable list: `plugins.enabled_ids`, an AppConfigure key stored in PostgreSQL. The registry reads that list once, in `init/1`, when the control plane starts.
+Dynamic runtime policy decisions that must change without a process restart belong in OpenFeature (`Ankole.Features`), not in plugin activation.
 
-Changing the enable list does **not** take effect immediately. It takes effect on the next Ankole process start. This is deliberate. Activating or deactivating a plugin can add or remove supervised children and config keys, which is a boot-time concern, not a hot-swap. The Console's `PUT /control-plane-plugins` route is therefore labeled "configure one Control Plane Plugin for the next process start" — it writes the intent, and a restart applies it.
+## Cohort supervision and the next-start boundary
 
-The registry itself is a GenServer whose state is immutable for the lifetime of the process. If module validation, a uniqueness invariant, or config registration fails during `init/1`, it returns `:stop`, which halts application startup before the system can run with a partly registered plugin set. A bad plugin fails the boot loudly, not silently.
+Optional plugins are site-wide and fail closed on completed installations. Operators select them through the global `AppConfigure` key `plugins.enabled_ids` in PostgreSQL.
 
-## The operator surface
+Changing `plugins.enabled_ids` stages the selection for the **next Ankole process start**. It does not hot-swap running processes, adapters, or `AppConfigure` definitions. Inside the configuration write transaction, `Ankole.Plugins.Contracts.veto_disable/2` lets owning subsystems reject a disable request when durable state still depends on that plugin.
 
-Two console-scoped routes cover the model:
+At runtime, `Ankole.Plugins.Cohort` supervises `Ankole.Plugins.Registry` before `Ankole.Plugins.Supervisor` with a `:rest_for_one` strategy over one immutable startup snapshot:
+
+- `Ankole.Plugins.Registry` resolves the boot snapshot once, validates active declarations, registers plugin `AppConfigure` keys, refreshes subsystem views, and publishes the snapshot to `:persistent_term`.
+- `Ankole.Plugins.Supervisor` starts the `children/0` specs of active plugins.
+- If `Ankole.Plugins.Registry` crashes, `Ankole.Plugins.Cohort` restarts both `Registry` and `Supervisor` from the same immutable boot snapshot, so configuration edits made after boot cannot alter the active set mid-run. A crash inside one plugin child stays isolated inside `Ankole.Plugins.Supervisor`.
+
+## Operator API
+
+Site administrators inspect and stage Control Plane Plugins through two JSON:API routes:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/control-plane-plugins` | List active and next-start plugin state |
-| `PUT` | `/control-plane-plugins` | Configure one plugin for the next process start |
+| `GET` | `/api/v2/site/control-plane-plugins` | List discovered plugins with `activation`, `configured_enabled`, `active`, and `restart_required` |
+| `PUT` | `/api/v2/site/control-plane-plugins` | Stage `{ "data": { "id": string, "enabled": boolean } }` for an `:optional` plugin on the next process start |
 
-Both run through the Console policy (`control_plane_plugins` read and update actions), so they sit under the same admin authority as the rest of the Console. The list response shows both what is active now and what is staged for the next start, so an operator can tell the two apart.
+Both routes authorize against `site_console:control_plane_plugins` (`read` and `update`) in the privileged tenant.
 
-## Relationship to the first-party extension model
+## Scope and boundaries
 
-The project's design rule is to treat the extension model as trusted and first-party, and Control Plane Plugins are exactly that surface. A plugin is compiled into the release alongside the code it extends; it runs in the same trust domain as the control plane. There is no sandbox between a plugin and the control plane, because a plugin *is* control-plane code that declared itself through the contract.
-
-This is why the model stops where it stops. There is no third-party marketplace, no hot-loading, no per-plugin isolation — those would be different products with different threat models. What the model provides instead is a disciplined way for first-party code to contribute capabilities the control plane already knows how to consume, validated at boot and activated through an explicit operator choice.
-
-## What Control Plane Plugins are not
-
-They are not a runtime plugin store and not a way to ship code the operator has not reviewed. They are not the place where Agent Computer Worker tools or skills live — those are [Agent Library](../agent-library/) capabilities and worker-side tooling. And they are not hot-configurable; the next-start rule is the contract, and it exists because the things a plugin changes (children, config keys) are boot-time concerns. The boundary is clean: first-party code, declared through a contract, validated at boot, activated on the next start.
+Control Plane Plugins run in the same BEAM node and trust domain as the control plane. They do not package model-facing Worker Skills or tools; Agent capabilities live in [Agent Library](../agent-library/), where an Agent Plugin and a related Control Plane Plugin maintain independent enabled states.
 
 ## Next steps
 
-- For the signal adapters a plugin can declare, read the [Signals](../signals/) page.
-- For the AppConfigure keys a plugin contributes, read the [Console](../console-api/) page.
-- For the trust model this extension surface sits inside, read [Principal and AuthZ](../principal-authz/).
+- For messaging and webhook adapters, read [Signals](../signals/).
+- For `AppConfigure` settings and feature flags, read [AppConfigure](../app-configuration/) and [Console](../console-api/).
+- For site administration permissions, read [Principal and AuthZ](../principal-authz/).

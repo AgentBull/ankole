@@ -35,6 +35,7 @@ Conversations --> Signals --> Sessions --> AIGateway --> model providers
 
 | Part | What it does | Detailed document |
 | --- | --- | --- |
+| Pod | Owns workspace pages, Base tables, Applets, and file embeds | [Pod Content Model](design-docs/PodContentModel.md) |
 | Conversations | Owns shared conversations, public Messages, provider observations, and Delivery | [Conversations](design-docs/Conversations.md) |
 | Signals | Accepts stimuli, routes CloudEvents, and stores authorization and target facts | [Signals](design-docs/Signals.md) |
 | Sessions | Drives each Agent's model loop and recovers durable steps | [Sessions](design-docs/Sessions.md) |
@@ -44,7 +45,8 @@ Conversations --> Signals --> Sessions --> AIGateway --> model providers
 | Files | Keeps each Agent's durable files in a drive in the control plane | [Files](design-docs/Files.md) |
 | Agent Workers | Creates, stops, and replaces the one Worker of each Agent | [Agent Workers](design-docs/AgentWorkers.md) |
 | Agent Computer | Runs Codex and environment tools | `app/agent_computer/` |
-| PostgreSQL | Stores facts that must survive a restart | Migrations in `app/control_plane/priv/repo/migrations/` |
+| Function Runtime | Runs stateless Applet backend functions and deterministic TypeScript programs | [Pod Content Model](design-docs/PodContentModel.md), [Workflow](design-docs/Workflow.md) |
+| PostgreSQL | Stores control-plane facts and sharded physical Base tables | Migrations in `app/control_plane/priv/repo/migrations/` |
 
 Schedule creates a `Signal` through the same intake when work becomes due. A `BackgroundAgentJob`
 runs work outside the Session that created it. AppConfigure stores settings
@@ -60,7 +62,14 @@ The Elixir control plane runs Phoenix and OTP. It writes to PostgreSQL, supervis
 services, stores provider credentials, and serves the public APIs.
 
 The Rust kernel provides shared native functions. These functions handle
-cryptography, CEL evaluation, protobuf validation, compression, and object storage. The kernel does not decide or store a work item's state.
+cryptography, AuthZ CEL evaluation, Markdown and Brain Markdoc parsing, UTF-16
+page diffing, AI provider HTTP and WebSocket transport, image transcoding,
+checked web proxy connections, and object storage. The kernel does not decide or
+store a work item's state.
+
+`ankole-function-runtime` runs stateless Supabase Edge Runtime isolates for
+Applet backend functions and deterministic PTC or Workflow TypeScript programs.
+It stores no durable state.
 
 Agent Computer runs in the Worker of one Agent: a Bun process in its own
 container. It runs environment tools and manages Codex sessions. Its local
@@ -95,8 +104,10 @@ Automation scripts, and is available while its Worker is absent. See
 | Path | What it contains |
 | --- | --- |
 | `app/control_plane/` | Elixir control plane application: domain modules, Phoenix APIs, OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and tests |
+| `app/function_runtime/` | Stateless Edge Runtime host for Applet backends and deterministic PTC or Workflow TypeScript programs |
 | `app/kernel/` | Shared Rust kernel and host bindings |
 | `app/agent_computer/` | Bun worker, tools, Codex runner, and browser runtime |
+| `app/ankole-browser/` | Local Chromium daemon for rendered web fetch and browser automation |
 | `app/webapps/` | Auth, setup, Pod, and console React applications |
 | `app/library/` | Built-in Skills, Agent Plugins, and Agent templates |
 | `app/locales/` | Shared translation catalogs |
@@ -118,19 +129,18 @@ The China-market provider plugin contributes AIGateway providers.
 
 ## Control-Plane Boot Order
 
-`Ankole.Application` attaches the request log handler before it starts the children.
-It starts the children in this order:
+`Ankole.Application` initializes the OpenFeature provider, validates the site
+administration console path and site identity sources, and attaches the request
+log handler before it starts the children. It starts the children in this order:
 
-1. Repo, PubSub, and OIDC signing key
-2. AppConfigure registry and cache
+1. `Repo`, `Pod.BaseCluster`, `PubSub`, `PodPresence`, and OIDC signing key
+2. `AppConfigure` registry and cache
 3. Observability, I18n catalog, and setup bootstrap
-4. Worker provider configuration and seed, then Oban
-5. Plugin cohort and authentication rate limiter
-6. AIGateway credential pool, task and response-stream supervisors, and WorkerFiles supervisor
-7. Sessions and Workflow supervisors
-8. Optional identity startup sync
-9. AIGateway model metadata cache and DNSCluster
-10. Phoenix endpoint
+4. Worker runtime configuration, `Oban`, plugin cohort, Worker provider seed, and authentication rate limiter
+5. AIGateway credential pool, `FunctionRuntime` supervisor, task supervisors, response-stream supervisor, and `WorkerFiles` supervisor
+6. Delivery, `AgentWorkers`, `Sessions`, and `Workflow` supervisors
+7. Optional identity startup sync
+8. AIGateway model metadata cache, `DNSCluster`, and Phoenix endpoint
 
 This order is a contract. A later child can use a service that started before
 it. The endpoint starts after the subsystems that serve requests.
@@ -139,13 +149,15 @@ it. The endpoint starts after the subsystems that serve requests.
 
 PostgreSQL keeps the following data because Ankole needs it after a restart:
 
-- Principals, humans, Agents, groups, memberships, and permission grants
+- Principals, humans, Agents, site credentials, external identities, invitations, authentication challenges, groups, memberships, and permission grants
+- Browser sessions, browser authentications, and OIDC clients, sessions, codes, and tokens
+- Pod pages, page content and revisions, and inline and physical Base tables, fields, views, and records
 - AppConfigure values and encrypted provider configuration
 - Signal routing rules, Signals, callback Endpoints, Conversations, Messages, external references, tombstones, and Delivery intents
 - Schedules and scheduled events
 - AIGateway conversations, messages, compaction artifacts, and provider rows
 - Brain pages, versions, chunks, claims, timelines, links, sources, schema packs, contradictions, and skill lessons
-- BackgroundAgentJob rows and their turn records
+- BackgroundAgentJob rows and their turn records, Workflow runs and calls, and AutomationJob definitions and runs
 - Session workspace epochs and tool receipts
 
 Session drivers rebuild their progress from these facts. A process exit
@@ -189,8 +201,10 @@ for the data assigns and checks its identifier.
 
 ## How Plugins and Skills Differ
 
-Ankole trusts the Elixir code in a Control Plane Plugin. Such a plugin can add
-configuration, adapters, model providers, and supervised processes.
+Ankole compiles Control Plane Plugins into the release and activates a site-wide
+snapshot at startup. A Control Plane Plugin can contribute subsystem adapters,
+supervised OTP processes, outer HTTP plugs, extension JSON:API routes, domain
+transaction hooks, declarative configuration fields, and typed UI slots.
 
 An Agent Plugin is a standard Codex Plugin package that groups related Agent
 capabilities. It can include a `workspace-template/` directory for a new Job.
@@ -209,7 +223,9 @@ and runs Skills without help from a Control Plane Plugin.
 - Add a worker RPC in the Sessions RPC lane and its worker requester.
 - Add a runtime setting through AppConfigure in the owning subsystem.
 - Add a built-in Skill under `app/library/skills/<name>/`.
-- Add console APIs through OpenAPI controllers and regenerate the web client.
+- Add `/api/v2` JSON:API routes on Ash resources and domains, then run
+  `mix ankole.openapi.check --write` and `bun run openapi:generate` to update
+  the OpenAPI documents and web clients.
 
 Do not use local worker files for a result that must survive a restart. Use a
 control-plane RPC or an AIGateway API that writes the required PostgreSQL row.
@@ -271,7 +287,7 @@ credentials.
 | [Browser Sessions](design-docs/BrowserSessions.md) | Browser identity, authentication freshness, concurrent login, and logout |
 | [OIDC Server](design-docs/OIDCServer.md) | OIDC protocol ownership, Client policy, tokens, and logout |
 | [AuthZ](design-docs/AuthZ.md) | Groups, grants, and CEL decisions |
-| [Pod Content Model](design-docs/PodContentModel.md) | Pod page and Database tables, and the editor embed element |
+| [Pod Content Model](design-docs/PodContentModel.md) | Pod pages, Base tables, Applets, and editor embeds |
 | [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while Ankole runs |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugins and Agent Plugins |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | MCP Skill execution and secrets |

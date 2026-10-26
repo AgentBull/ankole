@@ -7,7 +7,7 @@ order: 1
 
 **Ankole は、Company Brain を備えたオープンソースの Claude Tag 代替製品です。企業向け Agent Harness が、Agent の判断に必要なコンテキスト、権限、ツール、フィードバックを提供します。**
 
-継続して動く Agent は、会社全体の仕事で、共有の社内知識、リアルタイムのシグナル、企業の権限、Agent Computer の作業環境、永続的な実行機能を使えます。
+継続して動く Agent は、会社全体の仕事で、共有の社内知識、Pod ワークスペース、リアルタイムのシグナル、企業の権限、Agent Computer の作業環境、永続的な実行機能を使えます。
 
 モデルは、与えられたコンテキストを使って推論します。Harness は現在の社内情報を選び、アクセス規則を適用し、機能を付与し、障害後に仕事を復旧し、結果を次の意思決定に引き継ぎます。
 
@@ -27,12 +27,14 @@ order: 1
 | 部品 | 内容 | 詳細 |
 |---|---|---|
 | **Agent** | 固有のミッション、アクセス権、ツール、対外 ID を持つ作業主体です。ミッションと納品基準は、編集可能なファイルで定義します。1 つのインスタンスで複数の Agent を運用できます。 | [Agents](../agents/) |
+| **Pod** | 人と Agent が階層ページ、リアルタイムドキュメント、Base リレーショナルテーブル、Applet、マルチプレイヤー Pod Chat で協業する共有ワークスペースです。 | [アーキテクチャ概要](../architecture/) |
 | **Brain** | 共有の社内知識を保存します。出所、Claim、時点、確信度、矛盾、閲覧範囲を保持し、権限を持つ Agent に現在の知識を提供します。 | [Brain](../brain/) |
 | **Session** | コンテキスト、ワークスペースの状態、実行中の誘導、キャンセル、復旧を管理する実行単位です。 | [Sessions](../sessions/) |
 | **Signal routing rule** | Agent をシグナルの送信元に接続し、その場所で使える権限を設定します。 | [Signal routing rules](../signal-bindings/) |
 | **Background job** | Session から実行する長時間の仕事です。完了した結果は、元のチャネルへ配信します。 | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | 特定の仕事を実行するための確定した手順です。Agent が改善を提案し、人が次の Session で使う変更を承認します。 | [Skills](../skills/) |
 | **Principal** | 人と Agent を表す権限主体です。ランタイムは、両方に権限と監査を適用します。 | [Principal and AuthZ](../principal-authz/) |
+| **Function Runtime** | Pod Applet のバックエンド関数や決定論的なツールオーケストレーション向けの TypeScript プログラムを分離環境で実行する、ステートレスな `ankole-function-runtime` サービスです。 | [アーキテクチャ概要](../architecture/) |
 | **Agent Computer Worker** | ツール、ファイル操作、ターミナル、ブラウザー、Codex Job を実行する環境です。主モデルループは control plane が実行します。 | [Agent Computer Worker](../agent-computer-worker/) |
 
 Agent は、複数の情報源を使う長時間の調査に [Deep Research](../deep-research-job/) を使えます。[ブラウザー自動化](../browser-automation/)では、実際の Web ページを操作できます。
@@ -49,9 +51,9 @@ Harness は多様な仕事に対応します。1 つの Agent が意思決定全
 
 ## 現在のステータス
 
-Ankole は、本番環境で稼働する完全な企業向け Agent Harness です。企業が管理する基盤に、Control Plane、Agent Computer Worker、Kernel、Company Brain、運用コンソールを配置できます。
+Ankole は、本番環境で稼働する完全な企業向け Agent Harness です。企業が管理する基盤に、Control Plane、Pod ワークスペース、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、Kernel、Company Brain、運用コンソールを配置できます。
 
-パブリック API の互換性契約は現在策定中です。リリース間で互換性のない変更が発生する場合があります。
+Ankole にはパブリック API の互換性契約はありません。リリースには互換性のない変更が含まれる場合があります。
 
 ## 次のステップ
 

@@ -9,11 +9,17 @@ audit trail은 누가 무엇을 언제 변경했는지에 대한 내구성 있�
 
 핵심 속성을 먼저 밝히면, 모든 audit 표면은 **내구성 있는 PostgreSQL 상태 또는 구조화된 log**이며, 휘발성 메트릭이 아닙니다. 기록된 행은 이를 기록한 프로세스가 사라져도 남습니다. 기록되지 않은 행은 재구성할 수 없습니다.
 
-## AuthZ grant 기록
+## AuthZ grant, 사람 접근 변경 및 초대 기록
 
-모든 permission grant는 `permission_grants`의 durable 행입니다. grant의 `principal_uid` 또는 `group_id`가 소유자를 지정하고, `resource_pattern`과 `action`이 허용 대상을 지정하며, timestamp가 생성 시점과 마지막 업데이트 시점을 기록합니다. grant 전용 별도 audit log는 없습니다 — grant는 대부분 추가(append)만 되고 변경이 행 업데이트로 보이기 때문에 grant 테이블 자체가 기록입니다.
+모든 permission grant는 `permission_grants`의 durable 행입니다. 각 grant는 하나의 `principal_uid`, 하나의 `group_id`, 또는 Userset 페이지 대상(`source_page_id` 및 `source_action`)에 속하며, Pod ACL grant는 `target_page_id`와 `target_scope`를 통해 `pages` 행을 기준으로 고정됩니다. `resource_pattern`, `action`, `condition`이 허용 대상을 지정하며 timestamp가 생성 시점과 마지막 업데이트 시점을 기록합니다. grant 전용 별도 audit log는 없으며 `permission_grants` 테이블 자체가 기록입니다.
 
-grant는 `GET /principals/:uid/grants`와 `GET /principal-groups/:name/grants`로 읽으십시오. 추가되었다가 나중에 제거된 grant는 테이블 히스토리에 나타납니다(PostgreSQL point-in-time recovery를 유지하는 경우). 지금 존재하는 grant가 시스템이 강제하는 것입니다.
+사람 계정의 수명 주기 변경과 워크스페이스 초대도 PostgreSQL에 영구 행을 기록합니다:
+
+- `human_access_events`는 각 접근 비활성화, 복원 또는 디렉터리 기반 상태 전환을 실행 주체, 출처, 이전 및 현재 상태, `access_version`, 해제된 식별자(`released_identifiers`)와 함께 기록합니다.
+- `human_access_restrictions`는 `:suspended`(일시 중지) 또는 `:offboarded`(퇴사·오프보딩) 처분(`disposition`)과 사유가 포함된 활성 제한을 저장합니다.
+- `pod_invitations`는 Pod 워크스페이스 초대, 멤버십 유형(`member` 또는 `guest`), 사용 수(`used_count`), 생성자(`created_by_principal_uid`)를 기록합니다.
+
+Principal 및 그룹 grant는 `GET /api/v2/principals/:uid/grants`와 `GET /api/v2/principal-groups/:name/grants`로 읽으십시오. 추가되었다가 나중에 제거된 grant는 PostgreSQL point-in-time recovery 히스토리에 남으며, 현재 존재하는 행이 시스템이 강제하는 것입니다.
 
 ## 구조화된 control-plane log
 
@@ -30,7 +36,7 @@ log 설정은 [Environment variables](../environment-variables/)를, 진단 방�
 
 ## Signal 및 delivery 행
 
-모든 Signal(session을 구동하는 durable inbox)와 모든 delivery 시도는 PostgreSQL의 행입니다. 이들은 일반적으로 감사용으로 읽히지는 않습니다 — 운영 상태이기 때문입니다 — 그러나 시스템이 무엇을 하도록 요청받았고 전달되었는지에 대한 기록을 형성합니다. Console의 `/background-agent-jobs/:id` 라우트는 job의 `attempts`와 `error`를 보여 주고, `/ai-gateway/conversations` 라우트는 turn이 수행한 model 호출을 보여 줍니다.
+모든 Signal(session을 구동하는 durable inbox)와 모든 delivery 시도는 PostgreSQL의 행입니다. 이들은 운영 상태인 동시에 시스템이 무엇을 하도록 요청받았고 전달되었는지에 대한 기록을 형성합니다. Console API의 `/api/v2/background-agent-jobs/:id` 라우트는 job의 `attempts`와 `error`를 보여 주고, `/api/v2/ai-gateway/conversations` 라우트는 turn이 수행한 model 호출을 보여 줍니다.
 
 ## 함께 사용하기
 
@@ -38,10 +44,11 @@ log 설정은 [Environment variables](../environment-variables/)를, 진단 방�
 
 | 질문 | 확인할 곳 |
 |---|---|
-| “누가 이 agent에게 Y 작업 권한을 주었는가?” | `permission_grants` + `/principals/:uid/grants` |
-| “이 turn에서 agent가 무엇을 했는가?” | `/ai-gateway/conversations/:id/messages` |
-| “schedule이 실행되었는가?” | `/cron-schedules/:id/runs` |
-| “job의 실패가 재시도되었는가?” | `/background-agent-jobs/:id` (`attempts`, `error`) |
+| “누가 이 agent 또는 페이지 대상에게 Y 작업 권한을 주었는가?” | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
+| “왜 사람 계정이 일시 중지, 오프보딩 또는 초대되었는가?” | `human_access_events`, `human_access_restrictions`, `pod_invitations` |
+| “이 turn에서 agent가 무엇을 했는가?” | `/api/v2/ai-gateway/conversations/:id/messages` |
+| “schedule이 실행되었는가?” | `/api/v2/cron-schedules/:id/runs` |
+| “job의 실패가 재시도되었는가?” | `/api/v2/background-agent-jobs/:id` (`attempts`, `error`) |
 | “그 시점에 worker가 무엇을 로그했는가?” | 구조화된 control-plane log |
 
 ## 이 가이드가 아닌 것

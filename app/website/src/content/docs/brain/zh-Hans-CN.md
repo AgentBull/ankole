@@ -76,7 +76,7 @@ Brain 会在选择候选之前应用当前 Agent 的 Agent Plugin 和 Skill 有�
 
 | 范围 | 谁可以取得内容 |
 | --- | --- |
-| `world` | 租户中的任何 Principal |
+| `world` | 租户内启用状态的正式人员成员（`membership = member`）、启用状态的 Agent 和系统 Principal；外部访客（`membership = guest`）及已停用的 Principal 不包含在内 |
 | `group:<name>` | 对应权限组的当前成员 |
 | `principal:<uid>` | 只有对应 Principal |
 

@@ -63,13 +63,15 @@ The Pod drive uses a null `agent_uid` and stores files under `pages/<page-id>/`.
 Page files never require granting a Human access to an Agent's whole drive.
 
 A file-page replacement advances its revision with the file reference in one
-transaction. Document assets and Database attachments use their full SHA-256 in
+transaction. Document assets and Base attachments use their full SHA-256 in
 their paths. An Applet publication replaces `src/`, `dist/`, and optional
 `server/main.js` atomically under the page revision. The backend is inspected
 before commit. A publication without a backend removes the previous `server/`
 references. The browser host loads only `dist/`; the control plane reads the
-backend from the same authorized revision and manifest. Viewers can read source
-and backend files through the ordinary page file interface. Digest reads reject
+backend from the same authorized revision and manifest. Viewers with `page_view`
+can read only `dist/**` and `assets/**` files; reading or listing `src/**`,
+`server/**`, `applet.env.json`, `package.json`, `bun.lock`, or `tsconfig.json`
+requires `page_edit`. Digest reads reject
 a changed manifest, so the host can restart loading after a publication race.
 Page purge and tenant deletion remove `server/` with the other page paths;
 unreferenced content follows the collector rules.
@@ -345,8 +347,8 @@ every file under a folder in one transaction, whatever the folder's size.
 | Route | Operation |
 | --- | --- |
 | `GET /api/v2/agents/:agent_uid/files?path=` | Folders and files of one folder |
-| `GET /api/v1/agents/:agent_uid/files/content?path=` | Download one file |
-| `POST /api/v1/agents/:agent_uid/files` | Upload one file (multipart: `path`, `file`) |
+| `GET /api/v2/agents/:agent_uid/files/content?path=` | Download one file |
+| `POST /api/v2/agents/:agent_uid/files` | Upload one file (multipart: `path`, `file`) |
 | `POST /api/v2/agents/:agent_uid/file-moves` | Move or rename a file or folder |
 | `DELETE /api/v2/agents/:agent_uid/files?path=` | Delete a file, or a folder and every file in it |
 
@@ -356,5 +358,5 @@ one configured HTTP client for both paths, including its session, CSRF, and
 tenant context. A move rejects an existing target file and leaves both paths
 unchanged. The API has no overwrite option.
 
-The AuthZ resource is `agent:<uid>:files` with the actions `read`, `update`,
-and `delete`.
+The AuthZ resource is `site_console:agent:<uid>:files` with the actions `read`,
+`update`, and `delete`.

@@ -76,11 +76,9 @@ test('people and Agent-authored content follow the real Pod persistence, permiss
       .toContain('Member analysis')
 
     await documentAction(owner, '新建页面')
-    await owner.getByRole('textbox', { name: '标题', exact: true }).fill('Research appendix')
-    await owner.getByRole('button', { name: '创建', exact: true }).click()
-    await expect(owner.locator('.editor-content .embed')).toContainText('Research appendix')
-    await expect(owner.getByText('Research appendix', { exact: true }).first()).toBeVisible()
-    await expect(owner.getByText('已自动保存', { exact: true })).toBeVisible()
+    await owner.getByRole('menuitem', { name: '文档', exact: true }).click()
+    await expect(owner.locator('.editor-content .embed')).toContainText('无标题')
+    await expect(owner.locator('.pod-document [role="status"]')).toHaveText('已自动保存')
 
     await owner.goto(state.base_url + route(state.base_id))
     await member.goto(state.base_url + route(state.base_id))
@@ -231,9 +229,12 @@ test('private work moves, shares, searches, favorites and restores through the r
       .getByRole('region', { name: 'Private', exact: true })
       .getByRole('button', { name: '新建页面', exact: true })
       .click()
-    await owner.getByRole('textbox', { name: '标题', exact: true }).fill(title)
-    await owner.getByRole('button', { name: '创建', exact: true }).click()
-    await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(title)
+    await owner.getByRole('menuitem', { name: '文档', exact: true }).click()
+    await expect(owner).not.toHaveURL(state.base_url + route(state.report_id))
+    const pageTitle = owner.getByRole('textbox', { name: '页面标题', exact: true })
+    await expect(pageTitle).toHaveValue('')
+    await pageTitle.fill(title)
+    await pageTitle.blur()
     const id = pageIDFromURL(owner.url())
     await content(owner).click()
     await owner.keyboard.insertText('Private research result')
@@ -291,7 +292,7 @@ test('Private creation and moves wait for identity after delayed and failed read
       status: 503,
       json: { error: { code: 'private_unavailable', message: 'Private temporarily unavailable' } }
     })
-  await owner.route('**/api/v2/pod/pages?**', async intercepted => {
+  await owner.route('**/api/v2/pod/pages**', async intercepted => {
     if (new URL(intercepted.request().url()).searchParams.get('scope') !== 'private' || mode === 'pass') {
       await intercepted.continue()
     } else if (mode === 'hold') held.push(intercepted)
@@ -327,8 +328,7 @@ test('Private creation and moves wait for identity after delayed and failed read
     await owner.getByRole('main').getByRole('button', { name: '重试', exact: true }).click()
     await expect(listCreate).toBeEnabled()
     await listCreate.click()
-    await owner.getByRole('textbox', { name: '标题', exact: true }).fill(`Private identity ${Date.now()}`)
-    await owner.getByRole('dialog').getByRole('button', { name: '创建', exact: true }).click()
+    await owner.getByRole('menuitem', { name: '文档', exact: true }).click()
     await expect(owner).toHaveURL(/\/pages\//)
     const privateID = pageIDFromURL(owner.url())
     createdIDs.push(privateID)
@@ -508,14 +508,16 @@ test('block-menu removal follows direct-child ownership and preserves references
     await owner.goto(state.base_url + route(page.id))
     await expect(content(owner)).toBeVisible()
     await documentAction(owner, '新建页面')
-    await owner.getByRole('textbox', { name: '标题', exact: true }).fill('Inline business data')
-    await choose(owner, '页面类型', '多维表')
-    await owner.getByRole('button', { name: '创建', exact: true }).click()
+    const created = owner.waitForResponse(
+      response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
+    )
+    await owner.getByRole('menuitem', { name: '多维表', exact: true }).click()
+    const response = await created
+    expect(response.status()).toBe(201)
+    const child = ((await response.json()) as { page: { id: string; type: string; parent_id: string } }).page
+    expect(child).toMatchObject({ type: 'base', parent_id: page.id })
     const embedded = content(owner).locator('.embed')
-    await expect(embedded).toContainText('Inline business data')
-    const child = (
-      await request<{ pages: { id: string; title: string; parent_id: string }[] }>(owner, '/pages')
-    ).pages.find(item => item.title === 'Inline business data' && item.parent_id === page.id)!
+    await expect(embedded).toContainText('无标题')
     await embedded.hover()
     await owner.getByRole('button', { name: 'Block 菜单', exact: true }).click()
     await owner.getByRole('menuitem', { name: '删除 Block', exact: true }).click()
@@ -528,7 +530,7 @@ test('block-menu removal follows direct-child ownership and preserves references
       )
       .toBe(true)
     await documentAction(owner, '引用已有页面')
-    await choose(owner, '选择页面', 'Browser sales', 'Browser report')
+    await choose(owner, '选择页面', 'Browser sales')
     await expect(embedded).toContainText('Browser sales')
     await embedded.hover()
     await owner.getByRole('button', { name: 'Block 菜单', exact: true }).click()

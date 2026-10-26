@@ -51,6 +51,22 @@
   line-height: 42px;
 }
 
+.pod-page[data-page-type='doc'] .pod-page-heading {
+  margin-bottom: 20px;
+}
+
+.pod-page[data-page-type='doc'] .pod-page-title {
+  min-height: 52px;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.pod-page[data-page-type='doc'] textarea.pod-page-title:is(:hover, :focus-visible) {
+  box-shadow: none;
+}
+
 .pod-page-title::placeholder {
   color: var(--fg-placeholder);
 }
@@ -90,34 +106,27 @@ textarea.pod-page-title:focus-visible {
 }
 
 .pod-document-tools {
+  position: absolute;
+  top: 0;
+  inset-inline-end: -32px;
+  z-index: 1;
   display: flex;
-  height: 30px;
   align-items: center;
-  gap: 12px;
-  margin-left: -7px;
 }
 
 .pod-document-add[data-slot='button'] {
   color: var(--fg-tertiary);
 }
 
-.pod-document-status {
-  color: var(--fg-tertiary);
-  font-size: 11px;
-  line-height: 20px;
-}
-
 @media (hover: hover) and (pointer: fine) {
-  .pod-document-add,
-  .pod-document-status-saved {
+  .pod-document-add {
     opacity: 0;
     transition: opacity 120ms ease;
   }
 
   .pod-document:hover .pod-document-add,
-  .pod-document:focus-within .pod-document-add,
-  .pod-document:hover .pod-document-status-saved,
-  .pod-document:focus-within .pod-document-status-saved {
+  .pod-document-add:focus-visible,
+  .pod-document-add[data-popup-open] {
     opacity: 1;
   }
 }
@@ -261,6 +270,11 @@ textarea.pod-page-title:focus-visible {
   .pod-page-title {
     font-size: 32px;
     min-height: 42px;
+  }
+
+  .pod-page[data-page-type='doc'] .pod-page-title {
+    min-height: 42px;
+    font-size: 32px;
   }
 
   .pod-page-header {

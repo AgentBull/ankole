@@ -1,143 +1,128 @@
 ---
 title: Workflows
-description: 고정되고 유한한 JavaScript로 독립적인 서브에이전트 task를 병렬로 실행하고 구조화된 결과를 결합합니다.
+description: 유한한 작업을 병렬 서브에이전트로 나누어 실행하고 원래 대화에서 하나의 구조화된 결과를 수집합니다.
 section: User guide
 order: 19
 ---
 
-Workflow는 Main Agent가 한 번 시작하는 유한한 서브에이전트 orchestration입니다. 제어 플레인은 고정된 JavaScript, 각 task, 구조화된 결과를 PostgreSQL에 저장합니다. run이 완료되거나 실패하면 원래 대화를 한 번 다시 깨웁니다.
+Workflow는 메인 Agent가 고정되고 유한한 프로그램을 실행해 독립적인 작업을 여러 서브에이전트에 위임하는 기능입니다. 다수의 후보 검토, 유한한 소스 집합에서 동일한 필드 추출, 독립적인 판단 비교, 최종 종합 전 검증 단계 실행에 적합합니다.
 
-서로 독립적인 항목을 병렬로 조사하거나, 수집–검증–종합처럼 단계가 명확한 작업에 Workflow를 사용하세요. 작업 중에 사용자의 판단, 후속 메시지, 지속적인 workspace가 필요한 하나의 긴 작업은 [Background Agent Job](../background-jobs/)으로 실행하세요.
+Workflow는 현재 대화에서 시작되며 즉시 `run_id`를 반환합니다. 작업이 실행되는 동안에도 현재 대화를 계속 사용할 수 있습니다. Workflow가 완료되거나 실패하면 Ankole이 원래 대화를 깨워 메인 Agent가 결과를 읽고 작업을 이어가게 합니다.
 
-## 어떤 실행 방식을 선택할지
+## 알맞은 실행 방식 선택하기
 
-| 작업 형태 | 선택 | 이유 |
+| 필요한 작업 | 선택 | 이유 |
 |---|---|---|
-| 하나의 짧은 작업 | 현재 turn에서 직접 실행 | 다음 답변에 완료된 결과를 담을 수 있음 |
-| 크기가 고정된 배치 또는 유한한 다단계 분석 | Workflow | 여러 서브에이전트 task를 병렬로 실행하고 코드로 결과를 결합함 |
-| 지속적인 컨텍스트가 필요한 하나의 긴 작업 | Background Agent Job | 고유한 Codex thread와 workspace를 유지하고 후속 메시지와 사용자 질문을 처리함 |
-| 반복 가능한 기계적 이벤트 처리 | Automation Job | Agent 드라이브에 있는 결정적 Bun script가 schedule이나 webhook delivery를 처리함 |
+| 현재 대화가 필요한 짧은 단일 작업 | 메인 Agent 턴 | 현재 컨텍스트와 메인 턴의 전체 도구 세트를 그대로 유지합니다. |
+| 유한한 독립 검토 또는 고정된 다단계 분석 | Workflow | 유한한 서브에이전트 작업을 병렬로 실행하고 하나의 집계 결과를 반환합니다. |
+| 파일, 작업 공간, 후속 메시지 또는 사용자 입력이 필요한 장기 상태 유지 작업 | [Background Agent Job](../background-jobs/) | 일시 중지하고 재개할 수 있는 영구 Codex thread를 소유합니다. |
+| 스케줄 또는 웹훅으로 실행되는 기계적 스크립트 | [Automation Job](../automation-jobs/) | 모델 판단이 필요 없을 때 트리거가 결정론적 처리를 바로 실행합니다. |
 
-Workflow는 scheduler, YAML 단계 목록, 플랫폼 DAG 또는 범용 이벤트 버스가 아닙니다. 외부 상태를 폴링하거나 시간을 기다리는 용도로 사용하지 마세요.
+Workflow는 범용 DAG 엔진, 스케줄러 또는 이벤트 버스가 아닙니다. 외부 이벤트나 사용자의 결정을 직접 기다릴 수 없으므로, 시작 후에 작업 방향을 바꾸어야 한다면 Background Agent Job을 사용하십시오.
 
-## Agent에게 Workflow 요청
+## Agent에게 Workflow 시작 요청하기
 
-채팅에서 입력 범위, 각 task가 반환할 결과, 최대 동시성을 명확히 적으세요. 예:
+유한한 입력 집합, 각 독립 작업, 완료 조건 및 최종 결과 형식을 설명하십시오. 예:
 
 ```text
-이 20개 공급업체를 Workflow로 비교해 줘. 각 공급업체를 독립적으로 조사하고,
-가격 구조, 증거 URL, 주요 위험을 구조화된 결과로 받아 최종 비교표를 만들어.
-동시성은 8, 총 task 상한은 20으로 설정해.
+Run this as a Workflow. Review these 40 proposals in parallel against the five
+criteria below. Return one JSON result with every verdict, the failed reviews,
+and a final shortlist. Do not expand beyond these 40 proposals.
 ```
 
-Agent는 `workflow` tool로 run을 생성하고 `run_id`와 초기 `running` 상태를 즉시 받습니다. 원래 대화는 run이 완료될 때까지 폴링할 필요가 없습니다. 사용자는 같은 대화에서 계속 이야기할 수 있고, 완료 또는 실패 이벤트가 도착하면 Agent가 결과를 이어서 보고합니다.
+메인 Agent가 오케스트레이션 프로그램을 작성해 시작하므로 직접 JavaScript를 작성하거나 API를 호출할 필요가 없습니다. Agent는 실행당 동시성 한도, 최대 서브에이전트 호출 수, 그리고 자신이 사용할 수 있는 커스텀 모델 프로필을 지정할 수 있습니다. 프로필을 선택하지 않으면 Workflow 작업은 `primary`를 사용합니다.
 
-## Workflow가 실행되는 방식
+시작 작업은 실행 ID와 현재 `running` 상태를 반환합니다. 메인 Agent는 실행 상태를 폴링하지 않습니다. 같은 대화에서 계속 이야기를 나누고 나중에 진행 상태를 물어볼 수 있습니다.
 
-1. 제어 플레인이 `script`, JSON object `args`, 실행 상한을 PostgreSQL에 저장합니다. `script`와 `args`는 생성 후 바뀌지 않습니다.
-2. 고정된 JavaScript가 `agent(prompt, opts)`를 호출하면 제어 플레인이 각 호출을 독립적인 task turn으로 디스패치합니다.
-3. 서브에이전트가 `submit_result`로 schema에 맞는 값을 제출합니다. Provider가 strict schema를 적용하고 제어 플레인이 값을 다시 검증합니다.
-4. 제어 플레인이 저장된 결과를 memo로 다시 실행하여 다음 단계를 찾습니다. 먼저 성공한 task는 새 task로 다시 만들지 않습니다.
-5. script가 최종 값을 반환하면 run이 `completed`가 됩니다. script 또는 replay가 계약을 위반하면 run이 `failed`가 됩니다.
+## 오케스트레이션 실행 방식
 
-한 단계의 호출은 `Promise.all`로 병렬 실행할 수 있습니다. 다음 단계는 이전 호출의 가장 긴 연속 전체가 종료된 후에만 시작합니다. 각 `agent()` 호출이 재시도 예산을 모두 사용해도 실패하면 `null`을 반환하므로 script가 그 경우를 명시적으로 처리해야 합니다.
+프로그램은 고정된 JSON `args`를 받아 `agent(prompt, options)`를 호출할 수 있습니다. `Promise.all` 안의 호출은 병렬로 실행되며, 앞 단계 호출이 끝난 뒤 일반 JavaScript 조건문으로 검증 또는 종합 단계를 선택할 수 있습니다. 모든 컬렉션과 반복문에는 코드에서 확인 가능한 유한한 상한이 있어야 합니다.
 
-## 작업을 잘 나누는 방법
-
-- 각 task에 하나의 완결된 판단, 요약 또는 사실 집합을 요청하세요. 소스 전체를 그대로 반환하게 하지 마세요.
-- `label`은 `collect:security`, `verify:pricing`, `panel:risk`처럼 역할과 파티션을 나타내도록 짧고 안정적으로 작성하세요.
-- 서로 독립적인 작업은 함께 시작하고, 후속 단계에는 이전 단계의 작은 구조화된 결과만 넘기세요.
-- 모든 반복문에 script에서 보이는 명시적인 상한을 두세요. 서브에이전트 출력에서 무제한 반복을 만들지 마세요.
-
-다음은 각 항목을 독립적으로 분석한 뒤 실패한 task를 제외하는 예시입니다.
+다음 단순화된 프로그램은 최대 20개 항목을 검토하고, 실패한 호출은 `null`로 유지한 뒤 성공한 결과를 종합합니다.
 
 ```js
-const rows = await Promise.all(
-  args.items.slice(0, 20).map((item, index) =>
-    agent(`이 항목의 핵심 위험을 분석해: ${JSON.stringify(item)}`, {
-      label: `risk:${index}`,
+const items = args.items.slice(0, 20)
+const reviews = await Promise.all(
+  items.map(item =>
+    agent(`Review this item: ${JSON.stringify(item)}`, {
+      label: `review-${item.id}`,
       schema: {
-        type: "object",
+        type: 'object',
         properties: {
-          finding: { type: "string", maxLength: 1200 },
-          severity: { type: "integer", minimum: 1, maximum: 5 }
+          id: { type: 'string' },
+          verdict: { type: 'string', enum: ['accept', 'reject'] },
+          reason: { type: 'string' }
         },
-        required: ["finding", "severity"],
+        required: ['id', 'verdict', 'reason'],
         additionalProperties: false
       }
     })
   )
-);
-return { findings: rows.filter((row) => row !== null) };
+)
+
+const successful = reviews.filter(review => review !== null)
+const summary = await agent(`Summarize these reviews: ${JSON.stringify(successful)}`, {
+  label: 'summary'
+})
+
+return { reviews, summary }
 ```
 
-## 결과 schema
+프로그램과 `args`는 실행이 시작된 뒤 바뀌지 않습니다. 제어 플레인은 각 오케스트레이션 단계를 무상태 `ankole-function-runtime` 서비스의 `POST /v1/program/run`으로 보냅니다. 각 단계는 네트워크, 파일 시스템, 환경 변수, 프로세스, FFI 권한이 모두 거부된 새 워커에서 실행되며, 결정론적인 `Math.random()` 및 `Date.now()` 값을 사용합니다. 작업이 실행되는 동안 이 워커는 상주하지 않습니다.
 
-task schema의 최상위 및 중첩 노드는 `object`, `array`, `string`, `number`, `integer`, `boolean` 중 하나의 null이 아닌 type을 가져야 합니다. `$ref`, nullable, union, `oneOf`, `anyOf`, `allOf`는 지원하지 않습니다.
+제어 플레인이 재시작되면 6 MiB 영구 memo 예산 안에서 저장된 작업 결과를 바탕으로 고정 프로그램을 리플레이합니다. 이미 저장된 성공 작업은 다시 생성되지 않으며, 리플레이 중 `agent()` 호출 순서나 인수가 저장된 기록과 달라지면 실행이 실패합니다. 중단된 작업은 재시도될 수 있으므로 작업 실행을 정확히 한 번(exactly-once)으로 간주하지 마십시오.
 
-모든 object schema는 `properties`, `required`, `additionalProperties: false`를 명시해야 합니다. `required`는 모든 property 이름을 정확히 한 번씩 포함해야 하므로 optional object property는 지원하지 않습니다. object 하나는 최대 128개 property를 가질 수 있고, schema 깊이는 최대 16입니다.
+## 각 서브에이전트가 접근할 수 있는 범위
 
-지원되는 제약 조건:
+각 `agent()` 호출은 Agent Worker 슬롯을 점유하지 않고 제어 플레인 위의 독립 대화(`wf_task:<call_id>`)에서 실행됩니다. 서브에이전트는 Agent의 정체성과 미션, 그리고 작업 프롬프트를 받으며, 프로그램이 후속 프롬프트에 명시적으로 포함하지 않는 한 원래 대화 기록이나 다른 작업의 결과는 받지 않습니다.
 
-- 모든 type: `title`, `description`, 같은 type의 비어 있지 않은 `enum`;
-- array: 필수 `items`, 선택 `minItems`/`maxItems`;
-- string: `minLength`, `maxLength`, `pattern`;
-- number: `minimum`, `maximum`;
-- integer: `minimum`, `maximum`, 양의 정수 `multipleOf`.
+Workflow 작업은 Web 도구를 사용할 수 있고, Brain이 활성화된 경우 읽기 전용 `recall` 및 `get_page` 도구를 사용할 수 있습니다. 셸, 파일, MCP, Skill, Brain 쓰기, 스케줄 도구는 직접 받지 않으며, 또 다른 Workflow를 생성할 수도 없습니다(오케스트레이션 중첩 깊이는 1입니다).
 
-성공한 task result는 null이 아니어야 하며 JSON 인코딩 후 24 KiB를 넘을 수 없습니다. schema가 값을 거부하면 task turn은 종료되지 않고 서브에이전트가 값을 고쳐 다시 제출할 수 있습니다.
+작업 공간 실행이나 여러 시간에 걸친 처리가 필요한 경우, 작업은 [Background Agent Job](../background-jobs/)(`create_background_job`, `show_background_job_details`, `send_message_to_background_job`, `stop_background_job`)을 위임하고 `sleep`(1분~48시간, 호출당 최대 16회)을 호출해 동시성 슬롯을 점유하지 않은 채 대기할 수 있습니다. 위임한 Job의 수명 주기 이벤트, 메인 세션 메시지 또는 마감 시각이 도달하면 다시 깨어납니다. `sleep`에 `attention: true`를 설정하면 메인 Agent에게 알림을 보내 대기 메모를 확인하고 응답하게 합니다. 작업 결과가 준비되면 `submit_result`를 호출해 종료합니다.
 
-## 상태 확인과 취소
+각 깨어남 구간에서 호출 하나는 최대 3번까지 작업을 시도할 수 있습니다. 성공한 호출은 제출된 값으로 확인됩니다. 시도 횟수를 모두 소진한 호출은 `null`로 확인되므로, 프로그램이 실패를 기록하고 계속 진행하거나 최종 결과에서 누락 사유를 설명할 수 있습니다. 작업 하나가 실패하더라도 전체 Workflow가 자동으로 실패하지는 않습니다.
 
-Main Agent는 다음 tool로 자신이 소유한 Workflow를 관리합니다.
+## 구조화된 결과 요구하기
 
-- `show_workflow`는 구체적인 상태, task 계수, 최대 10개의 실패 요약, 종료 오류를 반환합니다. `completed` run의 결과는 `result_offset: 0`에서 시작하여 안정적인 UTF-8 byte offset으로 나누어 읽습니다. 한 세그먼트의 직렬화된 tool 결과는 최대 8,000 bytes입니다.
-- `list_workflows`는 기본적으로 `running` run을 최신순으로 한 페이지에 최대 32개 반환합니다. `done`은 `completed`, `failed`, `cancelled`를 포함합니다. `next_page`는 같은 turn에서만 사용하세요.
-- `cancel_workflow`는 멱등적입니다. 새 task를 막고 실행 중인 task turn에 stop을 요청하며, 늦게 도착한 result가 run을 다시 시작하지 못하게 합니다. stop 요청은 비동기이므로 실행 중인 model이 즉시 종료된다고 보장하지 않습니다. `cancelled` run은 완료 알림을 보내지 않습니다.
+`agent()` 호출은 결과 schema를 선언할 수 있습니다. Ankole은 생성된 `submit_result` 도구를 Provider strict 모드로 전송하고 제어 플레인에서도 제출된 값을 다시 검증합니다. schema 검증에서 거부되더라도 작업은 활성 상태로 유지되므로 서브에이전트가 값을 수정해 다시 제출할 수 있습니다.
 
-현재 Workflow는 대화에서 Main Agent가 사용하는 tool을 통해 관리합니다. Workflow 전용 Console 보드나 공개 HTTP API는 제공하지 않습니다.
+이 schema는 전체 명세가 아니라 OpenAPI 3 JSON Schema의 닫힌 부분집합입니다. 결과는 `object`, `array`, `string`, `number`, `integer`, `boolean` 중 하나의 null이 아닌 타입을 가집니다. 중첩 객체를 포함한 모든 객체는 `properties`를 선언하고 모든 속성을 `required`에 나열하며 `additionalProperties: false`를 설정해야 합니다. 선택적 객체 필드, nullable 값, union, `$ref`, `oneOf`/`anyOf`/`allOf`는 지원하지 않습니다.
 
-## task 도구와 실행 경계
+schema를 지정하지 않으면 작업은 문자열을 반환합니다. 프로그램은 최종 집계 결과를 반환해야 하며, 문자열은 최종 텍스트가 되고 그 외 JSON 값은 JSON 텍스트로 직렬화됩니다.
 
-각 task는 `wf_task:<call_id>` session의 독립 conversation에서 실행됩니다. 사용 가능한 도구는 Web tools, Brain이 활성화된 경우의 읽기 전용 `recall`/`get_page`, 그리고 `submit_result`입니다. task는 shell, 파일, MCP, Skill, Brain 쓰기, Workflow, Background Agent Job tool을 받지 않습니다. Workflow의 중첩 깊이는 1입니다.
+## 실행 조회, 작업 메시지 전송, 목록 확인 및 취소
 
-Workflow JavaScript는 파일, 네트워크, import, timer API가 없는 bare V8 isolate에서 실행됩니다. `Date.now()`와 `Math.random()`은 replay에서 같은 결과를 내는 결정적 shim을 사용합니다. 외부 시계, 네트워크 응답 또는 파일 내용에서 호출 인수를 만들지 마세요. replay의 `agent()` 순서나 전체 인수가 저장된 memo와 다르면 run이 `workflow_replay_diverged`로 실패합니다.
+메인 Agent에게 다음 작업을 요청하십시오.
 
-## 용량과 비용 상한
+- `show_workflow`는 상태, 작업 수, 최대 32개의 활성 작업(`sleep`의 `note`, `attention`, 깨어남 마감 시각 포함), 최대 10개의 실패 요약 및 종료 오류를 보고합니다. 완료된 결과는 바이트 오프셋 `0`부터 최대 8,000 UTF-8 바이트 세그먼트 단위로 읽습니다.
+- `send_message_to_workflow_task`는 `run_id`와 `call_seq`로 지정한 활성 작업에 비동기 메시지를 추가해 대기 중인 작업을 깨우거나 `attention: true`로 대기한 작업에 응답합니다.
+- `list_workflows`는 해당 Agent의 진행 중이거나 종료된 실행을 한 번에 최대 32개까지 나열합니다. 종료된 실행에는 `completed`, `failed`, `cancelled`가 포함됩니다.
+- `cancel_workflow`는 멱등적입니다. 새 작업 생성과 뒤늦게 도착한 결과로 인해 실행이 되살아나는 것을 막은 뒤, 실행 중인 작업 턴과 위임된 Background Agent Job에 중지를 요청합니다. 모델 호출이 멈추기까지 짧은 시간이 걸릴 수 있습니다.
 
-| 한계 | 기본값 | 하드 상한 |
+완료되거나 실패한 실행은 원래 대화를 깨웁니다. 취소된 실행은 완료 이벤트를 보내지 않으므로, 확인이 필요하면 Agent에게 상태를 확인하라고 요청하십시오.
+
+Console에서는 홈의 백그라운드 활동 영역이 읽기 전용 Workflow 활동(`site_console:agent:<agent_uid>:workflow` 권한 아래 활성 호출, 상태 수, 대기 메모, 마감 시각, `attention` 플래그 및 유한한 오류 요약)을 표시합니다. 실행 시작, 작업 메시지 전송, 전체 결과 읽기 및 실행 취소는 메인 Agent의 Workflow 도구를 사용합니다.
+
+## 비용과 용량 제어하기
+
+모든 작업 시도는 완전한 모델 턴 하나이며 유료 Web 호출을 수행할 수도 있습니다. 동시성은 소요 시간만 바꿀 뿐 전체 호출 수는 줄이지 않습니다. 유한한 입력 크기에 맞춰 호출 한도를 설정하고 각 작업 프롬프트와 결과를 간결하게 유지하십시오.
+
+| 경계 | 기본값 | 하드 상한 |
 |---|---:|---:|
-| run 하나가 요청하는 동시 task | 8 | 32 |
-| Agent 하나에서 실행 중인 Workflow task | 8 | 64 |
-| run 하나의 `agent()` 호출 | 32 | 1,024 |
-| 저장된 script | — | 256 KiB |
-| 저장된 `args` JSON | — | 64 KiB |
-| `agent()` 호출 하나의 전체 argument object | — | 8 KiB |
-| 성공한 task result 값 하나 | — | 24 KiB |
-| 지속 memo | — | 6 MiB |
-| 최종 result text | — | 1 MiB |
+| 단일 실행의 동시 작업 수 | 8 | 32 |
+| 단일 Agent에서 실행 중인 Workflow 작업 수 | 8 | 64 |
+| 단일 실행의 서브에이전트 호출 수 | 32 | 1,024 |
+| 깨어남 구간당 시도 횟수 | 최대 3 | 3 |
+| 단일 서브에이전트 호출의 `sleep` 횟수 | — | 16 |
+| 단일 `sleep` 지속 시간 | — | 1분~48시간 |
+| 저장된 프로그램 | — | 256 KiB |
+| 저장된 `args` | — | 64 KiB |
+| 단일 호출 인수 객체 | — | 8 KiB |
+| 단일 상위 세션 작업 메시지 | — | 8 KiB |
+| 단일 제출 결과 값 | — | 24 KiB |
+| 영구 memo 예산 | — | 6 MiB |
+| 최종 집계 결과 | — | 1 MiB |
 
-각 task attempt는 완전한 model turn 하나입니다. 호출 하나는 재시도 가능한 실패가 지속되면 최대 3번의 attempt를 사용할 수 있습니다. Workflow v1에는 run 전체의 token 또는 금액 예산이 없으며, 각 task는 일반 turn의 model iteration, output-token, inactivity 상한을 그대로 적용받습니다. 운영자는 [AppConfigure](../app-configuration/)에서 하드 범위 안의 배포 상한을 설정할 수 있지만, run 요청으로 배포 상한을 높일 수는 없습니다.
+관리자는 [AppConfigure](../app-configuration/)에서 하드 상한 범위 내로 처음 세 가지 인스턴스 한도를 설정할 수 있습니다. 개별 실행 요청으로 배포 한도를 높일 수는 없습니다. Workflow에는 배치 전체에 걸친 토큰이나 금액 예산이 없으며, 각 작업에는 일반 턴의 반복 횟수, 출력 토큰 및 비활성 시간 한도가 그대로 적용됩니다. 관련 제어 방법은 [비용 관리](../cost-management/)를 참조하십시오.
 
-## 복구 및 실패 처리
-
-PostgreSQL이 run, task, result의 권위 있는 저장소입니다. 제어 플레인이 재시작하면 `running` run의 driver를 다시 만듭니다. 이미 성공한 task result는 memo에서 재사용되며 새 task로 다시 실행되지 않습니다.
-
-하지만 Workflow task는 exactly-once로 실행되지 않습니다. Worker 중단이나 retryable 실패로 끝난 task는 재시도될 수 있고, 세 번째 실패 후 `failed`가 됩니다. 한 시간 watchdog가 오래된 `running` task에 동일한 보상 규칙을 적용합니다. 도중에 실패한 `agent()` 호출을 script가 `null`로 처리하고 최종 값을 반환하면 run 자체는 완료될 수 있습니다.
-
-run이 `completed` 또는 `failed`가 되면 제어 플레인이 남은 `queued`/`running` task를 같은 transaction에서 `cancelled`로 바꿉니다. transaction이 commit된 뒤 기존의 실행 중인 task turn에 stop을 요청합니다. 종료된 run의 script를 수정하거나 제자리에서 재개할 수는 없으므로, 수정된 입력과 script로 새 run을 시작하세요.
-
-## 운영자 설정
-
-**Console → AppConfigure**에서 다음 인스턴스 설정을 관리합니다.
-
-- `workflow.max_concurrency_per_run`: run별 task 동시성, 기본값 `8`, 범위 `1`–`32`;
-- `workflow.max_running_per_agent`: Agent별 실행 중 Workflow task, 기본값 `8`, 범위 `1`–`64`;
-- `workflow.max_agent_calls_per_run`: run별 총 `agent()` 호출, 기본값 `32`, 범위 `1`–`1,024`.
-
-## 다음 단계
-
-- 지속적인 서브에이전트 작업은 [Background Agent Jobs](../background-jobs/)를 참조하세요.
-- 모델 호출 비용과 동시성 상한은 [비용 관리](../cost-management/)를 참조하세요.
-- 설정 적용과 초기화는 [AppConfigure](../app-configuration/)를 참조하세요.
-- turn별 tool 조립과 `submit_result` schema 처리는 [Tool 런타임](../tools-runtime/)을 참조하세요.
+실행이 크기 경계를 초과하면 팬아웃을 줄이거나, 더 짧은 작업 요약을 반환하게 하거나, 입력을 여러 Workflow로 나누십시오. 프로그램이나 입력을 바꾸어야 할 때는 새 실행을 생성하십시오. 실패한 실행을 다른 코드로 편집하거나 재개할 수는 없습니다.

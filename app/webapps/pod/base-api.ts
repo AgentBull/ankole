@@ -61,8 +61,30 @@ export const baseHTTP = {
   removeView: (viewID: string, version: number) => podBaseViewDelete({ path: { id: viewID }, query: { version } })
 }
 
+const tableKey = (tableID: string) => [...contentKeys.all, 'table', tableID]
+
+export const baseTablesQuery = (pageID: string) => ({
+  queryKey: [...contentKeys.page(pageID), 'tables'],
+  queryFn: () => baseHTTP.tables(pageID)
+})
+
+export const baseSchemaQuery = (tableID: string) => ({
+  queryKey: [...tableKey(tableID), 'schema'],
+  queryFn: () => baseHTTP.schema(tableID)
+})
+
+/** Start the first table's reads while the page's editor modules load. */
+export function prefetchBase(client: QueryClient, pageID: string) {
+  return client
+    .fetchQuery(baseTablesQuery(pageID))
+    .then(({ tables }) => tables[0] && client.prefetchQuery(baseSchemaQuery(tables[0].id)))
+    .catch(() => {
+      // The mounted queries display failures and provide their retry controls.
+    })
+}
+
 export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseAPI {
-  const key = (tableID: string) => [...contentKeys.all, 'table', tableID]
+  const key = tableKey
   const subscriptions = new Map<
     string,
     {
@@ -74,8 +96,7 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
       revoked: boolean
     }
   >()
-  const schema = (tableID: string) =>
-    client.fetchQuery({ queryKey: [...key(tableID), 'schema'], queryFn: () => baseHTTP.schema(tableID) })
+  const schema = (tableID: string) => client.fetchQuery(baseSchemaQuery(tableID))
   const snapshotKey = (tableID: string) => [...key(tableID), 'snapshot']
   const remoteAtVersion = (tableID: string, version: number) => {
     const snapshot = client.getQueryCache().find({ queryKey: snapshotKey(tableID), exact: true })

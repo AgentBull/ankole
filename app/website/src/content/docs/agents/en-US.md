@@ -90,7 +90,9 @@ It overrides the tenant value, or the site value when the tenant has no override
 
 ## Connect a chat channel
 
-The new Agent needs a signal routing rule before it can receive messages from Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox.
+In **Pod Chat**, workspace members can send direct messages (`dm`) to an active Agent or add it to a group conversation (`group`) immediately without a Signal Binding.
+
+Signal Bindings govern external IM channels and mailboxes. To receive messages from Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox, add a signal routing rule for the Agent.
 
 Open **Console → Signal routing** and select the chat application and target Agent. One chat application can have multiple rules, and you can create separate bot applications for different Agents.
 

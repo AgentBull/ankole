@@ -13,7 +13,7 @@ import { RiAddLine, RiFileCopyLine, RiGalleryLine, RiLayoutColumnLine, RiTableLi
 import { contentKeys, podRequest, type PageDetail } from './content-api'
 import { useContent } from './content-context'
 import { Choice, ContentError, TextField } from './content-primitives'
-import { baseHTTP } from './base-api'
+import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
 import { BaseViewContent, RecordForm } from './base-views'
 import { QueryControls } from './base-query-controls'
 import { FieldEditorButton } from './base-fields'
@@ -98,10 +98,7 @@ function BaseWorkspace({
   initialView?: string
   inline?: InlineView
 }) {
-  const tables = useQuery({
-    queryKey: [...contentKeys.page(detail.page.id), 'tables'],
-    queryFn: () => baseHTTP.tables(detail.page.id)
-  })
+  const tables = useQuery(baseTablesQuery(detail.page.id))
   const [selected, setSelected] = useState(initialTable ?? '')
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -246,10 +243,7 @@ function TableWorkspace({
   inline?: InlineView
 }) {
   const { base } = useContent()
-  const schema = useQuery({
-    queryKey: [...base.key(tableID), 'schema'],
-    queryFn: () => baseHTTP.schema(tableID)
-  })
+  const schema = useQuery(baseSchemaQuery(tableID))
   useSignals()
   const model = useModel(TableWorkspaceModel)
   model.load(initialView)

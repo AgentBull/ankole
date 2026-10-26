@@ -11,7 +11,7 @@ AIGateway 是 Ankole 实例统一的 AI 边界。外部应用、企业系统和 
 
 ## 它在哪里
 
-AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循环、OIDC Human，或一个外部集成——带上 bearer token，发出一个 OpenResponses 形态的请求。AIGateway 解析选择符，准备好请求，把它分发到绑定的 provider，再返回单个 JSON 响应或一个流。LLM、embedding、rerank、web 搜索、web 抓取，全都走同一个边界。
+AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循环、OIDC Human，或一个外部集成——带上 bearer token，发出一个 OpenResponses 形态的请求。AIGateway 解析选择符，准备好请求，把它分发到绑定的 provider，再返回单个 JSON 响应或一个流。LLM、embedding、rerank、web 搜索、web 抓取，全都走同一个边界。当响应回合启用 `programmatic_tool_calling` 时，AIGateway 通过 `Ankole.FunctionRuntime.ProgramRunner` 在 `ankole-function-runtime` 的无状态 isolate 中执行每个 `programmatic_tool_call` 的 TypeScript 程序。
 
 最关键的一点：调用方永远看不到 provider 凭证。控制面掌握凭证和路由策略，调用方只掌握自己的 token 和选择符。
 
@@ -89,6 +89,8 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 
 
 `chatgpt_subscription` 是普通 Provider kind。它的 OAuth 凭据留在控制面，token 刷新在 Provider 行锁内执行。Agent Computer 和外部调用方都不会收到这些 token。
 
+`agentbull_cloud`（**AgentBull Cloud**，默认 base URL 为 `https://cloudapis.agentbull.com`）是内置的聚合上游 Provider kind，用一把 API Key 即可同时提供语言模型、向量嵌入、重排序、`web_search`、`web_fetch` 与 `image_generate` 能力。其凭据同样保留在控制面内；Worker 侧 MCP 技能直接读取的外部凭据仍独立通过 `WorkerEnv` 配置。
+
 解析可能以两种方式失败，调用方应当处理：
 
 - `422 unknown_model_selector`——该选择符没有为这个主体绑定。
@@ -109,7 +111,9 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 
 
 当上游返回了 `error.message` 时，AIGateway 会转发这条消息；否则就如实报告上游的 HTTP 状态码。
 
-## 图像生成
+## 编程式工具调用与图像生成
+
+当 `/responses` 请求声明 `programmatic_tool_calling` 工具时，AIGateway 会根据可用工具描述符生成 `program` 工具。每次 `programmatic_tool_call` 都会通过 `Ankole.FunctionRuntime.ProgramRunner` 在 `ankole-function-runtime` 的无状态 isolate 中运行确定性 TypeScript 程序，并在嵌套工具调用边界暂停，由 AIGateway 统一维护历史、顺序与取消。
 
 `image_generation` 是公共 Responses 工具，有两条执行路径。主体配置了 `image_generate` 档案时，AIGateway 使用该档案的独立 Provider 和模型执行工具；没有配置时，只有主 Provider 的能力声明支持原生图像生成，AIGateway 才把工具透传给它。两条路径都不存在时，请求准备会直接失败，不会模拟工具。
 
@@ -119,7 +123,7 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 
 
 同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个有长度上限的 `query`，返回 Provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。这两类调用可以使用 `web_search.default` 和 `web_fetch.default`，由 AIGateway 解析当前 Agent 档案。
 
-`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model` 和租户级的 `brain.rerank_model`。[Brain](../brain/) 说明完整检索行为。
+`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model` 和租户级的 `brain.rerank_model`。Pod Applet 的 `ctx.ai` 调用同样通过 AIGateway 无状态路由，使用 `pod.applet.ai_agent_uid` 所配置启用 Agent 的语言模型档案。[Brain](../brain/) 说明完整检索行为。
 
 文件是一等公民：`POST /files` 上传，`GET /files` 列出，`GET /files/:id` 和 `GET /files/:id/content` 读取元数据和字节，`DELETE /files/:id` 删除。它们都按主体限定范围。
 

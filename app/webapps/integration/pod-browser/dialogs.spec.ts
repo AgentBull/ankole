@@ -26,30 +26,42 @@ async function inViewport(page: Page, dialog: Locator) {
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height - 15)
 }
 
-test('sidebar creation focuses its title, keeps failed Chinese text and type, and submits one real Page with Enter', async ({
+test('sidebar type menu stays anchored, dismisses naturally, retries a failed creation and opens an untitled Page', async ({
   browser
 }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   const gate = Promise.withResolvers<void>()
-  const started = Promise.withResolvers<void>()
   let created: string | undefined
   let calls = 0
   try {
     await page.goto(pageRoute(state.report_id))
-    await page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '新建页面', exact: true })
-    const title = dialog.getByRole('textbox', { name: '标题', exact: true })
-    await expect(title).toBeFocused()
-    const name = `季度销售复盘 ${crypto.randomUUID()}`
-    await page.keyboard.insertText(name)
-    const type = dialog.getByRole('combobox', { name: '页面类型', exact: true })
-    await choose(page, type, '多维表')
+    const trigger = page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
+    await expect(trigger).toBeEnabled()
+    await trigger.focus()
+    await trigger.press('Enter')
+    const menu = page.getByRole('menu', { name: '新建页面', exact: true })
+    await expect(menu).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '新建页面', exact: true })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem')).toHaveText(['文档', '多维表', '小应用', '文件'])
+    await expect(menu.getByRole('menuitem', { name: '文档', exact: true })).toBeFocused()
+    const anchor = (await trigger.boundingBox())!,
+      popup = (await menu.boundingBox())!
+    expect(Math.abs(popup.x - anchor.x)).toBeLessThanOrEqual(2)
+    expect(popup.y - anchor.y - anchor.height).toBeGreaterThanOrEqual(0)
+    expect(popup.y - anchor.y - anchor.height).toBeLessThanOrEqual(12)
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await trigger.click()
+    await page.locator('.pod-page-title').click()
+    await expect(menu).toHaveCount(0)
+    expect(calls).toBe(0)
     await page.route('**/api/v2/pod/pages', async route => {
       if (route.request().method() !== 'POST') return route.continue()
       calls++
-      expect(route.request().postDataJSON().data).toMatchObject({ title: name, type: 'base' })
+      expect(route.request().postDataJSON().data).toMatchObject({ title: '', type: 'base' })
       expect(route.request().postDataJSON().data.parent_id).toBeUndefined()
       if (calls === 1) {
         return route.fulfill({
@@ -58,35 +70,43 @@ test('sidebar creation focuses its title, keeps failed Chinese text and type, an
           body: JSON.stringify({ error: { code: 'creation_unavailable', message: 'Creation unavailable' } })
         })
       }
-      started.resolve()
       await gate.promise
       const response = await route.fetch()
       const body = await response.json()
       created = body.page.id
       await route.fulfill({ response })
     })
-    await title.press('Enter')
-    await expect(dialog.getByText('Creation unavailable', { exact: true })).toBeVisible()
-    await expect(title).toHaveValue(name)
-    await expect(type).toHaveText('多维表')
+    await trigger.click()
+    await menu.getByRole('menuitem', { name: '多维表', exact: true }).click()
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByText('Creation unavailable', { exact: true })).toBeVisible()
+    await expect(trigger).toBeEnabled()
     await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
-    await title.press('Enter')
-    await started.promise
-    await expect(title).toBeDisabled()
-    await expect(type).toBeDisabled()
-    await expect(dialog.getByRole('button', { name: '关闭', exact: true })).toHaveCount(0)
-    await page.keyboard.press('Escape')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeDisabled()
+    await trigger.focus()
+    await trigger.press('Enter')
+    await expect(menu.getByRole('menuitem', { name: '文档', exact: true })).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitem', { name: '多维表', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => calls).toBe(2)
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeDisabled()
+    await expect(trigger).toHaveAttribute('aria-busy', 'true')
     expect(calls).toBe(2)
     gate.resolve()
-    await expect(dialog).toHaveCount(0)
+    await expect(page).not.toHaveURL(state.base_url + pageRoute(state.report_id))
     expect(created).toBeTruthy()
     await expect(page).toHaveURL(state.base_url + pageRoute(created!))
-    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(name)
+    const title = page.getByRole('textbox', { name: '页面标题', exact: true })
+    await expect(title).toHaveValue('')
+    const name = `季度销售复盘 ${crypto.randomUUID()}`
+    await title.fill(name)
+    await title.blur()
+    await expect
+      .poll(async () => (await request<{ page: { title: string } }>(page, `/pages/${created}`)).page.title)
+      .toBe(name)
     await page.reload()
-    await expect(page).toHaveURL(state.base_url + pageRoute(created!))
-    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(name)
+    await expect(title).toHaveValue(name)
     expect(calls).toBe(2)
   } finally {
     gate.resolve()

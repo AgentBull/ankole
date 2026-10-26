@@ -69,6 +69,12 @@ fixtures live in `proto/golden`.
 
 ## Build and Transport
 
+Rustler tracks Cargo manifests and native source inputs for incremental builds
+and Phoenix development reload checks. Generated Mix, Cargo, and Bun artifacts
+are excluded from this input set.
+Restart the development control plane after rebuilding its loaded NIF. Phoenix
+reloads the application's Elixir code and the local Elixir protocol libraries.
+
 The control plane uses the Cargo feature `nif` for development, tests, and
 production. `src/nif_exports.rs` translates BEAM values and errors, then calls
 the Rust modules. Complex inputs cross as JSON-shaped values (`Torque` in

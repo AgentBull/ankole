@@ -18,6 +18,8 @@ URL (see "Worker Files").
 
 The control plane stores:
 
+- Principals, external identities, site credentials, and AuthZ grants
+- Pod Spaces, Pages, collaboration history, and Base definitions (with physical Base tables on the tenant's assigned Base shard)
 - Signals, attempt budgets, and Session epochs
 - Tool receipts until the Response tape records their results
 - AIGateway conversations and messages
@@ -552,9 +554,11 @@ declared response module. It accepts a plain map only when the declared response
 module is `JSONPassthroughResponse`.
 
 Turn-scoped frames carry exactly one `RunRef` or `JobTurnRef` outside the
-payload. The connection must belong to that Agent. A worker-agent method takes its
-Agent from the connection: the authenticated `worker_id` is the Agent UID, and
-the frame carries no Agent.
+payload. Methods declared with the `turn_or_automation` scope carry one
+`RunRef`, `JobTurnRef`, or `AutomationAttemptRef` (`{automation_job_id,
+automation_job_run_id, attempt_id}`). The connection must belong to that Agent.
+A worker-agent method takes its Agent from the connection: the authenticated
+`worker_id` is the Agent UID, and the frame carries no Agent.
 
 The server authorizes the outer frame before it decodes the business payload.
 Job lifecycle methods require `JobTurnRef`. The Job owner accepts an idempotent
@@ -568,6 +572,8 @@ The registry currently contains these method families:
 - WorkerEnv resolution.
 - Agent drive files: `files.list`, `files.get`, and `files.commit` (see
   [Files](Files.md)).
+- Pod content and Base operations: `pod.read` and `pod.write` under turn or
+  Automation attempt authority (see [Pod Content Model](PodContentModel.md)).
 - Automation job management, execution, and event emission.
 - Webhook endpoint creation, cancellation, and listing.
 - Worker observability span export.
@@ -744,7 +750,7 @@ The outbound path is:
 2. The control-plane tool owner records the original path and current digest.
 3. The Driver records the structured tool result in the Response tape.
 4. Conversations.Delivery checks that the drive names each content at its path.
-5. The Run terminal transaction inserts attachment intent intents. The common
+5. The Run terminal transaction inserts attachment intents. The common
    Delivery commit check permits a file under `chats/<conversation_id>/` only for that
    destination Conversation UUID. Paths outside `chats/` are shared.
 6. The provider adapter reads the bytes by `blob_ref` and uploads them.

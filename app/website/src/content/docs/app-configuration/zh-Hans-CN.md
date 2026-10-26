@@ -65,6 +65,19 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | `ai_agent.inactivity_timeout_ms` | 租户 | 模型或 Provider 无响应多久后结束当前回合 |
 | `ai_agent.library.agent_plugin_defaults` | 租户 | Agent Plugin 的默认启用状态 |
 | `ai_agent.library.skill_defaults` | 租户 | Skill 的默认启用状态 |
+| `agent_computer.background_agent_job.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的后台 Agent 任务上限；默认 `3`，有效范围为 `1`–`64` |
+| `automation_jobs.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的自动化脚本上限；默认 `10`，有效范围为 `1`–`64` |
+
+### Pod、Base 与 Applet
+
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `pod.allow_external_guests` | 租户 | 是否允许受邀外部访客访问共享的 Pod 页面；默认 `true` |
+| `pod.applet.limits` | 租户 | Applet（小应用）调用限制（默认 `timeout_ms: 60000`、`heap_mb: 128`） |
+| `pod.applet.ai_agent_uid` | 租户 | 承载 Applet（小应用）`ctx.ai` 调用模型档案与用量的启用状态 Agent；留空时停用 Applet AI |
+| `pod.base.limits` | 租户 | Base 查询与记录限制（默认 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
+| `pod.trash_retention_days` | 租户 | 已删除页面自动彻底清理前的保留正整数天数（默认 `30`），或设为 `"unlimited"` 以无限期保留、不自动清理 |
+| `pod.ot_replay_window` | 租户 | 为 OT 重放保留的最近文档变更批次数；默认 `1000` |
 
 ### Workflow
 
@@ -107,13 +120,31 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 
 Langfuse、LangSmith、VictoriaTraces 和其他 OTLP/HTTP 接收端的配置方法见 [LLM 可观测性](../llm-observability/)。
 
-### 身份、插件和租户默认值
+### 免密邮箱验证码（Email OTP）与 Pod 登录策略
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `principals.identity_providers.active` | 租户，只读 | 当前可用于管理员登录的身份源；由身份源提供商页面管理 |
+| `authn.email.mail` | 站点，加密 | 用于免密 Email OTP 登录的站点 SMTP 发信配置（`server`、`from`、`port`、`ssl` 及可选认证凭据）；留空时停用 Email OTP |
+| `authn.email.code_ttl_seconds` | 站点 | 邮箱验证码有效秒数；默认 `600` |
+| `authn.email.send_window_seconds` | 站点 | 发送验证码限流窗口秒数；默认 `60` |
+| `authn.email.send_email_limit` | 站点 | 单个收件邮箱在发送窗口内最多发送次数；默认 `3` |
+| `authn.email.send_source_limit` | 站点 | 单个来源地址在发送窗口内最多发送次数；默认 `20` |
+| `authn.email.send_channel_limit` | 站点 | 整个发信通道在发送窗口内最多发送次数；默认 `100` |
+| `authn.email.failure_window_seconds` | 站点 | 验证码校验失败限流窗口秒数；默认 `600` |
+| `authn.email.failure_email_limit` | 站点 | 单个邮箱在失败窗口内最多允许失败次数；默认 `10` |
+| `authn.email.failure_source_limit` | 站点 | 单个来源地址在失败窗口内最多允许失败次数；默认 `100` |
+| `principals.pod_login_policy` | 租户，由其他页面管理 | Pod 成员登录与邀请策略（`allow_email_otp`、`allow_member_credential_change`、`allowed_email_domains`、`require_sso_for_members`、`allow_invite_links`）；由 Pod 设置管理 |
+
+### 身份、插件、特性开关和租户默认值
+
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `principals.identity_providers.active` | 租户，只读 | 当前用于认证 Pod 工作区成员和管理员的已启用租户身份源；由 Pod 设置和身份源提供商页面管理 |
 | `principals.identity_providers.directory_full_sync_interval_minutes` | 租户 | 企业通讯录和组织架构的全量同步间隔 |
-| `plugins.enabled_ids` | 站点 | 下次启动时启用的 Control Plane Plugin |
+| `tenants.privileged_tenant_id` | 站点，只读 | 拥有管理本站点的 `siteadmin` 权限组的特权租户 ID |
+| `plugins.enabled_ids` | 站点，由其他页面管理 | 下次启动时启用的 `:optional` Control Plane Plugin 列表；`:always` 插件随构建始终保持启用 |
+| `features.<flag>` | 站点 | 支撑 OpenFeature 的特性可用性策略（`{enabled, percent, targets}`，`Ankole.Features.Config`） |
+| `signals.show_dead_letter_error_details` | 站点 | 发送到会话的死信通知中是否附带经截断与脱敏的 Session 回合错误详情；默认 `false` |
 | `system.timezone` | 租户 | 计划任务等控制面功能使用的默认时区 |
 | `i18n.default_locale` | 租户 | Ankole 界面的默认语言 |
 

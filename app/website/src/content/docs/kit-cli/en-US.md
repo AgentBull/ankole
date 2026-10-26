@@ -23,12 +23,12 @@ Run `env-setup` once on a fresh machine; the rest are detection helpers other co
 
 | Command | What it does |
 |---|---|
-| `kit external-services start` | Start the devkit Docker Compose services (PostgreSQL and friends). Wrapped as `bun run services:start`. |
+| `kit external-services start` | Start the devkit Docker Compose services (PostgreSQL 18 and `ankole-function-runtime`). Wrapped as `bun run services:start`. |
 | `kit external-services stop` | Stop the devkit Compose services. Wrapped as `bun run services:stop`. |
 | `kit external-services status` | Report devkit service health. Wrapped as `bun run services:status`. |
-| `kit dev` | Start the complete development environment — Phoenix and frontend assets, with the Docker Worker backend that creates one Worker container for each Agent. Wrapped as `bun run dev`. Keep this terminal open. |
+| `kit dev` | Start the complete development environment — PostgreSQL 18, `ankole-function-runtime`, Phoenix, frontend assets, and the Docker Worker backend that creates one Worker container for each Agent. Wrapped as `bun run dev`. Keep this terminal open. |
 
-`kit dev` is the one command that runs the whole stack. It starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale worker image, and starts the control plane with the Docker Worker backend. The control plane creates an Agent's Worker container when the Agent is created; the container runs the local Agent Computer source with `bun --watch`. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Do not start a second `kit dev`. Stop it with `Ctrl+C` in its terminal; this also removes the Worker containers of the `dev` installation. After a restart, the control plane creates the Worker of an existing Agent again when the Agent next needs it.
+`kit dev` runs the complete local stack. It starts or checks PostgreSQL 18 and `ankole-function-runtime`, creates and migrates the local control-plane database (`ankole_dev`), builds a missing or stale worker image, and starts the control plane with the Docker Worker backend. When `BASE_DB_URLS` is unset, control-plane development bootstrap also creates and prepares the four local Base shard databases (`ankole_base_00` through `ankole_base_03`). The control plane creates an Agent's Worker container when the Agent is created; the container runs the local Agent Computer source with `bun --watch`. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Do not start a second `kit dev`. Stop it with `Ctrl+C` in its terminal; this also removes the Worker containers of the `dev` installation. After a restart, the control plane creates the Worker of an existing Agent again when the Agent next needs it.
 
 ## Database lifecycle
 
@@ -41,7 +41,7 @@ Run `env-setup` once on a fresh machine; the rest are detection helpers other co
 | `kit app-db rebuild` | Drop, create, and migrate the app database. Requires `--yes`; runs Ecto migrations after recreating. |
 | `kit app-db migrate` | Run control-plane Ecto migrations against the configured local database. |
 
-Options apply across these: `--start-services` starts Compose before the operation, `--pull-images` pulls the latest service images first, and a health-check wait controls how long to wait for service readiness. The `app-db rebuild` command in particular deletes the local `ankole_dev` database — only run it when the data is genuinely disposable.
+Shared flags apply across `create`, `drop`, and `rebuild`: `--start-services` starts Compose before the operation, `--pull` pulls the latest service images first, and `--wait-timeout` sets how many seconds to wait for service health checks (default `60`). The `app-db rebuild` command deletes the local `ankole_dev` database — run it only when the data is disposable.
 
 ## Setup and inspection
 

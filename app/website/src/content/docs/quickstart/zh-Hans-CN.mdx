@@ -24,7 +24,7 @@ export const quickstartLabels = {
 
 export const agentInstallPrompt = [
   '请参考 https://ankole.agentbull.com/zh-Hans-CN/docs/quickstart/index.md，帮我部署并配置一个 Ankole 私有化部署实例。',
-  '请先检查我的运行环境，帮我在 Docker Compose、Kubernetes 和源码安装中选择最合适的部署方式。随后配置身份源提供商（IdP）、大语言模型提供商（LLM Provider）、Agent、聊天渠道（Channel Provider）和信号路由规则（Signal Binding）。如果我没有指定 IdP 和聊天平台，请先询问我使用哪个身份源和聊天平台，不要自行选择。',
+  '请先检查我的运行环境，帮我在 Docker Compose、Kubernetes 和源码安装中选择最合适的部署方式。随后配置登录方式（免密邮箱验证码 Email OTP 或企业 SSO 身份源提供商 IdP）、大语言模型提供商（LLM Provider）、Agent、聊天渠道（Channel Provider）和信号路由规则（Signal Binding）。如果我没有指定登录方式和聊天平台，请先询问我使用哪种登录方式（SMTP 邮箱验证码或企业 IdP）和聊天平台，不要自行选择。',
   '不要在对话或命令输出里泄露 secret。直到我能在选定的 IM 中收到 Agent 的真实回复，这项工作才算完成。'
 ].join('')
 
@@ -33,7 +33,7 @@ export const deploymentTabs = [
     value: 'docker',
     label: 'Docker Compose',
     badge: '单机推荐',
-    summary: "一台主机运行 PostgreSQL、控制面和 Caddy；选定的 provider 为每个 Agent 创建一个 Worker。",
+    summary: "一台主机运行 PostgreSQL 18、ankole-function-runtime、控制面和 Caddy；选定的 provider 为每个 Agent 创建一个 Worker。",
     prerequisites: [
       '能运行 Linux amd64 或 arm64 容器的 Linux、macOS 或 Windows 主机',
       'Docker Engine 与 Compose 插件，或 Docker Desktop',
@@ -58,7 +58,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '生成三个彼此独立的 secret',
+          title: '生成四个彼此独立的 secret',
           body: ['复制并运行这条命令，再把完整输出粘贴到 `.env`。'],
           code: [
             {
@@ -66,13 +66,16 @@ export const deploymentTabs = [
               code: [
                 "printf '%s\\n' \\",
                 "  '# PostgreSQL 数据库的密码' \\",
-                '  "POSTGRES_PASSWORD=$(openssl rand -hex 32)" \\',
+                '  "POSTGRES_PASSWORD=$(openssl rand -hex 24)" \\',
                 "  '' \\",
-                "  '# ANKOLE的主加密密钥' \\",
+                "  '# ANKOLE 的主加密密钥' \\",
                 '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
                 "  '' \\",
                 "  '# 控制面的 Erlang distribution cookie' \\",
-                '  "RELEASE_COOKIE=$(openssl rand -hex 32)"'
+                '  "RELEASE_COOKIE=$(openssl rand -hex 32)" \\',
+                "  '' \\",
+                "  '# 控制面与 ankole-function-runtime 共享的认证令牌' \\",
+                '  "ANKOLE_FUNCTION_RUNTIME_TOKEN=$(openssl rand -hex 32)"'
               ].join('\n')
             }
           ]
@@ -116,7 +119,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose 等待 PostgreSQL 就绪，完成数据库迁移后，再启动控制面与 Caddy。"
+            "Compose 启动 PostgreSQL 18 与 ankole-function-runtime，完成数据库迁移后，再启动控制面与 Caddy。"
           ]
         },
         {
@@ -138,12 +141,16 @@ export const deploymentTabs = [
         {
           title: '固定经过验证的镜像',
           body: [
-            '控制面镜像指定同一次源码提交的 Worker 镜像，控制面用它创建每个 Worker。需要固定版本时，请把控制面镜像设为不可变的 digest；这个 digest 同时固定 Worker 镜像。'
+            '控制面镜像指定同一次源码提交的 Worker 镜像，控制面用它创建每个 Worker。需要固定版本时，请把控制面镜像与同版本的 ankole-function-runtime 镜像一并设为不可变的 digest。'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
               description: '控制面镜像，建议填写不可变的 digest。它同时指定 Worker 镜像。'
+            },
+            {
+              name: 'ANKOLE_FUNCTION_RUNTIME_IMAGE',
+              description: '同版本的 Function Runtime 镜像或不可变 digest。'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
@@ -164,7 +171,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "停止所有写者后，备份 PostgreSQL、ankole_files_data、全部持久 Agent Home 与原 ANKOLE_SECRET_BASE。仅停止控制面不会停止 Worker。请在隔离资源上验证完整恢复，具体步骤见“备份与还原”。"
+            "停止所有写者后，备份 PostgreSQL（以及配置了独立分片时的全部 BASE_DB_URLS 数据库）、ankole_files_data、全部持久 Agent Home 与部署密钥（ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）。仅停止控制面不会停止 Worker。请在隔离资源上验证完整恢复，具体步骤见“备份与还原”。"
           ]
         },
         {
@@ -247,14 +254,16 @@ export const deploymentTabs = [
                 'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
                 'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
                 'RELEASE_COOKIE="$(openssl rand -hex 32)"',
+                'ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"',
                 '',
                 'kubectl -n ankole create secret generic ankole-bootstrap \\',
                 '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
                 '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
                 '  --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \\',
+                '  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \\',
                 '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
                 '',
-                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE'
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN'
               ].join('\n')
             }
           ]
@@ -382,14 +391,14 @@ export const deploymentTabs = [
             },
             {
               name: 'DATABASE_URL',
-              description: '把外部数据库的 URL 存入 ankole-bootstrap。'
+              description: '把外部数据库的 URL（连同 ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）存入 ankole-bootstrap。'
             }
           ]
         },
         {
-          title: '确认 Worker 的安全配置',
+          title: '确认 Worker 与 Function Runtime 的安全配置',
           body: [
-            'Worker Pod 不需要额外的内核权限：容器就是每个 Agent 的隔离边界。Chart 为控制面提供一个 namespace 级 Role，允许它创建和删除 Pod、Secret 和 PVC；并为 Worker Pod 提供单独的、没有任何权限的 ServiceAccount。'
+            'Worker Pod 不需要额外的内核权限：容器就是每个 Agent 的隔离边界。Chart 为控制面提供一个 namespace 级 Role，允许它创建和删除 Pod、Secret 和 PVC；为 Worker Pod 提供单独的无权限 ServiceAccount；并让 ankole-function-runtime 在不挂载数据库凭证或 ServiceAccount 令牌的条件下运行。'
           ],
           fields: [
             {
@@ -399,16 +408,16 @@ export const deploymentTabs = [
             {
               name: 'networkPolicy.enabled',
               value: 'true',
-              description: '可选。启用后，Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址。'
+              description: '可选。启用后，Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址，同时 ankole-function-runtime 会阻断 functionRuntime.deniedCIDRs。'
             }
           ],
           caution:
             'Worker 容器是受信任的第一方组件。控制面持有能创建 Pod 和 Secret 的 namespace 级 Role，请把它当作等同于 root 权限的组件来保护。'
         },
         {
-          title: '成对固定和升级控制面、Worker 镜像',
+          title: '同步固定和升级控制面、Function Runtime 与 Worker 镜像',
           body: [
-            "控制面与 Worker 镜像固定为同一验证版本。helm upgrade 之前，备份 PostgreSQL、文件存储、全部持久 Home 与原加密密钥。"
+            "请把 controlPlane.image、functionRuntime.image 与（单独指定时的）worker.image 固定为同一验证版本。helm upgrade 之前，备份 PostgreSQL（及独立 BASE_DB_URLS 分片数据库）、文件存储、全部持久 Home 与 bootstrap 密钥（ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）。"
           ],
           caution:
             'Helm rollback 不会撤销数据库 migration。如果旧版本应用依赖旧 schema，还必须恢复数据库备份。'
@@ -428,7 +437,7 @@ export const deploymentTabs = [
   {
     value: 'source',
     label: '源码安装',
-    summary: "源码安装用于开发，启动 PostgreSQL、Phoenix、Console 与前端资源；控制面为每个 Agent 创建 Docker Worker。",
+    summary: "源码安装用于开发，启动 PostgreSQL 18、ankole-function-runtime、Phoenix、Console 与前端资源；控制面为每个 Agent 创建 Docker Worker。",
     prerequisites: [
       'macOS 或 Linux；Windows 使用 WSL2',
       '有权限安装系统软件包的账号',
@@ -483,7 +492,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '安装依赖并初始化 PostgreSQL',
+          title: '安装依赖并启动本地基础服务',
           code: [
             {
               language: 'bash',
@@ -494,6 +503,9 @@ export const deploymentTabs = [
                 'bun run control-plane:setup'
               ].join('\n')
             }
+          ],
+          body: [
+            'bun run services:start 会在 Docker 中启动 PostgreSQL 18 和 ankole-function-runtime，随后由 control-plane:setup 初始化数据库。'
           ]
         },
         {
@@ -539,7 +551,7 @@ export const deploymentTabs = [
           ],
           body: [
             '创建 Agent 之前，不会有 Worker 容器。每个 Worker 容器以 watch 模式运行本地的 Agent Computer 源码。',
-            '在运行 bun dev 的终端按 Ctrl+C，可停止控制面和 Worker。开发结束后，再用第二段命令停止 PostgreSQL。'
+            '在运行 bun dev 的终端按 Ctrl+C，可停止控制面和 Worker。开发结束后，运行 bun run services:stop 停止 PostgreSQL 18 和 ankole-function-runtime。'
           ]
         },
         {
@@ -555,6 +567,71 @@ export const deploymentTabs = [
 ]
 
 export const identityTabs = [
+  {
+    value: 'email_otp',
+    label: '邮箱验证码',
+    summary:
+      '使用自有 SMTP 服务和 6 位邮箱验证码完成免密登录初始化。你可以单独使用邮箱验证码登录，也可以后续再添加企业 SSO 身份源提供商。',
+    prerequisites: [
+      '拥有有效 TLS 证书、可向首位管理员发信的 SMTP 服务器',
+      '首位管理员可控的收件箱，用于接收 6 位验证码'
+    ],
+    basic: {
+      title: '配置免密邮箱验证码（Email OTP）',
+      steps: [
+        {
+          title: '在 /setup 中选择“邮箱验证码”',
+          body: [
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code，依次确认“插件”与“行业”步骤后，在“用户登录”中选择“邮箱验证码”。'
+          ]
+        },
+        {
+          title: '填写 SMTP 与管理员信息',
+          bullets: [
+            'SMTP 服务器与端口：发信服务器地址与端口（通常 STARTTLS 用 587，隐式 TLS 用 465）',
+            '发件邮箱：发送验证码与成员邀请邮件时使用的 From 地址',
+            'SMTP 用户名与 SMTP 密码：发信服务器要求认证时填写',
+            '使用隐式 TLS（通常为 465 端口）：仅在使用隐式 TLS 时勾选',
+            '管理员显示名与管理员邮箱：首位管理员的显示名称和接收验证码的邮箱'
+          ],
+          body: [
+            '选择“发送验证码”。Ankole 会先通过所填 SMTP 服务发送 6 位验证码，验证通过后才提交初始化。'
+          ]
+        },
+        {
+          title: '输入 6 位验证码并完成初始化',
+          body: [
+            '输入收件箱收到的“6 位邮箱验证码”，选择“验证并完成初始化”。',
+            '验证通过后，系统会加密保存 authn.email.mail 配置、绑定已验证的 email_otp SiteCredential，并授予首位用户 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'SMTP 命令行修复与成员邀请',
+      summary: '通过命令行修复 SMTP 发信配置，或在不接入企业 SSO 时邀请团队成员。',
+      steps: [
+        {
+          title: '通过命令行修复 SMTP 配置',
+          code: [
+            {
+              language: 'bash',
+              code: 'mix ankole.authn.mail.put /secure/path/mail.json'
+            }
+          ],
+          body: [
+            '在 Release 容器内可调用 Ankole.Release.put_authn_mail(json)。请将 JSON 内容按密钥妥善保护。'
+          ]
+        },
+        {
+          title: '邀请成员或后续接入企业 SSO',
+          body: [
+            'Pod 管理员可以在 Pod 设置中发送邮件邀请，也可以随时在 Console → 身份源提供商中接入企业 SSO。'
+          ]
+        }
+      ]
+    }
+  },
   {
     value: 'slack',
     label: 'Slack',
@@ -656,7 +733,7 @@ export const identityTabs = [
         {
           title: '确认登录和首次同步',
           body: [
-            '浏览器回到 Ankole 后，当前 Slack 用户会成为这套实例的第一位 root 管理员。打开 Console → 身份源提供商，选择 slack-main，再选择“运行全量同步”。',
+            '浏览器回到 Ankole 后，当前 Slack 用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 slack-main，再选择“运行全量同步”。',
             '同步完成后，在 Console → 主体和权限组中确认 workspace 成员与 Slack 用户组已经出现。'
           ]
         }
@@ -758,7 +835,7 @@ export const identityTabs = [
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前用户会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 entra-id-main，再选择“运行全量同步”。',
+            '登录成功后，当前用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 entra-id-main，再选择“运行全量同步”。',
             '同步完成后，在主体和权限组中确认目录里的用户与组已经出现。'
           ]
         }
@@ -886,7 +963,7 @@ export const identityTabs = [
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前用户会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 google-workspace-main，再选择“运行全量同步”。',
+            '登录成功后，当前用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 google-workspace-main，再选择“运行全量同步”。',
             '同步完成后，在主体和权限组中确认 Workspace 用户、群组及成员关系已经出现。'
           ]
         }
@@ -1229,7 +1306,7 @@ export const identityTabs = [
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前成员会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 wecom-main，再选择“运行全量同步”。',
+            '登录成功后，当前成员会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 wecom-main，再选择“运行全量同步”。',
             '同步完成后，在主体和权限组中确认成员与部门已经出现。'
           ]
         }
@@ -2343,7 +2420,7 @@ export const channelTabs = [
         {
           title: '了解邮件发信人如何成为账号',
           body: [
-            '互联网上的任何人都能给该邮箱写信，而 From 地址本身不能证明任何事情，因此 Ankole 从不按资料邮箱或本地登录邮箱匹配邮件发信人。发信人只能通过显式的邮箱身份绑定被识别：通讯录同步和提供商登录会绑定提供商报告的地址，所以已同步通讯录中的员工无需手动步骤即可接入；其他地址由管理员在身份 → 待绑定账号中绑定。「自动创建独立账号」会创建一个以该地址为标识的账号，只在开放邮箱上使用它。'
+            '互联网上的任何人都能给该邮箱写信，而 From 地址本身不能证明任何事情，因此 Ankole 从不仅凭未绑定的资料邮箱或 SiteCredential 登录邮箱匹配邮件发信人。发信人只能通过显式的 Pod 邮箱（email）身份绑定被识别：通讯录同步和企业提供商登录会绑定提供商报告的地址，所以已同步通讯录中的员工无需手动步骤即可接入；其他地址由管理员在身份 → 待绑定账号中绑定。「自动创建独立账号」会创建一个以该地址为标识的账号，只在开放邮箱上使用它。'
           ]
         },
         {
@@ -2464,25 +2541,27 @@ Worker installation 名称为 1–20 个字符，只接受小写字母、数字�
 />
 
 <span id="identity-providers" aria-hidden="true" />
+<span id="2-先设置身份源提供商" aria-hidden="true" />
 
-## 2. 先设置身份源提供商
+## 2. 先设置登录与身份源
 
-Ankole 服务企业内部的私有化部署。一套站点可以容纳多个租户；各租户的 Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）管控权限。配置身份源前，先在控制台选择目标租户。
+Ankole 服务企业内部的私有化部署。一套站点可以容纳多个租户；各租户的 Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）管控权限。完成 `/setup` 初始化后，首位管理员会同时获得 `siteadmin`（访问 `/site-admin-console` 站点管理台）与默认 Pod 的 `pod_admin` 权限。配置租户级设置前，先在控制台选择目标租户。
 
-因此，除了像 Hermes Agent、OpenClaw 那样配置聊天渠道，Ankole 还要连接企业的外部身份源，用来同步员工、通讯录和组织架构。首次设置时，先配置 IdP，使用企业账号登录 Console，再添加聊天渠道。
+在 `/setup` 中，你可以选择免密**邮箱验证码（Email OTP，`email_otp`）**（通过自有 SMTP 服务发送 6 位验证码），也可以配置**企业 SSO 身份源提供商（IdP）**来同步员工、通讯录和组织架构。请先完成登录设置，再添加聊天渠道。
 
 | 设置项 | 负责什么 | 在哪里设置 |
 |---|---|---|
-| **IdP** | Console 的 SSO 登录，以及员工、通讯录、组织架构和权限组的同步 | 先在 `/setup`，之后在 **Console → 身份源提供商** |
+| **邮箱验证码（`email_otp`）** | 免密 6 位邮箱验证（`authn.email.mail` SMTP 发信与 `SiteCredential` 绑定）及邮件成员邀请 | `/setup`（**邮箱验证码**），或命令行 `mix ankole.authn.mail.put` |
+| **IdP** | 企业 SSO 登录，以及员工、通讯录、组织架构和权限组的同步 | 先在 `/setup`，之后在 **Console → 身份源提供商** |
 | **聊天渠道** | 接收 IM 消息并发送 Agent 回复 | 在 **Console → 信号路由** 中配置 |
 
-身份源和聊天渠道也可以来自不同平台。例如，员工通过 Google Workspace 登录 Console，但在 Slack 中与 Agent 对话；也可以使用 Entra ID 登录，把聊天放在飞书、Slack、钉钉、Teams 或企业微信。
+登录方式和聊天渠道可以来自不同平台。例如，使用邮箱验证码或 Google Workspace 登录，但在 Slack 中与 Agent 对话；也可以使用 Entra ID 登录，把聊天放在飞书、Slack、钉钉、Teams 或企业微信。
 
-### 按所选 IdP 完成首次设置
+### 按所选登录方式完成首次设置
 
-先选出企业实际使用的身份源，再照着对应标签页操作。每套步骤都从第三方后台创建应用开始，一直写到首次登录和通讯录同步。
+选择**邮箱验证码**或企业实际使用的身份源，照着对应标签页操作。每个企业 SSO 标签页都从第三方后台创建应用开始，一直写到首次登录和通讯录同步。
 
-如果这次才启用对应的适配器，请在首次登录后按当前部署方式重启一次控制面。这样，通讯录长连接、Graph 订阅等插件后台任务才会完整启动。
+如果这次才启用对应的企业适配器，请在首次登录后按当前部署方式重启一次控制面。这样，通讯录长连接、Graph 订阅等插件后台任务才会完整启动。
 
 <QuickstartTabs
   client:visible

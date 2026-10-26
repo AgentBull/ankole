@@ -22,9 +22,9 @@ order: 321
 
 1. **获取仓库并选择环境**——克隆，并选 macOS/Linux/WSL2 或 GitHub Codespaces。
 2. **安装并验证系统工具**——`bash tools/devkit/scripts/env-setup.sh`，然后验证 `bun`、`elixir`、`rustc`、`cargo clippy`、`docker` 都可用。每条 `kit` 命令做什么见 [kit CLI 参考](../kit-cli/)。
-3. **安装依赖并初始化 PostgreSQL**——`bun install`、`bun run services:start`、`bun run control-plane:setup`。
+3. **安装依赖并初始化本地服务**——运行 `bun install`、`bun run services:start`（启动 PostgreSQL 18 与 `Function Runtime` / `ankole-function-runtime`）以及 `bun run control-plane:setup`。
 4. **启动完整开发环境**——`bun dev`。
-5. **完成首次产品设置**——激活、创建飞书测试应用、配置 OIDC、在 Console 配置运行时。
+5. **完成首次产品设置**——在 `/setup` 激活站点，通过无密码 SMTP 邮箱验证码（Email OTP）或飞书应用 OAuth 完成首位管理员登录（跑完整飞书端到端验收时创建飞书测试应用），并在 `/site-admin-console` 的站点管理控制台中配置运行时。
 6. **证明端到端路径**——一条真实飞书消息到达 agent 并收到预期回复。
 
 页面能打开不算设置完成。一条真实消息往返完成才算。短路径见 [快速开始](../quickstart/)，完整验收见 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
@@ -38,7 +38,7 @@ order: 321
 - **最小正确改动。** 偏好遵循所选方向、保持系统能守契约、并保持可理解的最小改动。一点重复好过增加复杂度的抽象。
 - **Worse is better。** 简洁胜过接口统一或理论完整。简洁赢时，收窄契约或显式拒绝不支持的情形，而非悄悄产出错的结果。
 - **目标保真。** 做要求的任务，不做更便宜的替代。绿测试不是目标；穿过拥有抽象的真实路径才是。
-- **子系统边界。** PostgreSQL 拥有持久事实；Elixir 控制面拥有持久状态与监督；Rust kernel 拥有共享原生原语；Bun Agent Computer Worker 拥有执行。跨边界的改动应尊重它，而非掩盖。
+- **子系统边界。** PostgreSQL 拥有持久事实；Elixir 控制面拥有持久状态与监督；Rust kernel 拥有共享原生原语；Bun Agent Computer Worker 拥有单 Agent 执行；`Function Runtime`（`app/function_runtime/`）负责无状态 Applet 后端与确定性程序隔离运行。跨边界的改动应尊重它，而非掩盖。
 
 ## changelog 规则
 
@@ -48,7 +48,7 @@ order: 321
 - 版本记录用户或运维人员升级后会察觉的变化：新能力、行为变化、移除、他们可能遇到过的故障的修复，以及必须执行的操作。文档、测试、工具链、依赖和重构不记录；没有这类变化的版本只写一行 `Internal changes only.`
 - 版本使用 `MAJOR.MINOR.PATCH`。默认增加 `PATCH`。`MINOR` 用于产品此前没有的能力，或必须有人动手处理的破坏性变化。`MAJOR` 和预发布后缀由维护者决定。
 
-changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过镜像对验证后，工作流会用最新版本标记 control-plane 和 Worker 镜像，并用该版本的 changelog 段落创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。
+changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过全部三个同版本运行时镜像（`ankole-control-plane`、`ankole-agent-computer` 与 `ankole-function-runtime`）的验证后，工作流会用最新版本标记这三个镜像，并用该版本的 changelog 段落创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。
 
 ## 跑对的检查
 

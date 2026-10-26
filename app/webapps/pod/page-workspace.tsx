@@ -5,6 +5,7 @@ import { BlockEditor } from '@ankole/block-editor'
 import {
   insertEmbed,
   insertImage,
+  EditorSelection,
   PageSession,
   PageCollaboration,
   type Editor,
@@ -30,7 +31,6 @@ import {
 } from '@ankole/uikit'
 import {
   RiAddLine,
-  RiFileTextLine,
   RiImageLine,
   RiLink,
   RiExternalLinkLine,
@@ -46,7 +46,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Link, useBlocker, useNavigate, useParams } from '@tanstack/react-router'
 import { podLocation, podRouteID } from '../common/browser-context'
@@ -55,7 +55,8 @@ import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys, fileURL, pageAPI, pageQuery, pagesQuery, type Page, type PageDetail } from './content-api'
 import { contentError } from './content-errors'
 import { ContentError } from './content-primitives'
-import { CreatePageDialog, PageChildrenMenu } from './page-navigation'
+import { PageChildrenMenu } from './page-navigation'
+import { CreatePageSubmenu } from './page-create-menu'
 import { FilePage, uploadPageFile } from './page-files'
 import { useCopyPageLink, PageSharingButton } from './page-sharing'
 import { PageDraftModel } from './state/page-draft'
@@ -84,8 +85,10 @@ export function PageRoute() {
     ) : null
   const page = useQuery(pageQuery(pageID))
   const client = useQueryClient()
+  const visited = useRef<string | null>(null)
   useEffect(() => {
-    if (page.data) {
+    if (page.data && visited.current !== pageID) {
+      visited.current = pageID
       void pageAPI
         .state(pageID, { visited: true })
         .then(() => client.invalidateQueries({ queryKey: contentKeys.lists }))
@@ -145,6 +148,9 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
   }
   const model = useModel(PageDraftModel)
   model.load(page.id, detail.content?.content ?? '<page/>', page.revision, page.title)
+  const titleInput = useRef<HTMLTextAreaElement>(null)
+  const documentEditor = useRef<Editor | null>(null)
+  const [titleComposing, setTitleComposing] = useState(false)
   const dirty = model.hasUnsavedChanges.value
   const blocker = useBlocker({
     shouldBlockFn: ({ current, next }) => dirty && current.pathname !== next.pathname,
@@ -178,11 +184,19 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
       ])
     }
   })
-  const saveTitle = () => {
+  const saveTitle = (retry = false) => {
     if (!edit) return
     const title = model.title.value.trim()
+    if (!retry && rename.isError && rename.variables === title) return
     if (model.titleDirty.value && !(rename.isPending && rename.variables === title)) rename.mutate(title)
   }
+  const title = model.title.value
+  const autosaveTitle = useEffectEvent(() => saveTitle())
+  useEffect(() => {
+    if (page.type !== 'doc' || !edit || titleComposing) return
+    const timer = window.setTimeout(autosaveTitle, 500)
+    return () => window.clearTimeout(timer)
+  }, [title, edit, page.type, titleComposing])
   const finishTitle = async () => {
     if (accessDenied || (!edit && model.titleDirty.value)) {
       throw new Error(t('pod.content.could_not_confirm_your_editing_permission_reload_the_page_and'))
@@ -294,35 +308,58 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
       )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="pod-page-scroll min-w-0 flex-1 overflow-auto">
-          <div className="pod-page-content">
+          <div
+            className="pod-page-content"
+            onKeyDownCapture={event => {
+              const editor = documentEditor.current
+              if (
+                event.key !== 'ArrowUp' ||
+                event.shiftKey ||
+                event.altKey ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.nativeEvent.isComposing ||
+                !edit ||
+                !editor ||
+                event.target !== editor.contentDOM ||
+                !editor.state.selection.empty ||
+                editor.state.selection.head !== EditorSelection.atStart(editor.state).head
+              ) {
+                return
+              }
+              event.preventDefault()
+              event.stopPropagation()
+              titleInput.current?.focus()
+              titleInput.current?.setSelectionRange(title.length, title.length)
+            }}>
             <div className="pod-page-heading">
               {edit ? (
-                <form
-                  className="min-w-0 flex-1"
-                  onSubmit={event => {
-                    event.preventDefault()
-                    saveTitle()
-                  }}>
+                <div className="min-w-0 flex-1">
                   <textarea
+                    ref={titleInput}
                     aria-label={t('pod.content.page_title')}
                     rows={1}
                     value={model.title.value}
+                    autoFocus={page.type === 'doc' && !page.title && !chat}
                     disabled={remove.isPending || accessDenied}
                     placeholder={t('pod.content.untitled')}
                     onChange={event => (model.title.value = event.target.value.replace(/\n/g, ' '))}
+                    onCompositionStart={() => setTitleComposing(true)}
+                    onCompositionEnd={() => setTitleComposing(false)}
                     onKeyDown={event => {
                       if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                         event.preventDefault()
-                        event.currentTarget.blur()
+                        const editor = documentEditor.current
+                        if (editor && !editor.state.readOnly) {
+                          editor.dispatch({ selection: EditorSelection.atStart(editor.state), scrollIntoView: true })
+                          editor.focus()
+                        } else event.currentTarget.blur()
                       }
                     }}
                     className="pod-page-title"
-                    onBlur={saveTitle}
+                    onBlur={() => saveTitle()}
                   />
-                  <button className="sr-only" type="submit">
-                    {t('pod.content.save_title')}
-                  </button>
-                </form>
+                </div>
               ) : (
                 <h1 className="pod-page-title">{page.title || t('pod.content.untitled')}</h1>
               )}
@@ -349,7 +386,11 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
             {edit && (
               <p
                 role="status"
-                className={rename.isPending || model.titleDirty.value ? 'pod-page-save-state' : 'sr-only'}>
+                className={
+                  page.type !== 'doc' && (rename.isPending || model.titleDirty.value)
+                    ? 'pod-page-save-state'
+                    : 'sr-only'
+                }>
                 {rename.isPending
                   ? t('pod.content.saving_title')
                   : model.titleDirty.value
@@ -357,7 +398,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                     : ''}
               </p>
             )}
-            <ContentError error={rename.error} retry={model.titleDirty.value ? saveTitle : undefined} />
+            <ContentError error={rename.error} retry={model.titleDirty.value ? () => saveTitle(true) : undefined} />
             <ContentError error={remove.error || favorite.error || favorites.error} />
             {detail.source_conversation && (
               <p className="pod-page-origin">
@@ -371,7 +412,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                 )}
               </p>
             )}
-            {!accessDenied && <PageContent detail={detail} documentDraft={model} />}
+            {!accessDenied && <PageContent detail={detail} documentDraft={model} editorRef={documentEditor} />}
           </div>
         </div>
         {!accessDenied && (
@@ -434,14 +475,18 @@ function ParentPageLink({ pageID }: { pageID: string }) {
 
 function PageContent({
   detail,
-  documentDraft
+  documentDraft,
+  editorRef
 }: {
   detail: PageDetail
   documentDraft?: InstanceType<typeof PageDraftModel>
+  editorRef?: RefObject<Editor | null>
 }) {
   switch (detail.page.type) {
     case 'doc':
-      return documentDraft ? <DocumentPage key={detail.page.id} detail={detail} model={documentDraft} /> : null
+      return documentDraft ? (
+        <DocumentPage key={detail.page.id} detail={detail} model={documentDraft} editorRef={editorRef} />
+      ) : null
     case 'file':
       return <FilePage detail={detail} />
     case 'base':
@@ -459,7 +504,15 @@ function PageContent({
   }
 }
 
-function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceType<typeof PageDraftModel> }) {
+function DocumentPage({
+  detail,
+  model,
+  editorRef
+}: {
+  detail: PageDetail
+  model: InstanceType<typeof PageDraftModel>
+  editorRef?: RefObject<Editor | null>
+}) {
   useSignals()
   const { i18n } = useTranslation()
   const labels = useMemo(() => editorLabels(i18n.language), [i18n.language])
@@ -476,7 +529,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
   const [revoked, setRevoked] = useState(false)
   const retryConnection = useRef<() => void>(() => {})
   const [pending, setPending] = useState(false)
-  const [inserting, setInserting] = useState<'create' | 'reference'>()
+  const [referencing, setReferencing] = useState(false)
   const addTrigger = useRef<HTMLButtonElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const host = useMemo<EditorHost>(
@@ -545,15 +598,26 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
         <div className="pod-document-tools">
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={<Button size="sm" variant="ghost" className="pod-document-add" ref={addTrigger} />}>
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="pod-document-add"
+                  aria-label={t('pod.content.add_content')}
+                  ref={addTrigger}
+                />
+              }>
               <RiAddLine aria-hidden className="size-4" />
-              {t('pod.content.add_content')}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuItem onClick={() => setInserting('create')}>
-                <RiFileTextLine aria-hidden /> {t('pod.content.new_page')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setInserting('reference')}>
+              <CreatePageSubmenu
+                parentID={detail.page.id}
+                label={t('pod.content.new_page')}
+                onCreated={page => {
+                  if (editor.current) insertEmbed(editor.current, { ref: page.id })
+                }}
+              />
+              <DropdownMenuItem onClick={() => setReferencing(true)}>
                 <RiLink aria-hidden /> {t('pod.content.reference_an_existing_page')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => imageInput.current?.click()}>
@@ -561,13 +625,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <span
-            className={
-              model.conflict.value || collaborationError || pending || model.xml.value !== model.savedXML.value
-                ? 'pod-document-status'
-                : 'pod-document-status pod-document-status-saved'
-            }
-            role="status">
+          <span className="sr-only" role="status">
             {model.conflict.value
               ? t('pod.content.unsaved_draft_kept')
               : collaborationError
@@ -590,20 +648,10 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
           />
         </div>
       )}
-      {inserting === 'create' && (
-        <CreatePageDialog
-          parentID={detail.page.id}
-          returnFocus={addTrigger}
-          onClose={() => setInserting(undefined)}
-          onCreated={page => {
-            if (editor.current) insertEmbed(editor.current, { ref: page.id })
-          }}
-        />
-      )}
-      {inserting === 'reference' && (
+      {referencing && (
         <ReferencePageDialog
           returnFocus={addTrigger}
-          onClose={() => setInserting(undefined)}
+          onClose={() => setReferencing(false)}
           onSelect={page => {
             if (editor.current) insertEmbed(editor.current, { ref: page.id })
           }}
@@ -655,6 +703,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
           onError={setCollaborationError}
           onReady={instance => {
             editor.current = instance
+            if (editorRef) editorRef.current = instance
             const current = new PageSession(instance)
             session.current = current
             let disposed = false
@@ -755,6 +804,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
               if (session.current === current) {
                 session.current = null
                 editor.current = null
+                if (editorRef?.current === instance) editorRef.current = null
               }
             }
           }}

@@ -43,7 +43,7 @@ If the list is empty, add a matching Provider first. See [Quick start](../quicks
 
 ## Current built-in Providers
 
-A Control Plane Plugin can add more Provider kinds. The following kinds are built into Ankole now.
+A Control Plane Plugin can add more Provider kinds. The following kinds are built into Ankole.
 
 ### `web_search` Providers
 
@@ -52,9 +52,9 @@ A Control Plane Plugin can add more Provider kinds. The following kinds are buil
 | **Parallel** | Yes | One Provider supplies search and extraction; supports an objective, several queries, modes, and a total character budget | You want one credential for search and reading, or you have a research-oriented query |
 | **Bright Data SERP** | No | Uses a SERP API; requires a Zone and can select country, language, and Google domain | You must control the search region, language, or localized results |
 | **Jina Search** | No | Supports region, location, language, page, cache, and search-engine options | You need direct web search with region, pagination, or cache controls |
-| **AgentBull Cloud** | No | Aggregates search sources and supports source scope, time range, and cache bypass | You need metasearch or an explicit source and time scope |
+| **AgentBull Cloud** | Yes | Aggregates search and page extraction alongside model capabilities (`llm`, `embedding`, `rerank`, `image_generate`), with source scope, time range, and cache bypass | You want one aggregated API key across web tools and models, or explicit source and time scope |
 
-One Parallel Provider instance can be assigned to both `web_search` and `web_fetch`.
+One Parallel or AgentBull Cloud Provider instance can be assigned to both `web_search` and `web_fetch`.
 
 Jina Search and Jina Reader are different Provider kinds. Add them separately and assign each one to its matching profile, even when they use the same Jina credential.
 
@@ -63,6 +63,7 @@ Jina Search and Jina Reader are different Provider kinds. Add them separately an
 | Provider | Also supports `web_search` | Main difference | Use it when |
 |---|---|---|---|
 | **Parallel** | Yes | Uses the same Provider and credential as Parallel Search to extract page text | You already use Parallel Search and want one configuration |
+| **AgentBull Cloud** | Yes | Uses the same AgentBull Cloud Provider and API key to extract public page text | You already use AgentBull Cloud for models or search and want one credential |
 | **Jina Reader** | No | Converts a public page to Markdown; supports retained links, target and wait selectors, cache, engine, and token limits | You need article text or a selected part of a page |
 
 `web_fetch` is for public HTTPS pages. It does not sign in and is not a downloader for PDFs, images, archives, audio, or video.

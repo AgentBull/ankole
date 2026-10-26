@@ -1,21 +1,21 @@
 ---
 title: Agent Library
-description: Enable Agent Plugins, Skills, and Control Plane Plugins globally or for one Agent.
+description: Manage tenant and per-Agent Agent Plugins and Skills, and site-scoped Control Plane Plugins.
 section: User guide
 order: 32
 ---
 
-The Agent Library decides which working methods and extensions an Agent can use. The Console separates them into three types:
+The **Agent Library** page in the Site Admin Console manages two distinct extension boundaries: tenant- and Agent-scoped model capabilities (**Agent Plugins** and **Skills**), and strictly **site-scoped** platform extensions (**Control Plane Plugins**, visible only when the scope is set to **Global defaults**).
 
-These are trusted components that are already installed in this instance. The Agent Library is not a public marketplace. Enabling an item here does not download unknown code from the internet.
+All three are trusted first-party components compiled or packaged into this deployment instance. Enabling an item here does not download unknown code from the internet.
 
 ## Understand the three capability types
 
-| Type | Purpose | When a change applies |
-|---|---|---|
-| **Agent Plugin** | Groups related Skills, MCP capabilities, and workspace templates | The Agent's next turn |
-| **Skill** | Instructions and resources for one repeatable kind of work | The Agent's next turn |
-| **Control Plane Plugin** | Adds chat adapters, identity sources, settings, or services to the control plane | The next control-plane start |
+| Type | Scope | Purpose | When a change applies |
+|---|---|---|---|
+| **Agent Plugin** | Tenant default + per-Agent override | Groups related Skills, MCP capabilities, and workspace templates | The Agent's next turn |
+| **Skill** | Tenant default + per-Agent override | Instructions and resources for one repeatable kind of work | The Agent's next turn |
+| **Control Plane Plugin** | Site-scoped only (`/api/v2/site/control-plane-plugins`) | Full-stack compile-time platform extension (adapters, OTP services, HTTP plugs, extension routes, domain hooks, config fields, and Web UI slots) | Fixed active with the build (`activation: :always`), or on the next control-plane start (`activation: :optional`) |
 
 ### Agent Plugin: capabilities that share one package
 
@@ -77,11 +77,18 @@ Some SOPs and methods are useful only when the current work matches them, so lis
 
 Brain searches the Skill's name, description, and tags. After a match, the Agent calls `skill_view`, which applies `ankole-runtime` and either loads the Skill on a compatible execution surface or returns the correct routing or rejection result. Disabling the Skill, or its parent Agent Plugin, removes it from both Brain discovery and loading for that Agent. Brain must be enabled for this semantic discovery path. This mode is suitable for shipped methods and SOPs that should be available on demand without occupying every prompt.
 
-### Control Plane Plugin: extend the management platform
+### Control Plane Plugin: site-scoped full-stack platform extension
 
-A Control Plane Plugin is not an OpenAI Plugin and does not enter the Agent's working context. It extends the Ankole control plane.
+A Control Plane Plugin is not an OpenAI Plugin, does not enter the Agent's working context, and is never tenant-scoped or Agent-scoped. It is a compile-time, site-scoped extension compiled into the release and resolved into an immutable `:persistent_term` snapshot at boot.
 
-A Control Plane Plugin can provide Channel Providers, identity sources, system settings, and supervised services. These components change the startup structure, so an enable or disable action applies only at the next control-plane start.
+A Control Plane Plugin can contribute across the full stack:
+
+- Subsystem adapters (`signals.adapter`, `principals.identity_provider`, `ai_gateway.provider`, `agent_workers.provider`) and supervised OTP processes (`children/0`)
+- Outer HTTP edge plugs and scoped extension JSON:API routes
+- Synchronous domain transaction `hooks/0` (`Ankole.Plugins.Hook`)
+- Declarative `AppConfigure` fields (`ConfigFields`) and typed Web UI Slots (`entries.json` `overrides`)
+
+Each Control Plane Plugin declares `activation: :optional | :always`. Optional plugins (`:optional`, the default) are selected in `plugins.enabled_ids` and apply on the next control-plane start. Platform plugins with `activation: :always` remain fixed active with the source build and cannot be disabled. For dynamic runtime switches or gradual rollouts that apply without a restart, Ankole uses OpenFeature (`Ankole.Features`).
 
 ## Manage Agent Plugins and Skills
 
@@ -118,15 +125,15 @@ Do not copy a general rule into every Agent's lessons. Change the Skill source w
 
 ## Manage Control Plane Plugins
 
-### Enable or disable
+### Enable or disable optional site plugins
 
-Channel Providers, identity sources, and similar platform capabilities come from Control Plane Plugins:
+Control Plane Plugins are strictly site-scoped (`/api/v2/site/control-plane-plugins`). They appear only in the Site Admin Console (`/site-admin-console`) when the Agent Library scope is set to **Global defaults**:
 
-1. Open the **Control Plane Plugins** tab.
-2. Find the Plugin and set it to **Enabled next start**.
+1. In the Site Admin Console, open **Agent Library**, keep the scope set to **Global defaults**, and open the **Control Plane Plugins** tab.
+2. Find an optional Plugin (`activation: :optional`) and set it to **Enabled next start**. Plugins with `activation: :always` are fixed active with the build and do not offer a disable toggle.
 3. Save and restart the control plane.
-4. Return to Agent Library and confirm that it is **Active now**.
-5. Configure the Channel Provider, identity source, or setting that the Plugin provides.
+4. Return to **Control Plane Plugins** and confirm that the Plugin is **Active now**.
+5. Configure the Channel Provider, identity source, Worker provider, or setting that the Plugin provides.
 
 Docker Compose:
 
@@ -140,7 +147,7 @@ Kubernetes:
 kubectl -n ankole rollout restart deployment/ankole-control-plane
 ```
 
-Disabling a Control Plane Plugin also applies on the next start. It can make an existing Channel Provider or identity source unavailable. Confirm that no active configuration depends on it before you disable it.
+Disabling an optional Control Plane Plugin also applies on the next start. Contracts enforce `veto_disable` inside the configuration transaction: a Worker-provider Plugin cannot be disabled while any tenant has an assigned Worker (including paused Workers or Agents being deleted) for one of its provider kinds. Confirm that no active Channel Provider, identity source, or Worker depends on the Plugin before you disable it. Dynamic runtime feature flags that change without a restart use OpenFeature (`Ankole.Features`) rather than plugin activation toggles.
 
 ## Troubleshoot
 
@@ -154,7 +161,9 @@ Disabling a Control Plane Plugin also applies on the next start. It can make an 
 
 ### Control Plane Plugins
 
-- **A Control Plane Plugin says Enabled next start:** the setting is saved, but the control plane has not restarted.
+- **The Control Plane Plugins tab is not visible:** Control Plane Plugins are site-scoped only. Open the Site Admin Console (`/site-admin-console`) and set the **Agent Library** scope to **Global defaults**.
+- **A Control Plane Plugin says Enabled next start:** the setting is saved in `plugins.enabled_ids`, and the control plane must restart to rebuild its boot snapshot.
+- **A Control Plane Plugin cannot be disabled:** either the Plugin declares `activation: :always` (fixed active with the build), or `veto_disable` rejected the change because a tenant still has an Agent Worker assigned to one of the Plugin's Worker provider kinds.
 - **The control plane does not start after a restart:** read the startup log and correct the Plugin configuration or dependency before starting it again.
 - **The Channel Provider is still missing:** confirm that the Plugin is **Active now**, and then inspect its Channel Provider configuration.
 

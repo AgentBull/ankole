@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import type { BaseRecord, RecordsResult, TableEvent, TableSchema } from '@ankole/applet-sdk/types'
-import { createBaseAPI, baseHTTP } from '../base-api'
+import { createBaseAPI, baseHTTP, baseTablesQuery, prefetchBase } from '../base-api'
 import { InternalAPIError } from '../../common/internal-api-client'
 import { RealtimeRequestError, type PodRealtime, type TopicHandle } from '../realtime'
 
@@ -32,6 +32,46 @@ function schema(version: number, count: number, mode: TableSchema['mode'] = 'loc
     mode
   }
 }
+
+describe('Base page prefetch', () => {
+  test('page loading and the mounted editor share the table and schema requests', async () => {
+    const context = fixture()
+    const definition = schema(1, 0)
+    const listed = Promise.withResolvers<Awaited<ReturnType<typeof baseHTTP.tables>>>()
+    const tables = spyOn(baseHTTP, 'tables').mockImplementation(() => listed.promise)
+    context.schemaSpy.mockResolvedValue(definition)
+    try {
+      const warming = prefetchBase(context.client, 'base')
+      const mounted = context.client.fetchQuery(baseTablesQuery('base'))
+      expect(tables).toHaveBeenCalledTimes(1)
+      listed.resolve({ tables: [definition.table] } as Awaited<ReturnType<typeof baseHTTP.tables>>)
+      await warming
+      expect((await mounted).tables[0]?.id).toBe(tableID)
+      expect(await context.api.schema(tableID)).toEqual(definition)
+      expect(context.schemaSpy).toHaveBeenCalledTimes(1)
+      expect(tables).toHaveBeenCalledTimes(1)
+    } finally {
+      tables.mockRestore()
+      context.dispose()
+    }
+  })
+
+  test('a failed prefetch keeps the query error available and the mounted editor can retry', async () => {
+    const context = fixture()
+    const failure = new InternalAPIError(503, 'Service Unavailable', { error: 'Tables unavailable' })
+    const tables = spyOn(baseHTTP, 'tables').mockRejectedValueOnce(failure)
+    try {
+      await prefetchBase(context.client, 'base')
+      expect(context.client.getQueryState(baseTablesQuery('base').queryKey)?.error).toBe(failure)
+      tables.mockResolvedValue({ tables: [] })
+      expect(await context.client.fetchQuery(baseTablesQuery('base'))).toEqual({ tables: [] })
+      expect(tables).toHaveBeenCalledTimes(2)
+    } finally {
+      tables.mockRestore()
+      context.dispose()
+    }
+  })
+})
 
 class RealtimeBoundary {
   readonly ready = Promise.withResolvers<unknown>()

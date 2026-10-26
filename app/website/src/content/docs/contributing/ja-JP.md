@@ -22,9 +22,9 @@ Ankole にコントリビュートするということは、最初の編集の�
 
 1. **リポジトリを取得し、環境を選ぶ** — クローンし、macOS/Linux/WSL2 または GitHub Codespaces を選びます。
 2. **システムツールをインストールして検証する** — `bash tools/devkit/scripts/env-setup.sh` を実行し、`bun`、`elixir`、`rustc`、`cargo clippy`、`docker` がすべて動くことを確認します。各 `kit` コマンドの内容は [kit CLI reference](../kit-cli/) を参照してください。
-3. **依存関係をインストールし、PostgreSQL を初期化する** — `bun install`、`bun run services:start`、`bun run control-plane:setup`。
+3. **依存関係をインストールし、ローカルサービスを初期化する** — `bun install`、`bun run services:start`（PostgreSQL 18 と `Function Runtime` / `ankole-function-runtime` を起動）、および `bun run control-plane:setup`。
 4. **完全な開発環境を起動する** — `bun dev`。
-5. **初回の製品セットアップを完了する** — 有効化し、Feishu テストアプリを作成し、OIDC を設定し、Console でランタイムを設定します。
+5. **初回の製品セットアップを完了する** — `/setup` で有効化し、パスワードレスの SMTP メール OTP または Feishu アプリ OAuth で最初の管理者としてサインインし（Feishu の完全なエンドツーエンド受入を行う場合は Feishu テストアプリを作成）、`/site-admin-console` の Site Admin Console でランタイムを設定します。
 6. **エンドツーエンドの経路を証明する** — 実際の Feishu メッセージが agent に届き、期待した返信が返ることを確認します。
 
 セットアップはページが開いたときには完了していません。実際のメッセージが往復したときに完了します。短い経路は [Quick start](../quickstart/) を、完全な受入は [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) を参照してください。
@@ -38,7 +38,7 @@ Ankole にコントリビュートするということは、最初の編集の�
 - **最小の正しい変更。** 選択した方向に従い、システムが維持できる契約を守り、理解可能なままの最小の変更を選びます。複雑さを増す抽象化よりも、少しの重複が優れています。
 - **Worse is better。** シンプルさはインターフェースの均一性や理論的完全性に勝ります。シンプルさが勝つときは、契約を狭めるか、サポートしないケースを明示的に拒否し、黙って間違った結果を作らないでください。
 - **目的忠実性。** 依頼されたタスクを、より安い代替ではなく実行します。緑のテストは目標ではありません。所有する抽象化を通る実際の経路が目標です。
-- **サブシステム境界。** PostgreSQL は永続的な事実を所有し、Elixir コントロールプレーンは永続状態と監督を所有し、Rust カーネルは共有ネイティブプリミティブを所有し、Bun Agent Computer Worker は実行を所有します。境界をまたぐ変更は、ごまかすのではなく境界を尊重するべきです。
+- **サブシステム境界。** PostgreSQL は永続的な事実を所有し、Elixir コントロールプレーンは永続状態と監督を所有し、Rust カーネルは共有ネイティブプリミティブを所有し、Bun Agent Computer Worker は Agent ごとの実行を所有し、`Function Runtime`（`app/function_runtime/`）はステートレスな Applet バックエンドおよび決定論的プログラムの isolate 実行を担当します。境界をまたぐ変更は、ごまかすのではなく境界を尊重するべきです。
 
 ## changelog ルール
 
@@ -48,7 +48,7 @@ Ankole にコントリビュートするということは、最初の編集の�
 - バージョンは、ユーザーまたは運用者がアップグレード後に気づくことを記録します: 新しい能力、動作の変更、削除、遭遇し得た障害の修正、必要な操作。ドキュメント、テスト、ツール、依存関係、リファクタリングは記録しません。そのような変化のないバージョンは `Internal changes only.` とだけ書きます。
 - バージョンは `MAJOR.MINOR.PATCH` を使います。既定は `PATCH` です。`MINOR` は、プロダクトに以前はなかった能力、または人が対処しなければならない破壊的変更のためのものです。`MAJOR` とプレリリースのサフィックスはメンテナーの決定に従います。
 
-changelog は*唯一の* changelog 兼バージョン単位です。別のリリースノートファイルはありません。`main` ランタイムイメージのビルドがイメージペア検証を通過した後、ワークフローは最新バージョンをコントロールプレーンと Worker イメージタグに使い、その正確なセクションから不変の GitHub Release を作成します。changelog を変更の一部として扱い、後付けの書類仕事として扱わないでください。
+changelog は*唯一の* changelog 兼バージョン単位です。別のリリースノートファイルはありません。`main` ランタイムイメージのビルドが同一バージョンの 3 つのランタイムイメージ（`ankole-control-plane`、`ankole-agent-computer`、`ankole-function-runtime`）すべての検証を通過した後、ワークフローは最新バージョンをこれら 3 つのイメージタグに使い、その正確なセクションから不変の GitHub Release を作成します。changelog を変更の一部として扱い、後付けの書類仕事として扱わないでください。
 
 ## 正しいチェックを実行する
 

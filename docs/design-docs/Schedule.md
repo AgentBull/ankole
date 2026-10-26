@@ -11,7 +11,7 @@ Users can create two kinds of schedules:
   session.
 
 Checkbacks and manual cron runs store their event before wake-up. Automatic
-cron fires create an `scheduled_events` history row when they fire.
+cron fires create a `scheduled_events` history row when they fire.
 
 Cron definitions and scheduled fires use AshStateMachine actions. Cron pause,
 delete, and completion clear the next-fire deadline in the same write. PostgreSQL
@@ -32,7 +32,7 @@ ScheduledEvent actions declare their durable types and required input directly.
 Structured provenance, wake payloads, and errors use the shared strict JSON
 object type. The TimeZone owner validates changed timezone inputs.
 Failure and cancellation actions validate their own evidence, so they can
-persist compensation for a legacy row with a broken execution target.
+persist compensation for a row with a broken execution target.
 
 ## The Control Plane Owns Time
 
@@ -412,7 +412,7 @@ A cron fire produces `cron.fire`.
 
 The event uses a CloudEvents 1.0 envelope. It contains the history or scheduled
 event identifier, due time, fire time, time zone, primary reply route, and
-frozen delivery targets. A direct consumer stores this envelope in an
+frozen delivery targets. A direct consumer stores this envelope in a
 Signal. An automation job consumer stores the same envelope in its run.
 The model wake-up prompt omits the event identifier and delivery routes.
 

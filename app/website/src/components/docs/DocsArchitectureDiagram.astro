@@ -107,20 +107,26 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 		<path d="M500 375V330H820V290" class="policy-flow"></path>
 
 		<text x="500" y="558" text-anchor="middle" class="flow-label">{copy.fabric}</text>
-		<path d="M180 475V610H250" class="flow"></path>
-		<path d="M820 475V610H750" class="flow"></path>
-		<path d="M820 290V575H700" class="flow flow-both"></path>
+		<path d="M180 475V610" class="flow"></path>
+		<path d="M820 475V610" class="flow"></path>
+		<path d="M820 290V575H740V610" class="flow flow-both"></path>
 
 		<text x="20" y="595" class="layer-label">{copy.execution}</text>
 		<a href={docs('agent-computer-worker')} aria-label={copy.workers[0]}>
-			<rect x="120" y="610" width="760" height="94" class="node node-link node-primary"></rect>
-			<text x="150" y="649" class="node-title">{copy.workers[0]}</text>
-			<text x="150" y="678" class="node-detail">{copy.workers[1]}</text>
+			<rect x="40" y="610" width="440" height="94" class="node node-link node-primary"></rect>
+			<text x="65" y="649" class="node-title">{copy.workers[0]}</text>
+			<text x="65" y="678" class="node-detail">{copy.workers[1]}</text>
+		</a>
+		<a href={docs('workflows')} aria-label={copy.functionRuntime[0]}>
+			<rect x="520" y="610" width="440" height="94" class="node node-link node-primary"></rect>
+			<text x="545" y="649" class="node-title">{copy.functionRuntime[0]}</text>
+			<text x="545" y="678" class="node-detail">{copy.functionRuntime[1]}</text>
 		</a>
 
 		<text x="20" y="747" class="layer-label">{copy.data}</text>
-		<path d="M340 530V765" class="storage-flow"></path>
-		<path d="M660 704V765" class="storage-flow"></path>
+		<path d="M275 530V765" class="storage-flow"></path>
+		<path d="M260 704V765" class="storage-flow"></path>
+		<path d="M725 530V765" class="storage-flow"></path>
 
 		<g>
 			<rect x="80" y="765" width="390" height="62" class="node storage-node"></rect>
@@ -174,10 +180,17 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 			<span>{copy.fabric}</span>
 			<span aria-hidden="true">↓</span>
 		</div>
-		<a href={docs('agent-computer-worker')} class="mobile-node border border-primary">
-			<strong>{copy.workers[0]}</strong>
-			<span>{copy.workers[1]}</span>
-		</a>
+		<p class="mobile-layer-label">{copy.execution}</p>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<a href={docs('agent-computer-worker')} class="mobile-node border border-primary">
+				<strong>{copy.workers[0]}</strong>
+				<span>{copy.workers[1]}</span>
+			</a>
+			<a href={docs('workflows')} class="mobile-node border border-primary">
+				<strong>{copy.functionRuntime[0]}</strong>
+				<span>{copy.functionRuntime[1]}</span>
+			</a>
+		</div>
 
 		<div class="mobile-connector" aria-hidden="true">↓</div>
 		<p class="mobile-layer-label">{copy.data}</p>

@@ -1,11 +1,11 @@
 ---
-title: 控制面云盘存储配置
-description: 为基于 OpenDAL 的 Agent 云盘配置本地文件、云存储桶、数据库表、SFTP 或 WebDAV，并说明迁移与备份要求。
+title: 控制面云盘与对象存储配置
+description: 为 Ankole.ObjectStore（Agent 云盘、Pod file 页面、各类附件与已编译 Applet 产物包）配置本地文件、云存储桶、数据库表、SFTP 或 WebDAV，并说明迁移与备份要求。
 section: Guides
 order: 318
 ---
 
-每个 Agent 的云盘由控制面管理，Worker 停止时仍可使用。PostgreSQL 保存路径、权限和内容引用，OpenDAL 后端保存文件字节。Ankole 支持 `fs`、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp` 和 `webdav`。
+`ANKOLE_FILES_STORE` 配置控制面对象存储（`Ankole.ObjectStore`），统一保存每个 Agent 的云盘（Worker 停止时仍可使用）、Pod `file` 页面、Pod 文档/Base/Chat 与对话附件以及已编译的 Applet 产物包。PostgreSQL 保存路径、权限和内容引用，OpenDAL 后端保存按内容寻址的对象字节。Ankole 支持 `fs`、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp` 和 `webdav`。
 
 这份配置属于站点启动配置，所有租户共用同一个对象存储。WorkerProvider 的 Home、缓存和 Cloudflare R2 备份另行配置，见 [WorkerProvider 与缓存盘](../worker-providers/)。用户操作见 [文件管理](../file-management/)。
 
@@ -20,7 +20,7 @@ order: 318
 
 多个控制面副本需要共享远程存储，并使用相同的后端位置和根路径。官方 Helm 在 `files.store: fs` 且副本数大于 1 时拒绝渲染。云盘使用 S3 不改变个别 WorkerProvider 对控制面副本数的限制。
 
-当前部署指南仍要求保持 `controlPlane.replicaCount: 1`，直到定时触发、聊天连接和调度器恢复等单例进程在多节点上通过验证。共享远程存储是多副本的必要条件；完整部署仍需通过多副本验证。见 [控制面副本说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)。
+请将 `controlPlane.replicaCount` 设为 `1`，因为定时触发、聊天适配器连接和调度器水合等控制面单例进程运行在单节点上。共享远程存储是多副本的前提条件，但其本身不足以开启多副本。见 [控制面副本说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)。
 
 ## 环境变量
 
@@ -120,7 +120,7 @@ files:
     root: /ankole/production/
 ```
 
-可通过 `secrets.existingSecret` 引用包含上述两项凭据的 bootstrap Secret；这个 Secret 还必须包含原部署要求的数据库凭据、`ANKOLE_SECRET_BASE` 与 `RELEASE_COOKIE`。Chart 也支持 `secrets.filesS3AccessKeyID` 和 `secrets.filesS3SecretAccessKey`，不要把真实密钥提交到 values 文件。
+可通过 `secrets.existingSecret` 引用包含上述两项 S3 凭据的 bootstrap Secret；这个 Secret 还必须包含部署所需的数据库凭据（`DATABASE_URL`，以及启用内置 PostgreSQL 时的 `POSTGRES_PASSWORD`）、原 `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN` 与 `RELEASE_COOKIE`。Chart 也支持 `secrets.filesS3AccessKeyID` 和 `secrets.filesS3SecretAccessKey`，不要把真实密钥提交到 values 文件。
 
 ## Cloudflare R2 与其他 S3 兼容服务
 
@@ -138,7 +138,7 @@ ANKOLE_FILES_S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 
 使用 R2 的 S3 API 凭据，endpoint 为账户级 S3 API 地址，不是公开桶域名或 Worker URL。region `auto` 与支持的操作见 [R2 S3 API 兼容说明](https://developers.cloudflare.com/r2/api/s3/api/)。Helm 对应设置 `files.s3.endpoint`、`files.s3.region` 和 `files.s3.root`。
 
-MinIO 等服务也使用 `s3`，填写实际 endpoint 与签名 region。只声明 S3 兼容还不足以确认可用；部署前验证读取、写入、删除、multipart upload 与大文件传输。Ankole 开放本页列出的后端和启动字段；S3 虚拟主机寻址和自定义签名参数仍未开放。OpenDAL 参数说明见 [S3 后端](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)。
+MinIO 等服务也使用 `s3`，填写实际 endpoint 与签名 region。只声明 S3 兼容还不足以确认可用；部署前验证读取、写入、删除、multipart upload 与大文件传输。Ankole 开放本页列出的后端和启动字段；不支持 S3 虚拟主机寻址和自定义签名参数。OpenDAL 参数说明见 [S3 后端](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)。
 
 ## Compose 使用 S3
 
@@ -182,7 +182,7 @@ docker compose -f compose.yaml -f compose.files-s3.yaml up -d
 
 ## 备份和存储清理
 
-数据库备份只有引用，桶或文件夹备份只有字节，两者必须一起恢复。控制面定期清理没有云盘路径或未完成附件引用的内容；不要额外设置会删除仍被引用对象的过期规则。
+数据库备份只有引用，桶或文件夹备份只有对象字节，两者必须一起恢复。控制面垃圾回收会统一清理在 Agent 云盘、Pod `file` 页面、Pod 文档/Base/Chat 与对话附件以及已编译 Applet 产物包中均已不再被引用的 blob 对象；不要在存储桶上额外设置会删除仍被站点引用对象的过期规则。
 
 S3 后端使用 multipart upload，进程中断可能留下未完成上传。为桶配置中止未完成 multipart upload 的生命周期规则，按工作负载选择期限。文件系统后端在打开时清理超过一天未变化的临时文件，这不能代替备份。
 

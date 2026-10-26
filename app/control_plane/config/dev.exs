@@ -59,7 +59,7 @@ config :phoenix, :stacktrace_depth, 20
 
 config :phoenix, :plug_init_mode, :runtime
 
-# Reload the application and its local libraries.
+# Reload Elixir code. A loaded native library needs a control-plane restart.
 config :ankole, AnkoleWeb.Endpoint,
   reloadable_apps: [
     :ankole
@@ -67,6 +67,7 @@ config :ankole, AnkoleWeb.Endpoint,
         {app, opts} <- Mix.Project.config()[:deps],
         is_list(opts),
         Keyword.has_key?(opts, :path),
+        app != :ankole_kernel,
         do: app
       )
   ]

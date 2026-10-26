@@ -5,9 +5,9 @@ section: User guide
 order: 31
 ---
 
-**多数情况下，你不需要使用本页介绍的文件浏览器。在对话中直接向 Agent 发送文件，即可创建、读取、修改、整理或传输文件。仅当需要找回未送达的产物、检查已保存的输出或手动整理文件夹时，才使用 Console 文件浏览器。**
+**多数情况下，你不需要使用本页介绍的文件浏览器。在对话中直接向 Agent 发送文件，或在 Pod 工作空间中使用共享的 Pod `file` 页面与文档/Base/Chat 附件即可。仅当需要找回未送达的产物、检查已保存的输出或手动整理单个 Agent 的私有云盘文件夹时，才使用 Console 文件浏览器。**
 
-每个 Agent 的控制面云盘保存附件、图片、发布的文件、已安装 Skill 和 Automation 脚本。没有 Worker 运行时，Console 也能上传、下载、移动和删除它们。Session 与 Job 工作区在持久 Home 中，不是云盘文件夹。
+每个 Agent 都有自己独立的控制面私有云盘，保存附件、图片、发布的文件、已安装 Skill 和 Automation 脚本；而面向团队协作共享的 Pod `file` 页面与 Pod 附件则在 Pod 工作空间中按页面权限管理，不属于单个 Agent 的 Console 云盘。没有 Worker 运行时，Console 也能上传、下载、移动和删除 Agent 云盘文件。Session 与 Job 工作区在持久 Home 中，不是云盘文件夹。
 
 部署人员可按 [控制面云盘存储配置](../drive-storage/)设置本地文件夹、S3 或 R2；旧 Home 的文件导入见 [从 1.0 升级到 2.0](../upgrade-to-2/)。
 
@@ -55,11 +55,11 @@ order: 31
 
 云盘与持久 Home 都跨 Worker 实例保留。Agent 只写到工作区的文件留在 Home；发布到云盘后才能在 Console 下载。各类型的存储限制见 [工作节点](../worker-management/)。
 
-Agent 的 `MISSION`、`SOUL` 和 `DESIGN` 文档由 Console 的 Agent 编辑页管理。它们会投影到 Worker，不是云盘文件。如何配置这些文档见 [Agent](../agents/)。
+Agent 的 `MISSION`、`SOUL`、`DESIGN` 和 `CONFIDENTIALITY POLICY`（`ConfidentialityPolicy.md`）文档由 Console 的 Agent 编辑页管理。它们会投影到 Worker，不是云盘文件。如何配置这些文档见 [Agent](../agents/)。
 
 ## 常见问题
 
 - **Agent 找不到上传的文件：** 在消息中写明准确的云盘路径。Agent 会用 `ankole-files get` 取回它。
 - **生成的产物不见了：** 让 Agent 把它保存到云盘，或确认 Job 已经完成。
 - **上传因大小失败：** 单个文件最大 100 MiB。
-- **附件显示为不可取用：** 它在云盘出现之前到达，或下载失败。请发送者重新发送。
+- **附件显示为不可取用：** 从外部渠道拉取失败或上传未完成。请发送者重新发送。

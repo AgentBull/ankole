@@ -43,7 +43,7 @@ Agent は `web_search` を使って公開ページを探し、`web_fetch` を使
 
 ## 現在の組み込み Provider
 
-Control Plane Plugin がさらに Provider 種別を追加できます。現在 Ankole に組み込まれている種別は次のとおりです。
+Control Plane Plugin がさらに Provider 種別を追加できます。Ankole に組み込まれている種別は次のとおりです。
 
 ### `web_search` Provider
 
@@ -52,9 +52,9 @@ Control Plane Plugin がさらに Provider 種別を追加できます。現在 
 | **Parallel** | はい | 1 つの Provider が検索と抽出を提供。objective、複数クエリ、モード、合計文字予算をサポート | 検索と読み取りに 1 つの credential を使いたい、または調査向きのクエリがある |
 | **Bright Data SERP** | いいえ | SERP API を使用。Zone が必要で、国、言語、Google ドメインを選択可能 | 検索リージョン、言語、ローカライズ結果を制御する必要がある |
 | **Jina Search** | いいえ | リージョン、ロケーション、言語、ページ、キャッシュ、検索エンジンのオプションをサポート | リージョン、ページング、またはキャッシュ制御付きの直接 web 検索が必要 |
-| **AgentBull Cloud** | いいえ | 検索ソースを集約し、ソース範囲、時間範囲、キャッシュ迂回をサポート | メタ検索、または明示的なソースと時間の範囲が必要 |
+| **AgentBull Cloud** | はい | 検索とページ抽出に加えモデル機能（`llm`、`embedding`、`rerank`、`image_generate`）を集約し、ソース範囲、時間範囲、キャッシュ迂回をサポート | Web ツールとモデルを 1 つの API キーにまとめたい、または明示的なソースと時間の範囲が必要 |
 
-Parallel の Provider インスタンスは 1 つで、`web_search` と `web_fetch` の両方に割り当てられます。
+Parallel または AgentBull Cloud の Provider インスタンスは 1 つで、`web_search` と `web_fetch` の両方に割り当てられます。
 
 Jina Search と Jina Reader は別々の Provider 種別です。同じ Jina の credential を使う場合でも、別々に追加して、それぞれ対応する profile に割り当ててください。
 
@@ -63,6 +63,7 @@ Jina Search と Jina Reader は別々の Provider 種別です。同じ Jina の
 | Provider | `web_search` もサポート | 主な違い | 使う場面 |
 |---|---|---|---|
 | **Parallel** | はい | Parallel Search と同じ Provider と credential を使ってページテキストを抽出 | すでに Parallel Search を使っており、設定を 1 つにまとめたい |
+| **AgentBull Cloud** | はい | 同じ AgentBull Cloud Provider と API キーを使って公開ページテキストを抽出 | すでにモデルや検索で AgentBull Cloud を使っており、credential を 1 つにまとめたい |
 | **Jina Reader** | いいえ | 公開ページを Markdown に変換。リンク保持、対象・待機セレクタ、キャッシュ、エンジン、token 上限をサポート | 記事本文、またはページの選択部分が必要 |
 
 `web_fetch` は公開 HTTPS ページ向けです。ログインはせず、PDF、画像、アーカイブ、音声、動画のダウンローダーでもありません。

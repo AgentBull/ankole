@@ -30,8 +30,8 @@ Skill 자체의 description이 모델이 사용 여부를 결정할 때 읽는 �
 
 브라우저는 Skill이므로 tool 플래그가 아니라 [Agent Library](../agent-library/)를 통해 켠다. `default_enabled`가 `true`이므로 축소하지 않는 한 새 Agent에는 브라우저가 이미 사용 가능합니다. 두 계층:
 
-1. **인스턴스 전체 기본값** — Skill은 `default_enabled: true`로 제공됩니다. 그대로 두면 모든 Agent가 브라우저를 사용할 수 있다.
-2. **Agent별 재정의** — 브라우저를 가지면 안 되는 Agent는 축소하고, 이전에 축소한 Agent는 확대합니다.
+1. **테넌트 기본값** — Skill은 `default_enabled: true`로 제공됩니다. 그대로 두면 테넌트의 모든 Agent가 브라우저를 사용할 수 있습니다.
+2. **Agent별 재정의** — 브라우저를 가지면 안 되는 Agent는 비활성화하고, 테넌트 기본값이 비활성화된 경우 필요한 Agent에 대해 활성화합니다.
 
 두 계층 모두 [Console API 참조](../console-api/)에서 다루는 Console의 library-capability 라우트로 설정합니다. Agent의 `library-capabilities`를 읽으면 Skill 동기화가 트리거되므로, 보이는 것은 현재 파일시스템과 조정된 레지스트리이며 오래된 스냅샷이 아닙니다.
 

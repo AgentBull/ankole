@@ -9,11 +9,17 @@ An audit trail is the durable record of who changed what, and when. Ankole does 
 
 The decisive property, stated up front: every audit surface is **durable PostgreSQL state or structured logs**, not ephemeral metrics. A record that was written survives the process that wrote it; a record that was never written cannot be reconstructed.
 
-## The AuthZ grant record
+## AuthZ grants, human access, and invitations
 
-Every permission grant is a durable row in `permission_grants`. The grant's `principal_uid` or `group_id` names the owner; the `resource_pattern` and `action` name what it permits; timestamps record when it was created and last updated. There is no separate audit log for grants — the grant table itself is the record, because grants are append-mostly and changes are visible as row updates.
+Every permission grant is a durable row in `permission_grants`. Each grant belongs to one `principal_uid`, one `group_id`, or one Userset page audience (`source_page_id` and `source_action`), and Pod ACL grants anchor to `pages` rows through `target_page_id` and `target_scope`. The `resource_pattern`, `action`, and `condition` name what the grant permits, and timestamps record when it was created and last updated. There is no separate audit log for grants — `permission_grants` itself is the record.
 
-Read the grants through `GET /principals/:uid/grants` and `GET /principal-groups/:name/grants`. A grant that was added and later removed shows up in the table's history (if you keep PostgreSQL point-in-time recovery); a grant that exists now is what the system enforces.
+Human account lifecycle changes and workspace invitations also write durable PostgreSQL rows:
+
+- `human_access_events` records each access disable, restoration, or directory-driven transition, including actor, source, previous and current status, `access_version`, and any `released_identifiers`.
+- `human_access_restrictions` stores active restrictions with `:suspended` or `:offboarded` dispositions and reasons.
+- `pod_invitations` records Pod workspace invitations, membership kind (`member` or `guest`), quota (`used_count`), and creator (`created_by_principal_uid`).
+
+Read Principal and group grants through `GET /api/v2/principals/:uid/grants` and `GET /api/v2/principal-groups/:name/grants`. A grant that was added and later removed remains in PostgreSQL point-in-time recovery history; the rows currently present are what the system enforces.
 
 ## The structured control-plane logs
 
@@ -30,7 +36,7 @@ See [Environment variables](../environment-variables/) for log settings and [Rea
 
 ## The Signal and delivery rows
 
-Every Signal (the durable inbox that drives sessions) and every delivery attempt is a row in PostgreSQL. These are not typically read for audit — they are operational state — but they form a record of what the system was asked to do and whether it was delivered. The Console's `/background-agent-jobs/:id` route shows a job's `attempts` and `error`; the `/ai-gateway/conversations` route shows the model calls a turn made.
+Every Signal (the durable inbox that drives sessions) and every delivery attempt is a row in PostgreSQL. These are operational state, and they also form a record of what the system was asked to do and whether it was delivered. The Console API route `/api/v2/background-agent-jobs/:id` shows a job's `attempts` and `error`; `/api/v2/ai-gateway/conversations` shows the model calls a turn made.
 
 ## Using them together
 
@@ -38,10 +44,11 @@ A real audit question usually spans more than one surface:
 
 | Question | Where to look |
 |---|---|
-| "Who gave this agent permission to do Y?" | `permission_grants` + `/principals/:uid/grants` |
-| "What did the agent do on this turn?" | `/ai-gateway/conversations/:id/messages` |
-| "Did the schedule fire?" | `/cron-schedules/:id/runs` |
-| "Was a job's failure retried?" | `/background-agent-jobs/:id` (`attempts`, `error`) |
+| "Who gave this agent or page audience permission to do Y?" | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
+| "Why was a human account suspended, offboarded, or invited?" | `human_access_events`, `human_access_restrictions`, and `pod_invitations` |
+| "What did the agent do on this turn?" | `/api/v2/ai-gateway/conversations/:id/messages` |
+| "Did the schedule fire?" | `/api/v2/cron-schedules/:id/runs` |
+| "Was a job's failure retried?" | `/api/v2/background-agent-jobs/:id` (`attempts`, `error`) |
 | "What did the worker log at that time?" | structured control-plane logs |
 
 ## What this guide is not

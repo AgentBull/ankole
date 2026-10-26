@@ -76,7 +76,7 @@ Embedding モデルがある場合、検索は全文候補とベクトル候補�
 
 | 範囲 | 取得できる Principal |
 | --- | --- |
-| `world` | テナント内のすべての Principal |
+| `world` | テナント内の有効な人間メンバー（`membership = member`）、有効な Agent、およびシステム Principal。外部ゲスト（`membership = guest`）および無効な Principal は除外される |
 | `group:<name>` | 対応する権限グループの現在のメンバー |
 | `principal:<uid>` | 対応する Principal だけ |
 

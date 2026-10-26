@@ -64,19 +64,19 @@ credential을 순환하려면 교체 값을 입력하세요. 확인만 하려고
 
 멈춘 것처럼 보이는 턴은 대개 Ankole이 아니라 모델이나 제공자를 기다리는 것입니다. 무엇이든 취소하기 전에:
 
-1. `/ai-gateway/conversations`에서 턴의 최근 모델 호출을 확인하세요 — 긴 공백이 있으면 제공자가 지연의 원인입니다.
+1. `/api/v2/ai-gateway/conversations`에서 턴의 최근 모델 호출을 확인하세요 — 긴 공백이 있으면 제공자가 지연의 원인입니다.
 2. worker 로그에서 진행 중인 tool call을 확인하세요 — 느린 도구는 멈춘 턴처럼 보입니다.
-3. 턴이 진짜로 꼬인 경우에만 에이전트의 세션을 steer하거나 턴이 타임아웃되도록 둘 수 있습니다. 백그라운드 Job의 취소는 `POST /background-agent-jobs/:id/cancel`이며, 진행 중인 턴은 끝까지 완료됩니다.
+3. 턴이 진짜로 꼬인 경우에만 에이전트의 세션을 steer하거나 턴이 타임아웃되도록 둘 수 있습니다. 백그라운드 Job의 취소는 `POST /api/v2/background-agent-jobs/:id/cancel`이며, 진행 중인 턴은 끝까지 완료됩니다.
 
 공격적으로 취소하는 것이 운영자가 절반만 된 부수 효과를 만드는 방법입니다.
 
 ## 바인딩을 조용히 비활성화
 
-`DELETE /agents/:agent_uid/signal-bindings/:binding_name`은 하드 삭제가 아니라 *비활성화*입니다 — 구성은 복구 가능한 상태로 유지됩니다. 설정을 잃지 않고 에이전트를 채널에서 조용히 만들고 싶을 때(자격 증명이 폐기된 경우, 휴일, 사고) 사용하세요. `PATCH`로 다시 활성화합니다.
+`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name`은 하드 삭제가 아니라 *비활성화*입니다 — 구성은 복구 가능한 상태로 유지됩니다. 설정을 잃지 않고 에이전트를 채널에서 조용히 만들고 싶을 때(자격 증명이 폐기된 경우, 휴일, 사고) 사용하세요. `PATCH`로 다시 활성화합니다.
 
 ## 업그레이드 전에는 매번 백업
 
-Helm 롤백은 데이터베이스 마이그레이션을 되돌리지 않습니다. 업그레이드 전 2분짜리 `pg_dump`는 “롤백됨”과 “백업에서 복원, 하루를 잃음”의 차이입니다. 명령은 [Backup and restore](../backup-and-restore/)를 참조하세요.
+Helm 롤백은 데이터베이스 마이그레이션을 되돌리지 않습니다. 매 업그레이드 전에 컨트롤 플레인 PostgreSQL 데이터베이스와 구성된 전용 `BASE_DB_URLS` 샤드 데이터베이스를 `pg_dump`로 백업하고, 배포 부트스트랩 시크릿(`ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`)도 함께 보관하세요. 업그레이드 전 이 짧은 작업이 “롤백됨”과 “백업에서 복원, 하루를 잃음”의 차이를 만듭니다. 명령은 [Backup and restore](../backup-and-restore/)를 참조하세요.
 
 ## 올바른 영구 문서 조정
 

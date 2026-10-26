@@ -5,7 +5,7 @@ section: Reference
 order: 202
 ---
 
-이 페이지는 PostgreSQL, 배포 비밀 정보, 파일 저장소, 프로세스 설정의 시작 변수입니다. Worker provider 설정은 PostgreSQL에 YAML로 저장됩니다.
+이 페이지는 PostgreSQL, Pod Base 샤드 데이터베이스, `ankole-function-runtime`, 배포 비밀 정보, 객체 저장소, 프로세스 설정의 시작 변수를 설명합니다. Worker provider 설정은 PostgreSQL에 YAML로 저장됩니다.
 
 인스턴스 실행 중에 관리자가 변경할 수 있는 runtime 설정은 [애플리케이션 설정](../app-configuration/)을 참조하십시오. 그런 설정을 `.env`나 Kubernetes Secret에 넣지 마십시오.
 
@@ -15,37 +15,44 @@ order: 202
 
 | 변수 | 필수 | 의미 |
 |---|---|---|
-| `DATABASE_URL` | 예 | control plane용 PostgreSQL connection string |
-| `ANKOLE_SECRET_BASE` | 예 | 인스턴스 전체 secret base; 다른 key를 파생하는 데 사용 |
-| `RELEASE_COOKIE` | 예 | Erlang distribution cookie; 같은 배포의 모든 컨트롤 플레인 노드가 같은 값을 사용 |
-| `POSTGRES_PASSWORD` | 번들 PostgreSQL만 | PostgreSQL 비밀번호(번들 PostgreSQL이 활성화된 경우 필수, 그 외에는 외부 Secret이 제공) |
-| `ANKOLE_HOST` | Compose | deployment가 서비스되는 DNS 이름 |
+| `DATABASE_URL` | 예 (`prod`) | control plane(`Ankole.Repo`)용 PostgreSQL 18+ connection string |
+| `BASE_DB_URLS` | 아니요 | 물리 Pod Base 샤드(`Ankole.Pod.BaseRepo`)용 선택적 `;` 구분 PostgreSQL 18+ URL 목록. 쿼리 파라미터 `ankole_sharding`, `ankole_pool_size`, `ankole_stock_only`를 지원하며, 단일 DB FOSS 배포에서 비워 두면 `DATABASE_URL`을 `base_default`로 사용하고 `sslmode`는 거부합니다 |
+| `ANKOLE_SECRET_BASE` | 예 (`prod`) | 사이트 전체 secret base; 암호화 및 서명 키를 파생하는 데 사용 |
+| `RELEASE_COOKIE` | 예 (`prod`) | Erlang distribution cookie; 같은 배포의 모든 컨트롤 플레인 노드가 같은 값을 사용 |
+| `ANKOLE_FUNCTION_RUNTIME_TOKEN` | 예 (`prod`) | control plane과 `ankole-function-runtime`이 공유하는 내부 Bearer 시크릿 |
+| `ANKOLE_FUNCTION_RUNTIME_URL` | 예 (`prod`) | `ankole-function-runtime`의 내부 HTTP URL(예: Compose의 `http://function-runtime:9000`) |
+| `POSTGRES_PASSWORD` | 번들 PostgreSQL만 | PostgreSQL 비밀번호(번들 PostgreSQL이 활성화된 경우 필수, 그 외에는 `DATABASE_URL` 또는 외부 Secret이 제공) |
+| `ANKOLE_HOST` | Compose | deployment가 서비스되는 공개 DNS 이름 |
 | `ACME_EMAIL` | Compose | Caddy가 Let's Encrypt에 사용하는 이메일 |
-| `ANKOLE_DOCKER_GID` | Compose | Docker socket 그룹 ID; control plane은 권한 없는 사용자로 실행되며 이 그룹을 통해 socket을 사용 |
+| `ANKOLE_DOCKER_GID` | Compose | Docker socket 그룹 ID; control plane은 비특권 사용자로 실행되며 이 그룹을 통해 socket을 사용 |
 
-이 값들은 `.env`나 Secret에 보관하십시오. 버전 관리에 커밋하지 마십시오. Docker Compose의 `.env.example`이 시작 configuration입니다.
+이 값들은 `.env`나 Secret에 보관하십시오. 버전 관리에 커밋하지 마십시오. Docker Compose의 `.env.example`이 시작 구성입니다.
 
-Worker용 key는 `.env`나 Secret에 필요하지 않습니다. control plane이 각 Worker에 고유한 자격 증명을 줍니다.
+Worker용 key는 `.env`나 Secret에 필요하지 않습니다. control plane이 각 Worker에 고유한 자격 증명을 부여합니다.
 
-Helm chart의 `values.yaml`은 관련 Kubernetes 값을 나열합니다. `ankoleSecretBase`, `releaseCookie`, `databaseURL`, `postgresqlPassword`입니다.
+Helm chart의 `values.yaml`에서 대응하는 설정 경로는 `secrets.ankoleSecretBase`, `secrets.releaseCookie`, `secrets.functionRuntimeToken`, `secrets.databaseURL`, `secrets.baseDBURLs`, `secrets.postgresqlPassword`, `controlPlane.siteAdminConsolePath`, `functionRuntime.*`입니다.
 
 ## Runtime 튜닝(프로세스 환경)
 
-이 변수들은 시작 시 읽혀 실행 중인 프로세스를 튜닝합니다. secret이 아닙니다.
+이 변수들은 시작 시 읽혀 control plane 또는 `ankole-function-runtime` 프로세스를 튜닝합니다. secret이 아닙니다.
 
 | 변수 | 기본값 | 의미 |
 |---|---|---|
 | `ANKOLE_ENV` | — | deployment 환경 라벨(예: `prod`, `dev`) |
 | `ANKOLE_LOG_LEVEL` | `info` | log 레벨(`debug`, `info`, `warning`, `error`) |
-| `ANKOLE_DATABASE_POOL_SIZE` | `10` | control-plane database connection pool 크기 |
+| `POOL_SIZE` | `10` | control-plane 프로세스가 직접 읽는 `Ankole.Repo` 데이터베이스 커넥션 풀 크기 |
+| `ANKOLE_DATABASE_POOL_SIZE` | `10` | Docker Compose `.env` 변수(`compose.yaml`이 `POOL_SIZE`로 매핑) |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | 번들 서버용 PostgreSQL `max_connections` 설정 |
+| `ANKOLE_SITE_ADMIN_CONSOLE_PATH` | `/site-admin-console` | Site Admin Console URL 경로 |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | 릴리스 기본값 | Docker Compose에서 사용하는 `ankole-function-runtime` 컨테이너 이미지 |
+| `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` | `32` | `ankole-function-runtime` 컨테이너당 최대 동시 실행 수 |
 | `ANKOLE_LIBRARY_ROOT` | chart 기본값 | 번들 Agent Library(`app/library`) 경로 |
 | `ANKOLE_INTERNAL_SKILLS_ROOT` | — | 내부 skill bundle 경로 |
-| `ANKOLE_AI_GATEWAY_BASE_URL` | — | AIGateway base URL override(거의 필요하지 않음) |
+| `ANKOLE_AI_GATEWAY_BASE_URL` | — | AIGateway base URL override |
 
 ## 파일 저장소(프로세스 시작)
 
-컨트롤 플레인은 각 Agent의 드라이브를 파일 저장소에 보관합니다. 첨부 파일, 생성된 이미지, 보낸 파일, 설치된 Skill, Automation Job 스크립트, Agent가 저장한 파일이 여기에 들어갑니다. Worker는 저장소 자격 증명을 받지 않으며, 파일 바이트는 컨트롤 플레인을 거쳐 이동합니다.
+`ANKOLE_FILES_STORE`는 컨트롤 플레인 객체 저장소(`Ankole.ObjectStore`)를 설정하며, 각 Agent의 드라이브(첨부 파일, 생성된 이미지, 보낸 파일, 설치된 Skill, Automation Job 스크립트, 저장한 파일)와 더불어 Pod `file` 페이지, Pod 문서/Base/Chat 첨부 파일, 컴파일된 Applet 번들을 함께 보관합니다. Worker는 저장소 자격 증명을 받지 않으며, 파일 바이트는 컨트롤 플레인을 거쳐 이동합니다. 지원하는 모든 OpenDAL 백엔드는 [제어면 드라이브 및 객체 저장소 설정](../drive-storage/)을 참조하세요.
 
 | 변수 | 필수 | 의미 |
 |---|---|---|

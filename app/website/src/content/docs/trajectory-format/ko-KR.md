@@ -72,7 +72,7 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 ## 이 가이드가 아닌 것
 
-이 가이드는 ChatML 명세가 아닙니다 — 정규 ChatML 형식은 표준이며, Ankole의 읽기 시점 투영은 그 형태를 재정의하지 않고 유지합니다. 궤적을 읽기 위한 소비자 대상 API도 아닙니다 — Console 라우트(`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`)는 [Console API reference](../console-api/)에 문서화된 운영자 표면입니다. 그리고 저장 페이지를 대신하는 것도 아닙니다. 이 가이드는 두 저장소에 걸친 형식 수준의 관점입니다.
+이 가이드는 ChatML 명세가 아닙니다 — 정규 ChatML 형식은 표준이며, Ankole의 읽기 시점 투영은 그 형태를 재정의하지 않고 유지합니다. 궤적을 읽기 위한 소비자 대상 API도 아닙니다 — Console 라우트(`/api/v2/ai-gateway/conversations/:id/messages`, `/api/v2/background-agent-jobs/:id`)는 [Console API reference](../console-api/)에 문서화된 운영자 표면입니다. 그리고 저장 페이지를 대신하는 것도 아닙니다. 이 가이드는 두 저장소에 걸친 형식 수준의 관점입니다.
 
 ## 다음 단계
 

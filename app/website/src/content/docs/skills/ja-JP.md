@@ -1,21 +1,21 @@
 ---
 title: Agent Library
-description: Agent Plugin、Skill、Control Plane Plugin を、全体または 1 つの Agent に対して有効化します。
+description: テナントおよび Agent 単位の Agent Plugin と Skill、ならびにサイトスコープの Control Plane Plugin を管理します。
 section: User guide
 order: 32
 ---
 
-Agent Library は、Agent が使用できる仕事の方法と拡張を決定します。Console はそれらを 3 つのタイプに分けています。
+Site Admin Console の **Agent Library** ページでは、2 つの異なる拡張境界を管理します。テナントおよび個別 Agent スコープのモデル能力（**Agent Plugin** と **Skill**）と、厳密に**サイトスコープ**のプラットフォーム拡張（**Control Plane Plugin**。スコープが **グローバル既定値** のときのみ表示）です。
 
-これらは、この instance に既にインストールされている信頼できるコンポーネントです。Agent Library は公開 marketplace ではありません。ここで項目を有効化しても、インターネットから未知の code がダウンロードされることはありません。
+これらはすべて、このデプロイインスタンスにコンパイルまたはパッケージ済みで同梱されている信頼されたファーストパーティ製コンポーネントです。Agent Library は公開マーケットプレイスではなく、ここで項目を有効化してもインターネットから未知のコードがダウンロードされることはありません。
 
 ## 3 種類の能力を理解する
 
-| タイプ | 用途 | 変更が適用されるタイミング |
-|---|---|---|
-| **Agent Plugin** | 関連する Skill、MCP 能力、workspace template をまとめる | Agent の次の turn |
-| **Skill** | 反復可能な 1 種類の仕事の手順とリソース | Agent の次の turn |
-| **Control Plane Plugin** | chat adapter、identity source、設定、サービスを control plane に追加 | control plane の次回起動時 |
+| タイプ | スコープ | 用途 | 変更が適用されるタイミング |
+|---|---|---|---|
+| **Agent Plugin** | テナント既定値 + Agent ごとの override | 関連する Skill、MCP 能力、workspace template をまとめる | Agent の次の turn |
+| **Skill** | テナント既定値 + Agent ごとの override | 反復可能な 1 種類の仕事の手順とリソース | Agent の次の turn |
+| **Control Plane Plugin** | サイトスコープのみ（`/api/v2/site/control-plane-plugins`） | ビルド時コンパイルのフルスタック拡張（サブシステムアダプター、OTP サービス、HTTP Plug、拡張ルート、ドメインフック、設定フィールド、Web UI スロット） | ビルドで常時有効（`activation: :always`）、または control plane の次回起動時（`activation: :optional`） |
 
 ### Agent Plugin: 1 つの package にまとめられた能力
 
@@ -77,11 +77,18 @@ Deep Research のエントリ Skill は `main` を使用します。元の会話
 
 Brain は Skill の名前、説明、tag を検索します。一致した後、Agent は `skill_view` を呼び出します。`skill_view` は `ankole-runtime` に従い、互換性のある実行 surface では Skill を読み込み、それ以外では正しい routing または rejection の結果を返します。Skill または親 Agent Plugin を無効にすると、その Agent は Brain から発見することも読み込むこともできません。この意味検索の経路には、有効な Brain が必要です。この mode は、必要なときだけ利用でき、すべての Prompt を常に占有すべきではない同梱の方法論や SOP に適しています。
 
-### Control Plane Plugin: 管理 platform を拡張する
+### Control Plane Plugin: サイトスコープのフルスタック拡張
 
-Control Plane Plugin は OpenAI Plugin ではなく、Agent の作業 context に入りません。Ankole control plane を拡張します。
+Control Plane Plugin は OpenAI Plugin ではなく、Agent の作業 context にも入らず、テナント単位や Agent 単位でスコープされることもありません。リリースに静的コンパイルされるサイトスコープの拡張であり、ノード起動時に解決されて不変の `:persistent_term` スナップショットとして公開されます。
 
-Control Plane Plugin は Channel Provider、identity source、システム設定、監督下の service を提供できます。これらのコンポーネントは起動構造を変えるため、有効化または無効化は control plane の次回起動時のみ適用されます。
+Control Plane Plugin はフルスタックで以下の拡張ポイントを提供できます。
+
+- サブシステムアダプター（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）および監督下の OTP プロセス（`children/0`）
+- 外側の HTTP エッジ `Plug` とスコープ付き拡張 JSON:API ルート
+- 同期ドメイントランザクション `hooks/0`（`Ankole.Plugins.Hook`）
+- 宣言的な `AppConfigure` 設定フィールド（`ConfigFields`）と型付き Web UI スロット（`entries.json` の `overrides`）
+
+各 Control Plane Plugin は `activation: :optional | :always` を宣言します。任意のプラグイン（既定の `:optional`）は `plugins.enabled_ids` で選択し、control plane の次回起動時に適用されます。`activation: :always` を持つプラットフォームプラグインはソースビルドで常時有効に固定され、無効化できません。再起動なしで即座に切り替える動的ランタイムスイッチや段階的ロールアウトには、OpenFeature（`Ankole.Features`）を使用します。
 
 ## Agent Plugin と Skill を管理する
 
@@ -118,15 +125,15 @@ Agent Library の scope を対象の Agent に変更し、Skill card を見つ�
 
 ## Control Plane Plugin を管理する
 
-### 有効化または無効化
+### 任意のサイトプラグインを有効化または無効化する
 
-Channel Provider、identity source、同様の platform 能力は Control Plane Plugin から提供されます。
+Control Plane Plugin は厳密にサイトスコープ（`/api/v2/site/control-plane-plugins`）であり、Site Admin Console（`/site-admin-console`）で Agent Library のスコープを **グローバル既定値** に設定したときのみ表示されます。
 
-1. **Control Plane Plugins** タブを開きます。
-2. Plugin を見つけ、**次回起動時に有効** に設定します。
+1. Site Admin Console で **Agent Library** を開き、スコープを **グローバル既定値** にしたまま **Control Plane Plugins** タブを開きます。
+2. 任意の Plugin（`activation: :optional`）を見つけ、**次回起動時に有効** に設定します。`activation: :always` の Plugin はビルドで固定有効のため無効化トグルはありません。
 3. 保存して control plane を再起動します。
-4. Agent Library に戻り、**現在 active** になっていることを確認します。
-5. Plugin が提供する Channel Provider、identity source、または設定を構成します。
+4. **Control Plane Plugins** タブに戻り、**現在 active** になっていることを確認します。
+5. Plugin が提供する Channel Provider、identity source、Worker プロバイダー、または設定を構成します。
 
 Docker Compose:
 
@@ -140,7 +147,7 @@ Kubernetes:
 kubectl -n ankole rollout restart deployment/ankole-control-plane
 ```
 
-Control Plane Plugin の無効化も次回起動時に適用されます。既存の Channel Provider や identity source を利用できなくする可能性があるため、無効化する前に active な configuration が依存していないことを確認してください。
+任意の Control Plane Plugin の無効化も次回起動時に適用されます。設定トランザクション内では `veto_disable` 参照チェックが強制されるため、Worker プロバイダー Plugin は、いずれかのテナントでそのプロバイダー種別を参照する Worker（一時停止中の Worker や削除処理中の Agent を含む）が割り当てられている間は無効化できません。無効化する前に、稼働中の Channel Provider、identity source、Worker が依存していないことを確認してください。再起動なしの動的な機能切り替えには OpenFeature（`Ankole.Features`）を使用します。
 
 ## トラブルシューティング
 
@@ -154,7 +161,9 @@ Control Plane Plugin の無効化も次回起動時に適用されます。既�
 
 ### Control Plane Plugin
 
-- **Control Plane Plugin が「次回起動時に有効」と表示される:** 設定は保存されていますが、control plane はまだ再起動していません。
+- **Control Plane Plugins タブが表示されない:** Control Plane Plugin はサイトスコープ専用です。Site Admin Console（`/site-admin-console`）を開き、**Agent Library** のスコープを **グローバル既定値** に切り替えてください。
+- **Control Plane Plugin が「次回起動時に有効」と表示される:** 設定は `plugins.enabled_ids` に保存されていますが、起動スナップショットを更新するには control plane の再起動が必要です。
+- **Control Plane Plugin を無効化できない:** その Plugin が `activation: :always`（ビルド固定有効）を宣言しているか、いずれかのテナントの Agent Worker がその Worker プロバイダー種別を参照しているため `veto_disable` によって拒否されています。
 - **再起動後に control plane が起動しない:** 起動 log を読み、再度起動する前に Plugin の configuration または依存を修正してください。
 - **Channel Provider がまだ見つからない:** Plugin が **現在 active** であることを確認し、その Channel Provider の configuration を検査してください。
 

@@ -23,12 +23,12 @@ order: 200
 
 | コマンド | 内容 |
 |---|---|
-| `kit external-services start` | devkit Docker Compose サービス（PostgreSQL など）を起動します。`bun run services:start` としてラップされています。 |
+| `kit external-services start` | devkit Docker Compose サービス（PostgreSQL 18 と `ankole-function-runtime`）を起動します。`bun run services:start` としてラップされています。 |
 | `kit external-services stop` | devkit Compose サービスを停止します。`bun run services:stop` としてラップされています。 |
 | `kit external-services status` | devkit サービスの健全性を報告します。`bun run services:status` としてラップされています。 |
-| `kit dev` | 完全な開発環境を起動します — Phoenix とフロントエンドアセット、そして Agent ごとに Worker コンテナを 1 つ作成する Docker Worker バックエンド。`bun run dev` としてラップされています。このターミナルを開いたままにしてください。 |
+| `kit dev` | 完全な開発環境を起動します — PostgreSQL 18、`ankole-function-runtime`、Phoenix とフロントエンドアセット、そして Agent ごとに Worker コンテナを 1 つ作成する Docker Worker バックエンド。`bun run dev` としてラップされています。このターミナルを開いたままにしてください。 |
 
-`kit dev` はスタック全体を実行する唯一のコマンドです。PostgreSQL を起動または検証し、ローカルデータベースを作成して移行し、欠落または古い worker イメージをビルドし、Docker Worker バックエンドでコントロールプレーンを起動します。コントロールプレーンは、Agent の作成時にその Agent の Worker コンテナを作成します。コンテナはローカルの Agent Computer ソースを `bun --watch` で実行します。コンテナは `docker ps -a --filter label=ankole.installation=dev` で一覧表示できます。2 つ目の `kit dev` を起動しないでください。そのターミナルで `Ctrl+C` して停止します。このとき `dev` インストールの Worker コンテナも削除されるため、再起動後は、既存の Agent が次に必要としたときにコントロールプレーンがその Worker を再作成します。
+`kit dev` はローカルスタック全体を実行するコマンドです。PostgreSQL 18 と `ankole-function-runtime` を起動または検証し、ローカルのコントロールプレーンデータベース（`ankole_dev`）を作成してマイグレーションし、欠落または古い worker イメージをビルドし、Docker Worker バックエンドでコントロールプレーンを起動します。`BASE_DB_URLS` が未設定の場合、コントロールプレーンの開発用ブートストラップは 4 つのローカル Base シャードデータベース（`ankole_base_00`〜`ankole_base_03`）も自動作成して準備します。コントロールプレーンは、Agent の作成時にその Agent の Worker コンテナを作成します。コンテナはローカルの Agent Computer ソースを `bun --watch` で実行します。コンテナは `docker ps -a --filter label=ankole.installation=dev` で一覧表示できます。2 つ目の `kit dev` を起動しないでください。そのターミナルで `Ctrl+C` して停止します。このとき `dev` インストールの Worker コンテナも削除されるため、再起動後は、既存の Agent が次に必要としたときにコントロールプレーンがその Worker を再作成します。
 
 ## データベースライフサイクル
 
@@ -41,7 +41,7 @@ order: 200
 | `kit app-db rebuild` | アプリデータベースを削除・作成・移行します。`--yes` が必要です。再作成後に Ecto マイグレーションを実行します。 |
 | `kit app-db migrate` | 設定されたローカルデータベースに対してコントロールプレーンの Ecto マイグレーションを実行します。 |
 
-これらの間に適用されるオプション: `--start-services` は操作前に Compose を起動し、`--pull-images` は最新のサービスイメージを先に引き、ヘルスチェック待機がサービスの準備完了までの待ち時間を制御します。特に `app-db rebuild` はローカルの `ankole_dev` データベースを削除します。データが本当に破棄可能なときだけ実行してください。
+`create`、`drop`、`rebuild` には共通オプションが適用されます: `--start-services` は操作前に Compose を起動し、`--pull` は最新のサービスイメージを先に取得し、`--wait-timeout` はサービスのヘルスチェック完了を待つ秒数（デフォルト `60`）を制御します。特に `app-db rebuild` はローカルの `ankole_dev` データベースを削除します。データが本当に破棄可能なときだけ実行してください。
 
 ## セットアップと検査
 

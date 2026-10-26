@@ -85,7 +85,10 @@ list and `max_age` from Attesto. The `auth_time` essential claim requires a know
 authentication time. Other unimplemented claim requests do not reject login.
 
 `Ankole.OIDC.LoginPolicy` owns identity-provider restrictions, authentication
-reuse, account selection, and the need for fresh authentication. Browser
+reuse, account selection, and the need for fresh authentication. It intersects
+the Client's configured login sources with the tenant's
+`Ankole.Principals.PodLoginPolicy` (for example filtering site `email_otp` when
+`allow_email_otp` is false). Browser
 transactions store this normalized policy input. Ankole does not create a second
 identity system for OIDC: Human Principals and their access versions remain the
 identity and revocation authority.
@@ -141,7 +144,8 @@ issuance transaction. `CodeStore.take/1` atomically marks it consumed. Token
 issuance (`Grants.exchange/2`) and refresh responses (`Grants.refresh/2`) run
 in `Repo.transact_top_level/2`. A wrong Client, redirect URI, verifier, or
 expired grant cannot restore the code. Token issuance then checks the Client,
-granted scopes, OIDC session, active Human, and AI Gateway policy. The Human
+granted scopes, OIDC session, active Human, current `PodLoginPolicy` compliance
+(`PodLoginPolicy.authentication_allowed?/3`), and AI Gateway policy. The Human
 row is held with `FOR SHARE` during issuance.
 
 Ankole issues an RS256 `at+jwt` access token with a 30-minute lifetime, carrying
@@ -208,13 +212,15 @@ scheme receives a Basic challenge.
 
 UserInfo accepts a case-insensitive Bearer header and POST form `access_token`.
 The common access-token verifier validates the signature, current Client, and
-OIDC session once and returns that verified context to UserInfo. UserInfo then
+OIDC session (including active Human access and `PodLoginPolicy` compliance)
+once and returns that verified context to UserInfo. UserInfo then
 checks the Origin and projects the current Human profile. It does not verify the
 same token or OIDC session a second time.
 
 Introspection requires a confidential Client. Ankole validates an access token
 through the same verifier, or reads an unconsumed, unexpired refresh token in a
-live family and validates its OIDC session. A credential from another Client
+live family and validates its OIDC session against current Human status and
+`PodLoginPolicy`. A credential from another Client
 returns `active: false`.
 
 ## Keys, issuer, and rolling deployment
@@ -231,7 +237,7 @@ passes requests to that context. Attesto currently advertises DPoP without a
 configuration switch, so the projection removes that unsupported capability.
 
 `Ankole.TokenSigning` reads the issuer from its own application configuration.
-SaaS uses its console origin for the same setting. Only development and test builds can use an HTTP
+Only development and test builds can use an HTTP
 issuer with a valid host and no query, fragment, or userinfo. This local exception
 validates the Principal kind and keystore callbacks before constructing the
 configuration. Production builds reject HTTP issuers and use

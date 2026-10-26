@@ -64,19 +64,19 @@ Worker 环境改动在**下一个回合**生效，不在当前正在跑的回合
 
 一个看起来卡住的回合，通常在等模型或 provider，不在等 Ankole。在取消任何东西之前：
 
-1. 查 `/ai-gateway/conversations` 该回合的近期模型调用——若有长间隔，provider 是瓶颈。
+1. 查 `/api/v2/ai-gateway/conversations` 该回合的近期模型调用——若有长间隔，provider 是瓶颈。
 2. 查 worker 日志看是否有进行中的工具调用——慢工具看起来像卡住的回合。
-3. 仅当回合确实楔住，引导 agent 的 session，或让回合超时；后台任务的取消是 `POST /background-agent-jobs/:id/cancel`，它让进行中的回合跑完。
+3. 仅当回合确实楔住，引导 agent 的 session，或让回合超时；后台任务的取消是 `POST /api/v2/background-agent-jobs/:id/cancel`，它让进行中的回合跑完。
 
 激进取消是运维者制造半截副作用的方式。
 
 ## 安静地禁用 binding
 
-`DELETE /agents/:agent_uid/signal-bindings/:binding_name` 是*禁用*，不是硬删除——配置可恢复。想在一个频道里让 agent 静音而不丢设置（凭证撤销、假日、事故）时用它。用 `PATCH` 重新启用。
+`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` 是*禁用*，不是硬删除——配置可恢复。想在一个频道里让 agent 静音而不丢设置（凭证撤销、假日、事故）时用它。用 `PATCH` 重新启用。
 
 ## 每次升级前都备份
 
-Helm 回滚不会反向执行数据库 migration。升级前那两分钟的 `pg_dump`，是“回滚了”和“从备份还原、丢了一天”之间的差别。备份与还原命令见 [备份与还原](../backup-and-restore/)。
+Helm 回滚不会反向执行数据库 migration。每次升级前都应对控制面 PostgreSQL 数据库及所有已配置的 `BASE_DB_URLS` 独立分片库执行 `pg_dump`，并妥善保存部署引导密钥（`ANKOLE_SECRET_BASE`、`RELEASE_COOKIE` 和 `ANKOLE_FUNCTION_RUNTIME_TOKEN`）——这是“平滑回滚”和“从备份还原、丢了一天”之间的差别。备份与还原命令见 [备份与还原](../backup-and-restore/)。
 
 ## 从正确的长期文档调整 Agent
 

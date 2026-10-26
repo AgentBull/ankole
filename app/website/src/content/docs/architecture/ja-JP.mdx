@@ -17,15 +17,15 @@ Harness は各行動主体を識別し、アクセス規則を適用し、長時
 
 <DocsArchitectureDiagram lang="ja-JP" />
 
-1 つのプライベートな deployment instance は、1 つの論理 control plane と、Agent ごとに 1 台の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理し、Worker を作成します。各 Worker は、その Agent が実際に働く compute 環境を提供します。
+1 つのプライベートな deployment instance は、1 つの論理 control plane、ステートレスな `Function Runtime`（`ankole-function-runtime`）サービス、および Agent ごとに 1 台の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理し、Pod の共同作業ワークスペースを運用し、Pod Applet のバックエンド関数や決定論的な TypeScript プログラムのために `Function Runtime` の isolate を呼び出し、Worker を作成します。各 Worker は、その Agent が実際に働く専用の compute 環境を提供します。
 
-Pod と外部アダプターが会話の発言を記録します。Signals が発言、外部イベント、時刻の刺激を受け付け、Sessions が作業を実行します。Identity Provider が人と組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
+Pod（ページ、リアルタイムドキュメント、物理シャード上の 2 層 Base テーブル、Applet、マルチプレイヤー Pod Chat）と外部アダプターが会話の発言を記録します。Signals が発言、外部イベント、時刻の刺激を受け付け、Sessions が作業を実行します。統合された認証と Identity Provider がパスワードレス Email OTP（`SiteCredential`）、エンタープライズ SSO、および組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
 
-## Control plane と Agent Computer Worker
+## Control plane、Function Runtime、Agent Computer Worker
 
 ### control plane は state を保存し、決定を行います
 
-Elixir/OTP の control plane は、Console、Principal とアクセス、システム configuration、signal の routing、実行セッション、Brain、Background Agent Job、AIGateway、Control Plane Plugin を担います。
+Elixir/OTP の control plane は、Pod（ページ、ドキュメント、Base テーブルと物理シャード、Applet、マルチプレイヤー Pod Chat）、Console、Principal とアクセス、システム configuration、signal の routing、実行セッション、Brain、Workflow、Background Agent Job、AIGateway、Control Plane Plugin を担います。
 
 これらの module はすべて同じ規則に従います。ユーザーに見える結果を変える state は、実行や外部への送信を駆動する前に PostgreSQL に書き込まれます。
 
@@ -73,7 +73,7 @@ signal は実行セッションを直接指定できます。指定がなけれ�
 
 `Ankole.Sessions` はキュー、Admission、Driver、Run、ツール、復旧を所有します。1 つの実行セッションは同時に 1 つの Run を実行します。開始のたびに Admission がテナント、Agent の状態、認可、使用量制限を確認します。
 
-各 Agent は会話内で独自の実行セッションを持ち、その作業を会話の全参加者が閲覧できます。指名されたターンは依頼者の認可を使います。自発的な介入は既定で Agent 自身の権限を使います。既存の介入方針がある人を現在の依頼者と認定した場合だけ、その人の認可を使います。
+各 Agent は会話内で独自の実行セッションを持ち、その作業を会話の全参加者が閲覧できます。対話型のターンおよび人間を起点とするターン — 人間の発言で起動した `may_intervene` ターンを含む（Agent のメッセージが他の Agent を起こすことはありません）— は **`Human ∩ Agent` の権限交差**（`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`）のもとで実行され、人間と Agent の両方がアクセス権を持つ必要があります。対話する人間を伴わない自律的な非人間ターン（`cron`、`webhook`、バックグラウンドサービスのトリガー）は Agent 自身の権限で実行されます。
 
 cron 規則とバックグラウンドタスクは独立した実行セッションを持ち、結果を対象の会話に発言します。会話の次のターンは新しい発言を読み込み、他の実行セッションの内部作業は取り込みません。
 
@@ -131,19 +131,19 @@ AIGateway は、履歴を保存しない呼び出しと、継続できる モデ
 
 Worker は Provider ごとに個別の lifecycle を実装しません。
 
-tool catalog が大きい場合、model は Tool Search で tool をオンデマンドに検索するか、制限された sandbox 内で多数の tool を呼び出して結果だけを返す 1 つの program を提出できます。ネイティブ対応の Provider は呼び出しをそのまま透過させ、AIGateway はそれ以外のすべての Provider に対して gateway 内で同じ能力を提供します。1 つの Provider は複数の credential を pool として保持することもでき、ChatGPT サブスクリプションのような account credential も含まれます。失敗の帰属、retry、使用量記録は credential 単位で残ります。
+tool catalog が大きい場合、model は Tool Search で tool をオンデマンドに検索するか、Programmatic Tool Calling によって多数の tool を呼び出して結果だけを返す 1 つの program を提出できます。AIGateway と Workflow は、ステートレスな `ankole-function-runtime` の isolate（`POST /v1/program/run`）で決定論的な TypeScript プログラムを実行します。ネイティブ対応の Provider はネイティブ呼び出しをそのまま透過させ、AIGateway はそれ以外のすべての Provider に対して gateway 内で同じ能力を提供します。1 つの Provider は複数の credential を pool として保持することもでき、ChatGPT サブスクリプションのような account credential も含まれます。失敗の帰属、retry、使用量記録は credential 単位で残ります。
 
 [AIGateway](../ai-gateway/) と [LLM Provider の追加](../adding-a-provider/) を参照してください。
 
 ## エンタープライズ Identity、アクセス、拡張
 
-Ankole は、人、Agent、システムサービスを Principal として表します。Identity Provider が Console の SSO を提供し、従業員、連絡先、組織ディレクトリを同期します。
+Ankole は、人、Agent、システムサービスを Principal として表します。Pod と Console にわたる統合パスワードレス認証により、個人の `SiteCredential` Email OTP とテナントのエンタープライズ Identity Provider（OIDC/OAuth SSO と組織ディレクトリ同期）がパスワードを保存せずにワークスペースメンバーと管理者を認証します。
 
 chat channel が message を送受信します。これらの Provider は異なる platform を使えます。
 
 AuthZ は実行時に、Principal、permission group、resource、action、condition から判定します。アクセスは prompt の中の 1 文ではなく、model が permission を持っていると宣言することもできません。
 
-Control Plane Plugin が IdP、chat channel、その他の control plane 能力を接続します。Agent Plugin は tool と workspace template を追加します。
+コンパイル時に組み込まれるサイトスコープの Control Plane Plugin は、サブシステムアダプター（Signals、Identity Provider、AI Gateway provider、Worker provider）、監視対象の OTP プロセス、外側の HTTP plug、スコープ付き拡張 JSON:API ルート、ドメイントランザクションフック、`AppConfigure` 設定フィールド、および型付き UI スロットを提供します。Agent Plugin は tool と workspace template を追加します。
 
 Skill は、ある種の仕事のやり方を説明し、メイン Agent または Background Agent Job に限定できます。
 
@@ -153,19 +153,19 @@ Skill は、ある種の仕事のやり方を説明し、メイン Agent また�
 
 ## Durability の境界
 
-PostgreSQL は、identity、access、configuration、message、session、Job、memory、delivery state、audit 記録などの durable な domain 事実を保存します。システムが結果をコミットしたかどうかの判断には、これらの記録を使います。
+PostgreSQL 18+ の control-plane データベースは、identity、access、configuration、Pod のメタデータとドキュメント、message、session、Job、memory、delivery state、audit 記録などの durable な domain 事実を保存し、物理 **Base シャードデータベース（`BASE_DB_URLS`）** がテナントの Base テーブル行を保存します。ポイントインタイムリカバリ（PITR）では、すべての Base シャードの復旧目標時刻が control-plane データベースの復旧目標時刻以上（`>=`）でなければなりません。システムが結果をコミットしたかどうかの判断には、これらの PostgreSQL 記録を使います。
 
-control plane のファイルストアは添付ファイル、公開ファイル、Skill、Automation スクリプトを保持します。永続 Home は workspace、ユーザーパッケージ、Codex スレッドを別に保持します。PostgreSQL、ファイルストア、全 Home、元の暗号化キーを一緒にバックアップします。
+オブジェクトストア（control plane のファイルストア）は、Pod ファイル、Pod と会話の添付ファイル、コンパイル済み Applet バンドル、公開ファイル、Skill、Automation スクリプトを保持します。永続 Home は workspace、ユーザーパッケージ、Codex スレッドを別に保持します。control-plane の PostgreSQL データベース、すべての物理 Base シャードデータベース、オブジェクトストア、全 Home、元の暗号化キーを一緒にバックアップします。
 
-RuntimeFabric、Worker プロセス、ストリーム表示、`/var/cache/ankole` は再作成できます。永続 Home はインスタンス削除後も残し、ストレージバックアップが必要です。[バックアップとリストア](../backup-and-restore/)を参照してください。
+RuntimeFabric、`ankole-function-runtime` の isolate、Worker プロセス、ストリーム表示、`/var/cache/ankole` はステートレスまたは再作成可能です。永続 Home はインスタンス削除後も残し、ストレージバックアップが必要です。[バックアップとリストア](../backup-and-restore/)を参照してください。
 
 ## 3 つの deployment 形態
 
-| 形態 | control plane と Worker | 永続化 |
+| 形態 | control plane、Function Runtime、Worker | 永続化 |
 | --- | --- | --- |
-| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux、macOS、Windows ホストが control plane を実行し、control plane が Agent ごとに Docker socket を通じて 1 台の Worker container を作成 | PostgreSQL、ファイルストア、Agent ごとの専用永続 Home volume |
-| **Kubernetes · エンタープライズ deployment 向け推奨** | 1 つの control plane が、Agent ごとに Kubernetes API を通じて 1 つの Worker Pod を作成 | PostgreSQL、ファイルストア、Home PVC または共有ストレージ。キャッシュは別 volume |
-| **ソースインストール** | `bun dev` が control plane を実行し、control plane が Agent ごとに Docker の Worker container を作成。container はローカルの Agent Computer ソースを watch モードで実行 | PostgreSQL、`var/ankole-dev/files`、専用 Docker 永続 Home volume |
+| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux、macOS、Windows ホストが control plane と `ankole-function-runtime` を実行し、control plane が Agent ごとに Docker socket を通じて 1 台の Worker container を作成 | PostgreSQL 18+（および設定された `BASE_DB_URLS` シャード）、オブジェクトストア、Agent ごとの専用永続 Home volume |
+| **Kubernetes · エンタープライズ deployment 向け推奨** | Helm デプロイメントが control plane と `ankole-function-runtime` の Deployment を実行し、control plane が Agent ごとに Kubernetes API を通じて 1 つの Worker Pod を作成 | PostgreSQL 18+ と物理 Base シャードデータベース、オブジェクトストア、Home PVC または共有ストレージ。キャッシュは別 volume |
+| **ソースインストール** | `bun run services:start` が PostgreSQL 18 と `ankole-function-runtime` を起動し、`bun dev` が control plane を実行して Agent ごとに Docker の Worker container を watch モードで作成 | PostgreSQL 18、`var/ankole-dev/files`、専用 Docker 永続 Home volume |
 
 論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、control plane が各 Agent に専用の Worker を用意します。完全な手順は [クイックスタート](../quickstart/#deployment) を参照してください。
 

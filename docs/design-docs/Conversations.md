@@ -552,7 +552,7 @@ The latest eligible failed reply
 exposes Retry through the same capability predicate;
 Stop and preflight notices do not become retryable merely because they are
 notices. A new Human retry captures the current Chat model preference. Completed
-Page, Database, and applet changes remain. Native edits, regeneration, and logical
+Page, Base, and Applet changes remain. Native edits, regeneration, and logical
 queue removal call the message-change lifecycle in their transaction,
 invalidating affected Brain facts and rewinding its learning cursor. Removed
 messages retain stable idempotency identities while a shared visibility query

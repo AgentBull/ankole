@@ -1,6 +1,6 @@
 ---
 title: Skill と Control Plane Plugin の開発
-description: Agent に仕事の方法を追加するか、identity、channel、configuration、監督下の service を control plane に追加します。
+description: Agent に仕事の方法を追加するか、サイトスコープの adapter、設定、ドメイントランザクション hook、監督下の service、Web UI スロットを control plane に追加します。
 section: Developer guide
 order: 113
 ---
@@ -11,10 +11,11 @@ Skill と Control Plane Plugin はどちらも Ankole を拡張しますが、�
 |---|---|
 | Agent にある種類の仕事のやり方を教える | Skill |
 | Agent に MCP-backed の workflow と使用手順を提供する | Skill |
-| IdP、chat adapter、Provider kind を追加する | Control Plane Plugin |
-| control plane の設定や監督下の service を追加する | Control Plane Plugin |
+| IdP、chat adapter、LLM Provider、Worker provider kind を追加する | Control Plane Plugin |
+| サイトスコープの control plane 設定、監督下の service、ドメイントランザクション hook、拡張 `/api/v2` ルート、または Web UI スロットを追加する | Control Plane Plugin |
+| 再起動なしで runtime のビジネス挙動を動的に切り替える | OpenFeature（`Ankole.Features`） |
 
-Skill は Agent が読み取る file の集合です。新しい control plane の build は不要です。Control Plane Plugin は control plane にコンパイルされるファーストパーティの Elixir module です。登録が必要で、control plane の次回起動時に活性化します。
+Skill は Agent が読み取る file の集合です。新しい control plane の build は不要です。Control Plane Plugin はリリースにコンパイルされるサイトスコープのファーストパーティフルスタック拡張です（テナントや Agent スコープになることはありません）。`:optional` Plugin は `siteadmin` が有効化した後の次回起動時に活性化し、`:always` Plugin はソース build に固定で活性化されます。
 
 ## Skill を書く
 
@@ -104,7 +105,7 @@ dependencies:
 
 ## Control Plane Plugin を開発する
 
-control plane が所有する能力には、Control Plane Plugin を使用します。module は `Ankole.Plugins.Plugin` を実装します。最小の有効な Plugin は、1 つの安定した ID を持ちます。
+control plane が所有するサイトスコープの能力には、Control Plane Plugin を使用します。module は `Ankole.Plugins.Plugin` を実装します。最小の有効な Plugin は、1 つの安定した ID を持ちます。
 
 ```elixir
 defmodule Ankole.Plugins.MyPlugin do
@@ -115,15 +116,19 @@ defmodule Ankole.Plugins.MyPlugin do
 end
 ```
 
-Plugin ID には小文字の slug を使用してください。他の callback は必要なときだけ実装します。
+Plugin ID には小文字の slug を使用してください。任意の callback は必要なときだけ実装します。
 
 | Callback | 用途 |
 |---|---|
-| `display_name/0`、`description/0` | Console に表示される名前と説明 |
-| `adapter_declarations/0` | IdP、chat、その他の adapter を宣言 |
+| `activation/0` | `:optional`（デフォルト、`plugins.enabled_ids` で選択し次回起動時に反映）または `:always`（ビルドに固定で活性化、Console トグルなし） |
+| `display_name/0`、`description/0` | Site Admin Console に表示されるローカライズされた名前と説明 |
+| `adapter_declarations/0` | IdP、chat、LLM Provider、Worker provider（`agent_workers.provider_kind`）、webhook などの adapter を宣言 |
+| `hooks/0` | 同期ドメイントランザクション hook（`Ankole.Plugins.Hook` を実装する `[{hook_point, module}]`）を宣言 |
 | `app_config_definitions/0` | 固定的な AppConfigure 設定を宣言 |
 | `app_config_patterns/0` | 動的な ID を持つ設定を宣言 |
-| `children/0` | connection、registry、reconciler を起動 |
+| `children/0` | Plugin supervisor の下で connection、registry、reconciler を起動 |
+
+フルスタックのビルド拡張では、コアルーターの外側にリクエスト Plug を挟んだり、型付きの `/api/v2/*` JSON:API ルートをマウントしたり、`entries.json` の `overrides` で型付き Web UI スロット（`PodAppSlots`、`ConsoleAppSlots`、`AuthAppSlots`）をバインドしたりすることもできます。
 
 ### Plugin を登録する
 
@@ -135,7 +140,7 @@ config :ankole, :control_plane_plugin_modules, [
 ]
 ```
 
-すると Plugin が Console の catalog に表示されます。管理者が有効化した後、control plane の次回起動時に設定、adapter、監督下の process が登録されます。Plugin はホットロードをサポートしません。
+すると Plugin が **Site Admin Console**（`/site-admin-console` の **Global defaults** スコープ、`GET` / `PUT /api/v2/site/control-plane-plugins`）のサイトスコープ catalog に表示されます。`siteadmin` が `:optional` Plugin を有効化すると、control plane の次回起動時に不変の `:persistent_term` ブートスナップショットへ解決され、設定、adapter、hook、監督下の process が登録されます（いずれかのテナントが Worker provider kind を参照している間は `veto_disable` により無効化が拒否されます）。`:always` Plugin はリリースにコンパイルされていれば自動的に活性化します。Plugin はホットロードをサポートしません。再起動なしで動的に切り替えるポリシーには OpenFeature（`Ankole.Features`）を使用してください。
 
 ### adapter を宣言する
 
@@ -154,17 +159,19 @@ def adapter_declarations do
 end
 ```
 
-adapter 固有のフィールドは、所有する subsystem が定義します。chat adapter は [Signals](../signals/) の contract に従います。IdP と model Provider は既存の registry を使用します。Plugin 内に並行した configuration 経路を作らないでください。
+adapter 固有のフィールドは、所有する subsystem が定義します。chat adapter は [Signals](../signals/) の contract に従います。IdP、モデル Provider、Worker provider は既存の registry を使用します。Plugin 内に並行した configuration 経路を作らないでください。
 
-### 設定と service を宣言する
+### 設定、hook、service を宣言する
 
 運用者が runtime で管理する設定には、`app_config_definitions/0` または `app_config_patterns/0` を使用します。環境変数は、database が利用可能になる前に存在しなければならない起動時事実にのみ使用します。
+
+ドメイントランザクション（`:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records`、`:admit_compute`）に同期的な受付検査やクォータ検査を追加するには、`hooks/0` を使用します。各 hook module は `Ankole.Plugins.Hook.before_commit_in_tx/2` を実装し、呼び出し元のトランザクション内で `:ok` または `{:error, reason}` を返します（エラーはトランザクションをロールバックします）。
 
 `children/0` は標準の OTP child specification を返します。connection と reconciler は Plugin の supervisor の下に置きます。これらは Plugin の活性化時に起動し、次回起動時の無効化後に停止します。
 
 ### Plugin を検証する
 
-control plane のテストと静的検査を実行します。Console で Plugin を有効にし、control plane を再起動します。Plugin が active で、設定が表示され、宣言した各 adapter が実際の connection を完了することを確認します。Plugin が外部 protocol を実装する場合は、関連する integration test を実行します。
+control plane のテストと静的検査を実行します。`:optional` Plugin の場合は **Site Admin Console**（`/site-admin-console`）で有効にして control plane を再起動します（`:always` Plugin は起動時にそのまま活性化します）。Plugin が active で、設定が表示され、hook が契約どおり動作し、宣言した各 adapter が実際の connection を完了することを確認します。Plugin が外部 protocol を実装する場合は、関連する integration test を実行します。
 
 ## 続きを読む
 

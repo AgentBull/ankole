@@ -11,7 +11,7 @@ This page documents the real routes, request shapes, and the boundary between st
 
 ## Where it fits
 
-AIGateway sits between callers and providers. A caller — an agent's model loop, an OIDC Human, or an external integration — presents a bearer token and sends an OpenResponses-shaped request. AIGateway resolves the selector, prepares the request, fans it out to the bound provider, and returns either a single JSON body or a stream. LLM, embedding, rerank, web-search, and web-fetch capabilities all flow through the same boundary.
+AIGateway sits between callers and providers. A caller — an agent's model loop, an OIDC Human, or an external integration — presents a bearer token and sends an OpenResponses-shaped request. AIGateway resolves the selector, prepares the request, fans it out to the bound provider, and returns either a single JSON body or a stream. LLM, embedding, rerank, web-search, and web-fetch capabilities all flow through the same boundary. When a response turn uses `programmatic_tool_calling`, AIGateway executes each `programmatic_tool_call` TypeScript program in a stateless isolate on `ankole-function-runtime` (`Ankole.FunctionRuntime.ProgramRunner`).
 
 The decisive property: a caller never sees a provider credential. The control plane owns the credentials and the routing policy; the caller owns only its token and its selector.
 
@@ -89,6 +89,8 @@ An attributed `429`, `5xx`, or transport failure cools down only the credential 
 
 `chatgpt_subscription` is an ordinary provider kind. Its OAuth credentials stay in the control plane, where token refresh runs under a row lock. The Agent Computer and external callers never receive those tokens.
 
+`agentbull_cloud` (**AgentBull Cloud**, default base URL `https://cloudapis.agentbull.com`) is a built-in aggregated upstream provider kind that supplies language models, embeddings, reranking, `web_search`, `web_fetch`, and `image_generate` with one API key. Its credentials stay in the control plane; external credentials that Worker MCP skills read directly still use `WorkerEnv`.
+
 Resolution can fail in two ways the caller should handle:
 
 - `422 unknown_model_selector` — the selector is not bound for this subject.
@@ -109,7 +111,9 @@ Errors use an OpenAI-compatible envelope. The body is `{"error": {"code", "messa
 
 When an upstream returns an `error.message`, AIGateway forwards that message; otherwise it reports the upstream HTTP status plainly.
 
-## Image generation
+## Programmatic tool calling and image generation
+
+When a `/responses` request declares the `programmatic_tool_calling` tool, AIGateway synthesizes the `program` tool from eligible tool descriptors. Each `programmatic_tool_call` executes its deterministic TypeScript program in a stateless isolate on `ankole-function-runtime` through `Ankole.FunctionRuntime.ProgramRunner`, suspending at nested tool boundaries while AIGateway owns history, ordering, and cancellation.
 
 `image_generation` is a public Responses tool with two execution paths. When the subject has an `image_generate` profile, AIGateway runs the tool with that separate provider and model. Without the profile, AIGateway passes the tool to the main provider only when its capability declares native image generation. If neither path exists, request preparation fails instead of simulating the tool.
 
@@ -119,7 +123,7 @@ Both paths use the same public stream events and generated-image persistence. Mo
 
 The same subject and token drive the adjacent capabilities. `POST /web_search` takes a length-bounded `query` and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. These calls can use `web_search.default` and `web_fetch.default`, which resolve the current Agent profiles.
 
-`POST /embeddings` accepts text, token arrays, or input blocks. `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. These two endpoints require an explicit `provider_id/model` selector; they do not resolve Agent profiles. Brain uses the site `brain.embedding_model` setting and the tenant `brain.rerank_model` setting from [AppConfigure](../app-configuration/) when it calls these capabilities. See [Brain](../brain/) for the retrieval behavior.
+`POST /embeddings` accepts text, token arrays, or input blocks. `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. These two endpoints require an explicit `provider_id/model` selector; they do not resolve Agent profiles. Brain uses the site `brain.embedding_model` setting and the tenant `brain.rerank_model` setting from [AppConfigure](../app-configuration/) when it calls these capabilities. Pod Applet `ctx.ai` calls also route statelessly through AIGateway under the active Agent configured in `pod.applet.ai_agent_uid`, resolving that Agent's language-model profiles. See [Brain](../brain/) for the retrieval behavior.
 
 Files are first-class: `POST /files` uploads, `GET /files` lists, `GET /files/:id` and `GET /files/:id/content` read metadata and bytes, and `DELETE /files/:id` removes one. All are scoped to the subject.
 

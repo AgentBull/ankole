@@ -76,7 +76,7 @@ Each protected paragraph, Fact, Take, and Timeline entry uses one audience scope
 
 | Scope | Who can reach it |
 | --- | --- |
-| `world` | Any Principal in the tenant |
+| `world` | Active Human members (`membership = member`), active Agents, and System Principals in the tenant; external Guests (`membership = guest`) and inactive Principals are excluded |
 | `group:<name>` | Current members of that permission group |
 | `principal:<uid>` | Only that Principal |
 

@@ -11,7 +11,7 @@ AIGateway는 Ankole deployment instance의 통합 AI 경계입니다. 외부 애
 
 ## 위치
 
-AIGateway는 호출자와 provider 사이에 있습니다. 호출자 — Agent의 모델 루프, OIDC Human, 또는 외부 통합 — 는 bearer token을 제시하고 OpenResponses 형태의 요청을 보냅니다. AIGateway는 셀렉터를 해석하고, 요청을 준비하며, 바인딩된 provider로 보내고(fan-out), 단일 JSON body 또는 스트림을 반환합니다. LLM, embedding, rerank, web search, web fetch capability가 모두 같은 경계를 통과합니다.
+AIGateway는 호출자와 provider 사이에 있습니다. 호출자 — Agent의 모델 루프, OIDC Human, 또는 외부 통합 — 는 bearer token을 제시하고 OpenResponses 형태의 요청을 보냅니다. AIGateway는 셀렉터를 해석하고, 요청을 준비하며, 바인딩된 provider로 보내고(fan-out), 단일 JSON body 또는 스트림을 반환합니다. LLM, embedding, rerank, web search, web fetch capability가 모두 같은 경계를 통과합니다. 응답 턴에서 `programmatic_tool_calling`을 사용할 때 AIGateway는 `Ankole.FunctionRuntime.ProgramRunner`를 통해 `ankole-function-runtime`의 stateless isolate에서 각 `programmatic_tool_call`의 TypeScript 프로그램을 실행합니다.
 
 결정적인 속성: 호출자는 provider credential을 결코 볼 수 없습니다. 컨트롤 플레인이 credential과 라우팅 정책을 소유하고, 호출자가 소유하는 것은 자신의 token과 셀렉터뿐입니다.
 
@@ -89,6 +89,8 @@ AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider bindi
 
 `chatgpt_subscription`은 평범한 provider kind입니다. 그 OAuth credential은 컨트롤 플레인에 남으며, 토큰 갱신은 row lock 아래에서 실행됩니다. Agent Computer와 외부 호출자는 이 토큰들을 받지 않습니다.
 
+`agentbull_cloud`(**AgentBull Cloud**, 기본 base URL `https://cloudapis.agentbull.com`)는 내장된 통합 업스트림 provider kind로, API 키 하나로 언어 모델, 임베딩, 리랭크, `web_search`, `web_fetch`, `image_generate` 기능을 모두 제공합니다. 이 credential 역시 컨트롤 플레인에 남으며, Worker 측 MCP 스킬이 직접 읽는 외부 credential은 별도로 `WorkerEnv`를 사용합니다.
+
 해석은 호출자가 처리해야 하는 두 가지 방식으로 실패할 수 있습니다:
 
 - `422 unknown_model_selector` — 이 subject에 셀렉터가 바인딩되어 있지 않습니다.
@@ -109,7 +111,9 @@ AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider bindi
 
 업스트림이 `error.message`를 반환하면 AIGateway는 그 메시지를 전달합니다. 그 외에는 업스트림 HTTP 상태를 그대로 보고합니다.
 
-## 이미지 생성
+## 프로그래밍 방식 도구 호출 및 이미지 생성
+
+`/responses` 요청이 `programmatic_tool_calling` 도구를 선언하면 AIGateway는 대상 도구 설명자에서 `program` 도구를 합성합니다. 각 `programmatic_tool_call`은 `Ankole.FunctionRuntime.ProgramRunner`를 통해 `ankole-function-runtime`의 stateless isolate에서 결정론적 TypeScript 프로그램을 실행하며, 중첩 도구 경계에서 일시 중단되고 기록, 순서 및 취소는 AIGateway가 관리합니다.
 
 `image_generation`은 두 가지 실행 경로가 있는 공용 Responses tool입니다. subject가 `image_generate` profile을 가지면 AIGateway는 그 별도의 provider와 모델로 tool을 실행합니다. profile이 없으면 AIGateway는 메인 provider가 네이티브 이미지 생성을 선언한 경우에만 tool을 전달합니다. 두 경로가 모두 없으면 tool을 흉내 내는 대신 요청 준비가 실패합니다.
 
@@ -119,7 +123,7 @@ AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider bindi
 
 같은 subject와 token이 인접한 capability를 구동합니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 provider가 제공하는 결과를 반환합니다. `POST /web_fetch`는 1개에서 5개의 공용 HTTPS URL을 받아 페이지 콘텐츠를 반환합니다. 이 호출은 `web_search.default`와 `web_fetch.default`를 사용할 수 있으며, AIGateway가 현재 Agent profile을 해석합니다.
 
-`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 사이트 단위 설정인 `brain.embedding_model`과 테넌트 단위 설정인 `brain.rerank_model`을 사용합니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
+`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 사이트 단위 설정인 `brain.embedding_model`과 테넌트 단위 설정인 `brain.rerank_model`을 사용합니다. 또한 Pod Applet의 `ctx.ai` 호출도 `pod.applet.ai_agent_uid`에 구성된 활성 Agent 아래에서 AIGateway를 통해 stateless 방식으로 라우팅되어 해당 Agent의 언어 모델 profile을 해석합니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
 
 파일은 first-class입니다. `POST /files`가 업로드하고, `GET /files`가 나열하며, `GET /files/:id`와 `GET /files/:id/content`가 메타데이터와 바이트를 읽고, `DELETE /files/:id`가 하나를 삭제합니다. 모두 subject 범위로 제한됩니다.
 

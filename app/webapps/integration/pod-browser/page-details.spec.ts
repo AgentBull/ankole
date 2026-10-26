@@ -48,6 +48,139 @@ async function cleanup(actions: (() => Promise<unknown>)[], failed: boolean) {
   if (!failed) throw new AggregateError(errors, 'Pod browser cleanup failed')
 }
 
+test('a document title saves while focused and continues directly into its body', async ({ browser }, info) => {
+  const context = await browser.newContext({ viewport: { width: 1000, height: 800 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    id = await create(page, '')
+    await page.goto(state.base_url + pageRoute(id))
+    const title = page.getByRole('textbox', { name: '页面标题', exact: true })
+    const body = page.locator('.pod-document .editor-content')
+    await expect(title).toBeFocused()
+    const longTitle = 'A document title that wraps naturally as part of the page and keeps the writing flow continuous'
+    await title.fill(longTitle)
+    await expect
+      .poll(async () => (await request<{ page: { title: string } }>(page, `/pages/${id}`)).page.title)
+      .toBe(longTitle)
+    await expect(title).toBeFocused()
+    const titleBox = await title.boundingBox()
+    const bodyBox = await body.boundingBox()
+    expect(titleBox!.height).toBeGreaterThan(80)
+    expect(bodyBox!.y - titleBox!.y - titleBox!.height).toBeLessThan(35)
+    expect(await title.evaluate(element => getComputedStyle(element).boxShadow)).toBe('none')
+    await title.press('Enter')
+    await expect(body).toBeFocused()
+    await page.keyboard.insertText('The first paragraph follows the title.')
+    await expect(body).toHaveText('The first paragraph follows the title.')
+    await expect
+      .poll(async () => (await request<{ content: { plain_text: string } }>(page, `/pages/${id}`)).content.plain_text)
+      .toContain('The first paragraph follows the title.')
+    await body.press('ControlOrMeta+Home')
+    await body.press('ArrowUp')
+    await expect(title).toBeFocused()
+    await expect(title).toHaveJSProperty('selectionStart', longTitle.length)
+    await title.press('Enter')
+    await expect(body).toBeFocused()
+    await page.keyboard.insertText('Continue here. ')
+    await expect(body).toHaveText('Continue here. The first paragraph follows the title.')
+    await expect
+      .poll(async () => (await request<{ content: { plain_text: string } }>(page, `/pages/${id}`)).content.plain_text)
+      .toContain('Continue here. The first paragraph follows the title.')
+    await page.reload()
+    await expect(title).toHaveValue(longTitle)
+    await expect(body).toHaveText('Continue here. The first paragraph follows the title.')
+    await page.screenshot({ path: info.outputPath('document-canvas-desktop.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(title).toBeVisible()
+    await expect(body).toBeVisible()
+    await page.screenshot({ path: info.outputPath('document-canvas-mobile.png') })
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('document title composition stays local until the IME commits', async ({ browser, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Trusted IME input uses the Chromium input protocol')
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  const input = await context.newCDPSession(page)
+  let id: string | undefined
+  const written: string[] = []
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    id = await create(page, 'Original')
+    await page.goto(state.base_url + pageRoute(id))
+    const title = page.getByRole('textbox', { name: '页面标题', exact: true })
+    await title.fill('')
+    page.on('request', request => {
+      if (request.method() === 'PATCH' && new URL(request.url()).pathname === `/api/v2/pod/pages/${id}`) {
+        written.push(request.postDataJSON().data.title)
+      }
+    })
+    await input.send('Input.imeSetComposition', { text: 'zhong', selectionStart: 5, selectionEnd: 5 })
+    await expect(title).toHaveValue('zhong')
+    await page.waitForTimeout(700)
+    expect(written).toEqual([])
+    await expect(title).toBeFocused()
+    await input.send('Input.insertText', { text: '中文标题' })
+    await expect
+      .poll(async () => (await request<{ page: { title: string } }>(page, `/pages/${id}`)).page.title)
+      .toBe('中文标题')
+    expect(written).toEqual(['中文标题'])
+    await expect(title).toBeFocused()
+  } finally {
+    await input.detach()
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('a failed title autosave retains the draft and protects navigation until an explicit retry', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  let unavailable = true
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    id = await create(page, 'Original title')
+    await page.goto(state.base_url + pageRoute(id))
+    await page.route(`**/api/v2/pod/pages/${id}`, route =>
+      unavailable && route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 503, json: { error: 'Title save unavailable' } })
+        : route.continue()
+    )
+    const title = page.getByRole('textbox', { name: '页面标题', exact: true })
+    await title.fill('Keep this title draft')
+    await expect(page.getByRole('alert')).toContainText('Title save unavailable')
+    await expect(title).toBeFocused()
+    await page
+      .getByRole('navigation', { name: '页面导航' })
+      .getByRole('link', { name: '最近访问', exact: true })
+      .click()
+    await expect(page.getByRole('dialog', { name: '修改尚未保存' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(title).toHaveValue('Keep this title draft')
+    unavailable = false
+    await page.getByRole('button', { name: '重试', exact: true }).click()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await page.reload()
+    await expect(title).toHaveValue('Keep this title draft')
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' })
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('title saves keep edit order and a failed save protects navigation until retry', async ({ browser }) => {
   const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] })
   await context.addCookies(state.owner.cookies)

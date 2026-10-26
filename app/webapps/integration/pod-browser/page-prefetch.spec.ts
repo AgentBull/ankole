@@ -109,3 +109,52 @@ test('a cold page fetches its data before its lazy module and chat query changes
     await setup.close()
   }
 })
+
+test('a cold Base loads its table list and schema before the editor module is available', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, serviceWorkers: 'block' })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  const held: Route[] = []
+  let released = false
+  let tableRequests = 0
+  let schemaRequests = 0
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'GET' && path === `/api/v2/pod/bases/${state.base_id}`) tableRequests++
+    if (request.method() === 'GET' && path === `/api/v2/pod/tables/${state.table_id}`) schemaRequests++
+  })
+  await page.route(/\/base-page-[^/]+\.js(?:\?.*)?$/, async route => {
+    if (released) return route.continue()
+    held.push(route)
+  })
+  try {
+    const tables = page.waitForResponse(
+      response =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === `/api/v2/pod/bases/${state.base_id}`
+    )
+    const schema = page.waitForResponse(
+      response =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === `/api/v2/pod/tables/${state.table_id}`
+    )
+    await page.goto(pageRoute(state.base_id), { waitUntil: 'commit' })
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    expect((await tables).status()).toBe(200)
+    expect((await schema).status()).toBe(200)
+    expect(released).toBe(false)
+    await expect(page.locator('.pod-base')).toHaveCount(0)
+    const beforeMount = { tables: tableRequests, schema: schemaRequests }
+    released = true
+    await Promise.all(held.map(route => route.continue()))
+    await expect(page.getByRole('spinbutton', { name: 'Amount', exact: true }).first()).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    expect({ tables: tableRequests, schema: schemaRequests }).toEqual(beforeMount)
+    await expect(page.getByText('正在加载数据表…', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('正在加载表结构…', { exact: true })).toHaveCount(0)
+  } finally {
+    released = true
+    await Promise.all(held.map(route => route.continue().catch(() => {})))
+    await context.close()
+  }
+})

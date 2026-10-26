@@ -5,13 +5,13 @@ section: User guide
 order: 17
 ---
 
-[signal binding](../signal-bindings/)이 그룹 메시지 mode를 **May intervene**으로 설정하면, Agent는 자신을 지칭하지 않는 그룹 메시지도 보고 새 메시지 배치마다 처리 경로를 선택합니다. 기본값은 침묵입니다. 필요한 경우 짧은 응답을 시작하거나, 새 작업을 식별하거나, 실행 중인 background job 하나에 새 정보를 전달할 수 있습니다.
+**May intervene**이 활성화되면 — 외부 채널의 [signal binding](../signal-bindings/)에서 그룹 메시지 mode를 May intervene으로 설정하거나, 네이티브 **Pod Chat** 그룹 스레드에서 참여 Agent의 `may_intervene` 정책을 활성화한 경우 — Agent는 자신을 지칭하지 않는 그룹 메시지도 보고 사람의 새 메시지 배치마다 처리 경로를 선택합니다. 기본값은 침묵입니다. 필요한 경우 짧은 응답을 시작하거나, 새 작업을 식별하거나, 실행 중인 background job 하나에 새 정보를 전달할 수 있습니다.
 
-이 모드에서 그룹 동작은 channel standing order와 signal routing 구성이라는 두 가지 제어에 따릅니다.
+이 모드에서 그룹 동작은 Conversation의 `standing_orders`와 그룹 개입 설정(외부 채널의 경우 Signal Binding 구성, Signal Binding 없이 동작하는 Pod Chat 그룹 스레드의 경우 참여 Agent별 `may_intervene` 정책)이라는 두 가지 제어에 따릅니다.
 
 ## 각 메시지는 한 번만 판정됩니다
 
-각 Agent는 Conversation별로 독립된 판정 진행 상태를 유지합니다. 같은 외부 Conversation의 Agent는 메시지와 standing order를 공유하지만 판정 진행 상태는 공유하지 않습니다. 각 검사는 마지막 검사 이후에 도착한 메시지만 판정하며, 이전 메시지는 배경으로만 나타나고 다시 평가되지 않습니다. Agent가 내버려 두기로 결정한 메시지가 몇 라운드 뒤에 갑자기 답변되지는 않습니다.
+각 Agent는 Conversation별로 독립된 판정 진행 상태를 유지합니다. 같은 그룹 Conversation의 Agent는 메시지와 standing order를 공유하지만 판정 진행 상태는 공유하지 않습니다. 주변 개입 검사는 **사람**의 메시지만 트리거하며, Agent 메시지는 결코 다른 Agent를 깨우지 않습니다. 각 검사는 마지막 검사 이후에 도착한 메시지만 판정하며, 이전 메시지는 배경으로만 나타나고 다시 평가되지 않습니다. Agent가 내버려 두기로 결정한 메시지가 몇 라운드 뒤에 갑자기 답변되지는 않습니다.
 
 모든 판정은 action, authorization source, 이유와 함께 기록됩니다. background handoff는 정확한 대상도 기록합니다. Agent가 너무 조용하거나 너무 적극적으로 보일 때 운영자는 선택된 경로를 직접 확인할 수 있습니다.
 
@@ -19,8 +19,8 @@ order: 17
 
 - **처리 안 함(`NOOP`)**은 Agent를 침묵시킵니다. 잡담, 확인, 중복 답변 또는 사람이 이미 맡은 작업에는 일반적으로 이 경로를 사용합니다.
 - **foreground 응답(`FOREGROUND_REPLY`)**은 답변, 명확화, 조정, status 보고 또는 작고 제한된 조회를 위해 짧은 visible turn 하나를 시작합니다. 이 경로에서는 background job을 만들거나 다시 시작할 수 없습니다.
-- **새 작업(`NEW_WORK`)**은 독립적이고 실질적인 task를 식별합니다. 사람이 직접 요청하거나 일치하는 standing order가 있을 때만 일반 owner turn으로 진행합니다. 둘 다 없으면 Agent는 작업을 맡을지 확인만 요청합니다. 이 확인 turn에는 tool이 없고 job을 시작할 수 없습니다.
-- **전달(`HANDOFF`)**은 새 메시지를 동일한 Agent, owner Session, Conversation, binding에 속한 명확히 일치하는 live background job 하나에 조용히 보냅니다. 후보가 불완전하거나 모호하면 전달하지 않습니다.
+- **새 작업(`NEW_WORK`)**은 독립적이고 실질적인 task를 식별합니다. 사람이 직접 요청하거나 일치하는 standing order가 있을 때만 일반 owner turn으로 진행합니다. 사람이 트리거한 turn은 **`Human ∩ Agent` 권한 교집합**(`interactive_principal = waking_human`) 아래에서 실행되므로, 접근하는 각 리소스에 대해 깨운 사람과 Agent 모두 권한을 보유해야 합니다. 두 승인 출처가 모두 없으면 Agent는 작업을 맡을지 확인만 요청합니다. 이 확인 turn에는 tool이 없고 job을 시작할 수 없습니다.
+- **전달(`HANDOFF`)**은 새 메시지를 동일한 Agent, owner Session, Conversation(외부 채널에서 트리거된 경우 동일한 binding 포함)에 속한 명확히 일치하는 live background job 하나에 조용히 보냅니다. 후보가 불완전하거나 모호하면 전달하지 않습니다.
 
 recognizer 자체는 background job을 만들지 않습니다. 처리 경로와 authorization source만 선택하며, 일반 owner turn이 기존 승인 및 background-work 규칙을 적용합니다.
 
@@ -47,16 +47,16 @@ standing order는 두 곳에 전달됩니다. 경로 판정은 이를 channel의
 
 두 가지 경계:
 
-- **May intervene mode에서만 활성화됩니다.** 다른 binding mode에서는 텍스트가 저장되지만 완전히 비활성 상태이며, Agent는 저장 후 비활성 상태라고 알려 줍니다. binding을 May intervene으로 전환하면 추가 단계 없이 활성화됩니다.
+- **May intervene mode에서만 활성화됩니다.** May intervene이 꺼져 있으면(외부 채널에서 다른 binding mode이거나 Pod Chat 그룹 스레드에서 해당 참여 Agent의 `may_intervene`이 비활성화된 경우), 텍스트는 Conversation의 `standing_orders`에 저장되지만 비활성 상태로 유지되며 Agent는 저장 후 비활성 상태라고 알려 줍니다. May intervene을 활성화하면 추가 단계 없이 즉시 작동합니다.
 - 하나의 order 텍스트는 최대 4000자까지 저장할 수 있습니다.
 
-Console에서도 standing order를 읽고 쓸 수 있습니다. [Console API reference](../console-api/)의 `/conversations/:conversation_id/standing-orders` endpoint를 참조하십시오.
+Console에서도 standing order를 읽고 쓸 수 있습니다. [Console API reference](../console-api/)의 `/api/v2/conversations/:conversation_id/standing-orders` endpoint를 참조하십시오.
 
 ## 여전히 너무 많이 또는 너무 적게 말하는 경우
 
-- **너무 많이 말함:** 먼저 standing order를 강화하거나 지운 다음 Agent의 역할 지침을 강화하십시오. 질문과 답변 동작만 필요한 그룹이라면 binding을 **Addressed messages only**로 되돌리십시오.
-- **너무 적게 말함:** binding mode가 May intervene인지 확인하고 channel에 명시적 standing order 하나를 부여하십시오 — 판정은 기본적으로 보수적이며, order가 없으면 Agent는 누군가 실제로 필요로 할 때만 말합니다.
-- **Order를 저장했지만 변화가 없음:** Agent가 order를 저장한 후의 응답을 읽으십시오 — 활성 여부를 알려 줍니다. 비활성 상태는 거의 항상 channel의 binding mode가 May intervene이 아님을 의미합니다.
+- **너무 많이 말함:** 먼저 standing order를 강화하거나 지운 다음 Agent의 역할 지침을 강화하십시오. 질문과 답변 동작만 필요한 그룹이라면 외부 채널의 binding을 **Addressed messages only**로 되돌리거나 Pod Chat 그룹 스레드에서 해당 참여 Agent의 `may_intervene`을 비활성화하십시오.
+- **너무 적게 말함:** May intervene이 활성화되어 있는지 확인하고(외부 채널의 Signal Binding 또는 Pod Chat 그룹 스레드의 참여 Agent `may_intervene` 설정), Conversation에 명시적 standing order 하나를 부여하십시오 — 판정은 기본적으로 보수적이며, order가 없으면 Agent는 누군가 실제로 필요로 할 때만 말합니다.
+- **Order를 저장했지만 변화가 없음:** Agent가 order를 저장한 후의 응답을 읽으십시오 — 활성 여부를 알려 줍니다. 비활성 상태는 외부 채널의 binding mode가 May intervene이 아니거나 Pod Chat 그룹 스레드에서 해당 참여 Agent의 `may_intervene`이 활성화되지 않았음을 의미합니다.
 
 ## 다음 단계
 

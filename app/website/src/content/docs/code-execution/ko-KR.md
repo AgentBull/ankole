@@ -7,7 +7,7 @@ order: 122
 
 Agent는 일반 대화 중에 명령을 실행하고 파일을 편집할 수 있습니다. 또한 영구 작업을 Background Agent Job에 위임할 수도 있습니다. 이들은 별개의 런타임 경로입니다: 대화는 Agent Computer Worker의 포그라운드 도구를 사용하고, 모든 Background Agent Job은 CodexRunner를 사용합니다. 메시지의 코드 양이 둘 사이를 선택하지 않습니다.
 
-먼저 핵심 속성을 밝힙니다: 모든 명령은 Agent 자신의 컴퓨터에서 실행됩니다. 각 Agent는 자신의 Worker 컨테이너를 가지며, 컨테이너가 유일한 격리 경계입니다. 명령은 내부 샌드박스 없이 Worker의 사용자로 실행되고, 에이전트는 `/workspace` 아래의 자신의 Agent Home에서 작업합니다. Agent는 자신의 컴퓨터를 바꿀 수 있지만, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다.
+먼저 핵심 속성을 밝힙니다: Agent의 모든 명령은 Agent 자신의 컴퓨터에서 실행됩니다. 각 Agent는 자신의 Worker 컨테이너를 가지며, 컨테이너가 유일한 격리 경계입니다. 명령은 내부 샌드박스 없이 Worker의 사용자로 실행되고, Agent는 `/workspace` 아래의 자신의 Agent Home에서 작업합니다. Agent는 자신의 컴퓨터를 바꿀 수 있지만, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다. 반면 Pod Applet 백엔드 함수와 AIGateway 및 Workflow의 프로그래밍 방식 도구 호출(PTC) 스크립트는 Agent Computer Worker가 아니라 무상태 `ankole-function-runtime` 격리 환경에서 실행됩니다.
 
 ## 셸 명령
 
@@ -36,6 +36,7 @@ Agent Home은 `/workspace`의 영구 스토리지입니다. `/agents/<agent_uid>
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
+├── ConfidentialityPolicy.md
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -44,11 +45,11 @@ Agent Home은 `/workspace`의 영구 스토리지입니다. `/agents/<agent_uid>
     └── temp/
 ```
 
-`SOUL.md`, `MISSION.md`, `DESIGN.md`는 [Agent Library](../agent-library/)의 영구 문서입니다. 처음 두 개는 책임과 동작을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템입니다. `installed-skills/`는 Agent Skills를 보관합니다. `sessions/`는 10000에서 시작하는 안정적인 PostgreSQL 소유 숫자 ID를 가진 대화 워크스페이스를 보관하고, `jobs/`는 별도의 Background Agent Job 워크스페이스를 보관합니다.
+`SOUL.md`, `MISSION.md`, `DESIGN.md`, `ConfidentialityPolicy.md`는 [Agent Library](../agent-library/)의 영구 문서입니다. 처음 두 개는 책임과 동작을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템이며, `ConfidentialityPolicy.md`는 Agent가 Brain에서 대상 범위(audience scope)를 선택할 때 따르는 기밀 유지 규칙을 정의합니다. `installed-skills/`는 Agent Skills를 보관합니다. `sessions/`는 10000에서 시작하는 안정적인 PostgreSQL 소유 숫자 ID를 가진 대화 워크스페이스를 보관하고, `jobs/`는 별도의 Background Agent Job 워크스페이스를 보관합니다.
 
 Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. 재구축은 `/var/cache/ankole`만 삭제합니다. Docker 로컬 volume은 호스트에 의존하며 Cloudflare 강제 중지는 마지막 R2 백업 이후 쓰기를 잃을 수 있습니다. 제한은 [Worker](../worker-management/)를 참조하세요.
 
-control plane 드라이브는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 따로 저장합니다. `ankole-files`로 읽고 씁니다. Job 작업 공간과 Codex 스레드는 영구 Home에 남습니다. Turn 전에 `installed-skills/`를 드라이브와 동기화합니다.
+control plane 드라이브는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 따로 저장합니다. 드라이브 파일을 읽거나 게시할 때는 `ankole-files`를 사용하고, 제어 플레인을 통해 Pod 페이지, Base 테이블, Applet을 읽거나 수정할 때는 `ankole-pod`를 사용합니다. Job 작업 공간과 Codex 스레드는 영구 Home에 저장됩니다. Turn 전에 `installed-skills/`를 드라이브와 동기화합니다.
 
 Background Agent Job은 `skill_view`를 통해 필요할 때 Skill을 로드합니다.
 
@@ -76,5 +77,5 @@ Console은 해당 모델 프로파일을 **Background Agent Jobs**라고 부릅�
 
 - 이러한 도구를 실행하고 `/workspace` 파일 시스템을 소유하는 Worker에 대해서는 [Agent Computer Worker](../agent-computer-worker/)를 읽으세요.
 - Jupyter 스킬 뒤의 스킬 및 활성화 모델에 대해서는 [Agent Library](../agent-library/)를 읽으세요.
-- 내부 키가 `coding`으로 유지되는 Background Agent Jobs 프로파일에 대해서는 [Background Agent Jobs](../background-jobs/#모델-provider-선택)를 읽으세요.
+- 내부 키가 `coding`인 Background Agent Jobs 프로파일에 대해서는 [Background Agent Jobs](../background-jobs/#모델-provider-선택)를 읽으세요.
 - Worker 신뢰 경계와 강화 방법에 대해서는 [Security hardening](../security-hardening/)을 읽으세요.

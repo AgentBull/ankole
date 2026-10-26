@@ -7,7 +7,7 @@ order: 49
 
 Ankole은 사람, Agent, 시스템 서비스를 Principal로 표현합니다. permission group은 여러 Principal을 함께 관리합니다. permission grant는 Principal 또는 group이 사용할 수 있는 resource를 정의합니다.
 
-Identity Provider는 일반적으로 직원과 조직 디렉터리를 자동으로 동기화합니다. Ankole에서 각 직원을 다시 만들거나 부서 멤버십을 유지 관리할 필요가 없습니다.
+Identity Provider는 직원과 조직 디렉터리를 자동으로 동기화할 수 있으므로 Ankole에서 부서 멤버십을 수동으로 유지 관리할 필요가 없습니다. 비밀번호 없는 이메일 OTP(`SiteCredential`), Pod 초대 링크(`/join/:token`), 또는 관리자의 사전 생성을 통해서도 합류할 수 있습니다.
 
 ## Identity Provider가 조직을 동기화하는 방법
 
@@ -30,13 +30,13 @@ Ankole은 Identity Provider를 저장한 후 첫 번째 full sync를 시작합�
 
 ## Principal 보기
 
-**Console → Access → Principals**를 엽니다. 목록에는 이름, UID, 유형, 상태가 표시됩니다.
+**Console → Access → Principals**를 엽니다. 목록에는 이름, UID, 유형, 멤버십, 상태가 표시됩니다.
 
-- **Human** principal은 Identity Provider가 동기화하는 회사 디렉터리에서 옵니다.
+- **Human** principal은 Identity Provider 로그인 또는 디렉터리 동기화, 비밀번호 없는 이메일 OTP(`SiteCredential`), Pod 초대 링크(`/join/:token`), 또는 관리자의 사전 생성을 통해 만들어집니다. 각 human principal은 테넌트 내에서 `member` 또는 `guest`의 `membership`을 가집니다. 내부 `member`는 내장 computed group인 `all_humans`에 포함됩니다. 외부 `guest`는 명시적인 Pod 페이지 공유 또는 Agent grant가 필요하며, 내장 관리자 그룹(`siteadmin` 또는 `pod_admin`)에 참여하거나 Private space를 사용할 수 없고 Brain의 `world` 범위도 받지 않습니다(`pod.allow_external_guests`가 게스트 허용 및 Pod 접근을 제어합니다).
 - **Agent** principal은 Agent를 만들 때 나타납니다.
 - **System** principal은 내부 서비스 작업을 위해 Ankole이 만듭니다.
 
-Principal 이름 또는 행 끝의 **상세 보기**를 선택하면 해당 group과 직접 grant를 볼 수 있습니다. Principal UID, 유형, 상태는 identity 또는 runtime 소유자에서 가져오며 이 페이지에서는 읽기 전용입니다. 액세스를 조사할 때는 group과 직접 grant를 모두 확인하세요. Principal은 직접 grant가 없어도 group을 통해 액세스를 얻을 수 있습니다.
+Principal 이름 또는 행 끝의 **상세 보기**를 선택하면 해당 group과 직접 grant를 볼 수 있습니다. Principal UID와 유형은 identity 또는 runtime 소유자에서 가져오며 읽기 전용입니다. 액세스를 조사할 때는 group과 직접 grant를 모두 확인하세요. Principal은 직접 grant가 없어도 group을 통해 액세스를 얻을 수 있습니다.
 
 ## 올바른 permission group 선택
 
@@ -51,7 +51,7 @@ Principal 이름 또는 행 끝의 **상세 보기**를 선택하면 해당 grou
 | **Static group** | 팀이 Ankole에만 존재하거나 멤버 수가 적고 자주 바뀌지 않음 | 관리자 |
 | **Computed group** | Principal 속성으로 멤버를 안정적으로 식별할 수 있음 | Ankole이 평가하는 CEL expression |
 
-Directory group과 IM group은 permission group 목록에 자동으로 나타납니다. 이 group의 멤버십은 외부 시스템에서 가져오며 Console에서는 읽기 전용입니다. 관리자는 Ankole에서 static group과 computed group을 만들고 관리합니다.
+Directory group과 IM group은 permission group 목록에 자동으로 나타납니다. 이 group의 멤버십은 외부 시스템에서 가져오며 Console에서는 읽기 전용입니다. 관리자는 Ankole에서 static group과 computed group을 만들고 관리합니다. 또한 모든 테넌트에는 두 개의 내장 group(해당 Pod 내 `tenant_console:**` 작업을 부여하는 static group `pod_admin`과 활성 내부 human 멤버를 포함하는 computed group `all_humans`)이 포함되며, 특권 사이트 테넌트에는 static group `siteadmin`(`site_console:**` 및 `tenant_console:**`)이 추가로 포함됩니다. `siteadmin` 및 `pod_admin`에는 활성(`active`) 상태의 human `member` principal만 속할 수 있습니다.
 
 회사 디렉터리가 대상 팀을 이미 나타내고 있으면 directory group을 사용하세요. 사람이 팀을 옮기거나 퇴사하면 다음 incremental 또는 전체 directory sync가 액세스를 조정합니다.
 
@@ -70,33 +70,36 @@ computed group은 멤버십 목록을 저장하지 않으며 수동 멤버도 �
 
 group을 만들 때 **Computed**를 선택합니다. **Membership condition**에 CEL expression을 입력합니다. expression은 `true` 또는 `false`를 반환해야 하며 `principal`을 통해 현재 principal을 읽습니다.
 
-computed group은 현재 다음 필드를 사용할 수 있습니다.
+computed group은 다음 필드를 사용할 수 있습니다.
 
 | 필드 | 의미 | 일반적인 값 |
 | --- | --- | --- |
-| `principal.uid` | 안정적인 principal UID | `research-agent` |
+| `principal.uid` | 안정적인 principal UID | `01958f1a-...` |
 | `principal.type` | Principal 유형 | `human`, `agent`, `system` |
+| `principal.membership` | 테넌트 내 human 멤버십 | `human`은 `member` 또는 `guest`, `agent`와 `system`은 `null` |
 | `principal.status` | Principal 상태 | `active`, `disabled` |
 | `principal.displayName` | 표시 이름(비어 있을 수 있음) | `Alex Smith` |
 | `principal.avatarURL` | 아바타 URL(비어 있을 수 있음) | Provider의 URL |
 
-이 expression은 모든 활성 human과 일치합니다.
+이 expression은 모든 활성 내부 human 멤버(내장 `all_humans` 그룹과 동일한 규칙)와 일치합니다.
 
 ```text
-principal.type == "human" && principal.status == "active"
+principal.type == "human" && principal.membership == "member" && principal.status == "active"
 ```
 
-이 expression은 UID가 `research-`로 시작하는 Agent와 일치합니다.
+`principal.membership == "member"`를 생략하면 활성 외부 `guest`도 함께 일치합니다.
+
+이 expression은 모든 활성 Agent와 일치합니다.
 
 ```text
-principal.type == "agent" && principal.uid.startsWith("research-")
+principal.type == "agent" && principal.status == "active"
 ```
 
 expression을 입력하는 동안 Console은 일치하는 모든 활성 principal을 미리 보여줍니다. 저장하기 전에 개수와 이름을 확인하여 group이 의도한 것보다 더 많은 principal에 액세스를 부여하지 않도록 하세요.
 
 저장한 후에는 group 이름과 유형을 변경할 수 없습니다. 일반 computed group의 멤버십 조건은 편집할 수 있습니다. 저장하기 전에 live preview를 다시 확인하세요. 내장 computed group의 조건은 Ankole이 관리하므로 Console에서는 읽기 전용입니다.
 
-CEL은 현재 직원의 이메일 주소, 직책, 부서 멤버십을 읽을 수 없습니다. 부서 액세스에는 동기화된 directory group을 사용하세요. 표시 이름에서 조직 멤버십을 추론하지 마세요.
+CEL은 직원의 이메일 주소, 직책, 부서 멤버십을 읽지 않습니다. 부서 액세스에는 동기화된 directory group을 사용하세요. 표시 이름에서 조직 멤버십을 추론하지 마세요.
 
 ## Grant 추가
 
@@ -124,24 +127,33 @@ grant 소유자는 생성 후 변경할 수 없습니다. grant를 다른 Princi
 
 저장 성공만으로는 충분한 증거가 아닙니다. 실제 멤버 계정으로 결과를 검증하여 resource pattern, action, 멤버십 source가 올바른지 확인하세요.
 
-## 퇴사한 사람 사용 중지
+## 일시 중지(Suspend) 또는 퇴사 처리(Offboard)
 
-사람이 회사를 떠나면 계정을 삭제하는 대신 사용을 중지하세요. **Principals and permission groups**에서 해당 사람을 열고 **계정 접근** 섹션에 사유를 입력한 다음 **계정 사용 중지**를 선택합니다. Principal, 작업 결과, audit 기록은 남습니다. 그 사람은 더 이상 로그인할 수 없고, Console 세션, OAuth 세션, token은 모든 기기에서 다음 사용 시 거부됩니다.
+사람이 업무를 잠시 중단하거나 회사를 떠나면 계정을 삭제하는 대신 사용을 중지하세요. **Principals and permission groups**에서 해당 사람을 열고 **계정 접근** 섹션에 사유를 입력한 다음 두 가지 사용 중지 구분(`disposition`) 중 하나를 선택합니다.
+
+- **일시 중지(`suspended`)**: 모든 기기에서 다음 사용 시 Console 세션, OAuth 세션, token을 거부하고 이후 작업을 중단하되, 개인 `SiteCredential`, 이메일 별칭, Pod 연락처 이메일 및 전화번호 바인딩은 유지합니다. 복구 시 자격 증명을 다시 바인딩하지 않고 동일한 Human Principal을 그대로 사용합니다.
+- **퇴사 처리(`offboarded`)**: 세션과 token을 철회하고 이후 작업을 중단하는 것에 더해, 해당 테넌트에서 공유되지 않은 개인 `SiteCredential`, 이메일 별칭, Pod 연락처 이메일 및 전화번호 바인딩을 해제합니다. Ankole은 audit 기록에 `released_identifiers` 워터마크를 남겨 후임 직원이 새로운 Human UID를 받도록 보장합니다. 이전에 일시 중지로 이미 접근이 차단된 상태라도 퇴사 처리를 실행하면 식별자가 해제됩니다.
+
+두 구분 모두 Principal UID, 불변 기업 주체 ID, 작업 결과, audit 기록은 유지합니다.
 
 Identity Provider도 계정 사용을 중지할 수 있습니다. Feishu의 퇴사, 동결, 동기화 디렉터리 범위에서의 검토된 제거와 DingTalk의 퇴사는 디렉터리 sync를 통해 같은 계정의 사용을 중지합니다. provider 이벤트만으로는 접근이 복구되지 않으며, 네트워크 장애는 퇴사로 취급하지 않습니다.
 
 사용 중지는 그 사람의 이후 작업을 멈춥니다. 그 사람의 권한으로 실행되는 메시지, 일정, Background Agent Job, Workflow, 자동화는 다음 시작 시점에 취소되거나 거부됩니다. 이미 승인된 실행은 완료할 수 있으며 그렇게 표시됩니다. 이는 중지 실패가 아닙니다. 증명된 소유자가 없는 작업 레코드는 관리자가 **권한 근거가 없는 작업 검토**에서 분류할 때까지 `work_authorization_review_required`로 멈춥니다. 이 결정은 기록되며 한 번만 할 수 있습니다.
 
-사람의 상세 페이지에는 접근 상태, identity source, 사용 중지 사유와 시각, 운영자 또는 source, 영향받은 작업 항목별 정리 결과, OIDC Client별 로그아웃 알림 결과가 표시됩니다. 정리와 알림 실패는 영향받은 객체와 다시 시도 동작을 보여 줍니다.
+사람의 상세 페이지에는 접근 상태, 구분(disposition), identity source, 사용 중지 사유와 시각, 운영자 또는 source, 영향받은 작업 항목별 정리 결과, OIDC Client별 로그아웃 알림 결과가 표시됩니다. 정리와 알림 실패는 영향받은 객체와 다시 시도 동작을 보여 줍니다.
 
-**계정 복구**에는 관리자, 사유, 확인된 신원이 필요합니다. Console은 먼저 모든 제한을 해제하도록 요구하고, 적용될 group 멤버십과 grant를 보여 주며, 그 권한 규칙에 대한 승인을 요구합니다. provider 제한은 최근의 성공한 디렉터리 확인이 복귀를 확인한 뒤에만 해제됩니다. 복구 후 그 사람은 다시 로그인하고, Feishu의 경우 개인 연결을 다시 승인합니다. 이전 세션, 자격 증명, 취소된 작업은 취소된 상태로 남습니다.
+**계정 복구**에는 관리자, 사유, 확인된 신원이 필요합니다. Console은 먼저 모든 제한을 해제하도록 요구하고, 적용될 group 멤버십, 직접 grant, Pod 페이지 Userset grant를 보여 주며, 그 권한 규칙에 대한 승인을 요구합니다. provider 제한은 최근의 성공한 디렉터리 확인이 복귀를 확인한 뒤에만 해제됩니다. 복구 후 그 사람은 다시 로그인하고, Feishu의 경우 개인 연결을 다시 승인합니다. 이전 세션, 해제된 자격 증명, 취소된 작업은 취소된 상태로 남습니다.
 
-마지막 활성 관리자가 떠났다면, control-plane shell에 접근할 수 있는 운영자가 audit되는 명령으로 확인된 활성 사용자에게 관리자 접근을 부여할 수 있습니다.
+`siteadmin`이나 특정 Pod의 `pod_admin` 그룹에 활성 human 관리자가 남아 있지 않다면, control-plane shell에 접근할 수 있는 운영자가 audit되는 명령(`Ankole.Release.recover_admin`)으로 신원이 확인된 활성 내부 멤버(`member`)에게 관리자 접근을 부여할 수 있습니다.
 
 ```sh
+# 사이트 관리 권한 복구(특권 테넌트의 siteadmin)
 mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified
+
+# 지정 테넌트의 Pod 관리 권한 복구(해당 테넌트의 pod_admin)
+mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified --tenant SLUG
 ```
 
-이 명령은 활성 관리자가 존재하는 동안에는 실행을 거부하고, 사용 중지된 대상을 거부합니다.
+이 명령은 대상 그룹에 활성 관리자가 존재하는 동안에는 실행을 거부하고, 사용 중지된 대상이나 `guest`도 거부합니다.
 
 전체 permission model은 [Principal과 AuthZ](../principal-authz/)를 참조하세요.

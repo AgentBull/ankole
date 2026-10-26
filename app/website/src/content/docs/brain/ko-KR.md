@@ -76,7 +76,7 @@ Embedding 모델이 있으면 검색은 전문 검색 후보와 벡터 후보를
 
 | 범위 | 접근할 수 있는 Principal |
 | --- | --- |
-| `world` | 테넌트의 모든 Principal |
+| `world` | 테넌트 내의 활성 사람 구성원(`membership = member`), 활성 Agent, 시스템 Principal. 외부 게스트(`membership = guest`)와 비활성 Principal은 제외됨 |
 | `group:<name>` | 해당 권한 그룹의 현재 구성원 |
 | `principal:<uid>` | 해당 Principal만 |
 

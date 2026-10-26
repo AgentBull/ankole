@@ -22,9 +22,9 @@ Both are the source of truth for their domain. This guide and the rest of the do
 
 1. **Get the repository and choose an environment** — clone, and pick macOS/Linux/WSL2 or GitHub Codespaces.
 2. **Install and verify the system tools** — `bash tools/devkit/scripts/env-setup.sh`, then verify `bun`, `elixir`, `rustc`, `cargo clippy`, and `docker` all work. See the [kit CLI reference](../kit-cli/) for what each `kit` command does.
-3. **Install dependencies and initialize PostgreSQL** — `bun install`, `bun run services:start`, `bun run control-plane:setup`.
+3. **Install dependencies and initialize local services** — `bun install`, `bun run services:start` (starts PostgreSQL 18 and `Function Runtime` / `ankole-function-runtime`), and `bun run control-plane:setup`.
 4. **Start the complete development environment** — `bun dev`.
-5. **Complete first-time product setup** — activate, create the Feishu test app, configure OIDC, configure the runtime in the Console.
+5. **Complete first-time product setup** — activate at `/setup`, sign in the first administrator through passwordless SMTP Email OTP or Feishu app OAuth (create the Feishu test app when running the full Feishu end-to-end test), and configure the runtime in the Site Admin Console at `/site-admin-console`.
 6. **Prove the end-to-end path** — a real Feishu message reaches the agent and returns the expected reply.
 
 The setup is not done when the page opens. It is done when a real message round-trips. See [Quick start](../quickstart/) for the short path and [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) for the full acceptance.
@@ -38,7 +38,7 @@ Read `AGENTS.md` before the first edit. The rules that come up most often:
 - **Smallest correct change.** Prefer the smallest change that follows the chosen direction, preserves contracts the system can keep, and stays understandable. A little duplication is better than an abstraction that compounds complexity.
 - **Worse is better.** Simplicity beats interface uniformity or theoretical completeness. When simplicity wins, narrow the contract or reject the unsupported case explicitly, rather than silently producing a wrong result.
 - **Objective fidelity.** Do the requested task, not a cheaper proxy. A green test is not the goal; the real path through the owning abstraction is.
-- **Subsystem boundaries.** PostgreSQL owns durable facts; the Elixir control plane owns durable state and supervision; the Rust kernel owns shared native primitives; Bun Agent Computer Worker owns execution. A change that crosses a boundary should respect it, not paper over it.
+- **Subsystem boundaries.** PostgreSQL owns durable facts; the Elixir control plane owns durable state and supervision; the Rust kernel owns shared native primitives; the Bun Agent Computer Worker owns per-Agent execution; and `Function Runtime` (`app/function_runtime/`) owns stateless Applet backend and deterministic program isolates. A change that crosses a boundary should respect it, not paper over it.
 
 ## The changelog rule
 
@@ -48,7 +48,7 @@ This is the rule that gates every commit that changes the product, and the one m
 - The version records what a user or an operator notices after the upgrade: a new capability, changed behavior, a removal, a fix they could have met, and any required action. Documentation, tests, tooling, dependencies, and refactors are not recorded; a version without such a change says only `Internal changes only.`
 - Versions use `MAJOR.MINOR.PATCH`. `PATCH` is the default. `MINOR` is for a capability the product did not have before, or for a break that a person must act on. `MAJOR` and pre-release suffixes follow a maintainer decision.
 
-The changelog is the *sole* changelog and version unit — there is no separate release notes file. After a `main` runtime-image build passes image-pair verification, the workflow uses the newest version for the control-plane and Worker image tags and creates the immutable GitHub Release from that exact section. Treat the changelog as part of the change, not as paperwork afterward.
+The changelog is the *sole* changelog and version unit — there is no separate release notes file. After a `main` runtime-image build passes verification across all three co-versioned runtime images (`ankole-control-plane`, `ankole-agent-computer`, and `ankole-function-runtime`), the workflow tags those images with the newest version and creates the immutable GitHub Release from that exact section. Treat the changelog as part of the change, not as paperwork afterward.
 
 ## Run the right checks
 

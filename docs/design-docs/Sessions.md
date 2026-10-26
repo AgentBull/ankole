@@ -25,9 +25,9 @@ UTF-8, nonblank, NUL-free strings are named Session keys. `parse/1` classifies
 the key; each work domain validates its own ID. `routable?/1` excludes private
 Job and Workflow task keys from external route selection.
 
-`SessionWorkspace` is an Ash resource. Its persisted `kind` selects exactly one
-owner: a named Session, a Conversation, a Background Agent Job, a Workflow task,
-or a Cron rule. Work references are typed foreign keys that include the tenant
+`SessionWorkspace` is an Ash resource stored in the `sessions` table. Its
+persisted `kind` selects exactly one owner: a named Session, a Conversation, a
+Background Agent Job, a Workflow task, or a Cron rule. Work references are typed foreign keys that include the tenant
 and Agent. A Conversation reference includes the tenant because its participants
 can use separate Agent Sessions. A missing owner cannot allocate a workspace.
 

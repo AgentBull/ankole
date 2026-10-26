@@ -13,12 +13,11 @@ or multiple account emails for one retained Human. A conflict stops the run.
 The core migration creates the credential, ceremony, invitation, disposition,
 audit, and browser evidence fields. It converts retained local email bindings,
 releases departed contacts, creates Pod administrator scaffolding, and identifies
-tenants that need manual administrator assignment. The SaaS migration converts
-retained site credential links. Configuration migration decrypts with the source
-key context and encrypts with the destination key context. Recovery for a
-completed destructive conversion uses a database backup.
+tenants that need manual administrator assignment. Configuration migration
+decrypts with the source key context and encrypts with the destination key
+context. Recovery for a completed destructive conversion uses a database backup.
 
-The preflight runs for FOSS and SaaS. It rejects blank or missing retained login
+The preflight runs before any migration write. It rejects blank or missing retained login
 emails and normalized email conflicts without changing hashes, links, or schema.
 It also checks single-tenant password releases before tenant columns exist.
 Correct the reported records with the old release and repeat the upgrade.

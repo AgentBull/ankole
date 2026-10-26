@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-일부 Ankole 기능은 모델에 보이는 tool이 아니라 Agent Computer의 shell 명령입니다. Agent는 `gh`나 `kubectl`처럼 shell을 통해 이 명령들을 호출합니다. Webhook 엔드포인트 명령과 automation job 명령이 이 형태를 쓴다.
+일부 Ankole 기능은 모델에 보이는 tool이 아니라 Agent Computer의 shell 명령입니다. Agent는 `gh`나 `kubectl`처럼 shell을 통해 이 명령들을 호출합니다. `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, Webhook 엔드포인트 명령, automation job 명령이 모두 이 형태를 씁니다.
 
 이 페이지는 기능을 이 형태로 제공해야 하는 경우와, tool 등록, Skill 인덱스 항목, system prompt 섹션 없이도 발견 가능하고 올바르게 만드는 공개 아키텍처를 설명합니다.
 

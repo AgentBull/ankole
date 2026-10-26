@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole 的一部分能力是 Agent Computer 里的 shell 命令，而不是模型可见的工具。Agent 像使用 `gh` 或 `kubectl` 一样经 shell 调用它们。Webhook 凭据命令与 automation job 命令都采用这种形态。
+Ankole 的一部分能力是 Agent Computer 里的 shell 命令，而不是模型可见的工具。Agent 像使用 `gh` 或 `kubectl` 一样经 shell 调用它们。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook 端点命令与 automation job 命令都采用这种形态。
 
 本页说明什么时候用这种形态交付能力，以及让它无需工具注册、无需技能索引条目、无需 system prompt 段落也能被发现并正确使用的披露架构。
 

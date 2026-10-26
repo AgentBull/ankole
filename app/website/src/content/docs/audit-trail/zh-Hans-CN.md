@@ -9,11 +9,17 @@ order: 125
 
 先说明最关键的一点：每个审计面都是**持久 PostgreSQL 状态或结构化日志**，不是临时指标。写了的记录熬得过写它的进程；没写的记录无法重建。
 
-## AuthZ grant 记录
+## AuthZ 授权、人员访问变更与邀请记录
 
-每个权限授予是 `permission_grants` 里的一行持久行。grant 的 `principal_uid` 或 `group_id` 标明 owner；`resource_pattern` 和 `action` 标明允许什么；时间戳记录何时创建和最后更新。grant 没有单独审计日志——grant 表本身就是记录，因为 grant 基本只追加，变更作为行更新可见。
+每条权限授予都是 `permission_grants` 表中的持久行。每条记录归属于单个 `principal_uid`、单个 `group_id`，或一个 Userset 页面受众（`source_page_id` 与 `source_action`），而 Pod ACL 权限授予则通过 `target_page_id` 与 `target_scope` 锚定到 `pages` 表行。`resource_pattern`、`action` 和 `condition` 标明允许的资源与操作，时间戳记录创建时间与最后更新时间。权限授予没有单独的审计日志——`permission_grants` 表本身就是记录。
 
-通过 `GET /principals/:uid/grants` 和 `GET /principal-groups/:name/grants` 读取 grant。加过又删的 grant 在表历史里可见（若你保持 PostgreSQL 时间点恢复开启）；当前存在的 grant 是系统强制的。
+人员账号生命周期变更与工作区邀请同样在 PostgreSQL 中写入持久记录：
+
+- `human_access_events` 记录每次访问禁用、恢复或目录同步驱动的状态流转，包含操作者、来源、前后状态、`access_version` 以及释放的外部标识符（`released_identifiers`）。
+- `human_access_restrictions` 保存当前生效的访问限制及其处置类型（`:suspended` 停用或 `:offboarded` 离职）与原因。
+- `pod_invitations` 记录 Pod 工作区邀请、成员身份类型（`member` 或 `guest`）、已使用配额（`used_count`）以及创建人（`created_by_principal_uid`）。
+
+通过 `GET /api/v2/principals/:uid/grants` 和 `GET /api/v2/principal-groups/:name/grants` 读取主体和权限组的权限授予。曾添加后又删除的授权可在 PostgreSQL 时间点恢复历史中追溯；当前存在的行即为系统实际执行的规则。
 
 ## 结构化控制面日志
 
@@ -30,7 +36,7 @@ order: 125
 
 ## Signal 与 delivery 行
 
-每个 Signal（驱动 session 的持久收件箱）和每次 delivery 尝试是 PostgreSQL 里的一行。这些通常不为审计而读——它们是运维状态——但它们构成了系统被要求做什么、是否已投递的记录。Console 的 `/background-agent-jobs/:id` 路由显示任务的 `attempts` 和 `error`；`/ai-gateway/conversations` 路由显示一个回合做过的模型调用。
+每个 Signal（驱动 session 的持久收件箱）和每次 delivery 尝试是 PostgreSQL 里的一行。它们既是运维状态，也构成了系统被要求做什么以及是否已投递的记录。Console API 的 `/api/v2/background-agent-jobs/:id` 路由显示任务的 `attempts` 和 `error`；`/api/v2/ai-gateway/conversations` 路由显示一个回合做过的模型调用。
 
 ## 配合使用
 
@@ -38,10 +44,11 @@ order: 125
 
 | 问题 | 去哪查 |
 |---|---|
-| "谁给了这个 agent 做 Y 的权限？" | `permission_grants` + `/principals/:uid/grants` |
-| "这个回合 agent 做了什么？" | `/ai-gateway/conversations/:id/messages` |
-| "调度触发了吗？" | `/cron-schedules/:id/runs` |
-| "任务失败被重试了吗？" | `/background-agent-jobs/:id`（`attempts`、`error`） |
+| "谁给了这个 agent 或页面受众做 Y 的权限？" | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
+| "某个人员账号为什么被停用、离职或受邀加入？" | `human_access_events`、`human_access_restrictions` 与 `pod_invitations` |
+| "这个回合 agent 做了什么？" | `/api/v2/ai-gateway/conversations/:id/messages` |
+| "调度触发了吗？" | `/api/v2/cron-schedules/:id/runs` |
+| "任务失败被重试了吗？" | `/api/v2/background-agent-jobs/:id`（`attempts`、`error`） |
 | "那时 worker 日志记了什么？" | 结构化控制面日志 |
 
 ## 本指南不是什么

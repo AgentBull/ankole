@@ -23,7 +23,7 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 | `web_search`、`web_fetch` | web ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成 | 呼び出しごとに高価。使用時にのみバインドする |
 
-Brain は [AppConfigure](../app-configuration/) からサイト単位の embedding モデルとテナント単位の rerank モデルを読み取ります。各テナントで有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます。全体の動作は [Brain](../brain/) を参照してください。
+Brain は [AppConfigure](../app-configuration/) からサイト単位の embedding モデルとテナント単位の rerank モデルを読み取ります。テナント設定 `brain.maintainer_agent_uid` で各テナントの有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しはこの Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます（詳細は [Brain](../brain/) を参照）。同様に、テナント設定 `pod.applet.ai_agent_uid` は Pod Applet の `ctx.ai` モデル呼び出しを担当する有効な Agent を指定し、その呼び出しと token 使用量を設定先 Agent に帰属させます。
 
 最も節約できる 2 つの動き:
 
@@ -45,11 +45,11 @@ Codex reasoning effort をサポートする Provider では、`model_reasoning_
 - **agent が web を必要としないときはバインドを外す。** 社内専用のアシスタントは `web_search` をバインドすべきではありません。スロットが存在することは呼び出しの許可証になるからです。
 - **URL がわかっているときは `web_search` より `web_fetch` を優先する。** 既知のソースの取得は 1 回の呼び出しです。検索は 1 回の呼び出しに、agent が実行すると決めた取得が追加されます。
 
-`worker.rendered_fetch_idle_ttl_ms` AppConfigure キーは、レンダリングされた取得結果がキャッシュされる時間を制御します。TTL が高いほど同じ URL の再取得を節約し、代償として陳腐化があります。
+`worker.rendered_fetch_idle_ttl_ms` AppConfigure キーは、未使用のレンダリング版 `web_fetch` ブラウザサイドカールートが解放されるまでのアイドルタイムアウトを制御します（URL レスポンスのキャッシュではありません）。
 
 ## レバー 4: agent ループの予算
 
-3 つの AppConfigure キーが turn ごとの消費を制限します。
+テナントスコープ（`scope: :tenant`）の 3 つの AppConfigure キーが turn ごとの消費を制限します。
 
 | キー | 何を制限するか |
 |---|---|
@@ -57,7 +57,7 @@ Codex reasoning effort をサポートする Provider では、`model_reasoning_
 | `ai_agent.max_output_tokens` | turn ごとの出力 token の上限 |
 | `ai_agent.inactivity_timeout_ms` | turn が回収されるまで非アクティブでいられる時間 |
 
-`max_iterations` は、多弁な agent ループを縛るものです。2 つで足りる場面で 10 個のツールを呼ぶループは、モデルに 10 回当たります。より低い上限は agent に収束を強制します。`max_output_tokens` は各応答の大きさを縛ります。これらはインスタンス全体のデフォルトであり、通常の turn の形に設定してください。本当に難しい turn が上限に当たって「今あるものを合成した最終回答」を生むことは受け入れてください。
+`max_iterations` は、多弁な agent ループを縛るものです。2 つで足りる場面で 10 個のツールを呼ぶループは、モデルに 10 回当たります。より低い上限は agent に収束を強制します。`max_output_tokens` は各応答の大きさを縛ります。これら `ai_agent.*` キーはテナントスコープのデフォルト（`scope: :tenant`、未上書き時はサイトデフォルトを継承）であり、通常の turn の形に設定してください。本当に難しい turn が上限に当たって「今あるものを合成した最終回答」を生むことは受け入れてください。
 
 ## レバー 5: Workflow の fanout とタスク試行
 
@@ -81,7 +81,7 @@ background job は再試行で token を使えます。上限がレバーです�
 |---|---|---|
 | `max_execution_attempts` | 5 | job は `failed` になるまで最大 5 回再試行する |
 | `max_consecutive_turn_failures` | 5 | 連続する turn の失敗後に job があきらめる |
-| `max_running_per_agent` | 3 | agent ごとに同時実行できる job は最大 3 つ |
+| `max_running_per_agent` | 3（デフォルト） | agent ごとの同時実行 job 上限。テナントごとに `agent_computer.background_agent_job.max_running_per_agent`（`1..64`）で設定可能 |
 | 再試行遅延 | 約 30 秒 | 再試行の間隔の下限 |
 
 一時的に 5 回失敗する job は、5 回分の run の token を費やします。ほとんどの場合、上限があなたを守ります。設定エラーは速やかに失敗し、失敗のままです。注目すべきレバーは 3 つ目です。3 つの並行 job を持つ agent は、一度に 3 つのモデルループを実行しています。その並列性が不要なら、「一度に 1 つのことをする」という persona は、上限が許すより安く済みます。
@@ -98,9 +98,9 @@ quota は予算プランナーではなく、停止装置として使ってく�
 
 モデルや並列性を変える前に、呼び出しを行った Agent、会話、Workflow、または Background Agent Job を確認してください。
 
-- `GET /ai-gateway/conversations` は、直近の turn が行ったモデル呼び出しを表示します。どの profile が解決したか、呼び出し回数、どの provider か。これが、消費が `primary`（量）、`heavy`（少数の高価な呼び出し）、`web_search`（多数の小さな呼び出し）のどれかを確認する最速の方法です。
-- メイン Agent に Workflow の表示を依頼します。タスク数から fanout と失敗した call がわかります。現在のバージョンには Workflow 用の Console ページも run ごとのコスト合計もありません。
-- `GET /background-agent-jobs` は job の `attempts` を表示します。`attempts: 5` の job は 5 回分の run を費やしました。
+- `GET /api/v2/ai-gateway/conversations` は、直近の turn が行ったモデル呼び出しを表示します。どの profile が解決したか、呼び出し回数、どの provider か。これが、消費が `primary`（量）、`heavy`（少数の高価な呼び出し）、`web_search`（多数の小さな呼び出し）のどれかを確認する最速の方法です。
+- メイン Agent に Workflow の表示を依頼します。タスク数から fanout と失敗した call がわかります（Workflow 専用の Console ページや run ごとの通貨コスト合計はありません）。
+- `GET /api/v2/background-agent-jobs` は job の `attempts` を表示します。`attempts: 5` の job は 5 回分の run を費やしました。
 - 構造化された control plane ログは、provider 呼び出しのイベント名とフィールドを持ちます。ログの取り込み先で、provider と agent ごとに集計できます。
 
 修正は決して「Agent を減らして使う」ではありません。「この特定のレバーが、この特定の agent の作業に対して誤って設定されている」のです。
@@ -118,7 +118,7 @@ quota は予算プランナーではなく、停止装置として使ってく�
 ## 次のステップ
 
 - Agent の model profile は [Agents](../agents/#モデルを設定する) を読んでください。
-- agent ループのノブとそのキーは [環境変数](../environment-variables/) を読んでください。
+- agent ループのノブや `ai_agent.*` などの実行時設定キーは [AppConfigure](../app-configuration/) を読んでください。
 - 関連する会話と Job のエンドポイントは [Console API リファレンス](../console-api/) を読んでください。
 - 有界のサブエージェント fanout とその上限は [Workflow](../workflows/) を読んでください。
 - Job の上限は [Background Agent Jobs](../background-jobs/) を読んでください。

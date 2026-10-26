@@ -130,26 +130,20 @@ Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露�
 
 ### Console API
 
-An Object slug can contain `/`. The Console sends it in the query or request
-body. Detail reads and writes use `/api/v2/brain` with
-`application/vnd.api+json`. Generic operations receive their arguments under
-`data` and return the typed result declared by each operation.
+Object 的 `slug` 可以包含 `/`，Console 通过查询参数或请求体传递。详情读取和写入均走 `/api/v2/brain`，使用 `application/vnd.api+json`。通用操作（generic action）在 `data` 下接收参数，并返回各操作声明的类型化结果。
 
 | 方法与路径 | 用途 | 关键输入或输出 |
 | --- | --- | --- |
-| `GET /api/v2/brain/objects/show?slug=...` | Read the detail and save baseline | raw `body`, `content_hash`, `editable`, `edit_block_reason` |
+| `GET /api/v2/brain/objects/show?slug=...` | 读取详情与保存基线 | raw `body`、`content_hash`、`editable`、`edit_block_reason` |
 | `POST /api/v2/brain/objects` | 创建租户自有 Object（`:console_create`） | slug、type、subtype、title、body、meta、effective_date |
 | `PATCH /api/v2/brain/objects` | 更新租户自有 Object（`:console_update`） | slug、可变字段、`expected_content_hash` |
 | `GET /api/v2/brain/object-versions?slug=...` | 版本历史 | author、body、meta、tags、snapshot_at |
 
-A write returns an Object summary. The editor reads the detail after a save to
-get the new content hash and normalized tags. If this read fails, the editor
-keeps the draft and shows the error. It updates the save baseline only from a
-successful read.
+写入返回 Object 摘要。保存成功后编辑器会重新读取详情，以获取最新 `content_hash` 和规范化后的标签；若重读失败，编辑器保留草稿并展示错误，仅在重读成功时更新保存基线。
 
-创建和更新在 `brain:update` 权限下接受可选的 `tags` 数组。更新时省略该字段会保留当前标签；显式传入空数组会清空所有标签。编辑器为每个标签提供独立输入框，支持包含换行的标签。标签计入并发保存基线（compare-and-swap），更新前的标签集合随带作者归属的版本快照一同保存。版本回滚仅恢复 `body` 和 `meta`。
+创建和更新在 `site_console:brain` 的 `update` 权限下接受可选的 `tags` 数组。更新时省略该字段会保留当前标签；显式传入空数组会清空所有标签。编辑器为每个标签提供独立输入框，支持包含换行的标签。标签计入并发保存基线（compare-and-swap），更新前的标签集合随带作者归属的版本快照一同保存。版本回滚仅恢复 `body` 和 `meta`。
 
-创建和更新要求 `brain:update`；raw body 只在 `brain:read` 管理边界返回。
+创建和更新要求 `site_console:brain` 的 `update` 权限；raw body 只在 `site_console:brain` 的 `read` 管理边界返回。
 领域拒绝返回 422，错误码是领域理由（语法错误为 `unclosed_audience_tag` 等），
 编辑器用本地预览给出语法错误的行号；content hash 冲突（`content_hash_conflict`）、
 已删除（`object_deleted`）和 slug 已占用（`slug_taken`）返回 409。

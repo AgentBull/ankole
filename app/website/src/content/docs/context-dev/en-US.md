@@ -47,17 +47,17 @@ Open **Console → Environment variables** and create a variable:
 - **Value:** your `ctxt_secret_...` key
 - **Encrypted storage:** on
 
-The name must match exactly, because the Skill declares that name and nothing else. Set the variable for all Agents, or set it on one Agent under **Console → Agents → the Agent → Environment variables** when only that Agent should spend the credits. See [Environment variables](../worker-env/) for the scope rules.
+The name must match exactly, because the Skill declares that name and nothing else. Set the variable at the tenant or site scope, or set it on one Agent under **Console → Agents → the Agent → Environment variables** when only that Agent should spend the credits. See [Environment variables](../worker-env/) for the scope rules.
 
 ### 3. Enable the Skill
 
-Open **Console → Agent Library**, find `context-dev`, and enable it — instance-wide, or for the Agents that need it. See [Agent Library](../skills/) for the default-then-override model.
+Open **Console → Agent Library**, find `context-dev`, and enable it — tenant-wide, or for the Agents that need it. See [Agent Library](../skills/) for the default-then-override model.
 
 The Skill takes effect on the Agent's next turn. Disabling it removes the connection from the next turn, the next Background Agent Job, and the next Automation Job attempt.
 
 ### 4. Confirm it works
 
-Ask an enabled Agent for something small, such as the brand profile of a domain you know. A `401` in the reply means the key is missing or wrong: check that the variable name is exactly `CONTEXT_DEV_API_KEY`, that it is not shown as "Not set", and that no Agent-level value overrides the global one.
+Ask an enabled Agent for something small, such as the brand profile of a domain you know. A `401` in the reply means the key is missing or wrong: check that the variable name is exactly `CONTEXT_DEV_API_KEY`, that it is not shown as "Not set", and that no Agent attachment or tenant override shadows the tenant or site `WorkerEnv` value.
 
 ## How Ankole connects
 

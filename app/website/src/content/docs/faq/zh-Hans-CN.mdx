@@ -22,7 +22,7 @@ export const commonIssues = [
     symptom: '页面超时、拒绝连接、返回 502，或只有空白页。此时还没有进入身份源、模型或聊天平台的配置。',
     cause: '控制面没有正常运行，或域名、反向代理、Ingress 没有把请求送到控制面。后续 Provider 报错通常只是连带结果。',
     resolution: [
-      '先确认控制面、PostgreSQL 和反向代理是否健康，只处理日志里最早出现的异常。',
+      '先确认 control-plane、function-runtime、PostgreSQL 和反向代理是否健康，只处理日志里最早出现的异常。',
       '如果直接访问控制面正常，再检查域名解析、TLS 和代理到控制面的地址。',
       '不要为了试错删除数据库或持久化卷；启动失败不代表数据已经损坏。'
     ],
@@ -34,11 +34,11 @@ export const commonIssues = [
   {
     question: '首次设置需要的 activation code 在哪里？',
     symptom: '/setup 要求输入 activation code，但启动终端已经关闭，或者日志太多，找不到那一行。',
-    cause: '控制面只在首次设置阶段使用这个 code。第一位管理员完成登录后，code 会失效，此后应直接打开 Console 登录页。',
+    cause: '控制面只在首次设置阶段使用这个 code。第一位 siteadmin 站点管理员完成登录后，code 会失效，此后应直接打开登录页。',
     resolution: [
       '尚未完成首次登录时，到快速开始中选择自己的部署方式，运行该标签页给出的日志命令。',
       '搜索 SETUP ACTIVATION CODE，不要从浏览器缓存或数据库中猜测 code。',
-      '如果实例已经有 Root 管理员，不要重新激活；请使用已经配置的身份源登录。'
+      '如果站点已有 siteadmin（或租户已有 pod_admin）管理员，不要重新激活；请通过无密码邮箱验证码（SiteCredential，基于 authn.email.mail）或已配置的企业身份源（IdP SSO）登录。'
     ],
     links: [
       { href: '../quickstart/#deployment', label: '读取 activation code' }
@@ -54,7 +54,7 @@ export const commonIssues = [
       '如果控制面启动失败，先处理日志中的插件初始化错误。'
     ],
     links: [
-      { href: '../skills/', label: '在 Agent 能力库中启用 Plugin' }
+      { href: '../control-plane-plugins/', label: '管理 Control Plane Plugins' }
     ]
   },
   {
@@ -532,14 +532,14 @@ export const channelTabs = [
   }
 ]
 
-这不是产品介绍，也不重复第三方平台的完整配置步骤。请先找到最早出现的异常，再选择对应的身份源或聊天平台。完整安装与首次设置仍以 [快速开始](../quickstart/) 为准。
+这不是产品介绍，也不重复第三方平台的完整配置步骤。请先找到最早出现的异常，再选择对应的身份源或聊天平台。完整安装与首次设置以 [快速开始](../quickstart/) 为准。
 
 ## 先判断问题在哪一层
 
 | 你看到的现象 | 先检查 |
 |---|---|
-| `/setup` 或 Console 打不开 | 部署、控制面、域名与 HTTPS |
-| Console 能打开，但登录失败或通讯录不完整 | 身份源提供商（IdP） |
+| `/setup` 或 Console 打不开 | 部署、`control-plane`、`function-runtime`、PostgreSQL、域名与 HTTPS |
+| Console 或 Pod 能打开，但登录失败或通讯录不完整 | 企业身份源（IdP SSO）、无密码邮箱验证码（`SiteCredential`，配置于 `authn.email.mail`）、`principals.pod_login_policy` 登录策略与 `siteadmin` / `pod_admin` 管理员组成员关系 |
 | Console 中 Agent 能对话，但某个 IM 没有消息 | 该聊天渠道与信号路由 |
 | IM 消息已经进入 Ankole，但 Agent 无法生成回复 | LLM Provider、模型档案与 Worker |
 | 只有一个平台有问题 | 直接选择下方对应 Provider，不要照搬另一平台的处理办法 |

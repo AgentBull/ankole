@@ -7,7 +7,7 @@ order: 1
 
 **Ankole 是配备公司大脑的开源 Claude Tag 替代方案，也是一套企业级 Agent Harness。**
 
-实时信号唤醒 Agent。Agent 使用共享知识、企业权限和 Agent Computer 工作环境执行长任务。进程发生故障后，任务可以恢复。
+实时信号唤醒 Agent。Agent 使用共享知识、Pod 工作空间、企业权限和 Agent Computer 工作环境执行长任务。进程发生故障后，任务可以恢复。
 
 模型根据收到的上下文推理。Harness 选择与任务相关且当前有效的企业事实，执行访问规则，选择可用能力，在故障后恢复任务，并记录结果供后续决策使用。
 
@@ -27,12 +27,14 @@ order: 1
 | 部件 | 说明 | 详见 |
 |---|---|---|
 | **Agent** | 具备明确使命、授权、工具和对外身份的工作主体。可编辑文件定义 Agent 的使命与交付标准。一个部署实例可以包含多个 Agent。 | [Agent](../agents/) |
+| **Pod** | 人类与 Agent 协作处理层级页面、实时文档、Base 多维表、Applet 小应用与多人 Pod Chat 的共享工作空间。 | [架构概览](../architecture/) |
 | **Brain** | 共享的公司知识层。Brain 保留来源、结论、时间、置信度、冲突和可见范围，让获授权的 Agent 使用同一份当前企业上下文。 | [Brain](../brain/) |
 | **会话（Session）** | 承载上下文、工作区状态、运行中引导、取消和恢复的执行单元。 | [Sessions](../sessions/) |
 | **信号路由规则** | 将指定 Agent 连接到信号源，并定义 Agent 在该信号源中的操作范围。 | [信号路由规则](../signal-bindings/) |
 | **后台任务** | 独立于发起会话运行数小时的任务。任务完成后，结果会发送到发起任务的频道。 | [Background Agent Jobs](../background-agent-jobs/) |
 | **技能** | 针对特定工作的标准作业程序。Agent 可以提出改进方案，经人工批准后在后续会话中生效。 | [Skills](../skills/) |
 | **主体（Principal）** | 人员和 Agent 都以 Principal 作为权限主体。运行时对每个 Principal 应用权限与审计规则。 | [主体与 AuthZ](../principal-authz/) |
+| **Function Runtime** | 无状态的 `ankole-function-runtime` 服务，在隔离环境中执行用于 Pod Applet 后端函数与确定性工具编排的 TypeScript 程序。 | [架构概览](../architecture/) |
 | **Agent Computer Worker** | 执行工具、文件操作、终端、浏览器与 Codex Job 的工作环境；主模型循环由控制面运行。 | [Agent Computer Worker](../agent-computer-worker/) |
 
 Agent 还可以通过 [Deep Research](../deep-research-job/) 完成长时间、多来源调研，并通过 [浏览器自动化](../browser-automation/) 操作真实网页。
@@ -49,9 +51,9 @@ Ankole 适用于能通过数字系统执行，并产生可供检查的证据和�
 
 ## 当前状态
 
-Ankole 已在生产环境中运行，是一套完整的企业级 Agent Harness。企业可以在自己的基础设施上托管控制面、Agent Computer Worker、内核、公司大脑和运维控制台。
+Ankole 已在生产环境中运行，是一套完整的企业级 Agent Harness。企业可以在自己的基础设施上托管控制面、Pod 工作空间、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、内核、公司大脑和运维控制台。
 
-公共 API 的兼容性契约仍在制定。版本迭代中可能包含破坏性变更。
+Ankole 不提供公共 API 兼容性契约。版本发布可能包含破坏性变更。
 
 ## 下一步
 

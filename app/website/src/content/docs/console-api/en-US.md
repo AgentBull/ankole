@@ -5,7 +5,7 @@ section: Reference
 order: 203
 ---
 
-The Console API uses the browser session cookie. `RequireSiteAdminSession` checks the Console context, Human revocation state, and current site administrator membership on each request. A failed authentication check returns `401`. Requests other than GET and HEAD must send the shell's `x-csrf-token` header; missing or invalid CSRF proof returns `403`.
+The Console API uses multi-account browser authentication: sealed session cookies in `Cookie` plus `x-ankole-authentication` to select the active account. `RequireSiteAdminSession` resolves the active administrator session, checks Human access state, and binds the `Ankole.AuthZ` actor (`console_rest`), while `Ankole.AuthZ.Authorizer` authorizes each Ash action against `site_console:**` and `tenant_console:**` permissions. A failed authentication check returns `401`. Requests other than GET and HEAD must send the shell's `x-csrf-token` header; missing or invalid CSRF proof returns `403`, as does a denied authorization check.
 
 Console configuration, aggregate views, and audited secret operations use `/api/v2`. Site administration routes use `/api/v2/site`. Tenant routes use the selected data tenant. The tables give each full path.
 
@@ -13,7 +13,7 @@ Use `application/vnd.api+json` for v2 requests. Each operation's OpenAPI schema 
 
 For tenant routes, `x-ankole-tenant: <tenant UUID>` selects the data tenant. Without this header, the caller's tenant is used. An invalid, unavailable, or deleting tenant returns `404` with `data_tenant_unavailable`. The header does not change the caller's identity or site administration permission, and does not select a scope for site routes.
 
-`/api/v2/openapi.json` and `/api/v2/site/openapi.json` describe the Console operations and need the same authentication as those routes. File upload and download retain the native routes listed below. Runtime AI calls, OIDC protocol operations, webhooks, and private browser APIs use their own contracts.
+`/api/v2/openapi.json` and `/api/v2/site/openapi.json` describe the Console and site administration operations and need the same authentication as those routes. Other browser JSON:API scopes publish their own OpenAPI 3.1 documents: `/api/v2/pod/openapi.json` (Pod workspace and `/api/v2/pod/admin/*` routes for `pod_admin`) and `/api/v2/browser/openapi.json` (browser authentication and setup). File upload and download use the native `/api/v2` routes listed below. Runtime AI calls, OIDC protocol operations, and webhooks use their own contracts.
 
 ## The configuration surfaces
 
@@ -136,7 +136,7 @@ An Agent attachment uses its own value or inherits the tenant value, then the si
 | `GET` | `/api/v2/site/control-plane-plugins` | List Control Plane Plugins and their state |
 | `PUT` | `/api/v2/site/control-plane-plugins` | Enable or disable plugins |
 
-Control Plane Plugins are the first-party extensions that change what the control plane itself does, such as a signals adapter.
+Control Plane Plugins are compiled first-party extensions that add control-plane capabilities such as Signals adapters, Identity Provider adapters, AI Gateway providers, and Worker providers. Plugins with `activation: :always` stay enabled with the build. `PUT /api/v2/site/control-plane-plugins` toggles `:optional` plugins for the next restart and runs subsystem `veto_disable` checks so a plugin with active resources (such as a configured Worker provider) cannot be disabled.
 
 ### Identity providers and AppConfiguration
 
@@ -153,7 +153,7 @@ Control Plane Plugins are the first-party extensions that change what the contro
 | `PUT` | `/api/v2/app-configurations/:key` | Set a configuration value |
 | `POST` | `/api/v2/app-configurations/:key/decryptions` | Decrypt one secret configuration value |
 
-`AppConfiguration` stores declared operator settings at site or tenant scope. `/api/v2/site/app-configurations` manages site keys; `/api/v2/app-configurations` manages tenant keys. Both support listing, reading one key, setting, deleting an override, and audited decryption. Bootstrap credentials and startup facts remain in environment variables or secret mounts.
+`AppConfiguration` stores declared operator settings at site or tenant scope. `/api/v2/site/app-configurations` manages site keys; `/api/v2/app-configurations` manages tenant keys. Both support listing, reading one key, setting, deleting an override, and audited decryption. Bootstrap credentials and startup facts live in environment variables or secret mounts.
 
 ### Tenant administration
 
@@ -174,10 +174,10 @@ Alongside configuration, the Console is the observability path for the rest of t
 
 - **Agents in flight**: `/api/v2/agents/:agent_uid/sessions`, per-Agent cron schedule and checkback management; the list endpoints are tenant-wide with an `agent` filter.
 - **Workers**: `/api/v2/agent-workers` lists the Worker state for each Agent.
-- **Agent drives**: `/api/v2/agents/:agent_uid/files` lists and deletes files; `/api/v2/agents/:agent_uid/file-moves` moves a file. `POST /api/v1/agents/:agent_uid/files` uploads multipart data, and `GET /api/v1/agents/:agent_uid/files/content` downloads bytes. These native transfers use the same browser session, CSRF, tenant selection, and file permissions. The control plane owns the files.
+- **Agent drives**: `/api/v2/agents/:agent_uid/files` lists and deletes files; `/api/v2/agents/:agent_uid/file-moves` moves a file. `POST /api/v2/agents/:agent_uid/files` uploads multipart data, and `GET /api/v2/agents/:agent_uid/files/content` downloads bytes. These native transfers use the same browser session, CSRF, tenant selection, and file permissions. The control plane owns the files.
 - **Jobs**: `/api/v2/background-agent-jobs` (list, read, cancel).
 - **AI activity**: `/api/v2/ai-gateway/conversations`, with messages per conversation.
-- **Principals and AuthZ**: `/api/v2/principals`, `/api/v2/principal-groups`, `/api/v2/permission-grants` — the permission model from the [Principal and AuthZ](../principal-authz/) page.
+- **Principals, AuthZ, and OIDC clients**: `/api/v2/principals` (including `PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, and `POST /api/v2/principals/:uid/access-restorations`), `/api/v2/principal-groups`, `/api/v2/permission-grants`, and `/api/v2/oidc-clients` — see [Principal and AuthZ](../principal-authz/).
 
 ## A note on what is not here
 

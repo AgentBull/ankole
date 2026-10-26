@@ -11,7 +11,7 @@ AIGateway は、Ankole deployment instance の統一された AI boundary です
 
 ## 位置づけ
 
-AIGateway は呼び出し元と provider の間にあります。呼び出し元、つまり agent の model loop、OIDC Human、または外部の integration は、bearer token を提示して OpenResponses 形状の request を送ります。AIGateway は selector を解決し、request を準備し、bind された provider に fan-out し、単一の JSON body または stream を返します。LLM、embedding、rerank、web 検索、web fetch の能力はすべて同じ boundary を通ります。
+AIGateway は呼び出し元と provider の間にあります。呼び出し元、つまり agent の model loop、OIDC Human、または外部の integration は、bearer token を提示して OpenResponses 形状の request を送ります。AIGateway は selector を解決し、request を準備し、bind された provider に fan-out し、単一の JSON body または stream を返します。LLM、embedding、rerank、web 検索、web fetch の能力はすべて同じ boundary を通ります。response turn で `programmatic_tool_calling` を使用する場合、AIGateway は `Ankole.FunctionRuntime.ProgramRunner` を通じて `ankole-function-runtime` 上のステートレスな isolate で各 `programmatic_tool_call` の TypeScript プログラムを実行します。
 
 最も重要な性質は、呼び出し元が provider の credential を決して見ないことです。control plane が credential と routing policy を所有し、呼び出し元が所有するのは自分の token と selector だけです。
 
@@ -89,6 +89,8 @@ AIGateway は、どの上流呼び出しよりも前に、model selector を実�
 
 `chatgpt_subscription` は普通の provider kind です。その OAuth credential は control plane に残り、token の refresh は row lock の下で実行されます。Agent Computer と外部呼び出し元は、これらの token を受け取りません。
 
+`agentbull_cloud`（**AgentBull Cloud**、デフォルトの base URL は `https://cloudapis.agentbull.com`）は組み込みの集約上流 provider kind で、1 つの API キーで言語モデル、embedding、rerank、`web_search`、`web_fetch`、`image_generate` を提供します。その credential も control plane に残り、Worker 側の MCP スキルが直接読み取る外部 credential は引き続き `WorkerEnv` を使用します。
+
 resolution は、呼び出し元が処理すべき 2 つの方法で失敗します。
 
 - `422 unknown_model_selector` — selector がこの主体に bind されていません。
@@ -109,7 +111,9 @@ bind された provider が提供しない capability は、`422 unsupported_cap
 
 上流が `error.message` を返した場合、AIGateway はその message を転送します。それ以外の場合は、上流の HTTP ステータスをそのまま報告します。
 
-## 画像生成
+## プログラムによるツール呼び出しと画像生成
+
+`/responses` の request が `programmatic_tool_calling` ツールを宣言すると、AIGateway は対象のツール記述子から `program` ツールを合成します。各 `programmatic_tool_call` は、`Ankole.FunctionRuntime.ProgramRunner` を通じて `ankole-function-runtime` 上のステートレスな isolate で決定論的な TypeScript プログラムを実行し、ネストされたツール境界で一時停止しながら、履歴、順序、キャンセルを AIGateway が管理します。
 
 `image_generation` は公開の Responses tool で、2 つの実行経路があります。主体が `image_generate` profile を持つ場合、AIGateway はその独立した provider と model で tool を実行します。profile がない場合、AIGateway はメイン provider が native 画像生成を宣言しているときにのみ tool を渡します。どちらの経路も存在しない場合、tool を模倣する代わりに request の準備が失敗します。
 
@@ -119,7 +123,7 @@ bind された provider が提供しない capability は、`422 unsupported_cap
 
 同じ主体と token が隣接する能力を駆動します。`POST /web_search` は長さ制限のある `query` を受け取り、provider が提供する結果を返します。`POST /web_fetch` は 1 つから 5 つの公開 HTTPS URL を受け取り、page content を返します。これらの呼び出しは `web_search.default` と `web_fetch.default` を使用でき、AIGateway が現在の Agent profile を解決します。
 
-`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のサイト単位の設定 `brain.embedding_model` とテナント単位の設定 `brain.rerank_model` を使います。検索の動作については [Brain](../brain/) を参照してください。
+`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のサイト単位の設定 `brain.embedding_model` とテナント単位の設定 `brain.rerank_model` を使います。また、Pod Applet の `ctx.ai` 呼び出しも、`pod.applet.ai_agent_uid` に設定された有効な Agent のもとで AIGateway を経由し、その Agent の言語モデル profile を解決してステートレスに実行されます。検索の動作については [Brain](../brain/) を参照してください。
 
 file はファーストクラスです。`POST /files` がアップロードし、`GET /files` が一覧表示し、`GET /files/:id` と `GET /files/:id/content` が metadata と bytes を読み取り、`DELETE /files/:id` が 1 つを削除します。これらはすべて主体に限定されます。
 

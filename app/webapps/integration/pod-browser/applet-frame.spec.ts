@@ -373,7 +373,7 @@ test('a rejected table write preserves the Applet draft until Page access is rev
     )
     await frame.getByRole('button', { name: 'Submit sample', exact: true }).click()
     expect((await rejected).status()).toBe(403)
-    await expect(member.getByRole('button', { name: '重新加载小程序', exact: true })).toBeVisible()
+    await expect(member.getByRole('button', { name: '重新加载小应用', exact: true })).toBeVisible()
     await expect(member.locator('iframe')).toHaveCount(1)
     await expect(frame.getByText('Write rejected', { exact: true })).toBeVisible()
     await expect(draft).toHaveValue('Keep this evaluation after a rejected write')
@@ -384,7 +384,7 @@ test('a rejected table write preserves the Applet draft until Page access is rev
       grants: [{ principal_uid: state.owner.uid, role: 'manage' }]
     })
     await expect(member.locator('iframe')).toHaveCount(0)
-    await expect(member.getByRole('button', { name: '重新加载小程序', exact: true })).toHaveCount(0)
+    await expect(member.getByRole('button', { name: '重新加载小应用', exact: true })).toHaveCount(0)
   } finally {
     if (appletSharing.body()) {
       await requestWithSharingVersion(owner, `/pages/${state.applet_id}/sharing`, 'PUT', appletSharing.body())

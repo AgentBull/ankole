@@ -47,17 +47,17 @@ stripe.com 对应哪个 NAICS 行业代码？
 - **值：** 你的 `ctxt_secret_...` key
 - **加密存储：** 开启
 
-名称必须完全一致，因为 skill 声明的就是这个名字，不认别的。可以给全部 Agent 设置，也可以在 **Console → 智能体 → 选中 Agent → 环境变量** 里只给一个 Agent 设置——只让它花这笔 credits。作用范围规则见 [环境变量](../worker-env/)。
+名称必须完全一致，因为 skill 声明的就是这个名字，不认别的。可以在租户或站点范围设置，也可以在 **Console → 智能体 → 选中 Agent → 环境变量** 里只给一个 Agent 设置——只让它花这笔 credits。作用范围规则见 [环境变量](../worker-env/)。
 
 ### 3. 启用 skill
 
-打开 **Console → Agent 能力库**，找到 `context-dev` 并启用：可以实例级开启，也可以只对需要的 Agent 开启。默认值加按 Agent 覆盖的模型见 [Agent 能力库](../skills/)。
+打开 **Console → Agent 能力库**，找到 `context-dev` 并启用：可以租户级开启，也可以只对需要的 Agent 开启。默认值加按 Agent 覆盖的模型见 [Agent 能力库](../skills/)。
 
 从 Agent 的下一个回合开始生效。关闭它之后，下一个回合、下一次 Background Agent Job execution 和下一次 Automation Job attempt 都不再带这个连接。
 
 ### 4. 确认可用
 
-找一个已启用的 Agent 做件小事，比如查一个你熟悉的域名的品牌资料。如果回复里出现 `401`，说明 key 缺失或不对：确认变量名就是 `CONTEXT_DEV_API_KEY`、它没有显示为“未设置”、并且没有 Agent 专用值覆盖了全局值。
+找一个已启用的 Agent 做件小事，比如查一个你熟悉的域名的品牌资料。如果回复里出现 `401`，说明 key 缺失或不对：确认变量名就是 `CONTEXT_DEV_API_KEY`、它没有显示为“未设置”、并且没有错误的 Agent 挂载值或租户覆盖值遮蔽了租户或站点级 `WorkerEnv` 值。
 
 ## Ankole 怎么连接
 

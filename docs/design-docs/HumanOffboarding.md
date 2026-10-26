@@ -129,10 +129,14 @@ scope controls admission.
 
 `principals.access_version` is the durable Human revocation generation. Each
 new restriction invalidates session proofs and work that captured an earlier
-version. `human_access_restrictions` stores independent active reasons with
-provider recovery evidence. `human_access_events` stores immutable decisions,
-permission approvals, and cleanup results. Duplicate source operations use a
-unique `(source, operation_id, principal_uid)` key.
+version. `human_access_restrictions` stores independent active reasons, each
+restriction's `disposition` (`:suspended` or `:offboarded`), and provider
+recovery evidence. `:suspended` retains personal `principal_site_credentials`
+and contact bindings; `:offboarded` releases unshared personal site credentials
+and tenant email/contact bindings. `human_access_events` stores immutable
+decisions, `released_identifiers` watermarks, permission approvals, and cleanup
+results. Duplicate source operations use a unique
+`(source, operation_id, principal_uid)` key.
 
 `identity_directory_events` stores provider events before acknowledgement.
 `identity_directory_states` stores the latest revision, scope and snapshot
@@ -237,7 +241,7 @@ Ankole checks Human access at each applicable authentication or request entry:
 
 | Entry | Result after disablement |
 | --- | --- |
-| Local login, Feishu login, and SSO reuse | Reject a new authenticated session. |
+| Email OTP, personal credential login, enterprise SSO login, and session reuse | Reject a new authenticated session. |
 | Console and OAuth browser sessions | Reject their next authenticated use on every device. |
 | Authorization Code exchange and Refresh Token use | Reject credentials from the disabled or revoked authorization. |
 | Console API | Reject the disabled Human's browser session. |
@@ -260,8 +264,8 @@ one sent before `T0` that completes afterward.
 
 ## Notify OIDC Clients and Check Their Tokens
 
-Deliver both Back-Channel Logout and Token Introspection as defined in the
-[OIDC Server protocol extension](OIDCServer.md#offboarding-protocol-additions).
+Deliver both Back-Channel Logout and Token Introspection as defined in
+[OIDC Server](OIDCServer.md#logout-and-cleanup).
 That document owns protocol fields, Client registration, authentication, and
 notification delivery.
 

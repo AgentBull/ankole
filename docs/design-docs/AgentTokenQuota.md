@@ -48,7 +48,10 @@ The ledger starts empty at deployment.
 
 The limit is a soft limit. AIGateway checks the usage before it sends a request
 and rejects the request when the usage is at or above the limit. One request
-can therefore end above the limit by its own usage.
+can therefore end above the limit by its own usage. `ai_gateway_usage_records`
+tracks raw token counts without currency or pricing as an instance-local
+per-Agent guardrail, and applies alongside (`AND`) any plugin-enforced compute
+or account admission hook.
 
 ## Data Model
 
@@ -236,12 +239,13 @@ Every route answers with the configuration and the current window:
 
 `token_quota` and `usage` are both `null` for an Agent without a limit, and a
 reset of such an Agent answers 422 `token_quota_not_configured`. The AuthZ
-resource is `agent:<uid>:token_quota` with the `read`, `update`, and `delete`
-actions. The
+resource is `site_console:agent:<uid>:token_quota` with the `read`, `update`,
+and `delete` actions. The
 generic `PATCH /agents/:agent_uid` route rejects `options.ai_agent.models`,
 `provider_hosted`, and `token_quota` with 422 and keeps their stored values
-when it replaces `options`, so a whole-`options` write from an older client
-cannot remove model profiles or the quota. It locks the Agent row before the
+when it replaces `options`, so a whole-`options` write preserves model
+profiles, provider-hosted tools, and the quota owned by their dedicated routes.
+It locks the Agent row before the
 merge, so a quota written while the update waits is kept. `POST /agents`
 rejects `options.ai_agent.token_quota` the same way; a quota is set after
 creation through its own route.

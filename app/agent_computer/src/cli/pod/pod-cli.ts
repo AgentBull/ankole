@@ -136,7 +136,7 @@ export async function initializeApplet(directory: string) {
   await mkdir(join(directory, 'src'))
   await writeFile(
     join(directory, 'src/main.tsx'),
-    `import { defineApplet } from '@ankole/applet-sdk'\n\nfunction App() {\n  return <main><h1>新小程序</h1><p>使用 Base 保存业务数据。</p></main>\n}\n\nexport const provider = defineApplet(App)\n`,
+    `import { defineApplet } from '@ankole/applet-sdk'\n\nfunction App() {\n  return <main><h1>新小应用</h1><p>使用 Base 保存业务数据。</p></main>\n}\n\nexport const provider = defineApplet(App)\n`,
     { flag: 'wx' }
   )
   await writeFile(join(directory, 'src/style.css'), '.ankole-applet { padding: 1rem; }\n', { flag: 'wx' })

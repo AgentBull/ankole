@@ -1,0 +1,91 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - generic [ref=f1e6]:
+      - generic [ref=f1e8]:
+        - button "搜索或跳转" [ref=f1e9] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e13]: ⌘K
+        - button "新建页面" [expanded] [ref=f1e68] [cursor=pointer]
+        - menu "新建页面" [active] [ref=f1e132]:
+          - menuitem "文档" [ref=f1e133] [cursor=pointer]
+          - menuitem "多维表" [ref=f1e134] [cursor=pointer]
+          - menuitem "小程序" [ref=f1e135] [cursor=pointer]
+          - menuitem "文件" [ref=f1e136] [cursor=pointer]
+        - button "收起侧栏" [ref=f1e14]
+      - generic [ref=f1e15]:
+        - tablist "侧栏分类" [ref=f1e17]:
+          - tab "主页" [selected] [ref=f1e18] [cursor=pointer]
+          - tab "对话" [ref=f1e19] [cursor=pointer]
+        - tabpanel "主页" [ref=f1e21]:
+          - generic [ref=f1e22]:
+            - navigation "页面导航" [ref=f1e23]:
+              - link "与我共享" [ref=f1e24] [cursor=pointer]:
+                - /url: /content/shared
+              - link "最近访问" [ref=f1e28] [cursor=pointer]:
+                - /url: /content/recent
+              - link "收藏" [ref=f1e32] [cursor=pointer]:
+                - /url: /content/favorites
+              - link "回收站" [ref=f1e36] [cursor=pointer]:
+                - /url: /content/trash
+            - region "空间" [ref=f1e40]:
+              - generic [ref=f1e41]:
+                - button "空间" [expanded] [ref=f1e42] [cursor=pointer]
+                - link "空间" [ref=f1e45] [cursor=pointer]:
+                  - /url: /content/space
+                - generic [ref=f1e69]:
+                  - button "空间设置" [ref=f1e70]: ⋯
+                  - button "新建页面" [ref=f1e71] [cursor=pointer]
+              - list [ref=f1e72]:
+                - listitem [ref=f1e73]:
+                  - generic [ref=f1e74]:
+                    - button "Browser report" [ref=f1e75] [cursor=pointer]
+                    - link "Browser report" [ref=f1e78] [cursor=pointer]:
+                      - /url: /pages/AaF3YUN6dRKnD1RM-OXTEQ
+                    - generic [ref=f1e82]:
+                      - button "⁨Browser report⁩ 的操作" [ref=f1e83] [cursor=pointer]
+                      - button "新建页面" [ref=f1e84] [cursor=pointer]
+                - listitem [ref=f1e85]:
+                  - generic [ref=f1e86]:
+                    - button "Sample operations" [ref=f1e87] [cursor=pointer]
+                    - link "Sample operations" [ref=f1e90] [cursor=pointer]:
+                      - /url: /pages/AaF3YUsedpe873TFW-rTYA
+                    - generic [ref=f1e94]:
+                      - button "⁨Sample operations⁩ 的操作" [ref=f1e95] [cursor=pointer]
+                      - button "新建页面" [ref=f1e96] [cursor=pointer]
+            - region "Private" [ref=f1e47]:
+              - generic [ref=f1e48]:
+                - button "Private" [expanded] [ref=f1e49] [cursor=pointer]
+                - link "Private" [ref=f1e52] [cursor=pointer]:
+                  - /url: /content/private
+                - button "新建页面" [ref=f1e97] [cursor=pointer]
+              - list [ref=f1e139]:
+                - listitem [ref=f1e140]:
+                  - generic [ref=f1e141]:
+                    - button "Lifecycle note 1793004595302" [ref=f1e142] [cursor=pointer]
+                    - link "Lifecycle note 1793004595302" [ref=f1e145] [cursor=pointer]:
+                      - /url: /pages/AaF3ZusbcXiekuecdx-WWA
+                    - generic [ref=f1e149]:
+                      - button "⁨Lifecycle note 1793004595302⁩ 的操作" [ref=f1e150] [cursor=pointer]
+                      - button "新建页面" [ref=f1e151] [cursor=pointer]
+      - generic [ref=f1e55]:
+        - link "空间设置" [ref=f1e111] [cursor=pointer]:
+          - /url: /settings
+        - button "账户菜单：⁨Browser owner⁩，⁨Test tenant⁩" [ref=f1e112] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e57]: T
+          - generic [ref=f1e58]:
+            - generic [ref=f1e59]: Test tenant
+            - generic [ref=f1e113]: Browser owner
+    - main [ref=f1e62]:
+      - generic [ref=f1e64]:
+        - generic [ref=f1e65]:
+          - heading "空间" [level=1] [ref=f1e66]
+          - button "新建页面" [ref=f1e114] [cursor=pointer]
+        - list [ref=f1e115]:
+          - listitem [ref=f1e116]:
+            - link "Browser report" [ref=f1e117] [cursor=pointer]:
+              - /url: /pages/AaF3YUN6dRKnD1RM-OXTEQ
+              - generic [ref=f1e121]: 文档
+          - listitem [ref=f1e122]:
+            - link "Sample operations" [ref=f1e123] [cursor=pointer]:
+              - /url: /pages/AaF3YUsedpe873TFW-rTYA
+              - generic [ref=f1e127]: 文档
+  - region "Notifications alt+T"

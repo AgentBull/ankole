@@ -7,7 +7,7 @@ order: 122
 
 Agent は、通常の会話の中でコマンドを実行し、ファイルを編集できます。また、永続的な作業を Background Agent Job に委ねることもできます。これらは別々の runtime パスです。会話は Agent Computer Worker のフォアグラウンド tool を使い、各 Background Agent Job は CodexRunner を使います。メッセージ内のコード量が、どちらを選ぶかを決めるわけではありません。
 
-決定的な性質を先に述べます。すべてのコマンドは Agent 自身のコンピュータで実行されます。各 Agent は自分専用の Worker コンテナを持ち、コンテナが唯一の隔離境界です。コマンドは内側の sandbox なしで Worker のユーザーとして実行され、Agent は `/workspace` 配下の自分の Agent Home で作業します。Agent は自分のコンピュータを変更できますが、Worker、キャッシュディスク、credential を別の Agent と共有することはありません。
+決定的な性質を先に述べます。Agent のすべてのコマンドは Agent 自身のコンピュータで実行されます。各 Agent は自分専用の Worker コンテナを持ち、コンテナが唯一の隔離境界です。コマンドは内側の sandbox なしで Worker のユーザーとして実行され、Agent は `/workspace` 配下の自分の Agent Home で作業します。Agent は自分のコンピュータを変更できますが、Worker、キャッシュディスク、credential を別の Agent と共有することはありません。対照的に、Pod Applet のバックエンド関数や AIGateway・Workflow の Programmatic Tool Calling（PTC）スクリプトは、Agent Computer Worker 上ではなく、ステートレスな `ankole-function-runtime` の isolate 内で実行されます。
 
 ## shell コマンド
 
@@ -36,6 +36,7 @@ Agent Home は `/workspace` の永続ストレージです。`/agents/<agent_uid
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
+├── ConfidentialityPolicy.md
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -44,11 +45,11 @@ Agent Home は `/workspace` の永続ストレージです。`/agents/<agent_uid
     └── temp/
 ```
 
-`SOUL.md`、`MISSION.md`、`DESIGN.md` は [Agent Library](../agent-library/) の永続ドキュメントです。最初の 2 つは責任と振る舞いを定義します。`DESIGN.md` はビジュアル作業のためのデザインシステムです。`installed-skills/` は Agent Skill を保持します。`sessions/` は、10000 から始まる PostgreSQL 所有の安定した数値 ID を持つ会話 workspace を保持し、`jobs/` は別の Background Agent Job workspace を保持します。
+`SOUL.md`、`MISSION.md`、`DESIGN.md`、`ConfidentialityPolicy.md` は [Agent Library](../agent-library/) の永続ドキュメントです。最初の 2 つは責任と振る舞いを定義します。`DESIGN.md` はビジュアル作業のためのデザインシステムであり、`ConfidentialityPolicy.md` は Agent が Brain で公開範囲（audience scope）を選ぶ際の機密保持ルールを定義します。`installed-skills/` は Agent Skill を保持します。`sessions/` は、10000 から始まる PostgreSQL 所有の安定した数値 ID を持つ会話 workspace を保持し、`jobs/` は別の Background Agent Job workspace を保持します。
 
 Home はインスタンス削除やイメージ変更後も残ります。再構築は `/var/cache/ankole` だけを削除します。Docker のローカル volume はホストに依存し、Cloudflare の強制停止は最終 R2 バックアップ後の書き込みを失う場合があります。制限は [Worker](../worker-management/) を参照してください。
 
-control plane のドライブは添付ファイル、公開ファイル、Skill、Automation スクリプトを別途保存します。`ankole-files` で読み書きします。Job workspace と Codex スレッドは永続 Home に残ります。Turn の前に `installed-skills/` をドライブと同期します。
+control plane のドライブは添付ファイル、公開ファイル、Skill、Automation スクリプトを別途保存します。ドライブの読み書きには `ankole-files` を使い、Pod ページ、Base テーブル、Applet の操作には control plane 経由で `ankole-pod` を使います。Job workspace と Codex スレッドは永続 Home に置かれます。Turn の前に `installed-skills/` をドライブと同期します。
 
 Background Agent Job は `skill_view` を通してオンデマンドで Skill を読み込みます。
 
@@ -76,5 +77,5 @@ Console は対応する model profile を **Background Agent Jobs** と表示し
 
 - これらの tool を実行し、`/workspace` ファイルシステムを所有する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
 - Jupyter Skill の背後にある Skill と有効化モデルについては、[Agent Library](../agent-library/) を読んでください。
-- 内部キーが `coding` のままの Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を読んでください。
+- 内部キーが `coding` である Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を読んでください。
 - Worker の信頼境界とその強化方法については、[Security hardening](../security-hardening/) を読んでください。

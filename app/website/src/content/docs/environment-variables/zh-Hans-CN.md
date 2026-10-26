@@ -5,7 +5,7 @@ section: Reference
 order: 202
 ---
 
-本页列出 PostgreSQL、部署密钥、文件存储与进程设置的启动变量。Worker provider 的设置以 YAML 保存在 PostgreSQL 中。
+本页列出 PostgreSQL、Pod Base 分片数据库、`ankole-function-runtime`、部署密钥、对象存储与进程设置的启动变量。Worker provider 的设置以 YAML 保存在 PostgreSQL 中。
 
 可以在实例运行期间修改的运行时设置见 [系统配置](../app-configuration/)。不要把这些运行时设置写入 `.env` 或 Kubernetes Secret。
 
@@ -15,37 +15,44 @@ order: 202
 
 | 变量 | 必需 | 含义 |
 |---|---|---|
-| `DATABASE_URL` | 是 | 控制面所用的 PostgreSQL 连接串 |
-| `ANKOLE_SECRET_BASE` | 是 | 实例级 Secret Base，用于派生其他密钥 |
-| `RELEASE_COOKIE` | 是 | Erlang distribution cookie；同一部署的每个控制面节点使用同一个值 |
-| `POSTGRES_PASSWORD` | 仅内置 PostgreSQL | PostgreSQL 密码（启用内置 PostgreSQL 时必需；外部则由外部 Secret 提供） |
-| `ANKOLE_HOST` | Compose | 部署所服务的 DNS 名 |
+| `DATABASE_URL` | 是（`prod`） | 控制面（`Ankole.Repo`）所用的 PostgreSQL 18+ 连接串 |
+| `BASE_DB_URLS` | 否 | 可选的 `;` 分隔 PostgreSQL 18+ 连接串列表，用于物理 Pod Base 分片库（`Ankole.Pod.BaseRepo`），支持查询参数 `ankole_sharding`、`ankole_pool_size`、`ankole_stock_only`；FOSS 单库部署未设置时默认将 `DATABASE_URL` 作为 `base_default` 使用；拒绝 `sslmode` 参数 |
+| `ANKOLE_SECRET_BASE` | 是（`prod`） | 站点级 Secret Base，用于派生加密与签名密钥 |
+| `RELEASE_COOKIE` | 是（`prod`） | Erlang distribution cookie；同一部署的每个控制面节点使用同一个值 |
+| `ANKOLE_FUNCTION_RUNTIME_TOKEN` | 是（`prod`） | 控制面与 `ankole-function-runtime` 之间共享的内部 Bearer 密钥 |
+| `ANKOLE_FUNCTION_RUNTIME_URL` | 是（`prod`） | `ankole-function-runtime` 的内部访问地址（例如 Compose 中的 `http://function-runtime:9000` 或 Kubernetes Headless Service 地址） |
+| `POSTGRES_PASSWORD` | 仅内置 PostgreSQL | PostgreSQL 密码（启用内置 PostgreSQL 时必需；外部数据库则通过 `DATABASE_URL` 或外部 Secret 提供） |
+| `ANKOLE_HOST` | Compose | 部署所服务的公开 DNS 域名 |
 | `ACME_EMAIL` | Compose | Caddy 用于 Let's Encrypt 的邮箱 |
 | `ANKOLE_DOCKER_GID` | Compose | Docker socket 所属组的 ID；控制面以非特权用户运行，通过这个组访问 socket |
 
 这些值应放在 `.env` 或 Secret 中，绝不能提交到版本控制。Docker Compose 的 `.env.example` 是配置起点。
 
-Worker 不需要在 `.env` 或 Secret 中配置 key：控制面会为每个 Worker 发放它自己的凭据。
+Worker 不需要在 `.env` 或 Secret 中配置 key：控制面会为每个 Worker 发放专属凭据。
 
-Helm chart 的 `values.yaml` 列出了 Kubernetes 中对应的 `ankoleSecretBase`、`releaseCookie`、`databaseURL` 和 `postgresqlPassword`。
+Helm chart 的 `values.yaml` 中对应的配置键路径为：`secrets.ankoleSecretBase`、`secrets.releaseCookie`、`secrets.functionRuntimeToken`、`secrets.databaseURL`、`secrets.baseDBURLs`、`secrets.postgresqlPassword`、`controlPlane.siteAdminConsolePath` 以及 `functionRuntime.*`。
 
 ## 运行时调优（进程环境）
 
-启动时读取，调优一个运行中的进程。它们不是 secret。
+启动时读取，用于调优控制面或 `ankole-function-runtime` 进程。它们不是 secret。
 
 | 变量 | 默认 | 含义 |
 |---|---|---|
 | `ANKOLE_ENV` | — | 部署环境标签（如 `prod`、`dev`） |
 | `ANKOLE_LOG_LEVEL` | `info` | 日志级别（`debug`、`info`、`warning`、`error`） |
-| `ANKOLE_DATABASE_POOL_SIZE` | `10` | 控制面数据库连接池大小 |
+| `POOL_SIZE` | `10` | 控制面进程直接读取的 `Ankole.Repo` 数据库连接池大小 |
+| `ANKOLE_DATABASE_POOL_SIZE` | `10` | Docker Compose `.env` 中的变量，由 `compose.yaml` 映射为控制面容器的 `POOL_SIZE` |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | 内置 PostgreSQL 服务器的 `max_connections` |
+| `ANKOLE_SITE_ADMIN_CONSOLE_PATH` | `/site-admin-console` | Site Admin Console 的 URL 路径 |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | 发布默认镜像 | Docker Compose 中 `ankole-function-runtime` 容器镜像 |
+| `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` | `32` | 单个 `ankole-function-runtime` 容器的最大并发执行数 |
 | `ANKOLE_LIBRARY_ROOT` | chart 默认 | 自带 Agent Library 的路径（`app/library`） |
 | `ANKOLE_INTERNAL_SKILLS_ROOT` | — | 内部 skill bundle 的路径 |
-| `ANKOLE_AI_GATEWAY_BASE_URL` | — | 覆盖 AIGateway 基 URL（很少需要） |
+| `ANKOLE_AI_GATEWAY_BASE_URL` | — | 覆盖 AIGateway 基 URL |
 
 ## 文件存储（进程启动）
 
-控制面把每个 Agent 的云盘放在文件存储中：附件、生成的图片、发出的文件、已安装的 Skill、Automation Job 脚本，以及 Agent 保存的文件。Worker 从不持有存储凭据；文件字节经控制面中转。
+`ANKOLE_FILES_STORE` 配置控制面对象存储（`Ankole.ObjectStore`），统一保存每个 Agent 的云盘（附件、生成的图片、发出的文件、已安装的 Skill、Automation Job 脚本与保存的文件），以及 Pod `file` 页面、Pod 文档/Base/Chat 附件与已编译的 Applet 产物包。Worker 从不持有存储凭据；文件字节经控制面中转。完整 OpenDAL 后端列表见[控制面云盘与对象存储配置](../drive-storage/)。
 
 | 变量 | 必填 | 含义 |
 |---|---|---|

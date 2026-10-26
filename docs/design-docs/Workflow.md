@@ -419,7 +419,7 @@ turn limits from its request context.
 ## Console activity inspection
 
 The Home background activity area reads Workflow facts for one Agent in the
-current tenant. Its separate read permission is `agent:<agent_uid>:workflow`.
+current tenant. Its separate read permission is `site_console:agent:<agent_uid>:workflow`.
 Live calls are queried independently of the parent run state, so a running call
 admitted before Human access was revoked remains visible under its cancelled
 parent. The projection also includes running runs with no live calls and terminal

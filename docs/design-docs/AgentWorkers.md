@@ -52,8 +52,8 @@ action calls the provider adapter without a database transaction. A failed
 check names the platform and gives its useful rejection. The Console lists
 the Worker of each Agent
 (`GET /api/v2/agent-workers`, the `console_list` read action of `AgentWorker`)
-and assigns a provider once to an Agent that the migration left without one
-(`PUT /api/v2/agents/:agent_uid/worker-provider`, the generic action
+and assigns a provider once to an existing Agent whose worker row has no
+provider (`PUT /api/v2/agents/:agent_uid/worker-provider`, the generic action
 `console_assign_provider`): a missing Agent or provider is not found (404), and
 an Agent that has a provider or is being deleted is a conflict (409).
 
@@ -83,7 +83,7 @@ provider's `selectable` field checks active and next-start Plugin state, without
 cloud I/O. A provider list reads the next-start policy once for all its rows.
 The Console uses this field for Agent provider choices.
 
-Agent creation and legacy assignment hold the shared Worker provider registry
+Agent creation and one-time provider assignment hold the shared Worker provider registry
 lock and read the next-start Plugin policy from PostgreSQL. Plugin selection
 writes use the AppConfigure key lock to keep concurrent changes. A change that
 removes Worker kinds also holds the exclusive Worker provider lock and rejects
@@ -503,7 +503,7 @@ Agent deletion keeps unresolved creation state, settles that generation,
 deletes every instance, then deletes persistent storage and cache, and
 finally removes the Worker row. Agent UIDs are generated UUIDv7 values and
 are never reused. A
-legacy `deleting` row with no provider is removed directly.
+`deleting` row with no provider is removed directly.
 
 ### New Attempt Readiness
 
@@ -674,7 +674,7 @@ Official Worker images require `memoryMiB` of `4096` or `8192`. Saved provider
 configurations are validated again when loaded. A lower saved value is rejected
 and blocks runtime or cleanup operations.
 
-To repair an old configuration, open Worker Providers in Console, edit the
+To repair a rejected configuration, open Worker Providers in Console, edit the
 Lambda provider, set `memoryMiB` to `4096` or `8192`, and save it. The update
 validates the new configuration, clears that provider's `rejected` Worker errors,
 and queues reconciliation for its assigned Agents. Check the provider and Worker

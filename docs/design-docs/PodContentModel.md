@@ -22,9 +22,21 @@ This reference does not add features outside the first-version scope. See
 Calendar, timeline, form, and chart presentations are Applets, not built-in
 Base views.
 
+Page creation opens a non-modal type menu at its trigger. Selecting a type
+creates an untitled Page at that entry's Space, Private, or parent destination
+and opens the Page for editing. Document insertion uses the same type submenu
+and embeds the new child in the current document. Titles are edited at the top of the Page canvas.
+Creation failures show an error toast, and the entry permits a retry.
+
 Page titles and document bodies share one recoverable draft and navigation
 guard. Failed saves retain input. Pending dialogs keep their submitted inputs
-and cannot close. Page details and lists include the effective actions from
+and cannot close. Document titles save after a 500 ms pause in typing and on
+blur. IME composition delays the automatic save until composition ends. Enter
+moves from the title to the start of the body. Up at the start of the body
+returns to the end of the title. Normal save status is available to assistive
+technology; save failures show a retry control. The document insertion menu
+appears beside the body without taking space between the title and body.
+Page details and lists include the effective actions from
 the same permission snapshot. Operation controls use these actions; role names
 summarize access for display. Page moves list writable Page destinations and
 exclude the page and its descendants. Root creation, move, and copy choices use
@@ -225,7 +237,7 @@ The root module `Ankole.Pod` is the Ash domain. Its durable resources are `Page`
 `PageContent`, `PageChange`, `PageUserState`, `BaseTable`, `BaseField`, and
 `BaseView`, and its `*.Browser` resources serve `/api/v2/pod` JSON:API routes.
 The browser actions validate query operators as finite enums, then convert
-them to the JSON strings consumed by the shared database query contract.
+them to the JSON strings consumed by the shared Base query contract.
 Each Pod operation that writes, or reads under a row lock, runs in
 `Repo.transact_top_level/2` in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`,
 `Documents`, `Files`, `Applets`, `Bases`, and `Jobs.PurgePage`). Its first
@@ -272,8 +284,10 @@ reference to another tenant. `Ankole.Repo` requires an explicit tenant context.
 Tenant deletion removes records and other children in batches before pages.
 
 Deletion marks a page as trash and hides its subtree. A scheduled purge starts
-after `pod.trash_retention_days` (default 30). The purge marks its start in the
-same transaction that checks eligibility. Restore is rejected after that mark.
+after `pod.trash_retention_days` (a positive integer number of days, default 30,
+or `"unlimited"` to retain trashed pages without automatic purge). The purge
+marks its start in the same transaction that checks eligibility. Restore is
+rejected after that mark.
 The purge job marks and cleans each Base table through the Base cleanup contract.
 It then removes page resources, file references, grants, and child pages in
 bounded batches. The root stays present until cleanup completes, so an
@@ -374,6 +388,11 @@ child embed through the block menu trashes that child. Removing a reference with
 a selection or an Agent document rewrite leaves the page in the tree.
 
 ## Base
+
+Base page navigation starts the table list and first table schema reads while
+the editor modules load. Navigation and the editor use the same query cache;
+the editor displays read failures and provides retry controls. A page visit
+updates its recent-page entry once, including when development effects replay.
 
 `Ankole.Pod.Bases` owns table schemas, record writes, and queries. Tables,
 fields, and views are Ash resources. They share their Base page's access and
@@ -543,7 +562,8 @@ New fields, reverse fields, and views append after the last position by default.
 An explicit position is authoritative. These writes use the table
 locks; a new self-link also reserves its uninserted forward field's position.
 
-`base.copy` makes an independent table under a target document. It applies
+`base.copy` creates an independent `base` Page and table at a Space or Private
+root or under a target parent Page. It applies
 the source filter, assigns new IDs, and adds references to existing attachment
 bytes. Source metadata locks keep the copy stable. Records move in batches
 through a temporary control-plane table, then into their destination storage.

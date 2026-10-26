@@ -47,17 +47,17 @@ Which NAICS code fits stripe.com?
 - **Value:** `ctxt_secret_...` key
 - **Encrypted storage:** 켜짐
 
-Skill이 그 이름만 선언하므로 이름은 정확히 일치해야 합니다. 모든 Agent에 대해 변수를 설정하거나, 특정 Agent만 credit을 소비해야 하는 경우 **Console → Agents → 해당 Agent → Environment variables**에서 한 Agent에만 설정합니다. 범위 규칙은 [Environment variables](../worker-env/)를 참조하세요.
+Skill이 그 이름만 선언하므로 이름은 정확히 일치해야 합니다. 테넌트 또는 사이트 범위에서 변수를 설정하거나, 특정 Agent만 credit을 소비해야 하는 경우 **Console → Agents → 해당 Agent → Environment variables**에서 한 Agent에만 설정합니다. 범위 규칙은 [Environment variables](../worker-env/)를 참조하세요.
 
 ### 3. Skill 활성화
 
-**Console → Agent Library**를 열고 `context-dev`를 찾아 활성화합니다. 인스턴스 전체에 적용하거나, 필요한 Agent에만 적용할 수 있습니다. 기본값 후 override 모델은 [Agent Library](../skills/)를 참조하세요.
+**Console → Agent Library**를 열고 `context-dev`를 찾아 활성화합니다. 테넌트 전체에 적용하거나, 필요한 Agent에만 적용할 수 있습니다. 기본값 후 override 모델은 [Agent Library](../skills/)를 참조하세요.
 
 이 Skill은 Agent의 다음 turn부터 적용됩니다. 비활성화하면 다음 turn, 다음 Background Agent Job, 다음 Automation Job 시도에서 연결이 제거됩니다.
 
 ### 4. 동작 확인
 
-활성화된 Agent에게 잘 아는 도메인의 브랜드 프로필 같은 간단한 작업을 요청합니다. 응답에 `401`이 있으면 key가 없거나 잘못된 것입니다. 변수 이름이 정확히 `CONTEXT_DEV_API_KEY`인지, “Not set”으로 표시되지 않는지, Agent 수준 값이 전역 값을 덮어쓰지 않는지 확인하세요.
+활성화된 Agent에게 잘 아는 도메인의 브랜드 프로필 같은 간단한 작업을 요청합니다. 응답에 `401`이 있으면 key가 없거나 잘못된 것입니다. 변수 이름이 정확히 `CONTEXT_DEV_API_KEY`인지, “Not set”으로 표시되지 않는지, 그리고 Agent 연결 값이나 테넌트 재정의 값이 테넌트 또는 사이트 `WorkerEnv` 값을 덮어쓰지 않는지 확인하세요.
 
 ## Ankole이 연결하는 방식
 

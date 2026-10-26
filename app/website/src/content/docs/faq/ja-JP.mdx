@@ -22,7 +22,7 @@ export const commonIssues = [
     symptom: 'ページがタイムアウトする、接続を拒否される、502 を返す、または空白のままになる。Provider のセットアップはまだ始まっていません。',
     cause: 'control plane が正常でないか、DNS、リバースプロキシ、Ingress が control plane にトラフィックを送っていません。後続の Provider エラーはたいてい連鎖の結果です。',
     resolution: [
-      'control plane、PostgreSQL、リバースプロキシを確認してください。ログの中で最初のエラーを修正します。',
+      'control-plane、function-runtime、PostgreSQL、リバースプロキシを確認してください。ログの中で最初のエラーを修正します。',
       'control plane への直接アクセスが機能するなら、DNS、TLS、プロキシの接続先を確認してください。',
       'データベースや永続ボリュームを削除しないでください。起動の失敗はデータの破損を証明しません。'
     ],
@@ -34,11 +34,11 @@ export const commonIssues = [
   {
     question: '初回セットアップの activation code はどこにありますか？',
     symptom: '/setup が activation code を要求するが、起動ターミナルは閉じられており、ログの中にコードが見つからない。',
-    cause: 'control plane がこの code を使うのは初回セットアップのときだけです。最初の管理者がサインインすると期限切れになります。',
+    cause: 'control plane がこの code を使うのは初回セットアップのときだけです。最初の siteadmin 管理者がサインインすると期限切れになります。',
     resolution: [
       'セットアップが完了していなければ、Quick start で自分のデプロイ方法を選び、そのタブのログコマンドを使ってください。',
       'SETUP ACTIVATION CODE を検索してください。ブラウザのストレージやデータベースの行から code を推測しないでください。',
-      'インスタンスにすでに root 管理者がいる場合は、再アクティベートせずに、設定済みの IdP からサインインしてください。'
+      'サイトにすでに siteadmin（または Pod の pod_admin）管理者がいる場合は、再アクティベートせずに、パスワードレスのメール OTP（authn.email.mail による SiteCredential）または設定済みのエンタープライズ IdP SSO でサインインしてください。'
     ],
     links: [
       { href: '../quickstart/#deployment', label: 'activation code を読む' }
@@ -54,7 +54,7 @@ export const commonIssues = [
       'control plane が起動しない場合は、ログにある最初のプラグイン初期化エラーを修正してください。'
     ],
     links: [
-      { href: '../skills/', label: 'Agent Library で Plugin を有効化する' }
+      { href: '../control-plane-plugins/', label: 'Control Plane Plugins を管理する' }
     ]
   },
   {
@@ -550,14 +550,14 @@ export const channelTabs = [
   }
 ]
 
-このページは製品概要ではなく、各 Provider のセットアップガイドを繰り返すものでもありません。最初に失敗した境界を見つけ、関連する identity またはチャット Provider を選択してください。インストールと初回セットアップの信頼できる情報源は [Quick start](../quickstart/) のままです。
+このページは製品概要ではなく、各 Provider のセットアップガイドを繰り返すものでもありません。最初に失敗した境界を見つけ、関連する identity またはチャット Provider を選択してください。インストールと初回セットアップの信頼できる情報源は [Quick start](../quickstart/) です。
 
 ## 失敗した境界を見つける
 
 | 観察されること | 最初に確認すること |
 |---|---|
-| `/setup` または Console が開かない | デプロイ、control plane、DNS、HTTPS |
-| Console は開くが、サインインが失敗するかディレクトリが不完全 | Identity Provider (IdP) |
+| `/setup` または Console が開かない | デプロイ、`control-plane`、`function-runtime`、PostgreSQL、DNS、HTTPS |
+| Console または Pod は開くが、サインインが失敗するかディレクトリが不完全 | エンタープライズ IdP SSO、パスワードレスのメール OTP（`authn.email.mail` による `SiteCredential`）、`principals.pod_login_policy`、および `siteadmin` / `pod_admin` メンバーシップ |
 | Console では Agent が機能するが、ある IM がメッセージを受信しない | その Channel Provider と signal routing rule |
 | IM のメッセージは Ankole に入るが、Agent が返信を生成できない | LLM Provider、model profile、Worker |
 | 1 つのプラットフォームだけが失敗する | 下の該当 Provider を選択してください。他のプラットフォームの修正を適用しないでください |
@@ -576,7 +576,7 @@ IdP はサインイン、連絡先、組織の同期を所有します。エン�
 
 <FaqProviderTabs
   client:visible
-  ariaLabel="Choose an identity provider"
+  ariaLabel="Identity Provider を選択"
   defaultValue="slack"
   labels={faqLabels}
   tabs={identityTabs}
@@ -588,7 +588,7 @@ chat channelは IM メッセージを受信し、Agent の返信を送ります�
 
 <FaqProviderTabs
   client:visible
-  ariaLabel="Choose a chat platform"
+  ariaLabel="チャットプラットフォームを選択"
   defaultValue="slack"
   labels={faqLabels}
   tabs={channelTabs}

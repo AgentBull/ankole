@@ -68,15 +68,19 @@ const summary = await agent(`Summarize these reviews: ${JSON.stringify(successfu
 return { reviews, summary }
 ```
 
-プログラムと `args` は run の開始後に変わりません。control plane が再起動すると、保存済みのタスク結果から固定プログラムを replay します。保存済みの成功タスクはもう一度作成されませんが、中断されたタスクは再試行されることがあります。タスク実行を exactly-once として扱わないでください。
+プログラムと `args` は run の開始後に変わりません。control plane は各編成ステップをステートレスな `ankole-function-runtime` サービスの `POST /v1/program/run` に送ります。各ステップはネットワーク、ファイルシステム、環境変数、プロセス、FFI の権限を拒否した新しい worker で実行され、`Math.random()` と `Date.now()` には決定論的な値が使われます。タスクの実行中、worker は常駐しません。
+
+control plane が再起動すると、6 MiB の永続 memo 予算の範囲で保存済みのタスク結果から固定プログラムを replay します。保存済みの成功タスクはもう一度作成されず、replay 時の `agent()` call 順序や引数が一致しない場合は run が失敗します。中断されたタスクは再試行されることがあるため、タスク実行を exactly-once として扱わないでください。
 
 ## 各サブエージェントが使えるもの
 
-各 `agent()` call は、独立した短命の会話で実行されます。Agent の identity と mission、およびタスク prompt を受け取ります。プログラムが後の prompt に含めない限り、元の会話 transcript や別のタスクの結果は受け取りません。
+各 `agent()` call は、Agent Worker スロットを占有せずに control plane 上の独立した会話（`wf_task:<call_id>`）で実行されます。Agent の identity と mission、およびタスク prompt を受け取ります。プログラムが後の prompt に含めない限り、元の会話 transcript や別のタスクの結果は受け取りません。
 
-Workflow タスクは Web tool と、Brain が有効な場合は読み取り専用の `recall` と `get_page` を使えます。永続的な書き込みは `submit_result` だけです。shell、file、MCP、Skill、schedule、Workflow、Background Agent Job の tool は受け取らず、入れ子の作業を作成できません。
+Workflow タスクは Web tool と、Brain が有効な場合は読み取り専用の `recall` と `get_page` を使えます。shell、file、MCP、Skill、Brain 書き込み、schedule の tool は直接受け取らず、別の Workflow を作成することもできません（編成の深さは 1 です）。
 
-各 call は完全なタスクを最大 3 回試行できます。成功した call は提出値に解決されます。試行を使い切った call は `null` に解決されるため、プログラムは失敗を記録して続行するか、run が不完全な理由を最終結果で説明できます。1 つのタスクが失敗しても、Workflow 全体が自動的に失敗することはありません。
+workspace での実行や数時間にわたる作業が必要な場合、タスクは [Background Agent Job](../background-jobs/)（`create_background_job`、`show_background_job_details`、`send_message_to_background_job`、`stop_background_job`）を委譲し、`sleep`（1 分〜48 時間、1 call あたり最大 16 回）で同時実行スロットを解放して休眠できます。委譲した Job のライフサイクルイベント、親からのメッセージ、または期限で再起動します。`sleep` に `attention: true` を設定するとメイン Agent に通知され、休眠メモの確認と返信を求められます。作業が完了したら、`submit_result` で結果を提出します。
+
+各 wake 区間では、1 つの call が最大 3 回までタスクを試行できます。成功した call は提出値に解決されます。試行を使い切った call は `null` に解決されるため、プログラムは失敗を記録して続行するか、run が不完全な理由を最終結果で説明できます。1 つのタスクが失敗しても、Workflow 全体が自動的に失敗することはありません。
 
 ## 構造化結果を必須にする
 
@@ -86,17 +90,18 @@ schema は OpenAPI 3 JSON Schema の閉じた subset であり、仕様全体で
 
 schema を省略すると、タスクは string を返します。プログラムは集約した最終結果を return する必要があります。string はそのまま最終 text になり、他の JSON 値は JSON text になります。
 
-## Run を表示、一覧、キャンセルする
+## Run の表示、メッセージ送信、一覧、キャンセル
 
 メイン Agent に次の操作を依頼します。
 
-- `show_workflow` はステータス、タスク数、最大 10 件の失敗サマリー、terminal error を報告します。完了した結果は byte offset `0` から、最大 8,000 UTF-8 byte の segment 単位で読み取ります。
+- `show_workflow` はステータス、タスク数、最大 32 件の live タスク（休眠 `note`、`attention`、再起動期限を含む）、最大 10 件の失敗サマリー、terminal error を報告します。完了した結果は byte offset `0` から、最大 8,000 UTF-8 byte の segment 単位で読み取ります。
+- `send_message_to_workflow_task` は `run_id` と `call_seq` で指定した live タスクに非同期メッセージを追加し、休眠中のタスクを再起動したり、`attention: true` で休眠したタスクに応答したりします。
 - `list_workflows` はこの Agent の live または終了済み run を、1 回に最大 32 件一覧します。終了済み run には `completed`、`failed`、`cancelled` が含まれます。
-- `cancel_workflow` は idempotent です。新しいタスクと遅れて届いた結果による run の復活を防ぎ、実行中のタスク Turn に停止を要求します。モデル call の停止には短い時間がかかる場合があります。
+- `cancel_workflow` は idempotent です。新しいタスクと遅れて届いた結果による run の復活を防ぎ、実行中のタスク Turn と委譲された Background Agent Job に停止を要求します。モデル call の停止には短い時間がかかる場合があります。
 
 完了または失敗した run は元の会話を起こします。キャンセル済み run は完了イベントを送らないため、確認が必要な場合は Agent に状態を確認させます。
 
-現在のバージョンには、Workflow 用の Console ページがありません。メイン Agent の Workflow tool がサポートされるユーザーサーフェスです。
+Console では、ホームのバックグラウンドアクティビティ領域に読み取り専用の Workflow アクティビティ（`site_console:agent:<agent_uid>:workflow` 権限に基づく live call、ステータス件数、休眠メモ、期限、`attention` フラグ、有界のエラーサマリー）が表示されます。run の開始、メッセージ送信、完全な結果の読み取り、キャンセルにはメイン Agent の Workflow tool を使います。
 
 ## コストと容量を制御する
 
@@ -107,11 +112,15 @@ schema を省略すると、タスクは string を返します。プログラ�
 | 1 つの run で同時実行するタスク | 8 | 32 |
 | 1 つの Agent で実行中の Workflow タスク | 8 | 64 |
 | 1 つの run に含まれるサブエージェント call | 32 | 1,024 |
-| 1 つのサブエージェント call の試行回数 | 最大 3 | 3 |
+| 各 wake 区間での試行回数 | 最大 3 | 3 |
+| 1 つのサブエージェント call の休眠回数 | — | 16 |
+| 1 回の休眠時間 | — | 1 分〜48 時間 |
 | 保存されるプログラム | — | 256 KiB |
 | 保存される `args` | — | 64 KiB |
 | 1 つの call 引数 object | — | 8 KiB |
+| 1 つの親タスクメッセージ | — | 8 KiB |
 | 1 つの提出結果値 | — | 24 KiB |
+| 永続 memo 予算 | — | 6 MiB |
 | 最終集約結果 | — | 1 MiB |
 
 管理者は最初の 3 つのインスタンス上限を [AppConfigure](../app-configuration/) で設定できます。run のリクエストはデプロイメント上限を引き上げられません。Workflow には batch 全体の token または通貨予算がなく、各タスクには通常の Turn ごとの反復、出力 token、非アクティブ時間の上限が適用されます。関連する制御については [コスト管理](../cost-management/) を参照してください。

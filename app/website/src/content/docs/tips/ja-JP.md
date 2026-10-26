@@ -64,19 +64,19 @@ credential をローテーションするには置き換え値を入力します
 
 詰まっているように見える Turn は、たいてい Ankole ではなく model か provider を待っています。何かをキャンセルする前に：
 
-1. `/ai-gateway/conversations` で Turn の最近の model call を確認します — 長い間隔があれば provider がボトルネックです。
+1. `/api/v2/ai-gateway/conversations` で Turn の最近の model call を確認します — 長い間隔があれば provider がボトルネックです。
 2. worker ログで実行中の tool call を確認します — 遅い tool は詰まった Turn のように見えます。
-3. Turn が本当に固まっている場合だけ、agent の session を導くか、Turn をタイムアウトさせます。background job のキャンセルは `POST /background-agent-jobs/:id/cancel` で、実行中の Turn は完了まで走らせます。
+3. Turn が本当に固まっている場合だけ、agent の session を導くか、Turn をタイムアウトさせます。background job のキャンセルは `POST /api/v2/background-agent-jobs/:id/cancel` で、実行中の Turn は完了まで走らせます。
 
 積極的にキャンセルすることが、operator が半分だけ完了した副作用を作る方法です。
 
 ## binding を静かに無効化する
 
-`DELETE /agents/:agent_uid/signal-bindings/:binding_name` は*無効化*であり、ハード削除ではありません — 設定は回復可能なままです。agent を channel 内で沈黙させたいが設定は失いたくない場合（失効した credential、休暇、インシデント）に使います。再び有効にするには `PATCH` を使います。
+`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` は*無効化*であり、ハード削除ではありません — 設定は回復可能なままです。agent を channel 内で沈黙させたいが設定は失いたくない場合（失効した credential、休暇、インシデント）に使います。再び有効にするには `PATCH` を使います。
 
 ## アップグレード前には毎回バックアップする
 
-Helm のロールバックはデータベース migration を逆転しません。アップグレード前の 2 分間の `pg_dump` が、「ロールバックした」と「バックアップからリストアして 1 日失った」の違いです。コマンドは [バックアップとリストア](../backup-and-restore/) を参照してください。
+Helm のロールバックはデータベース migration を逆転しません。アップグレード前には毎回、コントロールプレーンの PostgreSQL データベースと設定済みの専用 `BASE_DB_URLS` シャードデータベースに `pg_dump` を実行し、ブートストラップ secret（`ANKOLE_SECRET_BASE`、`RELEASE_COOKIE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`）もあわせて保全してください。この 2 分間の作業が「ロールバックした」と「バックアップからリストアして 1 日失った」の違いになります。コマンドは [バックアップとリストア](../backup-and-restore/) を参照してください。
 
 ## 正しい durable ドキュメントを調整する
 

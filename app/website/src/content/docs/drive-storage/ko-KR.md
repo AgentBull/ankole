@@ -1,11 +1,11 @@
 ---
-title: 제어면 드라이브 저장소 설정
-description: OpenDAL 기반 Agent 드라이브에 로컬 파일, 클라우드 버킷, 데이터베이스, SFTP, WebDAV를 구성하고 이전과 백업을 수행합니다.
+title: 제어면 드라이브 및 객체 저장소 설정
+description: Ankole.ObjectStore(Agent 드라이브, Pod file 페이지, 첨부 파일, 컴파일된 Applet 번들)에 로컬 파일, 클라우드 버킷, 데이터베이스, SFTP, WebDAV를 구성하고 이전과 백업을 수행합니다.
 section: Guides
 order: 318
 ---
 
-Agent 드라이브는 제어면이 관리하며 Worker가 중지되어도 사용할 수 있습니다. PostgreSQL은 경로, 권한, 내용 참조를 저장하고 OpenDAL backend는 파일 바이트를 저장합니다. Ankole은 `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, `webdav`를 지원합니다.
+`ANKOLE_FILES_STORE`는 제어면 객체 저장소(`Ankole.ObjectStore`)를 구성하며, Agent 드라이브(Worker가 중지되어도 사용 가능), Pod `file` 페이지, Pod 문서/Base/Chat 및 대화 첨부 파일, 컴파일된 Applet 번들을 저장합니다. PostgreSQL은 경로, 권한, 내용 참조를 저장하고 OpenDAL backend는 콘텐츠 주소 기반 blob 바이트를 저장합니다. Ankole은 `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, `webdav`를 지원합니다.
 
 이는 사이트 시작 설정이며 모든 테넌트가 같은 객체 저장소를 사용합니다. WorkerProvider Home, 캐시, Cloudflare R2 백업은 별도 설정입니다. [WorkerProvider](../worker-providers/)와 [파일 관리](../file-management/)를 참조하세요.
 
@@ -20,7 +20,7 @@ Agent 드라이브는 제어면이 관리하며 Worker가 중지되어도 사용
 
 여러 제어면 복제본은 공유 원격 저장소를 쓰고 backend 위치와 root를 일치시키세요. 공식 Helm은 `files.store: fs`에서 복제본 둘 이상을 거부합니다. S3 드라이브는 개별 WorkerProvider의 복제본 제한을 없애지 않습니다.
 
-현재 배포 가이드는 예약 실행, 채팅 연결, scheduler 복구 같은 singleton 프로세스가 여러 노드에서 검증될 때까지 `controlPlane.replicaCount: 1`을 요구합니다. 여러 복제본에는 공유 원격 저장소가 필요합니다. 전체 배포의 여러 복제본 검증도 필요합니다. [제어면 복제본 설명](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)을 참조하세요.
+예약 실행, 채팅 연결, scheduler 하이드레이션 같은 제어면 singleton 프로세스가 단일 노드에서 실행되므로 `controlPlane.replicaCount: 1`로 설정하세요. 공유 원격 저장소는 여러 복제본의 전제 조건일 뿐 단독으로 다중 복제본 구성을 보장하지 않습니다. [제어면 복제본 설명](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)을 참조하세요.
 
 ## 환경 변수
 
@@ -120,7 +120,7 @@ files:
     root: /ankole/production/
 ```
 
-`secrets.existingSecret`으로 두 변수를 가진 bootstrap Secret을 참조할 수 있습니다. 이 Secret에는 배포에 필요한 DB 자격 증명, 원래 `ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`도 있어야 합니다. Chart는 `secrets.filesS3AccessKeyID`와 `secrets.filesS3SecretAccessKey`도 허용합니다. 실제 키를 values 파일에 커밋하지 마세요.
+`secrets.existingSecret`으로 두 S3 변수를 가진 bootstrap Secret을 참조할 수 있습니다. 이 Secret에는 배포에 필요한 DB 자격 증명(`DATABASE_URL` 및 내장 PostgreSQL 활성화 시 `POSTGRES_PASSWORD`), 원래 `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, `RELEASE_COOKIE`도 모두 포함되어야 합니다. Chart는 `secrets.filesS3AccessKeyID`와 `secrets.filesS3SecretAccessKey`도 허용합니다. 실제 키를 values 파일에 커밋하지 마세요.
 
 ## Cloudflare R2와 기타 S3 호환 서비스
 
@@ -182,7 +182,7 @@ docker compose -f compose.yaml -f compose.files-s3.yaml up -d
 
 ## 백업과 정리
 
-DB 백업에는 참조, 버킷/폴더 백업에는 바이트가 있으므로 함께 복원하세요. 제어면은 드라이브 경로나 미완료 첨부 참조가 없는 내용을 정리합니다. 아직 참조되는 객체를 삭제하는 만료 규칙을 추가하지 마세요.
+DB 백업에는 참조, 버킷/폴더 백업에는 blob 바이트가 있으므로 함께 복원하세요. 제어면 가비지 컬렉션은 Agent 드라이브, Pod `file` 페이지, Pod 문서/Base/Chat 및 대화 첨부 파일, 컴파일된 Applet 번들 등 모든 소유 참조에서 더 이상 참조되지 않는 blob을 제거합니다. 아직 참조되는 객체를 삭제하는 만료 규칙을 추가하지 마세요.
 
 S3는 multipart upload를 사용하며 프로세스 중단 후 미완료 업로드가 남을 수 있습니다. 작업에 맞는 기간으로 미완료 업로드를 중단하는 lifecycle rule을 설정하세요. `fs`는 열 때 하루 넘게 변경되지 않은 임시 파일을 정리합니다. 이것은 백업을 대신하지 않습니다.
 

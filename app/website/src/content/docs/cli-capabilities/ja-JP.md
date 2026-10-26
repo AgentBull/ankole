@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole の機能の一部は、Agent Computer の shell コマンドであり、model に見える tool ではありません。Agent は `gh` や `kubectl` のように shell を通じてコマンドを呼び出します。Webhook エンドポイントコマンドと automation job コマンドはこの形態を取ります。
+Ankole の機能の一部は、Agent Computer の shell コマンドであり、model に見える tool ではありません。Agent は `gh` や `kubectl` のように shell を通じてコマンドを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook エンドポイントコマンド、および automation job コマンドはこの形態を取ります。
 
 このページでは、いつ機能をこの形態で出荷するかと、tool 登録、Skill index エントリ、system prompt セクションなしで発見可能かつ正しいものにする開示アーキテクチャを説明します。
 

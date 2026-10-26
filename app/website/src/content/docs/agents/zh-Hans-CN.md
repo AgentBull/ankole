@@ -84,7 +84,9 @@ Agent 会继承租户默认启用的 Agent Plugin 和 Skill。需要调整时，
 
 ## 接入聊天渠道
 
-创建 Agent 后，配置信号路由规则，使 Agent 可以接收 Slack、Microsoft Teams、飞书（Lark）、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或专用邮箱中的消息。
+在 **Pod Chat** 中，工作区成员可以直接与启用状态的 Agent 发起私聊（`dm`）或将其加入群组会话（`group`），无需配置信号路由规则（Signal Binding）。
+
+信号路由规则用于管理外部 IM 渠道和专用邮箱。如需接收 Slack、Microsoft Teams、飞书（Lark）、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或专用邮箱中的消息，请为该 Agent 配置信号路由规则。
 
 打开 **Console → 信号路由**，选择聊天应用和目标 Agent。一个聊天应用可以建立多条规则，也可以为不同 Agent 创建不同的机器人应用。具体方法见 [信号路由规则](../signal-bindings/)。
 

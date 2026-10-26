@@ -292,7 +292,18 @@ contains:
 
 `provider_id` uses a lowercase slug. `provider_kind` uses lowercase snake case.
 The application checks each kind against built-in and active Plugin
-definitions.
+definitions. Each provider row pools credentials for one upstream provider kind
+and never switches requests across different provider kinds. Built-in
+`Ankole.AIGateway.Providers.AgentBullCloud` (`:agentbull_cloud`, default
+`https://cloudapis.agentbull.com`) implements all six `ProviderDSL` capabilities
+(`language_model`, `embedding_model`, `rerank_model`, `web_search`, `web_fetch`,
+and `image_generate`) so an operator can connect `AIGateway` to the external
+AgentBull Cloud routing and capability service with one API key while keeping
+provider credentials inside the control plane (Worker-side MCP skills read their
+own credentials through `WorkerEnv`). Stateless wire resolvers in
+`app/kernel/src/universal_ai_client/`, upstream failure and rate-limit
+classification in `Ankole.AIGateway.FailureDiagnostics`, and token normalization
+remain pure functions without session or billing state.
 
 The pool has one row-level strategy and an ordered list of entries. Each stored
 entry contains `id`, `label`, `source`, `priority`, optional `disabled_at`, an
@@ -1125,7 +1136,7 @@ pending calls, output, heap, runtime, and concurrent isolates. These limits fail
 the affected response or program explicitly instead of dropping a dependency
 edge.
 
-Legacy histories that contain contradictory pair identities or duplicate items
+Stored histories that contain contradictory pair identities or duplicate items
 have no safe compaction or truncation boundary. AIGateway rejects them
 instead of guessing or rewriting durable facts. The operator must start a new
 conversation, or use validated tail retraction or deletion when

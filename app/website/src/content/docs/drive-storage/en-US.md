@@ -1,13 +1,13 @@
 ---
-title: Control-plane drive storage
-description: Configure local files, cloud buckets, database tables, SFTP, or WebDAV for OpenDAL-based Agent drives, including migration and backup.
+title: Control-plane drive and object storage
+description: Configure local files, cloud buckets, database tables, SFTP, or WebDAV for Ankole.ObjectStore (Agent drives, Pod file pages, attachments, and compiled Applet bundles), including migration and backup.
 section: Guides
 order: 318
 ---
 
-The control plane manages each Agent's drive, which remains available when its Worker is stopped. PostgreSQL stores paths, permissions, and content references. An OpenDAL backend stores file bytes. Ankole supports `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`.
+`ANKOLE_FILES_STORE` configures `Ankole.ObjectStore`, the control-plane object store for Agent drives (which remain available when a Worker is stopped), Pod `file` pages, Pod document/Base/Chat and conversation attachments, and compiled Applet bundles. PostgreSQL stores paths, permissions, and content references; an OpenDAL backend stores content-addressed blob bytes. Ankole supports `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`.
 
-This is site bootstrap configuration. All tenants use the same object store. WorkerProvider Home, cache, and Cloudflare R2 backups have separate configuration. See [WorkerProviders and cache disks](../worker-providers/) and [File management](../file-management/).
+This is site bootstrap configuration. All tenants share the same object store. WorkerProvider Home, cache, and Cloudflare R2 backups use separate configuration; see [WorkerProviders and cache disks](../worker-providers/) and [File management](../file-management/).
 
 ## Select a backend
 
@@ -20,7 +20,7 @@ This is site bootstrap configuration. All tenants use the same object store. Wor
 
 Multiple control-plane replicas need shared remote storage, with the same backend location and root on each replica. Official Helm rejects `files.store: fs` with more than one replica. An S3 drive does not remove replica limits imposed by individual WorkerProviders.
 
-The current deployment guide still requires `controlPlane.replicaCount: 1` until singleton processes such as schedule firing, chat connections, and scheduler recovery are verified on multiple nodes. Shared remote storage is required for multiple replicas. It does not prove that the whole deployment supports multiple replicas. See [Control-plane replicas](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas).
+Set `controlPlane.replicaCount: 1` because singleton processes such as schedule firing, chat connections, and scheduler hydration run on one node. Shared remote storage is a prerequisite for multiple replicas, not sufficient by itself. See [Control-plane replicas](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas).
 
 ## Environment variables
 
@@ -120,7 +120,7 @@ files:
     root: /ankole/production/
 ```
 
-Use `secrets.existingSecret` for a bootstrap Secret that contains both credential variables. That Secret must also contain the database credentials, original `ANKOLE_SECRET_BASE`, and `RELEASE_COOKIE` required by the deployment. The chart also accepts `secrets.filesS3AccessKeyID` and `secrets.filesS3SecretAccessKey`. Do not commit real keys in values files.
+Use `secrets.existingSecret` for a bootstrap Secret that contains both S3 credential variables. That Secret must also contain the database credentials (`DATABASE_URL`, plus `POSTGRES_PASSWORD` when bundled PostgreSQL is enabled), original `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, and `RELEASE_COOKIE` required by the deployment. The chart also accepts `secrets.filesS3AccessKeyID` and `secrets.filesS3SecretAccessKey`. Do not commit real keys in values files.
 
 ## Cloudflare R2 and other S3-compatible services
 
@@ -138,7 +138,7 @@ ANKOLE_FILES_S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 
 Use R2 S3 API credentials and the account's S3 API endpoint, not a public bucket domain or Worker URL. See [R2 S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/) for region `auto` and supported operations. Helm uses `files.s3.endpoint`, `files.s3.region`, and `files.s3.root`.
 
-Services such as MinIO also use `s3`. Set their actual endpoint and signing region. An S3 compatibility claim alone is not a verification: check reads, writes, deletes, multipart uploads, and large-file transfers before deployment. Ankole exposes the backends and bootstrap fields listed here; S3 virtual-host addressing and custom signing options remain unavailable. See the [OpenDAL S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html) for upstream options.
+Services such as MinIO also use `s3`. Set their actual endpoint and signing region. An S3 compatibility claim alone is not a verification: check reads, writes, deletes, multipart uploads, and large-file transfers before deployment. Ankole exposes the backends and bootstrap fields listed here; S3 virtual-host addressing and custom signing options are not supported. See the [OpenDAL S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html) for upstream options.
 
 ## Use S3 with Compose
 
@@ -182,7 +182,7 @@ Do not share one object prefix between independent sites: one site's unreference
 
 ## Backup and cleanup
 
-A database backup contains references; a bucket or folder backup contains bytes. Restore them together. The control plane collects content without drive paths or unfinished attachment references. Do not add expiry rules that delete objects still referenced by the site.
+A database backup contains references; a bucket or folder backup contains blob bytes. Restore them together. Control-plane garbage collection deletes blobs that have no remaining references across Agent drives, Pod `file` pages, Pod document/Base/Chat and conversation attachments, or compiled Applet bundles. Do not add bucket expiry rules that delete objects still referenced by the site.
 
 S3 writes use multipart uploads. A process interruption can leave incomplete uploads. Configure a bucket lifecycle rule to abort incomplete multipart uploads, with an interval suitable for the workload. On open, `fs` cleans temporary files unchanged for more than one day. This is not a backup.
 

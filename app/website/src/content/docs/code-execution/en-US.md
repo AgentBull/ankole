@@ -7,7 +7,7 @@ order: 122
 
 An Agent can run commands and edit files during a normal conversation. It can also delegate durable work to a Background Agent Job. These are separate runtime paths: a conversation uses the Agent Computer Worker's foreground tools, while every Background Agent Job uses CodexRunner. The amount of code in a message does not select between them.
 
-The decisive property, stated up front: every command runs on the Agent's own computer. Each Agent has its own Worker container, and the container is the only isolation boundary. Commands run as the Worker's user without an inner sandbox, and the agent works in its Agent Home under `/workspace`. The Agent may change its own computer; it shares no Worker, cache disk, or credential with another Agent.
+The decisive property, stated up front: every Agent command runs on the Agent's own computer. Each Agent has its own Worker container, and the container is the only isolation boundary. Commands run as the Worker's user without an inner sandbox, and the Agent works in its Agent Home under `/workspace`. The Agent may change its own computer; it shares no Worker, cache disk, or credential with another Agent. By contrast, Pod Applet backend functions and AIGateway or Workflow Programmatic Tool Calling (PTC) scripts run in stateless isolates on `ankole-function-runtime` rather than on the Agent Computer Worker.
 
 ## Shell commands
 
@@ -36,6 +36,7 @@ Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a sym
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
+├── ConfidentialityPolicy.md
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -44,11 +45,11 @@ Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a sym
     └── temp/
 ```
 
-`SOUL.md`, `MISSION.md`, and `DESIGN.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
+`SOUL.md`, `MISSION.md`, `DESIGN.md`, and `ConfidentialityPolicy.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work, and `ConfidentialityPolicy.md` defines disclosure rules when the Agent selects audience scopes in Brain. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
 
 Home survives instance deletion and image changes. A rebuild removes only `/var/cache/ankole`. Docker local volumes depend on their host; a forced Cloudflare stop can lose writes since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
 
-The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files. Job workspaces and Codex threads remain in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
+The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files, and use `ankole-pod` to read or update Pod pages, Base tables, and Applets through the control plane. Job workspaces and Codex threads live in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
 
 Background Agent Jobs load Skills on demand through `skill_view`.
 
@@ -76,5 +77,5 @@ The operator surface is narrow:
 
 - For the Worker that runs these tools and owns the `/workspace` filesystem, read [Agent Computer Worker](../agent-computer-worker/).
 - For the skill and enablement model behind the Jupyter skill, read [Agent Library](../agent-library/).
-- For the Background Agent Jobs profile, whose internal key remains `coding`, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
+- For the Background Agent Jobs profile, whose internal key is `coding`, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
 - For the Worker trust boundary and how to harden it, read [Security hardening](../security-hardening/).

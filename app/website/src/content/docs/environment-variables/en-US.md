@@ -5,47 +5,54 @@ section: Reference
 order: 202
 ---
 
-These are startup variables for PostgreSQL, deployment secrets, the file store, and process settings. Worker provider settings are stored in PostgreSQL as YAML.
+These are startup variables for PostgreSQL, Pod Base shards, `ankole-function-runtime`, deployment secrets, the object store, and process settings. Worker provider settings are stored in PostgreSQL as YAML.
 
 See [Application configuration](../app-configuration/) for runtime settings that an administrator can change while the instance runs. Do not put those settings in `.env` or a Kubernetes Secret.
 
 ## Bootstrap and secrets (process start)
 
-These must exist before the control plane starts. Set them in `.env` for Docker Compose, or in the Secret the Helm chart reads.
+These must exist before the control plane starts. Set them in `.env` for Docker Compose, or in the Secret that the Helm chart reads.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `DATABASE_URL` | yes | the PostgreSQL connection string for the control plane |
-| `ANKOLE_SECRET_BASE` | yes | the instance-wide secret base; used to derive other keys |
-| `RELEASE_COOKIE` | yes | the distributed Erlang cookie; every control-plane node of the deployment uses the same value |
-| `POSTGRES_PASSWORD` | bundled PostgreSQL only | the PostgreSQL password (required when the bundled PostgreSQL is enabled; provided by an external Secret otherwise) |
-| `ANKOLE_HOST` | Compose | the DNS name the deployment is served on |
-| `ACME_EMAIL` | Compose | the email Caddy uses for Let's Encrypt |
-| `ANKOLE_DOCKER_GID` | Compose | the group ID of the Docker socket; the control plane runs as an unprivileged user and uses the socket through this group |
+| `DATABASE_URL` | yes (`prod`) | PostgreSQL 18+ connection string for the control plane (`Ankole.Repo`) |
+| `BASE_DB_URLS` | no | Optional `;`-separated PostgreSQL 18+ URLs for physical Pod Base shards (`Ankole.Pod.BaseRepo`), supporting query parameters `ankole_sharding`, `ankole_pool_size`, and `ankole_stock_only`. Defaults to `DATABASE_URL` as `base_default` when unset in single-database FOSS deployments; rejects `sslmode` |
+| `ANKOLE_SECRET_BASE` | yes (`prod`) | Site-wide secret base used to derive encryption and signing keys |
+| `RELEASE_COOKIE` | yes (`prod`) | Distributed Erlang cookie shared by every control-plane node of the deployment |
+| `ANKOLE_FUNCTION_RUNTIME_TOKEN` | yes (`prod`) | Shared bearer secret between the control plane and `ankole-function-runtime` |
+| `ANKOLE_FUNCTION_RUNTIME_URL` | yes (`prod`) | Internal HTTP URL of `ankole-function-runtime` (for example `http://function-runtime:9000` in Compose or the headless Service URL in Kubernetes) |
+| `POSTGRES_PASSWORD` | bundled PostgreSQL only | PostgreSQL password (required when bundled PostgreSQL is enabled; supplied through `DATABASE_URL` or an external Secret otherwise) |
+| `ANKOLE_HOST` | Compose | Public DNS name that serves the deployment |
+| `ACME_EMAIL` | Compose | Email address that Caddy uses for Let's Encrypt |
+| `ANKOLE_DOCKER_GID` | Compose | Group ID of the Docker socket; the control plane runs as an unprivileged user and accesses the socket through this group |
 
-Keep these values in `.env` or a Secret. Never commit them to version control. The Docker Compose `.env.example` is the starting configuration.
+Keep secret values in `.env` or a Kubernetes Secret, and never commit them to version control. The Docker Compose `.env.example` provides the starting configuration.
 
-Workers need no key in `.env` or the Secret: the control plane gives each Worker its own credential.
+Workers require no static key in `.env` or the bootstrap Secret: the control plane generates a unique credential for each Worker generation.
 
-The Helm chart `values.yaml` lists the related Kubernetes values: `ankoleSecretBase`, `releaseCookie`, `databaseURL`, and `postgresqlPassword`.
+The Helm chart `values.yaml` maps these settings under `secrets.ankoleSecretBase`, `secrets.releaseCookie`, `secrets.functionRuntimeToken`, `secrets.databaseURL`, `secrets.baseDBURLs`, `secrets.postgresqlPassword`, `controlPlane.siteAdminConsolePath`, and `functionRuntime.*`.
 
 ## Runtime tuning (process environment)
 
-These are read at startup and tune a running process. They are not secrets.
+These variables are read at process start and tune the control plane or `ankole-function-runtime`. They are not secrets.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ANKOLE_ENV` | — | the deployment environment label (for example `prod`, `dev`) |
-| `ANKOLE_LOG_LEVEL` | `info` | the log level (`debug`, `info`, `warning`, `error`) |
-| `ANKOLE_DATABASE_POOL_SIZE` | `10` | the control-plane database connection pool size |
-| `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | the PostgreSQL `max_connections` setting for the bundled server |
-| `ANKOLE_LIBRARY_ROOT` | chart default | the path to the shipped Agent Library (`app/library`) |
-| `ANKOLE_INTERNAL_SKILLS_ROOT` | — | the path to internal skill bundles |
-| `ANKOLE_AI_GATEWAY_BASE_URL` | — | override the AIGateway base URL (rarely needed) |
+| `ANKOLE_ENV` | — | Deployment environment label (for example `prod`, `dev`) |
+| `ANKOLE_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warning`, `error`) |
+| `POOL_SIZE` | `10` | Control-plane `Ankole.Repo` connection pool size read directly by the BEAM process |
+| `ANKOLE_DATABASE_POOL_SIZE` | `10` | Docker Compose `.env` variable that `compose.yaml` maps to `POOL_SIZE` |
+| `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | PostgreSQL `max_connections` setting for the bundled Compose server |
+| `ANKOLE_SITE_ADMIN_CONSOLE_PATH` | `/site-admin-console` | URL path prefix for the Site Admin Console |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | release default | Container image of `ankole-function-runtime` in Docker Compose |
+| `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` | `32` | Maximum concurrent isolate executions per `ankole-function-runtime` container |
+| `ANKOLE_LIBRARY_ROOT` | chart default | Path to the shipped Agent Library (`app/library`) |
+| `ANKOLE_INTERNAL_SKILLS_ROOT` | — | Path to internal Skill bundles |
+| `ANKOLE_AI_GATEWAY_BASE_URL` | — | Override the AIGateway base URL when Workers reach AIGateway through an explicit internal address |
 
 ## File store (process start)
 
-The control plane keeps each Agent's drive in a file store: attachments, generated images, sent files, installed Skills, Automation Job scripts, and files that Agents save. Workers never receive storage credentials; file bytes pass through the control plane.
+`ANKOLE_FILES_STORE` configures `Ankole.ObjectStore`, which stores each Agent's drive (attachments, generated images, sent files, installed Skills, Automation Job scripts, and saved files) together with Pod `file` pages, Pod document/Base/Chat attachments, and compiled Applet bundles. Workers never receive storage credentials; file bytes pass through the control plane. See [Control-plane drive and object storage](../drive-storage/) for all supported OpenDAL backends (`fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`).
 
 | Variable | Required | Meaning |
 |---|---|---|

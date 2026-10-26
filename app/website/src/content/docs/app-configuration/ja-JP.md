@@ -65,6 +65,19 @@ Site key は保存済みの値、次にバージョンのデフォルトを使�
 | `ai_agent.inactivity_timeout_ms` | Tenant | 非アクティブなモデルまたは Provider を、turn を終了するまで待つ時間 |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Agent Plugin のデフォルトの有効状態 |
 | `ai_agent.library.skill_defaults` | Tenant | Skill のデフォルトの有効状態 |
+| `agent_computer.background_agent_job.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。デフォルト `3`、有効範囲 `1`〜`64` |
+| `automation_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる自動化スクリプトの上限。デフォルト `10`、有効範囲 `1`〜`64` |
+
+### Pod、Base、Applet
+
+| キー | 適用範囲 | 用途 |
+|---|---|---|
+| `pod.allow_external_guests` | Tenant | 招待された外部ゲストによる共有 Pod ページへのアクセスを許可する。デフォルト `true` |
+| `pod.applet.limits` | Tenant | Applet 呼び出しの上限（デフォルト `timeout_ms: 60000`、`heap_mb: 128`） |
+| `pod.applet.ai_agent_uid` | Tenant | Applet の `ctx.ai` 呼び出しにモデルプロファイルと使用量を提供する有効な Agent。空の場合は Applet AI を無効にする |
+| `pod.base.limits` | Tenant | Base のクエリおよびレコード上限（デフォルト `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
+| `pod.trash_retention_days` | Tenant | 削除されたページを自動完全削除するまでの正の整数の保持日数（デフォルト `30`）、または自動完全削除なしで保持する `"unlimited"` |
+| `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する最近のドキュメント変更バッチ数。デフォルト `1000` |
 
 ### Workflow
 
@@ -107,13 +120,31 @@ Site key は保存済みの値、次にバージョンのデフォルトを使�
 
 Langfuse、LangSmith、VictoriaTraces と他の OTLP/HTTP receiver の構成については [LLM observability](../llm-observability/) を参照してください。
 
-### Identity、Plugin、tenant のデフォルト値
+### パスワードレス Email OTP と Pod ログインポリシー
 
 | キー | 適用範囲 | 用途 |
 |---|---|---|
-| `principals.identity_providers.active` | Tenant、読み取り専用 | 管理者のサインインに使える Identity ソース。Identity Provider ページで管理 |
+| `authn.email.mail` | Site、暗号化 | パスワードレス Email OTP サインイン用の SMTP メール配信設定（`server`、`from`、`port`、`ssl`、および任意の認証情報）。空の場合は Email OTP を無効にする |
+| `authn.email.code_ttl_seconds` | Site | 確認コードの有効秒数。デフォルト `600` |
+| `authn.email.send_window_seconds` | Site | Email OTP コード送信のレート制限ウィンドウ秒数。デフォルト `60` |
+| `authn.email.send_email_limit` | Site | 送信ウィンドウ内で 1 つのメールアドレスに送信できる最大コード数。デフォルト `3` |
+| `authn.email.send_source_limit` | Site | 送信ウィンドウ内で 1 つの送信元アドレスから送信できる最大コード数。デフォルト `20` |
+| `authn.email.send_channel_limit` | Site | 送信ウィンドウ内でチャネル全体に送信できる最大コード数。デフォルト `100` |
+| `authn.email.failure_window_seconds` | Site | コード検証失敗のレート制限ウィンドウ秒数。デフォルト `600` |
+| `authn.email.failure_email_limit` | Site | 失敗ウィンドウ内で 1 つのメールアドレスに許容される最大検証失敗回数。デフォルト `10` |
+| `authn.email.failure_source_limit` | Site | 失敗ウィンドウ内で 1 つの送信元アドレスに許容される最大検証失敗回数。デフォルト `100` |
+| `principals.pod_login_policy` | Tenant、別の場所で管理 | Pod メンバーのログインおよび招待ポリシー（`allow_email_otp`、`allow_member_credential_change`、`allowed_email_domains`、`require_sso_for_members`、`allow_invite_links`）。Pod Settings で管理 |
+
+### Identity、Plugin、機能フラグ、tenant のデフォルト値
+
+| キー | 適用範囲 | 用途 |
+|---|---|---|
+| `principals.identity_providers.active` | Tenant、読み取り専用 | Pod ワークスペースのメンバーおよび管理者を認証する有効なテナント Identity Provider。Pod Settings および Identity Provider ページで管理 |
 | `principals.identity_providers.directory_full_sync_interval_minutes` | Tenant | 組織 directory の全量同期間隔 |
-| `plugins.enabled_ids` | Site | 次回起動時に有効にする Control Plane Plugin |
+| `tenants.privileged_tenant_id` | Site、読み取り専用 | このサイトを管理する `siteadmin` グループを持つ特権テナントの ID |
+| `plugins.enabled_ids` | Site、別の場所で管理 | 次回起動時に有効にする `:optional` Control Plane Plugin。`:always` プラグインはビルドに含まれて常に有効となる |
+| `features.<flag>` | Site | OpenFeature を支える機能の提供ポリシー（`{enabled, percent, targets}`、`Ankole.Features.Config`） |
+| `signals.show_dead_letter_error_details` | Site | Conversation に送信するデッドレター通知に、長さ制限およびマスク済みの Session turn エラー詳細を含めるかどうか。デフォルト `false` |
 | `system.timezone` | Tenant | schedule など control plane 機能が使うデフォルトのタイムゾーン |
 | `i18n.default_locale` | Tenant | Ankole インターフェースのデフォルト言語 |
 

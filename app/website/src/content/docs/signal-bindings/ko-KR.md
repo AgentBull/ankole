@@ -5,9 +5,9 @@ section: User guide
 order: 14
 ---
 
-signal routing 규칙은 어떤 Agent가 메시지를 받을지 결정합니다. 현재 하나의 규칙은 하나의 chat application을 하나의 Agent에 직접 연결합니다. Agent는 여러 규칙을 사용해 여러 chat application에 연결할 수 있습니다.
+signal routing 규칙은 어떤 Agent가 수신 메시지나 이벤트를 받을지 결정합니다. 채팅 규칙 하나는 하나의 chat application을 하나의 Agent에 연결하며, Agent는 여러 규칙을 사용해 여러 chat application에 연결할 수 있습니다.
 
-“signal”이라는 용어는 chat 외의 범위까지 열어 둡니다. 향후 규칙은 routing expression을 사용해 channel, conversation 또는 기타 조건으로 Agent를 선택할 수 있습니다. Salesforce 같은 시스템의 event를 전달할 수도 있습니다.
+chat adapter는 메시지를 Conversation에 기록하고 대상 Agent를 위한 Signal을 생성하며, CloudEvents 웹훅 엔드포인트도 외부 시스템의 이벤트를 수신해 Signal로 전달할 수 있습니다.
 
 Slack, Microsoft Teams, Lark, Feishu 또는 DingTalk application을 아직 준비하지 않았다면, 먼저 [Quick start](../quickstart/#chat-channels)의 Channel Provider 단계를 완료하십시오.
 
@@ -42,18 +42,18 @@ Slack, Microsoft Teams, Lark, Feishu는 세 가지 mode를 모두 지원합니�
 
 ## 알 수 없는 발신자 처리 선택
 
-Ankole는 발신자를 알려진 계정에 자동으로 매핑합니다. 디렉터리 동기화나 로그인으로 이미 가져온 계정은 플랫폼 ID로 일치하고, 새 플랫폼 계정도 플랫폼이 알려주는 이메일이나 휴대폰 번호가 기존 계정과 같으면 같은 사람으로 합쳐집니다. 이 매핑은 최선의 시도입니다. 디렉터리에 없는 외부 사용자나 채팅 계정을 한 번도 연결하지 않은 로컬 로그인 사용자는 일치하지 않을 수 있습니다.
+Ankole는 발신자를 알려진 계정에 자동으로 매핑합니다. 디렉터리 동기화나 로그인으로 가져온 계정은 플랫폼 ID로 일치하고, 새 플랫폼 계정도 플랫폼이 알려주는 이메일이나 휴대폰 번호가 기존 계정과 같으면 같은 사람으로 합쳐집니다. 이 매핑은 최선의 시도입니다. 디렉터리에 없는 외부 사용자나 채팅 계정을 연결하지 않은 이메일 OTP(`SiteCredential`) 사용자는 자동으로 일치하지 않습니다.
 
 **계정 자동 매핑에 실패한 경우**에서 이런 발신자의 처리를 선택합니다:
 
 | 옵션 | 동작 |
 |---|---|
 | **수동 검토**(기본값) | 발신자가 콘솔의 **아이덴티티 → 대기 중인 매핑** 목록에 나타납니다. 관리자가 계정을 연결할 때까지 Agent를 향한 메시지에는 관리자에게 연결을 요청하라는 고정 답장 하나만 돌아가며, 그 외에는 아무 처리도 하지 않습니다. 메시지는 컨텍스트나 Brain 학습에 들어가지 않습니다. |
-| **독립 계정 자동 생성** | Ankole가 발신자를 위한 독립 계정을 만들고 즉시 응답합니다. 누구나 Agent와 대화할 수 있는 열린 채널에 적합합니다. 발신자의 플랫폼 ID가 이미 기존 계정의 식별자인 경우, 예를 들어 이메일 주소를 식별자로 쓰는 로컬 로그인 계정이라면 Ankole는 아무것도 만들지 않고 발신자를 수동 검토로 보류합니다. 같은 사람인지 판단할 수 있는 것은 관리자뿐이기 때문입니다. |
+| **독립 계정 자동 생성** | Ankole가 발신자를 위한 독립 계정을 만들고 즉시 응답합니다. 누구나 Agent와 대화할 수 있는 열린 채널에 적합합니다. 발신자의 플랫폼 ID가 이미 기존 계정의 식별자인 경우(예: 해당 이메일 주소를 식별자로 쓰는 이메일 OTP `SiteCredential` 계정이나 검증된 Pod `email` identity), Ankole는 아무것도 만들지 않고 발신자를 수동 검토로 보류합니다. 같은 사람인지 판단할 수 있는 것은 관리자뿐이기 때문입니다. |
 
 매핑되지 않은 발신자가 그룹에서 Agent를 지목하지 않고 나눈 잡담은 항상 무시됩니다.
 
-Telegram, Discord, LINE에서는 처음에는 모든 발신자가 알 수 없는 발신자입니다. 이 소비자용 IM에는 회사 디렉터리가 없고 플랫폼이 이메일이나 휴대폰 번호를 알려주지 않습니다. **수동 검토**를 유지하고 각 사람을 계정에 한 번 매핑하세요. WhatsApp은 발신자의 확인된 전화번호를 알려주므로, 계정이 이미 그 휴대폰 번호를 소유한 사람은 즉시 매핑됩니다. 이메일 발신자는 From 주소만으로는 아무것도 증명되지 않으므로 프로필 이메일이나 로컬 로그인 이메일로 매칭되지 않습니다. 명시적인 이메일 identity 바인딩만 발신자를 허용하며, 직원의 바인딩은 디렉터리 동기화가 만들고 그 밖의 모든 사람의 바인딩은 여기서 직접 만듭니다. Lark와 Feishu에서는 같은 페이지가 외부 그룹도 다룹니다. 외부 테넌트 구성원에게는 직원 ID가 없으므로 수동 연결이나 자동 생성이 필요합니다. 같은 콘솔 페이지에서 본인이 메시지를 보내기 전에 미리 매핑을 등록할 수도 있습니다. 예를 들어 로컬 로그인 사용자를 채팅 계정과 연결할 때 사용합니다.
+Telegram, Discord, LINE에서는 처음에는 모든 발신자가 알 수 없는 발신자입니다. 이 소비자용 IM에는 회사 디렉터리가 없고 플랫폼이 이메일이나 휴대폰 번호를 알려주지 않습니다. **수동 검토**를 유지하고 각 사람을 계정에 한 번 매핑하세요. WhatsApp은 발신자의 확인된 전화번호를 알려주므로, 계정이 이미 그 휴대폰 번호를 소유한 사람은 즉시 매핑됩니다. 이메일 발신자는 From 주소만으로는 아무것도 증명되지 않으므로 연결되지 않은 프로필 이메일이나 이메일 OTP(`SiteCredential`) 로그인 이메일만으로는 매칭되지 않습니다. 명시적인 Pod `email` identity 바인딩만 발신자를 허용하며, 직원의 바인딩은 디렉터리 동기화나 ID 공급자 로그인이 만들고 외부 연락처의 바인딩은 관리자가 여기서 직접 만듭니다. Lark와 Feishu에서는 같은 페이지가 외부 그룹도 다룹니다. 외부 테넌트 구성원에게는 직원 ID가 없으므로 수동 연결이나 자동 생성이 필요합니다. 같은 콘솔 페이지에서 본인이 메시지를 보내기 전에 미리 매핑을 등록할 수도 있습니다. 예를 들어 이메일 OTP(`SiteCredential`) 사용자를 채팅 계정과 연결할 때 사용합니다.
 
 ## 채팅 내용이 Brain 지식이 되는 방식
 
@@ -76,7 +76,7 @@ server는 저장된 token이나 secret을 브라우저로 반환하지 않습니
 
 ## Agent가 응답하지 않는 경우
 
-- **Channel Provider가 없음:** **Agent Library → Control Plane Plugins**를 열고 plugin을 활성화한 다음, 페이지가 안내할 때 control plane을 다시 시작하십시오.
+- **Channel Provider가 없음:** **Control Plane Plugins**는 엄격히 사이트 범위(`/api/v2/site/control-plane-plugins`)이므로 테넌트나 개별 Agent의 Agent Library 범위 안이 아니라 Site Admin Console의 사이트/전역 범위에만 표시됩니다. Site Admin Console(`/site-admin-console`)을 열고 **Agent Library**에서 범위를 **Global defaults**로 둔 뒤 **Control Plane Plugins** 탭에서 해당 plugin을 활성화하고, 페이지 안내에 따라 control plane을 다시 시작하십시오.
 - **bot이 그룹 메시지를 받지 못함:** provider의 event subscription, 권한, application release 상태를 확인하십시오. DingTalk와 WeCom 그룹 메시지는 bot을 명시적으로 @-언급해야 합니다.
 - **WeCom이 예상과 다르게 동작함:** 먼저 [Quick start](../quickstart/#chat-channels)의 WeCom 탭과 동작을 비교하십시오. 일반적인 원인은 슈퍼 관리자가 만들지 않은 bot, 누락된 trusted-IP 항목, 또는 사용자가 아직 활성화하지 않은 conversation입니다.
 - **규칙은 저장됐지만 응답이 없음:** 대상 Agent가 활성화되어 있고, 해당 모델 configuration이 정상이며, 규칙이 규칙 목록에 있는지 확인하십시오.

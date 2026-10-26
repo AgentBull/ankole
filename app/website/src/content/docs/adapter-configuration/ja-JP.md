@@ -7,11 +7,11 @@ order: 3
 
 このページでは、Ankole に含まれるエンタープライズ Identity と chat アダプターをまとめます。まず、そのプラットフォームが **Identity Provider（IdP）** を提供するのか、**Channel Provider** を提供するのか、それとも両方かを決め、該当する詳細ガイドを開いてください。
 
-初回セットアップ時、`/setup` は選択した IdP のログイン callback URL とガイドリンクを表示します。セットアップ後は、Identity 設定を **Console → Identity Providers** で管理します。chat アプリケーションの Agent へのバインドは、**Console → Signal Routing** で行います。
+初回セットアップ時、`/setup` は選択した IdP のログイン callback URL とガイドリンクを表示します。エンタープライズ Identity Provider は Pod 管理者（`pod_admin`）が **Pod Settings**（`/api/v2/pod/admin/identity-providers`）で管理するほか、サイト管理者も Site Console（**Console → Identity Providers**）で管理できます。サイトレベルのパスワードレス Email OTP 用 SMTP 設定（`authn.email.*`）は Site Console で管理します。外部 chat アプリケーションの Agent へのバインドは、**Console → Signal Routing** で行います。
 
 ## Identity Providers
 
-IdP は組織のサインインを提供し、従業員、部門、グループを同期できます。スペース管理者は「スペース設定」で組織のプロバイダーを設定します。メールコードのサインインはサイトの SMTP を使用し、メール設定がある場合に表示されます。初期設定では、実際のメールコード確認または組織の SSO を完了して最初の管理者を作成します。Ankole はユーザーパスワードを保存しません。以下の認証情報名はフォームと一致します。権限、コールバック URL、確認手順は各ガイドを参照してください。
+IdP は組織のサインインを提供し、従業員、部門、グループを同期できます。エンタープライズ Identity Provider は Pod 管理者（`pod_admin`）が **Pod Settings** で設定するほか、サイト管理者も **Console → Identity Providers** で管理できます。パスワードレス Email OTP サインインは Site Console で設定したサイトの SMTP 設定（`authn.email.*`）を使用し、メール配信が設定されている場合に表示されます。初期設定では、実際のメールコード確認または組織の SSO を完了して最初の管理者を作成します。Ankole はユーザーパスワードを保存しません。以下の認証情報名はフォームと一致します。権限、コールバック URL、確認手順は各ガイドを参照してください。
 
 | プラットフォーム | 外部アプリケーション | 主な設定 | 詳細ガイド |
 |---|---|---|---|
@@ -51,8 +51,8 @@ Identity Provider または signal routing ルールを編集するとき、Cons
 
 ## 検証の順序
 
-1. IdP のサインインを検証し、最初の管理者が Console を開けることを確認します。
-2. ディレクトリのフル同期を実行し、Principals と permission groups を確認します。
+1. エンタープライズ IdP の SSO サインイン、または SMTP によるパスワードレス Email OTP サインインを検証し、最初の管理者が `siteadmin` および `pod_admin` として Pod ワークスペースを開き、`/site-admin-console` の Site Admin Console にアクセスできることを確認します。
+2. エンタープライズ IdP を設定した場合は、ディレクトリのフル同期を実行し、Principals と permission groups を確認します。
 3. chat のルーティングルールを作成し、まず direct message または明示的なメンションでテストします。
 4. Agent がメッセージを受信して返信を送ることを確認してから、グループ監視、リアルタイムのディレクトリ同期、カードなどの高度な機能を有効にします。
 

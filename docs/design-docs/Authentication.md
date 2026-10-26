@@ -81,7 +81,7 @@ port range, and sender address when saved. `nil` means unconfigured.
 Email OTP is available when this transport is configured. The authentication Mailer sends verification and invitation
 messages. Agent email has a separate owner.
 
-FOSS setup supports enterprise SSO or SMTP email verification. SSO setup completes
+First-run setup supports enterprise SSO or SMTP email verification. SSO setup completes
 when a real provider callback verifies the first administrator. SMTP setup
 sends a real six-digit code with the proposed settings. Verification commits
 the encrypted mail settings, setup completion, Human, credential, administrator
@@ -99,9 +99,10 @@ The task accepts `-` for standard input. The release operation is
 
 ## Pod selection and invitations
 
-A public email login with zero memberships shows a create-or-join choice. SaaS
-workspace creation uses the proved site credential, creates a tenant and its
-Human, binds the credential, adds `pod_admin`, and enters the Pod.
+A proved site credential lists the person's active and pending Pods; when zero
+memberships exist, the browser session remains valid with an empty Pod list so
+the person can accept an invitation (or use an extension-provided workspace
+onboarding flow).
 
 A verified email or phone can discover a unique active pending Human from
 contact records. Directed email invitations also appear as pending Pods. A

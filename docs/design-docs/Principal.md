@@ -46,9 +46,10 @@ to exactly one tenant. The same person in two tenants has two Principal rows.
 
 - stable rows for humans, Agents, and system services
 - whether each Principal is active or disabled
-- human profiles
-- Agent subtype and creator information
-- links to identities from external providers
+- human profiles and verified personal site credentials (`principal_site_credentials`)
+- Pod invitations (`pod_invitations`)
+- Agent subtype, owner, and creator information
+- links to identities from external providers (`principal_external_identities`)
 - rules that link the same human across providers
 
 It does not store:
@@ -135,9 +136,12 @@ The table extends an agent Principal with these fields:
 
 - `uid` as the primary and foreign key.
 - `type` as the `ai_colleague` enum.
+- Required `handle`, unique within its tenant.
 - Required nonempty `role`.
+- `group_memory_disclosure_mode` as `strict` or `relaxed`.
 - `options` as a JSON object.
-- Optional `created_by_principal_uid`.
+- Required `owner_principal_uid` foreign key.
+- Optional `created_by` typed actor reference.
 - `inserted_at` and `updated_at`.
 
 Agent mission, soul, design, memory, model profiles, and token quota belong to
@@ -202,6 +206,21 @@ BrowserSessions records the current Human access version for each Pod proof.
 Pending claims require the current Pod login policy and identifier release
 waterline. Directory contacts and personal login credentials have separate
 owners.
+
+### `pod_invitations`
+
+`Ankole.Principals.Invitation` stores tenant-scoped Pod invitations with these
+fields:
+
+- A UUIDv7 `id`.
+- `kind` as `link` or `email`.
+- Optional normalized `invited_email`.
+- `membership` as `member` or `guest`.
+- `token_digest` and optional `code_digest` (raw tokens and codes are never stored).
+- `max_uses` and `used_count`.
+- `created_by_principal_uid`.
+- `expires_at` and optional `revoked_at`.
+- `inserted_at` and `updated_at`.
 
 ### `identity_mapping_requests`
 
@@ -334,8 +353,9 @@ AuthZ protects the last active human administrator.
 
 ## Console Identity and Access API
 
-The tenant Console uses `/api/v2/identity-provider-adapters` and
-`/api/v2/identity-providers` for provider configuration and directory review.
+The Site Console uses `/api/v2/identity-provider-adapters` and
+`/api/v2/identity-providers` for provider configuration and directory review
+(while Pod settings uses `/api/v2/pod/admin/identity-providers`).
 Configuration responses redact stored secrets. A blank secret input keeps the
 stored value. Directory approval requires the current snapshot fingerprint and
 explicit removal approval. Event review checks both the provider and event ID.

@@ -24,7 +24,7 @@ export const quickstartLabels = {
 
 export const agentInstallPrompt = [
   'Use https://ankole.agentbull.com/en-US/docs/quickstart/index.md to help me deploy and configure a private Ankole deployment instance.',
-  'First, inspect my environment and recommend Docker Compose, Kubernetes, or installing from source. Then help me set up the Identity Provider (IdP), LLM Provider, Agent, Channel Provider, and Signal Routing Rule (Signal Binding). If I did not specify an IdP and IM platform, ask which identity source and chat platform I want to use. Do not choose them for me.',
+  'First, inspect my environment and recommend Docker Compose, Kubernetes, or installing from source. Then help me set up sign-in via Email OTP or an Enterprise SSO Identity Provider (IdP), plus the LLM Provider, Agent, Channel Provider, and Signal Routing Rule (Signal Binding). If I did not specify a sign-in method and IM platform, ask which sign-in method (SMTP Email OTP or enterprise IdP) and chat platform I want to use. Do not choose them for me.',
   'Do not expose secrets in chat or command output. You are finished only when I receive a real Agent reply in my selected IM.'
 ].join(' ')
 
@@ -34,7 +34,7 @@ export const deploymentTabs = [
     label: 'Docker Compose',
     badge: 'Single-host recommended',
     summary:
-      "One host runs PostgreSQL, the control plane, and Caddy. The selected provider creates one Worker per Agent.",
+      "One host runs PostgreSQL 18, ankole-function-runtime, the control plane, and Caddy. The selected provider creates one Worker per Agent.",
     prerequisites: [
       'A Linux, macOS, or Windows host that can run Linux amd64 or arm64 containers',
       'Docker Engine with the Compose plugin, or Docker Desktop',
@@ -59,7 +59,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: 'Generate three independent secrets',
+          title: 'Generate four independent secrets',
           body: ['Copy and run this command. Then paste its complete output into .env.'],
           code: [
             {
@@ -67,13 +67,16 @@ export const deploymentTabs = [
               code: [
                 "printf '%s\\n' \\",
                 "  '# PostgreSQL database password' \\",
-                '  "POSTGRES_PASSWORD=$(openssl rand -hex 32)" \\',
+                '  "POSTGRES_PASSWORD=$(openssl rand -hex 24)" \\',
                 "  '' \\",
                 "  '# ANKOLE master encryption key' \\",
                 '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
                 "  '' \\",
                 "  '# Erlang distribution cookie of the control plane' \\",
-                '  "RELEASE_COOKIE=$(openssl rand -hex 32)"'
+                '  "RELEASE_COOKIE=$(openssl rand -hex 32)" \\',
+                "  '' \\",
+                "  '# Shared token between the control plane and ankole-function-runtime' \\",
+                '  "ANKOLE_FUNCTION_RUNTIME_TOKEN=$(openssl rand -hex 32)"'
               ].join('\n')
             }
           ]
@@ -120,7 +123,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose waits for PostgreSQL, completes migrations, then starts the control plane and Caddy."
+            "Compose starts PostgreSQL 18 and ankole-function-runtime, completes migrations, then starts the control plane and Caddy."
           ]
         },
         {
@@ -140,14 +143,18 @@ export const deploymentTabs = [
       summary: 'Use these settings before you move the first deployment into production.',
       steps: [
         {
-          title: 'Pin a verified image',
+          title: 'Pin verified images',
           body: [
-            'The control-plane image names the Worker image of the same source revision, and the control plane creates every Worker with it. For a controlled rollout, pin the control-plane image to an immutable digest. That digest also fixes the Worker image.'
+            'The control-plane image names the Worker image of the same source revision, and the control plane creates every Worker with it. For a controlled rollout, pin both the control-plane image and ankole-function-runtime image to immutable digests from the same release.'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
               description: 'Control-plane image or immutable digest. It also names the Worker image.'
+            },
+            {
+              name: 'ANKOLE_FUNCTION_RUNTIME_IMAGE',
+              description: 'Function Runtime image or immutable digest from the same release.'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
@@ -168,7 +175,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Stop all writers and back up PostgreSQL, ankole_files_data, every persistent Agent Home, and the original ANKOLE_SECRET_BASE. Stopping the control plane alone does not stop Workers. Test the full restore on isolated resources; see the Backup and restore guide."
+            "Stop all writers and back up PostgreSQL (plus any dedicated BASE_DB_URLS shard databases), ankole_files_data, every persistent Agent Home, and the deployment secrets (ANKOLE_SECRET_BASE, RELEASE_COOKIE, and ANKOLE_FUNCTION_RUNTIME_TOKEN). Stopping the control plane alone does not stop Workers. Test the full restore on isolated resources; see the Backup and restore guide."
           ]
         },
         {
@@ -252,14 +259,16 @@ export const deploymentTabs = [
                 'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
                 'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
                 'RELEASE_COOKIE="$(openssl rand -hex 32)"',
+                'ANKOLE_FUNCTION_RUNTIME_TOKEN="$(openssl rand -hex 32)"',
                 '',
                 'kubectl -n ankole create secret generic ankole-bootstrap \\',
                 '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
                 '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
                 '  --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \\',
+                '  --from-literal="ANKOLE_FUNCTION_RUNTIME_TOKEN=${ANKOLE_FUNCTION_RUNTIME_TOKEN}" \\',
                 '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
                 '',
-                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE'
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_FUNCTION_RUNTIME_TOKEN'
               ].join('\n')
             }
           ]
@@ -389,14 +398,14 @@ export const deploymentTabs = [
             },
             {
               name: 'DATABASE_URL',
-              description: 'Store the external database URL in ankole-bootstrap.'
+              description: 'Store the external database URL (plus ANKOLE_SECRET_BASE, RELEASE_COOKIE, and ANKOLE_FUNCTION_RUNTIME_TOKEN) in ankole-bootstrap.'
             }
           ]
         },
         {
-          title: 'Confirm the Worker security profile',
+          title: 'Confirm the Worker and Function Runtime security profile',
           body: [
-            'Worker Pods need no extra kernel privileges: the container is the isolation boundary of each Agent. The chart gives the control plane a namespace Role that creates and deletes Pods, Secrets, and PVCs, and gives the Worker Pods their own ServiceAccount without permissions.'
+            'Worker Pods need no extra kernel privileges: the container is the isolation boundary of each Agent. The chart gives the control plane a namespace Role that creates and deletes Pods, Secrets, and PVCs, gives Worker Pods their own unprivileged ServiceAccount, and runs ankole-function-runtime without database credentials or a ServiceAccount token.'
           ],
           fields: [
             {
@@ -407,7 +416,7 @@ export const deploymentTabs = [
               name: 'networkPolicy.enabled',
               value: 'true',
               description:
-                'Optional. Worker Pods then accept no connection and reach only the control plane, DNS, and public addresses.'
+                'Optional. Worker Pods then accept no connection and reach only the control plane, DNS, and public addresses, while ankole-function-runtime blocks functionRuntime.deniedCIDRs.'
             }
           ],
           caution:
@@ -416,7 +425,7 @@ export const deploymentTabs = [
         {
           title: 'Pin and upgrade matching images',
           body: [
-            "Pin the control-plane and Worker images from the same verified revision. Before helm upgrade, back up PostgreSQL, the file store, all persistent Homes, and the original encryption key."
+            "Pin controlPlane.image, functionRuntime.image, and (when set) worker.image to the same verified revision. Before helm upgrade, back up PostgreSQL (plus any dedicated BASE_DB_URLS shard databases), the file store, all persistent Homes, and the bootstrap secrets (ANKOLE_SECRET_BASE, RELEASE_COOKIE, and ANKOLE_FUNCTION_RUNTIME_TOKEN)."
           ],
           caution:
             'A Helm rollback does not reverse a database migration. Restore the database backup when an application rollback also needs an older schema.'
@@ -437,7 +446,7 @@ export const deploymentTabs = [
     value: 'source',
     label: 'Install from source',
     summary:
-      "Use the source installation for development. It starts PostgreSQL, Phoenix, the Console, and frontend assets. The control plane creates a Docker Worker for each Agent.",
+      "Use the source installation for development. It starts PostgreSQL 18, ankole-function-runtime, Phoenix, the Console, and frontend assets. The control plane creates a Docker Worker for each Agent.",
     prerequisites: [
       'macOS or Linux; use WSL2 on Windows',
       'An account that can install system packages',
@@ -492,7 +501,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: 'Install dependencies and initialize PostgreSQL',
+          title: 'Install dependencies and start local services',
           code: [
             {
               language: 'bash',
@@ -503,6 +512,9 @@ export const deploymentTabs = [
                 'bun run control-plane:setup'
               ].join('\n')
             }
+          ],
+          body: [
+            'bun run services:start starts PostgreSQL 18 and ankole-function-runtime in Docker before control-plane:setup initializes the database.'
           ]
         },
         {
@@ -550,7 +562,7 @@ export const deploymentTabs = [
           ],
           body: [
             'There is no Worker container until you create an Agent. Each Worker container runs the local Agent Computer source in watch mode.',
-            'Stop the control plane and Worker with Ctrl+C in the bun dev terminal. Stop PostgreSQL separately when you finish.'
+            'Stop the control plane and Worker with Ctrl+C in the bun dev terminal. Stop PostgreSQL 18 and ankole-function-runtime with bun run services:stop when you finish.'
           ]
         },
         {
@@ -566,6 +578,71 @@ export const deploymentTabs = [
 ]
 
 export const identityTabs = [
+  {
+    value: 'email_otp',
+    label: 'Email OTP',
+    summary:
+      'Bootstrap passwordless sign-in with your own SMTP server and a verified 6-digit email code. You can use Email OTP alone or add an enterprise SSO Identity Provider later.',
+    prerequisites: [
+      'An SMTP server with a valid TLS certificate that can send mail to the first administrator',
+      'A mailbox controlled by the first administrator to receive the 6-digit verification code'
+    ],
+    basic: {
+      title: 'Set up passwordless Email OTP',
+      steps: [
+        {
+          title: 'Select Email verification in /setup',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup, enter the activation code, review the Plugins and Industry steps, and select Email verification under User sign-in.'
+          ]
+        },
+        {
+          title: 'Enter SMTP and administrator details',
+          bullets: [
+            'SMTP server and Port: your outbound mail host and port (typically 587 with STARTTLS or 465 with implicit TLS)',
+            'Sender email: the From address used for verification and invitation emails',
+            'SMTP username and SMTP password: optional credentials when the relay requires authentication',
+            'Use implicit TLS (usually port 465): turn on only for implicit TLS',
+            'Administrator display name and Administrator email: the profile name and inbox for the initial administrator'
+          ],
+          body: [
+            'Select Send code. Ankole sends a 6-digit verification code through the proposed SMTP server before committing setup.'
+          ]
+        },
+        {
+          title: 'Verify the 6-digit code and complete setup',
+          body: [
+            'Enter the 6-digit email code from your inbox and select Verify code and complete setup.',
+            'Verification saves the encrypted authn.email.mail settings, binds the verified email_otp SiteCredential, and grants the initial user both siteadmin (Site Admin Console at /site-admin-console) and default Pod pod_admin.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'SMTP recovery and Pod invitations',
+      summary: 'Repair SMTP transport from the CLI or invite additional members without enterprise SSO.',
+      steps: [
+        {
+          title: 'Repair SMTP settings from the CLI',
+          code: [
+            {
+              language: 'bash',
+              code: 'mix ankole.authn.mail.put /secure/path/mail.json'
+            }
+          ],
+          body: [
+            'In a release container, call Ankole.Release.put_authn_mail(json). Treat the JSON payload as a secret.'
+          ]
+        },
+        {
+          title: 'Invite members or add enterprise SSO later',
+          body: [
+            'Pod administrators can send email invitations under Pod settings and configure enterprise SSO providers later in Console → Identity Providers.'
+          ]
+        }
+      ]
+    }
+  },
   {
     value: 'slack',
     label: 'Slack',
@@ -668,7 +745,7 @@ export const identityTabs = [
         {
           title: 'Verify sign-in and the first sync',
           body: [
-            'After Slack returns to Ankole, this user becomes the first root administrator. Open Console → Identity Providers, select slack-main, and select Run full sync.',
+            'After Slack returns to Ankole, this user receives both siteadmin (Site Admin Console at /site-admin-console) and default Pod pod_admin. Open Console → Identity Providers, select slack-main, and select Run full sync.',
             'When the sync finishes, check Console → Principals and Principal groups for the workspace members and Slack user groups.'
           ]
         }
@@ -771,7 +848,7 @@ export const identityTabs = [
         {
           title: 'Verify sign-in and the first sync',
           body: [
-            'After sign-in, this user becomes the first root administrator. Open Console → Identity Providers, select entra-id-main, and select Run full sync.',
+            'After sign-in, this user receives both siteadmin (Site Admin Console at /site-admin-console) and default Pod pod_admin. Open Console → Identity Providers, select entra-id-main, and select Run full sync.',
             'When the sync finishes, check Principals and Principal groups for the tenant users and groups.'
           ]
         }
@@ -796,7 +873,7 @@ export const identityTabs = [
         {
           title: 'Turn off realtime sync without public ingress',
           body: [
-            'If Graph cannot reach this instance, turn off Sync directory changes before you save. Full sync still works, and Ankole public URL is no longer required.'
+            'If Graph cannot reach this instance, turn off Sync directory changes before you save. Full sync still works, and Ankole public URL is not required.'
           ]
         },
         {
@@ -900,7 +977,7 @@ export const identityTabs = [
         {
           title: 'Verify sign-in and the first sync',
           body: [
-            'After sign-in, this user becomes the first root administrator. Open Console → Identity Providers, select google-workspace-main, and select Run full sync.',
+            'After sign-in, this user receives both siteadmin (Site Admin Console at /site-admin-console) and default Pod pod_admin. Open Console → Identity Providers, select google-workspace-main, and select Run full sync.',
             'When the sync finishes, check Principals and Principal groups for the Workspace users, groups, and memberships.'
           ]
         }
@@ -1230,7 +1307,7 @@ export const identityTabs = [
           title: 'Enable Contacts sync and record its dedicated secret',
           body: [
             'Go to Security & Administration → Management tools → Contacts sync. Enable API sync, copy the dedicated secret, and register its own trusted IP.',
-            'Since June 2022 the ordinary app secret no longer returns member names and other profile fields. Without this dedicated secret, directory sync is unavailable and signed-in users keep bare user ids.'
+            'The ordinary app secret does not return member names or other profile fields. Without this dedicated secret, directory sync is unavailable and signed-in users keep bare user ids.'
           ]
         },
         {
@@ -1247,7 +1324,7 @@ export const identityTabs = [
         {
           title: 'Confirm sign-in and the first sync',
           body: [
-            'The first signed-in member becomes the first root administrator. Open Console → Identity Providers, select wecom-main, and run a full sync.',
+            'The first signed-in member receives both siteadmin (Site Admin Console at /site-admin-console) and default Pod pod_admin. Open Console → Identity Providers, select wecom-main, and run a full sync.',
             'Check Principals and Principal groups for the members and departments.'
           ]
         }
@@ -1781,7 +1858,7 @@ export const channelTabs = [
           title: 'Publish the template, enter the id, and verify',
           body: [
             'Associate the template with the enterprise-internal app that owns the robot, publish it, copy the template id, and paste it into cardTemplateId on the routing rule. The change applies to the next reply; there is nothing to restart.',
-            'To verify, send a message that produces several sentences: a card must appear and grow while the Agent writes, and when the reply ends the indicator stops and the thinking and activity areas are blanked. Then ask something that needs a decision — a button must appear, and pressing it continues the turn; a stale button that no longer answers a pending question is ignored. A long reply seals a card at about 2.5 KB and continues on a new one, each card is a new message in the conversation, and rich structures such as tables render as text. All of this is expected under the platform limits.'
+            'To verify, send a message that produces several sentences: a card must appear and grow while the Agent writes, and when the reply ends the indicator stops and the thinking and activity areas are blanked. Then ask something that needs a decision — a button must appear, and pressing it continues the turn; a stale button that does not answer a pending question is ignored. A long reply seals a card at about 2.5 KB and continues on a new one, each card is a new message in the conversation, and rich structures such as tables render as text. All of this is expected under the platform limits.'
           ],
           bullets: [
             'The card is blank: the current input, completed, or failed layout has no component bound to answer, or the changed template was not published.',
@@ -2370,7 +2447,7 @@ export const channelTabs = [
         {
           title: 'Know how email senders become accounts',
           body: [
-            'Anyone on the internet can write to the mailbox, and a From address proves nothing by itself, so Ankole never matches an email sender by a profile email or a local sign-in email. A sender is known only through an explicit email identity binding: directory sync and provider sign-in bind the address the provider reports, so employees of a synced directory are admitted without a manual step; an administrator binds any other address from Identity → Pending mappings. Create a standalone account creates an account whose identifier is the address; use it only for an open mailbox.'
+            'Anyone on the internet can write to the mailbox, and a From address proves nothing by itself, so Ankole never matches an email sender by an unlinked profile email or a SiteCredential login email alone. A sender is known only through an explicit Pod email identity binding: directory sync and enterprise provider sign-in bind the address the provider reports, so employees of a synced directory are admitted without a manual step; an administrator binds any other address from Identity → Pending mappings. Create a standalone account creates an account whose identifier is the address; use it only for an open mailbox.'
           ]
         },
         {
@@ -2491,25 +2568,27 @@ The Worker installation name uses 1–20 lowercase letters, digits, or hyphens, 
 />
 
 <span id="identity-providers" aria-hidden="true" />
+<span id="2-set-up-the-identity-provider-first" aria-hidden="true" />
 
-## 2. Set up the identity provider first
+## 2. Set up sign-in and identity first
 
-Ankole is designed for private deployment inside an enterprise. A site can contain several tenants. Each tenant represents its Agents, employees, and system services as Principals, and AuthZ manages their permissions. Select the target tenant in the Console before configuring its identity provider.
+Ankole is designed for private deployment inside an enterprise. A site can contain several tenants. Each tenant represents its Agents, employees, and system services as Principals, and AuthZ manages their permissions. Completing `/setup` grants the initial administrator both `siteadmin` (for the Site Admin Console at `/site-admin-console`) and default Pod `pod_admin`. Select the target tenant in the Console before configuring tenant-specific settings.
 
-Like Hermes Agent and OpenClaw, Ankole connects to chat channels. It also connects to the enterprise identity source so it can synchronize employees, directory contacts, and the organization structure. Configure an Identity Provider (IdP) before you configure the chat channel.
+During `/setup`, choose either passwordless **Email OTP** (`email_otp` via your SMTP server and a 6-digit verification code) or an **Enterprise SSO Identity Provider (IdP)** that also synchronizes employees, directory contacts, and the organization structure. Configure sign-in before you configure the chat channel.
 
 | Setting | What it controls | Configure it where |
 |---|---|---|
-| **Identity Provider (IdP)** | Console SSO and the employees, contacts, organization structure, and permission groups synchronized from the enterprise directory | `/setup` first, then **Console → Identity Providers** |
+| **Email OTP (`email_otp`)** | Passwordless 6-digit email verification (`authn.email.mail` SMTP transport and `SiteCredential` bindings) plus email invitations | `/setup` (**Email verification**), or CLI `mix ankole.authn.mail.put` |
+| **Identity Provider (IdP)** | Enterprise SSO and the employees, contacts, organization structure, and permission groups synchronized from the enterprise directory | `/setup` first, then **Console → Identity Providers** |
 | **Channel Provider** | The IM app or bot that receives messages and sends Agent replies | **Console → Signal Routing** |
 
-The identity source and chat channel can use different platforms. Employees can sign in through Google Workspace and talk to the Agent in Slack. Entra ID can supply identity while Lark, Slack, DingTalk, Teams, or WeCom carries the conversation.
+The sign-in method and chat channel can use different platforms. You can bootstrap with Email OTP or Google Workspace and talk to the Agent in Slack, or let Entra ID supply identity while Lark, Slack, DingTalk, Teams, or WeCom carries the conversation.
 
-### Complete the setup for your IdP
+### Complete the setup for your sign-in method
 
-Select the identity source that your enterprise uses. Each tab starts in the provider console and ends with the first sign-in and directory sync.
+Select **Email OTP** or the enterprise identity source that your organization uses. Each enterprise SSO tab starts in the provider console and ends with the first sign-in and directory sync.
 
-If you enable the adapter for the first time, restart the control plane after the first sign-in. This restart starts the plugin background work, such as directory connections and Graph subscriptions.
+If you enable an enterprise adapter for the first time, restart the control plane after the first sign-in. This restart starts the plugin background work, such as directory connections and Graph subscriptions.
 
 <QuickstartTabs
   client:visible

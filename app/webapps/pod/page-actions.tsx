@@ -5,7 +5,6 @@ import {
   RiArrowUpLine,
   RiDeleteBinLine,
   RiExternalLinkLine,
-  RiFileAddLine,
   RiFileCopyLine,
   RiFolderTransferLine,
   RiPencilLine,
@@ -22,6 +21,7 @@ import { useContent } from './content-context'
 import { contentError } from './content-errors'
 import { useCopyPageLink } from './page-sharing'
 import { canMovePage, stepRequest } from './state/page-move'
+import { CreatePageSubmenu } from './page-create-menu'
 
 const title = (page: Page) => page.title || t('pod.content.untitled')
 
@@ -96,7 +96,6 @@ export function PageMenuItems({
   favorited,
   actions: { move, trash, favorite },
   onRename,
-  onCreateChild,
   onMoveTo
 }: {
   page: Page
@@ -104,7 +103,6 @@ export function PageMenuItems({
   favorited: boolean
   actions: PageActions
   onRename(): void
-  onCreateChild(): void
   onMoveTo(): void
 }) {
   const { pageHref } = useContent()
@@ -133,10 +131,7 @@ export function PageMenuItems({
           <DropdownMenuSeparator />
           {canEdit && (
             <>
-              <DropdownMenuItem onClick={onCreateChild}>
-                <RiFileAddLine aria-hidden />
-                {t('pod.sidebar.new_subpage')}
-              </DropdownMenuItem>
+              <CreatePageSubmenu parentID={page.id} />
               <DropdownMenuItem onClick={onRename}>
                 <RiPencilLine aria-hidden />
                 {t('pod.sidebar.rename')}

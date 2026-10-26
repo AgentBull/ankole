@@ -30,8 +30,8 @@ Skill 自身の description が、model が使うかどうかを判断するた�
 
 ブラウザは Skill なので、tool フラグではなく [Agent Library](../agent-library/) を通じて有効にします。`default_enabled` が `true` のため、新しい Agent は、狭めない限り最初からブラウザを利用できます。2 つの層:
 
-1. **インスタンス全体の既定値**——Skill は `default_enabled: true` で出荷されます。すべての Agent がブラウザを使えるようにするには、そのままにします。
-2. **Agent 単位の上書き**——ブラウザを持つべきでない Agent では狭め、以前狭めた Agent では広げます。
+1. **テナントの既定値**——Skill は `default_enabled: true` で出荷されます。テナント内のすべての Agent がブラウザを使えるようにするには、そのままにします。
+2. **Agent 単位の上書き**——ブラウザを持つべきでない Agent では無効にし、テナントの既定値を無効にしている場合は必要な Agent で有効にします。
 
 どちらの層も Console の library-capability ルートで設定します。[Console API リファレンス](../console-api/) に説明があります。Agent の `library-capabilities` を読み取ると Skill 同期がトリガーされるため、表示されるのは現在のファイルシステムと対帳されたレジストリであり、古いスナップショットではありません。
 

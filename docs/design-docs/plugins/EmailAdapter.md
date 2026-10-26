@@ -164,10 +164,9 @@ insert another mailbox into the header. The binding also owns a
 
 The author provider is `email`, and the stable external identity is the
 lowercase sender address. The adapter reports no contact fields: an address
-is also what an operator types into a profile or uses as a local sign-in
-name, and neither proves that the account holder controls the mailbox. A
-sender is therefore identified only by an `email` identity binding, which
-has three sources:
+typed into an unverified Human profile field does not prove that the account
+holder controls the mailbox. A sender is therefore identified only by an
+`email` identity binding, which has three sources:
 
 - an administrator maps the address to a Principal from the mapping request
   that `manual_review` records;

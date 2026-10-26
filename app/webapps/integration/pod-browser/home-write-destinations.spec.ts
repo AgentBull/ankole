@@ -121,12 +121,10 @@ test('page creation, movement and copies offer destinations the current member c
 
       if (!allowed) {
         await member.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true }).click()
-        const dialog = member.getByRole('dialog')
-        await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(`Private work in ${role} Space`)
         const saved = member.waitForResponse(
           response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
         )
-        await dialog.getByRole('button', { name: '创建', exact: true }).click()
+        await member.getByRole('menuitem', { name: '文档', exact: true }).click()
         const response = await saved
         expect(response.status()).toBe(201)
         const created = (await response.json()).page
@@ -142,34 +140,36 @@ test('page creation, movement and copies offer destinations the current member c
           .filter({ has: member.locator(`a[href="${pageRoute(state.report_id)}"]`) })
         await project.hover()
         await project.getByRole('button', { name: '新建页面', exact: true }).click()
-        const dialog = member.getByRole('dialog')
-        await dialog.getByRole('textbox', { name: '标题', exact: true }).fill('Work inside the shared project')
         const saved = member.waitForResponse(
           response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
         )
-        await dialog.getByRole('button', { name: '创建', exact: true }).click()
+        await member.getByRole('menuitem', { name: '文档', exact: true }).click()
         const response = await saved
         expect(response.status()).toBe(201)
         const child = ((await response.json()) as { page: { id: string; parent_id: string } }).page
         delegatedChildID = child.id
         expect(child.parent_id).toBe(state.report_id)
-        await expect(member.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(
-          'Work inside the shared project'
-        )
+        await expect(member).toHaveURL(state.base_url + pageRoute(child.id))
+        const title = member.getByRole('textbox', { name: '页面标题', exact: true })
+        await expect(title).toHaveValue('')
+        await title.fill('Work inside the shared project')
+        await title.blur()
       }
 
       if (allowed) {
         await member.locator('.pod-content-list').getByRole('button', { name: '新建页面', exact: true }).click()
-        const dialog = member.getByRole('dialog')
-        await dialog.getByRole('textbox', { name: '标题', exact: true }).fill('New shared work')
         const saved = member.waitForResponse(
           response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
         )
-        await dialog.getByRole('button', { name: '创建', exact: true }).click()
+        await member.getByRole('menuitem', { name: '文档', exact: true }).click()
         const response = await saved
         expect(response.status()).toBe(201)
         createdID = ((await response.json()) as { page: { id: string } }).page.id
-        await expect(member.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue('New shared work')
+        await expect(member).toHaveURL(state.base_url + pageRoute(createdID))
+        const title = member.getByRole('textbox', { name: '页面标题', exact: true })
+        await expect(title).toHaveValue('')
+        await title.fill('New shared work')
+        await title.blur()
       }
 
       await member.goto(state.base_url + pageRoute(base.page.id))
@@ -437,19 +437,19 @@ test('a shared private project exposes its children and lets collaborators conti
     await member.goBack()
     await member.getByRole('button', { name: '子页面', exact: true }).click()
     await member.getByRole('button', { name: '新建子页面', exact: true }).click()
-    const dialog = member.getByRole('dialog')
-    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill('Collaborative project notes')
     const created = member.waitForResponse(
       response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
     )
-    await dialog.getByRole('button', { name: '创建', exact: true }).click()
+    await member.getByRole('menuitem', { name: '文档', exact: true }).click()
     const createdResponse = await created
     expect(createdResponse.status()).toBe(201)
     const child = ((await createdResponse.json()) as { page: { id: string; parent_id: string } }).page
     expect(child.parent_id).toBe(parentID)
-    await expect(member.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(
-      'Collaborative project notes'
-    )
+    await expect(member).toHaveURL(state.base_url + pageRoute(child.id))
+    const title = member.getByRole('textbox', { name: '页面标题', exact: true })
+    await expect(title).toHaveValue('')
+    await title.fill('Collaborative project notes')
+    await title.blur()
     const editor = member.locator('.editor-content')
     await editor.click()
     await member.keyboard.insertText('Work continues from this project.')

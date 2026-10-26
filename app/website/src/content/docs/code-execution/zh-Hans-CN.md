@@ -7,7 +7,7 @@ order: 122
 
 Agent 可以在普通对话中运行命令、读写文件，也可以把需要持续执行的工作交给后台 Agent 任务。两者走不同的运行路径：普通对话使用 Agent Computer Worker 的前台工具，每个后台 Agent 任务则由 CodexRunner 执行。消息里有多少代码，不会触发运行路径切换。
 
-先说明最关键的一点：每条命令都在 Agent 自己的电脑上跑。每个 Agent 都有自己的 Worker 容器，容器是唯一的隔离边界。命令以 Worker 的用户身份运行，没有内层沙箱；agent 在 `/workspace` 下自己的 Agent Home 里工作。Agent 可以改动自己的电脑，但不与其他 Agent 共享 Worker、缓存盘或凭据。
+先说明最关键的一点：Agent 的每条命令都在它自己的电脑上跑。每个 Agent 都有自己的 Worker 容器，容器是唯一的隔离边界。命令以 Worker 的用户身份运行，没有内层沙箱；Agent 在 `/workspace` 下自己的 Agent Home 里工作。Agent 可以改动自己的电脑，但不与其他 Agent 共享 Worker、缓存盘或凭据。相比之下，Pod Applet 后端函数以及 AIGateway 和 Workflow 的程序化工具调用（PTC）脚本运行在无状态的 `ankole-function-runtime` 隔离环境中，而不是在 Agent Computer Worker 上运行。
 
 ## shell 命令
 
@@ -36,6 +36,7 @@ Agent Home 是 `/workspace` 上的持久存储。`/agents/<agent_uid>` 是指向
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
+├── ConfidentialityPolicy.md
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -44,11 +45,11 @@ Agent Home 是 `/workspace` 上的持久存储。`/agents/<agent_uid>` 是指向
     └── temp/
 ```
 
-`SOUL.md`、`MISSION.md` 和 `DESIGN.md` 是 [Agent Library](../agent-library/) 中的长期文档。前两份定义职责与行为，`DESIGN.md` 是视觉内容使用的设计系统。`installed-skills/` 存放 Agent 安装的 Skill。`sessions/` 使用由 PostgreSQL 从 10000 开始分配的稳定数字 ID 保存普通会话工作区，`jobs/` 是后台 Agent 任务的独立工作区。
+`SOUL.md`、`MISSION.md`、`DESIGN.md` 和 `ConfidentialityPolicy.md` 是 [Agent Library](../agent-library/) 中的长期文档。前两份定义职责与行为，`DESIGN.md` 是视觉内容使用的设计系统，`ConfidentialityPolicy.md` 则定义 Agent 在 Brain 中选择受众范围时的保密与披露边界。`installed-skills/` 存放 Agent 安装的 Skill。`sessions/` 使用由 PostgreSQL 从 10000 开始分配的稳定数字 ID 保存普通会话工作区，`jobs/` 是后台 Agent 任务的独立工作区。
 
 Home 在删除实例和更换镜像后保留，重建只删除 `/var/cache/ankole` 缓存。Docker 本地卷依赖宿主；Cloudflare 被强制停止时可能丢失最后一次 R2 备份后的写入。各类型的存储限制见 [工作节点](../worker-management/)。
 
-控制面云盘独立保存附件、发布的文件、Skill 和 Automation 脚本。用 `ankole-files` 读写云盘；Job 工作区与 Codex 线程文件留在持久 Home。回合开始前，Worker 将 `installed-skills/` 与云盘同步。
+控制面云盘独立保存附件、发布的文件、Skill 和 Automation 脚本。用 `ankole-files` 读写云盘，用 `ankole-pod` 通过控制面读写 Pod 页面、Base 数据表和 Applet；Job 工作区与 Codex 线程文件保存在持久 Home。回合开始前，Worker 将 `installed-skills/` 与云盘同步。
 
 后台 Agent Job 通过 `skill_view` 按需加载 Skill。
 

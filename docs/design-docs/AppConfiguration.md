@@ -11,9 +11,10 @@ the process needs during startup.
 
 The process environment provides startup settings such as:
 
-- `DATABASE_URL`
+- `DATABASE_URL` and optional `BASE_DB_URLS` physical Base shard URLs
+- `ANKOLE_FUNCTION_RUNTIME_URL` and `ANKOLE_FUNCTION_RUNTIME_TOKEN`
 - root secret material such as `SECRET_KEY_BASE`
-- Phoenix host, port, TLS, and release-server settings
+- `ANKOLE_SITE_ADMIN_CONSOLE_PATH` and Phoenix host, port, TLS, and release-server settings
 - database and HTTP pool sizes
 - development and test paths
 
