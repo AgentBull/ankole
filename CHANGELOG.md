@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.2-alpha.27 (2026-10-27)
+
+- Reset omitted Binding filters when the adapter changes. Edits and moves within the same adapter keep their saved filters.
+
 ## Version 2.0.1-alpha.27 (2026-10-27)
 
 - Bound HTTP/1 data queued during an Applet invocation to 1 MiB. Overflow closes the connection and cancels the invocation while preserving committed writes.

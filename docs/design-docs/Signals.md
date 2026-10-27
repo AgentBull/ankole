@@ -260,7 +260,8 @@ stored expression.
 
 Messaging Binding creates, edits, and moves store a supplied `filters` value
 in the same transaction as the Binding and adapter configuration. An omitted
-value keeps the stored filter, or uses an empty filter for a new Binding.
+value keeps the stored filter for the same adapter. A new Binding or a
+replacement with a different adapter starts with an empty filter.
 An explicit empty object clears the filter. Invalid filters reject the entire
 write; a failed move leaves the source and target Bindings unchanged.
 

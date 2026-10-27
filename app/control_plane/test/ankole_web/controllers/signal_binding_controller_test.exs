@@ -104,6 +104,49 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
   end
 
+  test "changing adapters resets omitted filters and accepts explicit replacement filters", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, endpoint} =
+             Ankole.Signals.Webhooks.create_endpoint(%{
+               label: "Adapter filter replacement",
+               mode: "standing",
+               event_format: "cloudevents",
+               expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :hour)
+             })
+
+    conn = console_conn(conn)
+
+    for {name, attributes, expected} <- [
+          {"adapter-reset", %{}, %{}},
+          {"adapter-explicit", %{"filters" => %{"cel" => "false"}}, %{"cel" => "false"}}
+        ] do
+      assert {:ok, %{binding: previous}} =
+               Bindings.put_binding(agent.uid, "cloudevents", name, %{
+                 "config" => %{"webhook_endpoint_id" => endpoint.webhook_endpoint.id},
+                 "target" => %{"session_id" => "issue-triage"},
+                 "filters" => %{"cel" => "signal.type == 'issue.changed'"}
+               })
+
+      assert previous.filters == %{"cel" => "signal.type == 'issue.changed'"}
+
+      updated =
+        conn
+        |> recycle_api()
+        |> api_put(
+          ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/#{name}",
+          Map.put(attributes, "config", lark_config(name))
+        )
+
+      assert %{"signal_binding" => %{"adapter" => "lark", "filters" => ^expected}} =
+               json_response(updated, 200)
+
+      assert Repo.get_by!(Binding, agent_uid: agent.uid, name: name).filters == expected
+    end
+  end
+
   test "messaging filter writes persist replacements, preserve omissions, and allow clearing", %{
     conn: conn
   } do

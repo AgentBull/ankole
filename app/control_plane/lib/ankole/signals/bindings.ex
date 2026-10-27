@@ -565,7 +565,7 @@ defmodule Ankole.Signals.Bindings do
                name: binding_name,
                adapter: definition.id,
                config_ref: "app-config://#{assignment.config_key}",
-               filters: binding_filters(assignment.filters, previous),
+               filters: binding_filters(assignment.filters, previous, definition.id),
                unaddressed_group_message_policy: assignment.policy,
                unmatched_sender_policy: assignment.unmatched_sender_policy,
                enabled: true
@@ -621,7 +621,7 @@ defmodule Ankole.Signals.Bindings do
                name: binding_name,
                adapter: definition.id,
                config_ref: "app-config://#{assignment.config_key}",
-               filters: binding_filters(assignment.filters, source_binding),
+               filters: binding_filters(assignment.filters, source_binding, definition.id),
                unaddressed_group_message_policy:
                  assignment.policy || source_binding.unaddressed_group_message_policy,
                unmatched_sender_policy:
@@ -639,9 +639,9 @@ defmodule Ankole.Signals.Bindings do
     end
   end
 
-  defp binding_filters(:error, nil), do: %{}
-  defp binding_filters(:error, binding), do: binding.filters
-  defp binding_filters({:ok, filters}, _binding), do: filters
+  defp binding_filters(:error, %{adapter: adapter, filters: filters}, adapter), do: filters
+  defp binding_filters(:error, _binding, _adapter), do: %{}
+  defp binding_filters({:ok, filters}, _binding, _adapter), do: filters
 
   @doc false
   def enable_in_tx(attrs),
