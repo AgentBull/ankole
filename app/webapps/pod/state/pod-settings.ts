@@ -1,4 +1,4 @@
-import type { JsonObject } from '@agentbull/active-support'
+import { isEmpty, isRecord, type JsonObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PodAdminSettingsResponse } from '../api/generated/types.gen'
 
@@ -61,7 +61,7 @@ export function formatPermissionCondition(condition: unknown): string | undefine
     const trimmed = condition.trim()
     return trimmed === '' || trimmed === 'true' ? undefined : trimmed
   }
-  if (typeof condition === 'object' && !Array.isArray(condition) && Object.keys(condition).length === 0) {
+  if (isRecord(condition) && isEmpty(condition)) {
     return undefined
   }
   return JSON.stringify(condition)

@@ -1,5 +1,5 @@
 import { compareCodePointStrings } from '../../../common/ordering'
-import { isRecord } from '@agentbull/active-support'
+import { compact, isRecord, uniq } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../../../fabric/envelope_proto'
 import { type BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
@@ -11,11 +11,7 @@ import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
  */
 export type CodexJobRuntimeProjection = {
   version: 1
-  modelRef: Record<string, unknown>
-  runtimePolicy: Record<string, unknown>
-  nativeMCPServers: []
   workerEnv: { names: string[]; plainValues: Record<string, string> }
-  browser: { mode: 'persistent' }
 }
 
 export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse): CodexJobRuntimeProjection {
@@ -27,6 +23,7 @@ export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse)
     throw new Error('Background agent Job runtime projection has an unsupported version or model reference')
   }
 
+  objectValue(value.runtime_policy)
   const workerEnv = objectValue(value.worker_env)
   const nativeMCPServers = arrayOfObjects(value.native_mcp_servers)
   if (nativeMCPServers.length > 0) {
@@ -38,14 +35,10 @@ export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse)
   }
   return {
     version: 1,
-    modelRef: value.model_ref,
-    runtimePolicy: objectValue(value.runtime_policy),
-    nativeMCPServers: [],
     workerEnv: {
       names: stringArray(workerEnv.names, 'runtime projection WorkerEnv names'),
       plainValues: stringMap(workerEnv.plain_values, 'runtime projection WorkerEnv plain values')
-    },
-    browser: { mode: 'persistent' }
+    }
   }
 }
 
@@ -84,7 +77,7 @@ function stringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || !value.every(item => typeof item === 'string' && item.length > 0)) {
     throw new Error(`${label} must be an array of non-empty strings`)
   }
-  return [...new Set(value)].sort(compareCodePointStrings)
+  return uniq(compact(value)).sort(compareCodePointStrings)
 }
 
 function stringMap(value: unknown, label: string): Record<string, string> {

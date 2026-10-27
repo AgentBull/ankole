@@ -1,36 +1,43 @@
 # Rust document corpus
 
-`index.json` is the single golden file. Format version 2 has these sections:
+`index.json` is the shared golden corpus (format version 2), organized into four
+sections:
 
-- `xml`: source XML, canonical XML, and the actual Wordgard document JSON.
-- `invalid`: rejected XML and the parser error.
-- `boundaries`: compact source fragments. Repeat each `text` by its `count`,
-  then join the fragments. `error: null` means acceptance. Each source, node,
-  and depth limit has an accepted boundary and a source one unit above it.
-- `edits`: initial XML and document, ordered `ChangeSet.toJSON()` batches,
-  and the expected client XML and document after every batch.
+- `xml`: input XML, canonical XML, and the corresponding Wordgard document JSON.
+- `invalid`: rejected XML inputs paired with their expected parser errors.
+- `boundaries`: compact source fragments expanded by repeating each `text` entry
+  `count` times and joining the pieces. `error: null` indicates an accepted
+  input; every source-length, node-count, and nesting-depth limit is tested both
+  at the maximum allowed bound and one unit past it.
+- `edits`: an initial XML string and document, an ordered list of
+  `ChangeSet.toJSON()` batches, and the expected client XML and document after
+  each batch.
 
-Document JSON is Wordgard's internal format. A Rust reader must map it to its
-own document model. ChangeSet JSON is an array; it is not a transaction spec
-or an object with a `sections` field. Positions use UTF-16 code units.
+Document JSON uses Wordgard's internal serialization format, so a Rust consumer
+must map it onto its own document model. `ChangeSet` JSON is a flat array—not a
+transaction spec or an object with a `sections` field—and all character offsets
+count UTF-16 code units.
 
-Each edit batch can contain several local operations. It composes the production
-transactions and their appenders, then uses `preparePageUpdate` on its final
-transaction. The client applies that prepared transaction, and its serialized
-changes include the correction. Intermediate operations need not be canonical.
-The chains cover text insertion, deletion, replacement, marks, block changes,
-tables, unknown nodes, embeds, Unicode, line breaks, and invalid input characters
-removed at submission. Generated chains use the stored
-seed. The property test shrinks a failing page and operation sequence and
-reports the seed and replay path.
+Each edit batch may combine multiple local operations: the generator composes
+production transactions and their appenders, then runs `preparePageUpdate` on
+the final transaction of the batch. Because the client applies that prepared
+transaction, the serialized change set already folds in normalization
+corrections, while intermediate operations within a batch need not be canonical.
+Edit chains exercise text insertion, deletion, and replacement, inline marks,
+block conversions, tables, unknown elements, embeds, Unicode scalar boundaries,
+line breaks, and invalid input characters stripped on submission. Generated
+chains are deterministic from the seed recorded in `index.json`; when a
+property-test run fails, `fast-check` shrinks both the initial page and the
+operation sequence and prints the failing seed and replay path.
 
-Run `bun run generate:corpus` to update the golden file. `FC_SEED` can select
-a generation seed. Run `bun run test:corpus` to check the saved file without
-rewriting it. `FC_SEED` selects the independent property-test seed; the golden
-file check always uses the seed stored in the file.
+To regenerate `index.json`, run `bun run generate:corpus` (set `FC_SEED` to
+choose a different generation seed). To verify the committed golden file without
+rewriting it, run `bun run test:corpus`: the golden check always replays the
+seed stored inside `index.json`, whereas `FC_SEED` overrides the seed for the
+separate property-test run.
 
-The replay check compares the in-memory client with a server that reads and
-writes XML after every batch. It also compares the document read back from
-each stored step. A mismatch is a failed preflight, not proof that a Rust
-implementation is compatible. Rust apply and concurrent OT transform are
-outside this corpus generator.
+During replay, `test:corpus` compares the in-memory client state against a
+simulated server that parses and reprints XML after every batch, and checks the
+document re-imported at each step. A mismatch fails preflight for the corpus
+itself; Rust change-set application and concurrent OT transformation are tested
+outside this generator (`bun run --filter @ankole/block-editor test:rust`).

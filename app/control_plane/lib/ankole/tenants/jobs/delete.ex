@@ -6,11 +6,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
     max_attempts: 20,
     unique: [period: :infinity, keys: [:tenant_id], states: [:available, :scheduled, :retryable]]
 
-  import Ecto.Query
   require Ash.Query
-  alias Ankole.{Principals, Repo, Tenants}
-  alias Ankole.Principals.Principal
-  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.{AgentWorkers, Principals, Repo, Tenants}
 
   # Child rows precede their parents. This order comes from the migration's
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
@@ -73,7 +70,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
           agents != [] ->
             delete_agents(agents)
 
-          Repo.exists?(AgentWorker) ->
+          agent_workers_remain?() ->
             {:snooze, 5}
 
           delete_batches(tenant.id, @batch_tables, System.monotonic_time(:millisecond) + 1_000) ->
@@ -199,11 +196,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
       locked ->
         # A request admitted before deletion can create another Agent. The
         # tenant lock closes that race before final deletion can bypass cleanup.
-        if Repo.exists?(
-             from p in Principal,
-               where: p.type == :agent or (p.type == :human and p.status == :active)
-           ) or
-             Repo.exists?(AgentWorker) or
+        if active_humans_or_agents_remain?() or
+             agent_workers_remain?() or
              Ankole.Principals.WorkCleanup.pending_for_tenant(1) != [] do
           {:ok, :resources_pending}
         else
@@ -220,5 +214,15 @@ defmodule Ankole.Tenants.Jobs.Delete do
           {:ok, :finished}
         end
     end
+  end
+
+  defp active_humans_or_agents_remain? do
+    Principals.list_principals!(
+      query: [filter: [or: [[type: :agent], [type: :human, status: :active]]], limit: 1]
+    ) != []
+  end
+
+  defp agent_workers_remain? do
+    AgentWorkers.list_agent_workers!(query: [limit: 1]) != []
   end
 end

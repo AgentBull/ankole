@@ -1,6 +1,6 @@
 ---
 import '../styles/website.css'
-import { BCP47, LOCALES, type Locale } from '../i18n/config'
+import { LOCALES, type Locale } from '../i18n/config'
 import { llmsIndexPath } from '../lib/docs-model'
 
 interface Props {
@@ -68,7 +68,7 @@ gtag('config', '${analyticsId}');`}
 <!-- Hreflang alternate links for SEO -->
 {
 	LOCALES.map(l => (
-		<link rel="alternate" hreflang={BCP47[l]} href={new URL(`${base}/${l}${cleanPath}`, Astro.site)} />
+		<link rel="alternate" hreflang={l} href={new URL(`${base}/${l}${cleanPath}`, Astro.site)} />
 	))
 }
 <link rel="alternate" hreflang="x-default" href={new URL(`${base}/en-US${cleanPath}`, Astro.site)} />
@@ -88,7 +88,7 @@ gtag('config', '${analyticsId}');`}
 <meta property="og:title" content={title} />
 <meta property="og:description" content={description} />
 <meta property="og:image" content={ogImageURL} />
-<meta property="og:locale" content={BCP47[lang].replace(/-/g, '_')} />
+<meta property="og:locale" content={lang.replace(/-/g, '_')} />
 
 <!-- Twitter -->
 <meta property="twitter:card" content="summary" />

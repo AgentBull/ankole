@@ -63,6 +63,24 @@ describe('ProviderEditorModel', () => {
     expect(model.providerKind.value).toBe('openrouter')
     model[Symbol.dispose]()
   })
+
+  test('does not mark options dirty when keys are reordered with identical values', () => {
+    using model = new ProviderEditorModel()
+
+    model.initialize('provider:openrouter', {
+      providerID: 'openrouter',
+      providerKind: 'openrouter',
+      baseURL: 'https://openrouter.ai/api/v1',
+      options: { app_referer: 'https://ankole.test', app_title: 'Ankole' }
+    })
+    expect(model.dirty.value).toBe(false)
+
+    model.options.value = { app_title: 'Ankole', app_referer: 'https://ankole.test' }
+    expect(model.dirty.value).toBe(false)
+
+    model.setOption('app_title', 'Ankole Console')
+    expect(model.dirty.value).toBe(true)
+  })
 })
 
 describe('Provider save acknowledgement', () => {

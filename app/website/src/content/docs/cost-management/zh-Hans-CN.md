@@ -1,124 +1,124 @@
 ---
 title: 成本管理
-description: 控制 Ankole 花费的杠杆——模型档案、reasoning effort、Web 工具、回合预算、Workflow fanout 和后台任务上限。
+description: 调控 Ankole 模型开销的七项核心配置：模型档案分档、推理强度、网页工具开关、单回合预算、Workflow 并发上限、后台任务重试及周期配额。
 section: Guides
 order: 314
 ---
 
-Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠杆决定，不是你无法塑造的用量。本页命名这些杠杆，说明各自的花费与节省，并给出账单太高时拉它们的顺序。这里的每一样都是控制面里真实的旋钮；没有一条是"少用 agent"。
+Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分开销完全可由控制面中几项明确的配置开关精准调控，绝非一笔失控的黑盒账单。本页逐一梳理这七项控费手段，讲清每一项背后的省钱逻辑与调优先后顺序——所有手段均对应控制台中真实存在的配置项，绝不靠“让大家少用 Agent”来省钱。
 
-先说明最关键的一点：成本取决于*哪个模型运行、运行多少次、每次运行多久*。模型档案决定使用哪个模型，Agent 循环预算限制迭代次数，Workflow 和后台任务上限则约束 fanout 与重试。应调整与实际花费来源对应的那一项。
+先抓住最核心的账单公式：总成本完全取决于**调用了哪个档位的模型、调用了多少次、以及每次跑了多少轮**。其中，模型档案决定选哪个模型，Agent 循环预算约束单回合内的迭代轮数，Workflow 与后台任务上限则管住并发扇出规模与异常重试次数。账单偏高时，只需先查清消耗大头落在哪一环，再去拧对应的那个旋钮即可。
 
 ## 杠杆 1：model profile 档位
 
-八个内置 Agent profile 分别控制不同的付费路径。五个选择语言模型，三个绑定网页搜索、网页抓取和图像生成能力。
+每个 Agent 的八个内置模型档案（Model Profile）分别对应不同的计费调用路径：其中五个指定语言模型，另外三个分别绑定网页搜索、网页抓取与图像生成能力。
 
-| 槽 | 何时跑 | 成本杠杆 |
+| 档案槽位 | 触发场景 | 控费要点 |
 |---|---|---|
-| `primary` | 主推理模型——大多数回合 | 最大的一项成本 |
-| `light` | 高频低风险路径 | 应当真正廉价 |
-| `heavy` | 硬综合 | 昂贵；`primary` 调好时很少用到 |
-| 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个 Provider 和模型 |
-| `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑定 |
-| `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
-| `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
+| `primary` | 日常主推理模型，承接绝大多数常规对话回合 | 占比最高的核心开销项 |
+| `light` | 高频、低风险的轻量辅助处理路径 | 务必绑定真正低成本的轻量模型 |
+| `heavy` | 高难度复杂推理与跨源综合分析 | 单价昂贵；只要 `primary` 选型得当，平时极少动用 |
+| 后台 Agent 任务（内部键名 `coding`） | 每一个持久化后台 Agent 任务 | 决定长时异步任务使用哪个 Provider 与模型 |
+| `vision_fallback` | 当 `primary` 模型不支持视觉输入时的识图回退 | 仅在该 Agent 确实需要看图时才配置 |
+| `web_search`、`web_fetch` | 公网网页搜索与正文抓取工具 | 见下文“杠杆 3” |
+| `image_generate` | 图像生成工具 | 按张计费较高；仅在确有生图需求时绑定 |
 
-Brain 从 [AppConfigure](../app-configuration/) 读取站点级 embedding 模型和租户级 rerank 模型。通过租户配置 `brain.maintainer_agent_uid` 为每个租户选择负责维护 Brain 的活跃 Agent：Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。该 Agent 的 `light` profile 用于从对话和 Source 中抽取知识，`heavy` profile 用于 Dreaming 和技能教训复审，`web_fetch` profile 用于读取 URL Source。未配置 `web_fetch` 或 Provider 请求失败时，Source 抓取会失败。停用维护 Agent 后，模型调用和 URL Source 抓取都会停止，直到重新启用或更换 Agent。**Brain → 健康**会显示所选 Agent 和各 profile 的状态；完整行为见 [Brain](../brain/)。Pod Applet 的 `ctx.ai` 调用使用创建该 Applet 的 Agent。该 Agent 必须处于启用状态；模型档案、额度和 token 用量均归属该 Agent。
+此外，Brain 子系统会从 [AppConfigure](../app-configuration/) 读取站点级的 Embedding 模型与租户级的 Rerank 模型，并通过租户配置键 `brain.maintainer_agent_uid` 指定一个活跃 Agent 作为当前租户的 Brain 维护主体——Brain 内部发起的全部模型与抓取调用均以该维护 Agent 的身份执行，用量也统一归入该 Agent 名下：其中 `light` 档案用于从日常对话与文档 Source 中抽取知识，`heavy` 档案用于离线 Dreaming 归纳与技能教训复审，`web_fetch` 档案用于提取网页 URL Source 正文（未配置 `web_fetch` 或上游报错时，网页 Source 学习将直接失败）。一旦停用该维护 Agent，Brain 的模型调用与 URL 抓取便会立即暂停，直至重新启用或更换为其他活跃 Agent；管理员可在 **Brain → 健康**页面直观核查维护 Agent 及各档案的就绪状态，详见 [Brain](../brain/)。类似地，Pod Applet 中的 `ctx.ai` 调用会复用创建该 Applet 的 Agent（须保持启用），其模型档案、配额与 Token 消耗均记在该创建者 Agent 名下。
 
-两招最省：
+在模型分档上，有两条立竿见影的省钱铁律：
 
-- **把 `light` 绑到真正廉价的东西。** 它为高频路径而存在；一个几乎和 `primary` 一样贵的 `light` 让这个槽失去意义。
-- **默认把 `primary` 调低、不调高。** 一个“感觉贵”的 agent，往往是在 `primary` 上绑得比实际工作所需更重。质量需要时才上调。
+- **给 `light` 真正配一款便宜好用的小模型**：`light` 专用于承接高频次后台与辅助调用；如果随手把跟 `primary` 差不多贵的旗舰大模型填进 `light`，分档机制就完全失去了控费意义。
+- **`primary` 默认够用即可，不必盲目拉满顶配**：很多让人觉得“烧钱”的 Agent，往往只是因为在 `primary` 槽位绑了远超日常任务难度的昂贵重型模型。建议先从性价比均衡的主力模型起步，只有验证发现特定岗位的回答质量确实吃紧时再针对性上调。
 
-Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应调用。`image_generate` 留空时，若主 Provider 声明支持原生图像生成，请求仍可走原生路径。后台 Agent 任务不同：即使不单独配置，任务仍会回退到该 Agent 的 `heavy` 档案并通过 AIGateway 运行。只有后台任务需要不同 Provider 或模型时，才需要单独配置。
+如果某个 Agent 压根不需要看图，直接将 `vision_fallback` 留空即可彻底杜绝此类调用。`image_generate` 留空时，若当前主模型的 Provider 声明支持原生生图，请求仍可走主模型原生路径。但“后台 Agent 任务”档案是个例外：即便留空不配，系统也会自动回退使用该 Agent 的 `heavy` 档案继续通过 AIGateway 执行——因此，只有当你希望后台任务改走另一套更划算的 Provider（如订阅池）或专用编码模型时，才需单独配置该槽位。
 
 ## 杠杆 2：reasoning effort
 
-对支持 Codex reasoning effort 的 Provider，`model_reasoning_effort` 是七个档位的旋钮：`minimal | low | medium | high | xhigh | max | ultra`。更低 effort 更廉价更快；更高 effort 在难题上更好、花费更多。默认 `high`。
+对于支持调节思考深度（Codex Reasoning Effort）的 Provider，`model_reasoning_effort` 提供了从浅到深共七档精细调节：`minimal | low | medium | high | xhigh | max | ultra`（默认值为 `high`）。档位越低，响应越快、推理 Token 消耗越少；档位越高，面对复杂难题时推演越周密，但开销也成倍增加。
 
-这是比换模型更细的杠杆。一个在 `medium` 就够、却配成 `high` 的 `primary` agent，多花钱却无可见收益。在 `primary` profile 上设它，匹配 agent 的实际工作；只给那个做硬综合的 agent 上调，不是给所有 agent。
+这是比直接降级换模型更平滑的控费旋钮：如果一个负责常规问答的 Agent 把 `primary` 挂在 `high` 档，往往白白多烧了大量内部思考 Token，对最终回复质量却毫无肉眼可见的提升。建议将日常型 Agent 的 `primary` 推理强度调至 `medium` 等匹配实际难度的档位，只为少数真正承担高难度综合研判的专家型 Agent 保留高档位，切忌全员一刀切拉高。
 
 ## 杠杆 3：web 工具，按需
 
-`web_search` 和 `web_fetch` 是独立的 profile，每次调用都花钱。两招：
+`web_search` 与 `web_fetch` 是两个按调用次数计费的独立档案槽位，可从两方面收敛开销：
 
-- **agent 不需要联网时解绑它们。** 一个纯内部助手不该绑 `web_search`；这个槽存在就是一张调用的许可。
-- **知道 URL 时优先 `web_fetch` 而非 `web_search`。** 抓已知来源是一次调用；搜索是一次调用加 agent 决定做的若干次抓取。
+- **纯内网办公型 Agent 直接解绑联网档案**：只要槽位配上了模型，就相当于发出了允许联网检索的通行证；对只需查阅内部知识库和业务系统的助手，直接留空这两个槽位即可从根源杜绝公网搜索开销。
+- **已知确切网址时优先走 `web_fetch` 而非 `web_search`**：直接抓取已知 URL 只产生一次确定调用；而先搜再看往往意味着一次搜索调用外加模型随后自主发起的好几次网页抓取。
 
-`worker.rendered_fetch_idle_ttl_ms` AppConfigure 键控制渲染版 `web_fetch` 浏览器边车路由在空闲多久后释放，用于回收空闲浏览器资源，而不是缓存 URL 响应内容。
+顺带一提，租户级配置键 `worker.rendered_fetch_idle_ttl_ms` 控制的是动态渲染版 `web_fetch` 浏览器边车实例在空闲多久后自动回收释放——它管的是容器计算内存回收，并非网页响应缓存时长。
 
 ## 杠杆 4：agent 循环预算
 
-三个租户级（`scope: :tenant`）AppConfigure 键限制每回合花费：
+三个租户级（`scope: :tenant`）`AppConfigure` 配置键共同为单个对话回合划定开销硬顶：
 
-| 键 | 限制什么 |
+| 配置键 | 约束目标 |
 |---|---|
-| `ai_agent.max_iterations` | agent 循环每回合的迭代预算 |
-| `ai_agent.max_output_tokens` | 每回合输出 token 上限 |
-| `ai_agent.inactivity_timeout_ms` | 回合多久无活动后会被回收 |
+| `ai_agent.max_iterations` | 单个 Agent 回合内允许执行的模型迭代最大轮数 |
+| `ai_agent.max_output_tokens` | 单次模型响应允许生成的最大输出 Token 数 |
+| `ai_agent.inactivity_timeout_ms` | 上游无响应空闲多久后终止回收当前回合 |
 
-`max_iterations` 限制单个 Agent 回合的模型迭代次数，避免本可用两次工具调用完成的任务反复调用模型。`max_output_tokens` 限制单次响应大小。这些 `ai_agent.*` 配置均为租户级默认值（`scope: :tenant`，未覆盖时继承站点默认值），应按各租户的常见回合形态设置；复杂回合达到上限时，Agent 会基于已有内容给出最终回答。
+其中 `max_iterations` 能有效防止模型陷入工具调用死循环——避免原本调两次工具就能结案的任务反复拉锯空转；`max_output_tokens` 则约束单次长篇大论的体积。这三项 `ai_agent.*` 配置均作为租户级默认值生效（未覆盖时继承站点默认值），建议结合本租户的日常任务复杂度合理设定；当某个复杂回合触及迭代上限时，Agent 会基于手头已拿到的信息直接收敛给出最终答复。
 
 ## 杠杆 5：Workflow fanout 与任务尝试
 
-Workflow 中每次 `agent()` 尝试都是一个完整模型回合。一次调用最多进行三次尝试，因此即使主会话只发起一次 Workflow，大量子 Agent 调用仍会放大模型与 Web 工具用量。
+在 Workflow 编排中，每一次 `agent()` 子调用的每一次尝试都是一轮完整的模型推理，且单个子调用在失败时最多可尝试 3 次——这意味着哪怕用户在主对话里只发了一句指令，一旦触发大规模并行扇出（fan-out），依然会成倍放大模型与网页工具的消耗总量。
 
-| AppConfigure 键 | 默认值 | 最大值 | 控制内容 |
+| `AppConfigure` 配置键 | 默认值 | 上限值 | 控制范围 |
 |---|---:|---:|---|
-| `workflow.max_concurrency_per_run` | 8 | 32 | 单次运行可以同时执行的任务数 |
-| `workflow.max_running_per_agent` | 8 | 64 | 单个 Agent 的所有 Workflow 中正在运行的任务总数 |
-| `workflow.max_agent_calls_per_run` | 32 | 1,024 | 单次运行可以创建的子 Agent 调用总数 |
+| `workflow.max_concurrency_per_run` | `8` | `32` | 单次 Workflow 运行同时并发执行的子任务数 |
+| `workflow.max_running_per_agent` | `8` | `64` | 单个 Agent 名下所有活跃 Workflow 合计正在运行的子任务总数 |
+| `workflow.max_agent_calls_per_run` | `32` | `1,024` | 单次 Workflow 运行允许发起的子 Agent 调用总次数 |
 
-并发数只改变完成时间，不会减少模型调用总数。应根据有限输入设置调用上限，并且只申请实例确实需要的并发数。单次运行可以申请更低的 `concurrency` 和 `max_agent_calls`，但不能修改跨运行的 `max_running_per_agent`，也不能抬高任何 AppConfigure 上限。
+请注意：调低并发度只会拉长整批任务跑完的耗时，**并不会减少子调用总次数**。控费的关键在于按有限输入集合收紧 `max_agent_calls_per_run`，并仅申请实际所需的并发度。单次 Workflow 运行时可在参数中申请更低的 `concurrency` 与 `max_agent_calls`，但无法绕过跨运行全局生效的 `max_running_per_agent`，也无法突破任何租户级 `AppConfigure` 上限。
 
-Workflow 没有覆盖整批任务的 token 或金额预算。每个任务仍受普通回合的迭代次数、输出 token 和无活动超时限制。应让每个任务使用窄提示和精简的结构化结果，显式处理 `null` 失败；单次汇总过大时，把集合拆成多个运行。任务与结果边界见 [Workflow](../workflows/)。
+此外，Workflow 层面不设横跨整批子任务的总 Token 或总金额封顶，但其中的每个子任务依然受常规回合的迭代轮数、输出上限与空闲超时约束。编写或触发 Workflow 时，应尽量保持每个子任务提示词聚焦精炼、要求返回紧凑的结构化 JSON、显式妥善处理 `null` 失败项；若待处理集合过大，建议分批拆成多次运行。详见 [Workflow](../workflows/)。
 
 ## 杠杆 6：后台任务重试与槽位上限
 
-后台任务能在重试上花 token，上限就是杠杆：
+后台 Agent 任务在遇到瞬时异常重试时同样会消耗 Token，系统的内置上限正是防止无限烧钱的安全阀：
 
-| 上限 | 值 | 效果 |
+| 限制项 | 设定值 | 控费效果 |
 |---|---|---|
-| `max_execution_attempts` | 5 | 任务在 `failed` 前最多重试五次 |
-| `max_consecutive_turn_failures` | 5 | 连续回合失败后任务放弃 |
-| `max_running_per_agent` | 3（默认） | 每个 agent 并发运行任务上限，可按租户通过 `agent_computer.background_agent_job.max_running_per_agent`（`1..64`）配置 |
-| 重试延迟 | ~30 秒 | 重试之间的下限 |
+| `max_execution_attempts` | `5` | 单个后台任务在彻底转入 `failed` 前最多执行 5 次尝试 |
+| `max_consecutive_turn_failures` | `5` | 连续 5 个回合失败后立即终止放弃 |
+| `max_running_per_agent` | `3`（默认） | 单个 Agent 允许同时运行的后台任务数上限，支持按租户通过 `agent_computer.background_agent_job.max_running_per_agent`（`1..64`）调整 |
+| 重试退避延迟 | 约 `30` 秒 | 相邻两次重试之间的最短冷却间隔 |
 
-一个任务临时失败五次，就花五次运行的 token。多数时候上限保护你——配置错误快速失败并保持失败。要盯的是第三个：一个有三个并发任务的 agent 在同时跑三个模型循环。若不需要这种并行，用“一次只做一件事”这样的人设，花费会比上限允许的更低。
+如果一个大任务每次跑一半就因外部环境抖动报错、连跑满 5 次尝试，就会实打实花掉 5 份 Token。绝大多数情况下，静态配置错误会在开头快速报错终止；真正需要留意的是第 3 项并发上限：一个跑满 3 个并发后台任务的 Agent，相当于同时全速运转着 3 条独立的大模型长循环。如果业务上并不急于三线并进，不妨将该上限调小，或在 Agent 长期设定中约定“同一时间只专心推进一项后台调研”，实际开销会平稳得多。
 
 ## 杠杆 7：按 Agent 的 token 额度
 
-前六个杠杆决定一个回合花多少。token 额度封顶总量：它限制一个 Agent 在一个循环周期内可以消耗的 token，用量达到上限后，AIGateway 会拒绝该 Agent 的模型调用，直到周期结束。
+前面六项手段管的是“每一轮怎么省着花”，而第 7 项 **Token 额度**则是为单个 Agent 设定周期总量封顶：它限制该 Agent 在一个循环统计周期内最多允许消耗多少输入与输出 Token；一旦触及红线，AIGateway 会直接拦截拒绝该 Agent 的后续模型调用，直至当前周期结束。
 
-在 Agent 页面设置：周期天数、周期起始时间和 token 上限。Agent 页面显示已用占比和当前周期的结束时间。在上限时到达的聊天消息会收到一条说明已用 token、上限和周期结束时间的回复。在上限时的后台 Agent 任务直接失败，不会等待。合理的用量高峰必须继续时，**重置周期**会立即开始一个新周期。
+管理员可在 Agent 编辑页直接配置周期天数、起始时间与 Token 上限，面板会实时展示已用比例与本周期截止时间。配额耗尽期间，发给该 Agent 的聊天消息会收到一条自动回复（写明已用 Token、总额度及恢复时间），而该 Agent 名下的后台任务则会直接报错终止、不会挂起干等。若遇上合理的业务高峰确需立即放行，点击**重置周期**即可当场开启新周期恢复服务。
 
-把额度当作止损，而不是预算规划器。它不会在接近上限时让 Agent 放慢，一次调用也可能因自身用量而超出上限。按下面观察到的花费来定大小，并给最重的正常一周留出余量。字段说明见 [Agent](../agents/)。
+请把这项配额视作**异常止损熔断器**，而非精细的速度调节器：接近上限时它不会让 Agent 自动降速省流，且触发熔断前的最后一次模型调用本身可能会因当次输出而小幅越过上限。建议先结合下文的用量排查摸清正常峰值，按“最繁忙正常周用量 + 适度安全余量”来设定额度。具体统计口径详见 [Agent](../agents/)。
 
 ## 花费到底在哪
 
-调整模型或并发之前，先找到产生调用的 Agent、会话、Workflow 或后台任务：
+动手改配置之前，请先通过以下四个入口定位究竟是哪个 Agent、哪类会话、哪次 Workflow 或哪个后台任务拉高了用量：
 
-- `GET /api/v2/ai-gateway/conversations` 显示近期回合做过的模型调用——哪些 profile 解析了、多少次调用、哪些 provider。这是看花费是在 `primary`（量）、`heavy`（少数昂贵调用）、还是 `web_search`（许多小调用）的最快途径。
-- 让主 Agent 查看 Workflow。任务计数可以说明 fanout 和失败调用；系统不提供单独的 Workflow Console 页面或单次运行的金额汇总。
-- `GET /api/v2/background-agent-jobs` 显示任务 `attempts`——一个 `attempts: 5` 的任务花了五次运行。
-- 结构化控制面日志带着 provider 调用的事件名和字段；你的日志摄入器可按 provider 和 agent 聚合。
+- **查 `GET /api/v2/ai-gateway/conversations`**：查看近期各回合的模型调用明细——具体命中了哪个模型档案、调了多少次、走了哪个上游 Provider。这是判断钱究竟花在了 `primary`（日常量大）、`heavy`（少量重型调用）还是 `web_search`（高频零碎搜索）上最直接的办法。
+- **在对话中让主 Agent 核查近期 Workflow**：通过子任务计数即可看清并发扇出规模与失败重试比例（注：Console 不设单独的 Workflow 账单页或按美元折算的单次汇总）。
+- **查 `GET /api/v2/background-agent-jobs`**：检查后台任务的 `attempts` 字段——看到 `attempts: 5` 就意味着这项任务因反复重试消耗了五轮开销。
+- **聚合控制面结构化日志**：每条上游 Provider 请求日志均带有规范的事件名与维度字段，可在外部日志分析平台中按 Provider 与 Agent 维度汇总排行。
 
-修复从不是"少用 agent"，而是"这个具体杠杆对这个 agent 的工作设错了"。
+排查清楚后你会发现，真正的解法从来不是一刀切让大家少用 Agent，而是精准修正某个与实际岗位需求错配的配置参数。
 
 ## 一个完整示例
 
-一个实例的账单在一周内翻倍。会话界面显示 `primary` 调用量正常，但 `web_search` 调用增长了十倍：一个使用 `may_intervene` 的团队助理开始为每条频道消息执行搜索。应当修改 Agent 的角色要求，例如“只在有人询问事实时搜索”，而不是调整全局成本限制。账单只反映问题，是否搜索仍由 Agent 的角色要求决定。
+假设某实例的周账单突然翻了一倍。排查 `conversations` 接口发现，`primary` 主模型调用量十分平稳，反倒是 `web_search` 搜索调用暴涨了十倍——顺藤摸瓜发现，原来是一个开启了群聊 `may_intervene`（可主动介入）模式的团队群助理，开始对群里的每一句日常闲聊都跑去公网搜索求证一番。面对这种情况，正确的改法既不是去砍全局 Token 配额，也不是停用助理，而是直接在它的角色设定或频道常驻指令中补上一句明确纪律：“仅在有人明确询问外部事实信息时才调用网页搜索。”账单只是表象结果，Agent 的行为准则才是真正的源头开关。
 
-这是模式：成本问题常常是伪装的行为问题，行为杠杆是人设或 binding 策略，不是 token 上限。
+这正是成本治理中最常见的一条规律：**许多看似棘手的成本飙升，拆穿了其实是 Agent 行为边界没立清楚；此时最管用的旋钮往往是角色设定（SOUL/MISSION）或信号路由策略，而非生硬的额度封顶。**
 
 ## 成本管理不是什么
 
-它不是实时花费仪表盘——Ankole 不提供。它不是把花费限制在某个美元金额的方式；杠杆限制*调用与迭代*，美元金额是 provider 费率乘以它们。它也不是读会话界面的替代；杠杆只有在你知道哪个设错之后才值得拉。
+Ankole 内置的成本管理并非实时美元计费大盘——控制面本身不维护各家上游厂商随行就市的美元价目表，所有调控手段约束的都是**调用次数、迭代轮数与 Token 数量**，最终美元账单等于这些实际用量乘以上游厂商费率。同时，再多上限开关也替代不了先看一眼调用明细：只有先看清是哪个环节配置失当，再去拧对应的旋钮才能药到病除。
 
 ## 下一步
 
-- Agent 的模型档案，读 [Agent](../agents/#配置模型)。
-- agent 循环与运行时配置键（`ai_agent.*` 等），读 [AppConfigure](../app-configuration/)。
-- 相关会话与后台任务接口，读 [Console API 参考](../console-api/)。
-- 有界子 Agent fanout 及其限制，读 [Workflow](../workflows/)。
-- 任务上限，读 [后台 Agent 任务](../background-jobs/)。
+- 为 Agent 配置并优化各档位模型，请参阅 [Agent](../agents/#配置模型)。
+- 查阅单回合循环预算等运行时配置键（`ai_agent.*` 等），请参阅 [系统配置](../app-configuration/)。
+- 查阅模型会话与后台任务的查询接口，请参阅 [Console API 参考](../console-api/)。
+- 了解有界子 Agent 扇出编排与并发限制，请参阅 [Workflow](../workflows/)。
+- 了解后台任务的并发槽位与重试规则，请参阅 [后台 Agent 任务](../background-jobs/)。

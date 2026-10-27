@@ -1,97 +1,97 @@
 ---
 title: Webhook 委譲
-description: Agent または決定性スクリプトが、ポーリングなしで低頻度の外部イベントを待てるようにします。
+description: ポーリングを繰り返すことなく、低頻度の外部イベントを Agent や決定論的スクリプトで待ち受ける仕組みを説明します。
 section: User guide
 order: 23
 ---
 
-webhook 委譲を使うと、Agent は Ankole の外で起こる作業を待つことができます。外部システムがイベントを検出し、短期間有効な Ankole コールバック URL を呼びます。デフォルトでは、Ankole は受領を保存し、委譲を作成した session を起こし、Agent が検証した結果を元の chat ルートを通じて返します。決定性スクリプトが先に受領を消費しなければならない場合は、エンドポイントで automation job を指定することもできます。
+Webhook 委譲（Webhook delegation）を使うと、Ankole の外部で発生するイベントをポーリングなしで待ち受けることができます。外部システム側でイベントを検知した際に、有効期限付きの Ankole コールバック URL が呼び出されます。デフォルトでは、Ankole が受信内容を保存して委譲元の Session を起こし、Agent が外部システムの最新状態を検証したうえで元のチャット経路へ結果を返します。また、モデルを起こす前に決定論的スクリプトで受信データを処理したい場合は、エンドポイントに Automation Job を紐付けることもできます。
 
-コールバックは wakeup の能力です。リクエストボディが真実であることの証明ではありません。Agent は、事実を報告するか認可された変更を行う前に、現在の外部オブジェクトを読み取ります。
+ここで押さえておくべき重要な原則は、**コールバック URL が許可するのは「待機中の処理を起こす（wakeup）」ことだけであり、リクエストボディの中身が事実であることまでは保証しない**という点です。そのため Agent は、結果を報告したり認可された変更操作を行ったりする前に、必ず外部システム上の対象オブジェクトを直接読み取って裏付けを取ります。
 
-サポートされているシナリオは GitHub repository webhook です。
+現在サポートされている代表的なシナリオは、GitHub リポジトリの Webhook 連携です。
 
 ## 使う場面
 
-webhook 委譲は、外部システムがうまくフィルタできる低頻度のイベントに使います。
+Webhook 委譲は、外部システム側で適切にフィルタリングできる低頻度のイベント監視に適しています。
 
-- GitHub の issue、comment、pull request、または workflow run
-- 同じ会話を 1 回だけ起こすべきイベント
-- 繰り返しの処理が安全な常設の監視
+- GitHub の Issue、コメント、Pull Request、または Workflow Run の状態変化
+- 同じ会話を 1 回だけ起こせばよい単発の完了待ちイベント
+- 再実行されても安全な（べき等な）常設の監視ルール
 
-高頻度のストリーム、ポーリングループ、汎用イベントバスには使わないでください。検出は外部システムに置いたままにし、判断、memory、返信は Ankole に置きます。
+反対に、高頻度のイベントストリーム、短い間隔のポーリング代替、汎用イベントバスとしての利用には向いていません。イベントの検知は外部システム側に任せ、状況判断・記憶の参照・人間への報告だけを Ankole 側で担うのが基本です。
 
-リクエストでは、結果、権限、イベント集合、終了時刻を説明してください。たとえば:
+チャットで依頼する際は、「期待する結果」「許可する操作範囲」「監視対象のイベント」「いつまで監視するか」を明示してください。たとえば次のように伝えます。
 
-> `owner/repository` の pull request を金曜まで監視します。必須チェックが失敗したら知らせてください。報告する前に、現在の pull request と check の状態を検証します。私が依頼しない限り、コードを変更しないでください。
+> `owner/repository` の Pull Request を今週金曜まで監視してください。必須チェックが失敗したら知らせてください。報告する前に、その時点の Pull Request とチェック状態を必ず再確認してください。私から明示的に依頼しないかぎり、コードの変更は行わないでください。
 
-GitHub Skill がセットアップと復旧の詳細を所有します。
+セットアップ手順や障害時の復旧ロジックは、GitHub Skill 側に定義されています。
 
 ## 要件
 
-Agent が GitHub 委譲を作成する前に:
+Agent に GitHub の Webhook 委譲を作成させるには、事前に次の準備が必要です。
 
-1. 公開 HTTPS ホストを Ankole の control plane にルーティングします。ホストは `/webhooks/v1/event-callbacks/*` を保持しなければなりません。
-2. Agent に対して、公開の **GitHub** Agent Plugin と、それが必要とする Skill を有効にします。GitHub はデフォルトで無効です。
-3. Agent の WorkerEnv に `GITHUB_TOKEN` を追加します。token は対象 repository への読み取りアクセスと、repository webhook への書き込みアクセスを必要とします。
-4. 能力または WorkerEnv の設定を変更した後、新しい Agent turn を開始します。
+1. 外部から到達可能な公開 HTTPS ホストを Ankole のコントロールプレーンへルーティングし、`/webhooks/v1/event-callbacks/*` パスがそのまま転送されるようにします。
+2. 対象の Agent に対して、同梱の **GitHub** Agent Plugin と必要な Skill を有効化します（GitHub プラグインはデフォルトでは無効です）。
+3. Agent の WorkerEnv に `GITHUB_TOKEN` を登録します。このトークンには、対象リポジトリの読み取り権限とリポジトリ Webhook の書き込み権限が必要です。
+4. プラグイン・Skill または WorkerEnv の設定を変更したあと、新しい Agent Turn を開始します。
 
-エンドポイントのコマンドは、アクティブな turn 中の Main Agent にだけ使えます。Background Agent Job は turn-local の webhook 接続を持ちません。
+なお、Webhook エンドポイントを操作するコマンドは、アクティブな Turn を実行中の Main Agent からのみ利用できます。Background Agent Job には Turn ローカルな Webhook 接続コンテキストが渡されません。
 
 ## ライフサイクル
 
-1 つの稼働中の GitHub 委譲は、1 つの repository、1 つの正確なイベント集合、1 つの期限、1 つの Ankole エンドポイント、1 つの GitHub hook、1 つの照合 checkback を持ちます。
+稼働中の 1 つの GitHub 委譲は、「1 つのリポジトリ」「1 つの厳密なイベント集合」「1 つの有効期限」「1 つの Ankole エンドポイント」「1 つの GitHub hook」「1 つの照合用 Checkback」の組で構成されます。
 
-1. Agent が現在の会話用のエンドポイントを作成します。
-2. GitHub hook を作成する前に、永続的な checkback を作成します。これにより、クリーンアップと照合の義務が記録されます。
-3. コールバック URL で repository hook を作成します。GitHub は `ping` を送ります。
-4. GitHub の delivery ログを読み、`ping` が成功したことを確認します。
-5. 一致する delivery が届くと、Ankole はエンドポイントの判定と、`webhook.received` Signal またはバインドされた automation job の run を、成功を返す前に 1 つの PostgreSQL トランザクションで確定します。
-6. 直接経路では、起こされた Agent が受領を信頼できない入力として扱います。バインドされた automation job は、イベントを発火する前に同じ規則を適用しなければなりません。
-7. 照合は、hook、イベント集合、失敗した delivery、現在の GitHub オブジェクト、期限、次のチェック時刻を確認します。
-8. 撤去（teardown）は、Ankole のエンドポイントと checkback をキャンセルする前に GitHub hook を削除します。
+1. Agent が現在の会話に紐づくコールバックエンドポイントを作成します。
+2. GitHub 側に hook を登録する前に、まず永続的な Checkback を登録し、後片付けと定期照合のスケジュールを確保します。
+3. 発行されたコールバック URL を使ってリポジトリ hook を作成すると、GitHub から疎通確認の `ping` が送信されます。
+4. GitHub の delivery ログを読み取り、`ping` が正常に届いたことを確認します。
+5. 条件に一致する Webhook が届くと、Ankole は HTTP 成功レスポンスを返す前に、単一の PostgreSQL トランザクション内でエンドポイントの状態判定と `webhook.received` Signal（または紐付けられた Automation Job の Run）を確定させます。
+6. 直接 Agent を起こす経路では、起動した Agent は受信ペイロードを「信頼できない外部入力」として扱います。Automation Job を紐付けた場合も、イベントを発火する前に同じ原則で検証を行う必要があります。
+7. 定期照合（Checkback）では、hook の存続、対象イベント集合、配信失敗した delivery の有無、GitHub オブジェクトの現在状態、有効期限、および次回チェック時刻を点検します。
+8. 監視終了時の撤去（teardown）では、先に GitHub 側の hook を削除してから、Ankole 側のエンドポイントと Checkback をキャンセルします。
 
-GitHub は失敗した webhook delivery を自動的に再試行しません。GitHub Skill が直近の delivery を確認し、失敗がまだ意味を持つときに GitHub の redelivery API を使います。
+GitHub は失敗した Webhook 配信を自動再送しないため、GitHub Skill が直近の delivery 履歴を点検し、まだ対応が必要な失敗があれば GitHub の redelivery API を呼び出して再送させます。
 
 ## one-shot と standing のエンドポイント
 
-| モード | 契約 | 用途 |
+| モード | 動作契約 | 適した用途 |
 |---|---|---|
-| `one_shot` | 同時の delivery は 1 つだけがエンドポイントを claim できる。後の delivery は成功の no-op を受け取る | 1 回だけ期待する受領 |
-| `standing` | 受け入れられた delivery ごとに、選択されたコンシューマ向けのレコードを 1 つ作成する。配信は少なくとも 1 回（at least once）で、重複は見える | 低頻度のエッジイベント |
+| `one_shot` | 複数の配信が同時に届いても、エンドポイントを消費（claim）できるのは最初の 1 件のみです。後続の配信は正常な no-op として処理されます | 1 回だけ通知を受け取ればよい完了待ち |
+| `standing` | 受理された配信ごとに、指定されたコンシューマー向けのレコードを 1 件ずつ作成します。配信保証は「少なくとも 1 回（at-least-once）」であり、重複が届く可能性があります | 継続的に発生する低頻度のイベント監視 |
 
-standing の配信は複数のコンシューマレコードを作成できます。コンシューマは現在の外部状態を権威として使い、繰り返しの処理をべき等に保ちます。
+`standing` モードでは同じ外部イベントから複数のコンシューマー実行が作られることがあるため、受け取る側は必ず外部システムの最新状態を正本として参照し、同じイベントを複数回処理しても問題が起きない（べき等な）設計にしてください。
 
 ## 決定性コンシューマを使う
 
-Agent は、エンドポイントを作成するときに `--automation-job-id <id>` を渡せます。受け入れられた `webhook.received` エンベロープは、会話を直接起こす代わりに、永続的な automation job の run の `context().event` になります。スクリプトは無関係な受領を静かに破棄するか、決定性のチェックを完了した後で `emitEvent` を呼べます。
+エンドポイント作成時に `--automation-job-id <id>` を指定すると、受理された `webhook.received` エンベロープは会話を直接起こす代わりに、永続化された Automation Job Run の `context().event` として渡されます。スクリプト側で無関係なイベントを静かに読み飛ばしたり、決定論的な条件判定を通過したときだけ `emitEvent` を呼んで Agent 会話を起こしたりといったフィルタリングが可能です。
 
-受領は信頼できない入力のままです。スクリプトは、結果に影響する事実を権威あるソースで検証し、繰り返しの配信を無害にしなければなりません。配信に memory、判断、または会話が必要な場合は、直接の Agent wake を使ってください。導入は [Automation Jobs](../automation-jobs/) を、SDK と失敗契約は [Worker CLI の能力](../cli-capabilities/) を読んでください。
+この場合も受信ペイロード自体は信頼できない外部入力であるため、業務上の判断に関わる事実は必ず正規の API で再確認し、重複配信に対しても無害に動くよう実装してください。毎回の受信で過去の記憶参照や柔軟な判断、対話が必要なケースでは、直接 Agent を起こす通常モードを使います。導入手順は [Automation Jobs](../automation-jobs/) を、SDK 仕様とエラー時の扱いは [Worker CLI の能力](../cli-capabilities/) を参照してください。
 
 ## Console
 
-Console で **Webhooks** を開き、Agent と session ごとにエンドポイントを確認できます。ページには、ラベル、モード、状態、期限、ソースルートが表示されます。コールバック URL、平文 token、保存された digest は表示されません。
+Console の **Webhooks** ページを開くと、Agent や Session ごとに作成されたエンドポイントの一覧を確認できます。画面にはラベル、モード、状態、有効期限、作成元ルートが表示されますが、セキュリティ保護のため完全なコールバック URL、平文トークン、保存済みダイジェスト値は表示されません。
 
-Console は Agent が作成した raw コールバックのエンドポイントを表示し、キャンセルできます。Agent はアクティブな turn で現在の返信ルートを使って作成します。CloudEvents のイベントソースとシグナルルーティングルールは Console の **Signals** ページで作成できます。[Signals](../signals/) を参照してください。
+この画面では、Agent がアクティブな Turn 中に現在の返信ルートを使って作成した生コールバックエンドポイントを確認・キャンセルできます。なお、CloudEvents のイベントソースやシグナルルーティングルールについては、Console の **Signals** ページで管理します（[Signals](../signals/) を参照）。
 
-緊急の credential 失効が必要なときは、Console からキャンセルしてください。これは外部の GitHub hook を削除しません。その hook は別途削除してください。通常の撤去では、Agent にまず GitHub hook の削除を依頼してください。
+トークン漏えい時など緊急で失効させたい場合は、Console からエンドポイントを直接キャンセルしてください。ただし、Console 上のキャンセルだけでは外部の GitHub 側に登録された hook までは削除されないため、GitHub 側の設定も別途削除してください。通常の監視終了時は、Agent に依頼して GitHub hook の削除から順に撤去させるのが確実です。
 
 ## セキュリティと配信の制限
 
-- Ankole は完全なコールバック URL を一度だけ返します。PostgreSQL はその SHA-256 digest のみを保存します。
-- Ankole のリクエストログは `/webhooks/v1/event-callbacks/*` を `/webhooks/v1/event-callbacks/[REDACTED]` に置き換えます。ingress、proxy、CDN にも同じパスを秘匿化するよう設定してください。
-- コールバックボディの上限は 1 MiB です。過大なリクエストは、通常のボディパーサーが動く前に `413` を返します。
-- Ankole はイベントメタデータのヘッダだけを保持します。`content-type`、`x-hub-signature-256`、`x-github-*`、`ce-*` です。authorization と一般的なリクエストヘッダは破棄します。
-- Agent が見るのは、信頼できないデータ境界の内側の有界な受領です。外部データ内のリテラルな終了タグはエスケープされます。
-- コールバック URL は wakeup のみを認可します。署名ヘッダが存在しても、業務上の効果を認可しません。
+- 完全なコールバック URL が返されるのは作成時の 1 回かぎりであり、PostgreSQL にはその SHA-256 ダイジェスト値のみが保存されます。
+- Ankole のリクエストログでは、`/webhooks/v1/event-callbacks/*` のパス部分が自動的に `/webhooks/v1/event-callbacks/[REDACTED]` へマスクされます。前段の Ingress、リバースプロキシ、CDN のアクセスログでも同様にこのパスを秘匿化するよう設定してください。
+- コールバックのリクエストボディ上限は `1 MiB` です。これを超える巨大なリクエストには、通常のボディパーサーを通す前に HTTP `413` が返されます。
+- 保持されるリクエストヘッダーはイベントメタデータ用のもの（`content-type`、`x-hub-signature-256`、`x-github-*`、`ce-*`）に限られ、`authorization` やその他の一般的なヘッダーは破棄されます。
+- Agent に渡される受信データは「信頼できない外部データ境界」の内側に隔離されたサイズ制限付きデータであり、外部ペイロード内に境界の終了タグ文字列が含まれていても自動的にエスケープされます。
+- コールバック URL が認可するのは wakeup のみです。たとえ署名ヘッダーが付いていたとしても、それ自体が業務上の変更操作を認可することはありません。
 
 ## トラブルシューティング
 
-- **Agent が GitHub Skill を見つけられない:** この Agent に対して GitHub Agent Plugin と Skill が有効になっているか確認し、新しい turn を開始してください。
-- **GitHub がコールバックに到達できない:** 公開 HTTPS 証明書、DNS、ingress ルート、`/webhooks/v1/event-callbacks/*` の転送を確認してください。
-- **hook は存在するが Agent の返信がない:** GitHub の delivery ログ、Console のエンドポイント状態、Worker の準備状況、永続的な Signal、出方向の chat 配信を確認してください。
-- **GitHub が `413` を報告する:** 選択したイベントのペイロードが 1 MiB を超えています。GitHub 側でイベントの形状を絞るか、別の検出器を使ってください。
-- **同じイベントが Agent を 2 回起こす:** standing エンドポイントではこれは有効です。Agent は現在の GitHub 状態を再読み取りし、繰り返しの処理を安全にしなければなりません。
-- **セットアップ中にコールバック URL を失った:** 一致する GitHub hook を削除し、古いエンドポイントと checkback をキャンセルし、置き換えを 1 つ作成してください。
+- **Agent が GitHub Skill を見つけられない：** 対象の Agent で GitHub Agent Plugin と関連 Skill が有効になっているか確認し、新しい Turn を開始してください。
+- **GitHub からコールバック URL に届かない：** 公開 HTTPS 証明書、DNS 設定、Ingress ルーティング、および `/webhooks/v1/event-callbacks/*` の転送設定を確認してください。
+- **GitHub 側に hook はあるのに Agent から反応がない：** GitHub 側の delivery ログ、Console 上のエンドポイント状態、Worker の稼働状況、永続 Signal の記録、および外向きチャット配信のログを順に確認してください。
+- **GitHub 側で `413` エラーが記録される：** 購読しているイベントのペイロードが `1 MiB` を超えています。GitHub 側で購読イベントの種類を絞り込むか、別の検知方法を検討してください。
+- **同じイベントで Agent が 2 回起きた：** `standing` エンドポイントでは正常な仕様（at-least-once 配信）です。Agent 側で現在の GitHub 状態を再確認し、重複実行されても安全に動作するようにしてください。
+- **セットアップ途中でコールバック URL が分からなくなった：** 対応する GitHub 側の hook を削除し、古いエンドポイントと Checkback をキャンセルしたうえで、新しく作り直してください。
 
-入口の owner とトランザクション境界は [Signals](../signals/) を、能力の設定は [Agent Library](../skills/) と [環境変数](../worker-env/) を読んでください。
+受信エンドポイントの所有ドメインとトランザクション境界については [Signals](../signals/) を、プラグインと認証情報の設定については [Agent Library](../skills/) および [環境変数](../worker-env/) を参照してください。

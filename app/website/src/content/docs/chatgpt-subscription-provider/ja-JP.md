@@ -1,56 +1,56 @@
 ---
 title: ChatGPT サブスクリプション Provider
-description: デバイスログインと共有 credential pool で ChatGPT サブスクリプションを AIGateway に接続します。
+description: デバイスログインと共有 credential pool を使って ChatGPT サブスクリプションを AIGateway に接続する方法を説明します。
 section: User guide
 order: 41
 ---
 
-ChatGPT サブスクリプションは通常の AIGateway provider です。通常の会話や Background Agent Jobs を含め、任意の model profile がそれを指せます。profile は provider 行と model を選択します。
+ChatGPT サブスクリプションは、通常の AIGateway provider の 1 つとして利用できます。日常の会話用プロファイルから Background Agent Jobs 用プロファイルまで、任意のモデルプロファイルから指定でき、プロファイル側で対象の provider レコードとモデルを選択します。
 
-provider 行は credential pool を所有します。control plane は各アカウントの token を暗号化し、OAuth token を更新し、各リクエストに使用可能な pool メンバーを選択します。Agent Computer が受け取るのは、AIGateway のエンドポイントと AIGateway key だけです。ChatGPT の refresh token は決して受け取りません。
+各 provider レコードは内部に credential pool（認証情報プール）を持っています。control plane が各アカウントのトークンを暗号化して保管し、OAuth トークンの自動更新とリクエストごとの利用可能なプールメンバーの選択を行います。Agent Computer 側に渡されるのは AIGateway のエンドポイントと AIGateway キーだけであり、ChatGPT のリフレッシュトークンが外部へ渡ることはありません。
 
 ## Provider を作成する
 
 1. **Console → LLM Providers** を開きます。
-2. provider を追加し、provider の種類として **ChatGPT Subscription** を選択します。
-3. `chatgpt-main` のような安定した provider ID を入力します。
+2. 新しい provider を追加し、種類（kind）として **ChatGPT Subscription** を選択します。
+3. `chatgpt-main` のような不変の provider ID を入力します。
 4. provider を保存します。
 
-デフォルトのエンドポイントと identity ヘッダーは Codex プロトコルに一致します。高度なエンドポイントやヘッダーは、デプロイに特定の要件がある場合にのみ変更してください。
+既定のエンドポイントと Identity ヘッダーは Codex プロトコルに合わせて構成されています。デプロイ環境に特別なプロキシ要件などがある場合にのみ、詳細設定のエンドポイントやヘッダーを変更してください。
 
 ## デバイスログインでアカウントを追加する
 
-1. ChatGPT サブスクリプション provider を開きます。
+1. 作成した ChatGPT サブスクリプション provider を開きます。
 2. **Add ChatGPT account** を選択します。
-3. 検証リンクを開き、Console が表示するワンタイムコードを入力します。
-4. Console がログインを完了し、pool メンバーを追加するのを待ちます。
-5. 同じ provider にアカウントを追加するプロセスを繰り返します。
+3. 表示された認証リンクを開き、Console に表示されているワンタイムコードを入力します。
+4. Console 側でログイン完了が確認され、プールメンバーとして追加されるまで待ちます。
+5. 同じ provider に複数のアカウントを登録したい場合は、この手順を繰り返します。
 
-Console は、利用可能な場合は公式のデバイスログインを使用します。そのルートが利用できない場合、Console はブラウザのサインイン URL を表示し、完全なコールバック URL を貼り付けるよう求めます。Enterprise オペレーターは、代わりに信頼済み access token とその ChatGPT アカウント ID を追加できます。
+通常は公式のデバイスログインフローが使われますが、環境によってデバイスログインが利用できない場合、Console はブラウザー用のサインイン URL を表示し、認証後のコールバック URL 全体を貼り付ける代替フローへ案内します。また、Enterprise 環境の運用者は、信頼済みのアクセストークンと対応する ChatGPT アカウント ID を直接登録することも可能です。
 
 ## credential pool を構成する
 
-各メンバーには、label、priority、source、ヘルス状態、リクエスト数、レート制限データ、model または画像使用量があります。secret token は決して表示されません。
+プール内の各メンバーには、ラベル、優先度（priority）、登録元（source）、ヘルス状態、リクエスト数、レート制限情報、およびモデル／画像の使用量が記録されます。シークレットトークン自体が画面に表示されることはありません。
 
-1 つの選択戦略を選びます。Console は表示名を翻訳し、API とストレージは正規キーを使います。
+プールからのメンバー選択戦略を次の 4 つから選びます（Console 画面では UI 言語に合わせて翻訳表示されますが、API と保存データでは以下の正規キーが使われます）。
 
 | Console ラベル | API 値 | 動作 |
 | --- | --- | --- |
-| Fill first | `fill_first` | 利用できなくなるまで、最初のヘルシーメンバーを使用します。 |
-| Round robin | `round_robin` | 選択のたびにローテーションします。 |
-| Least used | `least_used` | リクエスト数が最小のメンバーを選択します。 |
-| Random | `random` | 任意のヘルシーメンバーを選択します。 |
+| Fill first | `fill_first` | 上限に達して利用できなくなるまで、優先順位が最初の正常なメンバーを使い続けます。 |
+| Round robin | `round_robin` | リクエストのたびに正常なメンバーを順番にローテーションします。 |
+| Least used | `least_used` | これまでのリクエスト数が最も少ない正常なメンバーを選択します。 |
+| Random | `random` | 正常なメンバーの中からランダムに 1 つ選択します。 |
 
-`exhausted` メンバーは、クールダウン後に自動的に戻ります。`dead` メンバーは、新しいログインまたは代替 credential が必要です。メンバーを無効化または削除することもできます。label だけを変更しても `dead` 状態はクリアされません。
+レート制限などで `exhausted` になったメンバーは、クールダウン期間が経過すると自動的に利用可能状態へ復帰します。一方、トークン失効などで `dead` になったメンバーを復旧させるには、再ログインまたは新しい認証情報への更新が必要です（ラベルを変更しただけでは `dead` 状態は解除されません）。必要に応じてメンバーを一時的に無効化したり削除したりすることもできます。
 
 ## Provider を Agent に割り当てる
 
-1. **Console → Agents** を開き、Agent を選択します。
-2. 必要な model profile を開きます。永続 Job には **Background Agent Jobs** を、通常の model turn には別の profile を使います。
-3. ChatGPT サブスクリプション provider と、利用資格のある model を選択します。
-4. 必要に応じて reasoning effort と Fast Mode を設定します。
-5. profile を保存します。
+1. **Console → Agents** を開き、対象の Agent を選択します。
+2. 設定したいモデルプロファイルを開きます（長時間ジョブには **Background Agent Jobs** を、通常の会話ターンには `primary` などの各プロファイルを使います）。
+3. 作成した ChatGPT サブスクリプション provider と、サブスクリプションで利用可能なモデルを選択します。
+4. 必要に応じて推論強度（reasoning effort）と Fast Mode を設定します。
+5. プロファイルを保存します。
 
-すべての呼び出しは引き続き AIGateway を通ります。ゲートウェイは可能な場合、同じアカウントに stateful thread を保持し、再試行可能な provider 障害時にローテーションし、別の provider にはフォールバックしません。すべてのメンバーが利用できない場合、対話型の呼び出しは、次の回復時刻付きのレート制限エラーを返します。Background Agent Job は、最も早い pool メンバーが回復するまで `queued` に戻ります。
+割り当て後も、すべてのモデル呼び出しは AIGateway を経由します。ステートフルなスレッドでは可能な限り同じアカウントが継続して使われ、リトライ可能なエラーが発生した際にはプール内の別アカウントへ自動的にローテーションされます（別の provider への自動フォールバックは行われません）。プール内の全メンバーが利用不可になった場合、対話型の呼び出しには次回回復予定時刻付きのレート制限エラーが返され、Background Agent Job は最も早く回復するメンバーの利用可能時刻までいったん `queued` に戻って待機します。
 
-Job の作成、制御、トラブルシューティングについては [Background Agent Jobs](../background-jobs/) を参照してください。
+ジョブの作成・操作・トラブルシューティングについては、[Background Agent Jobs](../background-jobs/) を参照してください。

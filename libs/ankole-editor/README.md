@@ -1,20 +1,22 @@
 # Ankole Editor
 
-`@ankole/block-editor` is the internal block editor library at `libs/ankole-editor`.
-It is a private Bun workspace package. Hosts compile its TypeScript source and
-share React 19.3.0 with the editor.
+`@ankole/block-editor` is Ankole's internal block-editor library at
+`libs/ankole-editor`. Distributed as a private Bun workspace package, its
+TypeScript source is compiled directly by each host application, which shares
+React 19.3.0 with the editor.
 
-[Specification](SPEC.md) defines the document formats, editing behavior,
-public APIs, host responsibilities, and supported browsers. The package owns
-editing and document conversion. Hosts own persistence, document selection,
-and recovery. Hosts can pass `labels` to translate the interface. The editor
-keeps Chinese defaults for omitted labels. A label change preserves the current
-document, selection, and undo history. `playground/` is an example host and is
-not in the package tarball.
+See the [Specification](SPEC.md) for document formats, editing behavior, public
+APIs, host responsibilities, and browser support. Within that boundary, this
+package handles editing and document conversion, while hosts manage persistence,
+document selection, and error recovery. Hosts can also pass `labels` to
+translate the UI: any omitted keys fall back to the built-in Chinese defaults,
+and updating `labels` at runtime keeps the current document, selection, and undo
+history intact. The `playground/` directory provides a standalone example host
+and is excluded from the package tarball.
 
 ## Use in an Ankole workspace
 
-For a React host, declare the editor, UI Kit, and React dependencies in the
+In a React host, declare the editor, UI Kit, and React dependencies in the
 host's `package.json`:
 
 ```json
@@ -28,28 +30,30 @@ host's `package.json`:
 }
 ```
 
-Run `bun install` from the Ankole root. The root manifest and `bun.lock` own the
-workspace dependencies and the Markdown writer patch. No package-local lockfile
-is required.
+Then run `bun install` from the Ankole repository root. Because the root
+manifest and `bun.lock` manage workspace dependencies and apply the Markdown
+writer patch, `libs/ankole-editor` needs no lockfile of its own.
 
-Use the public entry points:
+Import only from the public entry points:
 
 | Entry point | Purpose |
 | --- | --- |
-| `@ankole/block-editor` | React editor and the current editor hook |
+| `@ankole/block-editor` | React editor component and current-editor hook |
 | `@ankole/block-editor/document` | Markdown and XML readers and writers |
 | `@ankole/block-editor/editor` | Page sessions, collaboration, host types, and editing commands |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
-Import UI Kit styles before editor styles in the host's Tailwind CSS entry:
+In the host's Tailwind CSS entry file, import UI Kit styles before editor
+styles:
 
 ```css
 @import '@ankole/uikit/styles.css';
 @import '@ankole/block-editor/styles.css';
 ```
 
-The host uses Tailwind CSS 4 and scans its own components. Configure the host
-bundler to share one `react` and one `react-dom` instance.
+Hosts use Tailwind CSS 4 to scan their own components, and their bundlers must
+be configured to deduplicate `react` and `react-dom` to a single instance of
+each.
 
 ```tsx
 import { BlockEditor } from '@ankole/block-editor'
@@ -69,17 +73,20 @@ export function DocumentEditor() {
 }
 ```
 
-`initial` is read once. Use `PageSession.apply()` for later document writes and a
-new React key for a new editor instance. A revision belongs to one instance;
-read a new snapshot when the instance changes. See the specification for
-composition conflicts and stale-write rejection.
+`BlockEditor` reads `initial` only on mount. To update the document afterward,
+call `PageSession.apply()`, or pass a new React `key` when mounting a fresh
+editor instance. Revision numbers are scoped to a single editor instance, so
+always read a fresh snapshot after replacing the instance. For IME composition
+conflicts and stale-write rejection, see [SPEC.md](SPEC.md).
 
-A separate tarball consumer must declare and apply the patch from `patches/` in
-its own `patchedDependencies`. `test:package` checks that installation path.
+If a standalone consumer installs the package from a tarball outside the Ankole
+workspace, it must declare and apply the patch in `patches/` via its own
+`patchedDependencies` field; `bun run --filter @ankole/block-editor test:package`
+verifies that tarball workflow.
 
 ## Develop and verify
 
-Run these commands from the Ankole root:
+Run checks from the Ankole repository root:
 
 ```sh
 bun install --frozen-lockfile
@@ -90,8 +97,9 @@ bun run --filter @ankole/block-editor test:upstream
 bun run --filter @ankole/block-editor test:package
 ```
 
-`build` checks types because this is a source package. The example host has a
-separate build:
+Because this is a source package, `build` runs type-checking rather than
+emitting compiled artifacts. The example host in `playground/` has its own dev
+server, build, and end-to-end suite:
 
 ```sh
 bun run --filter @ankole/block-editor dev
@@ -99,17 +107,17 @@ bun run --filter @ankole/block-editor build:playground
 bun run --filter @ankole/block-editor test:e2e
 ```
 
-The development server is at <http://127.0.0.1:3046>. The embedding example is at
-<http://127.0.0.1:3046/playground/embedded.html>.
+The development server listens at <http://127.0.0.1:3046>, and the multi-editor
+embedding example is served at <http://127.0.0.1:3046/playground/embedded.html>.
 
-Install browser binaries with `test:e2e:install` when needed. Browser tests,
-package-consumer checks, and native compatibility checks run separately from
-the fast unit suite. See the specification for skipped cases and known browser
-test differences.
+If Playwright browsers are not installed yet, run `test:e2e:install` first.
+Browser tests, tarball-consumer checks, and native browser compatibility suites
+run separately from the fast unit test suite; see [SPEC.md](SPEC.md) for
+platform-skipped cases and known browser differences.
 
 ## Editing engine and licenses
 
-The editing engine is the Wordgard fork in `src/core`, under its
-[MIT license](src/core/LICENSE). Its origin and local changes are in the
-[core README](src/core/README.md). Upstream fixtures and their licenses are in
-[upstream/NOTICE.md](upstream/NOTICE.md).
+The editing engine is a fork of Wordgard in `src/core`, distributed under its
+[MIT license](src/core/LICENSE). See the [core README](src/core/README.md) for
+upstream provenance and local changes, and [upstream/NOTICE.md](upstream/NOTICE.md)
+for third-party test fixtures and their licenses.

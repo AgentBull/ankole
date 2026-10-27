@@ -1,55 +1,51 @@
 ---
 title: Agent 能力库
-description: 管理租户与单 Agent 级的 Agent Plugin、Skill，以及站点级的 Control Plane Plugin。
+description: 统一管理租户与单 Agent 级的 Agent Plugin、Skill，以及站点级的 Control Plane Plugin。
 section: User guide
 order: 32
 ---
 
-站点管理控制台中的 **Agent 能力库** 页面统一呈现两类边界完全正交的扩展：作用于租户与单个 Agent 的模型能力（**Agent Plugin** 与 **Skill**），以及严格属于**站点级（Site-Scoped）**的平台扩展（**Control Plane Plugin**，仅在作用域设为**全局默认值**时可见）。
+站点管理控制台中的 **Agent 能力库** 页面集中管理两类职责边界完全正交的扩展组件：一类是作用于租户与单个 Agent 的模型层能力（**Agent Plugin** 与 **Skill**），另一类则是严格限定在**站点级（Site-Scoped）**的底层平台扩展（**Control Plane Plugin**，仅在顶部作用域选为**全局默认值**时显示）。
 
-这三类组件都是随当前部署构建安装的受信任一方组件。Agent 能力库不是公开插件市场；在这里启用一项能力，不会从互联网下载未知代码。
+这三类组件全部是随当前部署镜像构建分发的第一方受信代码。Agent 能力库并非开放的第三方插件市场——在页面上开启任何能力，都不会在运行时从公网拉取未经审计的外部代码。
 
 ## 先分清三类能力
 
-| 类型 | 作用域 | 作用 | 何时生效 |
+| 类型 | 作用域 | 核心用途 | 生效时机 |
 |---|---|---|---|
-| **Agent Plugin** | 租户默认值 + 单 Agent 覆盖 | 把相关 Skills、MCP 能力和工作区模板组织成一套能力 | Agent 的下一轮工作 |
-| **Skill** | 租户默认值 + 单 Agent 覆盖 | 教 Agent 完成一种可重复工作的说明和配套资源 | Agent 的下一轮工作 |
-| **Control Plane Plugin** | 仅站点级（`/api/v2/site/control-plane-plugins`） | 编译期装入的全栈平台扩展（子系统适配器、OTP 进程、外层 HTTP Plug、扩展路由、领域事务钩子、配置表单与前端强类型 UI 插槽） | 随构建固定启用（`activation: :always`），或控制面下次启动生效（`activation: :optional`） |
+| **Agent Plugin** | 租户默认值 + 单 Agent 覆盖 | 将一组配套的 Skill、MCP 集成与工作区模板打包为完整业务能力 | Agent 的下一轮工作 |
+| **Skill** | 租户默认值 + 单 Agent 覆盖 | 向 Agent 传授某类可重复工作的标准作业说明与配套脚本资源 | Agent 的下一轮工作 |
+| **Control Plane Plugin** | 仅站点级（`/api/v2/site/control-plane-plugins`） | 编译期装入的全栈平台扩展（含子系统适配器、受监督 OTP 进程、外层 HTTP Plug、扩展路由、领域事务钩子、配置表单与前端强类型 UI 插槽） | 随构建固定启用（`activation: :always`），或控制面下次启动时生效（`activation: :optional`） |
 
 ### Agent Plugin：一组可以共同启用的能力
 
-Ankole Agent Plugin 是 <a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugins</a> 的超集。
+Ankole Agent Plugin 是 <a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugins</a> 规范的超集。
 
-OpenAI Plugin 可以把一个或多个 Skills、MCP Server 以及可选界面组织成一个包。Ankole 沿用这套结构，并增加了**工作区模板**。
+在标准 OpenAI Plugin 将一个或多个 Skill、MCP Server 及可选交互界面打包在一起的基础上，Ankole 进一步引入了**工作区模板（Workspace Template）**机制。因此，一个 Agent Plugin 远不止一段静态提示词，而是能够一次性配齐方法论指引、外部工具依赖以及执行复杂任务所需的初始文件环境。
 
-因此，一个 Agent Plugin 不只是一条提示词。它可以同时提供工作方法、执行工具和完成任务所需的初始工作环境。
-
-在 Console 中开启 Agent Plugin，表示允许 Agent 使用这个包。包内的每个 Skill 仍然可以单独开启或关闭。
+在 Console 中启用某个 Agent Plugin，即代表允许目标 Agent 使用该能力包；至于包内附带的各个子 Skill，依然支持按需单独开启或关闭。
 
 #### 工作区模板：为复杂任务准备完整工作环境
 
-工作区模板位于 Agent Plugin 的 `workspace-template/` 目录。创建后台 Agent Job 时，Ankole 可以把模板复制到新 Job 的工作区。
+工作区模板存放在 Agent Plugin 目录下的 `workspace-template/` 子目录中。每当创建后台 Agent 任务（Job）时，Ankole 都可以将该模板完整克隆到新任务的专属工作区目录内。
 
-模板可以预先提供 `AGENTS.md`、目录结构、研究方法、校验脚本、Playbook 和其他任务文件。Job 得到的是可以持续写入和恢复的工作区，而不是每轮临时拼接的一段提示词。
+模板中可预先放入定制的 `AGENTS.md`、标准目录层级、调研方法论、自动化校验脚本、Playbook 手册及其他支撑文件。这样一来，后台任务拿到的是一个可随时读写落盘、故障后也可无缝断点恢复的结构化工程目录，而非每轮对话临时拼接的零散提示词。
 
-达到 SOTA 水平的 [Deep Research](../deep-research-job/) 是典型用例。主 Agent 先确认研究任务，再创建使用 `deep-research` 工作区模板的后台 Job。
+业界领先水平的 [Deep Research](../deep-research-job/) 便是这一机制的典型代表：先由主对话 Agent 与用户澄清研究目标，随后拉起初始化了 `deep-research` 工作区模板的后台任务。模板已提前备妥研究阶段划分、原始证据归档目录、交叉分析框架与引文核验脚本，使后台任务能够在同一工作区内持续搜集信源、迭代推演并最终成稿。
 
-模板为 Job 准备研究流程、证据目录、分析方法和校验工具。Job 可以在同一个工作区中持续收集资料、修订分析并生成最终报告。
-
-启用带有工作区模板的 Agent Plugin，不会修改已有会话或自动创建 Job。只有任务明确选择该模板时，Ankole 才会用它初始化新的 Job 工作区。
+注意，开启包含工作区模板的 Agent Plugin 并不会改动既有会话，也不会自动拉起后台任务；只有当新创建的任务明确选用该模板时，系统才会用它初始化对应的任务工作区。
 
 ### Skill：一种可重复的工作方法
 
-Ankole Skill 兼容 <a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">Agent Skills 官方规范</a>。
+Ankole Skill 完全兼容 <a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">Agent Skills 官方规范</a>。
 
-每个 Skill 至少包含一个带 YAML frontmatter 的 `SKILL.md`，也可以包含 `scripts/`、`references/` 和 `assets/`。Agent 先看到名称和描述，任务匹配后才读取完整说明和所需资源。
+每个 Skill 至少包含一份带 YAML Frontmatter 的 `SKILL.md` 主文档，也可按需附带 `scripts/`、`references/` 与 `assets/` 子目录。为节省上下文窗口，Agent 最初仅在目录中看到各 Skill 的名称与简介；只有判断当前任务确需某项技能时，才会按需展开读取全文与配套资源。
 
-Skill 适合表达“这类工作应该怎样做”。需要实时数据、身份验证或受控操作时，它可以选择一个 MCP 领域工具，再通过 mcporter 调用；MCP catalog 不会成为第二套模型可见工具注册表。
+Skill 最适合用来沉淀“某类具体业务应当按什么步骤推进”。当作业流程中需要拉取外部实时数据、携带身份凭证调用接口或执行受控变更时，Skill 可直接指定调用挂载在其背后的特定 MCP 领域工具并经由 `mcporter` 执行，从而避免将庞大的原始 MCP 工具目录直接摊开成第二套干扰模型的全局工具表。
 
 #### Ankole 扩展：选择 Skill 的执行位置
 
-Ankole 在标准 frontmatter 上增加了 `ankole-runtime`：
+Ankole 在标准 Frontmatter 之上扩展了 `ankole-runtime` 字段，用于限定该 Skill 可在何处加载：
 
 ```yaml
 ---
@@ -59,108 +55,106 @@ ankole-runtime: any
 ---
 ```
 
-| 值 | Skill 在哪里可用 | 适合的情况 |
+| 取值 | 可用环境 | 适用场景 |
 |---|---|---|
-| `any` | 主 Agent 和后台 Agent Job | 两种执行环境都能安全完成的通用工作；省略字段时也使用此值 |
-| `main` | 只在主 Agent 的正常对话中 | 需要直接询问用户、确认选择或创建和管理后台 Job |
-| `background_job` | 只在后台 Agent Job 中 | 耗时较长、依赖 Job 工作区，或需要集中处理文件、浏览器和数据的工作 |
+| `any` | 主对话 Agent 与后台 Agent 任务 | 两种执行环境均可安全完成的通用操作（省略该字段时的默认值） |
+| `main` | 仅限主对话 Agent 的日常交互 | 需要直接向用户追问澄清、确认方案选项，或负责创建与调度后台任务 |
+| `background_job` | 仅限后台 Agent 任务 | 耗时长、强依赖任务专属工作区，或需集中运行文件处理、网页浏览与数据分析 |
 
-这个字段只控制 Skill 会出现在哪种执行环境中，不会自动创建后台 Job。
-
-Deep Research 的入口 Skill 使用 `main`，因为它要先在原对话中确认需求并创建 Job。真正执行研究的 Skills 可以在后台 Job 中使用。
+该字段仅控制对应 Skill 出现在哪一类执行环境的目录中，本身不会触发后台任务创建。例如，Deep Research 的入口协调 Skill 标记为 `main`，专门负责在聊天窗口中与用户敲定调研范围并派发任务；而真正承担长耗时文献检索与交叉验证的子 Skill，则在后台任务环境中加载运行。
 
 #### Ankole 扩展：通过 Brain 发现 Skill
 
-部分 SOP 和方法论只在当前工作与其相关时才有用，把它们列入每个 Prompt 会浪费上下文。随产品发布的 Skill 可以声明 `brain-recall-only: true`。它仍是标准 Skill，继续使用原有的 Agent Plugin、Skill 启用状态、执行位置和 `skill_view` 规则，只是改由 Brain 按语义发现，不进入模型可见的 Skill 目录。
+部分专业 SOP 与细分方法论只有在遇到特定类型的课题时才派得上用场，若常驻在每次请求的默认目录里反而白白消耗上下文。为此，随系统发布的内置 Skill 可在头部声明 `brain-recall-only: true`：它依然是标准 Skill，继续遵循原有的父级 Agent Plugin 开关、单 Skill 启用状态、`ankole-runtime` 执行位置限制及 `skill_view` 加载契约，区别仅在于平时不列入模型直接可见的默认 Skill 目录，改由 Brain 通过语义检索按需召回。
 
-Brain 会搜索 Skill 的名称、描述和标签。命中后，Agent 调用 `skill_view`；它会遵守 `ankole-runtime`，在兼容的执行位置加载 Skill，或返回正确的路由或拒绝结果。关闭该 Skill 或它所属的 Agent Plugin 后，当前 Agent 既不能通过 Brain 发现它，也不能加载它。这条语义发现路径要求 Brain 已启用。这种模式适合需要按需使用、但不应长期占用每个 Prompt 的随产品发布的方法论和 SOP。
+运行时，Brain 会检索各候选 Skill 的名称、描述与标签；一旦命中相关条目，Agent 即可调用 `skill_view` 读取详情——`skill_view` 会严格核查 `ankole-runtime` 约束，在匹配的执行环境中加载正文，或返回明确的环境路由提示与权限拒绝。只要关闭了该 Skill 或其所属的父级 Agent Plugin，当前 Agent 就既无法通过 Brain 检索到它，也无法直接加载它（注：此语义发现路径要求实例已启用 Brain）。这一模式非常适合存放体量较大、按需取用但无需每轮常驻提示词的专业方法论与行业 Playbook。
 
 ### Control Plane Plugin：站点级全栈平台扩展
 
-Control Plane Plugin 不属于 OpenAI Plugin，不进入 Agent 的工作上下文，也绝不按租户或单个 Agent 启停。它是构建期静态编译、站点级（Site-Scoped）启停的全栈扩展，节点启动时解析一次并固化至 `:persistent_term` 快照。
+Control Plane Plugin 与 OpenAI Plugin 毫无关系，既不进入任何 Agent 的提示词上下文，也绝不支持按租户或单个 Agent 分别启停。它是在编译期静态打包进系统的站点级（Site-Scoped）全栈平台扩展，在控制面节点启动阶段一次性解析完毕，并固化写入 `:persistent_term` 高速只读快照中。
 
-Control Plane Plugin 可以跨前后端贡献以下扩展点：
+一个 Control Plane Plugin 可以跨前后端同时注入以下平台级扩展点：
 
-- 子系统驱动适配器（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）与受监督 OTP 进程（`children/0`）
-- 外层 HTTP 前置 `Plug` 与双作用域扩展 JSON:API 路由
-- 同步领域写事务钩子 `hooks/0`（`Ankole.Plugins.Hook`）
-- 声明式 `AppConfigure` 配置字段（`ConfigFields`）与前端强类型 Web UI 插槽（`entries.json` `overrides`）
+- 子系统驱动适配器（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）以及受监督的常驻 OTP 进程（`children/0`）；
+- 外层 HTTP 前置 `Plug` 与双作用域扩展 JSON:API 路由；
+- 同步领域写事务钩子 `hooks/0`（基于 `Ankole.Plugins.Hook`）；
+- 声明式 `AppConfigure` 配置表单字段（`ConfigFields`）与前端强类型 Web UI 替换插槽（`entries.json` 中的 `overrides`）。
 
-每个 Control Plane Plugin 声明 `activation: :optional | :always`。可选插件（`:optional`，默认值）由全局 `plugins.enabled_ids` 控制，修改后在控制面下次启动时生效；平台级插件（`activation: :always`）随当前构建版本固定启用，不可关闭。对于需要免重启热切换或按目标/百分比灰度的运行时开关，Ankole 使用独立的 OpenFeature 层（`Ankole.Features`）。
+每个 Control Plane Plugin 均显式声明 `activation: :optional | :always`：可选插件（默认为 `:optional`）由全局配置项 `plugins.enabled_ids` 控制，变更保存后在控制面下次重启时生效；核心平台插件（`activation: :always`）则随当前发行版固定激活，不提供关闭选项。至于日常需要免重启即时切换、或按特定目标与流量比例灰度放量的运行时特性开关，Ankole 采用独立的 OpenFeature 机制（`Ankole.Features`）承载。
 
 ## 管理 Agent Plugin 和 Skill
 
 ### 设置实例默认值
 
-1. 打开 Console 的**Agent 能力库**。
-2. 把作用域设为**全局默认值**。
-3. 在 **Agent Plugins** 或 **Skills** 标签页中找到目标能力。
-4. 开启或关闭默认值。
+1. 打开 Console 的 **Agent 能力库** 页面。
+2. 将顶部作用域保持为**全局默认值**。
+3. 在 **Agent Plugins** 或 **Skills** 标签页中找到目标能力项。
+4. 切换默认启用或关闭状态。
 
-全局默认值决定新 Agent 和未单独设置的 Agent 是否可以使用该能力。修改后，已经开始的回合不会改变；下一轮才会读取新的能力集合。
+此处设定的默认值决定了后续新建 Agent 以及未单独配置例外覆盖的现有 Agent 是否默认拥有该能力。开关变更不会打断已经在途运行的推理回合，自该 Agent 的下一轮工作起才会加载更新后的能力集合。
 
-先把大多数 Agent 都需要的能力设为默认开启，再按 Agent 收窄，通常最容易维护。只适用于少数岗位、需要特殊凭证或有明显风险的能力，更适合默认关闭后按需开启。
+日常运维中最省心的做法是：将绝大多数岗位通用的基础能力设为全局默认开启，再针对个别职责受限的 Agent 单独收窄；而对于仅服务于少数专职岗位、依赖高权限外部密钥或伴随明显外发风险的能力，则建议保持全局默认关闭，仅对目标 Agent 定向放开。
 
 ### 为单个 Agent 设置例外
 
-1. 在 Agent 能力库顶部把作用域切换为目标 Agent。
-2. 找到 Agent Plugin 或 Skill。
-3. 选择**跟随全局**、**开启**或**关闭**。
+1. 在 **Agent 能力库** 页面顶部，将作用域下拉框切换为目标 Agent。
+2. 找到需要调整的 Agent Plugin 或 Skill。
+3. 将状态设为**跟随全局**、**开启**或**关闭**。
 
-“跟随全局”表示不保留单独例外。以后修改实例默认值时，该 Agent 会一起变化。明确开启或关闭则会保留为 Agent 自己的覆盖值。
+选择**跟随全局**代表清除该 Agent 的独立覆盖值，日后调整全局默认开关时该 Agent 会随之同步变化；显式选定**开启**或**关闭**则会保存为该 Agent 专属的独立策略。
 
-Agent Plugin 可以包含多个 Skill。关闭父 Plugin 会让其中的 Skill 暂时不可用，但不会改写每个 Skill 原有的设置。以后重新开启父 Plugin 时，各 Skill 会恢复自己的有效状态。
+当一个 Agent Plugin 内包含多个子 Skill 时，关闭父级 Plugin 会令其下辖的所有子 Skill 暂时一并停用，但不会覆盖各子 Skill 原本保存的独立开关状态；日后重新开启父级 Plugin 后，各子 Skill 会立即恢复原先各自的启用或关闭设置。
 
 ### 复核技能教训
 
-Agent 可以在完整 Skill 说明中收到带日期的过程注意事项。Dreaming 从 Job 证据中提炼带租约的教训，运维人员也可以新增人工教训。共享的 `SKILL.md` 保持不变。
+在读取完整 Skill 正文时，Agent 还能一并收到附带日期的简短过程注意事项：既包括后台 Dreaming 从历史任务记录中自动提炼、带有租约有效期的机器教训，也包括运维人员手工录入的人工教训，而底层共享的 `SKILL.md` 文件始终保持原样不被改动。
 
-把 Agent 能力库的作用域切换到目标 Agent，再找到 Skill 卡片。卡片会列出生效和已退场的教训、证据 Job、复审日期与退场原因。运维人员可以新增教训或让教训退场；Agent 会从下一轮开始停止读取已退场的教训。
+将 **Agent 能力库** 顶部作用域切换至具体 Agent 并展开对应 Skill 卡片，即可查阅当前生效与已退场的全部教训、关联的证据任务、最近复审日期及退场原因。运维人员可随时手工补充新教训或清退不当条目，清退操作从下一轮工作起立即生效。
 
-不要把通用规则重复写入每个 Agent 的教训。适用于所有 Agent 的规则应写入 Skill 来源。证据规则、租约和配置见[技能教训](../skill-lessons/)。
+请勿将放之四海皆准的通用业务规范逐一重复粘贴到每个 Agent 的专属教训中——对全体 Agent 普遍适用的规则应直接修入 Skill 源文件。关于证据采信门槛、租约复审与系统配置项的详细说明，请参阅 [技能教训](../skill-lessons/)。
 
 ## 管理 Control Plane Plugin
 
 ### 启用或关闭可选站点插件
 
-Control Plane Plugin 严格属于站点级（`/api/v2/site/control-plane-plugins`），仅在站点管理控制台（`/site-admin-console`）将能力库作用域设为**全局默认值**时可见：
+由于 Control Plane Plugin 严格属于站点级配置（对应 `/api/v2/site/control-plane-plugins`），该面板仅在登录站点管理控制台（`/site-admin-console`）且顶部作用域处于**全局默认值**时才会展示：
 
-1. 在站点管理控制台中打开 **Agent 能力库**，保持顶部作用域为**全局默认值**，切换到 **Control Plane Plugins** 标签页。
-2. 找到目标可选插件（`activation: :optional`），设置为**下次启动开启**。声明为 `activation: :always` 的插件随构建固定启用，不提供关闭开关。
-3. 保存后重启控制面。
-4. 回到 **Control Plane Plugins** 标签页，确认状态变为**当前已运行**。
-5. 再去配置该 Plugin 提供的聊天渠道、身份源、Worker 算力提供方或系统设置。
+1. 在站点管理控制台中打开 **Agent 能力库**，确认顶部作用域为**全局默认值**，随后切换至 **Control Plane Plugins** 标签页。
+2. 找到目标可选插件（`activation: :optional`），将其设为**下次启动开启**（声明为 `activation: :always` 的核心插件随镜像固定启用，无关闭开关）。
+3. 保存更改后重启控制面服务。
+4. 刷新 **Control Plane Plugins** 标签页，确认插件状态已变为**当前已运行**。
+5. 随后前往对应管理页面，配置由该插件注册的聊天渠道、身份源提供商、Worker 算力驱动或系统参数。
 
-Docker Compose：
+Docker Compose 环境重启命令：
 
 ```bash
 docker compose restart control-plane
 ```
 
-Kubernetes：
+Kubernetes 环境滚动重启命令：
 
 ```bash
 kubectl -n ankole rollout restart deployment/ankole-control-plane
 ```
 
-关闭可选 Control Plane Plugin 同样在下次启动时生效。配置事务会执行 `veto_disable` 引用校验：对于提供 Worker 算力驱动的插件，只要任意租户下仍有分配了该驱动类型的 Agent Worker（含已暂停的 Worker 或正在删除中的 Agent），系统都会拒绝停用。关闭插件前请确认没有在用的聊天渠道、身份源或 Worker 依赖它。需要免重启热切换的功能开关请使用 OpenFeature（`Ankole.Features`）。
+停用可选 Control Plane Plugin 同样需要等待控制面下次启动才正式生效。在保存停用操作时，配置写事务会强制运行 `veto_disable` 依赖引用检查：例如对于提供 Worker 算力驱动的插件，只要整站任意租户下仍存在绑定了该驱动类型的 Agent Worker（包括处于暂停状态的 Worker 或正在清理删除途中的 Agent），系统都会直接拦截并拒绝停用。因此，停用任何站点插件前，请先确认已清空依赖它的聊天路由、身份源及工作节点。若仅需免重启的动态功能开关，请改用 OpenFeature（`Ankole.Features`）。
 
 ## 排查问题
 
 ### Agent Plugin 和 Skill
 
-- **列表中没有目标能力**：确认当前部署包已经包含它。能力库只能显示实例中已经安装的组件。
-- **Skill 显示开启，但 Agent 仍无法使用**：检查它所属的 Agent Plugin 是否已关闭，并重新开始一个回合。
-- **Skill 只在部分任务中出现**：检查 `ankole-runtime`。`main` 不会进入后台 Job，`background_job` 也不会出现在主 Agent 的正常对话中。
-- **修改全局默认值后只有部分 Agent 不一致**：这些 Agent 可能保留了单独覆盖值；切到对应作用域检查。
-- **后台 Job 无法选择工作区模板**：确认提供模板的 Agent Plugin 已为该 Agent 启用，并确认该 Plugin 确实包含 `workspace-template/`。
+- **在能力库列表中找不到目标项**：检查当前运行的部署镜像版本是否已打包该组件——能力库仅展示随当前实例构建安装的第一方组件。
+- **单个 Skill 显示已开启，但 Agent 依然无法调用**：检查其所属的父级 Agent Plugin 是否处于关闭状态，确认开启后发起新一轮对话再试。
+- **某项 Skill 只在主对话中可见，或只在后台任务中可用**：核对该 Skill 头部声明的 `ankole-runtime` 字段——设为 `main` 的不会注入后台任务，设为 `background_job` 的也不会出现在日常前台对话中。
+- **调整全局默认值后，个别 Agent 并未同步生效**：这些 Agent 大概率配置了单 Agent 独立覆盖值，请将顶部作用域切换至对应 Agent 检查并改回“跟随全局”。
+- **创建后台任务时无法选用预期的工作区模板**：确认提供该模板的 Agent Plugin 已对当前 Agent 启用，且该插件包内确实包含 `workspace-template/` 目录。
 
 ### Control Plane Plugin
 
-- **看不到 Control Plane Plugins 标签页**：Control Plane Plugin 仅限站点级。请确认已打开站点管理控制台（`/site-admin-console`），并将 **Agent 能力库**顶部作用域切换为**全局默认值**。
-- **Control Plane Plugin 显示下次启动开启**：设置已写入 `plugins.enabled_ids`，需重启控制面以重新生成启动快照。
-- **Control Plane Plugin 无法关闭**：该插件声明了 `activation: :always`（随构建固定启用），或者某租户下仍有 Agent Worker 引用了该插件提供的 Worker 驱动类型而触发了 `veto_disable` 拦截。
-- **重启后控制面无法启动**：查看启动日志，检查 Plugin 需要的配置和依赖；先修正问题，再重新启动。
-- **聊天渠道仍未出现**：确认 Plugin 已经是**当前已运行**，再检查该聊天渠道的具体配置。
+- **页面上看不到 Control Plane Plugins 标签页**：该标签页仅限站点级管理。请确认当前访问的是站点管理控制台（`/site-admin-console`），且已将 **Agent 能力库** 顶部的作用域设为**全局默认值**。
+- **插件状态一直停留在“下次启动开启”**：配置虽已落库写入 `plugins.enabled_ids`，但还需重启控制面进程以重新生成启动期插件快照。
+- **开关置灰或报错无法关闭**：该插件声明了 `activation: :always` 固定启用，或者某个租户下仍有现存 Agent Worker 引用了它提供的算力驱动，从而触发了 `veto_disable` 保护拦截。
+- **启用插件并重启后，控制面进程无法正常拉起**：查阅控制面启动日志，核查该插件依赖的外部环境变量或系统参数是否漏配，修复配置后再次启动。
+- **插件已开启，但信号路由页面仍看不到对应聊天渠道**：先回到插件列表确认状态已变为**当前已运行**（而非尚未重启的待生效状态），再核查对应渠道的具体接入配置。
 
-开发 Skill 或控制面扩展时，读 [开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。
+如需自行编写自定义 Skill 或开发控制面扩展插件，请参阅 [开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。

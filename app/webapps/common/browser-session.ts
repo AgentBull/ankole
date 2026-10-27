@@ -46,8 +46,8 @@ export function withDataContext(fetch: typeof globalThis.fetch): typeof globalTh
     if (
       selected &&
       url.origin === window.location.origin &&
-      /^\/api\/v[12]\//.test(path) &&
-      !/^\/api\/v[12]\/site\//.test(path) &&
+      path.startsWith('/api/v2/') &&
+      !path.startsWith('/api/v2/site/') &&
       !request.headers.has('x-ankole-tenant')
     ) {
       request.headers.set('x-ankole-tenant', selected)

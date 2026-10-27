@@ -1,186 +1,186 @@
 ---
 title: アーキテクチャ
-description: control plane、Agent Computer Worker、Sessions、Brain、Background Agent Job が Ankole Agent Harness をどう構成するかを説明します。
+description: control plane、Agent Computer Worker、Sessions、Brain、Background Agent Job がどのように連携して Ankole Agent Harness を構成するかを説明します。
 section: Developer guide
 order: 100
 ---
 
 import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
 
-Ankole は、Company Brain を備えた企業向け Agent Harness です。企業が管理する基盤で動作し、意思決定に必要なコンテキスト、権限、永続的な実行、フィードバックをモデルに提供します。
+Ankole は、Company Brain を備えたエンタープライズ向けの Agent Harness です。企業が自ら管理するインフラ上で稼働し、モデルが業務上の判断を行うために必要なコンテキスト、権限境界、永続的な実行基盤、そしてフィードバックループを提供します。
 
-Agent は数時間にわたって作業し、共有の Company Brain を使い、ブラウザー、ターミナル、ファイル、外部システムで仕事を実行し、人が確認して後の結果で検証できる判断を提示します。
+Agent は数時間にわたる作業を自律的に進め、共有の Company Brain を参照しながら、ブラウザー、ターミナル、ファイル、外部システムを操作してタスクを遂行します。そのうえで、人間が根拠を確認し、後から実際の結果と照らし合わせて検証できる形で判断を提示します。
 
-Harness は各行動主体を識別し、アクセス規則を適用し、長時間の仕事を復旧し、コンテキストを最新に保ち、修正を次の意思決定に引き継ぎます。
+Harness 全体として、各行動主体の識別、アクセス制御の強制、長時間ジョブの障害復旧、コンテキストの最新化を担い、人間からの修正や実際の結果を次の意思決定へと引き継ぎます。
 
 ## システム全体図
 
 <DocsArchitectureDiagram lang="ja-JP" />
 
-1 つのプライベートな deployment instance は、1 つの論理 control plane、ステートレスな `Function Runtime`（`ankole-function-runtime`）サービス、および Agent ごとに 1 台の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理し、Pod の共同作業ワークスペースを運用し、Pod Applet のバックエンド関数や決定論的な TypeScript プログラムのために `Function Runtime` の isolate を呼び出し、Worker を作成します。各 Worker は、その Agent が実際に働く専用の compute 環境を提供します。
+1 つのプライベートなデプロイインスタンスは、1 つの論理 control plane、ステートレスな `Function Runtime`（`ankole-function-runtime`）サービス、および Agent ごとに 1 台割り当てられる Agent Computer Worker で構成されます。control plane は Identity、永続状態、スケジュールを管理して Pod の共同作業ワークスペースを運用するほか、Pod Applet のバックエンド関数や決定論的な TypeScript プログラムを実行するために `Function Runtime` の isolate を呼び出し、必要に応じて Worker を起動します。各 Worker は、担当する Agent が実際に作業を行う専用のコンピュート環境となります。
 
-Pod（ページ、リアルタイムドキュメント、物理シャード上の 2 層 Base テーブル、Applet、マルチプレイヤー Pod Chat）と外部アダプターが会話の発言を記録します。Signals が発言、外部イベント、時刻の刺激を受け付け、Sessions が作業を実行します。統合された認証と Identity Provider がパスワードレス Email OTP（`SiteCredential`）、エンタープライズ SSO、および組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
+会話の発言は、Pod（ページ、リアルタイムドキュメント、物理シャード上の 2 層 Base テーブル、Applet、マルチプレイヤー Pod Chat）および外部チャネルアダプターによって記録されます。発言、外部イベント、スケジュール時刻などのあらゆるきっかけは Signals が受け付け、実際の作業は Sessions が実行します。認証面では、統合認証基盤と Identity Provider がパスワードレス Email OTP（`SiteCredential`）、エンタープライズ SSO、および組織ディレクトリ同期を提供します。そしてモデル、embedding、rerank、画像生成、Web 操作といった AI 機能はすべて AIGateway という単一の境界に集約されています。
 
 ## Control plane、Function Runtime、Agent Computer Worker
 
 ### control plane は state を保存し、決定を行います
 
-Elixir/OTP の control plane は、Pod（ページ、ドキュメント、Base テーブルと物理シャード、Applet、マルチプレイヤー Pod Chat）、Console、Principal とアクセス、システム configuration、signal の routing、実行セッション、Brain、Workflow、Background Agent Job、AIGateway、Control Plane Plugin を担います。
+Elixir/OTP 製の control plane は、Pod（ページ、ドキュメント、Base テーブルと物理シャード、Applet、マルチプレイヤー Pod Chat）、Console、Principal とアクセス制御、システム設定、Signal のルーティング、実行セッション、Brain、Workflow、Background Agent Job、AIGateway、および Control Plane Plugin を統括します。
 
-これらの module はすべて同じ規則に従います。ユーザーに見える結果を変える state は、実行や外部への送信を駆動する前に PostgreSQL に書き込まれます。
+これらすべてのモジュールに共通する原則はシンプルです。「ユーザーから見える結果を変える状態変更は、処理を実行したり外部へ送信したりする前に、必ず PostgreSQL へ書き込む」ということです。
 
-process は再起動できますが、受け付け済みの message、Job state、memory、audit 記録は残らなければなりません。
+プロセス自体はいつ再起動しても構いませんが、一度受け付けたメッセージ、Job の進行状態、記憶、監査証跡は確実に残らなければなりません。
 
-OTP の supervision tree は、Agent、connection、Job それぞれに独立した failure domain を与えます。1 つの実行 branch がハングまたは crash しても、control plane は deployment instance 全体を失敗させることなく、その branch だけを復旧できます。
+また、OTP の supervision tree によって、Agent、外部接続、Job ごとに独立した障害ドメイン（failure domain）が分離されています。ある実行ブランチがハングしたりクラッシュしたりしても、control plane はインスタンス全体を巻き込むことなく、そのブランチだけを個別に復旧できます。
 
-重要な control plane のコードと主要なステートマシンには形式検証を適用しており、再試行、再起動、並行入力のもとでも主要な状態遷移と境界の不変条件を保ちます。
+さらに、中核となる control plane コードと主要なステートマシンには形式検証を適用しており、リトライ、プロセス再起動、並行入力が重なる状況下でも、状態遷移と境界の不変条件が保たれることを保証しています。
 
 ### Worker は Agent の仕事用コンピュータです
 
-主 Agent loop は control plane で動作します。環境ツールまたは Codex が必要な時点で Agent Computer Worker を起動します。Worker はツール、Skills、browser、terminal、file 操作、automation script、Codex Job を実行し、control plane が永続結果をコミットします。
+メインの Agent ループは control plane 内で動作し、環境ツールや Codex が必要になった時点で Agent Computer Worker が起動されます。Worker がツール、Skills、ブラウザー、ターミナル、ファイル操作、automation スクリプト、Codex Job を実行し、その永続的な結果を control plane がコミットします。
 
-各 Agent は 1 つの Worker ID を持ち、同時に接続を許可する Worker インスタンスは最大 1 つです。Agent 同士が Worker、キャッシュディスク、credential を共有することはありません。Worker の container または Pod が唯一の分離境界です。Agent のコマンドは内側の sandbox なしで実行され、Agent 自身のコンピュータを変更できます。Kubernetes では、Pod template の runtime class で gVisor を追加できます。
+各 Agent は固有の Worker ID を持ち、同時に接続できるアクティブな Worker インスタンスは最大 1 台に制限されます。Agent 間で Worker、キャッシュディスク、認証情報を共有することはありません。Worker のコンテナ（または Pod）自体が分離境界となっているため、内部で実行される Agent のコマンドには追加の内側サンドボックスはかからず、Agent 自身のコンピュータ環境を自由に変更できます（Kubernetes 環境では、Pod テンプレートの runtime class に gVisor を指定して分離を強化することも可能です）。
 
-control plane は Agent が選んだ provider で Worker を管理します。Docker、Kubernetes、Cloudflare、Vercel、AWS Lambda MicroVMs、Alibaba Function Compute に対応します。Home は `/workspace` の永続ストレージで、`/var/cache/ankole` は破棄可能なキャッシュです。コマンドは sudo なしの uid 1000 で動作します。
+control plane は、Agent に設定された provider を通じて Worker のライフサイクルを管理します。対応バックエンドは Docker、Kubernetes、Cloudflare、Vercel、AWS Lambda MicroVMs、Alibaba Function Compute です。Agent Home は `/workspace` にマウントされる永続ストレージで、`/var/cache/ankole` は破棄可能なキャッシュ領域です。コマンドは `sudo` なしの `uid 1000` で動作します。
 
-RuntimeFabric は Worker ごとに 1 本の Phoenix Channel で control plane と Worker を接続します。wakeup、steering、cancel、進捗、実行結果を運びます。
+control plane と各 Worker の間は、RuntimeFabric が Worker ごとに 1 本の Phoenix Channel で接続し、wakeup、steering、キャンセル指示、進捗通知、実行結果を低遅延でやり取りします。
 
-これは低遅延のライブ channel であり、database ではありません。connection が切れた後の復旧は、依然として PostgreSQL の state を使います。
+ただし RuntimeFabric はあくまでライブ通信用のチャネルであり、データベースではありません。切断後の復旧では、常に PostgreSQL に保存された状態が正本として使われます。
 
 ### Worker pool がプラットフォームと設定を選ぶ
 
-オペレーターは **Settings → Worker providers** で Worker pool を設定します。1 つの provider は site 全体の pool で、プラットフォームの種類、YAML 設定、暗号化したプラットフォーム認証情報を持ちます。複数 Agent が同じ pool を使っても、各 Agent のコンピュータと永続 Home は専用です。種類やインスタンス仕様が異なる場合は別の pool を使います。
+運用者は **Settings → Worker providers** で Worker pool を構成します。1 つの provider 設定がサイト全体の 1 つの pool に対応し、プラットフォーム種別、YAML 設定、暗号化されたプラットフォーム認証情報を保持します。複数の Agent が同じ pool を利用する場合でも、割り当てられるコンピュータ環境と永続 Home は Agent ごとに専用です。プラットフォーム種別やマシンスペックを変えたい場合は、別の pool を作成して使い分けます。
 
-Agent 作成時に pool を選ぶか、site の既定 pool を使います。その選択は後から変更できません。control plane は必要時に Worker を起動し、アイドル時に解放または休止します。古いインスタンスは Home を保持して置換し、キャッシュは別途再構築できます。[Worker pool](../worker-management/) を参照してください。
+Agent の作成時に使用する pool を選ぶか、サイトの既定 pool を割り当てます（作成後に pool を変更することはできません）。その後は、作業が必要になったときに control plane が Worker を起動し、アイドル状態になれば解放または休止します。古いインスタンスを置き換える際も永続 Home はそのまま引き継がれ、キャッシュ領域だけを個別に再構築できます。詳しくは [Worker pool](../worker-management/) を参照してください。
 
-環境 workspace と Codex turn の容量は Worker ごとに制限します。主会話と Workflow のモデル呼び出しは control plane で実行し、この容量を使いません。pool の追加は配置先の選択肢を増やしますが、既存 Agent の作業を共有コンピュータ間で移動しません。
+環境 workspace と Codex turn の同時実行数は Worker ごとに上限が設けられています。一方、メイン会話や Workflow のモデル呼び出しは control plane 上で処理されるため、Worker 側の実行枠を消費しません。なお、新しい pool を追加すると新規 Agent の配置先の選択肢は増えますが、既存 Agent の作業が別の共有コンピュータへ移動することはありません。
 
 ## 1 つのメッセージが再開可能な仕事になるまで
 
 ### 会話は参加者の発言を保存する
 
-会話は人と Agent が共有する空間です。`Ankole.Conversations` は参加者とメッセージを保存します。Pod はネイティブの発言を直接書き込みます。アダプターは外部の会話を観測し、その内容の正本は外部プラットフォームにあります。
+会話（Conversation）は、人間と Agent がやり取りを共有する場です。`Ankole.Conversations` が参加者一覧とメッセージを保持し、Pod 上のネイティブな発言は直接データベースへ書き込まれます。外部チャネルの会話についてはアダプターが発言を観測して取り込みますが、会話内容の正本は外部プラットフォーム側にあります。
 
-会話の発言と Agent の作業は別の記録です。発言は参加者の記録です。モデル呼び出し、ツール結果、圧縮は、実行セッションに対応する AIGateway のモデル状態に属します。実行セッションは複数の会話をまたがず、ある会話の作業が別の会話に入りません。
+ここで、会話上の「発言」と Agent の内部的な「作業記録」は明確に分けられています。発言はあくまで参加者全員に見える会話ログです。一方、モデル呼び出し、ツール実行結果、コンテキスト圧縮の履歴は、各実行セッションに紐付く AIGateway 側のモデル状態に属します。また、1 つの実行セッションが複数の会話をまたぐことはないため、ある会話で行った内部作業が別の会話へ混入することもありません。
 
 ### Signals はすべての刺激を受け付ける
 
-Agent を指名した発言は signal を生成します。時刻、外部イベント、check-back、タスク完了も signal です。`Ankole.Signals` は、実行セッションを起こす前に、出所、出所イベント ID、宛先、帰属、認可を永続化します。
+会話内で Agent がメンションされると Signal が生成されます。それだけでなく、スケジュール時刻の到来、外部イベント、check-back、バックグラウンドタスクの完了通知もすべて Signal として扱われます。`Ankole.Signals` は実行セッションを起こす前に、発生元（source）、イベント ID、宛先、帰属情報、認可コンテキストを PostgreSQL に永続化します。
 
-ネイティブの発言とその signal は同じトランザクションでコミットされます。受付時に `(Agent, source, id)` で重複を除きます。後続のすべての操作が 1 回だけ実行される保証ではありません。
+Pod ネイティブの発言とそこから派生する Signal は、同一トランザクション内でコミットされます。受け付け時には `(Agent, source, id)` の組み合わせで重複排除を行いますが、これは受信イベントの重複登録を防ぐものであり、後続のすべての外部処理が厳密に 1 回だけ実行されることまでを意味するものではありません。
 
-signal は実行セッションを直接指定できます。指定がなければ、会話への参加関係または Signal Routing Rule が宛先を選びます。会話ホストのアダプターは発言を観測し、返信を配送します。イベントソースのアダプターは signal だけを生成します。Automation Job は機械的な検査を行い、判断が必要なときに親の実行セッションへ signal を送ります。[Automation Jobs](../automation-jobs/) を参照してください。
+Signal には宛先の実行セッションを直接指定でき、指定がない場合は会話の参加関係または Signal Routing Rule に従って宛先が決まります。チャット連携アダプターは会話の発言を観測しつつ Agent の返信を配送しますが、イベントソース型のアダプターは Signal の生成だけを行います。また、Automation Job は定型的なチェックを機械的に実行し、AI による判断が必要になったときだけ親の実行セッションへ Signal を送ります。詳しくは [Automation Jobs](../automation-jobs/) を参照してください。
 
 ### Sessions は作業を実行して復旧する
 
-`Ankole.Sessions` はキュー、Admission、Driver、Run、ツール、復旧を所有します。1 つの実行セッションは同時に 1 つの Run を実行します。開始のたびに Admission がテナント、Agent の状態、認可、使用量制限を確認します。
+`Ankole.Sessions` は待機キュー、Admission（受け入れ判定）、Driver、Run、ツール実行、および障害復旧を一貫して管理します。1 つの実行セッションで同時に動く Run は常に最大 1 つであり、実行開始のたびに Admission がテナント状態、Agent の有効状態、認可、クォータ上限を検証します。
 
-各 Agent は会話内で独自の実行セッションを持ち、その作業を会話の全参加者が閲覧できます。対話型のターンおよび人間を起点とするターン — 人間の発言で起動した `may_intervene` ターンを含む（Agent のメッセージが他の Agent を起こすことはありません）— は **`Human ∩ Agent` の権限交差**（`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`）のもとで実行され、人間と Agent の両方がアクセス権を持つ必要があります。対話する人間を伴わない自律的な非人間ターン（`cron`、`webhook`、バックグラウンドサービスのトリガー）は Agent 自身の権限で実行されます。
+会話に参加している各 Agent は、その会話専用の実行セッションを持ち、そこでの応答結果は会話の全参加者に共有されます。対話型のターンおよび人間を起点とするターン（人間の発言をきっかけに起動した `may_intervene` ターンを含む。なお Agent の発言が他の Agent を起こすことはありません）は、**`Human ∩ Agent` の権限交差**（`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`）のもとで実行されます。つまり、人間と Agent の双方がアクセス権を持つリソースにしかアクセスできません。一方、対話相手となる人間が存在しない自律ターン（`cron`、`webhook`、バックグラウンドサービスのトリガーなど）は、Agent 自身の権限で実行されます。
 
-cron 規則とバックグラウンドタスクは独立した実行セッションを持ち、結果を対象の会話に発言します。会話の次のターンは新しい発言を読み込み、他の実行セッションの内部作業は取り込みません。
+cron スケジュールやバックグラウンドタスクはそれぞれ独立した実行セッションを持ち、完了した結果だけを目的の会話へ発言として投稿します。その後、会話側で始まる次のターンでは投稿された発言だけを読み込み、別セッションの内部作業ログまでは取り込みません。
 
-AIGateway はモデル状態を保存して継続します。ランタイムは入力、指示、ツール、継続、圧縮を決めます。Driver の PostgreSQL epoch は古い書き込みを拒否します。復旧はコミット済みの進捗から続きます。モデル呼び出しは繰り返す場合があります。記録済みのツール結果は再利用し、結果が不明な呼び出しは中断として報告します。
+モデルの状態保存と継続は AIGateway が担当し、入力の組み立て、指示文、使用可能なツール、継続条件、コンテキスト圧縮はランタイムが決定します。Driver は PostgreSQL 上の epoch を使って古いプロセスからの書き込みを拒否します。障害発生時はコミット済みの地点から処理を再開するため、モデル呼び出し自体は再実行される場合がありますが、記録済みのツール結果は再利用され、結果が確定しない呼び出しは中断（`interrupted`）として報告されます。
 
 ### Presentation と Delivery は可視の結果をコミットする
 
-Presentation は可視の返信を 1 回だけ決定します。ネイティブの返信は完了トランザクション内で発言になります。silent turn は発言しません。外部の返信は永続的な Delivery 意図を作り、アダプターが送信します。
+ターンの最後にユーザーへ見せる返信内容は、Presentation 層で 1 回だけ確定されます。Pod ネイティブの返信は、ターン完了と同一のトランザクション内でそのまま会話の発言レコードとして書き込まれます（silent turn の場合は発言を作成しません）。外部チャネル向けの返信では、まず永続的な Delivery レコード（送信意図）を作成し、それをもとにアダプターが外部プラットフォームへ送信します。
 
-外部プラットフォームが成功を確認したら、配送成功を記録する同じトランザクションで発言を保存します。その後の同じメッセージ ID のイベントは同じ発言に統合されます。失敗、期限切れ、結果不明の配送は発言を作りません。結果不明の送信を無条件に繰り返しません。
+外部プラットフォーム側で送信成功が確認されたら、配送完了を記録するトランザクションの中で会話の発言レコードを保存します。後から同じ外部メッセージ ID の Webhook イベントが届いた場合は、その既存の発言レコードへ統合されます。一方、送信失敗・期限切れ・結果不明となった Delivery からは発言レコードを作らず、結果が確定しない送信を無条件に自動再送することもありません。
 
-ストリームのテキストは進捗であり、発言のコミット後に会話履歴となります。切断後はコミット済み履歴と実行状態を読み直し、途中のストリームは再送しません。
+なお、ストリーミング中のテキスト表示はあくまでリアルタイムの進捗表示であり、正式な会話履歴になるのは発言がコミットされた時点です。通信切断後の再接続時にはコミット済みの履歴と現在の実行状態を読み直し、途中のストリーム断片を再送することはありません。
 
-設計の選択、コスト、ソースを確認した比較は[会話、シグナル、実行セッション](../conversations-signals-sessions/)を参照してください。
+設計上のトレードオフや他方式との比較については、[会話、シグナル、実行セッション](../conversations-signals-sessions/)を参照してください。
 
 ## Brain: 現在の状態を保つ世界モデル
 
-Brain はチャットの抜粋を詰め込んだベクトルデータベースではありません。変化し続ける世界の見取り図を維持します。新しい証拠は以前の Claim を補足、修正、または置換できます。証拠が矛盾する場合、Dreaming は人が確認できる記録を作り、関連する Claim を密かに書き換えません。
+Brain は、チャットの断片をそのまま詰め込んだ単なるベクトルデータベースではありません。刻々と変化する組織や業務の「現在の世界モデル」を維持する仕組みです。新しい事実や証拠が入ってくれば、既存の Claim（知識の主張）を補足・修正したり、新しい結論で置き換えたりできます。もし既存の知識と矛盾する証拠が見つかった場合でも、Dreaming 処理は関連する Claim を密かに上書きするのではなく、人間が確認・判断できる形で矛盾の記録を残します。
 
-知識は、Agent との会話、対象となるグループ内で誰も Agent に宛てなかったメッセージ、登録済みのファイルまたは URL Source から得られます。
+知識の情報源となるのは、Agent との直接の会話、対象グループ内でメンションなしに交わされた発言、そして登録されたファイルや URL Source です。
 
-同じテナントの Agent が知識空間を共有し、テナント間の知識空間は分離されます。保護された本文、Claim、Timeline イベントは、`world`、権限グループ、または 1 つの Principal の開示範囲を持ちます。Source と外部の会話は出所を記録しますが、学習した知識へのアクセス権を付与しません。
+同一テナント内の Agent は同じ知識空間を共有し、異なるテナント間では完全に分離されます。保護された本文、Claim、Timeline イベントにはそれぞれ `world`（テナント全体）、特定の権限グループ、または単一の Principal という開示範囲（audience）が設定されます。なお、Source や外部会話のリンクは知識の出所を示すための記録であり、そこから学習された知識へのアクセス権を自動的に広げるものではありません。
 
-ターンの間、統合された想起が現在の仕事に必要な長期コンテキストを供給します。オフラインの Dreaming は新しい証拠を整理し、パターンを見つけ、以前の予測を採点し、確認が必要な矛盾を示します。
+各ターンの実行中には、統合された想起（recall）機構が現在の作業に関連する長期コンテキストを供給します。そして非同期のオフライン処理である Dreaming が、新しく集まった証拠の整理、パターンの抽出、過去の予測の採点、および人間による確認が必要な矛盾の洗い出しを行います。
 
-[Brain](../brain/) は「世界が今どのような状態か」を担います。[Skill Lessons](../skill-lessons/) は、繰り返し現れる作業証拠から Agent が学んだ手順上のガードレールを保存します。対応する Skill と共に提示されますが、Skill のソースは書き換えません。適用できなくなった Lesson は退役します。
+このように、[Brain](../brain/) は「いま世界がどうなっているか」という事実知識を担います。これに対し、繰り返しの作業経験から Agent が学んだ手順上の注意点やガードレールを保持するのが [Skill Lessons](../skill-lessons/) です。Skill Lesson は元の `SKILL.md` を書き換えることなく該当 Skill の読み込み時にあわせて提示され、状況が変わって通用しなくなれば廃止（retire）されます。
 
-この構造は、Agent が時間とともにチームの規則を学ぶというホームページ上の約束を実現します。蓄積は、より長い log を意味しません。次の Job がより良い知識とより良い方法から始まることを意味します。
+「使い続けるほど Agent がチームの流儀やルールを身につけていく」という Ankole の特徴は、この二層構造によって支えられています。経験の蓄積とは、単に過去のログが長くなることではありません。次の仕事に取りかかるときに、より正確な前提知識とより洗練された手順を備えた状態から始められるということです。
 
-ユーザーから見えるのはこの仕組みの長期記憶であり、保存、Dreaming、書き込み権限は Brain が担います。
+ユーザーからは一貫した「長期記憶」として見えますが、その裏側にある永続化、Dreaming、書き込み権限の制御はすべて Brain が管理しています。
 
 ## Background Agent Job: メイン session をブロックしない長時間の仕事
 
-メイン Agent は、調査、データ分析、file 作業、code 変更、Deep Research を Background Agent Job に委任できます。メイン session は利用可能なまま、ユーザーとの会話を続けられます。
+時間のかかる調査、データ分析、ファイル処理、コード変更、Deep Research などは、メイン Agent から Background Agent Job へ委任できます。これにより、メインの実行セッションはブロックされることなく、そのままユーザーとの会話を続けられます。
 
-control plane は Job の lifecycle を保存します。インスタンス置換後は永続 Home の workspace と Codex スレッドから再開します。PostgreSQL は受け付けた作業と復旧状態を保持します。
+Job のライフサイクルは control plane が永続管理します。たとえ Worker インスタンスが途中で置き換えられても、永続 Home 上の workspace と Codex スレッドから処理を再開でき、受け付け済みの作業内容と復旧状態は PostgreSQL に保持されます。
 
-メイン Agent と Job は通信を続けられます。Job は input を求めたり、失敗や最終結果を返したり、要求されれば沈黙を保ったりできます。人を待つ間は実行 slot を解放し、回答が届いてから再開します。
+また、メイン Agent と稼働中の Job は双方向にやり取りを続けられます。Job 側から追加の指示や確認を求めたり、エラーや最終成果物を返したり、指示に応じて静かにバックグラウンドで完了させたりできます。人間の回答を待っている間は Worker の実行 slot を解放し、回答が届いた時点で再開します。
 
-Deep Research はこの architecture の高度な利用法です。Agent Plugin が workspace template を提供し、Skill が調査方法を提供し、Background Agent Job が durable な実行を提供します。
+Deep Research は、このアーキテクチャを組み合わせた代表的な応用例です。Agent Plugin が調査用の workspace テンプレートを用意し、Skill が調査手法を定義し、Background Agent Job が中断に強い長時間実行を支えます。
 
-Job の workspace は永続 Home に残ります。Worker の外で使う調査資料と成果物は、Agent がコントロールプレーンのドライブに公開します。
+作業中のファイルは永続 Home 内の Job workspace に置かれ、Worker の外へ共有したい調査資料や最終成果物だけを Agent が control plane のドライブへ公開します。
 
-[Background Agent Jobs](../background-jobs/) と [Deep Research](../deep-research-job/) を参照してください。
+詳しくは [Background Agent Jobs](../background-jobs/) および [Deep Research](../deep-research-job/) を参照してください。
 
 ## AIGateway: AI 能力のための 1 つの境界
 
-AIGateway は model の能力を Agent の実行から分離します。メイン Agent、Job、Brain、外部 API client は、LLM、embedding、rerank、画像、Web Search、Web Fetch Provider に対して同じ境界を使います。
+AIGateway は、モデルの呼び出し基盤を Agent の実行ロジックから切り離す統一境界です。メイン Agent、Background Agent Job、Brain、そして外部 API クライアントはすべて、LLM、embedding、rerank、画像生成、Web Search、Web Fetch の各 Provider に対してこの同じ境界を通ります。
 
-Agent の model profile が実行モデルを選択します。各テナントが選ぶ Brain maintainer Agent の `light`、`heavy`、`web_fetch` profile が Brain の作業を担当します。サイトの AppConfigure が embedding モデルを、テナントの AppConfigure が rerank モデルを選択します。control plane は Provider credential を暗号化して保存し、AIGateway が上流への request に使用します。
+通常の実行モデルは各 Agent のモデルプロファイルで決まります。Brain の内部処理には、テナントごとに指定された Brain maintainer Agent の `light`、`heavy`、`web_fetch` プロファイルが使われます。また、embedding モデルはサイト単位の AppConfigure で、rerank モデルはテナント単位の AppConfigure で選択します。Provider の認証情報はすべて control plane が暗号化して保管し、AIGateway が上流へリクエストを送るときにのみ復号して使用します。
 
-Agent と Worker が受け取るのは、使用できる model の選択と呼び出し結果だけです。
+そのため、Agent や Worker に渡されるのは「利用可能なモデルセレクター」と「呼び出し結果」だけであり、生の API キーが渡ることはありません。
 
-AIGateway は、履歴を保存しない呼び出しと、継続できる モデルセッション状態の両方をサポートします。request の変換、stream event、tool の結果、context の圧縮、使用量記録、最終結果のコミットを担います。
+AIGateway は、履歴を持たない単発呼び出しと、文脈を継続できるステートフルなモデルセッションの両方をサポートし、リクエスト変換、ストリームイベント配信、ツール実行結果の反映、コンテキスト圧縮、使用量集計、最終結果のコミットまでを一括して担います。
 
-Worker は Provider ごとに個別の lifecycle を実装しません。
+したがって、Worker 側で Provider ごとの個別仕様やライフサイクルを実装する必要はありません。
 
-tool catalog が大きい場合、model は Tool Search で tool をオンデマンドに検索するか、Programmatic Tool Calling によって多数の tool を呼び出して結果だけを返す 1 つの program を提出できます。AIGateway と Workflow は、ステートレスな `ankole-function-runtime` の isolate（`POST /v1/program/run`）で決定論的な TypeScript プログラムを実行します。ネイティブ対応の Provider はネイティブ呼び出しをそのまま透過させ、AIGateway はそれ以外のすべての Provider に対して gateway 内で同じ能力を提供します。1 つの Provider は複数の credential を pool として保持することもでき、ChatGPT サブスクリプションのような account credential も含まれます。失敗の帰属、retry、使用量記録は credential 単位で残ります。
+利用可能なツール数が多い場合、モデルは Tool Search を使って必要なツールだけをオンデマンドで検索したり、Programmatic Tool Calling によって「複数のツールを連続実行して最終結果だけを返す TypeScript プログラム」を 1 回で提出したりできます。AIGateway と Workflow は、ステートレスな `ankole-function-runtime` の isolate（`POST /v1/program/run`）上でこれらの決定論的なプログラムを実行します。上流 Provider がネイティブ対応していればネイティブ呼び出しを透過し、対応していない Provider に対しても AIGateway 側で同等の機能を提供します。また、1 つの Provider に複数の認証情報をプールとして登録することもでき（ChatGPT サブスクリプションなどのアカウント認証情報を含む）、エラー時のクールダウン、リトライ、使用量記録はすべて個々の認証情報単位で管理されます。
 
-[AIGateway](../ai-gateway/) と [LLM Provider の追加](../adding-a-provider/) を参照してください。
+詳しくは [AIGateway](../ai-gateway/) および [LLM Provider の追加](../adding-a-provider/) を参照してください。
 
 ## エンタープライズ Identity、アクセス、拡張
 
-Ankole は、人、Agent、システムサービスを Principal として表します。Pod と Console にわたる統合パスワードレス認証により、個人の `SiteCredential` Email OTP とテナントのエンタープライズ Identity Provider（OIDC/OAuth SSO と組織ディレクトリ同期）がパスワードを保存せずにワークスペースメンバーと管理者を認証します。
+Ankole では、人間、Agent、システムサービスのすべてを統一的に Principal として表現します。Pod と Console にまたがる統合パスワードレス認証により、個人向けの `SiteCredential` Email OTP とテナント単位のエンタープライズ Identity Provider（OIDC/OAuth SSO および組織ディレクトリ同期）を通じて、パスワードを一切保存せずにワークスペースメンバーと管理者を認証します。
 
-chat channel が message を送受信します。これらの Provider は異なる platform を使えます。
+一方、外部チャットとのメッセージ送受信は Channel Provider が担当します。Identity 用とチャット用で異なるプラットフォームを組み合わせることも可能です。
 
-AuthZ は実行時に、Principal、permission group、resource、action、condition から判定します。アクセスは prompt の中の 1 文ではなく、model が permission を持っていると宣言することもできません。
+権限判定はすべて実行時に AuthZ が行い、Principal、permission group、対象リソース、アクション、条件式にもとづいて評価します。アクセス制御をプロンプト内の注意書きに頼ることはなく、モデル自身が勝手に権限を主張して通ることもありません。
 
-コンパイル時に組み込まれるサイトスコープの Control Plane Plugin は、サブシステムアダプター（Signals、Identity Provider、AI Gateway provider、Worker provider）、監視対象の OTP プロセス、外側の HTTP plug、スコープ付き拡張 JSON:API ルート、ドメイントランザクションフック、`AppConfigure` 設定フィールド、および型付き UI スロットを提供します。Agent Plugin は tool と workspace template を追加します。
+拡張機能として、コンパイル時に組み込まれるサイトスコープの Control Plane Plugin は、各種サブシステムアダプター（Signals、Identity Provider、AI Gateway provider、Worker provider）、監視対象の OTP プロセス、外側の HTTP plug、スコープ付きの拡張 JSON:API ルート、ドメイントランザクションフック、`AppConfigure` の設定キー、および型付き UI スロットを提供できます。また、Agent Plugin はツールや workspace テンプレートを追加します。
 
-Skill は、ある種の仕事のやり方を説明し、メイン Agent または Background Agent Job に限定できます。
+Skill は特定業務の進め方を記述したパッケージであり、メイン Agent 専用または Background Agent Job 専用に絞って公開することもできます。
 
-外部の MCP server は Skill を通じて入ります。Skill が接続を宣言し、Worker が実行ごとの configuration を生成して実行終了時に削除するため、model がすべての MCP tool の常駐リストに直面することはありません。
+外部の MCP サーバーも Skill を経由して統合されます。Skill 側で接続設定を宣言すると、Worker が実行のたびに一時的な構成ファイルを生成して終了時に破棄するため、モデルが常時大量の MCP ツール定義に圧迫されることはありません。
 
-[Principal と permission group](../principal-and-groups/)、[signal routing rule](../signal-bindings/)、[Agent Library](../skills/)、[MCP server リファレンス](../mcp/) を参照してください。
+詳しくは [Principal と permission group](../principal-and-groups/)、[signal routing rule](../signal-bindings/)、[Agent Library](../skills/)、[MCP server リファレンス](../mcp/) を参照してください。
 
 ## Durability の境界
 
-PostgreSQL 18+ の control-plane データベースは、identity、access、configuration、Pod のメタデータとドキュメント、message、session、Job、memory、delivery state、audit 記録などの durable な domain 事実を保存し、物理 **Base シャードデータベース（`BASE_DB_URLS`）** がテナントの Base テーブル行を保存します。ポイントインタイムリカバリ（PITR）では、すべての Base シャードの復旧目標時刻が control-plane データベースの復旧目標時刻以上（`>=`）でなければなりません。システムが結果をコミットしたかどうかの判断には、これらの PostgreSQL 記録を使います。
+PostgreSQL 18+ の control-plane データベースには、Identity、アクセス権、システム設定、Pod のメタデータとドキュメント、会話メッセージ、セッション、Job、長期記憶、配送状態、監査証跡といった永続的なドメイン事実が格納されます。一方、テナントの Base テーブルの実レコードは物理 **Base シャードデータベース（`BASE_DB_URLS`）** に格納されます。ポイントインタイムリカバリ（PITR）を行う際は、すべての Base シャードの復旧目標時刻が control-plane データベースの復旧目標時刻以上（`>=`）になっていなければなりません。システムがある処理をコミット済みとみなすかどうかは、すべてこれらの PostgreSQL レコードによって決まります。
 
-オブジェクトストア（control plane のファイルストア）は、Pod ファイル、Pod と会話の添付ファイル、コンパイル済み Applet バンドル、公開ファイル、Skill、Automation スクリプトを保持します。永続 Home は workspace、ユーザーパッケージ、Codex スレッドを別に保持します。control-plane の PostgreSQL データベース、すべての物理 Base シャードデータベース、オブジェクトストア、全 Home、元の暗号化キーを一緒にバックアップします。
+オブジェクトストア（control plane のファイルストア）には、Pod ファイル、Pod や会話の添付ファイル、コンパイル済み Applet バンドル、公開ファイル、インストール済み Skill、Automation スクリプトが保存されます。これとは別に、各 Worker の永続 Home が作業用 workspace、ユーザーパッケージ、Codex スレッドを保持します。バックアップを取得する際は、control-plane の PostgreSQL データベース、すべての物理 Base シャードデータベース、オブジェクトストア、全 Agent の永続 Home、および元の暗号化キーを必ずセットで保護してください。
 
-RuntimeFabric、`ankole-function-runtime` の isolate、Worker プロセス、ストリーム表示、`/var/cache/ankole` はステートレスまたは再作成可能です。永続 Home はインスタンス削除後も残し、ストレージバックアップが必要です。[バックアップとリストア](../backup-and-restore/)を参照してください。
+これに対し、RuntimeFabric、`ankole-function-runtime` の isolate、Worker プロセス、ストリーミング表示、`/var/cache/ankole` はいずれもステートレスまたは再生成可能なキャッシュです。永続 Home はインスタンス削除後も残る永続領域であるため、ストレージのバックアップ対象に含める必要があります。詳しくは[バックアップとリストア](../backup-and-restore/)を参照してください。
 
 ## 3 つの deployment 形態
 
 | 形態 | control plane、Function Runtime、Worker | 永続化 |
 | --- | --- | --- |
-| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux、macOS、Windows ホストが control plane と `ankole-function-runtime` を実行し、control plane が Agent ごとに Docker socket を通じて 1 台の Worker container を作成 | PostgreSQL 18+（および設定された `BASE_DB_URLS` シャード）、オブジェクトストア、Agent ごとの専用永続 Home volume |
-| **Kubernetes · エンタープライズ deployment 向け推奨** | Helm デプロイメントが control plane と `ankole-function-runtime` の Deployment を実行し、control plane が Agent ごとに Kubernetes API を通じて 1 つの Worker Pod を作成 | PostgreSQL 18+ と物理 Base シャードデータベース、オブジェクトストア、Home PVC または共有ストレージ。キャッシュは別 volume |
-| **ソースインストール** | `bun run services:start` が PostgreSQL 18 と `ankole-function-runtime` を起動し、`bun dev` が control plane を実行して Agent ごとに Docker の Worker container を watch モードで作成 | PostgreSQL 18、`var/ankole-dev/files`、専用 Docker 永続 Home volume |
+| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux / macOS / Windows ホスト上で control plane と `ankole-function-runtime` を動かし、control plane が Docker ソケット経由で Agent ごとに 1 台の Worker コンテナを起動 | PostgreSQL 18+（および設定された `BASE_DB_URLS` シャード）、オブジェクトストア、Agent ごとの専用永続 Home ボリューム |
+| **Kubernetes · エンタープライズ deployment 向け推奨** | Helm チャートで control plane と `ankole-function-runtime` の Deployment を稼働させ、control plane が Kubernetes API 経由で Agent ごとに 1 つの Worker Pod を起動 | PostgreSQL 18+ と物理 Base シャードデータベース、オブジェクトストア、Home 用 PVC または共有ストレージ（キャッシュは別ボリューム） |
+| **ソースインストール** | `bun run services:start` で PostgreSQL 18 と `ankole-function-runtime` を起動し、`bun dev` で control plane を実行して Agent ごとに Docker の Worker コンテナを watch モードで起動 | PostgreSQL 18、`var/ankole-dev/files`、専用の Docker 永続 Home ボリューム |
 
-論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、control plane が各 Agent に専用の Worker を用意します。完全な手順は [クイックスタート](../quickstart/#deployment) を参照してください。
+どのデプロイ形態を選んでも、論理的な責務境界はまったく同じです。インスタンス内に 1 つの論理 control plane があり、その control plane が各 Agent に専用の Worker を用意します。具体的な構築手順については、[クイックスタート](../quickstart/#deployment)を参照してください。
 
 ## 5 つの技術的判断
 
 | 判断 | 解決する問題 |
 | --- | --- |
-| **Virtual Actor が AI の仕事を担う** | 各 session に address、mailbox、lifecycle、recovery position を与える |
-| **OTP supervision tree が failure domain を定義する** | instance 全体を失敗させずに、1 つの Agent または connection の branch を復旧する |
-| **Phoenix Channel がライブ制御を運ぶ** | Agent の実行中に wakeup、steering、進捗、backpressure を運ぶ |
-| **Agent Computer Worker が実行を提供する** | 各 Agent に、tool、file、terminal、browser、Codex のための専用コンピュータを与える |
-| **PostgreSQL の ledger が事実を保存する** | message、Job、memory、決定、コミット済み操作を再開可能かつ audit 可能にする |
+| **Virtual Actor が AI の仕事を担う** | 各セッションに固有のアドレス、メールボックス、ライフサイクル、復旧地点を与える |
+| **OTP supervision tree が failure domain を定義する** | インスタンス全体を停止させずに、問題が起きた Agent や接続のブランチだけを個別に復旧する |
+| **Phoenix Channel がライブ制御を運ぶ** | Agent の実行中に wakeup、steering、進捗通知、バックプレッシャーを低遅延で伝える |
+| **Agent Computer Worker が実行を提供する** | 各 Agent にツール、ファイル、ターミナル、ブラウザー、Codex 用の専用コンピュータ環境を与える |
+| **PostgreSQL の ledger が事実を保存する** | メッセージ、Job、記憶、意思決定、コミット済み操作を再開可能かつ監査可能にする |
 
-これらの判断は 1 つの結果を支えます。Agent は数時間働き、実行中に新しい情報を受け取り、独立して失敗と復旧を行い、コミットされた各 action の痕跡を残せます。
+これら 5 つの設計判断が組み合わさることで、「Agent が数時間にわたって作業を続け、実行中も新しい情報を受け取り、障害が起きても個別に復旧し、コミットしたすべてのアクションの証跡を残す」という一連の動作が成り立っています。
 
-より詳しい runtime の議論は、<a href="https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか</a> をお読みください。
+ランタイム選定の背景にある詳しい議論については、<a href="https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか</a>をお読みください。

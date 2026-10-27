@@ -10,7 +10,6 @@ import { createFindTool } from '../src/tools/computer/find-tool'
 import { createGrepTool } from '../src/tools/computer/grep-tool'
 import { createLsTool } from '../src/tools/computer/ls-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
-import { FakeDrive } from './support/fake-drive'
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
   const part = result.content[0]
@@ -23,7 +22,6 @@ function searchContext(agentHome: string, workspaceRoot: string, computer?: Cont
   return {
     agentHome,
     workspaceRoot,
-    drive: new FakeDrive(agentHome).drive(),
     computer: computer ?? {
       runCommand: async () => {
         throw new Error('computer is not part of this test')
@@ -224,10 +222,9 @@ it('finds and greps the Agent Home when it is the process home directory', async
   const script = `
     import { createComputerTools } from './src/tools/computer/index.ts'
     import { fffSearchRuntime } from './src/tools/computer/fff-search.ts'
-    import { FakeDrive } from './test/support/fake-drive.ts'
     const agentHome = process.env.HOME
     const workspaceRoot = process.env.ANKOLE_SEARCH_TEST_WORKSPACE
-    const tools = createComputerTools({ agentHome, workspaceRoot, drive: new FakeDrive(agentHome).drive() })
+    const tools = createComputerTools({ agentHome, workspaceRoot })
     try {
       await fffSearchRuntime.acquire(workspaceRoot)
       const find = tools.find(tool => tool.name === 'find')

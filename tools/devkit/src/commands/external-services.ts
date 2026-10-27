@@ -1,6 +1,7 @@
 import { defineCommand } from '@crustjs/core'
 
-import { runCompose, startComposeServices } from '../utils'
+import { prefetchFunctionRuntimeImage, startComposeServices } from '../local-function-runtime-image'
+import { runCompose } from '../utils'
 
 export function externalServicesCommand() {
   return defineCommand(
@@ -63,7 +64,10 @@ export function externalServicesCommand() {
           child.action(() => runCompose(['ps']))
         ),
         defineCommand('pull', { description: 'Pull latest service images.' }, child =>
-          child.action(() => runCompose(['pull']))
+          child.action(async () => {
+            await runCompose(['pull', '--ignore-buildable'])
+            await prefetchFunctionRuntimeImage()
+          })
         ),
         defineCommand('logs', { description: 'Show Compose service logs.' }, child =>
           child.action(() => runCompose(['logs']))

@@ -5,20 +5,20 @@ section: Reference
 order: 202
 ---
 
-These are startup variables for PostgreSQL, Pod Base shards, `ankole-function-runtime`, deployment secrets, the object store, and process settings. Worker provider settings are stored in PostgreSQL as YAML.
+This reference lists the startup environment variables read by the control plane and Agent Computer Worker for PostgreSQL, Pod Base shards, `ankole-function-runtime`, deployment secrets, the object store, and process tuning. Worker provider configurations live in PostgreSQL as YAML rather than environment variables.
 
-See [Application configuration](../app-configuration/) for runtime settings that an administrator can change while the instance runs. Do not put those settings in `.env` or a Kubernetes Secret.
+For dynamic settings that operators can change while Ankole is running, see [Application configuration](../app-configuration/)—do not place `AppConfigure` keys in `.env` or a Kubernetes Secret.
 
 ## Bootstrap and secrets (process start)
 
-These must exist before the control plane starts. Set them in `.env` for Docker Compose, or in the Secret that the Helm chart reads.
+Provide these variables before starting the control plane—either in `.env` for Docker Compose or in the bootstrap Secret referenced by the Helm chart:
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `DATABASE_URL` | yes (`prod`) | PostgreSQL 18+ connection string for the control plane (`Ankole.Repo`) |
-| `BASE_DB_URLS` | no | Optional `;`-separated PostgreSQL 18+ URLs for physical Pod Base shards (`Ankole.Pod.BaseRepo`), supporting query parameters `ankole_sharding`, `ankole_pool_size`, and `ankole_stock_only`. Defaults to `DATABASE_URL` as `base_default` when unset in single-database FOSS deployments; rejects `sslmode` |
+| `BASE_DB_URLS` | no | Optional `;`-separated PostgreSQL 18+ URLs for physical Pod Base shards (`Ankole.Pod.BaseRepo`), supporting query parameters `ankole_sharding`, `ankole_pool_size`, and `ankole_stock_only`. Defaults to `DATABASE_URL` as `base_default` when unset in single-database FOSS deployments; Ankole rejects `sslmode` in these URLs |
 | `ANKOLE_SECRET_BASE` | yes (`prod`) | Site-wide secret base used to derive encryption and signing keys |
-| `RELEASE_COOKIE` | yes (`prod`) | Distributed Erlang cookie shared by every control-plane node of the deployment |
+| `RELEASE_COOKIE` | yes (`prod`) | Distributed Erlang cookie shared by every control-plane node in the deployment |
 | `ANKOLE_FUNCTION_RUNTIME_TOKEN` | yes (`prod`) | Shared bearer secret between the control plane and `ankole-function-runtime` |
 | `ANKOLE_FUNCTION_RUNTIME_URL` | yes (`prod`) | Internal HTTP URL of `ankole-function-runtime` (for example `http://function-runtime:9000` in Compose or the headless Service URL in Kubernetes) |
 | `POSTGRES_PASSWORD` | bundled PostgreSQL only | PostgreSQL password (required when bundled PostgreSQL is enabled; supplied through `DATABASE_URL` or an external Secret otherwise) |
@@ -26,15 +26,13 @@ These must exist before the control plane starts. Set them in `.env` for Docker 
 | `ACME_EMAIL` | Compose | Email address that Caddy uses for Let's Encrypt |
 | `ANKOLE_DOCKER_GID` | Compose | Group ID of the Docker socket; the control plane runs as an unprivileged user and accesses the socket through this group |
 
-Keep secret values in `.env` or a Kubernetes Secret, and never commit them to version control. The Docker Compose `.env.example` provides the starting configuration.
+Keep secret values inside `.env` or a Kubernetes Secret and never commit them to version control (the Docker Compose `.env.example` file shows the expected template). Workers require no static key in `.env` or the bootstrap Secret because the control plane mints a unique credential per Worker generation.
 
-Workers require no static key in `.env` or the bootstrap Secret: the control plane generates a unique credential for each Worker generation.
-
-The Helm chart `values.yaml` maps these settings under `secrets.ankoleSecretBase`, `secrets.releaseCookie`, `secrets.functionRuntimeToken`, `secrets.databaseURL`, `secrets.baseDBURLs`, `secrets.postgresqlPassword`, `controlPlane.siteAdminConsolePath`, and `functionRuntime.*`.
+In the Helm chart's `values.yaml`, these settings map to `secrets.ankoleSecretBase`, `secrets.releaseCookie`, `secrets.functionRuntimeToken`, `secrets.databaseURL`, `secrets.baseDBURLs`, `secrets.postgresqlPassword`, `controlPlane.siteAdminConsolePath`, and `functionRuntime.*`.
 
 ## Runtime tuning (process environment)
 
-These variables are read at process start and tune the control plane or `ankole-function-runtime`. They are not secrets.
+Ankole reads these non-secret tuning variables at process startup for the control plane and `ankole-function-runtime`:
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -48,78 +46,68 @@ These variables are read at process start and tune the control plane or `ankole-
 | `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` | `32` | Maximum concurrent isolate executions per `ankole-function-runtime` container |
 | `ANKOLE_LIBRARY_ROOT` | chart default | Path to the shipped Agent Library (`app/library`) |
 | `ANKOLE_INTERNAL_SKILLS_ROOT` | — | Path to internal Skill bundles |
-| `ANKOLE_AI_GATEWAY_BASE_URL` | — | Override the AIGateway base URL when Workers reach AIGateway through an explicit internal address |
+| `ANKOLE_AI_GATEWAY_BASE_URL` | — | Overrides the AIGateway base URL when Workers reach AIGateway through an explicit internal address |
 
 ## File store (process start)
 
-`ANKOLE_FILES_STORE` configures `Ankole.ObjectStore`, which stores each Agent's drive (attachments, generated images, sent files, installed Skills, Automation Job scripts, and saved files) together with Pod `file` pages, Pod document/Base/Chat attachments, and compiled Applet bundles. Workers never receive storage credentials; file bytes pass through the control plane. See [Control-plane drive and object storage](../drive-storage/) for all supported OpenDAL backends (`fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`).
+`ANKOLE_FILES_STORE` configures `Ankole.ObjectStore`, which backs each Agent's drive (attachments, generated images, sent files, installed Skills, Automation Job scripts, and saved files) along with Pod `file` pages, Pod document/Base/Chat attachments, and compiled Applet bundles. Workers never receive object-store credentials; all file bytes stream through the control plane. See [Control-plane drive and object storage](../drive-storage/) for all supported OpenDAL backends (`fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`).
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `ANKOLE_FILES_STORE` | yes | `fs` for a directory on a persistent control-plane volume, or `s3` for Amazon S3 or an S3-compatible store such as Cloudflare R2 |
-| `ANKOLE_FILES_FS_ROOT` | `fs` | the absolute directory of the store; Docker Compose uses the `files_data` volume at `/var/lib/ankole/files` |
-| `ANKOLE_FILES_S3_BUCKET` | `s3` | the bucket |
-| `ANKOLE_FILES_S3_REGION` | `s3` | the region; Cloudflare R2 uses `auto` |
-| `ANKOLE_FILES_S3_ENDPOINT` | no | the endpoint of an S3-compatible store |
-| `ANKOLE_FILES_S3_ROOT` | no | a key prefix inside the bucket |
-| `ANKOLE_FILES_S3_ACCESS_KEY_ID`, `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | no | static credentials; without them the default AWS credential chain applies, including EKS Pod Identity |
+| `ANKOLE_FILES_FS_ROOT` | `fs` | Absolute directory path of the store; Docker Compose mounts the `files_data` volume at `/var/lib/ankole/files` |
+| `ANKOLE_FILES_S3_BUCKET` | `s3` | Target S3 bucket name |
+| `ANKOLE_FILES_S3_REGION` | `s3` | Bucket region (`auto` for Cloudflare R2) |
+| `ANKOLE_FILES_S3_ENDPOINT` | no | Custom endpoint URL for an S3-compatible store |
+| `ANKOLE_FILES_S3_ROOT` | no | Object-key prefix inside the bucket |
+| `ANKOLE_FILES_S3_ACCESS_KEY_ID`, `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | no | Static S3 credentials; when omitted, Ankole uses the default AWS credential chain (including EKS Pod Identity) |
 
-An `fs` store allows one control-plane replica. Use `s3` when more than one control-plane replica runs.
-
-A large `s3` write is a multipart upload. If the control plane stops during the upload, the parts stay in the bucket, so give the bucket a lifecycle rule that aborts incomplete multipart uploads.
+Use `fs` only with a single control-plane replica, and switch to `s3` (or another shared remote backend) whenever multiple control-plane replicas run. Because large `s3` writes use multipart uploads that leave orphaned parts if the control plane stops mid-transfer, configure a bucket lifecycle rule to abort incomplete multipart uploads.
 
 ## Worker Provider bootstrap
 
-These startup values identify this deployment and the target Worker image. Configure each provider in **Console → Workers → Providers** with YAML and separate encrypted credentials. The provider type, location, and persistent storage cannot change after creation. Instance settings take effect when the Agent is idle.
+These startup variables identify the deployment and default Worker image. You configure individual Worker Providers under **Console → Workers → Providers** using YAML and separate encrypted credentials—once created, a provider's type, location, and persistent storage mode are immutable, while instance sizing or config changes roll out when an Agent is idle.
 
 | Variable | Meaning |
 |---|---|
-| `ANKOLE_AGENT_COMPUTER_IMAGE` | Target Worker image of the control-plane release |
+| `ANKOLE_AGENT_COMPUTER_IMAGE` | Target Worker image matching the control-plane release |
 | `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | Default RuntimeFabric WebSocket URL |
-| `ANKOLE_WORKER_INSTALLATION` | Installation label; default `ankole` |
-| `ANKOLE_WORKER_PROVIDERS_FILE` | Optional provider seed YAML file; imported once with assignment of existing Agents |
+| `ANKOLE_WORKER_INSTALLATION` | Installation label; defaults to `ankole` |
+| `ANKOLE_WORKER_PROVIDERS_FILE` | Optional provider seed YAML file, imported once at bootstrap alongside existing Agent assignments |
 
-`bun dev` uses source and internal Skill mounts from `config/dev.exs`. A release has no development mounts.
+In local development, `bun dev` mounts workspace source and internal Skills from `config/dev.exs`; production releases carry no development mounts.
 
 ## Provider egress proxy
 
-Set these standard variables on the control-plane process when model-provider
-traffic must use an outbound proxy. Lowercase forms such as `https_proxy` also
-work.
+Set standard proxy environment variables on the control-plane process whenever outbound traffic to model providers must traverse a proxy (lowercase forms such as `https_proxy` work identically):
 
 | Variable | Meaning |
 |---|---|
-| `HTTPS_PROXY` | proxy for HTTPS and secure WebSocket (`wss`) provider requests |
-| `HTTP_PROXY` | proxy for HTTP and WebSocket (`ws`) provider requests; secure requests also use it when no `HTTPS_PROXY` or `ALL_PROXY` value exists |
-| `ALL_PROXY` | fallback proxy for provider requests when the protocol-specific variable is absent |
-| `NO_PROXY` | comma-separated hosts or domain suffixes that must connect directly |
+| `HTTPS_PROXY` | Proxy for HTTPS and secure WebSocket (`wss`) provider requests |
+| `HTTP_PROXY` | Proxy for HTTP and WebSocket (`ws`) provider requests; also used for secure requests when neither `HTTPS_PROXY` nor `ALL_PROXY` is set |
+| `ALL_PROXY` | Fallback proxy for provider requests when the protocol-specific variable is unset |
+| `NO_PROXY` | Comma-separated hosts or domain suffixes that bypass the proxy and connect directly |
 
-Proxy URLs can use `http`, `https`, `socks5`, or `socks5h`, including embedded
-credentials when the proxy requires authentication. `NO_PROXY` always wins.
-For secure requests, Ankole tries `HTTPS_PROXY`, then `ALL_PROXY`, then
-`HTTP_PROXY`. For plain requests, it tries `HTTP_PROXY`, then `ALL_PROXY`.
-Restart the control plane after you change these variables.
+Proxy URLs accept `http`, `https`, `socks5`, or `socks5h` schemes (including embedded credentials when proxy authentication is required). `NO_PROXY` always takes precedence; otherwise, Ankole checks `HTTPS_PROXY`, `ALL_PROXY`, and `HTTP_PROXY` in order for secure requests, and `HTTP_PROXY` followed by `ALL_PROXY` for plain HTTP/WS requests. Restart the control plane after updating proxy variables.
 
 ## Worker-only environment (Agent Computer Worker)
 
-The control plane sets these variables when it creates a Worker. Operators do not set them. The Worker learns its Agent from `WORKER_ID`; the Session and the Turn arrive in each `turn_start`, not in the environment.
+The control plane injects these variables automatically when provisioning each Worker—operators never set them manually. Each Worker identifies its assigned Agent from `WORKER_ID`, whereas Session and Turn identifiers arrive dynamically in each `turn_start` frame rather than through environment variables.
 
 | Variable | Meaning |
 |---|---|
-| `WORKER_ID` | the Agent UID; the Worker serves only this Agent |
-| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | the `ws://` or `wss://` RuntimeFabric URL that the Worker connects to |
-| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | Random generation credential; the control plane saves its digest and encrypted retry value |
-| `ANKOLE_WORKER_STORAGE` | Storage preparation mode set by the provider |
+| `WORKER_ID` | Assigned Agent UID; the Worker serves only this Agent |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | `ws://` or `wss://` RuntimeFabric URL to which the Worker connects |
+| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | Per-generation random credential; the control plane stores its digest and an encrypted copy for reconciliation retries |
+| `ANKOLE_WORKER_STORAGE` | Storage preparation mode selected by the Worker Provider |
 
-Worker environment overrides belong to provider YAML `env`, or the Kubernetes `podTemplate`. `ANKOLE_MAX_CONCURRENT_SLOTS` limits environment workspaces and Codex turns on one Worker; its default is 12. Model turns use no Worker slot. Instance changes replace the Worker when idle.
+To customize Worker process variables across a provider, use provider YAML `env` or the Kubernetes `podTemplate` (for example, `ANKOLE_MAX_CONCURRENT_SLOTS` caps concurrent workspace and Codex turns per Worker at `12` by default, while pure model turns consume no Worker slot; changes replace idle Workers). Paths baked into the Worker image—including `ANKOLE_BROWSER_*` and `ANKOLE_BUILTIN_SKILLS_ROOT`—are fixed and cannot be overridden.
 
-The Worker image sets the browser and Skill paths. These include `ANKOLE_BROWSER_*` and `ANKOLE_BUILTIN_SKILLS_ROOT`. An administrator cannot change these paths.
-
-`PATH`, `HOME`, `DATABASE_URL`, and names that start with `ANKOLE_` are reserved in the Agent environment editor. This restriction does not prohibit the supported settings in provider YAML. See [Environment variables](../worker-env/).
+Inside the per-Agent environment editor, Ankole reserves `PATH`, `HOME`, `DATABASE_URL`, and any variable prefixed with `ANKOLE_`, though supported settings remain configurable in provider YAML; see [Environment variables](../worker-env/).
 
 ## Change deployment environment variables
 
-Change startup variables in Compose `.env` or the Helm values and restart the affected process. Edit provider settings in the Console; changing an imported seed file does not update an existing provider. Image or instance-setting changes replace Workers when their Agents are idle.
+After editing startup variables in Compose `.env` or Helm `values.yaml`, restart the affected service. Update Worker Provider settings directly in the Console—editing an already-imported seed file has no effect on existing providers—and Ankole will replace Workers with updated images or instance settings as their Agents become idle.
 
 ## Next steps
 

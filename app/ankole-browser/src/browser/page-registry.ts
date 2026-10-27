@@ -56,10 +56,6 @@ export class PageRegistry {
     return this.pages().indexOf(page)
   }
 
-  defaultContextIndex(): number {
-    return 0
-  }
-
   async newPage(): Promise<Page> {
     const page = await this.context.newPage()
     this.install(page)

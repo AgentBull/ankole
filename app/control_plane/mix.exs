@@ -15,7 +15,8 @@ defmodule Ankole.MixProject do
       ],
       test_ignore_filters: [
         &String.starts_with?(&1, "test/fixtures/"),
-        &(&1 == "test/ankole/persistence_boundary.exs")
+        &String.ends_with?(&1, "persistence_boundary.exs"),
+        &String.ends_with?(&1, "tenancy_guard.exs")
       ],
       elixir: "~> 1.20",
       elixirc_options: [warnings_as_errors: true],

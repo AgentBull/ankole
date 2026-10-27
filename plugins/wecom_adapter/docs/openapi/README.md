@@ -1,24 +1,23 @@
 # WeComOpenAPI
 
-Thin Elixir client for WeCom (企业微信), built for Ankole's WeCom adapter.
+`WeComOpenAPI` is a thin Elixir client for WeCom (企业微信), built for Ankole's
+WeCom adapter across two platform surfaces:
 
-It covers the two product surfaces the adapter uses:
+- **AI-bot channel** (`WeComOpenAPI.Bot.Client` + `WeComOpenAPI.Bot`): manages
+  the `wss://openws.work.weixin.qq.com` WebSocket long connection, including
+  subscription authentication, ping heartbeats, message and event dispatch,
+  streaming replies, template cards, proactive messages, chunked media uploads,
+  and encrypted media downloads (`WeComOpenAPI.Media`). Because WeCom permits
+  only one live connection per bot, receiving a `disconnected_event` kick stops
+  the client cleanly instead of competing with the new connection holder.
+- **Corp REST** (`WeComOpenAPI` + `WeComOpenAPI.Corp.Client`): wraps the
+  `https://qyapi.weixin.qq.com` REST API with cached access tokens keyed by
+  `{corp_id, secret}` (`WeComOpenAPI.TokenManager`), WWLogin OAuth helpers
+  (`WeComOpenAPI.OAuth`), and directory lookups (`WeComOpenAPI.Contact`, where
+  reading member names requires the contacts-sync secret).
 
-- **AI-bot channel** (`WeComOpenAPI.Bot.Client` + `WeComOpenAPI.Bot`): the
-  `wss://openws.work.weixin.qq.com` long connection — subscribe auth, ping
-  heartbeat, message/event dispatch, streaming replies, template cards,
-  proactive sends, chunked media upload, and encrypted media download
-  (`WeComOpenAPI.Media`). The platform allows one live connection per bot; a
-  `disconnected_event` kick stops the client instead of fighting the new
-  connection holder.
-- **Corp REST** (`WeComOpenAPI` + `WeComOpenAPI.Corp.Client`): the
-  `https://qyapi.weixin.qq.com` API with cached access tokens per
-  `{corp_id, secret}` (`WeComOpenAPI.TokenManager`), WWLogin helpers
-  (`WeComOpenAPI.OAuth`), and contacts directory reads
-  (`WeComOpenAPI.Contact`, contacts-sync secret required for member names).
-
-Errors from both surfaces normalize into `WeComOpenAPI.Error` with a stable
-`reason` classification (`:auth`, `:ip_rejected`, `:rate_limited`, ...).
+The client normalizes errors from both surfaces into `WeComOpenAPI.Error` with a
+stable `reason` classification (`:auth`, `:ip_rejected`, `:rate_limited`, …).
 
 ## Example
 

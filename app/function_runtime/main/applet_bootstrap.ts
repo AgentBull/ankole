@@ -9,7 +9,6 @@ type InvocationState = {
   logs: { level: string; message: string }[]
   pending: Map<number, { resolve: (value: any) => void; reject: (reason: unknown) => void }>
   nextCall: number
-  abortController: AbortController
   finished: boolean
   timer: ReturnType<typeof setTimeout>
 }
@@ -170,7 +169,6 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       if (!state || state.finished) return
       state.finished = true
       clearTimeout(state.timer)
-      state.abortController.abort()
       for (const pending of state.pending.values()) {
         pending.reject(hostError({ status: 499, code: 'handler_cancelled', message: 'Applet invocation ended' }))
       }
@@ -213,7 +211,6 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         logs: [],
         pending: new Map(),
         nextCall: 0,
-        abortController: new AbortController(),
         finished: false,
         timer: setTimeout(
           () => finish(failure(504, 'handler_timeout', 'Applet handler timed out')),

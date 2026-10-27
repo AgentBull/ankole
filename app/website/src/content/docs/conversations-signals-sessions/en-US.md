@@ -5,37 +5,37 @@ section: Developer guide
 order: 100.5
 ---
 
-Ankole runs Agents for organizations. Work can start from a message, a timer, an external event, or a completed task. That work needs a responsible Principal and recovery after a process restart.
+Ankole runs Agents for teams and organizations, where work can start from a chat message, a timer, an external event, or a completed background task—and every piece of work needs an accountable Principal and reliable recovery across process restarts.
 
-Three facts have different owners: a **conversation** preserves participants' messages; a **signal** starts work; a **session** executes it. AIGateway preserves model session state. Delivery records the intent and result of an external send.
+To keep responsibilities clear, Ankole separates five records across distinct owners: a **conversation** stores participant messages, a **signal** admits new work, a **session** executes that work, **AIGateway** persists model session state, and **Delivery** tracks outbound sends to external platforms.
 
 ## Four design choices
 
 ### Keep messages and work in separate records
 
-The conversation record contains messages that participants can see. The work log contains model calls and tool results. Each Agent in a conversation has its own session and model state. The work in each session is visible to all conversation participants. The session does not cross conversations.
+The conversation record holds the messages visible to human and Agent participants, whereas the work log holds model calls and tool results. Each participating Agent in a conversation owns its own Session and model state: all conversation participants can view the work in that Session, and a Session never crosses conversations.
 
-Interactive and human-triggered turns (including human-woken `may_intervene` turns; Agent messages never wake Agents) execute under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`). Autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) execute under the Agent's own permissions. Visibility follows the conversation; execution permissions follow the turn's `AuthZ.Actor`.
+Interactive and human-triggered turns (including human-woken `may_intervene` turns; Agent messages never wake other Agents) execute under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`), while autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) execute under the Agent's own permissions. Visibility follows the conversation; execution permissions follow the turn's `AuthZ.Actor`.
 
 ### Admit every stimulus through Signals
 
-Messages, time, external events, and task completion use one admission owner. It persists the signal, removes duplicates, records attribution and authorization, and resolves the target.
+Messages, timers, external events, and task completions all enter through one admission owner in `Ankole.Signals`, which persists the Signal, removes duplicates, records attribution and authorization, and resolves the target Session.
 
-A signal can name its target session directly. Otherwise, participation or a Signal Routing Rule selects the target. Conversation-host adapters observe messages and deliver replies. Event-source adapters only supply signals. A new source does not need another admission mechanism.
+A Signal may name its target Session directly; otherwise, Ankole selects the target through conversation participation or a Signal Routing Rule. Conversation-host adapters both observe incoming messages and deliver replies, whereas event-source adapters only emit Signals—allowing new event sources to integrate without adding a separate admission mechanism.
 
 ### Separate scheduled work from the conversation's session
 
-A cron rule uses a stable session, `cron:<schedule_id>`. A background task uses its own session. Either can send its result to a conversation. The conversation's next turn reads that message, without importing the other session's model calls and tool results.
+Each cron schedule runs in its own stable `cron:<schedule_id>` Session, and each background task likewise runs in its own Session. When either posts its output to a conversation, the conversation's next turn reads that posted message cleanly without importing the other Session's internal model calls and tool results.
 
 ### Keep one owner for model state
 
-AIGateway provides stateful Responses calls and hosted tools for internal Agents and external clients. The runtime selects inputs, tools, continuation, and compaction. The platform saves model state and performs those operations.
+AIGateway provides stateful Responses chains and hosted tools for both internal Agents and external API clients: the Session runtime selects inputs, tools, continuation checkpoints, and compaction triggers, while AIGateway stores the model transcript and executes those operations.
 
-An AIGateway conversation is model session state. It is separate from the shared conversation between participants. Moving Agent history into the runtime would create a second model-state implementation.
+An AIGateway conversation represents model session state rather than the shared participant conversation—duplicating Agent transcript history inside the Session runtime would create a second competing model-state store.
 
 ## Source-checked comparison
 
-The comparison below uses these repository snapshots, checked on **2026-10-14**. Links point to the inspected commits.
+The comparison below references these repository snapshots, verified on **2026-10-14**:
 
 | Project | Verified commit |
 | --- | --- |
@@ -53,24 +53,24 @@ The comparison below uses these repository snapshots, checked on **2026-10-14**.
 | Storage and concurrency | Local JSONL backend; one writer per session, protected by an OS lock. [Source][D-store] | Memory, SQLite, JSONL, or Durable Object storage; one owning process, no cross-process locking. [Source][P-guide] | PostgreSQL; current code reads and writes `session_entries`. [Source][Q-session] | PostgreSQL is authoritative; tenant isolation; authorization checked at each execution start |
 | Model context | Derived from the session log. [Source][D-session] | Reduced from committed entries. [Source][P-spec] | Built from audience-filtered history. [Source][Q-audience] | Stored and continued by AIGateway; runtime decides inputs |
 
-qm's SPEC still uses “tape” as a design term. It records the completed switch to `session_entries` and later database cleanup. The comparison uses current code, rather than the earlier dual-write design. [Source][Q-spec]
+Note that qm's `SPEC.md` still refers to “tape” as a design term while documenting its completed move to `session_entries` and subsequent database cleanup; the table above reflects qm's inspected code rather than its earlier dual-write design. [Source][Q-spec]
 
 ## Costs and accepted limits
 
-- **More concepts and code.** Conversations, signals, sessions, delivery, and model state need separate owners.
-- **Two records to inspect.** Diagnosis can require both conversation messages and the session's work log.
-- **Shared work can disclose results to the group.** Data obtained under a turn's authority enters the conversation's shared context. Tool-invocation checks (`agent:<uid>:tool:<tool_name>` with action `invoke` and `context.request.args`) and Pod operations evaluate against the current turn's `AuthZ.Actor`. qm instead filters history for the audience. [qm source][Q-audience]
-- **A heavier deployment.** PostgreSQL transactions and a control plane add latency and operations compared with a local file harness.
-- **Partial text is not durable.** A crash can lose unfinished text. Recovery can repeat model calls, reuses recorded tool results, and does not blindly repeat uncertain operations. External side effects have no exactly-once guarantee. pi durable publishes progress only after storage commit. [Source][P-guide]
-- **Platform constraints.** Stateful requests need a wire format that can replay stored items without loss.
-- **One admission contract for all sources.** Every producer and adapter must conform to the Signals admission contract.
-- **Cron history grows.** Stable cron sessions retain context and require compaction. qm starts a fresh session for each fire. [Source][Q-cron]
+- **More concepts and code.** Separating conversations, signals, sessions, delivery, and model state requires maintaining distinct subsystem boundaries.
+- **Two records to inspect.** Diagnosing an incident can require reading both the conversation's messages and the Session's work log.
+- **Shared work can surface results to the room.** Information retrieved under a turn's permissions enters the conversation's shared context. Tool-invocation checks (`agent:<uid>:tool:<tool_name>` with action `invoke` and `context.request.args`) and Pod operations evaluate against the active turn's `AuthZ.Actor`, whereas qm filters session history dynamically per audience. [qm source][Q-audience]
+- **Heavier infrastructure.** Running PostgreSQL transactions and an OTP control plane adds latency and operational overhead compared with a local single-file harness.
+- **Uncommitted streaming text is ephemeral.** If a process crashes mid-stream, uncommitted partial text is discarded; during recovery, the Session Driver may repeat an interrupted model call, reuses committed tool results, and avoids blindly repeating uncertain Worker operations, so external side effects carry no exactly-once guarantee. By contrast, `pi durable` publishes progress only after storage commit. [Source][P-guide]
+- **Wire-protocol constraints.** Stateful continuations require an upstream or gateway wire format capable of replaying stored response items losslessly.
+- **One admission contract across every source.** Every event producer and channel adapter must conform to `Ankole.Signals`.
+- **Cron session history accumulates.** Because `cron:<schedule_id>` Sessions preserve context across fires, they rely on periodic compaction, whereas qm opens a fresh session on every cron fire. [Source][Q-cron]
 
 ## When another approach fits better
 
-- For one developer working locally with one Agent, deepseek-harness or pi can require less deployment work.
-- For embedding a resumable Agent loop in an application, pi durable supplies the smaller runtime boundary.
-- For a team assistant centered on Slack and model-oriented session history, qm offers the more direct structure.
+- **Single developer working locally with one Agent:** `deepseek-harness` or `pi` requires far less deployment setup.
+- **Embedding a resumable Agent loop inside your own app:** `pi durable` offers a smaller library-sized boundary.
+- **A Slack-centered team assistant built around a unified session tape:** `qm` provides a more direct single-log design.
 
 Read [Architecture](../architecture/) for the message-to-work flow and [Quick start](../quickstart/#terminology) for the canonical terms.
 

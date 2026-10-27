@@ -19,10 +19,11 @@ const draft: ScheduleEditorDraft = {
   timezone: 'Asia/Shanghai',
   deliveryTargets: [{ bindingName: 'lark-agent', conversationId: 'lark:market', threadId: '' }],
   task: 'prepare report',
-  payload: '{"task":"prepare report"}',
-  hasAutomationJob: false,
-  idempotencyKey: 'cron:add:market-open'
+  payload: { task: 'prepare report' },
+  hasAutomationJob: false
 }
+
+const idempotencyKey = 'cron:add:market-open'
 
 describe('ScheduleEditorModel', () => {
   test('an unchanged interval produces no write, even when its stored timezone is present', () => {
@@ -48,15 +49,15 @@ describe('ScheduleEditorModel', () => {
       deliveryTargets: [{ bindingName: '', conversationId: id, threadId: '' }]
     })
     expect(model.isComplete()).toBe(true)
-    expect(model.toCreateBody()?.binding_name).toBeUndefined()
-    expect(model.toCreateBody()?.delivery).toEqual({ targets: [{ conversation_id: id }] })
+    expect(model.toCreateBody(idempotencyKey)?.binding_name).toBeUndefined()
+    expect(model.toCreateBody(idempotencyKey)?.delivery).toEqual({ targets: [{ conversation_id: id }] })
     model.addDeliveryTarget()
     model.updateDeliveryTarget(1, {
       bindingName: 'lark-agent',
       conversationId: '019a5bc0-0000-7000-8000-000000000002',
       threadId: 'report'
     })
-    expect(model.toCreateBody()?.delivery?.targets).toEqual([
+    expect(model.toCreateBody(idempotencyKey)?.delivery?.targets).toEqual([
       { conversation_id: id },
       {
         conversation_id: '019a5bc0-0000-7000-8000-000000000002',
@@ -67,29 +68,27 @@ describe('ScheduleEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('requires a name, owner conversation, and task when it creates a recurring schedule', () => {
+  test('requires a name, owner conversation, task, and idempotency key when it creates a recurring schedule', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, name: '' })
 
     expect(model.isComplete()).toBe(false)
-    expect(model.toCreateBody()).toBeNull()
+    expect(model.toCreateBody(idempotencyKey)).toBeNull()
 
     model.name.value = 'market-open'
-    model.payload.value = '{'
-    expect(model.toCreateBody()).toBeNull()
-    model.payload.value = draft.payload
+    expect(model.toCreateBody(' ')).toBeNull()
 
     model.ownerSessionId.value = ''
-    expect(model.toCreateBody()).toBeNull()
+    expect(model.toCreateBody(idempotencyKey)).toBeNull()
     model.ownerSessionId.value = draft.ownerSessionId
 
     model.task.value = ' '
     expect(model.isComplete()).toBe(false)
-    expect(model.toCreateBody()).toBeNull()
+    expect(model.toCreateBody(idempotencyKey)).toBeNull()
     model.task.value = draft.task
 
     expect(model.isComplete()).toBe(true)
-    expect(model.toCreateBody()).toEqual({
+    expect(model.toCreateBody(idempotencyKey)).toEqual({
       owner_session_id: 'lark:chat:market',
       binding_name: 'lark-agent',
       name: 'market-open',
@@ -112,10 +111,10 @@ describe('ScheduleEditorModel', () => {
 
   test('accepts an empty task when an automation job consumes the trigger', () => {
     const model = new ScheduleEditorModel()
-    model.initialize('new', { ...draft, task: '', payload: '{}', hasAutomationJob: true })
+    model.initialize('new', { ...draft, task: '', payload: {}, hasAutomationJob: true })
 
     expect(model.isComplete()).toBe(true)
-    expect(model.toCreateBody()?.payload).toEqual({})
+    expect(model.toCreateBody(idempotencyKey)?.payload).toEqual({})
 
     model[Symbol.dispose]()
   })
@@ -210,12 +209,19 @@ describe('ScheduleEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('keeps non-task payload keys when the task text changes', () => {
+  test('keeps non-task payload keys when the task text changes and ignores key order', () => {
     const model = new ScheduleEditorModel()
     model.initialize('cron:market-open', {
       ...draft,
-      payload: '{"task":"prepare report","scope":"a-share"}'
+      payload: { scope: 'a-share', task: 'prepare report' }
     })
+
+    expect(model.dirty.value).toBe(false)
+    expect(model.toUpdateBody()).toEqual({})
+
+    model.payload.value = { task: 'prepare report', scope: 'a-share' }
+    expect(model.dirty.value).toBe(false)
+    expect(model.toUpdateBody()).toEqual({})
 
     model.task.value = 'prepare updated report'
 
@@ -237,10 +243,10 @@ describe('ScheduleEditorModel', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, scheduleKind: 'every', cronExpression: '', everyMs: '60000' })
 
-    expect(model.toCreateBody()).toBeNull()
+    expect(model.toCreateBody(idempotencyKey)).toBeNull()
 
     model.anchorAt.value = '2026-08-12T00:00:00Z'
-    const body = model.toCreateBody()
+    const body = model.toCreateBody(idempotencyKey)
     expect(body?.schedule).toEqual({ kind: 'every', every_ms: 60_000, anchor_at: '2026-08-12T00:00:00Z' })
     expect(body?.timezone).toBeNull()
 
@@ -255,7 +261,7 @@ describe('ScheduleEditorModel', () => {
     expect(composeEveryMs('2', 'hours')).toBe('7200000')
 
     const model = new ScheduleEditorModel()
-    model.initialize('new', { ...draft, scheduleKind: 'every', cronExpression: '', everyMs: '', idempotencyKey: '' })
+    model.initialize('new', { ...draft, scheduleKind: 'every', cronExpression: '', everyMs: '' })
     model.setIntervalUnit('hours')
     model.setIntervalValue('2')
     model.setAnchorLocal('2026-08-12T09:30')

@@ -1,3 +1,4 @@
+import { recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
 import { Button, Field, FieldLabel, Input, InputOTP, InputOTPGroup, InputOTPSlot } from '@ankole/uikit'
 import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
@@ -39,19 +40,26 @@ function challengeStorageKey(scope: string) {
 }
 
 function readChallenge(scope: string): SavedChallenge | undefined {
+  let raw: string | null = null
   try {
-    const saved = JSON.parse(sessionStorage.getItem(challengeStorageKey(scope)) ?? 'null') as SavedChallenge | null
-    if (
-      saved &&
-      typeof saved.email === 'string' &&
-      typeof saved.challengeID === 'string' &&
-      typeof saved.resendUntil === 'number' &&
-      Date.parse(saved.expiresAt) > Date.now()
-    ) {
-      return saved
-    }
+    raw = sessionStorage.getItem(challengeStorageKey(scope))
   } catch {
     // The form remains usable without browser storage.
+    return undefined
+  }
+  const saved = raw ? recordValue(safeJsonParse(raw).unwrapOr(undefined)) : undefined
+  const email = stringArg(saved, 'email')
+  const challengeID = stringArg(saved, 'challengeID')
+  const expiresAt = stringArg(saved, 'expiresAt')
+  const resendUntil = saved?.resendUntil
+  if (
+    email !== undefined &&
+    challengeID !== undefined &&
+    expiresAt !== undefined &&
+    typeof resendUntil === 'number' &&
+    Date.parse(expiresAt) > Date.now()
+  ) {
+    return { email, challengeID, expiresAt, resendUntil }
   }
   return undefined
 }

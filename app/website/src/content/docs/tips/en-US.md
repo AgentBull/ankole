@@ -5,26 +5,26 @@ section: Guides
 order: 308
 ---
 
-This is a grab-bag of operator moves that did not fit cleanly into one guide but come up often. Each tip is short, grounded in how Ankole actually works, and costs you less than the first time you discover it the hard way.
+This page collects practical operator habits that come up across everyday Ankole deployments—each short, grounded in how the runtime works, and much faster to read here than to learn during an incident.
 
 ## Read logs in pretty mode locally
 
-The control plane emits structured JSON logs by default — right for ingestion, hard to read. In local development, pipe them through the devkit pretty-printer:
+By default, the control plane emits structured JSON logs—ideal for log aggregators, hard to scan in a terminal. During local development, pipe JSON logs through the devkit pretty-printer:
 
 ```bash
-bun run dev   # in one terminal
-bun run kit logs pretty < /path/to/log-stream   # or pipe a log file through it
+bun run dev                                      # in one terminal
+bun run kit logs pretty < /path/to/log-stream    # or pipe a log file through it
 ```
 
-In production, send the structured logs to your log collection system. Use the pretty printer locally.
+In production, ship raw JSON logs to your log collector and reserve `kit logs pretty` for local inspection.
 
 ## Scope the log level before a bug hunt
 
-`ANKOLE_LOG_LEVEL` defaults to `info`. Drop it to `debug` for a specific reproduction and put it back when you are done — a deployment left at `debug` is noisy and slow. The valid values are `debug | info | warning | error`; an invalid value is rejected at boot, not silently ignored.
+`ANKOLE_LOG_LEVEL` defaults to `info`. Drop it to `debug` only while reproducing a specific bug, then restore `info` as soon as you finish—leaving a production deployment at `debug` generates heavy I/O and log noise. Valid values are `debug | info | warning | error`; Ankole rejects invalid values at boot rather than ignoring them silently.
 
 ## Get the activation code without the terminal
 
-If the `bun dev` (or control-plane container) terminal is not visible and the setup page wants the code:
+If the first-visit setup page asks for the bootstrap activation code and you cannot see the `bun run dev` or control-plane container stdout:
 
 ```bash
 bun run kit show bootstrap-activation-code          # local
@@ -32,63 +32,63 @@ docker compose logs control-plane | grep "SETUP ACTIVATION CODE"   # Compose
 kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "SETUP ACTIVATION CODE"   # Helm
 ```
 
-Do not guess the code from the database — read it from the source the setup flow actually uses.
+Always read the code from these runtime sources rather than trying to inspect raw database tables.
 
 ## Treat model-profile slots as dials
 
-The eight built-in Agent profile slots — `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate` — are dials:
+Each Agent's eight built-in profile slots—`primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`—work like independent dials:
 
-- Turn **`primary`** down to a cheaper model when the agent mostly answers quick questions; turn it up when quality matters more than cost.
-- Bind **`light`** to something genuinely cheap and fast — it exists for the high-volume, low-stakes path.
-- Set **`vision_fallback`** only if the agent sees images; otherwise leave it unbound and save the slot.
-- **`web_search`** and **`web_fetch`** are independent — bind them only when the agent needs to reach the web.
-- Configure Brain retrieval in **AppConfigure**. The site setting `brain.embedding_model` selects vector retrieval for all Agents. Each tenant sets `brain.rerank_model` for its reranking. An empty embedding model disables vector retrieval; an empty rerank model keeps the fusion order. See [Brain](../brain/).
+- Point **`primary`** at a faster, cheaper model when an Agent mainly answers quick operational questions, or dial it up to a frontier reasoning model when accuracy outweighs latency and cost.
+- Bind **`light`** to a genuinely fast, low-cost model, since Ankole uses it for high-volume background classification and routing work.
+- Configure **`vision_fallback`** only if the Agent receives images and its `primary` model lacks native vision; otherwise leave it empty.
+- Treat **`web_search`** and **`web_fetch`** independently—bind them only on Agents that need public web access.
+- Configure Brain retrieval in **AppConfigure**: the site-wide `brain.embedding_model` powers vector search across all Agents, while each tenant's `brain.rerank_model` controls cross-encoder reranking. Leaving the embedding model empty disables vector search, and leaving the rerank model empty keeps reciprocal-rank fusion order; see [Brain](../brain/).
 
-An agent that "feels slow" is often a `primary` bound too heavy for the work it actually does.
+When an Agent feels sluggish in chat, its `primary` slot is often bound to a heavier model than the work that it actually performs requires.
 
 ## Rotate a credential in Environment variables
 
-Worker environment changes take effect on the **next turn**, not the one currently running. So:
+Updates to Worker environment variables apply starting on the **next turn** rather than mutating processes mid-turn:
 
-1. Enter the new value in **Environment variables** in the Console and save it.
-2. Let any in-flight turn finish — it already has its environment.
-3. Send a new message to verify the new value is in effect.
+1. Save the updated secret in **Environment variables** in the Console.
+2. Allow any currently running turn or workspace command to finish with its captured environment.
+3. Start a new turn to verify the rotated credential.
 
-Do not judge a secret change from a turn that was running when you saved it; it will not see the new value.
+Never judge whether a credential rotation worked from a turn that was already running when you clicked save.
 
 ## Reveal encrypted values only when necessary
 
-Enter a replacement value to rotate a credential. Do not reveal the old value only to check it. Select **Reveal** only when you must inspect the current value to diagnose a problem.
+To rotate a secret, simply paste the replacement value and save—you do not need to view the old secret first. Click **Reveal** only when diagnosing a configuration mismatch requires inspecting the currently stored value.
 
 ## Recover from a stuck turn
 
-A turn that seems stuck is usually waiting on the model or a provider, not on Ankole. Before cancelling anything:
+A turn that appears stuck is almost always waiting on an upstream LLM provider or a long-running Worker command rather than deadlocked inside Ankole. Before cancelling anything:
 
-1. Check `/api/v2/ai-gateway/conversations` for the turn's recent model calls. If there is a long gap, the provider is the holdup.
-2. Check the worker logs for an in-flight tool call. A slow tool looks like a stuck turn.
-3. Only if the turn is genuinely stuck, steer the Agent's session or let the turn time out. Cancel a background job with `POST /api/v2/background-agent-jobs/:id/cancel`, which lets an in-flight turn finish.
+1. Inspect `/api/v2/ai-gateway/conversations` for the turn's latest model requests—a long pause there points to upstream provider latency.
+2. Check the Agent's Worker logs for an active shell or browser command, since a slow tool call looks identical to a quiet turn in chat.
+3. Only if the work is genuinely wedged, steer the Session or let its inactivity timeout fire. To stop a Background Agent Job cleanly, call `POST /api/v2/background-agent-jobs/:id/cancel`, which lets any in-flight turn settle safely.
 
-Cancelling aggressively is how operators create half-done side effects.
+Cancelling turns impulsively is the fastest way to leave external side effects half-finished.
 
 ## Disable a binding quietly
 
-`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` disables the binding rather than deleting it permanently — the configuration stays recoverable. Use it when you want an Agent silent in a channel without losing the setup (for example, during revoked credentials, a holiday, or an incident). Re-enable it with `PATCH`.
+Calling `DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` disables the routing rule instead of erasing it, keeping all credentials and routing settings recoverable. Use it whenever you want to silence an Agent in a channel temporarily—during credential rotation, a holiday freeze, or an incident—and re-enable it later with `PATCH`.
 
 ## Back up before you upgrade, every time
 
-A Helm rollback does not reverse a database migration. Run `pg_dump` for the control-plane PostgreSQL database and any configured `BASE_DB_URLS` shard databases before every upgrade, and preserve your deployment bootstrap secrets (`ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`, and `ANKOLE_FUNCTION_RUNTIME_TOKEN`). See [Backup and restore](../backup-and-restore/) for the commands.
+Rolling back a Helm release or container tag never reverses Ecto database migrations. Before every upgrade, run `pg_dump` across the control-plane PostgreSQL database and every configured `BASE_DB_URLS` shard database, and back up your bootstrap secrets (`ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`, and `ANKOLE_FUNCTION_RUNTIME_TOKEN`). See [Backup and restore](../backup-and-restore/) for the exact commands.
 
 ## Adjust the correct durable document
 
-Edit `MISSION.md` when the Agent's responsibilities are unclear. Edit `SOUL.md` when its communication or judgment is wrong. Edit `DESIGN.md` when web pages, slides, documents, or charts lack a consistent visual style. Each file owns one concern, so do not put behavior rules in the visual design system.
+Update `MISSION.md` when an Agent's scope or responsibilities change, `SOUL.md` when its tone or judgment misses the mark, and `DESIGN.md` when generated web pages, slides, documents, or charts need consistent visual styling. Because each file owns one concern, keep behavioral rules out of `DESIGN.md` and visual tokens out of `MISSION.md`.
 
 ## One robot per DingTalk agent
 
-DingTalk enforces a hard constraint: one enabled binding per agent and one agent per `clientId`. If you scale out, plan one robot for each agent. A second binding on the same agent fails with `dingtalk_binding_already_exists`. Reuse of a `clientId` on another agent fails with `dingtalk_app_already_bound`. See [Quickstart](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) for the setup.
+DingTalk enforces a strict one-to-one mapping: at most one enabled binding per Agent, and at most one Agent per `clientId`. When scaling out multiple Agents on DingTalk, register a separate DingTalk robot for each Agent—if you add a second enabled binding to the same Agent, Ankole rejects it with `dingtalk_binding_already_exists`, and if you reuse a `clientId` on another Agent, Ankole rejects it with `dingtalk_app_already_bound`. See [Quickstart](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) for setup steps.
 
 ## Teams needs a public endpoint, always
 
-Teams delivers as Bot Framework webhook calls, not over a long connection. If a Teams bot stops working, the first thing to check is the public HTTPS endpoint — certificate expiry, DNS change, and ingress downtime all look like "the bot stopped replying." Lark, Slack, and DingTalk use long connections and will survive a brief endpoint blip; Teams will not.
+Unlike Lark, Slack, and DingTalk—which connect outbound over persistent WebSockets and tolerate brief ingress blips—Microsoft Teams delivers messages exclusively via inbound Bot Framework HTTPS webhooks. Whenever a Teams bot goes silent, check your public HTTPS endpoint first: an expired TLS certificate, a DNS change, or a reverse-proxy outage will all look like a dead bot.
 
 ## Next steps
 

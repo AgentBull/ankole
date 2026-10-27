@@ -6,7 +6,7 @@ import {
   emptyDraft,
   draftFromClient,
   writeBody,
-  profileDraftKey,
+  sameProfileDraft,
   supportedScopes,
   type ClientDraft,
   type ClientModelAliasDraft,
@@ -557,7 +557,7 @@ export function OIDCClientEditorPage() {
                   profile="custom"
                   label={alias.name.trim() || t('console.oidc_clients.new_model_alias')}
                   draft={alias.profile}
-                  dirty={!alias.persisted || profileDraftKey(alias.profile) !== alias.savedProfileKey || undefined}
+                  dirty={!alias.persisted || !sameProfileDraft(alias.profile, alias.savedProfile) || undefined}
                   required
                   saveIncomplete={Boolean(alias.nameError)}
                   nameField={

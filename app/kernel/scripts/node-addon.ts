@@ -1,10 +1,9 @@
-import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
 import { platform } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-const kernelRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+import { kernelRoot, runCargo } from './cargo'
+
 const targetDir = join(kernelRoot, 'target/napi-build')
 
 export function nodeAddonPath(): string {
@@ -12,25 +11,17 @@ export function nodeAddonPath(): string {
 }
 
 export function buildNodeAddon(options: { release?: boolean } = {}): string {
-  const result = spawnSync(
-    'cargo',
-    [
-      'build',
-      '--manifest-path',
-      join(kernelRoot, 'Cargo.toml'),
-      '--target-dir',
-      targetDir,
-      '--no-default-features',
-      '--features',
-      'napi',
-      ...(options.release ? ['--release'] : [])
-    ],
-    { cwd: kernelRoot, stdio: 'inherit' }
-  )
-  if (result.error) throw new Error(`cargo failed to start: ${result.error.message}`)
-  if (result.status !== 0) {
-    throw new Error(`cargo build --features napi exited with ${result.status}`)
-  }
+  runCargo([
+    'build',
+    '--manifest-path',
+    join(kernelRoot, 'Cargo.toml'),
+    '--target-dir',
+    targetDir,
+    '--no-default-features',
+    '--features',
+    'napi',
+    ...(options.release ? ['--release'] : [])
+  ])
   return stageNodeAddon(options.release ? 'release' : 'debug')
 }
 

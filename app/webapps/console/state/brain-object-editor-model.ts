@@ -1,3 +1,4 @@
+import { compact, equal, isRecord, safeJsonParse, uniq } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { Nodes } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
@@ -62,15 +63,9 @@ export function emptyBrainObjectSnapshot(): BrainObjectEditorSnapshot {
 }
 
 export function parseBrainObjectMeta(text: string): Record<string, unknown> | undefined {
-  try {
-    const value = JSON.parse(text) as unknown
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, unknown>
-    }
-  } catch {
-    // The caller presents one field error for every invalid JSON shape.
-  }
-  return undefined
+  // The caller presents one field error for every invalid JSON shape.
+  const value = safeJsonParse(text).unwrapOr(undefined)
+  return isRecord(value) ? value : undefined
 }
 
 /** Uses CommonMark ranges and the native audience grammar for a local preview. */
@@ -150,7 +145,7 @@ export const BrainObjectEditorModel = createModel(() => {
   const body = signal('')
   const metaText = signal('{}')
   const tags = signal<string[]>([])
-  const normalizedTags = computed(() => [...new Set(tags.value.map(tag => tag.trim()).filter(Boolean))])
+  const normalizedTags = computed(() => uniq(compact(tags.value.map(tag => tag.trim()))))
   const effectiveDate = signal('')
   const contentHash = signal('')
   const baseline = signal<BrainObjectEditorSnapshot>(emptyBrainObjectSnapshot())
@@ -158,7 +153,7 @@ export const BrainObjectEditorModel = createModel(() => {
   const previewAnalysis = computed(() => previewBrainObjectBody(body.value))
   const preview = computed(() => previewAnalysis.value.segments.filter(segment => segment.text.trim()))
   const previewError = computed(() => previewAnalysis.value.error)
-  const dirty = computed(() => JSON.stringify(current()) !== JSON.stringify(baseline.value))
+  const dirty = computed(() => !equal(current(), baseline.value))
 
   function current(): BrainObjectEditorSnapshot {
     return {

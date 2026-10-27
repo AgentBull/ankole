@@ -1,82 +1,83 @@
 ---
 title: 轨迹与消息格式
-description: Ankole 如何存储和投影会话消息与后台任务轨迹——两种存储形态、ChatML 规范形式、剥离协议细节的模型可见投影。
+description: Ankole 如何持久化与投影会话消息及后台任务执行轨迹——详解两类存储结构、标准 ChatML 格式与剥离底层协议的模型可见投影。
 section: Developer guide
 order: 121
 ---
 
-Ankole 在两处、为两种工作记录 agent 做了什么：AIGateway 存储会话消息（有状态 Responses 会话产出的 live 转写），后台 Agent 任务存储回合轨迹（持久任务执行的按回合记录）。本页说明两种存储形态、规范 ChatML 格式、以及剥离协议细节的模型可见投影。它建立在 [AIGateway](../ai-gateway/) 和 [Background Agent Jobs](../background-agent-jobs/) 之上。
+针对主对话与后台长任务两类工作负载，Ankole 分别在两套独立的存储结构中记录 Agent 的执行全过程：AIGateway 负责存储**会话消息**（有状态 Responses 会话产出的实时对话转写），后台 Agent 任务模块则负责存储**回合轨迹**（持久化任务按回合追加的执行流水）。本文详解这两类存储形态、统一的 ChatML 规范格式，以及隐去底层协议细节的模型可见投影。阅读前建议先了解 [AIGateway](../ai-gateway/) 与 [Background Agent Jobs](../background-agent-jobs/)。
 
-先说明最关键的一点：模型永远看不到原始存储行。两种形态都投影到一个模型可见的形式，剥离协议身份、用回合局部调用别名替换——模型看到"工具调用 1 → 工具结果 1"，而非内部 UUID 或线上协议字段。存储形式用于持久和审计；投影形式用于模型。
+贯穿全文的核心设计原则是：**模型永远不会直接看到底层的原始数据库行**。无论底层采用哪种表结构，在送入模型上下文前都会先投影为干净的模型可见视图——剔除内部协议标识，并将工具调用 ID 替换为回合内的局部序号别名（例如模型看到的是直观的“工具调用 1 → 工具结果 1”，而非内部 UUID 或传输层私有字段）。简言之，底层存储面向持久化与审计，上层投影面向模型推理。
 
-这里的 AIGateway conversation 指 Session 的模型历史，与 `Ankole.Conversations` 保存的共享 Conversation 和 Message 分开。公开历史可以提供当前背景上下文，不替代持久模型链和工具日志。
+需要注意，本文提及的 AIGateway Conversation 特指单个执行会话（Session）私有的模型上下文链，与 `Ankole.Conversations` 所维护的多方共享聊天记录（Conversation 与 Message）分属不同概念：公开聊天记录可用于补充当前回合的背景上下文，但不能替代持久化的模型消息链与工具调用日志。
 
 ## AIGateway 会话消息
 
-AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里的一行：
+AIGateway 全权管理实时推理会话的转写记录，每条消息对应 `ai_gateway_messages` 表中的一行：
 
 | 字段 | 含义 |
 |---|---|
-| `subject_uid` | 会话所属的主体 |
-| `conversation_id` | 该消息所属的会话 |
-| `type` | 消息类型（assistant、tool result 等） |
-| `role` | 消息在转写中扮演的角色 |
-| `status` | 生命周期状态 |
-| `previous_message_id` | 自引用续接锚点——在 API 上渲染为 `previous_response_id`，让会话链接 |
-| `content` | 消息内容（一个 JSON 值，不是单个字符串） |
-| `metadata` | 不透明的调用者元数据加 AIGateway 拥有的响应事实（模型、provider、用量、provider 原始 ID） |
+| `subject_uid` | 该会话归属的权限主体 UID |
+| `conversation_id` | 消息所属的 AIGateway 会话 ID |
+| `type` | 消息条目类型（如助手回复、工具返回结果等） |
+| `role` | 消息在对话转写中扮演的角色 |
+| `status` | 条目的生命周期状态 |
+| `previous_message_id` | 自引用续接锚点——在对外 API 中映射为 `previous_response_id`，将整场会话串联成链 |
+| `content` | 结构化消息内容（JSON 值，而非纯文本字符串） |
+| `metadata` | 调用方透传的不透明元数据，外加 AIGateway 记录的响应事实（实际模型、提供商、Token 用量及上游原始响应 ID） |
 
-`previous_message_id` 是续接锚点：每条消息指向前一条，产生一条链。在 API 上，它渲染为 `previous_response_id`，使调用者或 compaction 可从任何锚点续接。`metadata` 携带 AIGateway 拥有的事实——使用的模型和 provider、token 用量、provider 原始响应 ID——以及不透明的调用者元数据。它不得携带第二份条目列表。
+`previous_message_id` 充当链式续接锚点：每条新消息都指向紧邻的前一条消息，由此构成一条完整的有向消息链。在 API 层面，该字段映射为 `previous_response_id`，使调用方或上下文压缩流程能够从任意历史锚点无缝分支续接。`metadata` 字段同时承载调用方透传的自定义元数据与 AIGateway 权威记录的运行事实（所用模型与提供商、Token 消耗及上游原始响应 ID），严禁在其中塞入第二份冗余的消息条目列表。
 
-一次 compaction（见 [上下文压缩与 compaction](../context-compression-and-caching/)）写入摘要 checkpoint，作为新的可见锚点。旧行仍保留以支持恢复与审计；投影后的模型上下文从摘要开始，不再重放更早的消息。
+触发上下文压缩（Compaction，详见 [上下文压缩与 compaction](../context-compression-and-caching/)）时，系统会写入一条摘要检查点（Checkpoint）作为新的可见起始锚点：更早的历史行依然保留在表中以备故障恢复与合规审计，但投影给模型的上下文会直接从该摘要节点起步，不再重放摘要之前的早期原始消息。
 
 ## 后台 Agent 任务轨迹
 
-后台任务把其按回合执行存为 `background_agent_job_turn_items` 里只追加的语义线程条目流。每个条目属于一个回合，有位置、修订、条目键和语义条目本身：
+后台 Agent 任务将其按回合推进的执行过程保存在 `background_agent_job_turn_items` 表中，形成一条只追加（append-only）的语义线程条目流。每条记录归属于某次具体任务回合，包含顺序位置、修订号、稳定键名及语义条目载荷：
 
 | 字段 | 含义 |
 |---|---|
-| `turn_id` | 该条目所属的任务回合 |
-| `position` | 条目在回合内的顺序 |
-| `revision` | 接受该条目时的回合修订 |
-| `item_key` | 条目的稳定键（`client:` 键标记调用者消息） |
-| `item` | 一个带类型的语义线程条目 |
+| `turn_id` | 该条目所属的后台任务回合 ID |
+| `position` | 条目在当前回合内的先后序号 |
+| `revision` | 接纳该条目时对应的回合修订版本号 |
+| `item_key` | 条目的稳定幂等键（以 `client:` 开头的键标识调用方注入的消息） |
+| `item` | 带类型的结构化语义线程条目 |
 
-这些行只追加：steer 或 nudge 追加新条目，而不改写已存条目。所有读者在读取时把每个已存条目投影成规范 ChatML 消息；投影不出消息的条目仍会保存，用于线程重放。没有条目行的 Turn 轨迹显示为空。
+这张表严格遵循只追加写入：运行中途注入引导消息（steer 或 nudge）只会向流末尾追加新行，绝不原地覆写既有记录。所有读取方在消费时都会将已存条目统一投影为标准 ChatML 消息；部分无法映射为对话消息的纯控制条目同样保留在表中以支撑完整线程重放。若某个回合尚未产生任何条目行，其轨迹视图即显示为空列表。
 
-工具结果消息的 metadata 会记录 `execution_mechanism`。模型 Provider 执行的工具使用 `provider_hosted`，Codex 调用的 Ankole 动态工具使用 `local_dynamic`。即使两个工具的展示名相同，这一稳定事实也能区分它们。
+此外，工具结果消息的 `metadata` 中会固定记录 `execution_mechanism` 字段：由上游模型提供商直接托管执行的工具记为 `provider_hosted`，由 Codex 调用的 Ankole 本地动态工具则记为 `local_dynamic`。即便两类工具的对外展示名称完全相同，也能凭这一稳定标记准确区分实际执行路径。
 
-这是与 AIGateway 会话消息分开的存储形态，因为后台任务的轨迹属于任务，不属于会话。任务的回合是它们自己的线；它回报的会话收到结果，不是轨迹。
+之所以不与 AIGateway 会话消息混表存储，是因为后台任务的执行轨迹归属于该任务自身，而非发起它的主对话会话——后台任务的各个回合自成一条独立执行线，主会话在任务收尾时接收的只是最终交付结论，而非冗长的中间过程轨迹。
 
 ## 模型可见投影
 
-控制面通过 `Ankole.Sessions.Tools.Jobs.visible_trajectory/1` 投影已存 Job 条目。模型可见投影包含：
+当主 Agent 需要查阅后台任务的执行进展时，控制面会通过 `Ankole.Sessions.Tools.Jobs.visible_trajectory/1` 对已落库的 Job 条目做投影转换，具体规则如下：
 
-- **剥离存储的协议身份**——内部消息 id、线上协议字段、任何模型不应据以行动的东西。
-- **用回合局部别名替换工具调用 id**——`call_1`、`call_2` 等。模型看到哪个工具结果属于哪个工具调用（唯一有用的关系），无需用来关联的内部 UUID。
-- **保留内容和角色**——实际消息、工具调用及其结果，按发生顺序。
-- **保留有界内容的事实**——`metadata.redacted` 与 `metadata.content_truncated` 仍然可见；控制面为满足页面上限而缩减内容时，会设置 `content_truncated`。
-
+- **剥离底层协议标识**：剔除内部数据库消息 ID、传输协议私有字段等一切不应暴露给模型做决策依据的内部实现细节；
+- **将工具调用 ID 替换为回合内局部别名**：统一重命名为 `call_1`、`call_2` 等简短序号，让模型无需接触冗长的内部 UUID 即可清晰识别“哪份工具结果对应哪次工具调用”；
+- **完整保留正文内容与对话角色**：严格按实际发生顺序呈现消息文本、工具调用入参及返回结果；
+- **保留内容脱敏与截断标记**：继续透出 `metadata.redacted` 与 `metadata.content_truncated` 状态；当控制面为满足单页体积上限而裁剪超长输出时，会显式打上 `content_truncated` 标记告知模型。
 
 ## 两种形态如何关联
 
-| | AIGateway 消息 | 后台任务轨迹 |
+| 对比维度 | AIGateway 会话消息 | 后台任务轨迹 |
 |---|---|---|
-| 存储什么 | live 会话转写 | 按回合任务执行记录 |
-| 谁拥有 | AIGateway | 后台 Agent 任务 |
-| 规范格式 | AIGateway 的消息 schema | 语义条目投影为 ChatML |
-| 模型如何看到 | 有状态 Responses API | `visible_trajectory/1` 投影 |
-| Compaction | AIGateway 写入新的可见 checkpoint，旧行仍保留 | 不压缩（任务受重试预算约束） |
+| 记录内容 | 主会话的实时推理转写 | 后台任务按回合记录的执行流水 |
+| 归属模块 | AIGateway | 后台 Agent 任务（Background Agent Jobs） |
+| 标准表示 | AIGateway 消息 Schema | 语义条目投影为标准 ChatML |
+| 模型读取方式 | 有状态 Responses API | `visible_trajectory/1` 投影转换 |
+| 上下文压缩 | AIGateway 写入新摘要检查点，保留历史旧行 | 不做摘要压缩（受任务自身重试预算约束） |
 
-两者不混合。一个会话的消息归 AIGateway；一个任务的轨迹归任务。任务通过唤醒事件（见 [Background Agent Jobs](../background-agent-jobs/)）把结果回报给拥有它的会话，而非写进会话的消息存储。
+两套存储严格隔离、互不混写：主会话消息归 AIGateway 管理，后台任务轨迹归任务自身管理；任务完结后通过发送唤醒事件（详见 [Background Agent Jobs](../background-agent-jobs/)）向归属主会话回传最终结果，而不会直接向主会话的消息表中插入记录。
 
 ## 本指南不是什么
 
-它不是 ChatML 规范——规范 ChatML 格式是一个标准，Ankole 的读取投影保持这一形态，不重新定义它。它不是读取轨迹的消费者面向 API——Console 路由（`/api/v2/ai-gateway/conversations/:id/messages`、`/api/v2/background-agent-jobs/:id`）是运维界面，见 [Console API 参考](../console-api/)。它也不是存储页的替代；本页是跨两者的格式层视图。
+- **不是 ChatML 格式标准文档**：ChatML 本身是通用行业规范，Ankole 的读取投影只是对齐这一标准形态，并未另起炉灶重新定义它。
+- **不是面向外部业务系统的公开查询接口文档**：Console 下的 `/api/v2/ai-gateway/conversations/:id/messages` 与 `/api/v2/background-agent-jobs/:id` 属于运维管理路由，具体参数见 [Console API 参考](../console-api/)。
+- **不替代各子系统的存储设计文档**：本文聚焦于横跨两套子系统的消息格式与投影层，底层存储细节仍以各自专题页为准。
 
 ## 下一步
 
-- 会话消息存储，读 [AIGateway](../ai-gateway/)。
-- 任务轨迹存储，读 [Background Agent Jobs](../background-agent-jobs/)。
-- compaction 与可见 checkpoint，读 [上下文压缩与 compaction](../context-compression-and-caching/)。
-- 读取这些的 Console 路由，读 [Console API 参考](../console-api/)。
+- 了解会话消息表的完整设计，请参阅 [AIGateway](../ai-gateway/)。
+- 了解后台任务及其轨迹存储机制，请参阅 [Background Agent Jobs](../background-agent-jobs/)。
+- 了解上下文摘要压缩与可见检查点机制，请参阅 [上下文压缩与 compaction](../context-compression-and-caching/)。
+- 查阅读取上述记录的管理端接口，请参阅 [Console API 参考](../console-api/)。

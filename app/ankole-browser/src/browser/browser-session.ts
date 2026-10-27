@@ -402,7 +402,7 @@ export class BrowserSession {
     } finally {
       if (annotate) await this.removeAnnotations(page)
     }
-    return { path: this.modelArtifactPath(outputPath) }
+    return { path: outputPath }
   }
 
   private async fetch(urls: string[], deadline: number): Promise<Record<string, unknown>> {
@@ -503,10 +503,6 @@ export class BrowserSession {
         : resolve(this.material.artifact_root, value.replace(/^browser\/?/, ''))
       : resolve(this.material.artifact_root, `screenshots/${new Date().toISOString().replace(/[:.]/g, '-')}.png`)
     assertInside(this.material.artifact_root, path, 'browser artifact root')
-    return path
-  }
-
-  private modelArtifactPath(path: string): string {
     return path
   }
 

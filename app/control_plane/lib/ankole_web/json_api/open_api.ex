@@ -46,6 +46,7 @@ defmodule AnkoleWeb.JSONAPI.OpenAPI do
 
   defp title(:saas), do: "Ankole SaaS account API v2"
   defp title(:saas_pod), do: "Ankole SaaS Pod extension API v2"
+  defp title(:saas_site), do: "Ankole SaaS site extension API v2"
   defp title(:browser), do: "Ankole browser authentication and setup API v2"
   defp title(:pod), do: "Ankole Pod API v2"
   defp title(:site), do: "Ankole site API v2"

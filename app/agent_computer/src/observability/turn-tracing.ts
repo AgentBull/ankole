@@ -258,10 +258,11 @@ class RuntimeFabricSpanExporter implements SpanExporter {
   async shutdown(): Promise<void> {}
 }
 
-function workerResource() {
+export function workerResource(env: Record<string, string | undefined> = process.env) {
+  const version = env.ANKOLE_VERSION || env.ANKOLE_RELEASE_REVISION
   return resourceFromAttributes({
     'service.name': tracerName,
-    ...(process.env.ANKOLE_VERSION ? { 'service.version': process.env.ANKOLE_VERSION } : {}),
-    ...(process.env.ANKOLE_ENV ? { 'deployment.environment.name': process.env.ANKOLE_ENV } : {})
+    ...(version ? { 'service.version': version } : {}),
+    ...(env.ANKOLE_ENV ? { 'deployment.environment.name': env.ANKOLE_ENV } : {})
   })
 }

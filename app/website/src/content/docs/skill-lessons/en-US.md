@@ -5,82 +5,82 @@ section: User guide
 order: 34
 ---
 
-Skill lessons give an Agent short, dated cautions when it loads a Skill. They help the Agent avoid recurring tool failures, environment traps, and working-method mistakes. The shared `SKILL.md` stays unchanged.
+Skill lessons attach short, dated process cautions when an Agent loads a Skill—helping that Agent avoid recurring tool failures, environment pitfalls, and procedural mistakes while leaving the shared `SKILL.md` file untouched.
 
-Skill lessons are inspired by GBrain's experiments with Skill optimization; they are dated notes accumulated by an Agent while using a Skill. Ankole limits machine-written content to leased, Agent-specific process notes and never modifies the Skill body.
+Inspired by GBrain's experiments in Skill optimization, Skill lessons capture dated operational notes accumulated as an Agent exercises a Skill. Ankole restricts machine-written lessons to leased, per-Agent process cautions and never rewrites the shared Skill body itself.
 
-One lesson belongs to one Agent and one Skill. Put a rule in the Skill source when it must apply to every Agent.
+Each lesson belongs to a single Agent and a single Skill. Whenever a rule should apply to every Agent across the deployment, add it directly to the Skill's `SKILL.md` source instead.
 
 ## What can become a lesson
 
-Ankole can retain two kinds of process guidance:
+Ankole records two kinds of reusable process guidance:
 
-- A tool problem or environment condition that appears in more than one Background Agent Job.
-- A reusable correction about how to work that a person gives while a Job is running.
+- A tool failure or environment quirk encountered across multiple Background Agent Jobs.
+- A reusable procedural correction given by a human while a Background Agent Job is running.
 
-A lesson can say when to stop, what to check, or how to call a tool. It cannot judge how good, deep, complete, or well-written a result should be. Ankole does not score task results to decide whether a lesson worked.
+A lesson can specify when to stop, what precondition to verify, or how to invoke a tool—never how thorough, polished, or well-written a final deliverable should be, and Ankole does not score task outputs to evaluate whether a lesson helped.
 
-An instruction for one task is not a lesson. A one-time scope, format, or terminology request stays with that task. Most evidence batches produce no lesson.
+One-off task instructions—such as a single report's scope, formatting, or terminology—stay inside that task rather than becoming a lesson, so most reflection batches produce zero new lessons.
 
 ## What evidence is required
 
-Ankole looks at finished Background Agent Jobs that contain a failed command or tool call, or a human message after the Job started. It considers only the last 30 days.
+Ankole examines completed Background Agent Jobs from the past 30 days that recorded either a failed command/tool call or a mid-run human steering message.
 
-Dreaming starts a reflection Job after the Agent has enough unprocessed signal Jobs. The default threshold is 10. The reflection receives up to 30 of the most recent qualifying Jobs.
+Once an Agent accumulates enough unprocessed qualifying Jobs (`10` by default), Dreaming launches a reflection Job covering up to the `30` most recent qualifying Jobs.
 
-A machine-written lesson normally needs evidence from at least two different Jobs. One Job is enough only when a human message in that Job states the reusable correction that the lesson summarizes.
+A machine-written lesson normally requires corroborating evidence across at least two distinct Jobs; a single Job suffices only when a human explicitly stated the reusable procedural rule during that Job.
 
-The reflection can run read-only checks in its local environment. It cannot change files, use the network, or fix the problem. Error and tool output are treated as untrusted data.
+Inside its reflection Job, the Agent can run read-only checks against its local Worker environment, but it cannot modify files, access the network, or attempt repairs, and it treats all captured error logs and tool outputs as untrusted data.
 
 ## What the Agent receives
 
-Active lessons appear below the full Skill instructions in an `Agent-specific additions` section. Each item shows its date. Human lessons appear before Dreaming lessons.
+When the Agent loads a Skill, active lessons are appended beneath the main `SKILL.md` body under `Agent-specific additions`, each stamped with its date and ordered with human-authored lessons ahead of Dreaming lessons.
 
-Retired lessons and machine lessons outside their review grace period are not delivered. Disabling a Skill also stops its lessons from entering the Agent's context. The stored history remains available to operators.
+Ankole omits retired lessons as well as Dreaming lessons whose review grace period has expired. Disabling a Skill also suppresses its lessons from entering the Agent's prompt, while preserving the full lesson history in the Console for operator inspection.
 
 ## Keep machine lessons current
 
-A Dreaming lesson starts with a seven-day lease. Scheduled Dreaming reviews it when the lease is due, when the Ankole release changes, or when the Skill body changes.
+Every Dreaming lesson starts with a seven-day lease, and scheduled Dreaming re-evaluates it whenever its lease comes due, the Ankole release version changes, or the underlying `SKILL.md` body changes.
 
-The review has three outcomes:
+Each review produces one of three outcomes:
 
-- **Renew** keeps the lesson when its condition still exists or there is no new evidence.
-- **Obsolete** retires the lesson when the environment no longer has the condition or the Skill body already covers it.
-- **Lapse** retires an expired lesson when recent use does not confirm the condition and the review cannot show that it is obsolete.
+- **Renew** extends the lease when the underlying environment condition still holds or no contradicting evidence has appeared.
+- **Obsolete** retires the lesson once the environment issue has been resolved or the shared `SKILL.md` body covers it directly.
+- **Lapse** retires an expired lesson when recent runs neither re-confirm the condition nor prove it obsolete.
 
-An unreviewed lesson stops being delivered after a seven-day grace period. The row remains in the history so an operator can inspect what happened.
+If a due lesson goes unreviewed past a seven-day grace window, Ankole stops delivering it to the Agent while keeping the row in history so operators can see what happened.
 
-Human lessons have no lease. Dreaming does not change or retire them.
+Human-authored lessons carry no expiration lease, and Dreaming never alters or retires them.
 
 ## Add or retire a lesson
 
 1. Open **Agent Library** in the Console.
-2. Change the scope from **Global defaults** to the target Agent.
-3. Find the Skill under an Agent Plugin or under **Skills**.
-4. Select **Add lesson**, state the condition first, and then state the action.
-5. Select **Retire** when a lesson is wrong, obsolete, or no longer useful.
+2. Switch the scope from **Global defaults** to the target Agent.
+3. Locate the Skill under an Agent Plugin or under **Skills**.
+4. Select **Add lesson**, stating the triggering condition first and the required action second.
+5. Select **Retire** whenever an existing lesson is inaccurate, obsolete, or unneeded.
 
-Only an enabled Skill accepts a new human lesson. A human lesson has no machine length limit, but it cannot contain a URL. To correct a lesson, retire the old item and add a new one; lesson text is immutable.
+You can add a human lesson only while the Skill is enabled for that Agent. Human lessons have no machine token cap, though they cannot contain URLs. Because lesson text is immutable once saved, fix a typo or update wording by retiring the existing lesson and adding a replacement.
 
-The Console shows the author, creation time, review date, checked release, evidence Jobs, and retirement reason. Content that an operator retires stays on Dreaming's never-relearn list, so Dreaming does not add an equivalent lesson again. The Agent stops reading a retired lesson on its next turn.
+For every lesson, the Console displays its author, creation timestamp, last review date, verified release version, supporting evidence Jobs, and retirement reason. Retiring a lesson also places it on Dreaming's never-relearn list so Dreaming will not recreate an equivalent caution later, and the Agent stops receiving the retired lesson starting on its next turn.
 
 ## Configure and observe learning
 
-The following `brain.*` settings control Skill lessons:
+Four `brain.*` settings in AppConfigure govern Skill lessons:
 
 | Setting | Default | Effect |
 |---|---|---|
-| `brain.skill_learning_enabled` | `true` | Enables reflection, review, and lesson delivery. `false` hides stored human and Dreaming lessons without deleting them. |
-| `brain.skill_learning_reflection_threshold` | `10` | Sets the number of unprocessed signal Jobs required before one reflection Job starts. The minimum is `2`. |
-| `brain.maintainer_agent_uid` | Not set | Selects the Agent whose `heavy` profile reviews leased lessons. Without a usable `heavy` profile, model-based review is skipped. |
-| `brain.dreaming_task_cron` | `0 5 * * *` | Sets when Dreaming evaluates reflection triggers and reviews due lessons. |
+| `brain.skill_learning_enabled` | `true` | Enables reflection, lease review, and lesson delivery; setting it to `false` hides stored human and Dreaming lessons without deleting them. |
+| `brain.skill_learning_reflection_threshold` | `10` | Unprocessed qualifying Jobs required before Dreaming starts a reflection Job (minimum `2`). |
+| `brain.maintainer_agent_uid` | Not set | Selects the Agent whose `heavy` model profile reviews leased lessons; without a usable `heavy` profile, Ankole skips model-based review. |
+| `brain.dreaming_task_cron` | `0 5 * * *` | Cron schedule on which Dreaming checks reflection thresholds and reviews due leases. |
 
-Open **Brain → Health** to see whether Skill learning is enabled, active lesson counts by Agent, lessons added and retired in the last seven days, and the age of the oldest active Dreaming lesson.
+Open **Brain → Health** in the Console to check whether Skill learning is active, inspect active lesson counts per Agent, view lessons added and retired over the past seven days, and check the age of the oldest active Dreaming lesson.
 
 ## Limits and safety
 
-- A machine lesson is one to three short English sentences and at most 100 tokens. It uses a condition, an action, and an optional check.
-- One reflection can add at most two lessons to one Skill. Dreaming stops adding when that Skill already has 10 active lessons.
-- Machine-written lessons cannot contain URLs or content that matches the injection checks.
-- Lessons are Agent-specific. Ankole does not share them across Agents.
-- Ankole cannot prove a lesson is true or predict its effect without replaying the task. The dated, conditional text tells the Agent to check the current environment before it acts.
+- Each machine-written lesson is capped at one to three short English sentences and at most `100` tokens—structured around a condition, an action, and an optional verification check.
+- A single reflection Job can add at most two lessons to any one Skill, and Dreaming stops proposing new lessons for a Skill once it reaches `10` active lessons.
+- Machine-written lessons cannot include URLs or text matching Ankole's prompt-injection guards.
+- Lessons remain strictly per-Agent; Ankole never shares lessons across different Agents.
+- Because Ankole cannot prove that a lesson holds universally without re-executing tasks, lessons are phrased as dated, conditional checks instructing the Agent to verify the live environment before acting.

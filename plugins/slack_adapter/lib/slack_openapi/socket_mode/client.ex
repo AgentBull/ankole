@@ -30,8 +30,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
             reconnect_interval_s: @default_reconnect_interval_s,
             reconnect_nonce_s: @default_reconnect_nonce_s,
             dispatch_tasks: %{},
-            status: :disconnected,
-            connection_info: %{}
+            status: :disconnected
 
   @type t :: %__MODULE__{}
 
@@ -239,7 +238,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
     if is_nil(state.expected_app_id) or
          get_in(hello, ["connection_info", "app_id"]) == state.expected_app_id do
       emit([:connected], %{duration_ms: 0}, info)
-      %{state | status: :connected, connection_info: info}
+      %{state | status: :connected}
     else
       send(self(), {:shutdown_socket, :application_identity_mismatch})
       drop_conn(state)
@@ -372,8 +371,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
       state
       | socket: nil,
         dispatch_tasks: %{},
-        status: :disconnected,
-        connection_info: %{}
+        status: :disconnected
     }
   end
 

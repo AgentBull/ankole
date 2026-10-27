@@ -1,23 +1,24 @@
 # WhatsApp Adapter
 
 The WhatsApp Adapter connects one WhatsApp Business phone number to one Agent
-binding through the WhatsApp Business Platform Cloud API. WhatsApp is a consumer
-IM. The category changes catalog and Console presentation only; the adapter uses
-the same Signals and Conversations contracts as every other Signal adapter.
+binding via the WhatsApp Business Platform Cloud API. Although WhatsApp belongs
+to the `consumer_im` catalog category—which affects only Console and catalog
+grouping—the adapter implements the exact same `Signals` and `Conversations`
+contracts as every other messaging adapter.
 
-Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+See [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Authentication](../Authentication.md) for the
-common message and identity rules.
+[Authentication](../Authentication.md) for the shared messaging and identity
+contracts.
 
 ## Provider and Public Identity
 
-The adapter reports an opaque `provider_conversation_id` and a
-`provider_message_id`. Conversations resolves these to a shared public
-Conversation UUID and Message UUID. All Agent observers of the same provider
-conversation in one tenant read those same public facts. Each participating
-Agent has its own `conversation:<public UUID>` Session; a Binding is its
-observation and delivery route, not the owner of the platform room.
+On inbound webhooks, the adapter reports an opaque `provider_conversation_id`
+and `provider_message_id`, which `Conversations` resolves to a shared public
+Conversation UUID and Message UUID. Every Agent observing that WhatsApp chat
+within the same tenant reads those shared public records while running in its
+own `conversation:<public UUID>` Session—a Binding defines an observation and
+delivery route rather than owning the WhatsApp thread.
 
 ## Current IDs and Features
 
@@ -30,278 +31,233 @@ observation and delivery route, not the owner of the platform room.
 | Webhook handler ID | `whatsapp` |
 | Cloud API client | Project `Req` client against the Graph API, version `v25.0` |
 
-The settings are the Meta App ID, the encrypted App secret, the encrypted verify
-token, the phone number ID, and the encrypted System User access token. The
-adapter uses no WhatsApp SDK and does not use the On-Premises API.
+Each binding configures the Meta App ID, encrypted App secret, encrypted webhook
+verify token, WhatsApp phone number ID, and encrypted permanent System User
+access token, calling Meta's Graph API directly over `Req` without a WhatsApp
+SDK or On-Premises API deployment.
 
-A provider conversation is bound to the phone number that received its
-messages; its `provider_conversation_id` holds that number. If an operator moves a binding to another phone
-number, replies to the older chats stop with an operator-action
-`binding_phone_number_mismatch` error instead of going out from a number the
-user never wrote to. Restoring the original number releases those replies on the
-next binding save; keeping the new number leaves the older chats closed.
+Every conversation binds to the specific `phoneNumberId` that received its
+messages (encoded inside `provider_conversation_id`). If an operator later
+switches a binding to a different phone number, outbound replies to older chats
+halt with an operator-action `binding_phone_number_mismatch` error rather than
+replying from a number that the user never messaged; restoring the original
+phone number unblocks those pending replies on save, whereas keeping the new
+number leaves the older chats closed.
 
-One phone number can belong to only one enabled binding, because two Agents
-behind one number would both answer every message. Several phone numbers can
-share one Meta App. Those bindings then share one callback URL, so enabled
-bindings with the same App ID must carry the same App secret and the same verify
-token; a save that breaks this is refused.
+Each phone number ID can belong to at most one enabled WhatsApp binding so two
+Agents never double-answer a single number. Multiple phone numbers (and
+bindings) may share one Meta App—and therefore share one App-level webhook
+URL—provided all enabled bindings under that `appId` supply identical App
+secrets and verify tokens (saves that introduce a mismatch are rejected).
 
-The adapter accepts one-to-one chats only. Meta serves WhatsApp groups through
-the separate Groups API, which only an Official Business Account can use, so a
-message that carries a group ID is ignored. The binding therefore supports the
-`addressed_only` group message mode alone, which the Console preselects.
-
-Inbound capabilities are `entry_receive` and `action_event`. The Cloud API
-delivers no edit event and no removal event, so the adapter declares neither
-`entry_removed` nor reactions: a message the user deletes in the WhatsApp app
-never reaches the webhook.
-
-Outbound capabilities are `post_entry`, `reply_entry`, `divider`, and `card`.
-The Cloud API cannot edit or delete a sent message, so the adapter does not
-declare `edit_entry` or `delete_entry`. It declares no reply-preview module,
-because a sent message cannot change and a live preview would only add messages.
-It also does not declare `outbound_reconciliation`: a message send has no
-idempotency key and no read-back, so a repeat can duplicate the reply.
+Only 1-on-1 chats are supported: because WhatsApp groups require Meta's separate
+Official Business Account Groups API, group-tagged webhook payloads are ignored
+and the Console preselects `addressed_only` as the sole supported group mode.
+Inbound capabilities are `entry_receive` and `action_event` (the Cloud API emits
+no message-edit or message-delete webhooks—so messages that users delete in
+WhatsApp never reach Ankole—and reactions are ignored). Outbound capabilities
+are `post_entry`, `reply_entry`, `divider`, and `card`; because sent Cloud API
+messages cannot be edited or deleted and carry neither caller idempotency keys
+nor read-back endpoints, the adapter omits `edit_entry`, `delete_entry`, live
+reply previews, and `outbound_reconciliation`.
 
 ## Receive Webhooks
 
-The Cloud API has no polling or socket transport. Meta owns the callback URL at
-App level, so the route instance segment is the Meta App ID:
+Meta configures WhatsApp Cloud API webhooks at the Meta App level rather than per
+phone number, posting and verifying against:
 
 ```text
 https://<host>/webhooks/v1/whatsapp/<appId>/events
 ```
 
-A GET verifies the subscription. Meta sends `hub.mode`, `hub.verify_token`, and
-`hub.challenge`; the handler answers status 200 with the raw challenge as
-`text/plain` when the mode is `subscribe` and the token matches the stored
-verify token, and status 403 otherwise.
+- **Subscription verification (`GET`):** checks `hub.mode == "subscribe"` and
+  compares `hub.verify_token` against the stored verify token, returning HTTP
+  `200` with `hub.challenge` as `text/plain` on match or `403` otherwise.
+- **Event delivery (`POST`):** looks up `<appId>` (returning `404` if unknown)
+  and validates `x-hub-signature-256` (`sha256=` plus lowercase hex HMAC-SHA256
+  over the exact raw request bytes keyed by the App secret, returning `401` on
+  mismatch) before inspecting any event payload.
 
-A POST carries the events. The handler checks the `x-hub-signature-256` header,
-which is `sha256=` and the lowercase hex HMAC-SHA256 of the exact request bytes
-keyed with the App secret. Conversations keeps those bytes for every provider
-webhook. A request with a wrong signature gets status 401 and an unknown App ID
-gets status 404, before the handler reads any event.
-
-One App can serve several phone numbers, and only some of them belong to this
-installation. The handler reads `value.metadata.phone_number_id` of each change
-and dispatches to the binding that owns that number. A change for a number no
-binding serves is ignored and returns status 200, so one unconfigured number
-never blocks the others.
-
-The handler completes durable Conversations.Observe for every message in the
-request before it returns status 200. Meta retries a delivery that did not get a
-200 for up to seven days and can also send the same message twice. The message
-ID is its `source_event_id`, so the gateway stores a repeated message once.
+Because a single Meta App can own multiple phone numbers—only some of which may
+be bound in Ankole—the handler inspects `value.metadata.phone_number_id` on each
+change entry, routing owned numbers to their binding while ignoring unconfigured
+numbers with HTTP `200` so unmapped numbers never block active ones. Durable
+`Conversations.Observe` finishes for every message in the payload before the
+handler returns `200`; Meta retries non-`200` deliveries for up to seven days,
+and Ankole deduplicates redeliveries using the WhatsApp message ID
+(`source_event_id`).
 
 Operator setup in the Meta App Dashboard:
 
-1. Add the **WhatsApp** product to the App and connect the WhatsApp Business
-   Account that owns the phone number.
-2. Copy the App ID, the App secret, and the phone number ID into the binding,
-   choose a verify token, and put the same token into the binding.
-3. Set the callback URL above in **WhatsApp > Configuration**, enter the same
-   verify token, and press **Verify and save**.
-4. Subscribe the App to the `messages` webhook field. No other field is used.
-5. Create a System User with the `whatsapp_business_messaging` permission, issue
-   a permanent token for it, and copy that token into the binding. A user token
-   expires and stops the Agent.
+1. Add the **WhatsApp** product to the Meta App and link the WhatsApp Business
+   Account owning the phone number.
+2. Copy the App ID, App secret, and phone number ID into the Ankole binding
+   alongside a chosen verify token.
+3. Under **WhatsApp > Configuration**, set the callback URL above with that same
+   verify token and click **Verify and save**.
+4. Subscribe the App to the `messages` webhook field (no other fields are
+   needed).
+5. Provision a Business Manager System User granted
+   `whatsapp_business_messaging`, mint a permanent access token, and store it on
+   the binding (short-lived user tokens expire and stall the Agent).
 
 ## Receive Messages
 
-Every message is a one-to-one message and is explicit input. `provider_conversation_id`
-holds the phone number ID and the sender's `wa_id`. The Cloud API has no
-threads, so the adapter records no provider thread: the chat is the channel, and
-a quoted message is the only reply relation. The message ID is both the source
-event ID and the provider message ID.
+Every accepted message is an explicit 1-on-1 turn whose
+`provider_conversation_id` pairs `phoneNumberId` and the sender's `wa_id` and
+whose `wamid` serves as both `source_event_id` and `provider_message_id` (since
+WhatsApp has no threads, `provider_thread_id` stays empty and quoting is the
+sole reply relation).
 
-Text, image, video, audio, document, sticker, location, and contacts messages
-enter the common message projection. A media caption becomes the entry text, a
-document keeps the sender's file name, and a location or a shared contact card
-becomes a short text line. A quick reply of a template message enters as its
-plain button text.
-
-A `reaction`, `unsupported`, `system`, `request_welcome`, or `order` message is
-ignored, and so is a message with no text and no attachment. Delivery states
-under `value.statuses` write nothing; a `failed` state is logged with its error
-codes, because the message never reached the user.
+Text, image, video, audio, document, sticker, location, and contact-card
+messages project into `Conversations`: media captions become entry text,
+documents keep the sender's filename, locations and contact cards format as
+concise text lines, and template quick-reply taps enter as plain button text.
+By contrast, `reaction`, `unsupported`, `system`, `request_welcome`, `order`,
+and empty payloads are ignored, and outbound delivery receipts under
+`value.statuses` write no database rows (logging error codes on `failed`
+statuses for operator visibility).
 
 ## Admit WhatsApp Identities
 
-The author provider is always `whatsapp`, and the stable external identity is
-the `wa_id`. The webhook already carries the sender's WhatsApp profile name, so
-the adapter declares no author hydrator.
+Inbound authors use provider namespace `whatsapp` keyed by `wa_id`. Because
+webhook payloads already include the sender's WhatsApp profile display name, no
+`author_hydrator` call is needed. Moreover, because `wa_id` is a Meta-verified
+phone number, the adapter normalizes `+<wa_id>` to E.164 via the Rust kernel and
+supplies it as a verified mobile number—matching existing Principals by mobile
+number immediately just like enterprise IM adapters (omitting any number that
+cannot be normalized cleanly rather than storing malformed phone text).
 
-The `wa_id` is the sender's phone number, which Meta verified before it issued
-the account. The adapter therefore normalizes `+<wa_id>` to E.164 and supplies
-it as the author mobile number. A Principal whose mobile number is that number
-is matched at once, exactly as for an enterprise IM adapter with a directory
-mobile number. A number the kernel cannot normalize is left out instead of
-being stored in a broken form.
-
-The binding owns `unmatched_sender_policy` (`manual_review` or
-`create_standalone`). With `manual_review`, an unmatched sender receives the
-fixed mapping notice while `Conversations.IdentityAdmission` creates a mapping
-request with the WhatsApp profile name and phone number without storing the
-original message; an administrator can then bind the WhatsApp external identity
-to any existing human Principal. With `create_standalone`,
-`Conversations.IdentityAdmission` creates a human Principal and binds the
-WhatsApp ID.
+Under `unmatched_sender_policy`, `manual_review` sends the localized mapping
+notice and creates a mapping request pre-populated with the WhatsApp profile
+name and normalized phone number without storing the message body, whereas
+`create_standalone` creates a new Human Principal bound to that `wa_id`.
 
 ## Materialize Attachments
 
-Conversations first commits the admitted message with a pending attachment
-observation inside the webhook request. A supervised task then reads the
-temporary media URL, downloads the bytes, stores them in the file service
-([Files](../Files.md)), and updates the same entry. The webhook answer does not wait
-for the download. If the task cannot start, the webhook fails and Meta delivers
-the message again; the pending observation is already durable, so that
-redelivery fetches the file. An unmatched sender cannot make Ankole download a
-file.
+Inside the webhook transaction, `Conversations` commits admitted media messages
+with pending attachment rows—ensuring unmapped senders never trigger
+downloads—and spawns a supervised background task to resolve the temporary media
+URL (which expires 5 minutes after lookup), download the bytes into the file
+service ([Files](../Files.md)), and finalize the entry without delaying the
+`200` webhook acknowledgement:
 
-A redelivered message keeps a result this Agent already holds and fetches
-everything else again, including a download whose earlier task never finished,
-because the adapter cannot prove that such a task is alive. Conversations never
-replaces an attachment this Agent can read with a later observation from this
-Agent that has no path, so a second download that overlaps the first cannot lose
-the file. A copy that another Agent downloaded does not count: when a route
-moves to another Agent, that Agent fetches its own copy.
-
-The media URL expires five minutes after Ankole reads it, so the download
-follows at once. Ankole applies its own budget of 25 MB. For a larger file, the
-adapter keeps the provider file metadata and a clear `provider_download_limit`
-restriction. It never creates a local path for such a file or claims that the
-Agent can read it.
+- If the background task cannot start, the webhook fails so Meta redelivers
+  against the already committed pending observation.
+- On redelivery, the adapter keeps any attachment that this Agent already
+  materialized and re-fetches anything still missing (including downloads from
+  earlier tasks whose liveness cannot be proved); `Conversations` never replaces
+  an already materialized file path for that Agent with a pathless update, and
+  reassigning a route to another Agent fetches that Agent's own copy.
+- Files up to Ankole's 25 MB download cap are stored locally; larger files
+  retain their provider metadata plus `provider_download_limit` without creating
+  a local file path or claiming local readability.
 
 ## Send Replies and Actions
 
-Every outbound operation is a Cloud API message send to
-`POST /<version>/<phoneNumberId>/messages` with the System User token. The
-adapter uses the returned `wamid` values as provider message IDs and keeps every
-sent ID on the Delivery intent, because a long reply is several messages.
+Outbound sends post to `POST /<version>/<phoneNumberId>/messages` using the
+System User token, recording every returned `wamid` on the Delivery intent.
+Prose splits at 4,096 characters into sequential requests—setting
+`context.message_id` on the first chunk of a `reply` so WhatsApp renders a
+visual quote—and dividers send as text separators.
 
-The adapter splits text at 4,096 characters and sends one request for each
-chunk. A reply puts the human message ID in `context.message_id` of the first
-chunk, so WhatsApp shows the quoted message. A divider is a text separator.
+Interactive clarifications (`Conversations` allows up to eight choices) render
+after any preceding text chunks as one trailing interactive message whose
+`wamid` is recorded as the Signal's reply surface (while the Delivery row's
+created entry ID remains the first chunk):
 
-A pending clarification renders its choices as one interactive message. Up to
-three choices become reply buttons with titles of at most 20 characters; more
-become one list section with row titles of at most 24 characters.
-Conversations allows at most eight choices, which stays inside the Cloud API
-limit of ten list rows. The button that opens a list carries a fixed localized
-label, because it only opens the rows and does not repeat the question. Each
-button or row carries a short token of at most 256 bytes that names the
-Signal, the action index, and the action fingerprint; it does not contain
-the action.
+- Up to three choices render as reply buttons (20-character title limit); four
+  to eight choices render as a single list section (24-character row-title
+  limit, well inside Meta's 10-row ceiling) opened by a fixed localized
+  list-drawer button.
+- Every button or row title starts with its 1-based ordinal (for example,
+  `"1. Approve the release"`) so truncated labels never collide—Meta rejects
+  interactive messages containing duplicate titles—and whenever a label
+  truncates, button prompts append the full numbered options beneath the prompt
+  text while list rows place the full label in the row description.
+- Each option's callback ID (up to 256 bytes) encodes only the Signal ID, action
+  index, and action fingerprint. When a user taps an option, the adapter maps
+  `wa_id` to a Principal, loads the checkpointed action, and verifies that the
+  reply's `context.id` matches the recorded interactive reply surface before
+  emitting `signal.action.invoked` (stale tokens or replies quoting an earlier
+  text chunk quietly no-op).
 
-Every title starts with its ordinal, as in "1. Approve the release". The Cloud
-API refuses a whole interactive message whose titles repeat, and two long
-choices cut to the title limit read the same, so the ordinal keeps them apart.
-It also tells the user which choice a short title stands for: when a button
-title cannot hold its label, the numbered full labels follow the prompt under a
-blank line, and a cut row title keeps its full text in the row description.
-
-A reply that asks for a choice is several messages: the text chunks first and
-the interactive message last. The adapter records the ID of that interactive
-message as the Signal's reply surface, because that is the message the
-buttons live on. The row's created entry ID is the first message.
-
-On an interactive reply, the adapter resolves the WhatsApp user to a Principal,
-restores the action from the durable checkpoint, and checks that the reply's
-`context.id` names that same reply surface before it submits the standard
-signal.action.invoked stimulus. A stale token, a token that answers from another
-message, and a reply that names a text chunk of the same answer instead of the
-interactive message all produce no visible change.
-
-An outbound attachment is uploaded first with
-`POST /<version>/<phoneNumberId>/media` and then sent by its media ID. The
-Cloud API accepts one message type for each media class:
+Outbound attachments upload first via `POST /<version>/<phoneNumberId>/media`
+and then send by media ID under Meta's per-type constraints:
 
 | Message type | Accepted content | Size limit |
 | --- | --- | --- |
 | `image` | JPEG, PNG | 5 MB |
 | `video` | MP4, 3GPP | 16 MB |
 | `audio` | AAC, MP4, MPEG, AMR, OGG | 16 MB |
-| `document` | The Meta document list, such as PDF, plain text, and the Word, Excel, and PowerPoint formats | 100 MB |
+| `document` | Meta's supported document formats (such as PDF, plain text, Word, Excel, and PowerPoint) | 100 MB |
 
-A file that is larger than the limit of its type, or whose content type is not
-in these lists, stops that attachment row with a permanent
-`outbound_attachment_unsupported` error. The text intent is delivered
-separately because each attachment has its own Delivery intent.
+Attachments exceeding their class size cap or using an unsupported MIME type
+fail permanently with `outbound_attachment_unsupported` on their attachment
+Delivery intent while sibling text intents still deliver independently.
 
 ## The Customer Service Window
 
-Meta closes the customer service window 24 hours after the user's newest
-message. A free-form message after that is rejected, and only a paid template
-message can open a new window. Templates are outside this adapter's contract.
+Meta closes the free-form customer service window 24 hours after the user's
+latest message, rejecting free-form sends afterward unless re-opened by a paid
+template message (templates are outside this adapter's scope).
 
-Before every send, the adapter reads the newest human message of the channel. If
-that message is older than the window, less a five minute margin, the row stops
-with a permanent `customer_service_window_closed` error and no request reaches
-Meta. A reply that a background job or a scheduled push produces more than 24
-hours after the user wrote therefore never arrives. An operator can use the
-Retry action of the Signal Routing page in Console to give that stopped row one
-more send after the user writes again.
+Before dispatching any outbound send on an existing chat, the adapter checks the
+chat's latest user activity timestamp:
 
-Meta re-opens the window on any user action, and a button or list reply is one.
-The adapter keeps the time of the newest interactive reply on the channel,
-exactly as WhatsApp reports it on the message, and reads the newer of that time
-and the newest human message. A user who answers a clarification after 24 hours
-can therefore receive the Agent's answer, while a tap that Meta delivers
-late does not open a window that has already closed. The adapter records that
-time under the channel row lock and keeps the newest one, so an older tap that
-Meta delivers later cannot move the window back. A callback whose token does not
-resolve leaves no fact, so a stale token does not re-open the window.
-
-A channel that holds no human message at all, such as the one that carries the
-mapping notice to a held sender, never had a window to close, so the adapter
-sends it.
+- If that timestamp is older than 23 hours 55 minutes (24 hours minus a 5-minute
+  safety margin), the Delivery intent halts immediately with permanent
+  `customer_service_window_closed` without calling Meta—so background Job or
+  cron notifications finishing more than 24 hours after the user last spoke will
+  not deliver automatically (once the user writes again, an operator can trigger
+  one retry from the Console Signal Routing page).
+- Because tapping an interactive reply button or list row also re-opens Meta's
+  24-hour window, the adapter records the provider-reported timestamp of each
+  valid interactive reply under the channel row lock (keeping `max` so
+  out-of-order late webhooks never move the timestamp backward, and ignoring
+  unresolved/stale tokens) and compares against the newer of the latest human
+  message and latest valid interactive tap.
+- Channels with zero prior human messages—such as a one-off mapping notice sent
+  to an unmapped sender—have no closed window to enforce and send immediately.
 
 ## Failures and Secrets
 
-A message send has no idempotency key, and the Cloud API offers no read-back of
-a request whose answer was lost. A transport failure or a server error on a send
-is therefore uncertain, and so is any failure after an earlier message of the
-same reply already landed. The adapter reports `unknown` and Delivery stops.
-An operator can requeue a visible durable reply with a possible-duplicate
-notice. A failure on the media upload, before any message
-request, is an ordinary retryable failure.
+Because Cloud API message sends carry no idempotency key and offer no read-back
+on dropped connections, network or `5xx` errors during message send—or failures
+after an earlier chunk of a multi-message reply already succeeded—settle as
+`unknown` (operators can manually requeue a visible reply once with a
+possible-duplicate notice; media upload failures prior to sending any message
+remain safely retryable). Graph API and HTTP errors classify into three buckets:
 
-The adapter classifies the Graph error code and the HTTP status:
+- **Operator action required:** expired/revoked tokens (`190`), quality/spam
+  phone restrictions (`131048`), and HTTP `401` / `403`.
+- **Retryable:** throughput caps (`130429`), pair rate limits (`131056`),
+  Meta-advised transient errors (`131000`), service unavailability (`131016`),
+  HTTP `429`, and `5xx` responses.
+- **Permanent:** closed customer-service window (`131047`), undeliverable/unreachable
+  recipient (`131026`), unsupported message type (`131051`), media rejection
+  (`131053`), unregistered sender number (`133010`), and all other HTTP `400`
+  errors.
 
-- An expired or revoked token (code 190), a phone number that a quality or spam
-  signal restricted (code 131048), and status 401 or 403 require operator
-  action.
-- The throughput limit (code 130429), the per-pair limit (code 131056), the
-  generic failure that Meta asks the caller to repeat (code 131000), an
-  unavailable service (code 131016), status 429, and a server error are
-  retryable.
-- A closed customer service window (code 131047), an unreachable number (code
-  131026), an unsupported message type (code 131051), rejected media (code
-  131053), an unregistered number (code 133010), and every other status 400 are
-  permanent.
-
-An asynchronous `failed` status that arrives after a successful send is logged
-only. The Delivery intent already recorded a success, so Ankole cannot repair that
-delivery by itself.
-
-AppConfigure encrypts the App secret, the verify token, and the access token.
-They do not enter logs, persisted errors, or stored raw provider payloads.
+Asynchronous `failed` status webhooks arriving after an HTTP-accepted send are
+logged for diagnostics only, since the Delivery intent has already settled as
+confirmed. `AppConfigure` encrypts the App secret, verify token, and System User
+access token at rest and keeps them out of logs, error rows, and stored raw
+payloads.
 
 ## Tests
 
-Repository tests cover declaration validation, phone number ownership and
-shared-App credential consistency, subscription verification, signature
-validation, fan-out by phone number ID, redelivery deduplication, message and
-attachment projection, ignored message kinds, identity policies including the
-mobile match, attachment limits and storage in the file service,
-interactive button and list replies with token resolution, outbound request
-construction, media upload, uncertain sends, failure classification, and the
-customer service window check. Real WhatsApp acceptance needs an operator App
-and phone number that the repository does not contain.
+Automated tests cover plugin declarations, single-binding phone ownership and
+shared-App secret consistency, `GET` hub challenge verification,
+`x-hub-signature-256` checks, multi-number webhook routing, `wamid`
+deduplication, message/media projection, ignored message types, E.164 mobile
+identity matching, the 25 MB download cap and file-service storage, ordinal
+button/list rendering and `context.id` verification, media uploads, `unknown`
+send handling, Graph error-code classification, and 24-hour customer-service
+window enforcement. Live WhatsApp acceptance testing requires an operator Meta
+App and Business phone number outside the repository.
 
-The implementation sources are:
+Implementation paths:
 
 - `plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter.ex`
 - `plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/`

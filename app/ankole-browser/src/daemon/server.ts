@@ -1,3 +1,4 @@
+import { isRecord, safeJsonParse, stringArg } from '@agentbull/active-support'
 import { chmod, mkdir, rm } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname } from 'node:path'
@@ -84,11 +85,17 @@ export class BrowserDaemonServer {
     let request: BrowserRequest | undefined
     let partial: Partial<Pick<BrowserRequest, 'id' | 'route' | 'session'>> = {}
     try {
-      const raw = JSON.parse(line) as Record<string, unknown>
+      const raw = safeJsonParse(line).unwrapOr(undefined)
+      if (!isRecord(raw)) {
+        throw new BrowserDataError('invalid_command', 'Invalid JSON request')
+      }
+      const id = stringArg(raw, 'id')
+      const route = stringArg(raw, 'route')
+      const session = stringArg(raw, 'session')
       partial = {
-        ...(typeof raw.id === 'string' ? { id: raw.id } : {}),
-        ...(typeof raw.route === 'string' ? { route: raw.route } : {}),
-        ...(typeof raw.session === 'string' ? { session: raw.session } : {})
+        ...(id !== undefined ? { id } : {}),
+        ...(route !== undefined ? { route } : {}),
+        ...(session !== undefined ? { session } : {})
       }
       request = parseBrowserRequest(raw)
       const result = await this.manager.dispatch(request, signal)

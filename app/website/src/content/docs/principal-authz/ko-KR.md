@@ -5,105 +5,105 @@ section: Developer guide
 order: 106
 ---
 
-Ankole의 모든 작업 — 사람의 로그인, agent의 turn 실행, job이 소유자를 깨우는 것 — 은 Principal이 수행하며, 그 Principal이 무엇을 할 수 있는지는 작업이 일어나는 순간 AuthZ가 결정합니다. 이 페이지는 그 경계를 `Ankole.Principals`와 `Ankole.AuthZ`의 실제 코드에 대응시켜 설명합니다.
+사용자의 로그인부터 Agent의 턴 실행, 백그라운드 Job이 소유 세션을 깨우는 작업에 이르기까지 Ankole의 모든 동작은 Principal 주체 아래에서 수행되며, 해당 Principal이 무엇을 할 수 있는지는 실행 시점에 AuthZ가 판정합니다. 이 문서에서는 이 권한 경계가 `Ankole.Principals` 및 `Ankole.AuthZ`의 실제 코드와 어떻게 맞물리는지 설명합니다.
 
-중요한 속성을 먼저 밝히자면, 인가(authorization)는 model에게 요청되는 관례가 아니라 경계에서 강제되는 런타임 사실입니다. Principal은 지속 가능한(durable) 책임 주체이며, 그 부여(grants)는 PostgreSQL에 저장되고, 검사되는 모든 작업은 kernel이 명시적 스냅샷을 기준으로 평가하며, 호출자는 그 결정을 반드시 따라야 합니다.
+핵심 원칙은 인가(authorization)가 모델에 부탁하는 프롬프트 관례가 아니라 런타임 경계에서 강제되는 불변 규칙이라는 점입니다. Principal은 영속적인(durable) 책임 주체로서 모든 권한 부여(grant)가 PostgreSQL에 기록되며, 보호된 작업마다 Rust kernel이 명시적 스냅샷을 기준으로 권한을 평가하고 호출자는 그 판정 결과를 그대로 따라야 합니다.
 
 ## Principal: 하나의 책임 주체
 
-Principal은 인간, Agent, 시스템 서비스가 공유하는 영속적인 책임 주체입니다. 각 Principal은 정확히 하나의 테넌트에 속하며 전역에서 고유한 불투명 `uid`를 가집니다. `principals` 행의 `type`은 `:human`, `:agent`, `:system`이고, `status`는 `:active` 또는 `:disabled`이며, `:human`의 경우 `:member` 또는 `:guest`의 `membership`(`:agent`와 `:system`은 `nil`)을 가집니다.
+Principal은 사람, Agent, 시스템 서비스가 공통으로 사용하는 영속적 책임 주체입니다. 모든 Principal은 정확히 하나의 테넌트에 소속되며 전역적으로 고유한 불투명 `uid`를 가집니다. `principals` 테이블 행에서 `type`은 `:human`, `:agent`, `:system` 중 하나이고 `status`는 `:active` 또는 `:disabled`이며, `:human` 주체는 `:member` 또는 `:guest` 값을 갖는 `membership` 필드를 가집니다(`:agent`와 `:system`은 `nil`).
 
-인간 Principal은 하나의 `HumanUser` 행, 0개 이상의 사이트 범위 `SiteCredential` 행(`principal_site_credentials`, 검증된 이메일 OTP 주소 등), 그리고 0개 이상의 테넌트 범위 `ExternalIdentity` 행(`principal_external_identities`, Identity Provider에서 페더레이션한 ID)을 가집니다. agent Principal은 하나의 `Agent` 행을 가집니다. 모든 주체를 하나의 테이블로 통합하면 책임 추적성이 단일 형태로 유지되어 모든 audit 행, grant, 그룹 멤버십이 동일한 안정적인 Principal `uid`를 가리킵니다.
+사람(`:human`) Principal에는 `HumanUser` 행 하나와 0개 이상의 사이트 범위 `SiteCredential` 행(`principal_site_credentials`, 검증된 이메일 OTP 주소 등), 그리고 0개 이상의 테넌트 범위 `ExternalIdentity` 행(`principal_external_identities`, 외부 Identity Provider에서 연동된 계정)이 연결됩니다. Agent Principal에는 `Agent` 행 하나가 연결됩니다. 이처럼 모든 행위 주체를 단일 테이블로 통합해 두었기 때문에 감사 로그, grant, 그룹 멤버십이 모두 동일한 형태의 Principal `uid`를 가리키며 책임 추적 경로가 하나로 유지됩니다.
 
-인간의 `membership`은 테넌트 내 협업 경계를 제어합니다. 내부 `member`는 계산된 `all_humans` 그룹에 포함되지만, 외부 `guest`는 명시적인 Pod 페이지 공유 또는 Agent grant가 필요하며 내장 관리자 그룹(`siteadmin` 또는 `pod_admin`)에 참여하거나 Private space를 사용할 수 없고 Brain의 `world` 범위도 받지 않습니다.
+사람 Principal의 `membership` 구분은 테넌트 내 협업 범위를 결정합니다. 내부 구성원인 `member`는 계산형 그룹인 `all_humans`에 포함되지만, 외부 참여자인 `guest`는 명시적인 Pod 페이지 공유나 Agent grant가 있어야만 접근할 수 있고 내장 관리자 그룹(`siteadmin`, `pod_admin`) 참여나 Private space 이용이 차단되며 Brain의 `world` 범위 지식도 조회할 수 없습니다.
 
-비활성화된 Principal은 부분적으로 사용할 수 없습니다. kernel의 결정은 비활성화된 주체에 대해 `principal_disabled`를 반환하므로, Principal을 비활성화하면 모든 grant를 일일이 찾아다닐 필요 없이 instance 전체에서 그 권한이 제거됩니다.
+비활성화된(`:disabled`) Principal에는 부분적인 권한도 남지 않습니다. 비활성 주체에 대한 검사는 kernel에서 항상 `principal_disabled`를 반환하므로, 개별 grant를 일일이 찾아 지우지 않아도 Principal 상태만 비활성화하면 인스턴스 전체에서 즉시 권한이 차단됩니다.
 
 ## Grant: 누가 무엇을 할 수 있는가
 
-`permission_grants`의 각 행은 다음 세 가지 수혜자 소유자 중 정확히 하나만 가집니다(`num_nonnulls(principal_uid, group_id, source_page_id) = 1`, `Ankole.AuthZ.Validations.GrantShape`와 PostgreSQL check constraint로 강제됨):
+`permission_grants` 테이블의 각 행은 다음 세 가지 수혜 주체 중 정확히 하나만 소유자로 가집니다(`Ankole.AuthZ.Validations.GrantShape` 검증 및 PostgreSQL의 `num_nonnulls(principal_uid, group_id, source_page_id) = 1` 체크 제약 조건으로 강제됨).
 
-- Principal(`principal_uid`),
-- Principal group(`group_id`), 또는
-- **Pod 페이지 Userset**(`source_page_id`와 `page_view`, `page_write_records`, `page_edit`, `page_manage` 중 하나의 정확한 `source_action` 쌍).
+- 개별 Principal(`principal_uid`)
+- Principal 그룹(`group_id`)
+- **Pod 페이지 Userset**(`source_page_id`와 `page_view`, `page_write_records`, `page_edit`, `page_manage` 중 하나인 `source_action`의 쌍)
 
-Pod ACL grant는 `target_page_id`와 `target_scope`(하위 트리 상속을 위한 `container`, 또는 대상 페이지 단독인 `self`)도 저장합니다. 모든 grant는 다음을 포함합니다:
+Pod ACL용 grant에는 `target_page_id`와 `target_scope`(하위 트리까지 상속하는 `container` 또는 해당 페이지에만 적용하는 `self`)도 함께 저장됩니다. 모든 grant 행은 다음 필드를 포함합니다.
 
-- `resource_pattern` — `Input.validate_resource_pattern_syntax`로 검증되며, 콜론으로 구분된 통합 네임스페이스를 다룹니다: `site_console:**`(Site Console), `tenant_console:**`(Pod 관리), `agent:<uid>` 및 `agent:<uid>:tool:<fn>`(런타임 Agent 및 도구 호출), `pod:**`(`pod:space:**`, `pod:private:<uid>:**`, `pod:**:<page-id>:**`, `pod:**:<page-id>:page`). 단독 `"**"` 패턴은 유효하지 않습니다;
-- `action` — 콜론이 허용되지 않는 정확한 작업 문자열;
-- `condition` — 기본값 `"true"`인 CEL 불리언 표현식이며, `Input.validate_condition_syntax`로 검증됩니다;
-- operator가 읽기 쉽도록 하는 `description`과 `metadata`.
+- `resource_pattern`: `Input.validate_resource_pattern_syntax`로 검증되는 콜론 구분 통합 네임스페이스 패턴입니다. `site_console:**`(Site Console), `tenant_console:**`(Pod 관리), `agent:<uid>` 및 `agent:<uid>:tool:<fn>`(런타임 Agent 및 도구 호출), `pod:**`(`pod:space:**`, `pod:private:<uid>:**`, `pod:**:<page-id>:**`, `pod:**:<page-id>:page`) 범위를 다루며, 단독 `"**"` 패턴은 허용되지 않습니다.
+- `action`: 콜론을 포함할 수 없는 정확한 작업 식별 문자열입니다.
+- `condition`: 기본값이 `"true"`인 CEL 불리언 표현식으로, `Input.validate_condition_syntax`를 통해 문법을 검증합니다.
+- `description` 및 `metadata`: 운영자가 권한 부여 목적을 파악하기 위한 설명과 부가 정보입니다.
 
-별도의 부분 고유 인덱스가 Principal, 그룹, Userset grant 각각의 자연 키(`owner + resource_pattern + action + condition`) 유일성을 보장합니다. grant의 생성, upsert, 업데이트는 control-plane 작업이며, 데이터베이스는 유효하지 않은 owner 형태나 잘못된 규칙을 거부합니다.
+Principal, 그룹, Userset 각각의 자연 키(`owner + resource_pattern + action + condition`) 유일성은 별도의 부분 고유 인덱스(partial unique index)로 보장됩니다. grant의 생성·upsert·수정은 모두 control plane을 거치며, 소유 주체 형태가 잘못되었거나 문법에 어긋난 규칙은 데이터베이스 계층에서도 거부됩니다.
 
 ## 그룹: 정적 및 계산된 멤버십
 
-Principal group은 Principal에 grant를 부여할 수 있는 이름 있는 컬렉션입니다. 그룹은 `domain`(`:operator`, `:directory`, `:im_group`, `:signal_source`), `kind`(`:static` 또는 `:computed`), 그리고 computed 그룹용 CEL `computed_condition`을 가집니다.
+Principal group은 여러 Principal에 grant를 묶어서 부여하기 위한 이름 있는 컬렉션입니다. 각 그룹은 `domain`(`:operator`, `:directory`, `:im_group`, `:signal_source`), `kind`(`:static` 또는 `:computed`), 그리고 계산형 그룹일 때 사용하는 CEL 조건식 `computed_condition`을 가집니다.
 
-모든 테넌트에는 계산 조건이 `principal.type == "human" && principal.membership == "member" && principal.status == "active"`인 내장 computed 그룹 `all_humans`와 해당 Pod 내 `tenant_console:**` 작업을 부여하는 내장 static 그룹 `pod_admin`이 있습니다. 특권 사이트 테넌트에는 내장 static 그룹 `siteadmin`(`site_console:**` 및 `tenant_console:**`)도 포함됩니다. 활성(`active`) 상태의 human `member` principal만 `siteadmin` 또는 `pod_admin`에 참여할 수 있습니다. Site Console에서 다른 데이터 테넌트를 선택해도 운영자의 identity나 `siteadmin` 조회 대상은 바뀌지 않습니다. 정적 멤버십은 `principal_group_memberships`에 저장하고 계산 멤버십은 권한 snapshot으로 평가합니다. 외부 디렉터리와 IM 채널은 `principal_group_external_bindings`를 통해 그룹을 동기화합니다.
+모든 테넌트에는 조건식이 `principal.type == "human" && principal.membership == "member" && principal.status == "active"`로 고정된 내장 computed 그룹 `all_humans`와, 해당 Pod 내 `tenant_console:**` 권한을 부여하는 내장 static 그룹 `pod_admin`이 기본 포함됩니다. 특권 사이트 테넌트에는 `site_console:**`와 `tenant_console:**` 권한을 모두 가진 내장 static 그룹 `siteadmin`도 함께 존재합니다. `siteadmin`과 `pod_admin`에는 활성(`active`) 상태의 human `member`만 속할 수 있으며, Site Console에서 조회 대상 데이터 테넌트를 전환하더라도 운영자 본인의 신원이나 `siteadmin` 판정 기준 테넌트는 바뀌지 않습니다. 정적 멤버십은 `principal_group_memberships`에 저장되고 계산형 멤버십은 권한 스냅샷 평가 시점에 계산되며, 외부 디렉터리와 IM 채널 그룹은 `principal_group_external_bindings`를 통해 동기화됩니다.
 
 ## 결정이 내려지는 방식
 
-control plane과 kernel은 의도적으로 작업을 나눕니다. 그리고 이 역할 분담이 AuthZ가 조언이 아니라 강제 가능한 이유입니다:
+AuthZ가 단순한 권고가 아니라 실질적인 강제력을 갖는 이유는 control plane과 kernel이 역할을 명확히 나누어 수행하기 때문입니다.
 
-- **control plane이 영속 상태, Ash 인가 강제 및 스냅샷 조립을 담당합니다.** 보호된 Ash 작업은 `Ankole.AuthZ.Extension`으로 컴파일 타임 규칙을 선언하고 런타임에 `Ankole.AuthZ.Authorizer`가 `%Ankole.AuthZ.Actor{principal, interactive_principal, turn_authority, authn, interactive_authn}`을 사용해 강제합니다. 검증된 브라우저, OIDC, Worker 인증 사실은 CEL 조건에서 읽을 수 있도록 `context.request.authn`에 기록됩니다. `interactive_principal`이 존재하는 경우(예: 사람이 시작시킨 Agent 턴)에는 Agent와 사람 모두가 검사를 통과해야 합니다(`Human ∩ Agent`).
-- **kernel과 PostgreSQL이 결정론적 규칙 평가를 담당합니다.** 일반 검사에서는 `Ankole.AuthZ.Snapshot`이 단일 SQL 문으로 Principal, 그룹 멤버십, 후보 grant를 로드하고 Rust kernel이 리소스 패턴, computed 그룹, CEL 조건을 평가합니다. Pod 페이지의 경우 4비트 ACL 앵커 그래프(`page_view=1`, `page_write_records=2`, `page_edit=4`, `page_manage=8`; 역할 마스크 `view=1`, `contribute=3`, `edit=7`, `manage=15`)가 요청 의존 CEL 조건을 Rust kernel에서 한 번 평가한 뒤, PostgreSQL의 `WITH RECURSIVE`(`UNION` 최소 고정점)로 직접 grant, 그룹, 컨테이너 상속, Userset 간선을 결합합니다.
+- **control plane은 영속 상태 관리, Ash 인가 강제, 스냅샷 조립을 맡습니다.** 보호 대상 Ash 액션은 `Ankole.AuthZ.Extension`을 통해 컴파일 타임에 규칙을 선언하고, 런타임에는 `Ankole.AuthZ.Authorizer`가 `%Ankole.AuthZ.Actor{principal, interactive_principal, turn_authority, authn, interactive_authn}` 구조체로 권한을 강제합니다. 검증된 브라우저 세션, OIDC, Worker 인증 정보는 CEL 조건식에서 참조할 수 있도록 `context.request.authn`에 담깁니다. 또한 사람이 시작한 Agent 턴처럼 `interactive_principal`이 함께 존재하는 경우에는 Agent와 사람 양쪽 모두 권한 검사를 통과해야 합니다(`Human ∩ Agent`).
+- **kernel과 PostgreSQL은 결정론적 규칙 평가를 맡습니다.** 일반 권한 검사에서는 `Ankole.AuthZ.Snapshot`이 단일 SQL 쿼리로 Principal, 그룹 멤버십, 후보 grant를 읽어 오고, 이어서 Rust kernel이 리소스 패턴 매칭과 computed 그룹 판별, CEL 조건 평가를 수행합니다. Pod 페이지 권한의 경우 Rust kernel에서 요청 의존 CEL 조건을 먼저 한 번 평가한 뒤, PostgreSQL의 `WITH RECURSIVE`(`UNION` 최소 고정점) 쿼리로 4비트 ACL 앵커 그래프(`page_view=1`, `page_write_records=2`, `page_edit=4`, `page_manage=8`; 역할 마스크 `view=1`, `contribute=3`, `edit=7`, `manage=15`) 상의 직접 grant, 그룹, 컨테이너 상속, Userset 간선을 결합해 최종 권한을 산출합니다.
 
-`Ankole.AuthZ`의 공개 진입점은 `authorize(subject, resource, action, context)`, 불리언을 반환하는 `allowed?/4`, 단일 작업의 전체 결정 맵을 반환하는 `authorize_decision/4`, 하나의 리소스에 대한 작업 목록을 일괄 평가하는 `authorize_all_decision/4`, 단일 스냅샷으로 여러 독립적인 리소스/작업 검사를 수행하는 `authorize_checks/3`, 그리고 Pod 컨텍스트 평가용 `evaluate_pod_context/2`입니다. 어느 진입점도 Principal의 권한에 대한 호출자의 주장을 신뢰하지 않습니다.
+`Ankole.AuthZ` 모듈은 용도에 따라 `authorize(subject, resource, action, context)`, 불리언을 반환하는 `allowed?/4`, 단일 작업의 상세 결정 맵을 반환하는 `authorize_decision/4`, 한 리소스에 대한 여러 작업을 한꺼번에 평가하는 `authorize_all_decision/4`, 하나의 스냅샷으로 여러 리소스·작업 쌍을 검사하는 `authorize_checks/3`, Pod 컨텍스트 전용인 `evaluate_pod_context/2` 진입점을 제공합니다. 어느 진입점도 호출자가 자체적으로 주장하는 권한 정보를 신뢰하지 않습니다.
 
 ## 결정 상태
 
-결정은 네 가지 상태 중 하나로 반환되며, 각 상태는 호출자의 의무에 대응합니다:
+권한 평가 결과는 다음 네 가지 상태 중 하나로 반환되며, 각 상태에 따라 호출자가 취해야 할 동작이 정해집니다.
 
-- **`allow`** — 작업이 허용됨. 진행하세요.
-- **`deny`** — 작업이 금지되며 `deniedAction`이 명명됩니다. 호출자는 그 작업을 수행해서는 안 됩니다.
-- **`principal_disabled`** — 주체가 비활성화됨. 특정 원인이 있는 거부로 처리됩니다.
-- **`invalid_request`** — 요청 자체가 잘못된 형식임. 호출자는 무작정 재시도하는 대신 요청을 수정합니다.
+- **`allow`**: 요청한 작업이 허용되었으므로 그대로 진행합니다.
+- **`deny`**: 작업이 거부되었으며 거부된 작업 이름이 `deniedAction`에 담깁니다. 호출자는 작업을 중단해야 합니다.
+- **`principal_disabled`**: 주체가 비활성화된 상태입니다. 사유가 명시된 거부로 처리합니다.
+- **`invalid_request`**: 요청 형식 자체가 잘못되었습니다. 호출자는 그대로 재시도하지 말고 요청 인자를 수정해야 합니다.
 
-각 결정에 대해 진단(diagnostics)이 발행되므로 거부는 관찰 가능합니다. `Ankole.AuthZ.Decision.result/1`은 결정 맵을 `:ok | {:error, reason}`로 변환하며, 호출자는 이 형태를 기준으로 분기합니다.
+모든 판정 시점에는 진단 이벤트(diagnostics)가 함께 발행되므로 거부 사유를 추적할 수 있습니다. 호출자는 `Ankole.AuthZ.Decision.result/1`로 결정 맵을 `:ok | {:error, reason}` 튜플로 변환해 분기 처리합니다.
 
 ## 강제가 실제로 적용되는 지점
 
-AuthZ는 agent가 우회할 수 있는 계층이 아닙니다. 런타임이 중요한 경계에서 AuthZ를 참조하기 때문입니다:
+주요 실행 경계마다 런타임이 직접 AuthZ를 호출해 검증하므로, Agent가 프롬프트나 도구 호출만으로 권한 검사를 우회할 수는 없습니다.
 
-- AIGateway는 검증된 token에서 모든 호출의 주체(subject)를 해석하며, 주체의 grant가 도달할 수 있는 model selector와 provider를 결정합니다.
-- 도구 준비 및 디스패치 단계에서 `agent:<uid>:tool:<fn>`(`invoke` 작업과 정규화된 `context.request.args`)을 평가하고, 사람에서 비롯된 턴의 Pod 작업에는 `Human ∩ Agent` 권한 교집합을 적용합니다.
-- 실행 세션 Driver는 commit 전에 영속 fence를 확인합니다. Worker의 Job 작업은 영속 Job attempt fence와 인증된 연결 identity를 확인합니다.
-- Site Console(`/api/v2`) 및 Pod 관리(`/api/v2/pod/admin`) 작업은 검증된 브라우저 증명, CSRF 보호, 그리고 현재 유효한 `site_console:**` 또는 `tenant_console:**` grant를 요구합니다.
+- AIGateway는 검증된 토큰에서 호출 주체(subject)를 식별하고, 그 주체의 grant 범위 안에서만 모델 selector와 provider에 접근하도록 제한합니다.
+- 도구 준비 및 디스패치 단계에서는 정규화된 `context.request.args`와 함께 `agent:<uid>:tool:<fn>`에 대한 `invoke` 권한을 평가하며, 사람의 요청에서 시작된 턴이 Pod 작업을 수행할 때는 `Human ∩ Agent` 교집합 권한을 적용합니다.
+- 실행 세션 Driver는 결과를 커밋하기 전에 영속 펜스(fence)를 검증하고, Worker에서 올라오는 Job 작업 역시 영속 Job attempt 펜스와 인증된 연결 신원을 대조합니다.
+- Site Console(`/api/v2`) 및 Pod 관리(`/api/v2/pod/admin`) 요청에는 검증된 브라우저 인증 증명, CSRF 보호, 현재 유효한 `site_console:**` 또는 `tenant_console:**` grant가 모두 필요합니다.
 
-model은 “나는 허용되어 있다”고 주장할 수 없습니다. 경계는 Principal과 grant를 확인하고 결정에 따라 행동합니다.
+즉, 모델이 스스로 권한이 있다고 선언하더라도 각 경계에서 실제 Principal과 grant를 대조해 허용 여부를 판정합니다.
 
 ## Operator 표면
 
-`/api/v2` 아래의 Site Console JSON:API 라우트가 Principal, 그룹, grant 관리(`site_console:**`)를 노출하며, Pod 관리자는 `/api/v2/pod/admin/*`(`tenant_console:**`)에서 테넌트 멤버, 초대, 설정, Identity Provider를 관리합니다:
+Principal, 그룹, grant 관리 기능(`site_console:**`)은 `/api/v2` 아래의 Site Console JSON:API 라우트로 노출되며, Pod 관리자는 `/api/v2/pod/admin/*`(`tenant_console:**`) 경로에서 테넌트 멤버, 초대, 설정, Identity Provider를 관리합니다.
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v2/principals` | Principal 목록 |
+| `GET` | `/api/v2/principals` | Principal 목록 조회 |
 | `POST` | `/api/v2/principals` | human 내부 멤버 Principal 사전 생성 |
-| `GET` | `/api/v2/principals/:uid` | 하나의 Principal 읽기 |
-| `PATCH` | `/api/v2/principals/:uid` | human Principal 프로필(`display_name`) 업데이트 |
+| `GET` | `/api/v2/principals/:uid` | 단일 Principal 조회 |
+| `PATCH` | `/api/v2/principals/:uid` | human Principal 프로필(`display_name`) 수정 |
 | `PATCH` | `/api/v2/principals/:uid/membership` | human Principal의 `membership`(`member` 또는 `guest`) 변경 |
 | `GET` | `/api/v2/principals/:uid/access` | human 접근 상태, 제한 사항 및 복구 검토 투영 조회 |
 | `POST` | `/api/v2/principals/:uid/access-disables` | human Principal 일시 중지(`suspended`) 또는 퇴사 처리(`offboarded`) |
 | `POST` | `/api/v2/principals/:uid/access-restorations` | 제한 해제 후 비활성화된 human Principal 복구 |
-| `GET` | `/api/v2/principals/:uid/groups` | Principal의 그룹 목록 |
-| `GET` | `/api/v2/principals/:uid/grants` | Principal의 grant 목록 |
-| `GET` | `/api/v2/principal-groups` | 그룹 목록 |
-| `POST` | `/api/v2/principal-groups` | operator 그룹 생성 |
-| `GET` | `/api/v2/principal-groups/:name` | 그룹 읽기 |
-| `PATCH` | `/api/v2/principal-groups/:name` | 그룹 업데이트 |
-| `DELETE` | `/api/v2/principal-groups/:name` | operator 그룹 삭제 |
-| `POST` | `/api/v2/principal-groups/computed-member-previews` | computed 그룹의 멤버 미리 보기 |
-| `POST` | `/api/v2/permission-grants` | operator 권한 grant 생성(`/api/v2/permission-grants/:id`에서 `PATCH`/`DELETE`) |
+| `GET` | `/api/v2/principals/:uid/groups` | Principal이 속한 그룹 목록 조회 |
+| `GET` | `/api/v2/principals/:uid/grants` | Principal에 직접 부여된 grant 목록 조회 |
+| `GET` | `/api/v2/principal-groups` | 그룹 목록 조회 |
+| `POST` | `/api/v2/principal-groups` | 운영자 정의 그룹 생성 |
+| `GET` | `/api/v2/principal-groups/:name` | 단일 그룹 조회 |
+| `PATCH` | `/api/v2/principal-groups/:name` | 그룹 수정 |
+| `DELETE` | `/api/v2/principal-groups/:name` | 운영자 정의 그룹 삭제 |
+| `POST` | `/api/v2/principal-groups/computed-member-previews` | computed 그룹 조건에 일치하는 멤버 미리 보기 |
+| `POST` | `/api/v2/permission-grants` | 운영자 권한 grant 생성(수정·삭제는 `/api/v2/permission-grants/:id`의 `PATCH`/`DELETE`) |
 
-grant와 멤버십 관리는 `Ankole.AuthZ`를 통해 이루어지며, 행이 쓰이기 전에 owner 형태, resource-pattern 문법, CEL condition 문법을 검증합니다. PostgreSQL check constraint와 부분 고유 인덱스가 저장소 계층에서도 동일한 불변 조건을 강제합니다.
+모든 grant 및 멤버십 변경은 `Ankole.AuthZ`를 거치며, 데이터베이스에 기록하기 전에 소유 주체 형태, 리소스 패턴 문법, CEL 조건식 문법을 검증합니다. 동일한 불변 조건이 PostgreSQL 체크 제약 조건과 부분 고유 인덱스로도 이중 강제됩니다.
 
 ## Principal 및 AuthZ가 아닌 것
 
-AuthZ는 프롬프트 지시도 희망도 아닙니다. model에게 책임을 물어보지 않고, Principal을 확인하고 답을 강제합니다. Principal은 하나의 instance를 별도의 엔터프라이즈 경계로 나누지 않으며, 요청별 역할도 아닙니다. 권한이 부여되고, 그룹화되고, 평가되는 안정적이고 책임 있는 주체입니다. kernel은 operator가 구성하는 두 번째 정책 엔진이 아닙니다. control plane이 조립한 스냅샷을 결정적으로 평가하며, 호출자는 그 결정을 따라야 합니다.
+AuthZ는 모델에게 조심스럽게 행동하라고 당부하는 시스템 프롬프트가 아니라, Principal과 grant를 대조해 실행 경계에서 직접 허용·차단을 강제하는 메커니즘입니다. 또한 Principal은 단일 인스턴스를 여러 기업으로 쪼개는 멀티테넌시 구분자나 일회성 요청 역할(per-request role)이 아니라, 권한 부여·그룹화·감사의 기준이 되는 영속적 책임 주체입니다. 마지막으로 Rust kernel은 운영자가 별도로 설정하는 제2의 정책 엔진이 아니며, control plane이 조립해 넘긴 스냅샷을 결정론적으로 평가하는 역할만 담당합니다.
 
 ## 다음 단계
 
-- AIGateway 가장자리에서 검증된 token이 Principal로 해석되는 방식에 대해서는 [AIGateway API](../ai-gateway/) 문서를 읽으세요.
-- agent Principal의 Driver fence이 turn을 펜싱하는 방식에 대해서는 [Sessions](../sessions/) 문서를 읽으세요.
+- AIGateway 경계에서 검증된 토큰이 Principal로 해석되는 과정은 [AIGateway API](../ai-gateway/)를 참조하세요.
+- Agent Principal의 Driver 펜스가 실행 턴을 보호하는 방식은 [Sessions](../sessions/)를 참조하세요.

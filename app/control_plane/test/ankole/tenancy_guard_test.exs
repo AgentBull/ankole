@@ -82,7 +82,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/access/graph.ex:query_reachable" => 1,
     "raw_sql:lib/ankole/pod/base_cluster.ex:check_identity!" => 1,
     "raw_sql:lib/ankole/pod/base_cluster.ex:ensure_database!" => 2,
-    "raw_sql:lib/ankole/pod/base_cluster.ex:init" => 3,
+    "raw_sql:lib/ankole/pod/base_cluster.ex:init" => 2,
     "raw_sql:lib/ankole/pod/base_cluster.ex:initialize_connection!" => 5,
     "raw_sql:lib/ankole/pod/base_repo.ex:delete_tenant" => 5,
     "raw_sql:lib/ankole/pod/base_repo.ex:ensure_schema!" => 3,
@@ -174,10 +174,30 @@ defmodule Ankole.TenancyGuardTest do
     "sql_fragment:lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
   }
 
+  @private_tenancy_guard Path.expand(
+                           "../../../../internals/control_plane/test/tenancy_guard.exs",
+                           __DIR__
+                         )
+  @private_site_tables (if File.exists?(@private_tenancy_guard) do
+                          @external_resource @private_tenancy_guard
+
+                          @private_tenancy_guard
+                          |> Code.eval_file()
+                          |> elem(0)
+                          |> Map.get(:site_tables, [])
+                        else
+                          []
+                        end)
+
   # Independent classification: changing a tenant schema to :site must fail.
   @site_tables ~w(site_app_configurations browser_oidc_states browser_sessions browser_authentications
     authn_challenges ai_gateway_providers oidc_signing_keys site_worker_envs files
-    worker_providers tenants oban_jobs oban_peers schema_migrations)
+    worker_providers tenants oban_jobs oban_peers schema_migrations) ++
+                 if(Application.compile_env(:ankole, :edition) == :saas,
+                   do: @private_site_tables,
+                   else: []
+                 )
+  @allowed_site_tables MapSet.new(@site_tables ++ @private_site_tables)
 
   @global_unique_indexes %{
     "principal_site_credentials_pkey" =>
@@ -511,7 +531,8 @@ defmodule Ankole.TenancyGuardTest do
         ORDER BY tables.table_name
       """).rows
 
-    for [table, type, nullable, foreign_key] <- rows, not MapSet.member?(site_tables, table) do
+    for [table, type, nullable, foreign_key] <- rows,
+        not MapSet.member?(@allowed_site_tables, table) do
       assert {type, nullable, foreign_key} == {"uuid", "NO", true},
              "#{table} has no required tenant ownership"
     end

@@ -5,42 +5,42 @@ section: Developer guide
 order: 125
 ---
 
-An audit trail is the durable record of who changed what, and when. Ankole does not have one audit log; it has several surfaces, each owned by a different subsystem, each recording the decisions that matter to it. This page is the operator's map of those surfaces — what each records, how to read it, and how to use them together.
+An audit trail records who changed what, and when. Rather than funneling everything into a single monolithic audit log, Ankole distributes audit records across the subsystems that own each decision. This page maps those surfaces for operators—what each one captures, how to read it, and how to combine them during an investigation.
 
-The decisive property, stated up front: every audit surface is **durable PostgreSQL state or structured logs**, not ephemeral metrics. A record that was written survives the process that wrote it; a record that was never written cannot be reconstructed.
+Every audit surface in Ankole rests on **durable PostgreSQL tables or structured control-plane logs** rather than ephemeral metrics: once written or shipped, a record survives process restarts, whereas anything never persisted or shipped cannot be reconstructed afterward.
 
 ## AuthZ grants, human access, and invitations
 
-Every permission grant is a durable row in `permission_grants`. Each grant belongs to one `principal_uid`, one `group_id`, or one Userset page audience (`source_page_id` and `source_action`), and Pod ACL grants anchor to `pages` rows through `target_page_id` and `target_scope`. The `resource_pattern`, `action`, and `condition` name what the grant permits, and timestamps record when it was created and last updated. There is no separate audit log for grants — `permission_grants` itself is the record.
+Every permission grant lives as a durable row in `permission_grants`. Each grant attaches to one `principal_uid`, one `group_id`, or one Userset page audience (`source_page_id` and `source_action`), while Pod ACL grants anchor to `pages` rows via `target_page_id` and `target_scope`. On each row, `resource_pattern`, `action`, and `condition` specify what the grant permits, and timestamps record when the row was created and last updated. Because `permission_grants` itself is the authoritative record, Ankole maintains no separate grant-audit table.
 
-Human account lifecycle changes and workspace invitations also write durable PostgreSQL rows:
+Account-access transitions and workspace invitations likewise commit durable rows in PostgreSQL:
 
-- `human_access_events` records each access disable, restoration, or directory-driven transition, including actor, source, previous and current status, `access_version`, and any `released_identifiers`.
-- `human_access_restrictions` stores active restrictions with `:suspended` or `:offboarded` dispositions and reasons.
-- `pod_invitations` records Pod workspace invitations, membership kind (`member` or `guest`), quota (`used_count`), and creator (`created_by_principal_uid`).
+- `human_access_events` records every access suspension, restoration, or directory-driven transition, capturing the actor, source, previous and current status, `access_version`, and any `released_identifiers`.
+- `human_access_restrictions` stores active restrictions alongside their `:suspended` or `:offboarded` disposition and reason.
+- `pod_invitations` records Pod workspace invitations, membership kind (`member` or `guest`), usage counter (`used_count`), and creator (`created_by_principal_uid`).
 
-Read Principal and group grants through `GET /api/v2/principals/:uid/grants` and `GET /api/v2/principal-groups/:name/grants`. A grant that was added and later removed remains in PostgreSQL point-in-time recovery history; the rows currently present are what the system enforces.
+Inspect active Principal and group grants through `GET /api/v2/principals/:uid/grants` and `GET /api/v2/principal-groups/:name/grants`. While Ankole enforces only the rows currently present in `permission_grants`, grants that were added and later revoked remain preserved in PostgreSQL point-in-time recovery history.
 
 ## The structured control-plane logs
 
-The control plane emits structured logs with a stable shape — an event name, a human message, and structured fields, at a severity from `debug` through `error`. These are the audit surface for operational events:
+The control plane emits structured JSON logs with a consistent shape—an event name, a human-readable message, structured metadata fields, and a severity level from `debug` through `error`. These logs capture operational activity:
 
-- provider calls (which provider, which model, the outcome)
-- worker lifecycle (worker start, turn start, turn completion or error)
-- signal events (what arrived, whether it was filtered or accepted)
-- schedule fires (when, what outcome)
+- provider calls (which provider, which model, and the outcome)
+- worker lifecycle (worker boot, turn start, and turn completion or failure)
+- signal events (what arrived and whether it was filtered or admitted)
+- schedule executions (when a cron schedule fired and its outcome)
 
-The logs are not PostgreSQL — they are whatever your log ingester receives. If you need them for audit, ship them to a durable store (a log index, an S3 archive) in real time. Logs that were never shipped are gone with the process.
+Unlike database tables, control-plane logs persist only where your log collector stores them. If you rely on logs for auditing, ship them in real time to a durable sink such as a log index or an S3 archive; unshipped logs disappear when the container or process exits.
 
-See [Environment variables](../environment-variables/) for log settings and [Read Ankole logs](../log-reading/) for a diagnostic method.
+See [Environment variables](../environment-variables/) for log configuration and [Read Ankole logs](../log-reading/) for diagnostic workflows.
 
 ## The Signal and delivery rows
 
-Every Signal (the durable inbox that drives sessions) and every delivery attempt is a row in PostgreSQL. These are operational state, and they also form a record of what the system was asked to do and whether it was delivered. The Console API route `/api/v2/background-agent-jobs/:id` shows a job's `attempts` and `error`; `/api/v2/ai-gateway/conversations` shows the model calls a turn made.
+Every Signal (the durable inbox entry that wakes a Session) and every outbound delivery attempt persists as a row in PostgreSQL, serving both as live operational state and as a record of what Ankole was asked to do and whether delivery succeeded. Through the Console API, `/api/v2/background-agent-jobs/:id` exposes a job's `attempts` and `error`, and `/api/v2/ai-gateway/conversations` lists the model calls that each turn executed.
 
 ## Using them together
 
-A real audit question usually spans more than one surface:
+Real audit questions usually span multiple surfaces:
 
 | Question | Where to look |
 |---|---|
@@ -53,7 +53,7 @@ A real audit question usually spans more than one surface:
 
 ## What this guide is not
 
-It is not a compliance framework — Ankole provides the surfaces, and your compliance posture decides how long to retain them. It is not a SIEM integration guide — the logs are structured JSON, and your ingester is your choice. And it is not a substitute for tested backups — the audit trail lives in PostgreSQL, and a database you cannot restore takes the trail with it.
+This page is not a compliance framework—Ankole provides the audit records, while your organization's compliance posture governs how long to retain them. Nor is it a SIEM integration guide: Ankole emits structured JSON logs that you can forward to whichever collector you run. Finally, audit tables are no substitute for tested backups—because core audit state lives in PostgreSQL, losing an unbacked database loses the trail with it.
 
 ## Next steps
 

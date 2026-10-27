@@ -1,77 +1,77 @@
 ---
 title: 贡献
-description: 一次 Ankole 贡献合并的路径——规则住在哪里、如何设置、如何跑对的检查、项目要求的 changelog 与 PR 纪律。
+description: 向 Ankole 贡献代码的完整路径：工程准则出处、本地开发环境搭建、必跑检查项，以及项目强制执行的 Changelog 与 PR 规范。
 section: Guides
 order: 321
 ---
 
-为 Ankole 做贡献意味着在第一次编辑前读两份文档，并遵循它们定义的路径。本页是地图：指向权威来源、标出穿过它们的路径、并刻意不复制任一份。若本页与源文档冲突，源文档正确。
+向 Ankole 提交第一行代码改动前，需要先通读仓库根目录下的两份核心规范文档，并严格按照它们定义的流程推进。本页作为快速导览，负责为你指明权威文档位置、勾勒完整的开发验收主线，而刻意不在此重复抄录细则——倘若本页概述与源码仓库中的规范文档存在任何出入，一律以仓库源文档为准。
 
-先说明最关键的一点：Ankole 的贡献规则不是可选约定——它们由项目的评审流程和门控每次产品改动提交的 changelog 规则强制。跳过 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 或 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 的贡献会被要求回去读。先读。
+先强调最重要的一条前提：**Ankole 的贡献规范不是可有可无的软性建议，而是由代码评审流程与覆盖每一次产品提交的 Changelog 校验共同强制执行的硬性要求。**任何跳过 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 或 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 直接发出的改动都会在评审阶段被打回补课，因此请务必先读完这两份文档再动手。
 
 ## 拥有规则的两份文档
 
-- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)**——项目范围规则：范围与授权、changelog 作为版本单元的规则、核心纪律（最小正确改动、worse is better）、设计优先级（简洁 > 正确 > 一致 > 完整）、目标保真、子系统边界。这份文档决定*如何*做一次改动。
-- **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)**——贡献路径：六步本地设置、飞书端到端验收、故障排查顺序、仓库地图、质量门、changelog 与 PR 步骤。这份文档决定*做什么*来落地一次改动。
+- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)**：定义全仓库通用的工程与架构准则，包括操作授权边界、以 Changelog 为版本发布单元的铁律、核心设计取向（最小正确改动、Worse is Better）、设计优先级（简洁 > 正确 > 一致 > 完整）、目标保真原则以及各子系统的职责边界。它决定了你应当**如何设计并实现**一项改动。
+- **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)**：定义一步步落地的实操流程，涵盖六步本地环境搭建、飞书端到端真实链路验收、排障先后顺序、代码目录地图、质量门禁命令以及 Changelog 与 PR 提交清单。它决定了你需要**完成哪些具体步骤**才能让改动合入主干。
 
-两者各自是自己领域的权威来源。本指南与其余文档链接到它们；这里的一切不凌驾于它们。
+这两份文件分别掌管各自领域的唯一权威规范；本站所有开发者文档均指向它们，且不覆盖其中的任何条款。
 
 ## 设置路径（六步）
 
-`CONTRIBUTING.md` 分六步走设置，它是权威版本。形态如下，让你知道将面对什么：
+本地开发环境的权威搭建步骤以 `CONTRIBUTING.md` 为准，整体分为环环相扣的六步：
 
-1. **获取仓库并选择环境**——克隆，并选 macOS/Linux/WSL2 或 GitHub Codespaces。
-2. **安装并验证系统工具**——`bash tools/devkit/scripts/env-setup.sh`，然后验证 `bun`、`elixir`、`rustc`、`cargo clippy`、`docker` 都可用。每条 `kit` 命令做什么见 [kit CLI 参考](../kit-cli/)。
-3. **安装依赖并初始化本地服务**——运行 `bun install`、`bun run services:start`（启动 PostgreSQL 18 与 `Function Runtime` / `ankole-function-runtime`）以及 `bun run control-plane:setup`。
-4. **启动完整开发环境**——`bun dev`。
-5. **完成首次产品设置**——在 `/setup` 激活站点，通过无密码 SMTP 邮箱验证码（Email OTP）或飞书应用 OAuth 完成首位管理员登录（跑完整飞书端到端验收时创建飞书测试应用），并在 `/site-admin-console` 的站点管理控制台中配置运行时。
-6. **证明端到端路径**——一条真实飞书消息到达 agent 并收到预期回复。
+1. **克隆仓库并准备宿主环境**：拉取代码，准备 macOS、Linux、WSL2 或 GitHub Codespaces 开发环境。
+2. **安装并校验系统级工具链**：执行 `bash tools/devkit/scripts/env-setup.sh`，随后确认 `bun`、`elixir`、`rustc`、`cargo clippy` 与 `docker` 均已就绪可用（各 `kit` 子命令的详细说明见 [kit CLI 参考](../kit-cli/)）。
+3. **安装项目依赖并初始化本地基础服务**：依次执行 `bun install`、`bun run services:start`（拉起 PostgreSQL 18 与 `Function Runtime` / `ankole-function-runtime`）以及 `bun run control-plane:setup`。
+4. **启动完整本地开发环境**：执行 `bun dev`。
+5. **走完产品首次初始化向导**：在浏览器打开 `/setup` 激活站点，通过免密 SMTP 邮箱验证码（Email OTP）或飞书应用 OAuth 完成首位管理员登录（如需跑通完整的飞书端到端验收，请按指南创建飞书测试应用），随后进入 `/site-admin-console` 站点管理控制台配好运行时参数。
+6. **跑通真实端到端消息闭环**：从飞书真实发出一句消息送达 Agent，并在聊天窗口收到符合预期的回复。
 
-页面能打开不算设置完成。一条真实消息往返完成才算。短路径见 [快速开始](../quickstart/)，完整验收见 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
+请注意，光能让前端页面打开并不算环境就绪，只有真实跑通一轮端到端消息收发才算搭建完成。极简体验路径可参阅 [快速开始](../quickstart/)，完整的开发验收细则请查阅 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
 
 ## 如何做改动
 
-第一次编辑前读 `AGENTS.md`。最常出现的规则：
+动笔修改代码前请先细读 `AGENTS.md`，以下是代码评审中最常触及的六条准则：
 
-- **范围与授权。** 回答或规划的请求授权只读检查；实现的请求授权编辑。未经批准不扩大范围。
-- **changelog 写给用户和运维人员。** 改动产品的提交加一个 `CHANGELOG.md` 版本，记录他们升级后会察觉的变化；只改文档的提交不加版本。见下面一节。
-- **最小正确改动。** 偏好遵循所选方向、保持系统能守契约、并保持可理解的最小改动。一点重复好过增加复杂度的抽象。
-- **Worse is better。** 简洁胜过接口统一或理论完整。简洁赢时，收窄契约或显式拒绝不支持的情形，而非悄悄产出错的结果。
-- **目标保真。** 做要求的任务，不做更便宜的替代。绿测试不是目标；穿过拥有抽象的真实路径才是。
-- **子系统边界。** PostgreSQL 拥有持久事实；Elixir 控制面拥有持久状态与监督；Rust kernel 拥有共享原生原语；Bun Agent Computer Worker 拥有单 Agent 执行；`Function Runtime`（`app/function_runtime/`）负责无状态 Applet 后端与确定性程序隔离运行。跨边界的改动应尊重它，而非掩盖。
+- **严守范围与操作授权**：面对答疑、诊断或方案设计类请求时保持只读分析；面对明确的功能实现请求时才修改代码，未经确认绝不私自扩大改动范围。
+- **面向用户与运维撰写 Changelog**：凡是改变产品实际行为的提交，都必须在 `CHANGELOG.md` 中新增一个版本号记录升级后可感知的变化；仅修改文档的提交则不增加版本号（详见下一节）。
+- **追求最小正确改动**：在符合既定架构方向、守住系统契约且易于理解的前提下，始终优先选择改动面最小的方案。宁可容忍少量直观的代码重复，也不要为了消除重复而引入晦涩的过度抽象。
+- **坚持 Worse is Better**：实现简洁性优先于表面接口整齐划一或理论上的面面俱到。当为了保持简洁需要取舍时，宁可收窄契约边界或直接明确报错拒绝不支持的场景，也绝不悄悄返回看似正常实则失真的结果。
+- **保证目标保真**：正面交付需求所要求的真实结果，不拿取巧的缩水替代品交差。单测变绿本身不是目的，让生产代码真正走通所属领域模块与真实协议边界才是目的。
+- **尊重子系统职责边界**：PostgreSQL 掌管权威持久化事实；Elixir 控制面掌管持久状态、并发协调与监督恢复；Rust 内核掌管共享原生原语与网络传输；Bun Agent Computer Worker 掌管单 Agent 隔离执行；`Function Runtime`（`app/function_runtime/`）掌管无状态 Applet 后端与确定性程序隔离运行。跨层改动必须顺应这套边界，而非强行穿透或模糊职责。
 
 ## changelog 规则
 
-这是门控每次产品改动提交的规则，也是大多数贡献第一次搞错的那一条。来自 `CONTRIBUTING.md`：
+这是每次产品代码提交都会触发的硬性门禁，也是初次贡献者最容易踩坑的地方。核心规则摘录自 `CONTRIBUTING.md`：
 
-- 只改文档或 changelog 本身的提交不加版本。其他每次提交恰好加一个根 `CHANGELOG.md` 版本，一个版本不跨提交。
-- 版本记录用户或运维人员升级后会察觉的变化：新能力、行为变化、移除、他们可能遇到过的故障的修复，以及必须执行的操作。文档、测试、工具链、依赖和重构不记录；没有这类变化的版本只写一行 `Internal changes only.`
-- 版本使用 `MAJOR.MINOR.PATCH`。默认增加 `PATCH`。`MINOR` 用于产品此前没有的能力，或必须有人动手处理的破坏性变化。`MAJOR` 和预发布后缀由维护者决定。
+- 仅修改文档或 `CHANGELOG.md` 自身的提交**不新增**版本号；其余每一次提交都必须在根目录 `CHANGELOG.md` 中**恰好新增一个版本号**，且同一个版本号绝不横跨多次提交。
+- 更新日志面向终端用户与系统管理员编写，如实记录升级后会感知到的变化：新增功能、行为变更、能力移除、用户可能遇到过的线上缺陷修复，以及升级时必须配合执行的手工操作。纯文档润色、测试用例、开发工具链、依赖升级与内部重构一律不写进条目；若当次提交纯粹属于此类内部改动，在新增版本号下仅写一行 `Internal changes only.` 即可。
+- 版本号采用标准的 `MAJOR.MINOR.PATCH` 语义化格式：常规修复与内部演进默认递增 `PATCH`；新增产品此前没有的能力，或引入需要人工介入处理的破坏性变更时递增 `MINOR`；`MAJOR` 大版本跃迁与预发布后缀由项目维护者统一决定。
 
-changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过全部三个同版本运行时镜像（`ankole-control-plane`、`ankole-agent-computer` 与 `ankole-function-runtime`）的验证后，工作流会用最新版本标记这三个镜像，并用该版本的 changelog 段落创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。
+在 Ankole 中，根目录的 `CHANGELOG.md` 是**唯一**的版本记录与发布单元，不另设单独的 Release Notes 文件。每当 `main` 分支合入新提交并顺利通过全部三个同版本运行时镜像（`ankole-control-plane`、`ankole-agent-computer` 与 `ankole-function-runtime`）的构建校验后，自动化流水线便会用最新版本号为这三个镜像打标，并直接截取该版本的 Changelog 段落生成不可变的 GitHub Release。因此，请把撰写 Changelog 视作代码改动不可分割的一环，而非事后补交的文书手续。
 
 ## 跑对的检查
 
-`CONTRIBUTING.md` 命名检查，[kit CLI 参考](../kit-cli/) 文档命令。形态：
+具体检查项的定义以 `CONTRIBUTING.md` 为准，底层命令参数详见 [kit CLI 参考](../kit-cli/)，日常提交前需按改动范围跑通以下验证：
 
-- **针对你改的包的目标测试和正常静态检查**——跑受影响包的测试，不是整套。
-- **受影响的集成或端到端套件**——当改动跨进程、provider、持久化重启或用户流程边界时——且不要跳过。
-- **`bun run analyze`**（`kit analyze all`）——仓库范围的异味、未使用代码、结构、依赖循环。
-- **`bun run lint`** 和 **`bun run fmt:check`**——提交前。
+- **受影响包的目标单测与常规静态检查**：针对本次修改波及的子包精准运行测试与类型检查，不必盲目全量空跑无关模块。
+- **跨边界集成测试或端到端测试**：一旦改动跨越进程边界、外部 Provider、持久化重启恢复或核心用户交互主线，必须跑通对应的集成或端到端套件，严禁跳过。
+- **仓库级架构与代码异味分析**：运行 `bun run analyze`（即 `kit analyze all`），排查未使用死代码、目录结构违规及模块循环依赖。
+- **代码规范与格式校验**：提交前运行 `bun run lint` 与 `bun run fmt:check`。
 
-若某条必需命令在你的环境跑不了，报告确切的命令和阻碍——不要把那个保证当作已验证。
+如果某条必跑验证因当前本地环境限制确实无法执行，请在汇报或 PR 说明中如实列出**确切命令与具体受阻原因**，切勿在未实际跑通的情况下声称该项保障已验证通过。
 
 ## 提交 pull request
 
-`CONTRIBUTING.md` 覆盖 PR 步骤。简短形态：PR 的提交遵循 changelog 规则（每次产品改动提交一个版本）、改动尊重 `AGENTS.md` 的边界、PR 描述用文档使用的术语说明改了什么和为什么。评审会检查同样的东西。
+完整的 PR 提交流程见 `CONTRIBUTING.md`。简言之，一份合格的 PR 应当做到：每次产品代码提交严格遵守“一提交一版本”的 Changelog 规范、代码设计严守 `AGENTS.md` 划定的领域边界、PR 描述采用与项目设计文档一致的准确术语讲清“改了什么”以及“为什么这样改”——代码评审同样会对照这几条逐项核验。
 
 ## 本指南不是什么
 
-它不是两份文档的替代——它是通往它们的门。它不是不读就编辑的许可；`AGENTS.md` 刻意很短，读它是贡献者成本最低的一步。它也不是争论规则的地方；规则是已定的权衡，本地偏好不是发现——改为评估实现是否在所选方向内一致。
+本页只是引导你进入两份权威规范文档的入口，绝不能替代直接阅读原文档，更不是允许“不看规范直接改代码”的通行证——`AGENTS.md` 本身篇幅非常精炼，花几分钟读完它是返工成本最低的投入。同时，也请避免在功能 PR 中就既定工程准则展开纯个人偏好的拉锯：这些规则都是团队深思熟虑后的架构取舍，评审关注的重点是具体实现是否在既定设计方向内保持自洽。
 
 ## 下一步
 
-- 第一次编辑前读 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)。
-- 设置与验收按 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
-- devkit 命令用 [kit CLI 参考](../kit-cli/)。
-- 改动跨的子系统边界，读 [架构概览](../architecture/)。
+- 动手改代码前，先通读 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)。
+- 按步骤搭建本地环境并完成端到端验收，请参阅 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
+- 查阅本地开发与检查工具链命令，请参阅 [kit CLI 参考](../kit-cli/)。
+- 理解跨模块改动涉及的子系统职责边界，请参阅 [架构概览](../architecture/)。

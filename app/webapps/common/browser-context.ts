@@ -1,3 +1,4 @@
+import { compactRecord } from '@agentbull/active-support'
 import { uuidExpand, uuidShorten } from './uuid-url'
 
 /** Identity belongs to this document. Changing the browser default cannot change it. */
@@ -20,12 +21,10 @@ export function podID(): string | undefined {
 }
 
 export function identityHeaders(): Record<string, string> {
-  const authentication = authenticationRef()
-  const tenant = podID()
-  return {
-    ...(authentication ? { 'x-ankole-authentication': authentication } : {}),
-    ...(tenant ? { 'x-ankole-pod': tenant } : {})
-  }
+  return compactRecord({
+    'x-ankole-authentication': authenticationRef(),
+    'x-ankole-pod': podID()
+  }) as Record<string, string>
 }
 
 export function podRouteID(value: string | undefined): string | undefined {

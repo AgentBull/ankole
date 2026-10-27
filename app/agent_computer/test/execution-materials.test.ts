@@ -50,10 +50,10 @@ describe('execution materials', () => {
     })
 
     const signal = new AbortController().signal
-    expect(materials.renderedFetch?.ssrfFilter).toBe(true)
     await materials.renderedFetch!.fetchBatch(['https://example.com'], signal)
     expect(fetchRendered).toHaveBeenCalledTimes(1)
     const settings = fetchRendered.mock.calls[0]![1]
+    expect(settings.ssrfFilter).toBe(true)
     expect(settings.workerEnv?.BROWSER_BACKEND_JSON).toBe(browserBackendJSON)
     expect(settings.workerEnv?.[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
     expect(settings.idleTtlMs).toBe(45_000)
@@ -95,14 +95,10 @@ describe('execution materials', () => {
     const frozenBackend = JSON.stringify({ kind: 'local_chromium', executable: '/bin/true', args: ['--frozen'] })
     const projection: CodexJobRuntimeProjection = {
       version: 1,
-      modelRef: {},
-      runtimePolicy: {},
-      nativeMCPServers: [],
       workerEnv: {
         names: ['SAFE', 'BROWSER_BACKEND_JSON'],
         plainValues: { SAFE: 'frozen-value', BROWSER_BACKEND_JSON: frozenBackend }
-      },
-      browser: { mode: 'persistent' }
+      }
     }
     const materials = await prepareExecutionMaterials({
       agentHome,
@@ -118,7 +114,6 @@ describe('execution materials', () => {
       expect(materials.workerEnv.SAFE).toBe('frozen-value')
       expect(materials.workerEnv.BROWSER_BACKEND_JSON).toBeUndefined()
       expect(materials.browserEnv).toEqual({})
-      expect(materials.renderedFetch?.ssrfFilter).toBe(false)
       await materials.renderedFetch!.fetchBatch(['https://example.com'])
       await materials.renderedFetch!.fetchBatch(['https://example.com'])
       expect(routes).toHaveLength(2)

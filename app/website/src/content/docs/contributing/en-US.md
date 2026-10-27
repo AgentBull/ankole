@@ -5,73 +5,73 @@ section: Guides
 order: 321
 ---
 
-Contributing to Ankole means reading two documents before the first edit, and following the path they define. This page is the map: it points at the authoritative sources, names the path through them, and stops short of duplicating either. If this page and a source document disagree, the source document is right.
+Before making your first edit in Ankole, read two root documents and follow the workflow that they define. This page maps out those authoritative sources and summarizes the path through them without duplicating either—whenever this overview and a root document disagree, the root document wins.
 
-The decisive property, stated up front: Ankole's contribution rules are not optional conventions — they are enforced by the project's review process and by the changelog rule that gates every commit that changes the product. A contribution that skips [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) or [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) will be asked to go back and read them. Read them first.
+Ankole's contribution rules are enforced directly by code review and by the changelog gate on every product-changing commit. Maintainers will ask contributors who skip [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) or [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) to read them before review proceeds—so read both first.
 
 ## The two documents that own the rules
 
-- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)** — the project-wide rules: scope and authorization, the changelog-as-version-unit rule, core discipline (smallest correct change, worse-is-better), the design priorities (simplicity > correctness > consistency > completeness), objective fidelity, and the subsystem boundaries. This is the document that decides *how* to make a change.
-- **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)** — the contribution path: the six-step local setup, the Feishu end-to-end acceptance, the troubleshooting order, the repository map, the quality gates, the changelog and PR steps. This is the document that decides *what to do* to land a change.
+- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)** — project-wide engineering rules: scope and authorization, changelog discipline, smallest correct change, worse-is-better design priorities (simplicity > correctness > consistency > completeness), objective fidelity, and subsystem boundaries. Read this to understand *how* to design and implement a change.
+- **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)** — the practical contribution workflow: six-step local setup, Feishu end-to-end acceptance, troubleshooting order, repository map, verification gates, and changelog/PR mechanics. Read this to know *what steps to run* to land a change.
 
-Both are the source of truth for their domain. This guide and the rest of the docs link to them; nothing here overrides them.
+Each file is the single source of truth for its domain; nothing in the website docs overrides them.
 
 ## The setup path (six steps)
 
-`CONTRIBUTING.md` walks the setup in six steps, and it is the authoritative version. The shape, so you know what you are walking into:
+`CONTRIBUTING.md` walks through local setup in six steps—here is the high-level shape so you know what to expect:
 
-1. **Get the repository and choose an environment** — clone, and pick macOS/Linux/WSL2 or GitHub Codespaces.
-2. **Install and verify the system tools** — `bash tools/devkit/scripts/env-setup.sh`, then verify `bun`, `elixir`, `rustc`, `cargo clippy`, and `docker` all work. See the [kit CLI reference](../kit-cli/) for what each `kit` command does.
-3. **Install dependencies and initialize local services** — `bun install`, `bun run services:start` (starts PostgreSQL 18 and `Function Runtime` / `ankole-function-runtime`), and `bun run control-plane:setup`.
-4. **Start the complete development environment** — `bun dev`.
-5. **Complete first-time product setup** — activate at `/setup`, sign in the first administrator through passwordless SMTP Email OTP or Feishu app OAuth (create the Feishu test app when running the full Feishu end-to-end test), and configure the runtime in the Site Admin Console at `/site-admin-console`.
-6. **Prove the end-to-end path** — a real Feishu message reaches the agent and returns the expected reply.
+1. **Get the repository and choose an environment** — clone the repo on macOS, Linux, WSL2, or GitHub Codespaces.
+2. **Install and verify the system tools** — run `bash tools/devkit/scripts/env-setup.sh`, then verify that `bun`, `elixir`, `rustc`, `cargo clippy`, and `docker` all succeed. See the [kit CLI reference](../kit-cli/) for each `kit` subcommand.
+3. **Install dependencies and initialize local services** — run `bun install`, `bun run services:start` (which starts PostgreSQL 18 and `Function Runtime` / `ankole-function-runtime`), and `bun run control-plane:setup`.
+4. **Start the complete development environment** — run `bun dev`.
+5. **Complete first-time product setup** — activate at `/setup`, sign in the first administrator via passwordless SMTP Email OTP or Feishu app OAuth (create a Feishu test app when running the full Feishu end-to-end check), and configure the runtime in the Site Admin Console at `/site-admin-console`.
+6. **Prove the end-to-end path** — send a real Feishu message to your Agent and verify that it replies as expected.
 
-The setup is not done when the page opens. It is done when a real message round-trips. See [Quick start](../quickstart/) for the short path and [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) for the full acceptance.
+Local setup is not finished merely because the web UI loads—it is finished once a real message completes the round trip. See [Quick start](../quickstart/) for deployment basics and [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) for the full acceptance checklist.
 
 ## How to make the change
 
-Read `AGENTS.md` before the first edit. The rules that come up most often:
+Read `AGENTS.md` before writing code. Six principles come up on nearly every review:
 
-- **Scope and authorization.** A request to answer or plan authorizes read-only inspection; a request to implement authorizes the edits. Do not expand scope without approval.
-- **The changelog is for users and operators.** A commit that changes the product adds one `CHANGELOG.md` version that records what they will notice after the upgrade; a documentation-only commit adds none. See the section below.
-- **Smallest correct change.** Prefer the smallest change that follows the chosen direction, preserves contracts the system can keep, and stays understandable. A little duplication is better than an abstraction that compounds complexity.
-- **Worse is better.** Simplicity beats interface uniformity or theoretical completeness. When simplicity wins, narrow the contract or reject the unsupported case explicitly, rather than silently producing a wrong result.
-- **Objective fidelity.** Do the requested task, not a cheaper proxy. A green test is not the goal; the real path through the owning abstraction is.
-- **Subsystem boundaries.** PostgreSQL owns durable facts; the Elixir control plane owns durable state and supervision; the Rust kernel owns shared native primitives; the Bun Agent Computer Worker owns per-Agent execution; and `Function Runtime` (`app/function_runtime/`) owns stateless Applet backend and deterministic program isolates. A change that crosses a boundary should respect it, not paper over it.
+- **Scope and authorization.** Requests to explain, diagnose, or plan are strictly read-only; only an implementation request authorizes code edits, and expanding scope requires explicit sign-off.
+- **The changelog is for users and operators.** Every commit that changes product behavior adds one `CHANGELOG.md` version describing what users or operators will notice; documentation-only commits add none.
+- **Smallest correct change.** Favor the smallest change that follows the architecture, preserves contracts that the system guarantees, and stays easy to read—modest local duplication beats premature abstraction.
+- **Worse is better.** Prioritize simplicity ahead of uniform abstractions or theoretical completeness; narrow the contract or reject unsupported cases explicitly rather than adding fragile fallbacks.
+- **Objective fidelity.** Deliver the exact outcome requested through the real production boundary—a green unit test or mocked demo is never a substitute.
+- **Subsystem boundaries.** PostgreSQL owns durable domain facts; the Elixir control plane owns durable state, supervision, and commit authority; the Rust kernel provides stateless native primitives; the Bun Agent Computer Worker runs per-Agent tools and workspaces; and `Function Runtime` (`app/function_runtime/`) runs stateless Applet backend and deterministic program isolates. Keep cross-boundary changes aligned with those owners.
 
 ## The changelog rule
 
-This is the rule that gates every commit that changes the product, and the one most contributions get wrong on the first try. From `CONTRIBUTING.md`:
+Every product-changing commit is gated by `CHANGELOG.md`—the rule that first-time PRs miss most often:
 
-- A commit that changes only documentation or the changelog adds no version. Every other commit adds exactly one root `CHANGELOG.md` version, and one version does not span commits.
-- The version records what a user or an operator notices after the upgrade: a new capability, changed behavior, a removal, a fix they could have met, and any required action. Documentation, tests, tooling, dependencies, and refactors are not recorded; a version without such a change says only `Internal changes only.`
-- Versions use `MAJOR.MINOR.PATCH`. `PATCH` is the default. `MINOR` is for a capability the product did not have before, or for a break that a person must act on. `MAJOR` and pre-release suffixes follow a maintainer decision.
+- Commits that touch only documentation or `CHANGELOG.md` itself add no version entry. Every other commit adds **exactly one** new version section in root `CHANGELOG.md`, and a single version never spans multiple commits.
+- Describe what an operator or end user notices on upgrade: new capabilities, behavioral changes, removals, user-visible bug fixes, and any required operator actions. Omit internal refactors, tests, docs, tooling, and dependency bumps—if a commit has no user-visible effect, write `Internal changes only.`
+- Follow `MAJOR.MINOR.PATCH`: default to `PATCH`, bump `MINOR` for a brand-new product capability or a breaking change requiring operator action, and leave `MAJOR` or pre-release tags to maintainer decisions.
 
-The changelog is the *sole* changelog and version unit — there is no separate release notes file. After a `main` runtime-image build passes verification across all three co-versioned runtime images (`ankole-control-plane`, `ankole-agent-computer`, and `ankole-function-runtime`), the workflow tags those images with the newest version and creates the immutable GitHub Release from that exact section. Treat the changelog as part of the change, not as paperwork afterward.
+Root `CHANGELOG.md` is the sole release-notes and versioning source: once a `main` build passes verification across all three co-versioned runtime images (`ankole-control-plane`, `ankole-agent-computer`, and `ankole-function-runtime`), CI tags those images with the top changelog version and publishes the immutable GitHub Release directly from that section. Write the changelog entry as part of your change, not as an afterthought.
 
 ## Run the right checks
 
-`CONTRIBUTING.md` names the checks, and the [kit CLI reference](../kit-cli/) documents the commands. The shape:
+Run the verification gates listed in `CONTRIBUTING.md` (with CLI details in the [kit CLI reference](../kit-cli/)):
 
-- **Targeted tests and the normal static check** for the package you changed — run the affected package's tests, not the whole suite.
-- **The affected integration or end-to-end suite** when the change crosses a process, provider, persistence-restart, or user-flow boundary — and do not skip it.
-- **`bun run analyze`** (`kit analyze all`) for repository-wide smells, unused code, structure, and cycles.
+- **Targeted unit tests and static type/compile checks** for each package you touched—avoid running unrelated suites unnecessarily.
+- **Integration and end-to-end tests** whenever your change crosses a process, external provider, persistence/restart, or user-flow boundary.
+- **`bun run analyze`** (`kit analyze all`) to catch repository-wide smells, dead code, boundary violations, and dependency cycles.
 - **`bun run lint`** and **`bun run fmt:check`** before committing.
 
-If a required command cannot run in your environment, report the exact command and blocker — do not claim the guarantee as verified.
+If your environment blocks a required check from running, report the exact command and what blocked it—never present an unexecuted check as verified.
 
 ## Submit the pull request
 
-`CONTRIBUTING.md` covers the PR step. The short shape: the PR's commits follow the changelog rule (one version per commit that changes the product), the change respects the boundaries in `AGENTS.md`, and the PR description says what changed and why in the terms the documents use. The review will check the same things.
+Before opening a PR, verify that each product-changing commit carries its own `CHANGELOG.md` version, all subsystem boundaries in `AGENTS.md` hold, and your PR description states what changed and why using Ankole's domain terms—reviewers check those exact criteria.
 
 ## What this guide is not
 
-It is not a substitute for the two documents — it is the doorway to them. It is not a license to edit without reading; `AGENTS.md` is short on purpose, and reading it is the cheapest thing a contribution can do. And it is not a place to argue the rules; the rules are settled tradeoffs, and a local preference is not a finding — evaluate whether the implementation is consistent inside the chosen direction instead.
+This page is an entry point to `AGENTS.md` and `CONTRIBUTING.md`, not a replacement for reading them—`AGENTS.md` is intentionally concise, and reading it upfront saves review round-trips. Nor is PR review the place to relitigate settled project trade-offs; evaluate and build changes consistently within Ankole's established architecture.
 
 ## Next steps
 
-- Read [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) before the first edit.
-- Follow [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) for setup and acceptance.
-- Use the [kit CLI reference](../kit-cli/) for the devkit commands.
-- Read the [architecture overview](../architecture/) to understand the subsystem boundaries a change crosses.
+- Read [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) before your first edit.
+- Follow [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) for local setup and acceptance checks.
+- Consult the [kit CLI reference](../kit-cli/) for workspace commands.
+- Read the [architecture overview](../architecture/) to see the subsystem boundaries that your change touches.

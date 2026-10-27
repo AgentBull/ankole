@@ -1,56 +1,61 @@
 # Agent Token Quota
 
-An Agent token quota limits the tokens that one Agent can consume in a
-repeating period. An operator sets the period length in days, the period start
-time, and the token limit for each Agent in the Agent Console. When the Agent
-reaches the limit, AIGateway rejects its model requests until the period ends
-or the operator resets the quota.
+An Agent token quota limits the number of tokens that one Agent can consume
+during a repeating period. In the Agent Console, an operator sets the period
+length in days, the period start time, and the token limit for each Agent. When
+an Agent reaches its limit, AIGateway rejects further model requests from that
+Agent until the current period ends or an operator resets the quota.
 
-The Elixir control plane owns every part of the quota. `Ankole.AIAgent.TokenQuota`
-owns the configuration and the usage query. AIGateway owns the usage ledger and
-the rejection. Sessions.Notices owns the user notice. The Session Driver reads the
-AIGateway rejection directly. The Worker reports a Codex usage-limit error as pool exhaustion. The control
-plane checks the quota before it settles a Job failure. The Worker keeps no
-usage counters.
+The Elixir control plane owns every part of quota enforcement; Workers keep no
+usage counters. Within the control plane, `Ankole.AIAgent.TokenQuota` manages
+quota configuration and usage queries, AIGateway maintains the usage ledger and
+rejects over-quota requests, and `Sessions.Notices` formats the user-facing
+notice. When AIGateway rejects a request on a control-plane Session, the Session
+Driver reads that rejection directly. On a Background Agent Job, by contrast,
+the Worker reports a usage-limit error from Codex as pool exhaustion, so the
+control plane checks the Agent's quota before settling the Job failure.
 
 ## What Counts
 
-A request counts when it carries an Agent token, so its `subject_type` is
-`agent`, and it uses the `llm` capability. This covers every model call in a
-control-plane Session, including scheduled, Workflow, and ambient runs, and every request
-of a Background Agent Job. A compaction that such a request starts with the
-`compaction_trigger` item, including the Codex remote compaction call, is that
+AIGateway counts a request toward an Agent's quota when the request carries an
+Agent token (`subject_type` is `agent`) and uses the `llm` capability. This
+covers every model call in a control-plane Session—including scheduled,
+Workflow, and ambient runs—as well as every request from a Background Agent Job.
+If one of those requests starts compaction through a `compaction_trigger` item
+(including a remote compaction call from Codex), that compaction is part of the
 request's own model work and counts the same way.
 
-Applet backend model calls use the Agent recorded in the Applet Page's
-`created_by`. They use `subject_type: "agent"`, check that Agent's quota, and
-record usage under that Agent. The Applet's invocation time and memory limits
-also apply.
+Backend model calls from an Applet run under the Agent recorded in the Applet
+Page's `created_by` field. They pass `subject_type: "agent"`, check that
+Agent's quota, and record usage under that Agent, while the Applet's own
+invocation time and memory limits continue to apply.
 
 For each provider round that ends with `response.completed` or
 `response.incomplete`, the ledger records `usage.input_tokens` and
-`usage.output_tokens` as the provider reported them. The counted amount is
-their sum. Cached input tokens are part of `input_tokens` and are not
-separated. The model does not change the count.
+`usage.output_tokens` as that provider reported them, and counts their sum.
+Cached input tokens remain part of `input_tokens` without separate weighting,
+and Ankole counts raw tokens equally regardless of which model ran.
 
-These requests do not count:
+The following requests do not count toward an Agent's quota:
 
-- Brain model calls. They run in the control plane as the maintainer Agent with
+- Brain model calls, which run in the control plane as the maintainer Agent with
   a `caller` label and no `subject_type`.
-- Compaction that the control plane starts on its own: automatic compaction
-  inside a stateful Response, and manual compaction from the Console or a chat
-  command. They also run in-process.
-- Embedding, rerank, web search, web fetch, and image generation tool usage.
-- Requests with an OIDC Human token.
+- Compaction that the control plane starts on its own—both automatic compaction
+  inside a stateful Response and manual compaction triggered from the Console or
+  a chat command—because these calls also run in-process without `subject_type`.
+- Tool usage for `embedding`, `rerank`, `web_search`, `web_fetch`, and
+  `image_generate`.
+- Requests authenticated with an OIDC Human token.
 
 The ledger starts empty at deployment.
 
-The limit is a soft limit. AIGateway checks the usage before it sends a request
-and rejects the request when the usage is at or above the limit. One request
-can therefore end above the limit by its own usage. `ai_gateway_usage_records`
-tracks raw token counts without currency or pricing as an instance-local
-per-Agent guardrail, and applies alongside (`AND`) any plugin-enforced compute
-or account admission hook.
+The quota acts as a soft limit: AIGateway checks accumulated usage before
+dispatching a request and rejects the request when usage is already at or above
+the limit. Because the check happens before dispatch, a single in-flight request
+can finish with total usage above the limit. `ai_gateway_usage_records` tracks
+raw token counts without currency or pricing as an instance-local guardrail per
+Agent, and applies alongside (`AND`) any compute or account admission hook
+enforced by a plugin.
 
 ## Data Model
 
@@ -69,19 +74,21 @@ or account admission hook.
 | `attempt` | The attempt number of that Job; NULL for other work |
 | `inserted_at` | Record time; the window query uses it |
 
-An index on `(subject_uid, inserted_at)` serves the window sum. A partial
-index on `job_id` and one on `(session_id, inserted_at)` serve per-Job and
-per-Session sums. The attribution columns are read from the request context
-of the round; a value of the wrong shape is dropped and the row is written
-with NULL in that column, because the quota count must not depend on attribution. Rows are
-never updated or deleted while the Agent exists. Deleting the Agent Principal
-removes its ledger with its other AIGateway records. A ledger write failure,
-including a database error, logs a warning and does not fail the response.
-[AIGateway](AIGateway.md) describes how the two Turn kinds supply the work
-identity.
+PostgreSQL uses an index on `(subject_uid, inserted_at)` to compute the window
+sum, along with partial indexes on `job_id` and `(session_id, inserted_at)` for
+per-Job and per-Session sums. AIGateway reads the attribution columns from the
+round's request context; if an attribution value has the wrong shape, AIGateway
+drops that value and writes `NULL` in that column so that malformed attribution
+never blocks quota accounting. While an Agent exists, AIGateway never updates or
+deletes its ledger rows; deleting the Agent Principal removes its ledger
+together with its other AIGateway records. If writing to the ledger fails (for
+example, because of a database error), AIGateway logs a warning without failing
+the model response. See [AIGateway](AIGateway.md) for how Session Turns and
+Background Agent Jobs supply work identity.
 
-The quota configuration lives in `agents.options["ai_agent"]["token_quota"]`,
-next to `models` and `provider_hosted`:
+Ankole stores the quota configuration in
+`agents.options["ai_agent"]["token_quota"]`, alongside `models` and
+`provider_hosted`:
 
 | Field | Meaning |
 | --- | --- |
@@ -89,14 +96,15 @@ next to `models` and `provider_hosted`:
 | `period_start_at` | UTC instant that starts the first period |
 | `limit_tokens` | Integer, at least 1 |
 
-An Agent without this object has no limit. `Ankole.AIAgent.TokenQuota`
-validates and writes the object in one `Repo.transact_top_level/2` transaction
-that locks the Agent row, in the same shape as model profiles.
+If an Agent has no `token_quota` object, no token limit applies.
+`Ankole.AIAgent.TokenQuota` validates and writes this object inside a single
+`Repo.transact_top_level/2` transaction that locks the Agent row, using the same
+pattern as model profiles.
 
 ## Periods
 
-A period is `period_days` multiplied by 24 hours. Periods tile the timeline
-from `period_start_at` in both directions:
+Each period spans `period_days` multiplied by 24 hours, tiling the timeline in
+both directions from `period_start_at`:
 
 ```text
 period_length = period_days × 86400 s
@@ -104,32 +112,38 @@ window_start  = period_start_at + floor((now − period_start_at) / period_lengt
 window_end    = window_start + period_length
 ```
 
-The usage of the current window is the ledger sum for the Agent with
-`inserted_at` at or after `window_start`. A period start in the future is
-valid; the window before it is counted the same way.
+An Agent's usage for the current window is the sum of its ledger rows with
+`inserted_at` at or after `window_start`. Operators can set `period_start_at` in
+the future; Ankole computes and counts the window preceding a future start time
+with the same formula.
 
-A reset writes `period_start_at = now`. The current window ends at once, a new
-window starts at the reset instant, and its usage is zero. Older ledger rows
-stay for audit. A change of the period or the start time recomputes the window
-from the new values. A change of the limit applies to the next check. No
-change touches the ledger.
+When an operator resets a quota, `Ankole.AIAgent.TokenQuota` sets
+`period_start_at = now`. This immediately ends the current window and starts a
+new window with zero counted usage at the reset timestamp, while keeping older
+ledger rows for audit. Similarly, if an operator updates `period_days` or
+`period_start_at`, Ankole recomputes the active window from the new values, and
+if an operator updates `limit_tokens`, the new limit takes effect on the next
+check. None of these configuration changes modify existing ledger rows.
 
-Periods use fixed 24-hour multiples, not calendar days. A daylight-saving
-change moves the local wall-clock boundary by one hour.
+Because periods use fixed 24-hour multiples rather than calendar days, a
+daylight-saving transition shifts the local wall-clock boundary by one hour.
 
 ## Enforce the Limit
 
-AIGateway checks the quota when it resolves the model of an `llm` request, in
-`ResponsesPreparation.resolve_runtime` and in the WebSocket `response.create`
-entry, before the model and its credential are selected. A request with
-`subject_type` `agent` is checked. Other in-process callers pass no
-`subject_type` and skip the check. A compaction trigger carries the same identity into the
-summarizer or the provider compaction call, so it is checked and counted like
-the request that sent it. The rejection touches no credential, and an Agent at
-its limit receives the quota answer even when its credential pool is also
-exhausted.
+When resolving the model for an `llm` request—both in
+`ResponsesPreparation.resolve_runtime` and at the WebSocket `response.create`
+entry—AIGateway checks the quota before selecting a model or credential.
+AIGateway runs this check whenever `subject_type` is `agent`; other in-process
+callers omit `subject_type` and skip the check. When a request includes a
+`compaction_trigger`, AIGateway carries the caller's identity into the local
+summarizer or upstream provider compaction call, so compaction is checked and
+counted just like the parent request. Because AIGateway enforces the quota
+before credential selection, a rejection does not touch any credential, and an
+Agent at its limit receives the quota error even when its credential pool is
+also exhausted.
 
-The rejection is HTTP 429 with this error object:
+When an Agent is at or above its limit, AIGateway returns HTTP 429 with this
+error object:
 
 ```json
 {
@@ -146,78 +160,89 @@ The rejection is HTTP 429 with this error object:
 }
 ```
 
-The response carries the same `retry-after` and reset headers as a credential
-pool rejection, with the window end as the recovery time. `retryable: false`
-tells callers that a retry cannot succeed.
+Along with the body, AIGateway sends the same `retry-after` and reset headers
+used for credential-pool rejections, setting the recovery time to the end of the
+current window, while `retryable: false` tells callers that a retry cannot
+succeed.
 
-The `type` is the Codex boundary contract. The pinned Codex runtime does not
-retry a 429 whose `type` is `usage_limit_reached`. The main Agent path reads
-the code from the error object. The Worker reports the Codex usage-limit
-failure as `credential_pool_exhausted`. When the control plane settles a Job
-attempt, it checks the Agent quota. An exhausted quota produces the terminal
-`agent_token_quota_exceeded` verdict.
+Different callers interpret this error according to their runtime boundary. The
+`type` field (`usage_limit_reached`) satisfies the Codex boundary contract,
+because the pinned Codex runtime does not retry HTTP 429 responses with that
+type. On the main Agent path, the Session Driver reads `code` directly from the
+error object. On a Background Agent Job, the Worker reports the Codex
+usage-limit failure to the control plane as `credential_pool_exhausted`; when
+settling the Job attempt, the control plane checks the Agent's quota and records
+the terminal `agent_token_quota_exceeded` verdict if the quota is exhausted.
 
-AIGateway records ledger rows at its two usage observation points:
-the streaming terminal event in `ResponseStream` and the completed
-non-streaming request in `AIGateway`. Every transport uses one of them.
+For requests that run, AIGateway appends ledger rows at its two usage
+observation points: on the streaming terminal event in `ResponseStream`, and
+upon completion of a non-streaming request in `AIGateway`. Every transport uses
+one of these two points.
 
 ## Tell the User
 
-Before a main or Workflow Session turn starts, `Sessions.Admission`
-checks the quota through `Ankole.AIAgent.TokenQuota`. Job admission skips this
-check. At the limit, `Sessions.Notices` closes the input and commits one
-localized Delivery notice for a reply-eligible event. It first restores any
-committed tool records and applied inputs, so a failed preflight does not erase
-work that already committed. The Delivery uses the `ai-token-quota-exceeded`
-key prefix. The notice uses `conversations.delivery.reply.token_quota_exceeded` and
-states the used tokens, limit, and window end in the installation timezone
-(`system.timezone`). An ambient `im.message.may_intervene` input completes
-without a notice, as for a missing model profile.
+Before a main or Workflow Session turn starts, `Sessions.Admission` checks the
+Agent's quota through `Ankole.AIAgent.TokenQuota` (Background Agent Job
+admission skips this preflight check). If the Agent has reached its limit,
+`Sessions.Notices` closes the input and commits one localized Delivery notice
+when the event is eligible for a reply. Before closing the input, it restores
+any committed tool records and applied inputs so that a failed preflight does
+not erase work that already committed. The Delivery record uses the
+`ai-token-quota-exceeded` key prefix, and `Sessions.Notices` formats the message
+with `conversations.delivery.reply.token_quota_exceeded`, reporting the used
+tokens, limit, and window end in the installation timezone (`system.timezone`).
+For an ambient `im.message.may_intervene` input, Ankole completes the input
+without sending a notice, just as it does when a model profile is missing.
 
-A turn can cross its limit after admission. AIGateway rejects a later model
-call, and the Driver settles the non-retryable failure as dead letter. The
-notice uses the quota text when the failure carries
-`agent_token_quota_exceeded`, instead of the generic retry text.
+A turn can also cross its limit after passing admission. When that happens,
+AIGateway rejects the subsequent model call, and the Session Driver settles the
+non-retryable failure as a dead letter. Because the failure carries
+`agent_token_quota_exceeded`, `Sessions.Notices` sends the quota notice instead
+of the generic retry text.
 
-After a reset or a new window, the user sends the message again. Nothing
-replays a blocked message.
+After an operator resets the quota or a new window begins, the user must send
+their message again; Ankole does not automatically replay blocked messages.
 
 ## Background Agent Jobs
 
-Job creation and admission do not check the quota. The first Codex request of
-an over-limit Job is rejected. The Worker reports `credential_pool_exhausted`.
-The control plane checks the Agent quota and fails the Job with
-`agent_token_quota_exceeded` through the terminal Job path. The Job does
-not return to `queued`
-and does not wait for the next window. The owner session receives the ordinary
-`background_agent_job.failed` event. When the main Agent is also at its limit,
-that turn produces the quota notice above.
+Background Agent Job creation and admission do not check the token quota.
+Instead, if an Agent is over its limit, AIGateway rejects the first Codex
+request of the Job. The Worker then reports `credential_pool_exhausted`, and the
+control plane checks the Agent's quota and fails the Job with
+`agent_token_quota_exceeded` through the terminal Job path. As a result, the Job
+neither returns to `queued` nor waits for the next window. The owner Session
+receives the standard `background_agent_job.failed` event; if the main Agent is
+also at its limit when handling that event, its turn produces the quota notice
+described above.
 
 ## Console
 
-The Agent Console has a `Token quota` section next to `Model profiles`. It
-shows the period length, the period start time, the limit, a usage bar with
-the used tokens and their share of the limit, the start and end time of the
-current window, and a `Reset` button with a confirmation dialog. The period
-start time is a date-time picker in the operator's browser time zone; the
-picker edits whole seconds. The stored UTC instant keeps its original
-precision, including microseconds from a reset. A save omits `period_start_at`
-when the picker value did not change.
+The Agent Console displays a `Token quota` section next to `Model profiles`. It
+shows the period length, the period start time, the token limit, a usage bar
+with used tokens and their share of the limit, the start and end times of the
+current window, and a `Reset` button with a confirmation dialog. Operators edit
+the period start time with a date-time picker in their browser time zone at
+whole-second precision. In storage, Ankole preserves the exact UTC precision of
+`period_start_at` (including microseconds written by a reset), and when saving
+the form, the Console omits `period_start_at` if the operator did not change the
+picker value.
 
-The routes are:
+The HTTP routes are:
 
 - `GET /api/v2/agents/:agent_uid/token-quota`
 - `PUT /api/v2/agents/:agent_uid/token-quota`
 - `DELETE /api/v2/agents/:agent_uid/token-quota`
 - `POST /api/v2/agents/:agent_uid/token-quota/reset`
 
-The write body puts the action arguments inside `data`. `PUT` requires
-`period_days` and `limit_tokens`. If `period_start_at` is
-absent, the control plane keeps the stored start time under the Agent row lock.
-An Agent without a quota must supply a valid start time. An explicit start
-time replaces the stored instant; `null` and invalid values are rejected.
+Write requests place action arguments inside `data`. `PUT` always requires
+`period_days` and `limit_tokens`. If the caller omits `period_start_at` when
+updating an existing quota, the control plane retains the stored start time
+under the Agent row lock; however, when configuring a quota for an Agent that
+does not have one yet, the caller must supply a valid `period_start_at`. Passing
+an explicit start time replaces the stored instant, while `null` and invalid
+values are rejected.
 
-Every route answers with the configuration and the current window:
+Every route returns both the quota configuration and the current usage window:
 
 ```json
 {
@@ -235,23 +260,25 @@ Every route answers with the configuration and the current window:
 }
 ```
 
-`token_quota` and `usage` are both `null` for an Agent without a limit, and a
-reset of such an Agent answers 422 `token_quota_not_configured`. The AuthZ
-resource is `site_console:agent:<uid>:token_quota` with the `read`, `update`,
-and `delete` actions. The
-generic `PATCH /agents/:agent_uid` route rejects `options.ai_agent.models`,
-`provider_hosted`, and `token_quota` with 422 and keeps their stored values
-when it replaces `options`, so a whole-`options` write preserves model
-profiles, provider-hosted tools, and the quota owned by their dedicated routes.
-It locks the Agent row before the
-merge, so a quota written while the update waits is kept. `POST /agents`
-rejects `options.ai_agent.token_quota` the same way; a quota is set after
-creation through its own route.
+If an Agent has no configured limit, both `token_quota` and `usage` are `null`,
+and calling `POST .../reset` for that Agent returns HTTP 422 with
+`token_quota_not_configured`.
+
+Principal/AuthZ authorizes these operations on
+`site_console:agent:<uid>:token_quota` with the `read`, `update`, and `delete`
+actions. To keep ownership clear, the generic `PATCH /agents/:agent_uid` route
+rejects `options.ai_agent.models`, `provider_hosted`, and `token_quota` with
+HTTP 422. When `PATCH /agents/:agent_uid` replaces `options`, the control plane
+locks the Agent row first and preserves the stored values of model profiles,
+provider-hosted tools, and `token_quota`—including any quota written while the
+update waited for the lock. Likewise, `POST /agents` rejects
+`options.ai_agent.token_quota` with HTTP 422; operators configure a quota after
+creating the Agent through the dedicated token-quota route.
 
 ## Rules
 
-- AIGateway is the only enforcement point. The Sessions admission check avoids a model turn that cannot start.
-- The ledger is append-only while the Agent exists and is the only usage source for the quota.
+- AIGateway is the sole enforcement point; the preflight check in `Sessions.Admission` only avoids starting a model turn that would immediately fail.
+- `ai_gateway_usage_records` is append-only while the Agent exists and is the sole usage source for quota checks.
 - Neither the Worker nor the control plane retries a quota rejection.
-- A reset starts a new period. It never deletes ledger rows.
-- An Agent without a `token_quota` object has no limit.
+- Resetting a quota starts a new period immediately without deleting ledger rows.
+- An Agent without a `token_quota` object has no token limit.

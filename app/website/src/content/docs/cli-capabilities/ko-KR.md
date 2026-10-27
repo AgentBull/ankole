@@ -5,57 +5,57 @@ section: Developer guide
 order: 114
 ---
 
-일부 Ankole 기능은 모델에 보이는 tool이 아니라 Agent Computer의 shell 명령입니다. Agent는 `gh`나 `kubectl`처럼 shell을 통해 이 명령들을 호출합니다. `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, Webhook 엔드포인트 명령, automation job 명령이 모두 이 형태를 씁니다.
+Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `gh`나 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령, automation job 관리 명령이 모두 이 방식을 따릅니다.
 
-이 페이지는 기능을 이 형태로 제공해야 하는 경우와, tool 등록, Skill 인덱스 항목, system prompt 섹션 없이도 발견 가능하고 올바르게 만드는 공개 아키텍처를 설명합니다.
+이 문서에서는 어떤 기능을 CLI 형태로 설계해야 하는지, 그리고 별도의 도구 등록이나 Skill 인덱스 항목, 시스템 프롬프트 상주 설명 없이도 Agent가 적시에 기능을 발견하고 정확히 사용할 수 있게 만드는 단계적 노출(disclosure) 구조를 설명합니다.
 
 ## CLI가 올바른 형태인 경우
 
-다음이 모두 성립할 때 기능은 CLI 형태에 맞는다:
+다음 세 조건을 모두 만족하는 기능은 모델 도구보다 CLI 명령어로 제공하는 편이 적합합니다.
 
-- Agent가 더 큰 shell 워크플로 안에서 다른 명령 옆에 사용하며, 스크립트나 백그라운드 agent job도 호출할 수 있어야 한다.
-- 오직 하나의 결정 경로에서만 중요합니다. webhook을 만들지 않는 Agent는 `create-webhook-cli`가 존재한다는 사실을 알 필요가 없다.
-- 모델이 채울 JSON schema가 필요 없다. 몇 개의 flag가 입력을 담습니다.
+- Agent가 복합 셸 워크플로 안에서 다른 유틸리티 명령과 조합해 사용하며, 스크립트나 Background Agent Job에서도 그대로 호출할 수 있어야 합니다.
+- 특정 의사결정 경로에 들어섰을 때만 필요한 기능입니다. 예를 들어 웹훅을 생성할 일이 없는 일반 대화의 Agent는 `create-webhook-cli`의 존재조차 미리 알 필요가 없습니다.
+- 복잡한 중첩 JSON 스키마를 채울 필요 없이 몇 개의 명령줄 플래그만으로 입력을 충분히 표현할 수 있습니다.
 
-모델에 보이는 tool은 매 turn에서 컨텍스트를 소비합니다. CLI는 Agent가 관련 경로를 따라가기 전까지 아무것도 소비하지 않습니다.
+모델에 직접 노출된 도구는 매 추론 turn마다 프롬프트 컨텍스트를 점유하지만, CLI 명령어는 Agent가 실제로 해당 작업 경로에 진입하기 전까지 컨텍스트 토큰을 전혀 소비하지 않습니다.
 
 ## 공개 아키텍처
 
-세 가지 규칙이 tool 등록과 Skill 인덱싱을 대체합니다:
+도구 스키마 등록과 Skill 상시 인덱싱을 대신하는 세 가지 설계 원칙은 다음과 같습니다.
 
-**`--help`가 계약 문서입니다.** CLI의 `--help` 출력은 Agent가 기능을 올바르게 사용하는 데 필요한 지식을 담는다: 그것이 무엇인지, 신뢰 모델, 보장, 완전한 사용이 어떻게 생겼는지. 바이너리와 함께 제공되므로 기술하는 동작과 함께 버전이 고정되며, 별도 문서처럼 어긋날 수 없다. 다른 컨텍스트가 없는 독자를 위해 쓰고, 절차가 아니라 목표와 제약을 서술하세요. `create-webhook-cli --help`가 참조 예시입니다.
+**`--help` 출력 자체가 정식 계약 문서입니다.** CLI의 `--help` 출력에는 해당 기능의 목적, 신뢰 경계, 보장 범위, 완결된 사용 예시까지 Agent가 올바르게 호출하는 데 필요한 모든 정보가 담깁니다. 실행 바이너리 안에 함께 패키징되므로 실제 동작 버전과 설명이 항상 일치하며 외부 문서처럼 코드와 어긋나지 않습니다. 사전 배경지식이 없는 호출자가 읽더라도 바로 이해할 수 있도록 단순 나열식 절차보다 목표와 제약 조건을 명확히 서술하세요. 좋은 작성 기준으로는 `create-webhook-cli --help`를 참고할 수 있습니다.
 
-**포인터는 결정 표면에 놓입니다.** 발견은 Agent가 이미 인접한 결정을 내리는 위치에 놓인 한 문장짜리 포인터에서 온다: tool description, 특정 외부 system을 통합하는 Skill, 또는 다른 CLI의 `--help`. 각 포인터는 기능이 관련된 조건과 어디에서 더 읽을 수 있는지를 서술하며 선택을 유도하지 않습니다. 이 형태의 모든 기능은 Agent가 관련 경로에서 항상 방문하는 표면에 포인터를 적어도 하나 가져야 한다 — 기능을 의미 있게 만드는 경로가 그것을 공개하는 표면도 정합니다.
+**관련 의사결정 지점에 한 문장짜리 포인터를 배치합니다.** Agent는 인접한 결정을 내리는 표면(유관 도구의 설명문, 특정 외부 시스템을 연동하는 Skill 본문, 또는 다른 관련 CLI의 `--help` 출력)에 놓인 짧은 안내 문장 하나를 보고 이 CLI의 존재를 발견합니다. 각 포인터는 특정 선택을 강요하지 않고 “어떤 조건일 때 이 기능이 관련되며 어디서 상세 사용법(`--help`)을 확인할 수 있는지”만 담백하게 안내합니다. CLI 형태로 제공하는 모든 기능은 관련 업무 경로에서 Agent가 반드시 거치게 되는 표면에 최소 하나 이상의 포인터를 두어야 합니다.
 
-**일반 지식은 `--help`에 있고, 도메인 지식은 plugin Skill에 있다.** 기능의 모든 사용에 성립하는 계약은 `--help`에 속합니다. 하나의 외부 system을 통합하는 Skill은 그 system이 더하는 것만 유지합니다. 예를 들어 GitHub webhook Skill은 일반 webhook 계약에 대해 Agent를 `create-webhook-cli --help`로 안내하는 것으로 시작하며, hook 등록, ping 검증, 전달 조정, GitHub hook 할당량만 다룹니다. 두 번째 통합은 일반 계층 전체를 공짜로 재사용합니다.
+**공통 규약은 `--help`에 두고, 외부 시스템별 차이만 플러그인 Skill에 남깁니다.** 어느 연동에나 공통으로 적용되는 플랫폼 계약은 CLI의 `--help`가 전담하고, 개별 외부 서비스를 연동하는 Skill에는 해당 서비스 고유의 규칙만 작성합니다. 예컨대 GitHub 웹훅 Skill은 첫머리에서 일반 웹훅 계약 확인을 위해 `create-webhook-cli --help`를 실행하도록 안내한 뒤, 본문에서는 GitHub 훅 등록 API, 핑(ping) 이벤트 확인, 전달 이력 대조, 저장소당 훅 개수 한도만 다룹니다. 덕분에 두 번째 외부 서비스 연동을 추가할 때는 공통 계층을 중복 설명 없이 그대로 재사용할 수 있습니다.
 
 ## Automation jobs
 
-automation job은 매 전달마다 Agent 대화를 깨우는 대신 trigger를 소비하는 결정적 스크립트입니다. checkback, cron schedule, 또는 webhook endpoint가 `automation_job_id`를 지정할 수 있다. 이 필드가 없는 trigger는 직접 깨우는 동작을 유지합니다.
+automation job은 매번 Agent 대화 세션을 깨우는 대신 트리거 이벤트를 직접 받아 처리하는 결정적(deterministic) 스크립트입니다. checkback, cron 스케줄, 웹훅 엔드포인트에서 `automation_job_id`를 지정하면 해당 스크립트가 실행되며, 이 필드를 생략하면 기본값대로 Agent 세션을 직접 깨웁니다.
 
-Agent는 작업 공간에 디렉터리 하나를 만들고 `main.ts`를 추가하고, 설정과 비-SDK 분기를 손으로 확인한 다음 `create-automation-job-cli`로 디렉터리를 등록합니다. 등록할 때 디렉터리는 새 드라이브 폴더 `automation/<디렉터리 이름>-<무작위 접미사>`로 복사되고, 그 폴더가 `drive_prefix`로 반환됩니다. 각 실행은 실행 시점에 그 폴더에 있는 내용을 새 실행 디렉터리로 복사하고 거기서 `main.ts`를 Bun으로 실행하므로, 스크립트가 작업 디렉터리에 쓴 파일은 다음 실행까지 남지 않습니다. 스크립트를 바꿀 때는 Agent가 `ankole-files put <dir> <drive_prefix>`를 실행합니다. 다시 등록하지 않아도 편집이 반영됩니다.
+Agent는 로컬 작업 공간에 디렉터리를 만들고 `main.ts`를 작성해 설정과 일반 로직 분기를 직접 실행해 검증한 뒤 `create-automation-job-cli`로 등록합니다. 등록 시 해당 디렉터리는 Agent 드라이브의 새 경로인 `automation/<디렉터리 이름>-<무작위 접미사>`로 복사되며 이 경로가 `drive_prefix`로 반환됩니다. 이후 매 실행 시점에는 해당 드라이브 폴더의 파일들을 새로운 임시 실행 디렉터리로 복사해 Bun으로 `main.ts`를 실행하므로, 스크립트가 실행 중 작업 디렉터리에 생성한 임시 파일은 다음 실행으로 이어지지 않습니다. 코드를 수정할 때는 재등록할 필요 없이 `ankole-files put <dir> <drive_prefix>`로 드라이브 폴더를 덮어쓰면 다음 실행부터 반영됩니다.
 
-각 attempt는 최신 Agent WorkerEnv와, 현재 활성화된 Skill에서 생성된 호출 범위의 `MCPORTER_CONFIG`를 받습니다. Worker는 스크립트가 어떤 server를 쓸지 예측하지 않습니다. 스크립트는 mcporter와 stdin JSON으로 선택된 MCP tool 하나를 호출할 수 있다. Automation은 Skill 지침을 읽지 않으며, 영구적인 Agent Home mcporter 구성을 사용하지 않습니다.
+각 실행 시도(attempt)에는 해당 Agent의 최신 `WorkerEnv`와 현재 활성화된 Skill 구성을 바탕으로 생성된 호출 범위 전용 `MCPORTER_CONFIG`가 주입됩니다. Worker는 스크립트가 어떤 MCP 서버를 호출할지 미리 추측해 걸러내지 않으며, 스크립트는 `mcporter`와 표준 입력(`stdin`) JSON을 통해 필요한 MCP 도구를 직접 호출할 수 있습니다. 이때 Automation 실행 환경은 Skill 마크다운 지침을 읽지 않으며 Agent Home의 영구 `mcporter` 설정 파일도 참조하지 않습니다.
 
-run SDK는 `context()`와 `emitEvent(payload)`를 제공합니다. `context().event`는 직접 trigger가 Signal로 추가했을 것과 같은 CloudEvents 엔벨로프입니다. 스크립트는 내보내지 않고 조용한 성공으로 끝내거나, `emitEvent`를 한 번 이상 호출하여 영구 `automation_job.emitted` 이벤트를 소유 세션에 추가할 수 있다.
+런타임 SDK는 `context()`와 `emitEvent(payload)` 두 함수를 제공합니다. `context().event`에는 직접 깨우기 경로였을 때 Signal에 실렸을 것과 동일한 CloudEvents 봉투 객체가 들어 있습니다. 스크립트는 별도 이벤트 없이 조용히 정상 종료할 수도 있고, `emitEvent`를 한 번 이상 호출해 소유자 세션 앞으로 영구 `automation_job.emitted` 이벤트를 적재할 수도 있습니다.
 
-`context()`와 `emitEvent`는 플랫폼 run 안에서만 존재합니다. 직접 `bun main.ts` 실행은 이 함수들을 호출하지 않는 설정과 분기를 확인할 수 있다. 등록 후에는 모든 SDK 분기에 테스트 trigger를 사용하고 그 영구 run을 검사하세요. `emitEvent`는 stdout으로 폴백하지 않는다: Signal가 영구 상태가 된 뒤에만 그 promise가 resolve된다.
+`context()`와 `emitEvent`는 플랫폼이 구동하는 정식 실행 환경 안에서만 동작합니다. 따라서 로컬에서 `bun main.ts`를 직접 실행해 테스트할 때는 SDK 함수를 호출하지 않는 일반 로직 분기만 검증하고, 등록을 마친 뒤에는 실제 테스트 트리거를 발생시켜 SDK 호출 분기와 영구 실행 기록까지 확인하세요. `emitEvent`는 표준 출력(`stdout`)으로 대체 출력하는 폴백을 두지 않으며, 생성된 Signal이 PostgreSQL에 영구 커밋된 뒤에야 반환된 Promise가 이행(resolve)됩니다.
 
-모든 trigger 소비는 checkback을 청구하고, cron schedule을 진행시키고, webhook을 받아들이는 것과 같은 PostgreSQL 트랜잭션 안에서 영구 run을 만듭니다. 스크립트 예외, 0이 아닌 종료, 타임아웃은 종결적인 스크립트 결과이며 재시도되지 않습니다. Worker 손실은 인프라 장애다: run은 기존 Oban wake edge를 통해 새 fenced attempt를 받습니다. 리플레이는 스크립트 부작용을 반복할 수 있으므로 스크립트는 반복이 무해하도록 만들어야 한다.
+모든 트리거 소비는 checkback 차감, cron 스케줄 전진, 또는 웹훅 수신 수락과 동일한 PostgreSQL 트랜잭션 안에서 영구 실행 레코드(run)를 생성합니다. 스크립트 내부의 예외 발생, `0`이 아닌 종료 코드, 타임아웃은 스크립트 자체의 최종 실행 결과로 확정되어 자동 재시도되지 않습니다. 반면 실행 도중 Worker 자체가 유실된 경우는 인프라 장애로 분류되어 기존 Oban 웨이크업 경로를 통해 펜싱된 새 실행 시도가 배정됩니다. 이처럼 인프라 복구 시 스크립트가 다시 실행될 수 있으므로 모든 스크립트는 중복 실행에 안전하도록(멱등하게) 작성해야 합니다.
 
-활성 Agent turn 안에서 다음 명령을 사용하라:
+활성 Agent 실행 turn 안에서는 다음 관리 명령어들을 사용할 수 있습니다.
 
 - `create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]`
 - `list-automation-jobs-cli [--limit <1-500>]`
 - `show-automation-job-cli --id <automation-job-id> [--runs <1-100>]`
 - `cancel-automation-job-cli --id <automation-job-id>`
 
-Console의 Automation Jobs 페이지는 각 job과 최근 run 상태, attempt, 오류, exit code, 제한된 stdout 및 stderr 꼬리를 보여줍니다. `create-automation-job-cli --help`는 모델을 향한 규범적 안내로 남습니다.
+Console의 **Automation Jobs** 페이지에서도 등록된 각 작업과 최근 실행 상태, 시도 횟수, 오류 요약, 종료 코드, 길이 제한이 적용된 `stdout`/`stderr` 끝부분 로그를 조회할 수 있으며, 모델을 위한 정본 계약 문서는 언제나 `create-automation-job-cli --help`가 담당합니다.
 
 ## 새 CLI 기능의 요구 사항
 
-- 구현을 `app/agent_computer/src/cli/` 아래에 배치하고, 명령 패밀리마다 디렉터리 하나를 쓴다.
-- `--help`와 `-h`로 완전한 계약을, stdout에 exit 0으로, turn이나 네트워크 의존 없이 제공하세요. 명령 래퍼가 서브커맨드를 앞에 붙이므로 인자 목록 어디에서든 help flag를 감지하세요.
-- 인자 오류에는 짧은 usage 문자열을 유지하세요. 그것은 계약 문서가 아닙니다.
-- Agent가 기능을 필요로 할 각 결정 표면에 포인터 문장을 추가하고, 포인터에 선호를 담지 마라: 조건을 서술하고 `--help`를 지목하세요.
-- plugin Skill이 기능을 외부 system과 통합할 때는 `--help` 포인터로 Skill을 시작하고, Skill을 도메인 델타로 유지하세요.
+- 코드는 `app/agent_computer/src/cli/` 아래에 명령어 패밀리별 전용 디렉터리를 만들어 배치합니다.
+- 실행 중인 turn이나 네트워크 연결 없이도 `--help`와 `-h` 호출만으로 전체 계약 문서를 `stdout`에 출력하고 종료 코드 `0`으로 끝나야 합니다. 상위 래퍼가 서브커맨드를 앞에 붙일 수 있으므로 인자 배열 어느 위치에 도움말 플래그가 오더라도 인식하도록 구현하세요.
+- 잘못된 인자가 들어왔을 때는 계약 문서 전문 대신 간결한 사용법(usage) 요약만 출력합니다.
+- Agent가 해당 기능을 필요로 할 만한 모든 의사결정 표면에 포인터 문장을 추가하되, 특정 방식 사용을 유도하지 말고 적용 조건과 `--help` 확인 방법만 객관적으로 서술하세요.
+- 플러그인 Skill에서 해당 CLI를 특정 외부 서비스와 결합할 때는 첫머리에서 `--help` 포인터를 먼저 안내하고 Skill 본문에는 외부 서비스 고유의 차이점만 기술하세요.

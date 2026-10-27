@@ -15,7 +15,7 @@ import {
   cn
 } from '@ankole/uikit'
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
-import { match } from '@agentbull/active-support'
+import { match, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -685,11 +685,8 @@ function RawJSON({ value }: { value: unknown }) {
 function prettyJSON(text: string): string {
   const trimmed = text.trim()
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text
-  try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2)
-  } catch {
-    return text
-  }
+  const parsed = safeJsonParse(trimmed)
+  return parsed.isOk() ? JSON.stringify(parsed.value, null, 2) : text
 }
 
 const UNTRUSTED_ENVELOPE =
@@ -707,9 +704,8 @@ function extractOutputText(content: ResponseItem[]): string {
     if (item.type === 'message') {
       const inner = Array.isArray(item.content) ? item.content : []
       for (const part of inner) {
-        if (part && typeof part === 'object' && typeof part.text === 'string') {
-          parts.push(part.text)
-        }
+        const text = stringArg(recordValue(part), 'text')
+        if (text !== undefined) parts.push(text)
       }
     } else if (typeof item.text === 'string') {
       parts.push(item.text)
@@ -734,8 +730,8 @@ function toolItemText(item: ResponseItem): string {
   if (typeof item.text === 'string') return item.text
   if (Array.isArray(item.summary)) {
     const parts = item.summary
-      .map(part => (part && typeof part === 'object' ? (part as Record<string, unknown>).text : undefined))
-      .filter((text): text is string => typeof text === 'string')
+      .map(part => stringArg(recordValue(part), 'text'))
+      .filter((text): text is string => text !== undefined)
     if (parts.length > 0) return parts.join('\n')
   }
   if (item.content !== undefined) {

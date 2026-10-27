@@ -1,34 +1,34 @@
 ---
 title: コード実行
-description: Ankole の Agent が、通常の会話または永続的な Background Agent Job としてコードを実行する方法。
+description: Ankole の Agent が通常の会話ターンや永続的な Background Agent Job の中でどのようにコードを実行・編集するかを説明します。
 section: Developer guide
 order: 122
 ---
 
-Agent は、通常の会話の中でコマンドを実行し、ファイルを編集できます。また、永続的な作業を Background Agent Job に委ねることもできます。これらは別々の runtime パスです。会話は Agent Computer Worker のフォアグラウンド tool を使い、各 Background Agent Job は CodexRunner を使います。メッセージ内のコード量が、どちらを選ぶかを決めるわけではありません。
+Agent は、通常の会話の中でシェルコマンドを実行したりファイルを編集したりできるほか、時間のかかる作業を Background Agent Job へ委任することもできます。この 2 つは実行パスが異なります。通常の会話では Agent Computer Worker のフォアグラウンドツールを使い、Background Agent Job では `CodexRunner` を使います。メッセージに含まれるコードの分量で決まるわけではなく、作業のライフサイクルに応じて使い分けられます。
 
-決定的な性質を先に述べます。Agent のすべてのコマンドは Agent 自身のコンピュータで実行されます。各 Agent は自分専用の Worker コンテナを持ち、コンテナが唯一の隔離境界です。コマンドは内側の sandbox なしで Worker のユーザーとして実行され、Agent は `/workspace` 配下の自分の Agent Home で作業します。Agent は自分のコンピュータを変更できますが、Worker、キャッシュディスク、credential を別の Agent と共有することはありません。対照的に、Pod Applet のバックエンド関数や AIGateway・Workflow の Programmatic Tool Calling（PTC）スクリプトは、Agent Computer Worker 上ではなく、ステートレスな `ankole-function-runtime` の isolate 内で実行されます。
+まず最も重要な前提として、**Agent が実行するすべてのコマンドは、その Agent 専用のコンピュータ環境上で動作します。** 各 Agent は独立した Worker コンテナを持ち、コンテナ自体が分離境界となっています。コマンドは追加の内側サンドボックスなしで Worker の実行ユーザーとして動き、`/workspace` 配下の Agent Home で作業を行います。Agent は自身のコンピュータ環境を自由に変更できますが、別の Agent と Worker・キャッシュディスク・認証情報を共有することは一切ありません。なお、Pod Applet のバックエンド関数や、AIGateway・Workflow における Programmatic Tool Calling（PTC）スクリプトは、Agent Computer Worker 上ではなくステートレスな `ankole-function-runtime` の isolate 内で実行されます。
 
 ## shell コマンド
 
-Agent は command tool を通じて shell コマンドを実行します。それは `app/agent_computer/src/tools/computer/command-tool.ts` によって支えられています。各コマンドは Worker のユーザーとして独自のプロセスグループで実行され、Worker の credential を含まない新しい環境を使います。キャンセルまたはタイムアウトはグループ全体を終了させます。フォアグラウンドの既定の予算は 180 秒です。作業ディレクトリは Agent Home の中になければなりません。[browser](../browser-automation/) daemon、Codex app-server、Automation スクリプトも Worker のユーザーとして実行され、Worker に追加のカーネル権限は必要ありません。
+Agent は `app/agent_computer/src/tools/computer/command-tool.ts` で実装された `command` ツールを通じてシェルコマンドを実行します。各コマンドは Worker の実行ユーザー権限で独立したプロセスグループとして起動され、Worker 自体の認証情報を除外したクリーンな環境変数セットが渡されます。キャンセルやタイムアウトが発生した際は、プロセスグループ全体がまとめて終了します。フォアグラウンド実行の既定タイムアウトは 180 秒であり、作業ディレクトリは必ず Agent Home 配下でなければなりません。なお、[browser](../browser-automation/) デーモン、Codex app-server、および Automation スクリプトも同じユーザー権限で動作するため、Worker に特別なカーネル特権は不要です。
 
-コマンドは sudo なしの uid 1000 で実行します。Home への書き込み、ユーザー用パッケージの導入、子プロセスの起動は可能ですが、システムパッケージは導入できません。同じ Agent の Session と Job はファイルを共有します。Agent 間はインスタンスで隔離し、Worker はデータベース接続やオブジェクトストア認証情報を持ちません。
+実行ユーザーは `sudo` 権限を持たない `uid 1000` です。Agent Home へのファイル書き込み、ユーザー領域へのパッケージ追加、子プロセスの起動は自由に行えますが、OS レベルのシステムパッケージを追加することはできません。同一 Agent 内の Session と Job は同じファイル領域を共有し、異なる Agent 間はコンテナインスタンス単位で完全に分離されます。また、Worker 自体はデータベース接続やオブジェクトストアの認証情報を保持しません。
 
 ## ファイル読み取りと apply_patch
 
-shell に加えて、computer tools は Agent に 2 つのファイルプリミティブを提供します。
+シェル実行に加えて、computer tools にはファイル操作専用のプリミティブが 2 つ用意されています。
 
-- **ファイルの読み取り**——`read-file-tool.ts`。`cat` に shell out するのではなく、ファイルの内容を直接検査します。
-- **ファイルの編集**——`apply-patch-tool.ts`。固定された Codex リリースと同じ文法を使う、freeform の `apply_patch` tool です。
+- **ファイルの読み取り（`read-file-tool.ts`）**: いちいちシェルから `cat` を呼ばずに、ファイルの内容を直接読み取ります。
+- **ファイルの編集（`apply-patch-tool.ts`）**: 固定バージョンの Codex リリースと同一の文法を採用した、フリーフォーム形式の `apply_patch` ツールです。
 
-Main Agent は生の patch を `custom_tool_call` として AIGateway を通じて送ります。Worker はそれを `/usr/local/bin/apply_patch` を通じてネイティブの Codex バイナリに渡します。Background Agent Job は AIGateway の model card から同じ freeform tool を受け取り、同じバイナリを使います。
+メイン Agent は AIGateway を通じて生のパッチテキストを `custom_tool_call` として送信し、Worker がそれを `/usr/local/bin/apply_patch` にあるネイティブの Codex バイナリへ渡して適用します。Background Agent Job でも AIGateway のモデルカードから同じフリーフォームツール定義を受け取り、同じネイティブバイナリを使用します。
 
-この共有パスにより、通常の会話と Background Agent Job は 1 つの編集プロトコルに留まります。一致しない patch はネイティブ tool で失敗し、その失敗が model に返されます。素早い検索には shell で十分です。ファイル編集には `apply_patch` を使ってください。
+この共通化により、通常の会話と Background Agent Job の両方でファイル編集プロトコルが 1 つに統一されています。対象ファイルの内容と一致しないパッチはネイティブツール側で安全に失敗し、エラー内容がそのままモデルへ返されます。手早いファイル検索にはシェルコマンドが便利ですが、ファイルの書き換えには `apply_patch` を使用します。
 
 ## /workspace ファイルシステム
 
-Agent Home は `/workspace` の永続ストレージです。`/agents/<agent_uid>` は `/workspace` へのシンボリックリンクです。パス検証はシンボリックリンクを解決してから Home の境界を確認します。構成は次のとおりです。
+Agent Home は `/workspace` にマウントされる永続ストレージであり、`/agents/<agent_uid>` は `/workspace` を指すシンボリックリンクです。パス検証では先にシンボリックリンクを解決したうえで、アクセス先が Home の境界内にあることを確認します。ディレクトリ構成は次のとおりです。
 
 ```text
 /workspace/
@@ -45,37 +45,37 @@ Agent Home は `/workspace` の永続ストレージです。`/agents/<agent_uid
     └── temp/
 ```
 
-`SOUL.md`、`MISSION.md`、`DESIGN.md`、`ConfidentialityPolicy.md` は [Agent Library](../agent-library/) の永続ドキュメントです。最初の 2 つは責任と振る舞いを定義します。`DESIGN.md` はビジュアル作業のためのデザインシステムであり、`ConfidentialityPolicy.md` は Agent が Brain で公開範囲（audience scope）を選ぶ際の機密保持ルールを定義します。`installed-skills/` は Agent Skill を保持します。`sessions/` は、10000 から始まる PostgreSQL 所有の安定した数値 ID を持つ会話 workspace を保持し、`jobs/` は別の Background Agent Job workspace を保持します。
+直下の `SOUL.md`、`MISSION.md`、`DESIGN.md`、`ConfidentialityPolicy.md` は [Agent Library](../agent-library/) が管理する永続ドキュメントです。最初の 2 つが責務と振る舞いを定義し、`DESIGN.md` は視覚的な制作物のデザインシステムを、`ConfidentialityPolicy.md` は Agent が Brain へ書き込む際の公開範囲（audience scope）の選択基準を定めます。`installed-skills/` には Agent の Skill が配置され、`sessions/` には PostgreSQL が採番する `10000` 以降の不変の数値 ID ごとに会話用 workspace が作られ、`jobs/` には Background Agent Job ごとの独立した workspace が作られます。
 
-Home はインスタンス削除やイメージ変更後も残ります。再構築は `/var/cache/ankole` だけを削除します。Docker のローカル volume はホストに依存し、Cloudflare の強制停止は最終 R2 バックアップ後の書き込みを失う場合があります。制限は [Worker](../worker-management/) を参照してください。
+Agent Home のデータは、Worker インスタンスの削除やイメージ更新後も保持されます（再構築時に消去されるのは `/var/cache/ankole` のみです）。ただし、Docker のローカル volume は実行ホストに依存するほか、Cloudflare 環境で強制停止が発生した場合は最後の R2 バックアップ以降の書き込みが失われることがあります。ストレージ上の制約については [Worker](../worker-management/) を参照してください。
 
-control plane のドライブは添付ファイル、公開ファイル、Skill、Automation スクリプトを別途保存します。ドライブの読み書きには `ankole-files` を使い、Pod ページ、Base テーブル、Applet の操作には control plane 経由で `ankole-pod` を使います。Job workspace と Codex スレッドは永続 Home に置かれます。Turn の前に `installed-skills/` をドライブと同期します。
+添付ファイル、公開ファイル、インストール済み Skill、Automation スクリプトは control plane 側のドライブに別途保管されます。ドライブの読み書きには `ankole-files` を、Pod のページ・Base テーブル・Applet の操作には control plane 経由で `ankole-pod` を使用します。一方、Job workspace と Codex スレッドは永続 Home 側に置かれ、各 Turn の開始前にドライブ上の内容と `installed-skills/` が同期されます。
 
-Background Agent Job は `skill_view` を通してオンデマンドで Skill を読み込みます。
+Background Agent Job では、`skill_view` を通じて必要な Skill をオンデマンドで読み込みます。
 
 ## 反復的な Python のための Jupyter live kernel
 
-作業が反復的な Python——実行をまたいで保持する変数、cell ごとに検査したい DataFrame、ステートフルな REPL——の場合、shell は間違った tool です。`jupyter-live-kernel` Skill が正しい tool です。これは builtin Skill（`default_enabled: true`）で、[background job](../background-jobs/) として実行され、hamelnb を囲む Ankole の Unix-socket アダプター上に構築されています。kernel は実行をまたいで生存し続けるため、呼び出しのたびにデータを再ロードする代わりに、1 つのステップで変数を定義し、次のステップでそれを読むことができます。
+変数をメモリに残したまま試行錯誤したい場合や、DataFrame をセル単位で確認しながら進めたい場合、あるいはステートフルな Python REPL が必要な場合、単発のシェル実行は不向きです。そうした用途には組み込みの `jupyter-live-kernel` Skill（`default_enabled: true`）が適しています。この Skill は [background job](../background-jobs/) として動作し、`hamelnb` をラップした Ankole 独自の Unix ソケットアダプター上に構築されています。Python カーネルがステップをまたいで起動し続けるため、毎回データを読み込み直すことなく、前のステップで定義した変数を次のステップからそのまま参照できます。
 
-Skill 自身のガイダンスが経験則です。短くステートレスな Python スクリプトには、ワンショットの shell 実行を優先します。Jupyter notebook またはステートフルな Python REPL が欲しい場合は、この Skill を優先します。データサイエンス、DataFrame の検査、notebook の編集、ステートフルな API 探索が、この Skill の得意分野です。システム Python、JupyterLab、ipykernel、hamelnb ヘルパーは既に worker イメージに入っているため、新しい Agent は何もインストールせずにこの Skill を使えます。
+使い分けの目安は Skill 自身のガイドラインのとおりです。短く完結するステートレスな Python スクリプトなら単発のシェル実行を使い、Jupyter Notebook の編集や対話的なデータ分析・DataFrame 調査・API 探索を行いたい場合は `jupyter-live-kernel` を使います。システム Python、JupyterLab、`ipykernel`、および `hamelnb` ヘルパーはすべて Worker イメージにプリインストールされているため、新しい Agent でも追加セットアップなしですぐに利用できます。
 
 ## Background Agent Job の CodexRunner
 
-CodexRunner はすべての Background Agent Job の実行エンジンです。Job はトピックの調査、ドキュメントの作成、リポジトリの変更、その他の長時間の作業ができます。CodexRunner を選ぶのは、そのライフサイクルであり、主題ではありません。runner は `app-server-client.ts` を通じて Codex app-server と通信し、別の Job workspace と runtime 設定を準備します。
+`CodexRunner` は、すべての Background Agent Job を駆動する実行エンジンです。コード変更に限らず、トピック調査やドキュメント作成などの長時間タスクもすべて `CodexRunner` 上で動きます（選ばれる基準は作業ジャンルではなく「長時間・再開可能なライフサイクル」にあります）。ランナーは `app-server-client.ts` を通じて Codex app-server と通信し、ジョブ専用の workspace と実行時設定を準備します。
 
-Console は対応する model profile を **Background Agent Jobs** と表示します。その保存キーと API 名は `coding` です。
+Console 画面上では対応するモデルプロファイルが **Background Agent Jobs** と表示されますが、データベース上の保存キーおよび API 上の名称は `coding` です。
 
 ## これらのパスの選択方法
 
-オペレーターの操作面は狭いです。
+運用者が管理すべき設定箇所はシンプルに整理されています。
 
-- **Computer tools**（`command`、`read_file`、`apply_patch`）はすべての Worker に同梱されます。通常の会話の Turn で利用できます。
-- **Jupyter live kernel** は `default_enabled` の Skill なので、[browser](../browser-automation/) Skill を制御するのと同じ方法で [Agent Library](../agent-library/) を通じて制御します。反復的な Python を実行すべきでない Agent では狭めてください。
-- **CodexRunner** はすべての Background Agent Job を実行します。すべての model 呼び出しは AIGateway を通ります。Job が別の provider または model を必要とする場合は、Background Agent Jobs profile を設定します。未設定の場合、control plane は Agent の `heavy` profile を使います。
+- **Computer tools**（`command`、`read_file`、`apply_patch`）はすべての Worker に標準搭載されており、通常の会話 Turn で利用できます。
+- **Jupyter live kernel** は `default_enabled` の Skill として提供されているため、[browser](../browser-automation/) Skill と同じく [Agent Library](../agent-library/) から有効・無効を制御します。対話的な Python 実行を許可したくない Agent では無効化してください。
+- **CodexRunner** はすべての Background Agent Job を実行し、モデル呼び出しはすべて AIGateway を通ります。バックグラウンドジョブで通常とは別の provider やモデルを使いたい場合は Background Agent Jobs プロファイルを設定してください（未設定の場合はその Agent の `heavy` プロファイルが使われます）。
 
 ## 次のステップ
 
-- これらの tool を実行し、`/workspace` ファイルシステムを所有する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
-- Jupyter Skill の背後にある Skill と有効化モデルについては、[Agent Library](../agent-library/) を読んでください。
-- 内部キーが `coding` である Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を読んでください。
-- Worker の信頼境界とその強化方法については、[Security hardening](../security-hardening/) を読んでください。
+- これらのツールを実行し `/workspace` ファイルシステムを保持する Worker の詳細については、[Agent Computer Worker](../agent-computer-worker/) を参照してください。
+- Jupyter Skill などの有効化モデルの仕組みについては、[Agent Library](../agent-library/) を参照してください。
+- 内部キー `coding` に対応する Background Agent Jobs プロファイルの設定については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を参照してください。
+- Worker の信頼境界とセキュリティ強化手順については、[Security hardening](../security-hardening/) を参照してください。

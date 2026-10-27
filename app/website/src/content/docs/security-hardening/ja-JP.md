@@ -1,85 +1,85 @@
 ---
 title: セキュリティの強化
-description: Ankole デプロイインスタンスを強化する end-to-end の形——最小権限、secret の規律、SSRF、credential のローテーション、最小限のネットワーク入り口。
+description: Ankole デプロイインスタンスのセキュリティ強化ガイド — 最小権限、シークレット管理、SSRF 対策、認証情報ローテーション、ネットワーク入口の最小化について解説します。
 section: Guides
 order: 316
 ---
 
-Ankole はセキュリティ境界を備えた状態で出荷されます。Principal/AuthZ、暗号化された secret、Agent ごとに 1 つの Worker コンテナ、認証付きの入り口です。強化とは壁を足すことではなく、実際の利用に必要な最小の表面まで既存の壁を締めることです。このページは、オペレーターが強化する 6 つの面を、最初に最もリスクを閉じる順で説明します。
+Ankole には、Principal / AuthZ による権限制御、暗号化されたシークレット管理、Agent ごとに独立した Worker コンテナ、認証付きの通信エンドポイントなど、基本的なセキュリティ境界があらかじめ組み込まれています。セキュリティ強化（ハードニング）の目的は、新たな防御層を闇雲に付け足すことではなく、実際の業務に必要な最小限の範囲までこれらの境界を引き締めることにあります。このページでは、オペレーターが見直すべき 6 つの領域を、リスク低減効果の高い順に説明します。
 
-決定的な性質を先に述べます。Ankole のモデルは*既定で最小権限、証拠が要求する場合にのみ拡大*です。以下のすべての手順は、権限、secret の到達範囲、またはネットワーク経路を狭めます。何かを広げようとしていることに気づいたら、なぜかを問うてください——精査に値するのは広げる方の手であり、狭める方ではありません。
+Ankole のセキュリティ設計を貫く基本原則は、**「デフォルトで最小権限とし、明確な根拠がある場合にのみ広げる」**という考え方です。以下で紹介する手順はすべて、権限範囲、シークレットの到達範囲、またはネットワーク経路を絞り込むものです。もし設定を緩める方向へ変更しようとしているなら、本当にその拡大が必要なのかを立ち止まって確認してください。慎重な精査が求められるのは、制限を狭めるときではなく広げるときです。
 
 ## 面 1:Principal と AuthZ の権限
 
-Agent は自分の Principal の下で実行され、その Principal にできることは AuthZ によって囲われています。強化の手は*Agent ごとの最小権限*であり、1 つの強力な Agent ではありません。
+すべての Agent は固有の Principal のもとで動作し、実行できる操作は AuthZ によって厳密に制限されます。セキュリティ強化の基本は、1 つの万能な Agent に強い権限を集約するのではなく、**Agent ごとに最小権限を割り当てる**ことです。
 
-- **Agent ごとに 1 つの Principal、Agent ごとに 1 つの目的。** customer-success の Agent とコーディングの Agent は別の Principal にすべきです。そうすれば、一方の侵害は両方の侵害にはなりません。
-- **仕事を成す最小限を付与する。** channel を読む付与は、すべての channel に書く付与より狭い範囲です。特定の resource pattern にスコープされた付与は、ワイルドカードより狭い範囲です。[Principal and AuthZ](../principal-authz/) を参照してください。
-- **directory のグループを同期し、グループに付与する。** 同期された AuthZ グループを使えば、チームメンバーシップで権限をスコープでき、誰かが離脱したときは、付与を 1 つずつ編集するのではなく、ソース directory のグループメンバーシップを外すことで権限を失効させられます。
-- **一時停止（Suspend）とオフボーディング（Offboard）を明確に使い分ける。** Principal には削除アクションがありません。**一時停止（`disposition: :suspended`）** はセッション、トークン、実行中の作業を即座に失効させつつ、後からアクセスを復元できるよう個人用の `SiteCredential` を保持します。**オフボーディング（`disposition: :offboarded`）** はセッション、トークン、作業を失効させたうえで、非共有の `SiteCredential` と Pod メール紐付けも解放します。メンバーが組織を離れる場合は必ずオフボーディングを使用してください。
+- **1 Agent につき 1 Principal、1 つの明確な役割にする。** カスタマーサクセス担当の Agent とコード開発担当の Agent には別々の Principal を割り当ててください。そうしておけば、万が一片方が侵害されても、もう片方の権限まで奪われる事態を防げます。
+- **業務遂行に必要な最小限の grant だけを付与する。** 全チャネルへの書き込み権限よりも特定チャネルの読み取り権限の方が安全であり、ワイルドカードよりも特定のリソースパターンに絞った grant の方が影響範囲を抑えられます。詳しくは [Principal and AuthZ](../principal-authz/) を参照してください。
+- **ディレクトリのグループを同期し、グループ単位で権限を付与する。** 企業ディレクトリと同期された AuthZ グループに対して grant を設定しておけば、チーム単位で権限を管理でき、メンバーの異動や退職時にも個別の grant を探して編集することなく、元ディレクトリの所属変更だけで自動的に権限を失効させられます。
+- **一時停止（Suspend）とオフボーディング（Offboard）を明確に使い分ける。** Principal には物理削除アクションがありません。**一時停止（`disposition: :suspended`）** はセッション、トークン、進行中の作業を即座に失効させつつ、復帰時に権限を戻せるよう個人用の `SiteCredential` を保持します。**オフボーディング（`disposition: :offboarded`）** はセッション、トークン、作業を失効させたうえで、他と共有されていない `SiteCredential` や Pod のメール紐付けも解放します。メンバーが組織を離れる際は必ずオフボーディングを選択してください。
 
-監査エンドポイントは `/api/v2/permission-grants` と `/api/v2/principals/:uid/grants` です。定期的に確認しましょう。作成時に妥当だった付与が、過大なものに漂流することがあります。
+権限の監査には `/api/v2/permission-grants` と `/api/v2/principals/:uid/grants` エンドポイントを利用できます。定期的に棚卸しを行いましょう。設定当初は妥当だった grant も、運用の変化に伴って過剰な権限（権限ドリフト）になっていることがあります。
 
 ## 面 2:Agent が使う credential
 
-Agent の tool 用の credential は、Console の **Environment variables** に、secret ストレージを有効にして保存してください。各値を使用できる人を制限し、定期的にローテーションします。
+Agent のツールが利用する外部サービスの認証情報は、Console の **Environment variables** でシークレット保存を有効にして登録してください。あわせて利用可能な対象を絞り込み、定期的にローテーションを行います。
 
-- **値を控えめに表示する。** credential をローテーションするには置換値を入力します。確認のためだけに古い値を表示しないでください。[Environment variables](../worker-env/) を参照してください。
-- **可能なら secret を Agent ごとにスコープする。** グローバルな secret はすべての Agent に届きます。Agent 単位の secret は 1 つに届きます。secret が本当に共有されていない限り、Agent 単位の形式を優先してください。
-- **予約された名前を上書きしない。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、`ANKOLE_` で始まる名前、および [Environment variables](../worker-env/) に記載されたその他の予約名は Console で設定できません。この制限を迂回しないでください。
-- **bootstrap secret を定期的にローテーションする。** `ANKOLE_SECRET_BASE` は暗号化キーを導出し、`ANKOLE_FUNCTION_RUNTIME_TOKEN` はコントロールプレーンと `ankole-function-runtime` 間の内部通信を認証します。bootstrap secret のローテーションにはデプロイの再起動が必要であり、`ANKOLE_SECRET_BASE` が侵害された場合の爆発半径はインスタンス全体です。Worker の credential は bootstrap secret ではなく、オペレーターが設定することもありません。コントロールプレーンは Worker generation ごとにランダムな credential を作成し、認証には保存したダイジェストを使い、同じ generation の起動を繰り返すための値は暗号化して保存します。
+- **保存済みの値をむやみに再表示しない。** 認証情報をローテーションする際は、古い値を開いて確認するのではなく、新しい値をそのまま上書き入力してください。詳しくは [Environment variables](../worker-env/) を参照してください。
+- **可能なかぎりシークレットを Agent 単位にスコープする。** グローバルスコープのシークレットは全 Agent に渡されますが、Agent 単位のシークレットは対象の 1 体だけに渡されます。複数の Agent で本当に共有する必要がある場合を除き、Agent 単位での設定を優先してください。
+- **予約済みの環境変数名を上書きしない。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、`ANKOLE_` で始まる変数名、および [Environment variables](../worker-env/) に記載されている予約名は Console から設定できません。この保護制限を迂回しようとしないでください。
+- **ブートストラップシークレットを定期的にローテーションする。** `ANKOLE_SECRET_BASE` は暗号化キーの導出元となり、`ANKOLE_FUNCTION_RUNTIME_TOKEN` はコントロールプレーンと `ankole-function-runtime` 間の内部通信を認証します。ブートストラップシークレットのローテーションにはデプロイの再起動が必要ですが、特に `ANKOLE_SECRET_BASE` が漏えいした場合の影響範囲はインスタンス全体に及びます。なお、Worker 接続用の認証情報はブートストラップシークレットではなく、オペレーターが手動設定するものでもありません。コントロールプレーンが Worker の世代（generation）ごとにランダムな認証情報を自動生成し、認証照合には保存したダイジェスト値を使い、同一世代の再起動に必要な値は暗号化して保持します。
 
 ## 面 3:SSRF と model 制御の fetch
 
-`web_fetch` を持つ Agent は、Ankole に URL の fetch を依頼できます。`security.ssrf_filter` は、何を拒否するかを決める AppConfigure キーです。
+`web_fetch` 機能を持つ Agent は、指定した URL の取得を Ankole に要求できます。どの宛先を拒否するかは AppConfigure の `security.ssrf_filter` キーで制御します。
 
-- **既定値は `false`——そして、切り替える前にその理由を読んでください。** Ankole は一般に企業内の Agent として使われ、イントラネットへのアクセスが期待されます。フィルタはオフなので、内部への fetch が機能します。
-- **クラウドのメタデータエンドポイントは常にブロックされます**。設定に関係なくです。`169.254.169.254` を読もうとする model は、フィルタのオンオフを問わず拒否されます。
-- **フィルタがオンの場合**、プライベート、ループバック、リンクローカル、CGNAT のターゲットが拒否されます。Agent がパブリックインターネットから fetch し、内部 IP に到達する正当な理由がない場合にオンにしてください——それがこのフィルタの存在理由です。
+- **既定値は `false` です（変更する前に背景を確認してください）。** Ankole は社内ネットワーク上の業務システムと連携する用途で広く使われており、イントラネットへのアクセスが前提となるケースが多いため、標準では内部向けフェッチが通るようフィルタがオフになっています。
+- **クラウドのメタデータエンドポイントは設定にかかわらず常時ブロックされます。** `security.ssrf_filter` のオン・オフを問わず、モデルが `169.254.169.254` などを読み取ろうとしても必ず拒否されます。
+- **フィルタを `true` にすると、プライベート IP、ループバック、リンクローカル、CGNAT アドレスへの接続がすべて拒否されます。** Agent がパブリックインターネット上の情報だけを取得すればよく、社内 IP へアクセスする必要がない環境では、このフィルタをオンにしてください。
 
-この決定はデプロイインスタンス全体に適用され、間違った選択は「オフ」でも「オン」でもなく、Agent が実際に到達する必要がある範囲と一致しない選択です。
+この設定はデプロイインスタンス全体に適用されます。「オンとオフのどちらが正解か」は一概には決まらず、Agent が業務上本当にアクセスすべきネットワーク範囲と合致しているかどうかが判断基準になります。
 
 ## 面 4:adapter の credential ローテーション
 
-各チャット adapter と identity provider は credential（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID の `appPassword`、Google Workspace の `serviceAccountKey`）を保持します。定期的に、また漏えいが疑われる場合はいつでもローテーションしてください。
+各チャットアダプターや Identity Provider は、連携用の認証情報（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID の `appPassword`、Google Workspace の `serviceAccountKey` など）を保持しています。定期的なローテーションに加え、漏えいの疑いがある場合はただちに更新してください。
 
-- **まず provider でローテーションし、次に Ankole で。** provider のコンソールで古い credential を無効化し、その後 adapter の AppConfigure に新しい値を入れます。順序が重要です。Ankole だけでローテーションし、provider 側でまだ有効な credential を残すのは、窓を残すことです。
-- **正しい Console ページを使う。** Agent の tool 用の credential は **Environment variables** に入れます。chat channel と identity provider の credential は、それぞれの Console ページでローテーションします。
-- **directory 同期の credential も credential です。** Google Workspace の `serviceAccountKey` と `adminEmail`、Graph に使う Entra ID アプリ——これらは directory を読めます。チャットの credential と同じ真剣さでローテーションを扱ってください。
+- **先に外部 Provider 側でローテーションし、続けて Ankole 側を更新する。** 外部 Provider の管理コンソールで新しい認証情報を発行して古いものを失効させ、その直後に Ankole 側の設定を更新してください。順番を逆にして、Ankole 側だけ書き換えたまま Provider 側で古い認証情報を有効なまま残すと、悪用可能な隙を残すことになります。
+- **用途に合った Console 画面で管理する。** Agent のツールが使う認証情報は **Environment variables** に登録しますが、チャットチャネルや Identity Provider の認証情報はそれぞれの専用設定ページで管理・ローテーションします。
+- **ディレクトリ同期用の認証情報も同じ重要度で扱う。** Google Workspace の `serviceAccountKey` と `adminEmail` や、Microsoft Graph 連携用の Entra ID アプリ認証情報は、組織ディレクトリ全体を読み取れる強い権限を持っています。チャットボットのトークンと同等以上に厳重にローテーションを管理してください。
 
 ## 面 5:最小限のネットワーク入り口
 
-Ankole にはある程度の入り口が必要です。すべてが必要になることはまれです。各トランスポートが実際に要求するものまで締めましょう。
+Ankole の運用にはいくつかの通信経路が必要ですが、すべての入口を外部公開しなければならないケースは稀です。利用するトランスポートが実際に必要とする範囲だけに公開面を絞り込みましょう。
 
-- **長接続の adapter は出方向だけで十分です。** Lark、Slack、DingTalk は出方向の WebSocket/Stream 接続を開きます。公開の入り口エンドポイントは必要ありません。これらだけを使うなら、デプロイをプライベートに保ってください。
-- **Teams と webhook の入り口には公開エンドポイントが必要——スコープを限定してください。** Bot Framework と `/webhooks/v1/...` の玄関が到達可能である必要があります。入り口を使って、そのパスを想定される provider に制限し（可能なら送信元 IP で）、残りは adapter 自身の認証（Bot Framework JWT、Graph の `clientState`）に頼ります。
-- **webhook 委譲 URL は credential です。** Agent が検知を外部システムに委譲する場合、`/webhooks/v1/event-callbacks/*` が到達可能である必要があります。入り口、proxy、CDN、アプリケーションログで完全なパスを秘匿してください。この URL が許可するのは wake-up だけなので、Agent は結果に影響するアクションの前に、外部の現在の状態を検証しなければなりません。
-- **Console 自体**は、管理ネットワークまたは VPN の背後に置き、パブリックインターネットに晒さないでください。bearer ゲートが不正アクセスを防ぎますが、管理者面を世界に晒す理由はありません。
+- **常時接続型のアダプターなら外向き通信だけで完結する。** Lark、Slack、DingTalk は Ankole 側から外向きの WebSocket / Stream 接続を張るため、外部から到達可能な受信エンドポイントを公開する必要はありません。これらのチャネルだけを使う場合は、インスタンスをプライベートネットワーク内に閉じたまま運用してください。
+- **Teams や Webhook を使う場合は公開エンドポイントのスコープを絞る。** Bot Framework や `/webhooks/v1/...` の受信パスには外部から到達できる必要があります。リバースプロキシや Ingress 側で公開パスを対象エンドポイントのみに限定し（可能であれば送信元 IP も制限し）、ペイロードの正当性は各アダプター自身の認証機構（Bot Framework JWT や Graph の `clientState` など）で検証させます。
+- **Webhook 委譲 URL は認証情報と同等に秘匿する。** Agent が外部システムのイベント検知を待ち受ける場合、`/webhooks/v1/event-callbacks/*` への到達性が必要になります。Ingress、プロキシ、CDN、アプリケーションログに URL のフルパスが残らないようマスクしてください。なお、この URL が許可するのは wake-up トリガーの投入だけなので、重要な操作を実行する前には必ず Agent 側で外部システムの現在状態を再確認させる必要があります。
+- **管理 Console 自体はインターネットに直接公開しない。** 管理ネットワーク内や VPN の背後に配置してください。Bearer 認証によって未認証アクセスはブロックされますが、管理画面そのものをパブリックインターネットへ露出させる理由はどこにもありません。
 
 ## 面 6:Worker コンテナ、Function Runtime、コントロールプレーン
 
-各 Agent は自分専用の Worker コンテナまたは Pod を持ち、Agent 同士が Worker、キャッシュディスク、credential を共有することはありません。ステートレスな TypeScript プログラム（Workflow、PTC、Applet バックエンド）は独立した `ankole-function-runtime` サービスで実行され、データベースの認証情報も Kubernetes の ServiceAccount トークンも持ちません。コンテナが隔離境界です。Worker のコマンド、Codex app-server、Automation スクリプト、ブラウザーは、内側の sandbox なしで Worker のユーザーとして実行され、Agent プロセスは uid 1000 で実行し、capabilities と sudo はありません。
+各 Agent には専用の Worker コンテナ（または Pod）が 1 つずつ割り当てられ、異なる Agent 間で Worker、キャッシュディスク、認証情報を共有することはありません。また、ステートレスな TypeScript プログラム（Workflow、PTC、Applet バックエンド）は独立した `ankole-function-runtime` サービス上で実行され、データベース認証情報も Kubernetes の ServiceAccount トークンも持ちません。隔離境界となるのはコンテナそのものです。Worker 内のコマンド、Codex app-server、Automation スクリプト、ブラウザーは内側サンドボックスなしの Worker ユーザー権限で動作し、Agent プロセスは Linux ケーパビリティおよび `sudo` 権限を持たない `uid 1000` で実行されます。
 
-- コマンドは sudo なしの uid 1000 で実行します。Home にユーザーパッケージを導入できますが、システムパッケージは導入できません。同じ Agent の Session はファイルとプロセスを共有します。
-- **Worker の credential は 1 つの Agent だけを表す。** Worker は credential をメモリに保持し、コマンドの環境からは取り除きます。別の Agent の credential や、置き換えられた Worker の credential では接続できません。
-- **コントロールプレーンを root 相当のコンポーネントとして保護する。** コントロールプレーンは、Docker socket、または Pod、Secret、PVC を作成・削除する namespace Role を通じて Worker を作成します。Docker socket へのアクセスはホストの root アクセスと同等です。
-- **Kubernetes では gVisor を追加する。** Kubernetes provider YAML の `podTemplate.spec.runtimeClassName` に、クラスターの gVisor RuntimeClass（例: `gvisor`）を設定します。インスタンス設定を変えると、その pool の Worker はアイドル時に置換されます。Helm の `worker.runtimeClassName` は初回起動で生成する provider の初期値です。インポート後は Console で provider を編集します。
-- **Worker と `ankole-function-runtime` が到達できる範囲を限定する。** Docker Compose では、Worker コンテナは `ankole_workers` ブリッジに、`ankole-function-runtime` は `ankole_functions` ブリッジに参加し、いずれもコントロールプレーンとインターネットに到達しますが、内部の `ankole_backend` ネットワーク上の PostgreSQL には到達しません。クラウドの仮想マシンでは、インスタンスメタデータの hop limit を 1 にするか、コンテナから `169.254.169.254` を遮断してください。Helm では、`networkPolicy.enabled` により Worker Pod は受信接続を一切受け付けず、コントロールプレーン、DNS、`networkPolicy.workerDeniedCIDRs` 以外のパブリックアドレスにのみ到達します。さらに専用の `NetworkPolicy` が `ankole-function-runtime` をコントロールプレーンからの受信と `functionRuntime.deniedCIDRs`（プライベートレンジおよびメタデータ CIDR）以外のパブリック送信に制限します。あわせて、ノードのインスタンスメタデータの hop limit を 1 に設定してください。
+- **コマンドは `sudo` なしの `uid 1000` で動作する。** 自身の Home 配下にユーザーレベルのパッケージを追加することはできますが、OS のシステムパッケージは変更できません。なお、同一 Agent 内の複数 Session は同じファイルシステムとプロセス空間を共有します。
+- **Worker の認証情報は単一の Agent だけに紐づく。** Worker は接続用認証情報をメモリ上にのみ保持し、子コマンドの環境変数からは除外します。別の Agent の認証情報や、すでに入れ替えられた旧世代 Worker の認証情報では接続できません。
+- **コントロールプレーンをホスト root 相当の重要コンポーネントとして保護する。** コントロールプレーンは Docker ソケット、または Pod・Secret・PVC を作成・削除できる Kubernetes Namespace Role を通じて Worker を管理します。特に Docker ソケットへのアクセス権は、ホスト OS の root 権限と同等である点に留意してください。
+- **Kubernetes 環境では gVisor を併用する。** Kubernetes Provider YAML の `podTemplate.spec.runtimeClassName` に、クラスターの gVisor RuntimeClass（例：`gvisor`）を指定します。設定を変更すると、そのプール内の Worker はアイドル時に順次新しい構成へ入れ替わります。Helm の `worker.runtimeClassName` は初回起動時に自動生成される Provider の初期値として使われるため、インポート完了後は Console 側から Provider 設定を編集してください。
+- **Worker と `ankole-function-runtime` の通信可能範囲を制限する。** Docker Compose 環境では、Worker コンテナは `ankole_workers` ブリッジに、`ankole-function-runtime` は `ankole_functions` ブリッジに接続され、どちらもコントロールプレーンとインターネットへは通信できますが、内部の `ankole_backend` ネットワーク上にある PostgreSQL へは到達できません。クラウド VM 上で動かす場合は、インスタンスメタデータの hop limit を `1` に設定するか、コンテナから `169.254.169.254` への経路を遮断してください。Helm 環境では、`networkPolicy.enabled` を有効にすることで Worker Pod へのインバウンド接続がすべて遮断され、アウトバウンドもコントロールプレーン、DNS、および `networkPolicy.workerDeniedCIDRs` 以外のパブリックアドレスのみに制限されます。さらに専用の `NetworkPolicy` によって、`ankole-function-runtime` もコントロールプレーンからの受信と `functionRuntime.deniedCIDRs`（プライベート帯域およびメタデータ CIDR）を除くパブリック送信のみに制限されます。あわせて、クラスタノード側のインスタンスメタデータ hop limit も `1` に設定してください。
 
 ## 監査の姿勢
 
-強化は一度きりの作業ではありません。姿勢です。2 つの習慣がそれを維持します。
+セキュリティ強化は一度設定して終わる作業ではなく、継続的な運用習慣そのものです。特に次の 2 点を定常運用に組み込んでください。
 
-- **付与を定期的に読む。** `/api/v2/permission-grants` と `/api/v2/principals/:uid/grants` は、各 Principal が何をできるかを示します。漂流は起こります。
-- **復元をテストする。** [backup-and-restore](../backup-and-restore/) の規律はセキュリティコントロールです——復元できないバックアップは、侵害からの復旧ではありません。
+- **grant の棚卸しを定期的に行う。** `/api/v2/permission-grants` と `/api/v2/principals/:uid/grants` を確認し、各 Principal に付与されている現在の権限を点検してください。組織や運用の変化に伴う権限の肥大化は必ず起こります。
+- **バックアップからのリストア手順を実際に訓練する。** [backup-and-restore](../backup-and-restore/) の運用は重要なセキュリティ対策の一部です。障害や侵害が発生したときに確実に復元できないバックアップは、復旧手段として機能しません。
 
 ## このガイドではないもの
 
-これはペネトレーションテストでも、コンプライアンスチェックリストでもありません——Ankole の既存の境界を締めるオペレーターの手です。「すべてをロックダウンする」ことでもありません。最小権限とは、利用に必要な*最小*の面であり、ゼロの面ではありません。仕事ができない Agent は、それ自体が失敗です。そして、面ごとのページの代わりでもありません。上の各面は、正確なフィールドを説明する参照ページにリンクされています。
+このページはペネトレーションテストの手順書でも、規制コンプライアンスの網羅的なチェックリストでもありません。Ankole が備えるセキュリティ境界を実運用に合わせて適切に引き締めるための実践ガイドです。また、「あらゆる機能を無差別に塞ぐこと」を推奨するものでもありません。最小権限とは業務に必要な**最小限**の面を残すことであって、ゼロにすることではないからです。必要な業務すら遂行できない Agent になってしまっては本末転倒です。各設定項目の詳細な仕様については、それぞれのセクションからリンクされているリファレンスページを参照してください。
 
 ## 次のステップ
 
-- 権限モデルについては、[Principal and AuthZ](../principal-authz/) を読んでください。
-- Agent が使う credential については、[Environment variables](../worker-env/) を読んでください。
-- SSRF キーと bootstrap secret については、[Environment variables](../environment-variables/) を読んでください。
-- 各 Agent のコマンドを実行する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
+- 権限モデルの詳細については、[Principal and AuthZ](../principal-authz/) を参照してください。
+- Agent が利用する認証情報の管理については、[Environment variables](../worker-env/) を参照してください。
+- SSRF 設定キーとブートストラップシークレットについては、[Environment variables](../environment-variables/) を参照してください。
+- 各 Agent のコマンドを実行する Worker の仕組みについては、[Agent Computer Worker](../agent-computer-worker/) を参照してください。

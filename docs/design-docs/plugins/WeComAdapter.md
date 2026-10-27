@@ -1,22 +1,24 @@
 # WeCom Adapter
 
-The WeCom Adapter receives messages from one WeCom AI bot and sends Agent
-replies. It also signs people in through a WeCom self-built app and imports
-WeCom users and departments. WeCom splits these functions across two product
-surfaces, so the chat face and the identity face use different credentials.
+The WeCom Adapter connects one WeCom AI bot for Agent messaging and replies,
+while using a separate WeCom self-built application for OIDC sign-in and user
+and department imports. Because WeCom divides AI bots and enterprise
+applications across two distinct product surfaces, chat bindings and identity
+providers configure separate credentials—all stored on the control plane.
 
-Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+See [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+[Plugins](../Plugins.md) for the shared messaging, identity, and Plugin
+contracts.
 
 ## Provider and Public Identity
 
-The adapter reports an opaque `provider_conversation_id` and a
-`provider_message_id`. Conversations resolves these to a shared public
-Conversation UUID and Message UUID. All Agent observers of the same provider
-conversation in one tenant read those same public facts. Each participating
-Agent has its own `conversation:<public UUID>` Session; a Binding is its
-observation and delivery route, not the owner of the platform room.
+On inbound events, the adapter reports an opaque `provider_conversation_id` and
+`provider_message_id`, which `Conversations` resolves to a shared public
+Conversation UUID and Message UUID. Every Agent observing that WeCom
+conversation within the same tenant reads those shared public records while
+running in its own `conversation:<public UUID>` Session—a Binding defines an
+observation and delivery route rather than owning the WeCom chat.
 
 ## Current IDs and Features
 
@@ -30,20 +32,19 @@ observation and delivery route, not the owner of the platform room.
 | Identity configuration | `principals.identity_providers.wecom.<id>` |
 | Provider library | `plugins/wecom_adapter/lib/wecom_openapi` |
 
-The signal adapter supports only `addressed_only`. WeCom does not deliver
-unaddressed group messages to the bot.
+Because WeCom delivers only @-mentioned group messages to AI bots, the Signal
+adapter supports only `addressed_only` mode. Inbound capabilities are
+`entry_receive` and `action_event`; outbound capabilities are `post_entry` and
+`card` (WeCom exposes no message-recall API, so `delete_entry` is omitted).
 
-Inbound capabilities are `entry_receive` and `action_event`. Outbound
-capabilities are `post_entry` and `card`. WeCom has no recall API, so there is
-no `delete_entry`.
-
-The identity adapter supports OIDC authorization, code exchange, credential
-check, and full directory sync. WeCom has no realtime directory events on this
-path, so directory changes converge through periodic full sync.
+On the identity side, the adapter supports OIDC authorization, OIDC code
+exchange, credential verification, and full directory sync; because WeCom emits
+no real-time directory events on this path, directory changes converge through
+scheduled full syncs.
 
 ## Settings
 
-The chat configuration contains these fields:
+Chat bindings configure these fields:
 
 | Field | Purpose |
 | --- | --- |
@@ -53,183 +54,156 @@ The chat configuration contains these fields:
 | `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
-A corp super administrator must create the bot. A bot from another creator
-sends encrypted user IDs that can never join the directory or login
-identities.
+A WeCom corp super administrator must create the AI bot; bots created by
+non-super-admin accounts emit encrypted user IDs that can never link to
+directory or sign-in Principals. Each Agent can enable at most one WeCom
+binding, and a `botId` cannot belong to two Agents—the binding save transaction
+enforces both rules.
 
-The identity configuration contains `corpId`, `agentId`, and `appSecret` for
-the self-built app, and the optional `contactsSecret` from the WeCom contacts
-sync tool. `oidc.enabled` controls login and `sync.contacts` controls
-directory import. Directory sync refuses to save without `contactsSecret`:
-since 2022-06 the ordinary app secret does not return member names.
-
-One Agent can have at most one enabled WeCom binding. One `botId` cannot
-belong to two Agents. The binding save transaction validates both rules.
-
-The identity REST calls need a fixed egress IP in the WeCom trusted-IP lists.
-The self-built app and the contacts sync tool each have their own list. The
-credential check reports a missing entry (error 60020) with the console
-location to fix.
+Identity-provider configurations store `corpId`, `agentId`, and `appSecret` from
+the self-built app plus optional `contactsSecret` from the WeCom contacts-sync
+tool (`oidc.enabled` governs login, and `sync.contacts` governs directory
+import—saving fails if `sync.contacts` is enabled without `contactsSecret`,
+because WeCom's standard `appSecret` omits member names). In addition, WeCom
+REST endpoints require static egress IPs allowlisted separately on both the
+self-built app and the contacts-sync tool; credential verification surfaces
+missing allowlist entries (WeCom error `60020`) along with the exact WeCom
+admin path to update.
 
 ## Connect to WeCom
 
-`ConnectionReconciler` selects one long connection for each bot.
-`Ankole.Plugins.ConnectionLifecycle` supervises one owner process for each
-connection. The identity face is pure REST and holds no connection.
+`ConnectionReconciler` derives one persistent WebSocket per enabled AI bot,
+supervised by `Ankole.Plugins.ConnectionLifecycle` (the identity side uses
+stateless REST calls without holding a socket).
 
-The client opens the WebSocket, authenticates in-band with the bot
-credentials, and sends a heartbeat every 30 seconds. All outbound frames wait
-for their acknowledgement, correlated by `req_id`. Replies to one `req_id` go
-out one at a time, because their acknowledgements are only attributable by
-that `req_id`. The WeCom gateway requires the exact WebSocket Upgrade header
-names `Upgrade`, `Connection`, `Sec-WebSocket-Version`, and
-`Sec-WebSocket-Key`. It returns HTTP 404 when a client sends these names in
-lowercase, so the client preserves their canonical case in the HTTP/1 request.
+During the HTTP/1.1 WebSocket upgrade, the client preserves canonical header
+casing (`Upgrade`, `Connection`, `Sec-WebSocket-Version`, and
+`Sec-WebSocket-Key`) because WeCom's gateway returns HTTP `404` when those
+header names arrive lowercased. Once connected, the client authenticates in-band
+with the bot credentials and sends heartbeats every 30 seconds:
 
-An acknowledgement timeout closes the connection and fails its queued sends.
-A later acknowledgement cannot confirm the next frame with the same `req_id`.
-The reconnect and intent recovery rules then apply.
-
-WeCom permits one live connection for each bot. When a second consumer
-connects, the platform disconnects the first one and announces it with a
-`disconnected_event`. The client then stops instead of reconnecting, because a
-reconnect would disconnect the new holder in a loop. The connection owner logs
-the conflict for the operator, parks, and retries after a long idle window.
-
-The push protocol has no client acknowledgement. The adapter persists each
-message immediately, and the `msgid` uniqueness key absorbs any platform
-redelivery.
+- Outbound frames wait for an ACK correlated by `req_id`, serializing replies
+  sharing a `req_id` one at a time because ACKs identify only `req_id`. If an
+  ACK times out, the client closes the socket and fails queued sends so a late
+  ACK can never misconfirm a subsequent frame under the same `req_id`, after
+  which standard reconnect and Delivery recovery apply.
+- Inbound push frames carry no client-side ACK; instead, the adapter persists
+  each observation immediately and relies on `msgid` uniqueness keys to
+  deduplicate platform redeliveries.
+- Because WeCom allows only one active WebSocket per bot, a second client
+  connecting with the same credentials kicks the existing socket with a
+  `disconnected_event`. Rather than reconnecting immediately and fighting the
+  other consumer in a kick loop, the displaced owner logs the conflict for the
+  operator, parks, and retries only after a long idle backoff.
 
 ## Receive Messages
 
-The message callback becomes `entry_receive`, and a `template_card_event`
-becomes `action_event`. Groups deliver only messages that address the bot, so
-every group message is explicit.
+Message frames map to `entry_receive` and `template_card_event` frames map to
+`action_event` (WeCom delivers no inbound edits, recalls, or reactions, and
+delivers images, voice, files, and video in 1-on-1 direct messages only).
+Group messages arrive only when addressing the bot, so every received group
+message counts as explicit input.
 
-The opaque `provider_conversation_id` is `wecom:<encoded chat target>`. The chat target is the
-group `chatid` or, for a direct message, the counterpart `userid`. WeCom has
-no thread or anchored reply, so provider thread ID and reply target are empty.
+`provider_conversation_id` is formatted as `wecom:<encoded chat target>`—using
+the group `chatid` or the DM counterpart `userid`—with empty thread and reply
+targets because WeCom exposes no sub-threads or anchored reply IDs. Sender
+attribution reads `from.userid`, dropping frames that lack it or originate from
+`sys`. Each inbound frame also supplies a `req_id` valid as a reply anchor for
+24 hours, and the adapter stores the newest `req_id` in channel mirror metadata.
 
-`from.userid` identifies the sender. The adapter ignores messages without it
-and messages from the `sys` sender.
-
-Each inbound frame carries a `req_id` that stays valid as a reply anchor for
-24 hours. The adapter records the newest `req_id` in the channel mirror
-metadata.
-
-A voice message arrives as its platform transcript only; the transcript is the
-message text. A quoted message carries content but no ID of the quoted entry,
-so quoted text renders as a leading quote block and quoted media joins the
-attachments.
-
-Attachment URLs live five minutes and their bytes are AES-encrypted with a
-per-item key. The adapter downloads and decrypts each attachment before
-ingress and stores it in the file service ([Files](../Files.md)). It never
-stores the temporary URL or the key.
-
-WeCom does not provide inbound edit, recall, or reaction events. Images,
-voice, files, and video arrive in direct messages only.
+Voice messages arrive pre-transcribed as text, quoted messages render quoted
+prose as a leading Markdown blockquote and merge quoted media into attachments
+(since WeCom omits the quoted message's ID), and inbound attachment URLs—which
+expire after 5 minutes and serve AES-encrypted bytes with a per-item key—are
+downloaded, decrypted, and written to the file service ([Files](../Files.md))
+during ingress without ever storing temporary URLs or AES keys.
 
 ## Send Replies
 
-The adapter sends only operations already stored as Delivery intents. It can send
-Markdown text, send one attachment, or send a template card.
+Outbound execution processes only durable Delivery intents: sending WeCom
+Markdown text, uploading a single attachment, or sending a JSON template card.
+Before sending, the Rust kernel converts prose to WeCom's Markdown dialect
+(keeping tables intact, turning inline images into links, and using CommonMark
+byte spans to preserve fenced, indented, and inline code verbatim, while live
+`AIStream` previews use their own paging rules). Oversized images/videos and
+non-AMR audio upload as generic files, whereas files exceeding the overall file
+cap fail explicitly.
 
-Each send resolves a channel. A fresh respond anchor rides `aibot_respond_msg`
-and, in a group, the platform quotes the trigger message. Without an anchor,
-the proactive `aibot_send_msg` path needs the user to have messaged the bot in
-that conversation before. Media has no verified proactive carrier, so an
-attachment without a respond anchor fails with a clear error.
+Channel routing depends on whether a fresh 24-hour `req_id` respond anchor is
+available:
 
-Text uses the WeCom Markdown subset. Tables pass through; images degrade to
-links. An oversized image or video and a non-AMR voice file all ship as plain
-files; an oversized file fails loudly.
+- With a valid respond anchor, replies travel over `aibot_respond_msg`
+  (automatically quoting the trigger message in groups).
+- Without a respond anchor, text and cards fall back to proactive
+  `aibot_send_msg` (which requires the user to have already messaged the bot in
+  that chat), whereas attachments fail with a clear error because WeCom provides
+  no proactive media transport on this path.
 
-Markdown conversion changes prose only. The kernel uses CommonMark source
-positions to protect the original bytes of fenced, indented, and inline code.
-The AI Stream uses its own rendering and paging rules.
+Interactive template-card buttons round-trip only a `key` string (with actor
+event tracking carried in `task_id`), encoded with an `ank2:` prefix followed by
+a JSON array of interaction fields so embedded delimiters stay intact (if any
+button key exceeds 1,024 UTF-8 bytes, the entire card falls back to Markdown).
+After a user clicks a button, WeCom allows updating that card only within a
+5-second callback window, during which the adapter settles the interaction and
+writes a receipt card.
 
-Template cards are plain JSON. Card buttons round-trip only a `key` string, so
-the portable interaction protocol packs into the key and the source actor
-event rides `task_id`. After a click, the card can change only inside a
-5-second event window; the adapter settles the interaction and writes a
-receipt card in that window.
-
-Button keys use an `ank2:` prefix and a JSON array of interaction fields,
-preserving separators inside IDs and values; the decoder also accepts `ank1|`
-keys. If a key exceeds 1,024 UTF-8 bytes, the whole card uses its Markdown
-fallback.
-
-Neither send path has an idempotency parameter. The adapter cannot reconcile an
-uncertain send. Delivery stops it as `unknown`. An operator can requeue a
-visible durable reply for one more call; that reply states that it can be a
-duplicate.
-
-The adapter classifies connection, timeout, rate-limit, and server failures as
-retryable. Authentication and trusted-IP failures require operator action.
-Other deterministic provider rejections, including anti-spam rejection 40201,
-are permanent and stop after the first call.
+Because neither `aibot_respond_msg` nor `aibot_send_msg` accepts an idempotency
+key, uncertain sends settle as `unknown` (operators can manually requeue a
+visible durable reply once with a possible-duplicate notice). Connection drops,
+timeouts, rate limits, and `5xx` errors are retryable; auth and trusted-IP
+errors require operator action; and deterministic rejections—including anti-spam
+error `40201`—fail permanently on the first attempt.
 
 ## Show a Live Streaming Reply
 
-`AIStream` shows the reply preview with the platform's native stream message.
-One reply is a chain of stream messages bound to the trigger's `req_id`. Each
-page refreshes with the full content snapshot under a deterministic stream ID,
-so every provider write is replay-safe.
+When a turn has a valid `req_id` respond anchor, `AIStream` renders live reply
+previews as a chain of native WeCom stream messages bound to that `req_id`
+(turns lacking a respond anchor return a non-retryable preview error and fall
+back to plain Markdown chunks on final Delivery, checkpointing each delivered
+chunk for safe retry resumption). Each page sends full content snapshots under a
+deterministic stream ID so writes are replay-safe.
 
-Two limits drive paging: a source-byte budget below the 20480-byte message
-cap, and the platform rule that one stream must finish within 10 minutes. An
-open page near that deadline freezes at its last written text, seals, and the
-chain continues on a new stream message.
-
-The Signal checkpoint is the durable page ledger. It stores each page's
-stream ID, source slice, open time, and sealed state, plus the pinned reply
-`req_id` and the last presentation that recovery can render. Sealed pages do
-not change. A throttled update keeps the last confirmed source in the ledger.
-A new tail page is not throttled.
-
-`PreviewAdapter.put_thought_lease/4` computes the shared `cleanup_at` field.
-The adapter supplies its lease duration and final-state flag. A final update or
-an update without visible thought removes the deadline. Provider-specific
-stream deadlines and page transitions stay in the adapter.
-
-A turn without a respond anchor cannot stream. Working updates then return a
-non-retryable error and only the final durable delivery falls back to plain
-Markdown sends. The checkpoint records each delivered chunk, so an intent
-retry resumes after the last recorded chunk.
+Two platform bounds trigger page rollover: staying beneath WeCom's 20,480-byte
+stream message cap, and WeCom's hard 10-minute lifetime per stream message
+(approaching 10 minutes freezes and seals the active page and continues on a new
+stream message). The source Signal's checkpoint acts as the durable page
+ledger—storing each page's stream ID, source slice, open timestamp, and sealed
+flag alongside the pinned `req_id`, last recoverable presentation, and
+`cleanup_at` thought-cleanup lease (`PreviewAdapter.put_thought_lease/4`, cleared
+on final updates or updates without visible reasoning). Sealed pages never
+mutate, throttled updates retain the last confirmed snapshot in the ledger, and
+newly opened tail pages bypass throttling.
 
 ## Import People and Sign In
 
-Login uses the WWLogin page and exchanges the redirect code for the enterprise
-`userid` with the self-built app credential. Non-members and linked-corp users
-fail closed. The profile hydrates from the contacts-sync secret when it is
-configured.
-
-Full sync reads the department tree and the members of each department, and
-de-duplicates members that belong to several departments. There are no
-realtime events; the host runs periodic full syncs.
+OIDC sign-in redirects through WWLogin and exchanges the authorization code via
+the self-built app credentials for the enterprise `userid`—failing closed for
+external or linked-corp accounts—and enriches profile fields using
+`contactsSecret` when configured. Full directory sync traverses the department
+tree, deduplicating members across multiple departments, and converges via
+periodic full sync runs.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings. Conversations records public Messages and Delivery intents. Signals stores
-authorized stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people, groups, memberships, and
-grants.
-
-A control-plane restart rebuilds the long connections. An open stream page
-continues under its recorded stream ID within the 10-minute window;
-otherwise it seals and the chain continues. Agent Computer does not receive
-WeCom credentials.
+PostgreSQL persists encrypted settings in `AppConfigure`, public Messages and
+Delivery intents in `Conversations`, accepted stimuli in `Signals`, execution
+state in `Sessions`, and people, groups, memberships, and grants in `Principals`
+and `AuthZ`—never exposing WeCom credentials to Agent Computer. After a
+control-plane restart, `ConnectionLifecycle` reconnects bot WebSockets, and any
+open `AIStream` page still inside its 10-minute window resumes under its stored
+stream ID (or seals and rolls over to a new page if the window elapsed).
 
 ## Tests
 
-The repository tests the provider client and its WebSocket protocol,
-normalization, intent channel resolution, template cards, streaming
-checkpoints, login, and directory sync. The end-to-end transport suite drives
-a fake WeCom gateway through connect, auth, reply serialization, kick, and
-reconnect. A real WeCom acceptance test needs operator credentials, a
-super-administrator-created bot, and a trusted-IP setup.
+Automated tests cover `wecom_openapi`, WebSocket header/frame handling, inbound
+normalization, channel/anchor resolution, template cards, `AIStream`
+checkpoints, WWLogin sign-in, and directory sync, alongside an end-to-end
+transport suite exercising connect, auth, serialized `req_id` replies, duplicate
+connection kicks, and reconnects against a fake WeCom gateway. Live WeCom
+acceptance testing requires operator credentials, a super-admin-created AI bot,
+and allowlisted egress IPs.
 
-The implementation sources are:
+Implementation paths:
 
 - `plugins/wecom_adapter/lib/ankole/plugins/wecom_adapter.ex`
 - `plugins/wecom_adapter/lib/ankole/plugins/wecom_adapter/`

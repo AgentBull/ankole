@@ -5,27 +5,27 @@ section: Developer guide
 order: 117
 ---
 
-主 Agent loop 在 Elixir 控制面的 `Ankole.Sessions` 中运行，每个执行会话由一个 `:gen_statem` Driver 推进。纯问答和控制面工具不需要 Worker；环境工具和 Codex 首次需要电脑时才启动 Agent 的 Worker。
+主 Agent 循环运行在 Elixir 控制面的 `Ankole.Sessions` 模块中，每个执行会话由一个独立的 `:gen_statem` 状态机进程（Driver）推进。纯文本问答与控制面内置工具无需启动 Worker；只有当会话首次调用电脑环境工具或启动 Codex 任务时，系统才会按需拉起该 Agent 的 Worker 实例。
 
 ## 一轮的持久步骤
 
-1. 准入开放的 Signal，在 PostgreSQL 中推进执行会话 epoch。
-2. 从已存储的 Response 链重建进度，准备下一次模型请求。
-3. 通过 AIGateway 的进程内 Responses API 打开持久 Response。
-4. 按声明派发给控制面工具、Worker 或持久等待的 owner。
-5. 在同一事务提交整轮工具结果、满足等待的输入消费和回执删除。
-6. 在边界注入排队的输入，或提交最终回复与输入完成。
+1. 准入待处理的开放 Signal，并在 PostgreSQL 中推进执行会话的纪元（epoch）。
+2. 根据已落盘的 Response 链重建当前执行进度，组装下一次模型请求。
+3. 通过 AIGateway 的进程内 Responses API 开启一条持久化 Response。
+4. 按照工具声明，将调用分发给控制面内置工具、Worker 实例或持久化等待（Durable Wait）的协调模块。
+5. 在同一个数据库事务内，原子提交整轮工具返回结果、满足等待条件的输入消费记录，并删除执行回执。
+6. 在步骤边界处注入新排队的输入继续推进，或提交最终回复并将本轮输入标记为已完成。
 
-AIGateway 拥有转录、压缩、记忆注入与 hosted 工具。Driver 拥有迭代限制、空回复修复、重复错误提示和最终回复规则。控制面的所有模型循环共用这个 owner；Codex 在 Worker 内保留自己的 loop。
+职责划分上，对话转录、上下文压缩、记忆注入与托管工具（Hosted Tools）由 AIGateway 负责；最大迭代轮数限制、空回复自愈、重复报错提示以及最终回复判定规则由会话 Driver 负责。控制面内的所有模型推理循环都统一复用这套驱动机制，唯独 Codex 任务在 Worker 内部维护独立的模型循环。
 
 ## 恢复与副作用
 
-新 Driver 从 Signal 与 Response 链重建进度。控制面工具的副作用与回执同一事务提交，已进入链的结果不再执行。Worker 用 Response ID 与 call ID 标识环境调用，新 Driver 可以领养。Worker 进程消失后，安全调用可以重试，其余无法确认的调用返回 `interrupted`。
+一旦控制面进程重启或发生迁移，新启动的 Driver 会直接从 Signal 记录与 Response 链重建执行进度。由于控制面内置工具的业务副作用与执行回执在同一个数据库事务内提交，已经写入链中的工具结果不会重复执行。对于发往 Worker 的环境工具调用，系统通过 Response ID 与 call ID 联合标识：若仅是控制面重连，新 Driver 可直接接管仍在运行的调用；若 Worker 进程意外消失，系统仅重试无副作用的安全调用，其余无法确认执行状态的调用统一返回 `interrupted`。
 
-普通输入等待下一个边界。停止与有效 retry 中断当前工作，无效的带目标 retry 保持运行。工具调用之后的撤回或裸 retry 保留工具记录，在同一链注入修订。
+运行期间收到普通新输入时，系统会等到当前步骤抵达安全边界后再行注入。收到停止指令或合法的重试（retry）指令时，会立即中断当前工作；若带目标的重试指令指向了无效目标，则不打断当前执行。如果在工具调用已产生记录后触发撤回或无目标重试，已有的工具记录会保留在链中，系统通过在同一条链上追加修订指令来继续推进。
 
 ## 有界失败
 
-AIGateway 负责单轮内的重试，Driver 负责跨尝试的重试。普通输入在第六次准入时进入死信。计划停机在事务成功时退还已准入的一次尝试，崩溃不退还。Workflow 与 Job 保留各自的预算 owner。
+重试预算分两层管控：AIGateway 负责单轮请求内部的瞬时重试，会话 Driver 负责跨尝试（attempt）的恢复重试。普通输入在连续第 6 次准入仍未成功时转入死信状态。遇到计划内优雅停机时，若回退事务提交成功，系统会退还已准入消耗的当次尝试次数；进程意外崩溃则不予退还。Workflow 与后台 Job 各自维护独立的重试预算。
 
-单写者规则见 [Sessions](../sessions/)，执行与存储见 [Agent Computer Worker](../agent-computer-worker/)，Responses 见 [AIGateway](../ai-gateway/)。
+延伸阅读：单写者互斥规则见 [Sessions](../sessions/)，环境工具执行与持久化目录见 [Agent Computer Worker](../agent-computer-worker/)，持久化 Response 链见 [AIGateway](../ai-gateway/)。

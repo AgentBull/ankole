@@ -3,14 +3,6 @@ export type Locale = (typeof LOCALES)[number]
 
 export const DEFAULT_LOCALE: Locale = 'en-US'
 
-/** BCP 47 tags for the html lang attribute and hreflang links. */
-export const BCP47: Record<Locale, string> = {
-  'en-US': 'en-US',
-  'zh-Hans-CN': 'zh-Hans-CN',
-  'ja-JP': 'ja-JP',
-  'ko-KR': 'ko-KR'
-}
-
 /** Locale labels for the language switcher. */
 export const LOCALE_LABELS: Record<Locale, string> = {
   'en-US': 'English',

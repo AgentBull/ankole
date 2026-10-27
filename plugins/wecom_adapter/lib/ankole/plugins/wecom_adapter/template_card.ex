@@ -119,20 +119,7 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
     end
   end
 
-  # Already sent cards can still deliver their original callback key.
-  def parse_managed_key("ank1|" <> rest) do
-    case String.split(rest, "|") do
-      [interaction, version, control, option, value] ->
-        {:ok, action_value(interaction, parse_integer(version), control, option, value)}
-
-      _invalid ->
-        :unmanaged
-    end
-  end
-
   def parse_managed_key(_key), do: :unmanaged
-
-  defp parse_integer(value) when is_binary(value), do: Ankole.Attrs.integer_value(value) || 0
 
   defp action_value(interaction, version, control, option, value) do
     %{

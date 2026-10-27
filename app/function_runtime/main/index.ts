@@ -253,9 +253,7 @@ function programFailure(code: string, message: string) {
 }
 
 function validateProgramSource(payload: ProgramRequest) {
-  if (
-    new TextEncoder().encode(payload.program).length > Math.min(payload.max_program_bytes ?? 256 * 1024, 256 * 1024)
-  ) {
+  if (new TextEncoder().encode(payload.program).length > 256 * 1024) {
     return programFailure('program_source_limit_exceeded', 'program source exceeded the byte limit')
   }
   try {

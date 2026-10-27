@@ -1,69 +1,73 @@
 # Ankole Standard DingTalk AI Card Template
 
 Ankole delivers streaming AI replies on DingTalk through a **template-hosted AI
-card**: the card layout lives on the DingTalk card platform (卡片平台) and
-Ankole only injects a fixed variable set into card instances. The operator
-builds this template once per DingTalk organization, publishes it, and pastes
-its `cardTemplateId` into the chat binding. An empty `cardTemplateId` disables
-card streaming — AI replies degrade to plain Markdown messages.
+card**: the card layout lives on the DingTalk Card Platform (卡片平台), and
+Ankole injects a fixed set of variables into each card instance. Operators build
+this template once per DingTalk organization, publish it, and paste its
+`cardTemplateId` into the chat binding. If `cardTemplateId` is left empty,
+Ankole disables card streaming and sends AI replies as plain Markdown messages.
 
-Build steps (DingTalk developer console):
+To create the template in the DingTalk developer console:
 
-1. Open 卡片平台 (Card Platform) → 新建模板 → choose the **AI 卡片** category —
-   this card kind carries DingTalk's native 处理中 / 输入中 / 完成 / 出错
-   lifecycle.
-2. Add the variables below with exactly these names (变量名). The card fails
-   closed if a variable is missing: Ankole writes it on every instance.
-3. Configure the 输入中, 完成, and 出错 layouts in the AI card component. Bind a
-   Markdown component to `answer` in every layout that must show the reply, and
-   enable streaming for the 输入中 component. Put the `actions` area in both
-   输入中 and 完成 if decision buttons must stay visible.
-4. Associate the template with the enterprise-internal app that owns the robot,
-   publish it, and copy the template id into the binding's `cardTemplateId`.
+1. Open **卡片平台** (Card Platform) → **新建模板** → choose the **AI 卡片**
+   category, which provides DingTalk's native `处理中` / `输入中` / `完成` /
+   `出错` lifecycle.
+2. Add every variable listed in the schema below using the exact variable names
+   (变量名). Because Ankole writes all of these variables on every card
+   instance, omitting any variable causes the card to fail closed.
+3. Configure the `输入中`, `完成`, and `出错` layouts in the AI card component.
+   Bind a Markdown component to `answer` in every layout that displays the
+   reply, and enable streaming on the `输入中` Markdown component. If interactive
+   decision buttons should stay visible both during and after generation, place
+   the `actions` region in both `输入中` and `完成`.
+4. Link the template to the enterprise-internal app that owns the robot, publish
+   the template, and copy its template ID into the binding's `cardTemplateId`.
 
-DingTalk selects the active layout from its native AI card lifecycle. Do not
-create or bind a `flowStatus` or `flowStatusVar` template variable. See the
-[AI card template guide](https://open.dingtalk.com/document/development/ai-card-template)
+DingTalk switches layouts automatically through its native AI card lifecycle, so
+do not create or bind a `flowStatus` or `flowStatusVar` template variable. See
+the [AI card template guide](https://open.dingtalk.com/document/development/ai-card-template)
 and the
-[streaming update API](https://developers.dingtalk.com/document/development/api-streamingupdate).
+[streaming update API](https://developers.dingtalk.com/document/development/api-streamingupdate)
+for platform details.
 
-Build the template manually from the table below. Card Platform control labels
-can differ between DingTalk releases.
+Configure the template manually from the table below (exact UI labels in Card
+Platform can vary across DingTalk releases).
 
 ## Variable schema
 
-| Variable (变量名) | Type | Content Ankole writes |
+| Variable (变量名) | Type | Content that Ankole writes |
 |---|---|---|
-| `state` | text | Status line: the live tool label or `输入中` while working, then `已完成` / `出错` / `已停止` / `等待输入`. A card the chain rolled past says `回答继续于下一张卡片`. |
-| `answer` | **streaming Markdown** | The reply body. Written with `PUT /v1.0/card/streaming`, `isFull: true`. This is the only variable updated at streaming cadence. |
-| `thought` | Markdown, collapsed section | Transient reasoning draft while the turn is working. Streamed on its own key; always blanked at terminal/refresh. Place it in a folded area. |
-| `plan` | text | `执行计划 · completed/total` header, then one `- [ ] item` line per entry |
-| `activity` | text, collapsed section | Running tool activity, one `- … label` line per entry; blanked at terminal |
-| `receipts` | text | One `- ✅ summary（scope）` line per side-effect receipt |
-| `actions` | **JSON string** | Interactive controls for the action area (below); empty string when none |
-| `meta` | text | Curated metadata joined with ` · `: why the turn was triggered, the card's place in the chain, recalled-memory and attachment counts, elapsed time |
+| `state` | text | Status line: shows the live tool label or `输入中` while running, then `已完成` / `出错` / `已停止` / `等待输入`. Once a long reply rolls over to a continuation card, the closed card displays `回答继续于下一张卡片`. |
+| `answer` | **streaming Markdown** | The reply body, updated via `PUT /v1.0/card/streaming` with `isFull: true`. This is the only variable updated at streaming cadence. |
+| `thought` | Markdown, collapsed section | Transient reasoning draft while the turn is running; streamed on its own key and cleared at completion or refresh. Render it inside a collapsed section. |
+| `plan` | text | `执行计划 · completed/total` header followed by one `- [ ] item` line per step |
+| `activity` | text, collapsed section | Active tool calls, formatted as one `- … label` line per entry and cleared at completion |
+| `receipts` | text | Side-effect receipts, formatted as one `- ✅ summary（scope）` line per entry |
+| `actions` | **JSON string** | Interactive controls for the action region (see below), or `""` when none are active |
+| `meta` | text | Curated turn metadata joined with ` · `: trigger reason, card position in the continuation chain, recalled-memory and attachment counts, and elapsed time |
 
-`answer` must be a Markdown-rendering variable; the platform mandates
-`isFull: true` full overwrites for streamed Markdown, which matches Ankole's
-accumulated-snapshot model. One reply may span several cards: past the
-single-card source budget Ankole seals the current card (`isFinalize`) and
-continues on a freshly delivered continuation card. Sealed cards are never
-written again.
+`answer` must be bound to a Markdown-rendering variable: DingTalk requires full
+overwrites (`isFull: true`) for streamed Markdown, which matches Ankole's
+accumulated-snapshot model. When a reply exceeds the single-card size budget,
+Ankole seals the current card with `isFinalize` and continues streaming on a
+newly delivered continuation card; sealed cards are never modified again.
 
 ## Native card state
 
-A streaming update without a terminal flag keeps the card in DingTalk's input
-lifecycle. `isFinalize: true` moves it to 完成, and `isError: true` moves it to
-出错. A completed interactive card also sends one full `answer` update with
-`isFinalize: true` after creation.
+While Ankole sends streaming updates without a terminal flag, DingTalk keeps the
+card in its `输入中` state. Sending `isFinalize: true` transitions the card to
+`完成`, and sending `isError: true` transitions it to `出错`. When Ankole creates
+an interactive card whose content is already complete, it also sends one full
+`answer` streaming update with `isFinalize: true` right after creation.
 
-Structural updates use `cardUpdateOptions.updateCardDataByKey` to merge fields
-such as `state`, `plan`, and `actions` while preserving other template data.
+For non-streaming structural fields such as `state`, `plan`, and `actions`,
+Ankole sets `cardUpdateOptions.updateCardDataByKey` so DingTalk merges those
+keys without clobbering other template data.
 
 ## Action area (`actions` variable)
 
-`actions` carries a JSON list the template's action region binds to. Each
-element is:
+`actions` holds a JSON array that the template's action region binds to. Each
+element has this shape:
 
 ```json
 {
@@ -84,16 +88,18 @@ element is:
 }
 ```
 
-A free-text element additionally carries `"input": {"name", "placeholder",
-"required"}` and its `value.answerKind` is `"free_text"`; render it as one
-input field plus a submit button.
+Free-text controls also include `"input": {"name", "placeholder", "required"}`
+and set `value.answerKind` to `"free_text"`; render them as a text input paired
+with a submit button.
 
-The contract the template must honour: **every button submits its `value` map
-verbatim as the callback params**. Ankole creates instances with
-`callbackType: "STREAM"`, so the press arrives on the same Stream connection
-(topic `/v1.0/card/instances/callback`) and the adapter routes the untouched
-`value` into the portable interaction protocol. Buttons are not authorization:
-the operator's Principal is re-verified on the callback path, and a control
-that no longer answers a pending interaction is acknowledged but ignored.
-The inbound handler accepts the `content → cardPrivateData → params` nesting
-and string-typed integers.
+The template must honor one callback rule: **every button must submit its
+`value` object verbatim as the callback parameters**. Because Ankole creates
+card instances with `callbackType: "STREAM"`, button clicks arrive over the same
+Stream connection on topic `/v1.0/card/instances/callback`, and the adapter
+forwards the untouched `value` map into Ankole's portable interaction protocol.
+Card buttons never carry authorization on their own: the callback path
+re-verifies the clicking user's Principal, and if a clicked control refers to an
+interaction that is already settled or expired, the adapter acknowledges the
+callback and ignores it. Inbound parsing accepts DingTalk's
+`content → cardPrivateData → params` envelope as well as string-encoded integer
+fields.

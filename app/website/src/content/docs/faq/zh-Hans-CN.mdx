@@ -19,12 +19,12 @@ export const faqLabels = {
 export const commonIssues = [
   {
     question: '浏览器连不上 /setup 或 Console，先查什么？',
-    symptom: '页面超时、拒绝连接、返回 502，或只有空白页。此时还没有进入身份源、模型或聊天平台的配置。',
-    cause: '控制面没有正常运行，或域名、反向代理、Ingress 没有把请求送到控制面。后续 Provider 报错通常只是连带结果。',
+    symptom: '页面超时、拒绝连接、返回 502，或只显示空白页，尚未进入身份源、模型或聊天平台的配置环节。',
+    cause: '控制面尚未正常运行，或域名解析、反向代理、Ingress 未把请求正确转发到控制面。后续出现的各类 Provider 报错通常只是连带表现。',
     resolution: [
-      '先确认 control-plane、function-runtime、PostgreSQL 和反向代理是否健康，只处理日志里最早出现的异常。',
-      '如果直接访问控制面正常，再检查域名解析、TLS 和代理到控制面的地址。',
-      '不要为了试错删除数据库或持久化卷；启动失败不代表数据已经损坏。'
+      '先检查 control-plane、function-runtime、PostgreSQL 和反向代理是否均处于健康状态，并从日志里最早出现的第一处异常查起。',
+      '若绕过代理直接访问控制面正常，再逐一排查域名解析、TLS 证书以及反向代理转发地址。',
+      '切勿为了盲目试错而删除数据库或持久化卷——服务启动失败并不代表底层数据已损坏。'
     ],
     links: [
       { href: '../quickstart/#deployment', label: '按部署方式检查服务' },
@@ -32,39 +32,39 @@ export const commonIssues = [
     ]
   },
   {
-    question: '首次设置需要的 activation code 在哪里？',
-    symptom: '/setup 要求输入 activation code，但启动终端已经关闭，或者日志太多，找不到那一行。',
-    cause: '控制面只在首次设置阶段使用这个 code。第一位 siteadmin 站点管理员完成登录后，code 会失效，此后应直接打开登录页。',
+    question: '首次设置需要的激活码在哪里？',
+    symptom: '/setup 页面提示输入激活码，但启动终端已关闭，或日志输出过多找不到对应行。',
+    cause: '激活码仅在实例首次初始化阶段有效。一旦首位 siteadmin 站点管理员完成登录，激活码便立即作废，此后应直接访问登录页。',
     resolution: [
-      '尚未完成首次登录时，到快速开始中选择自己的部署方式，运行该标签页给出的日志命令。',
-      '搜索 SETUP ACTIVATION CODE，不要从浏览器缓存或数据库中猜测 code。',
-      '如果站点已有 siteadmin（或租户已有 pod_admin）管理员，不要重新激活；请通过无密码邮箱验证码（SiteCredential，基于 authn.email.mail）或已配置的企业身份源（IdP SSO）登录。'
+      '若尚未完成首次管理员登录，请前往“快速开始”切换至你的部署方式，运行对应标签页给出的日志查询命令。',
+      '在控制面日志中检索 SETUP ACTIVATION CODE，不要从浏览器缓存或数据库记录中猜测激活码。',
+      '若站点已存在 siteadmin（或租户已有 pod_admin）管理员，无需再次激活；请直接通过免密邮箱验证码（SiteCredential，基于 authn.email.mail）或已接入的企业身份源（IdP SSO）登录。'
     ],
     links: [
-      { href: '../quickstart/#deployment', label: '读取 activation code' }
+      { href: '../quickstart/#deployment', label: '查看激活码' }
     ]
   },
   {
-    question: '选择了适配器，为什么仍看不到对应的 Provider？',
-    symptom: '插件已保存为启用，但初始化页面、身份源或信号路由页面里仍没有对应选项。',
-    cause: '首次初始化会保留所有已编译插件，并用当前保存的选择过滤后续配置项。初始化完成后，Console 中保存的插件启停状态要在下一次控制面启动时生效。',
+    question: '启用了适配器插件，为什么页面里仍看不到对应的 Provider？',
+    symptom: '插件状态已保存为启用，但初始化向导、身份源列表或信号路由页面中仍不显示对应平台选项。',
+    cause: '首次初始化向导会列出全部已编译插件，并按当前保存的勾选结果过滤后续步骤；而初始化完成后在 Console 中修改的插件启停状态，需要等控制面下一次启动时才会加载生效。',
     resolution: [
-      '如果还在 /setup，返回“插件”步骤保存选择，再进入“管理员登录”；此时不需要重启。',
-      '如果初始化已经完成，请只重启控制面，不要删除数据，也不必重启 PostgreSQL。启动后确认插件已激活，再回到 Provider 页面。',
-      '如果控制面启动失败，先处理日志中的插件初始化错误。'
+      '若当前仍在 /setup 向导中，请退回“插件”步骤重新保存选择，再进入下一步，此时无需重启服务。',
+      '若初始化早已完成，请单独重启控制面进程（无需重启 PostgreSQL，更不要清理数据）；待启动完毕确认插件已激活后，再回到 Provider 配置页。',
+      '若重启后控制面启动失败，请先根据日志排查插件初始化报错。'
     ],
     links: [
       { href: '../control-plane-plugins/', label: '管理 Control Plane Plugins' }
     ]
   },
   {
-    question: '所有聊天平台都收不到回复，问题还在聊天渠道吗？',
-    symptom: '换了频道、私信或另一个聊天应用都没有回复，Console 中直接发起的 Agent 对话也失败。',
-    cause: '如果 Console 对话也失败，问题通常在所有聊天渠道共用的后半段：LLM Provider、Agent 模型档案或 Worker，而不是某个平台的事件权限。',
+    question: '所有聊天平台都收不到回复，问题还出在聊天渠道吗？',
+    symptom: '无论切换频道、改发私信还是换用另一个聊天平台都没有回复，连在 Console 内直接发起的 Agent 对话也一并失败。',
+    cause: '只要 Console 原生对话同样失败，故障点通常就在所有渠道共用的下游执行链路——即 LLM Provider、Agent 模型档案或 Worker 实例，而非某个聊天平台的事件订阅权限。',
     resolution: [
-      '确认 LLM Provider 已启用，凭证和模型名称可用。',
-      '确认 Agent 已配置 primary、light 和 heavy，并且 Console → 工作节点中该 Agent 的 Worker 没有失败原因。',
-      '先在 Console 中完成一次真实模型对话；成功后，再回到所选聊天平台的标签页排查消息入口。'
+      '确认所用的 LLM Provider 已启用，且 API 凭证与模型标识真实可用。',
+      '确认该 Agent 已完整配置 primary、light 和 heavy 三个模型档案，且在 Console → 工作节点中对应的 Worker 无报错信息。',
+      '先在 Console 内跑通一次真实的模型问答；确认回复正常后，再回到下方对应聊天平台的标签页排查外部消息入口。'
     ],
     links: [
       { href: '../quickstart/#3-添加模型提供商并创建-agent', label: '配置模型提供商和 Agent' },
@@ -72,26 +72,26 @@ export const commonIssues = [
     ]
   },
   {
-    question: '计划任务没有按时运行，先查什么？',
-    symptom: '计划任务已创建，但到了预期时间没有开始，或下一次运行时间与预期不一致。',
-    cause: '常见原因是任务未启用、时区或 Cron 表达式不正确，或者控制面在触发时没有运行。',
+    question: '计划任务没有按时触发，先查什么？',
+    symptom: '计划任务已创建完成，但到达预期时间后并未启动，或界面显示的下次运行时间与预期不符。',
+    cause: '常见原因包括任务处于停用状态、时区或 Cron 表达式填写有误，或者到达触发时刻时控制面并未运行。',
     resolution: [
-      '打开计划任务，确认它已启用，并核对页面显示的下一次运行时间。',
-      '核对实例时区和 Cron 表达式。先看页面换算出的时间，不要只凭表达式猜测。',
-      '选择“立即运行”。如果可以运行，问题在时间设置；如果仍失败，继续查看运行记录。'
+      '打开该计划任务，确认开关处于启用状态，并查看界面显示的下次运行时间。',
+      '核对实例时区与 Cron 表达式，以界面实际换算出的触发时间为准，不要仅凭表达式心算猜测。',
+      '点击“立即运行”手动触发一次：若手动执行正常，说明问题出在定时规则；若同样失败，继续点开运行记录排查报错。'
     ],
     links: [
       { href: '../schedules/', label: '配置和检查计划任务' }
     ]
   },
   {
-    question: '计划任务显示已运行，为什么聊天里没有结果？',
-    symptom: '运行记录已经出现，但目标聊天或会话没有收到 Agent 的消息。',
-    cause: '触发器已经工作，问题在后续链路：目标路由、聊天渠道、Agent 模型或可用 Worker。',
+    question: '计划任务显示已运行，为什么群聊或会话里没看到结果？',
+    symptom: '运行历史中已生成当次执行记录，但目标聊天群或会话并未收到 Agent 发出的消息。',
+    cause: '定时触发器本身已正常点火，卡点出在后续执行或投递环节：目标路由规则、聊天渠道凭证、Agent 模型档案或 Worker 实例。',
     resolution: [
-      '先打开这次运行记录，确认任务是否成功，并读取最早的错误。',
-      '核对任务指向的 Agent、会话或聊天目标，以及对应的信号路由规则。',
-      '确认 Agent 的模型档案可用，并且 Console → 工作节点中该 Agent 的 Worker 没有失败原因。'
+      '先点开当次运行记录，确认回合是否成功跑完，并查看最早出现的一条报错。',
+      '核对计划任务绑定的目标 Agent、目标会话或外部聊天渠道，以及对应的信号路由规则是否仍然有效。',
+      '确认该 Agent 的模型档案工作正常，且 Console → 工作节点中的 Worker 处于就绪状态、无失败原因。'
     ],
     links: [
       { href: '../schedules/', label: '查看计划任务运行记录' },
@@ -106,33 +106,33 @@ export const identityTabs = [
     label: 'Slack',
     issues: [
       {
-        question: 'Slack 登录在授权跳转处失败',
-        symptom: 'Slack 在回到 Ankole 之前提示 redirect_uri 不匹配，或授权后回到错误页面。',
-        cause: 'Slack 应用登记的 Redirect URL 与 /setup 显示的回调地址不完全相同，或 Ankole 中填了另一套 Client ID。',
+        question: 'Slack 登录在授权回跳时失败',
+        symptom: 'Slack 在跳回 Ankole 前报错 redirect_uri 不匹配，或完成授权后落到了错误页面。',
+        cause: 'Slack 应用后台登记的 Redirect URL 与 /setup 页面给出的回调地址不完全一致，或 Ankole 中误填了另一个应用的 Client ID。',
         resolution: [
-          '从 /setup 复制完整回调地址，原样加入 Slack 的 OAuth & Permissions → Redirect URLs。',
-          '逐字核对协议、域名、端口、路径和 Provider ID。',
-          '保存 Slack 配置后重新发起登录，不要复用旧的授权页。'
+          '直接从 /setup 页面复制完整的回调地址，原样粘贴到 Slack 应用后台的 OAuth & Permissions → Redirect URLs 中。',
+          '逐字核对协议（http/https）、域名、端口、路径及末尾的 Provider ID。',
+          '保存 Slack 配置后从 Ankole 重新发起登录，不要刷新复用之前已打开的旧授权页。'
         ]
       },
       {
         question: 'Slack 登录成功，但同步不到成员或用户组',
-        symptom: '管理员能进入 Console，但主体或权限组列表为空，或者缺少新成员。',
-        cause: '身份源应用缺少 users:read、users:read.email 或 team:read，Bot User OAuth Token 没带上新增权限，或全量同步尚未运行。',
+        symptom: '管理员可以正常进入 Console，但主体列表或权限组为空，或者看不到新加入的同事。',
+        cause: '身份源应用缺少 users:read、users:read.email 或 usergroups:read/team:read 权限，新增权限后未重新安装应用导致 Bot User OAuth Token 未包含新权限，或尚未执行过全量同步。',
         resolution: [
-          '按快速开始补齐身份源所需权限。',
-          'Slack scope 改动后重新 Install to Workspace，并把新的 Bot User OAuth Token 写回身份源提供商。',
-          '先验证一次全量同步；只有全量正常后，才继续排查实时同步。'
+          '对照“快速开始”核查并补齐 Slack 身份源所需的全部权限范围（Scope）。',
+          '每次修改权限范围后，都必须重新点击 Install to Workspace 安装应用，并将新生成的 Bot User OAuth Token 更新回 Ankole 的身份源配置。',
+          '先手动触发并验证一次全量同步；确认全量数据完整后，再排查增量实时同步。'
         ]
       },
       {
-        question: 'Slack 名册能全量同步，但后续变更不实时更新',
-        symptom: '首次同步有数据，但邀请、移除成员或调整用户组后，Ankole 没有及时变化。',
-        cause: '实时同步依赖 Socket Mode。App-Level Token 缺失、前缀不是 xapp-、Socket Mode 未启用，或控制面不能访问 Slack。',
+        question: 'Slack 通讯录能全量同步，但后续人员变动不实时更新',
+        symptom: '首次全量同步能拉出完整名册，但后续邀请新成员、移除成员或调整用户组后，Ankole 侧没有及时更新。',
+        cause: '增量实时同步依赖 Socket Mode 长连接：若未填写 App-Level Token、令牌前缀不是 xapp-、Slack 应用未开启 Socket Mode，或控制面无法连接外网访问 Slack，变更事件都无法送达。',
         resolution: [
-          '确认身份源提供商启用了“实时同步通讯录变更”，并填入有效的 App-Level Token。',
-          '确认 Slack 应用已启用 Socket Mode，控制面可以主动访问互联网。',
-          '改过 App-Level Token 后更新 Ankole 中的值，再观察下一次目录变更。'
+          '确认身份源配置中已开启“实时同步通讯录变更”，并填入了有效的 App-Level Token。',
+          '确认 Slack 应用后台已开启 Socket Mode，且控制面所在主机可主动访问公网。',
+          '若轮换过 App-Level Token，请同步更新 Ankole 中保存的值，再观察下一次组织变更是否实时生效。'
         ],
         links: [
           { href: '../quickstart/#2-先设置身份源提供商', label: '在快速开始中配置 Slack IdP' }
@@ -146,32 +146,32 @@ export const identityTabs = [
     issues: [
       {
         question: 'Microsoft 登录提示 AADSTS50011',
-        symptom: 'Microsoft 授权页提示 reply URL 不匹配，错误码通常是 AADSTS50011。',
-        cause: 'Entra 应用注册中的 Redirect URI 与 /setup 显示的 Ankole 回调地址不完全相同。',
+        symptom: 'Microsoft 授权页报错回调地址（Reply URL）不匹配，错误码通常为 AADSTS50011。',
+        cause: 'Entra 应用注册中填写的 Redirect URI 与 /setup 页面展示的 Ankole 登录回调地址不完全一致。',
         resolution: [
-          '把 /setup 显示的地址原样加入应用注册的 Web Redirect URI。',
-          '核对协议、域名、端口、路径和 Provider ID，不要把 Teams 消息端点填到这里。',
-          '保存后等待门户配置生效，再从 Ankole 重新开始登录。'
+          '将 /setup 页面展示的完整回调地址原样添加到应用注册的 Web Redirect URI 列表中。',
+          '仔细核对协议、域名、端口、路径及 Provider ID，切勿将 Teams 机器人的消息回调端点误填到此处。',
+          '保存后稍等片刻待 Azure 门户配置生效，再回到 Ankole 重新发起登录。'
         ]
       },
       {
-        question: 'Entra ID 登录成功，但目录同步为空或返回 403',
-        symptom: '管理员可以登录，但 Ankole 看不到用户和权限组，日志里可能出现 Graph 403。',
-        cause: '应用缺少 Group.Read.All 或 User.Read.All，或者权限已经添加，但租户管理员尚未授予 Admin consent。',
+        question: 'Entra ID 登录成功，但目录同步为空或报 403',
+        symptom: '管理员能正常完成 SSO 登录，但 Ankole 中看不到用户与权限组，控制面日志可能出现 Microsoft Graph 403 错误。',
+        cause: '应用缺少 Group.Read.All 或 User.Read.All 应用级权限，或者虽然已添加权限，但租户管理员尚未点击授予管理员同意（Admin Consent）。',
         resolution: [
-          '在应用注册的 API permissions 中补齐 Microsoft Graph Application permissions。',
-          '由租户管理员执行 Grant admin consent；只添加权限还不够。',
-          '管理员同意完成后，再运行全量同步并检查主体与权限组。'
+          '在 Entra 应用注册的 API permissions 中补齐所需的 Microsoft Graph Application permissions。',
+          '由具备权限的租户管理员点击 Grant admin consent——仅添加权限条目本身不会生效。',
+          '确认权限状态变为“已授予”后，回到 Console 重新触发全量同步并核查主体与权限组。'
         ]
       },
       {
-        question: 'Entra ID 全量同步正常，但实时变更没有进来',
-        symptom: '定时全量同步能修正数据，但组成员变化不能在几分钟内出现。',
-        cause: 'Graph 订阅需要 Microsoft 能访问 Ankole 的公共 HTTPS directory webhook。入口、证书或“Ankole 公网地址”不正确时，通知无法送达。',
+        question: 'Entra ID 全量同步正常，但增量变更没有实时推送过来',
+        symptom: '定时或手动全量同步可以更新数据，但调整组成员关系后无法在数分钟内自动反映到 Ankole。',
+        cause: 'Microsoft Graph 变更订阅要求微软服务器能从公网直接访问 Ankole 的 HTTPS 目录回调地址；若公网入口不通、TLS 证书不受信任或“Ankole 公网地址”配置有误，通知便无法送达。',
         resolution: [
-          '确认实例的公共 HTTPS 地址可从互联网访问，证书受信任。',
-          '核对“Ankole 公网地址”与实际入口；它决定 Graph 订阅的通知地址。',
-          '检查订阅调和日志；入口恢复后，让控制面重建或续订 Graph 订阅。'
+          '确认 Ankole 实例具备公网可达的 HTTPS 域名，且使用的是受信任的正式 TLS 证书。',
+          '核对身份源配置中的“Ankole 公网地址”是否与真实公网入口一致——Graph 订阅的通知回调 URL 正是由该字段拼接生成。',
+          '检查控制面的订阅同步日志；待公网入口修复后，由控制面自动重建或续订 Graph 订阅。'
         ],
         links: [
           { href: '../quickstart/#2-先设置身份源提供商', label: '在快速开始中配置 Entra ID' }
@@ -184,33 +184,33 @@ export const identityTabs = [
     label: 'Google Workspace',
     issues: [
       {
-        question: 'Google 账号有效，为什么仍被拒绝登录？',
-        symptom: 'Google 授权成功，但 Ankole 返回 login_domain_not_allowed。',
-        cause: '登录账号不在“允许登录的 Workspace 域名”中，邮箱未经验证，或使用了没有 hd claim 的个人 Gmail 账号。',
+        question: 'Google 账号本身有效，为什么登录 Ankole 时仍被拒绝？',
+        symptom: 'Google 侧账号授权通过，但跳回 Ankole 后报错 login_domain_not_allowed。',
+        cause: '当前账号所属域名不在“允许登录的 Workspace 域名”白名单内、邮箱尚未通过验证，或误用了不含企业托管域标记（hd claim）的个人 Gmail 账号。',
         resolution: [
-          '使用企业 Google Workspace 账号，不要使用个人 gmail.com 账号。',
-          '确认账号域名出现在“允许登录的 Workspace 域名”中，拼写与大小写正确。',
-          '只有企业确实使用多个 Workspace 域时，才添加多个允许域。'
+          '请使用企业 Google Workspace 账号登录，个人 gmail.com 账号无法通过企业域校验。',
+          '确认账号邮箱后缀已填入“允许登录的 Workspace 域名”，且拼写准确无误。',
+          '仅当企业确实拥有多个受管 Workspace 域名时，才将多个域名一并加入白名单。'
         ]
       },
       {
-        question: 'Google Workspace 登录正常，但通讯录同步为空或返回 403',
-        symptom: '管理员可以登录 Console，但权限组和成员没有同步。',
-        cause: '目录同步走 Service Account，不走登录用的 OAuth Client。常见原因是没有开启全网域授权、授权范围不全，或“委派管理员邮箱”不能代表目录管理员。',
+        question: 'Google Workspace 登录正常，但通讯录同步为空或报 403',
+        symptom: '管理员可以登录 Console，但权限组和企业成员列表始终为空。',
+        cause: '通讯录同步走的是服务账号（Service Account），而非网页登录所用的 OAuth 客户端。常见原因包括服务账号未开启全网域委派、管理后台授权的 API 权限范围不全，或所填“委派管理员邮箱”无权读取企业目录。',
         resolution: [
-          '确认 Service Account 已启用 Domain-wide delegation。',
-          '在 Workspace 管理后台为它授权快速开始列出的 Directory API scopes。',
-          '核对“委派管理员邮箱”和“服务账号 JSON 密钥”，再运行全量同步。'
+          '确认该服务账号已在 Google Cloud 中启用全网域委派（Domain-wide Delegation）。',
+          '在 Google Workspace 管理后台中，为该服务账号的数字 Client ID 完整授予“快速开始”列出的全部 Directory API Scopes。',
+          '核对 Ankole 中填写的“委派管理员邮箱”与“服务账号 JSON 密钥”无误后，重新运行一次全量同步。'
         ]
       },
       {
-        question: 'Google Workspace 的成员变化为什么不会立即出现？',
-        symptom: '修改 Workspace 用户或权限组后，Ankole 要过一段时间才更新。',
-        cause: 'Google Workspace 身份源目前只做全量同步，没有实时目录订阅。这是正常行为，不是 WebSocket 或 webhook 故障。',
+        question: 'Google Workspace 中的成员变动为什么不会立刻同步？',
+        symptom: '在 Workspace 后台增删用户或调整群组后，Ankole 需要过一段时间才会更新。',
+        cause: 'Google Workspace 身份源适配器目前仅采用周期性全量同步，不启用实时目录推送订阅。这属于正常设计行为，并非网络连接或回调故障。',
         resolution: [
-          '等待下一次全量同步，不要为此开放 webhook。',
-          '如果下一个同步周期后仍没有变化，再检查全网域授权、授权范围和“委派管理员邮箱”。',
-          '确实需要实时同步通讯录变更时，可改用支持该能力的身份源提供商。'
+          '等待下一轮周期同步，或在 Console 中手动点击“运行全量同步”，无需为此开放任何公网回调端口。',
+          '若手动触发全量同步后数据仍未更新，再回头检查服务账号的全网域委派、API 权限范围及委派管理员邮箱。',
+          '若业务强依赖组织架构秒级实时同步，可改用支持长连接或变更订阅的身份源提供商。'
         ],
         links: [
           { href: '../quickstart/#2-先设置身份源提供商', label: '在快速开始中配置 Google Workspace' }
@@ -224,32 +224,32 @@ export const identityTabs = [
     issues: [
       {
         question: '飞书登录提示回调地址不匹配',
-        symptom: '授权页打不开，或授权后无法回到 Ankole。',
-        cause: '飞书会精确匹配 redirect_uri。localhost 与 127.0.0.1、不同端口、不同 Provider ID 都会得到不同的地址。',
+        symptom: '飞书授权页无法正常加载，或点击授权后无法跳回 Ankole。',
+        cause: '飞书开放平台会逐字精确校验 redirect_uri——localhost 与 127.0.0.1 混用、端口号差异或 Provider ID 不一致，都会导致匹配失败。',
         resolution: [
-          '从 /setup 复制当前身份源显示的完整回调地址。',
-          '把它加入应用安全设置，不要手工改写域名、路径或尾部字符。',
-          '发布包含这项安全设置的新版本，并确认测试用户在可用范围内。'
+          '直接从 /setup 页面复制当前身份源对应的完整登录回调地址。',
+          '将该地址原样添加到飞书应用的“安全设置 → 重定向 URL”中，切勿手动增删斜杠或改动域名。',
+          '创建并发布包含此次安全设置变更的新应用版本，同时确认当前测试账号在应用可用范围内。'
         ]
       },
       {
-        question: '飞书登录成功，但员工或部门没有同步',
-        symptom: '管理员能进入 Console，但主体与权限组不完整。',
-        cause: '应用的通讯录权限不完整、应用可用范围没有覆盖相应员工，或新版权限尚未发布。',
+        question: '飞书登录成功，但员工或部门列表同步不全',
+        symptom: '管理员能正常进入 Console，但主体列表或部门权限组缺失。',
+        cause: '应用缺少部分通讯录只读权限、应用可用范围未覆盖目标部门，或修改权限后尚未发布新版本。',
         resolution: [
-          '使用快速开始中的批量权限清单补齐通讯录读取权限。',
-          '确认应用可用范围包含要同步的部门和员工。',
-          '发布新版本后先验证全量同步，再检查长连接增量同步。'
+          '使用“快速开始”提供的权限 JSON 清单批量导入并开通全部通讯录只读权限。',
+          '检查应用的可用范围设置，确保涵盖所有需要同步的部门与员工。',
+          '发布新版本使权限正式生效，随后先跑通一次全量同步，再观察长连接增量更新。'
         ]
       },
       {
-        question: '飞书全量同步正常，但人员变更不实时更新',
-        symptom: '首次同步有数据，后续新增、移动或删除员工没有及时反映到 Ankole。',
-        cause: '实时同步依赖飞书长连接和通讯录事件。控制面未连上、事件没订阅或新配置未发布时，只剩全量同步。',
+        question: '飞书全量同步正常，但后续人员变动不实时更新',
+        symptom: '首次同步能拉取架构，但后续员工入职、调岗或离职未能及时同步到 Ankole。',
+        cause: '增量实时同步依赖飞书长连接与通讯录事件订阅：若控制面未建立连接、未添加对应通讯录事件，或添加事件后未发布新版本，系统便只能依靠定时全量同步更新。',
         resolution: [
-          '保持控制面运行，在飞书事件与回调页选择长连接。',
-          '按快速开始订阅用户和部门变更事件，并发布应用版本。',
-          '确认控制面可以主动访问飞书；长连接不需要公共入口。'
+          '保持 Ankole 控制面运行，并在飞书后台“事件与回调”中选择使用长连接接收事件。',
+          '对照“快速开始”补齐全部员工与部门变更事件，随后创建并发布新应用版本。',
+          '确认控制面所在环境可主动连接飞书公网服务；长连接模式无需配置公网 Webhook。'
         ],
         links: [
           { href: '../quickstart/#2-先设置身份源提供商', label: '在快速开始中配置飞书 / Lark IdP' }
@@ -263,32 +263,32 @@ export const identityTabs = [
     issues: [
       {
         question: '钉钉登录提示“应用不存在”（900103）',
-        symptom: '打开钉钉授权页时立即报 900103，还没有进入扫码后的回调阶段。',
-        cause: '钉钉登录服务无法使用当前 Client ID 找到可用的企业内部应用。常见原因是填成 AgentId 或 robotCode，或者应用配置尚未发布。',
+        symptom: '刚打开钉钉授权页便立即报错 900103，尚未进入扫码及回调环节。',
+        cause: '钉钉登录服务无法根据所填 Client ID 找到已发布的企业内部应用，常见原因是误填成了 AgentId 或 robotCode，或者新建应用后尚未发布版本。',
         resolution: [
-          '确认填写的是凭证与基础信息里的 Client ID，不是 AgentId、robotCode 或群机器人 webhook token。',
-          '确认应用属于当前企业，并已开通登录和通讯录所需权限。',
-          '发布一个新版本，再从 Ankole 重新打开授权页。'
+          '确认填入的是钉钉应用“凭证与基础信息”中的 Client ID，而非 AgentId、robotCode 或自定义群机器人的 Webhook Token。',
+          '确认该应用归属于当前钉钉企业组织，且已开通登录与通讯录读取权限。',
+          '在钉钉后台发布一个正式版本，再回到 Ankole 重新发起登录。'
         ]
       },
       {
-        question: '钉钉扫码后才提示回调地址错误',
-        symptom: '授权页可以打开，也能扫码，但同意授权后才报 redirect_uri 不合法。',
-        cause: '钉钉在扫码授权后才校验回调地址。安全设置中登记的地址与 Ankole 实际发送的地址不完全相同。',
+        question: '钉钉扫码确认后才报错回调地址不合法',
+        symptom: '钉钉扫码页面能正常打开，但手机端点击同意授权后页面提示 redirect_uri 不合法。',
+        cause: '钉钉直到用户扫码确认后才会校验回调地址，说明后台“安全设置”里登记的重定向 URL 与 Ankole 实际发起请求的地址不完全一致。',
         resolution: [
-          '从 /setup 复制完整回调地址。',
-          '把它登记到开发配置 → 安全设置 → 重定向 URL（回调域名）。',
-          '发布版本后重新扫码，不要继续使用已经打开的旧授权页。'
+          '从 /setup 页面重新复制完整的登录回调地址。',
+          '将其原样填入钉钉后台的“开发配置 → 安全设置 → 重定向 URL（回调域名）”。',
+          '重新发布应用版本后再次发起登录扫码，不要继续停留在旧的扫码页面重试。'
         ]
       },
       {
-        question: '钉钉目录同步报 60011，或只能看到部分员工',
-        symptom: '登录可以完成，但目录读取失败、成员缺失，日志中可能有 sub_code 60011。',
-        cause: '应用缺少用户、部门或字段读取权限，或者应用的授权范围没有覆盖对应组织。',
+        question: '钉钉通讯录同步报 60011，或只能同步出部分员工',
+        symptom: '管理员扫码登录成功，但全量同步报错或人员不全，日志中可见 sub_code 60011。',
+        cause: '应用尚未开通完整的用户、部门或详情字段读取权限，或者通讯录接口的权限范围仅勾选了部分部门。',
         resolution: [
-          '按错误返回的申请链接和快速开始清单补齐通讯录权限。',
-          '确认应用授权范围覆盖要同步的部门与员工。',
-          '发布新版本，再运行全量同步；不要用调大分页来掩盖权限错误。'
+          '根据报错信息附带的权限申请链接及“快速开始”权限清单，补齐所有通讯录读取接口权限。',
+          '在钉钉后台检查通讯录权限范围，确保覆盖需要同步的全部部门与员工。',
+          '发布新版本后重新运行全量同步；切勿试图靠调大分页参数来绕过权限缺失问题。'
         ],
         links: [
           { href: '../quickstart/#2-先设置身份源提供商', label: '在快速开始中配置钉钉 IdP' }
@@ -301,23 +301,23 @@ export const identityTabs = [
     label: '企业微信',
     issues: [
       {
-        question: '企业微信登录或接口调用报 60020',
-        symptom: '扫码后回不到 Ankole，或保存配置时提示 IP 不可信、错误码 60020。',
-        cause: '企业微信要求服务端调用来自登记过的可信 IP。自建应用与通讯录同步各有一份可信 IP 列表，部署出口 IP 不在其中就会被拒绝。',
+        question: '企业微信登录或同步接口报错 60020',
+        symptom: '扫码后无法跳回 Ankole，或在保存身份源配置时直接提示“不安全的访问 IP”（错误码 60020）。',
+        cause: '企业微信强制校验服务端调用方的来源 IP。自建应用与“通讯录同步”工具各自维护一份独立的可信 IP 名单，只要 Ankole 的公网出口 IP 未同时列入这两处，接口调用就会被拒绝。',
         resolution: [
-          '给 Ankole 部署固定出口 IP，并写入自建应用的“企业可信 IP”。',
-          '通讯录同步的可信 IP 单独配置，同样要写入。',
-          '确认登录回跳域名已配置为自建应用的可信域名。'
+          '为 Ankole 部署分配固定的公网出口 IP，并将其填入自建应用的“企业可信 IP”。',
+          '进入“管理工具 → 通讯录同步”，将同一个出口 IP 也填入通讯录同步专属的可信 IP 列表。',
+          '同时确认自建应用的“网页授权及 JS-SDK”可信域名已填入 Ankole 的访问域名。'
         ]
       },
       {
-        question: '企业微信能登录，但同步不到姓名或整个通讯录',
-        symptom: '成员能扫码进入 Console，但主体没有姓名，或通讯录同步为空。',
-        cause: '自 2022 年 6 月起，普通应用 Secret 拿不到成员姓名等字段。同步必须使用“管理工具 → 通讯录同步”的专用 Secret。',
+        question: '企业微信能正常扫码登录，但同步不到成员姓名或整份通讯录',
+        symptom: '员工可以扫码进入 Console，但主体记录缺少真实姓名，或通讯录全量同步结果为空。',
+        cause: '自 2022 年 6 月接口调整起，普通自建应用的 Secret 已无法读取成员姓名与完整架构，通讯录同步必须使用“管理工具 → 通讯录同步”页面生成的专用 Secret。',
         resolution: [
-          '在企业微信后台开启通讯录 API 同步，把专用 Secret 填入身份源提供商。',
-          '为这个 Secret 配置它自己的可信 IP。',
-          '企业微信没有实时目录事件。改动后运行一次全量同步，或等待周期同步。'
+          '在企业微信管理后台开启通讯录 API 接口同步，复制该页面的专用 Secret 填入 Ankole 身份源配置。',
+          '为这把通讯录同步专用 Secret 单独配置好可信 IP。',
+          '企业微信不推送实时目录变更事件；更新配置后请手动运行一次全量同步，或等待定时周期同步。'
         ],
         links: [
           { href: '../quickstart/#2-先设置身份源提供商', label: '在快速开始中配置企业微信 IdP' }
@@ -333,33 +333,33 @@ export const channelTabs = [
     label: 'Slack',
     issues: [
       {
-        question: 'Slack 路由规则提示 token 前缀错误',
-        symptom: '保存聊天渠道时出现 invalid_token_prefix，连接尚未建立。',
-        cause: 'Bot Token 和 App Token 填反，或使用了不属于这两类的 Slack token。',
+        question: '保存 Slack 路由规则时提示令牌前缀错误',
+        symptom: '保存聊天渠道配置时报错 invalid_token_prefix，Socket Mode 连接尚未建立。',
+        cause: 'Bot Token 与 App Token 填反了位置，或误填了其他类型的 Slack 令牌。',
         resolution: [
-          'Bot Token 必须以 xoxb- 开头，来自 OAuth & Permissions → Bot User OAuth Token。',
-          'App Token 必须以 xapp- 开头，并带 connections:write。',
-          '更正后再保存；在凭证通过检查前，不必排查事件订阅。'
+          'botToken 必须以 xoxb- 开头，取自 OAuth & Permissions → Bot User OAuth Token。',
+          'appToken 必须以 xapp- 开头，取自 Basic Information → App-Level Tokens，且须包含 connections:write 权限。',
+          '修正两项令牌后重新保存；在凭证格式校验通过前，无需去排查事件订阅。'
         ]
       },
       {
-        question: 'Slack 私信能回复，频道里 @Agent 却没有反应',
-        symptom: '机器人能处理私信，但频道里的明确 @ 没有进入 Ankole。',
-        cause: '机器人没加入该频道，或 Slack 应用没有订阅 app_mention 和授予 app_mentions:read。',
+        question: 'Slack 私聊能正常回复，但在频道里 @Agent 毫无反应',
+        symptom: '机器人在一对一私信中对答正常，但在公开或私有频道中明确 @ 提及它时，消息没有进入 Ankole。',
+        cause: '机器人尚未被邀请进该频道，或者 Slack 应用漏订了 app_mention 事件、漏授了 app_mentions:read 权限。',
         resolution: [
-          '把机器人邀请进测试频道。',
-          '在 Event Subscriptions 中加入 app_mention，并确认 app_mentions:read 已生效。',
-          'scope 改动后重新 Install to Workspace，并更新 Ankole 中的 Bot Token。'
+          '先将该机器人邀请加入目标测试频道。',
+          '在 Slack 应用后台的 Event Subscriptions 中添加 app_mention，并确认 Bot Token Scopes 中已包含 app_mentions:read。',
+          '若补充过权限范围（Scope），请重新执行 Install to Workspace，并将更新后的 Bot Token 填回 Ankole。'
         ]
       },
       {
-        question: 'Slack 只有 @ 消息能到达，普通群消息看不到',
-        symptom: 'addressed_only 正常，但切到 observe_all 或 may_intervene 后，Agent 仍只看到明确 @ 的消息。',
-        cause: '路由规则只决定 Ankole 如何处理已经收到的消息。Slack 应用还没有订阅相应 message 事件，或缺少对应频道的 history scope。',
+        question: 'Slack 频道里只有 @ 消息能收到，普通群聊消息看不到',
+        symptom: 'addressed_only 模式工作正常，但将群聊策略切换为 observe_all 或 may_intervene 后，Agent 依然只能收到明确 @ 它的发言。',
+        cause: 'Ankole 的群聊路由策略只能处理已经送达控制面的消息；若 Slack 应用尚未订阅对应会话类型的 message.* 事件，或缺少配套的 *:history 权限，Slack 根本不会推送未 @ 机器人的普通发言。',
         resolution: [
-          '先确认 addressed_only 的完整收发链路正常。',
-          '按快速开始为目标会话类型添加 message 事件和相应 history scope。',
-          '重新安装应用并更新 Token 后，再切换群聊模式。'
+          '先在 addressed_only 模式下确认基础收发链路完全畅通。',
+          '对照“快速开始”为目标频道类型补齐 message.channels / message.groups 等事件及对应的 history 权限。',
+          '重新安装 Slack 应用并更新 Bot Token 后，再将路由规则切换为所需的群聊模式。'
         ],
         links: [
           { href: '../quickstart/#4-连接聊天渠道并创建信号路由规则', label: '在快速开始中配置 Slack 聊天渠道' }
@@ -372,33 +372,33 @@ export const channelTabs = [
     label: 'Microsoft Teams',
     issues: [
       {
-        question: 'Teams 中发了消息，Ankole 完全没有收到',
-        symptom: 'Teams 没有回复，控制面也没有对应的入站活动记录。',
-        cause: 'Teams 通过 Bot Framework webhook 投递消息。消息端点不是公共 HTTPS、证书不受信任、路径填错，都会让请求到不了 Ankole。',
+        question: '在 Teams 里发了消息，Ankole 完全没有收到',
+        symptom: 'Teams 聊天窗口没有任何响应，控制面日志里也看不到对应的入站请求记录。',
+        cause: 'Teams 依靠 Bot Framework Webhook 向 Ankole 推送消息；只要消息端点不是公网可达的 HTTPS 地址、TLS 证书不受信任或回调路径拼写有误，请求就无法到达 Ankole。',
         resolution: [
-          '确认实例有可从互联网访问的公共 HTTPS 地址和受信任证书。',
-          '把 Bot Framework 的 Messaging endpoint 精确设置为快速开始给出的 Teams webhook 地址。',
-          '确认机器人应用已安装到测试用户、团队或频道。'
+          '确认 Ankole 实例具备公网可直接访问的 HTTPS 地址与受信任证书。',
+          '将 Azure Bot 配置中的 Messaging endpoint 精确设为“快速开始”给出的 Teams Webhook 地址（核对路径中的 appID）。',
+          '确认该 Teams 机器人应用已正式安装给测试用户、目标团队（Team）或频道。'
         ]
       },
       {
-        question: 'Teams 消息到了，但回复时报鉴权错误',
-        symptom: '控制面收到活动，随后发送回复时出现 401、403 或 token 获取失败。',
-        cause: 'appID、appPassword、tenantID 或 botTenancy 与 Azure Bot 注册方式不一致。',
+        question: 'Teams 消息已收到，但 Agent 发回回复时报鉴权错误',
+        symptom: '控制面已接收并处理入站消息，但在向 Teams 发送回复时出现 401、403 或获取令牌失败。',
+        cause: '路由规则中填写的 appID、appPassword、tenantID 或 botTenancy 与 Azure Bot 资源的实际注册类型不一致。',
         resolution: [
-          '核对 appID 是应用注册的 GUID，appPassword 是仍有效的 Client Secret 值。',
-          '单租户应用使用 single_tenant 和自己的 tenantID。',
-          '只有 Azure Bot 注册本身允许多租户时，才选择 multi_tenant。'
+          '核对 appID 是否为应用注册的 GUID，appPassword 是否为尚未过期的 Client Secret 值（而非 Secret ID）。',
+          '单租户 Azure Bot 请选择 single_tenant，并准确填写所属 Entra 租户的 tenantID。',
+          '仅当 Azure Bot 本身注册为多租户应用时，才将 botTenancy 设为 multi_tenant。'
         ]
       },
       {
-        question: 'Teams 私聊能用，团队频道里 @Agent 没反应',
-        symptom: '同一个机器人能在个人聊天中回复，但频道消息没有进入 Ankole。',
-        cause: '机器人没有安装到该 team 或频道，或者消息没有按 Teams 的方式明确提及机器人。',
+        question: 'Teams 个人私聊能回复，但在团队频道里 @Agent 没反应',
+        symptom: '同一个机器人在个人聊天窗口对答正常，但在团队频道中发言却无法触发 Ankole。',
+        cause: '机器人应用尚未添加到该团队或频道，或者发言时只是手打了机器人名字，没有通过 Teams 的 @ 候选菜单真正选中机器人。',
         resolution: [
-          '把应用安装到目标 team，并确认目标频道允许该应用。',
-          '第一次测试使用明确 @ 提及，不要先测试未点名消息。',
-          '确认路由规则已启用，并指向预期 Agent。'
+          '将机器人应用安装到目标团队（Team），并确认该频道允许机器人运行。',
+          '首次在频道内测试时，务必从 @ 弹出菜单中点选机器人完成明确提及，不要先测普通未点名发言。',
+          '确认对应的信号路由规则处于启用状态，且指向预期的目标 Agent。'
         ],
         links: [
           { href: '../quickstart/#4-连接聊天渠道并创建信号路由规则', label: '在快速开始中配置 Teams 聊天渠道' }
@@ -411,33 +411,33 @@ export const channelTabs = [
     label: '飞书 / Lark',
     issues: [
       {
-        question: '飞书机器人已经创建，但任何消息都没有回复',
-        symptom: '私信和群内 @ 都没有进入 Ankole。',
-        cause: '机器人能力、应用版本、可用范围、长连接或 im.message.receive_v1 中至少有一项尚未生效。',
+        question: '飞书机器人已创建，但无论私聊还是群聊都没有任何回复',
+        symptom: '向机器人发私信或在群内 @ 它，消息均未进入 Ankole。',
+        cause: '应用未开启机器人能力、未配置长连接、漏订了 im.message.receive_v1 事件、测试账号不在可用范围内，或修改配置后尚未发布新版本。',
         resolution: [
-          '确认应用已启用机器人能力，测试用户在可用范围内，并已发布最新版。',
-          '在事件与回调中选择长连接，并订阅 im.message.receive_v1。',
-          '保持控制面运行，确认它可以主动访问飞书；长连接不需要公共 webhook。'
+          '确认飞书应用已启用“机器人”能力，测试用户已纳入可用范围，且最新配置已正式发布版本。',
+          '在“事件与回调”中选择“使用长连接接收事件”，并添加 im.message.receive_v1。',
+          '保持 Ankole 控制面运行并确保其能访问飞书公网服务；长连接模式无需开放公网 Webhook。'
         ]
       },
       {
-        question: '飞书只有 @ 消息能到达，普通群消息看不到',
-        symptom: 'addressed_only 正常，但 observe_all 或 may_intervene 仍收不到未 @ 机器人的群消息。',
-        cause: '飞书应用缺少 im:message.group_msg。路由规则不能读取平台没有投递的消息。',
+        question: '飞书群里只有 @ 消息能收到，普通群消息看不到',
+        symptom: 'addressed_only 模式收发正常，但切换为 observe_all 或 may_intervene 后，依然收不到未 @ 机器人的群聊发言。',
+        cause: '飞书应用尚未开通“获取群组中所有消息”（im:message.group_msg）权限。平台侧未投递的消息，无法靠调整 Ankole 路由规则补回。',
         resolution: [
-          '先用 addressed_only 验证机器人能收能回。',
-          '在权限管理中加入 im:message.group_msg，并发布新版本。',
-          '确认应用可用范围覆盖目标群成员后，再切换群聊模式。'
+          '先在 addressed_only 模式下确认机器人基础收发正常。',
+          '进入飞书应用“权限管理”开通 im:message.group_msg 权限，并创建发布新版本。',
+          '确认应用可用范围涵盖群内相关成员后，再将路由规则切换为所需的群聊模式。'
         ]
       },
       {
-        question: '飞书能收到消息，但回复或卡片更新失败',
-        symptom: 'Agent 已经开始处理，飞书里却没有最终回复，或卡片停在旧状态。',
-        cause: '聊天应用缺少发消息、更新消息或读取消息资源的权限，或者新版权限尚未发布。',
+        question: '飞书能收到消息并触发回合，但最终回复或卡片更新失败',
+        symptom: '控制面显示 Agent 已开始执行，但飞书会话里迟迟看不到回复，或流式卡片一直卡在初始状态。',
+        cause: '飞书聊天应用缺少发送消息、更新卡片或读取消息资源的接口权限，或者新增权限尚未发布上线。',
         resolution: [
-          '按快速开始补齐消息发送、更新与资源权限。',
-          '发布应用版本，并确认机器人仍在会话内。',
-          '从同一会话重新发一条消息，避免用已经失败的旧回合判断新权限。'
+          '对照“快速开始”中的权限 JSON 清单，补齐消息发送、撤回、更新、卡片及资源相关权限。',
+          '发布新应用版本，并确认机器人仍留在当前测试群中。',
+          '在会话里重新发一条新消息验证，不要根据权限发布前已失败的旧回合判断结果。'
         ],
         links: [
           { href: '../quickstart/#4-连接聊天渠道并创建信号路由规则', label: '在快速开始中配置飞书 / Lark 聊天渠道' }
@@ -451,45 +451,45 @@ export const channelTabs = [
     issues: [
       {
         question: '钉钉群里不 @Agent 就收不到消息，这是故障吗？',
-        symptom: '私信或明确 @ 可以触发 Agent，但普通群消息不会进入 Ankole。',
-        cause: '不是故障。截至 2026 年 7 月，钉钉只把明确 @ 机器人的群消息交给 Agent，无法提供完整群聊记录。',
+        symptom: '单聊或群内明确 @ 机器人都能正常触发 Agent，唯独群内普通发言不会进入 Ankole。',
+        cause: '这并非故障，而是钉钉平台机制所致。截至 2026 年 7 月，钉钉仅向企业机器人推送群内明确 @ 它的消息，不支持投递完整群聊记录。',
         resolution: [
-          '群聊测试必须明确 @Agent，并把群聊模式保持为 addressed_only。',
-          '如果 Agent 需要持续理解完整群聊上下文，请优先选择 Slack、Teams 或飞书 / Lark。',
-          '不要把路由规则改成 observe_all；平台没有投递的消息无法由 Ankole 补回。'
+          '在钉钉群内与 Agent 交互时请明确 @ 机器人，并将路由规则的群聊模式保持为 addressed_only。',
+          '若业务场景要求 Agent 持续旁听完整群聊上下文或主动插话，建议优先选用飞书 / Lark、Slack 或 Teams。',
+          '请勿将钉钉路由规则强行改为 observe_all——平台未推送的消息无法在 Ankole 侧恢复。'
         ]
       },
       {
-        question: '钉钉回复一直是普通 Markdown，怎样才有流式卡片？',
-        symptom: 'Agent 可以回复，但消息始终是纯文本，没有边写边显示的 AI 卡片。',
-        cause: '钉钉卡片是模板托管的。路由规则的 cardTemplateId 为空、模板未发布到机器人所属应用，或钉钉拒绝了卡片内容时，回复保持普通 Markdown。',
+        question: '钉钉回复一直是普通 Markdown 文本，怎样启用流式 AI 卡片？',
+        symptom: 'Agent 能正常作答，但发出的始终是普通静态文本消息，没有边生成边刷新的流式 AI 卡片效果。',
+        cause: '钉钉互动卡片采用平台模板托管机制：若路由规则未填写 cardTemplateId、卡片模板未关联发布到当前机器人应用，或当次卡片内容被钉钉风控拒绝，回复都会以普通 Markdown 文本发出。',
         resolution: [
-          '按快速开始钉钉标签页的高级设置搭建 AI 卡片模板，并把模板 id 填进路由规则的 cardTemplateId。',
-          '卡片空白时，确认当前输入中、完成或出错布局包含绑定 answer 的 Markdown 组件，并重新发布模板；不要创建 flowStatus 或 flowStatusVar。',
-          '同一次回复先卡片后纯文本，是卡片被永久拒绝后的预期降级；回复仍会送达，从控制面日志查 param.contentUnsafe 或 param.cardNotExist。'
+          '按照“快速开始”钉钉标签页的“高级设置”创建 AI 卡片模板，发布后将模板 ID 填入路由规则的 cardTemplateId。',
+          '若发出的卡片内容空白，请检查模板的输入中、完成、出错三种状态布局是否均绑定了 answer Markdown 组件，修改后务必重新发布模板；切勿自行创建或绑定 flowStatus 与 flowStatusVar。',
+          '若同一轮回复先出现卡片、随后补发纯文本，说明卡片被钉钉永久拒绝后触发了保底降级；回复内容仍可送达，可在控制面日志中检索 param.contentUnsafe 或 param.cardNotExist 查明原因。'
         ],
         links: [
           { href: '../quickstart/#4-连接聊天渠道并创建信号路由规则', label: '在快速开始中搭建钉钉 AI 卡片模板' }
         ]
       },
       {
-        question: '钉钉 Stream 连接一直没有消息',
-        symptom: '路由规则已启用，但私信和明确 @ 都没有进入 Ankole。',
-        cause: 'Client ID 与 Client Secret 不匹配、机器人未发布或不在可用范围内，都会让 Stream 连接或事件投递失败。',
+        question: '钉钉 Stream 连接已启用，但始终收不到任何消息',
+        symptom: '信号路由规则显示已启用，但无论单聊还是群内 @ 机器人都没有任何消息进入 Ankole。',
+        cause: 'Client ID 与 Client Secret 不匹配、机器人功能未开启、应用未发布版本，或当前测试账号不在应用可用范围内，都会导致 Stream 建连或事件推送失败。',
         resolution: [
-          '核对聊天应用自己的 Client ID 和 Client Secret，不要混用身份源应用的凭证。',
-          '确认机器人已启用，应用已发布，测试用户在可用范围内。',
-          '确认控制面能主动访问钉钉；Stream 连接不需要公共 webhook。'
+          '核对路由规则中填写的是当前聊天机器人应用自己的 Client ID 与 Client Secret，切勿与钉钉 IdP 应用凭证混用。',
+          '确认应用已开启机器人能力、已发布正式版本，且测试员工在应用可用范围内。',
+          '确认控制面能够主动访问钉钉公网服务；Stream 模式无需开放公网 Webhook。'
         ]
       },
       {
-        question: '为什么同一个钉钉应用不能再连接第二个 Agent？',
-        symptom: '第二条路由规则被拒绝，或同一个 Client ID 已被另一位 Agent 使用。',
-        cause: '当前钉钉适配器要求一个 Client ID 只连接一个 Agent；每个 Agent 也只能有一条启用的钉钉路由。',
+        question: '为什么同一个钉钉应用无法绑定给第二个 Agent？',
+        symptom: '创建第二条钉钉路由规则时被系统拒绝，提示该 Client ID 已被其他 Agent 占用。',
+        cause: '钉钉适配器规定每个 Client ID 同一时间只能绑定一个 Agent，且每位 Agent 同时只能启用一条钉钉路由规则。',
         resolution: [
-          '如果第二个 Agent 需要独立机器人身份，请在钉钉创建另一套企业内部应用。',
-          '用新应用的 Client ID 和 Client Secret 创建新的路由规则。',
-          '如果只是更换目标 Agent，请先停用旧路由，再启用新路由。'
+          '若需要让第二个 Agent 拥有独立的钉钉机器人身份，请在钉钉开发者后台新建另一个企业内部应用。',
+          '使用新应用的 Client ID 和 Client Secret 为第二个 Agent 创建路由规则。',
+          '若只是想把现有机器人迁移给另一位 Agent，请先停用原路由规则，再启用新规则。'
         ]
       }
     ]
@@ -500,29 +500,29 @@ export const channelTabs = [
     issues: [
       {
         question: '企业微信群里不 @ 机器人就收不到消息，这是故障吗？',
-        symptom: '单聊和明确 @ 可以触发 Agent，普通群消息、群里的图片和文件不会进入 Ankole。',
-        cause: '不是故障。企业微信只把单聊消息和群里明确 @ 机器人的消息交给智能机器人，群聊 @ 消息也只带文本和图文混排。',
+        symptom: '单聊和群内明确 @ 机器人均可触发 Agent，但普通群聊发言以及群内发送的图片、文件均不会进入 Ankole。',
+        cause: '这并非故障，而是企业微信平台限制：智能机器人仅接收单聊消息及群内明确 @ 它的消息，且群聊 @ 消息仅支持纯文本与图文混排。',
         resolution: [
-          '群聊测试必须明确 @ 机器人；群聊模式只有 addressed_only。',
-          '需要完整群聊上下文或群内文件时，请优先选择飞书 / Lark、Slack 或 Teams。'
+          '在企业微信群中测试时请明确 @ 机器人，并将群聊模式保持为唯一受支持的 addressed_only。',
+          '若业务需要完整的群聊上下文感知或群内收发文件能力，建议优先选用飞书 / Lark、Slack 或 Teams。'
         ]
       },
       {
-        question: 'Agent 的定时提醒在企业微信里发不出去',
-        symptom: '用户主动发消息能得到回复，但计划任务结果等主动消息没有送达。',
-        cause: '企业微信要求用户先在该会话给机器人发过消息，Agent 才能主动推送；全新会话无法由 Agent 先发起。',
+        question: 'Agent 的定时任务提醒在企业微信里发不出去',
+        symptom: '用户主动向机器人提问能正常收到回复，但计划任务产出等主动推送消息始终无法送达。',
+        cause: '企业微信要求目标用户必须先在该会话中主动向机器人发过至少一条消息，机器人随后才具备向该会话主动推送的权限；Agent 无法对从未互动过的用户发起全新会话。',
         resolution: [
-          '让接收人先给机器人发一条消息，解锁该会话的主动推送。',
-          '收到消息后的回复窗口是 24 小时；超过后只能走主动推送路径。'
+          '请让每位需要接收通知的成员先私聊（或在目标群内 @）该机器人发送一条消息，激活会话推送权限。',
+          '注意企业微信在收到用户消息后的普通回复窗口为 24 小时，超出窗口后仅能走主动推送通道。'
         ]
       },
       {
-        question: '企业微信连接反复中断，或聊天身份对不上',
-        symptom: '连接建立后又断开，或聊天用户始终无法与通讯录、登录身份关联。',
-        cause: '平台强制每个机器人只允许一条长连接，另一个程序用同一 Bot ID 会互相顶掉；非超级管理员创建的机器人，消息里的用户 ID 是加密形态。',
+        question: '企业微信长连接反复掉线，或聊天发信人始终匹配不上通讯录账号',
+        symptom: '长连接建立后不久便断开，或者员工发消息时始终无法与已同步的企业微信通讯录及登录身份关联。',
+        cause: '企业微信规定每个智能机器人同一时间只允许建立一条长连接，若有其他服务共用同一 Bot ID 就会互相挤下线；此外，若机器人并非由企业超级管理员创建，消息中的发信人 userid 会被加密处理，无法与通讯录对齐。',
         resolution: [
-          '确认没有其他程序使用同一个 Bot ID。Ankole 被顶掉后会停下等待，不会反复抢线。',
-          '机器人必须由企业超级管理员创建；否则删除后用超管账号重建。'
+          '检查并确保没有任何其他程序或测试环境共用同一个 Bot ID；Ankole 一旦检测到连接被挤占便会暂停等待，避免死循环抢线。',
+          '智能机器人必须由企业微信超级管理员账号创建；若创建人权限不符，请删除原机器人并改用超级管理员账号重建。'
         ],
         links: [
           { href: '../quickstart/#4-连接聊天渠道并创建信号路由规则', label: '在快速开始中配置企业微信聊天渠道' }
@@ -532,17 +532,17 @@ export const channelTabs = [
   }
 ]
 
-这不是产品介绍，也不重复第三方平台的完整配置步骤。请先找到最早出现的异常，再选择对应的身份源或聊天平台。完整安装与首次设置以 [快速开始](../quickstart/) 为准。
+本页聚焦于故障定位，不重复介绍产品概念或第三方平台的完整配置流程。排查时请先找到最早出现的第一处异常，再对照下方对应的身份源或聊天平台标签页处理。完整的部署与首次初始化步骤以 [快速开始](../quickstart/) 为准。
 
 ## 先判断问题在哪一层
 
 | 你看到的现象 | 先检查 |
 |---|---|
-| `/setup` 或 Console 打不开 | 部署、`control-plane`、`function-runtime`、PostgreSQL、域名与 HTTPS |
-| Console 或 Pod 能打开，但登录失败或通讯录不完整 | 企业身份源（IdP SSO）、无密码邮箱验证码（`SiteCredential`，配置于 `authn.email.mail`）、`principals.pod_login_policy` 登录策略与 `siteadmin` / `pod_admin` 管理员组成员关系 |
-| Console 中 Agent 能对话，但某个 IM 没有消息 | 该聊天渠道与信号路由 |
-| IM 消息已经进入 Ankole，但 Agent 无法生成回复 | LLM Provider、模型档案与 Worker |
-| 只有一个平台有问题 | 直接选择下方对应 Provider，不要照搬另一平台的处理办法 |
+| `/setup` 或 Console 打不开 | 部署环境、`control-plane`、`function-runtime`、PostgreSQL、域名解析与 HTTPS 证书 |
+| Console 或 Pod 能打开，但登录失败或通讯录不完整 | 企业身份源（IdP SSO）、免密邮箱验证码（`SiteCredential`，配置于 `authn.email.mail`）、`principals.pod_login_policy` 登录策略，以及 `siteadmin` / `pod_admin` 管理员组成员关系 |
+| Console 内 Agent 对话正常，但某个 IM 平台收不到消息 | 对应聊天渠道的平台配置与信号路由规则 |
+| IM 消息已进入 Ankole，但 Agent 无法生成回复 | LLM Provider、Agent 模型档案与 Worker 运行状态 |
+| 仅某一个外部平台异常 | 直接查看下方对应平台的排错标签页，切勿照搬其他平台的排查方法 |
 
 ## 所有平台都会遇到的问题
 
@@ -554,7 +554,7 @@ export const channelTabs = [
 
 ## 身份源提供商排错
 
-登录、通讯录和组织架构同步由 IdP 负责。先选择企业实际使用的身份源。Slack 的 Socket Mode、Entra ID 的 Graph 订阅、Google Workspace 的全量同步并不是同一种机制，不能混着排查。
+单点登录、员工名册与组织架构同步均由身份源提供商（IdP）负责。请先切换至企业实际接入的身份源：Slack 的 Socket Mode、Entra ID 的 Graph 变更订阅与 Google Workspace 的定时全量同步底层机制截然不同，切勿混用排查思路。
 
 <FaqProviderTabs
   client:visible
@@ -566,7 +566,7 @@ export const channelTabs = [
 
 ## 聊天渠道排错
 
-聊天渠道只负责收取 IM 消息并发回 Agent 的回复。请选择路由规则实际连接的平台；身份源来自哪个平台，不影响这里的选择。
+聊天渠道专门负责接收外部 IM 消息并发回 Agent 的回复。请在下方选择信号路由规则实际连接的聊天平台（与登录采用哪种身份源无关）。
 
 <FaqProviderTabs
   client:visible
@@ -578,8 +578,8 @@ export const channelTabs = [
 
 ## 仍然无法定位时
 
-复现一次问题，记下准确时间、Agent UID、路由规则名称、所用 Provider，以及界面显示的完整错误。然后只截取同一时间附近的控制面和 Worker 日志，先按事件名查找第一处异常。
+请重新复现一次问题，记录准确的触发时间、Agent UID、路由规则名称、所涉及的 Provider，以及界面提示的完整报错文本；随后仅截取该时间点前后的控制面与 Worker 日志，顺着事件名定位最早出现的第一条异常记录。
 
-不要发送 Client Secret、Bot Token、App Token、模型 API Key、完整环境变量或未经遮蔽的配置文件。需要提交问题时，请附上已经遮蔽的日志和复现步骤，而不是整份日志包。
+求助或提交 Issue 时，切勿附带任何 Client Secret、Bot Token、App Token、模型 API Key、完整环境变量导出或未脱敏的配置文件；请只提供脱敏后的关键日志片段与可复现步骤，不要直接上传整包原始日志。
 
 - [怎样阅读 Ankole 日志](../log-reading/)

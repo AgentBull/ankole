@@ -5,13 +5,13 @@ section: Developer guide
 order: 115
 ---
 
-AIGateway provider は、Ankole が上流の AI service、つまり LLM、embedding model、web 検索 API と通信する方法です。このページは contributor 向けの walkthrough です。provider DSL、それが生成するコンパイル済みの `ProviderDefinition`、provider が宣言する設定と能力、request の構築を担う prepare 関数を解説します。[AIGateway](../ai-gateway/) の概念ページの上に成り立ちます。ここでは*provider を追加する方法*を扱います。
+AIGateway provider は、Ankole が上流の AI サービス（LLM、embedding モデル、Web 検索 API など）と通信するための仕組みです。このページはコントリビューター向けのウォークスルーであり、[AIGateway](../ai-gateway/) の概念ページを前提に、*実際に provider を追加する手順*を解説します。具体的には、provider DSL、そこからコンパイルされる `ProviderDefinition`、設定項目や capability の宣言方法、そしてリクエストの組み立てを担う prepare 関数について説明します。
 
-最も重要な性質を先に述べます。provider module は Elixir 側で request の準備を所有し、Rust の `UniversalAIClient` が wire、つまり transport、encoding、response の正規化を所有します。コンパイルされた定義は、安定した metadata、設定、各能力をどの prepare 関数が所有するかだけを記述します。provider は完全な HTTP client ではなく、prepare 関数と宣言の組み合わせです。
+まず押さえておくべき最も重要な設計原則があります。Elixir 側の provider モジュールはリクエストの準備だけを担当し、通信経路（transport、エンコーディング、レスポンスの正規化）はすべて Rust 側の `UniversalAIClient` が担当します。コンパイル済みの定義に記述されるのは、不変のメタデータ、設定項目、そして各 capability をどの prepare 関数で処理するかという対応付けだけです。つまり provider とは完全な HTTP クライアントではなく、宣言と prepare 関数の組み合わせにすぎません。
 
 ## provider DSL
 
-provider module は `Ankole.AIGateway.ProviderDSL` を使用し、小さな block 構造の DSL で自分自身を宣言します。DSL は metadata と能力の帰属を記録します。request body のフィールドは意図的に記述しません。各 provider の prepare 関数は、同じ module 内の普通の Elixir code です。
+provider モジュールでは `Ankole.AIGateway.ProviderDSL` を使い、簡潔なブロック構造の DSL で provider を宣言します。DSL に記述するのはメタデータと capability の紐付けのみであり、リクエストボディのフィールド構造まではあえて記述しません。各 provider の prepare 関数は、同じモジュール内に通常の Elixir コードとして実装します。
 
 ```elixir
 defmodule Ankole.AIGateway.Providers.MyProvider do
@@ -36,26 +36,26 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
 end
 ```
 
-`provider` block は `ProviderDefinition` struct にコンパイルされ、AIGateway の registry が runtime で使用します。
+`provider` ブロックはコンパイル時に `ProviderDefinition` 構造体へ変換され、実行時に AIGateway のレジストリから参照されます。
 
 ## コンパイルされた定義
 
-`ProviderDefinition` は次のものを保持します。
+`ProviderDefinition` には次のフィールドが含まれます。
 
 | フィールド | 意味 |
 |---|---|
-| `provider_kind` | 保存された provider row と model binding が使う安定した id |
-| `label` | Console 用のローカライズされた表示名 |
-| `module` | provider module 自体 |
-| `base_url` | 既定の上流 URL（運用者が override 可能） |
+| `provider_kind` | 保存された provider レコードおよび model binding で使われる不変の識別子 |
+| `label` | Console に表示するローカライズ済みの名称 |
+| `module` | provider モジュール自体 |
+| `base_url` | 既定の上流 URL（運用者が上書き可能） |
 | `settings` | 宣言された `Setting` のリスト |
 | `capabilities` | 宣言された `Capability` のリスト |
 
-registry は `provider_kind` で provider を解決し、要求された kind に対応する capability を探し、capability の `prepare` 関数を呼び出し、結果を `UniversalAIClient` に渡します。
+リクエスト実行時には、レジストリが `provider_kind` から対象の provider を引き当て、要求された種別に対応する capability を探します。そのうえで capability に指定された `prepare` 関数を呼び出し、返された結果を `UniversalAIClient` に渡します。
 
 ## 設定
 
-`Setting` は、1 つの運用者オプションまたは request オプションを宣言します。
+`Setting` は、運用者向けの設定項目またはリクエスト単位のオプションを 1 つ宣言します。
 
 ```elixir
 setting(:api_key, encrypted: true, scope: :credential)
@@ -67,21 +67,21 @@ setting(:reasoningEffort, type: :select, default: "high",
 | フィールド | 意味 |
 |---|---|
 | `key` | オプション名（atom） |
-| `type` | `:string`、`:select`、`:boolean`、`:map`、または nil |
+| `type` | `:string`、`:select`、`:boolean`、`:map`、または `nil` |
 | `default` | 既定値 |
-| `options` | `:select` の場合の許可値 |
-| `required?` | 運用者が必ず供給しなければならないか |
-| `encrypted?` | 保存時に暗号化される credential 値の storage metadata |
-| `advanced?` | Console フォーム用の表示 metadata。validation や runtime は変えない |
-| `scope` | `:credential`（pool メンバー単位）、`:connection`（provider row 単位）、または `:request`（model profile 単位） |
+| `options` | `:select` の場合に許可される値のリスト |
+| `required?` | 運用者による指定を必須にするかどうか |
+| `encrypted?` | 認証情報を保存時に暗号化するためのストレージ用メタデータ |
+| `advanced?` | Console フォームの表示制御用メタデータ。バリデーションや実行時の挙動には影響しない |
+| `scope` | `:credential`（pool メンバー単位）、`:connection`（provider レコード単位）、または `:request`（model profile 単位） |
 
-すべての provider row は credential pool を持ち、メンバーが 1 つの場合も含みます。resolver は prepare 関数を呼び出す前に、1 つの健全なメンバーを選択し、その `:credential` 設定を復号します。endpoint やカスタムヘッダのような connection 設定は row 全体で共有されます。request 設定は model profile から来ます。prepare 関数は解決後の settings map から 3 つの scope すべてを読み取り、pool の選択は実装しません。
+すべての provider レコードは、メンバーが 1 つだけの場合も含めて credential pool を持ちます。resolver は prepare 関数を呼び出す前に正常なメンバーを 1 つ選び、その `:credential` 設定を復号します。一方、エンドポイントやカスタムヘッダーなどの `:connection` 設定は provider レコード全体で共有され、`:request` 設定は model profile から渡されます。prepare 関数は解決済みの settings マップからこれら 3 つのスコープの値をまとめて読み取るだけでよく、pool メンバーの選択ロジックを実装する必要はありません。
 
-`advanced?` は表示のみです。Console でフィールドを advanced toggle の背後に隠し、validation や動作は変えません。
+なお、`advanced?` は画面表示専用のフラグです。Console 上で入力欄を詳細設定トグルの中に折りたたむだけで、バリデーションや実行時の挙動は変わりません。
 
 ## 能力
 
-`Capability` は、ユーザーに見える model 能力を prepare 関数と wire の形状に bind します。
+`Capability` は、ユーザーに公開されるモデルの機能を prepare 関数および通信フォーマットに結び付けます。
 
 ```elixir
 language_model do
@@ -95,18 +95,18 @@ end
 | フィールド | 意味 |
 |---|---|
 | `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate` のいずれか |
-| `upstream` | wire の形状。`kind` から決まります。`:language_model` は `:sse`、ほかのすべての kind は `:json` |
-| `api_resolver` | encoding と transport を所有する Rust 側の resolver atom（例: `:openai_responses`） |
-| `prepare` | 準備済み request を構築する Elixir 関数 |
-| `timeout_ms` | 任意の、能力ごとの timeout |
-| `supports_parallel_tool_calls?` | provider が並列 tool 呼び出しを受け付けるか |
-| `supports_native_image_generation?` | hosted の `image_generate` profile なしで LLM が公開 image tool を実行できるか |
+| `upstream` | 通信フォーマット。`kind` から自動的に決まり、`:language_model` は `:sse`、それ以外はすべて `:json` になる |
+| `api_resolver` | エンコーディングと transport を担う Rust 側の resolver atom（例: `:openai_responses`） |
+| `prepare` | 送信用のリクエストを組み立てる Elixir 関数 |
+| `timeout_ms` | capability 単位のタイムアウト（任意） |
+| `supports_parallel_tool_calls?` | provider が並列ツール呼び出しを受け付けるかどうか |
+| `supports_native_image_generation?` | hosted の `image_generate` プロファイルなしで、LLM が公開画像ツールを実行できるかどうか |
 
-6 つの capability kind は、runtime が使う外部名にマップします。`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"` で、3 つの web/image kind は変わりません。LLM だけを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider は両方を宣言します。
+これら 6 種類の capability kind は、実行時に使われる外部名へマッピングされます。具体的には `language_model` が `"llm"`、`embedding_model` が `"embedding"`、`rerank_model` が `"rerank"` に対応し、残りの 3 つの Web / 画像系 kind はそのままの名前で使われます。LLM のみを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider はその両方を宣言します。
 
 ## prepare 関数
 
-prepare 関数は provider module 内の普通の Elixir code で、capability の `prepare` フィールドが名前を指定します。`PrepareContext`（解決済みの settings、model request、agent の context）を受け取り、`UniversalAIClient` が送信する準備済み request を返します。
+prepare 関数は provider モジュール内に定義する通常の Elixir 関数で、関数名は capability の `prepare` フィールドで指定します。引数として `PrepareContext`（解決済みの settings、モデルリクエスト、Agent のコンテキスト）を受け取り、`UniversalAIClient` が送信可能な形式のリクエストを返します。
 
 ```elixir
 def prepare_language_model(%PrepareContext{} = context) do
@@ -117,20 +117,20 @@ def prepare_language_model(%PrepareContext{} = context) do
 end
 ```
 
-provider の差異はここにあります。URL の構築、auth ヘッダ、body の整形、特定の上流 API の規則です。prepare 関数が provider の実際の仕事であり、DSL の宣言はその仕事がどう発見され、どう routing されるかを決めます。credential の retry はこの関数の外にあります。control plane が別のメンバーを選択し、request を再構築し、kernel に新しい transport 試行を 1 回実行させられます。
+URL の組み立て、認証ヘッダーの付与、リクエストボディの整形など、上流 API ごとの仕様の違いはすべてこの関数で吸収します。つまり provider 固有の実処理は prepare 関数に集約されており、DSL の宣言はその関数をどのように検出しルーティングするかを定義します。なお、認証情報の切り替えを伴うリトライ処理はこの関数の外で行われます。リトライが必要な場合、control plane がプール内の別メンバーを選び直してリクエストを再構築し、kernel に新しい通信試行を 1 回実行させます。
 
 ## provider を登録する
 
-ファーストパーティの provider は release にコンパイルされ、registry が発見します。plugin が提供する provider の場合は、Control Plane Plugin の `adapter_declarations/0` で `ai_gateway.provider` contract を通じて宣言します。registry は plugin の宣言からそれを拾い上げます。signal adapter と同じ model で、contract id が異なるだけです。
+ファーストパーティの provider はリリースビルドにコンパイルされ、レジストリによって自動的に検出されます。プラグインから provider を提供する場合は、Control Plane Plugin の `adapter_declarations/0` において `ai_gateway.provider` コントラクトを使って宣言します。すると、レジストリがプラグインの宣言からその provider を取り込みます。仕組み自体は signal adapter と同じで、コントラクト ID が異なるだけです。
 
-Plugin の登録は [Skill と Control Plane Plugin の開発](../writing-a-skill/) を参照してください。Provider contract は `ai_gateway.provider` で、kind ID は `~r/\A[a-z][a-z0-9_]{0,62}\z/` に一致しなければなりません。
+プラグインの登録方法については、[Skill と Control Plane Plugin の開発](../writing-a-skill/) を参照してください。provider のコントラクト名は `ai_gateway.provider` であり、kind ID は正規表現 `~r/\A[a-z][a-z0-9_]{0,62}\z/` に一致する必要があります。
 
 ## このガイドの対象外
 
-これは HTTP client のチュートリアルではありません。prepare 関数が準備済み request を構築し、HTTP を行うのは Rust client です。kernel の transport を迂回する方法でもありません。`api_resolver` と `upstream` の wire 形状は Rust の `UniversalAIClient` が所有するもので、provider は独自の transport を発明するのではなく、既存の resolver から選びます。また、既存の provider を読む代わりにもなりません。`lib/ankole/ai_gateway/providers/` が正規の reference であり、最も単純なもの（OpenAI または openai_compatible）が正しい出発点です。
+このガイドは HTTP クライアントの実装チュートリアルではありません。prepare 関数が行うのはリクエストデータの組み立てまでであり、実際の HTTP 通信は Rust クライアントが実行します。また、kernel の通信層をバイパスする方法を説明するものでもありません。`api_resolver` や `upstream` の通信フォーマットは Rust 側の `UniversalAIClient` が管理するため、各 provider は独自の通信処理を実装するのではなく、既存の resolver から適切なものを選択します。さらに、実装にあたっては既存の provider コードも必ず確認してください。`lib/ankole/ai_gateway/providers/` が正式なリファレンス実装であり、まずは最もシンプルな OpenAI または `openai_compatible` のコードから読み始めるのがおすすめです。
 
 ## 次のステップ
 
-- AIGateway の概念（routing、resolution、統一 boundary）については、[AIGateway](../ai-gateway/) をお読みください。
-- Plugin の登録については、[Skill と Control Plane Plugin の開発](../writing-a-skill/) をお読みください。
-- 最初の Provider のセットアップについては、[クイックスタート](../quickstart/#llm-providers) をお読みください。
+- AIGateway の基本概念（ルーティング、プロファイル解決、統一境界）については、[AIGateway](../ai-gateway/) を参照してください。
+- プラグインの登録手順については、[Skill と Control Plane Plugin の開発](../writing-a-skill/) を参照してください。
+- 最初の Provider をセットアップする手順については、[クイックスタート](../quickstart/#llm-providers) を参照してください。

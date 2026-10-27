@@ -1,40 +1,40 @@
 ---
 title: MCP-backed Skill を使う
-description: 有効化された Skill が、mcporter を通じて Agent または Automation スクリプトを MCP server にルーティングする方法。
+description: 有効化された Skill が mcporter を通じて Agent や Automation スクリプトを MCP サーバーへルーティングする仕組みを説明します。
 section: Developer guide
 order: 123
 ---
 
-Ankole は Skills の背後で MCP を使います。ドメインのルーティングと結果のルールは Skill が担います。固定された mcporter CLI は、Skill が選んだあの 1 つの tool について、プロトコル発見と呼び出しを担います。
+Ankole では、MCP サーバーを直接露出させるのではなく Skill の裏側で利用します。どの業務でどのツールを選び、返ってきた結果をどう扱うかというドメイン上の判断ルールは Skill が担い、そこで選ばれた特定の 1 ツールに対するプロトコル解決と呼び出し実行を固定バージョンの `mcporter` CLI が担います。
 
-Agent 固有のドメイン統合では、MCP server を Agent に直接登録しないでください。それを宣言する Skill を有効にしてください。その Skill を無効にすると、依存関係は次回の実行から消えます。
+そのため、Agent 固有のドメイン連携を行う際に MCP サーバーを Agent へ直接登録しようとしないでください。代わりに、その MCP 依存関係を宣言した Skill を有効化します。Skill を無効化すれば、次回の実行からその依存関係も自動的に除外されます。
 
 ## Main Agent と Background Agent Job
 
-MCP の tool 名ではなく、業務の結果を Agent に依頼してください。Agent は一致する Skill を読み、1 つの tool を選び、必要なときだけその tool の現在の schema を確認します。その後、JSON の引数オブジェクトを stdin に渡して mcporter を呼び出します。
+ユーザーから依頼する際は、MCP の生ツール名を指定するのではなく、達成したい業務上のゴールをそのまま Agent に伝えてください。依頼を受けた Agent は該当する Skill を読み、呼び出すべき 1 つのツールを選定し、必要な場合にのみそのツールの最新スキーマを確認します。そのうえで、JSON の引数オブジェクトを標準入力（stdin）に渡して `mcporter` を実行します。
 
-Main Agent は command tool を使います。Background Agent Job は Codex terminal を使います。どちらの経路も、MCP catalog 全体を model のネイティブ tool として公開しません。
+実行経路として、Main Agent は `command` ツールを使い、Background Agent Job は Codex ターミナルを使います。いずれの経路でも、MCP カタログ全体がモデルのネイティブツールとして展開されることはありません。
 
 ## Automation Job
 
-Automation Job は Skill の指示を読みません。`main.ts` を書く Agent は、選んだ tool、引数、範囲（bounds）、結果のチェックをスクリプトに組み込む必要があります。
+Automation Job は実行時に Skill の自然言語手順書を読みません。そのため、`main.ts` を作成する Agent は、使用するツール名、引数、取得件数などの上限（bounds）、および結果の検証ロジックをあらかじめスクリプト内に明示的に組み込んでおく必要があります。
 
-Automation の各 attempt は、`MCPORTER_CONFIG` を通じて、現在有効な Skill の依存関係と最新の Agent WorkerEnv を受け取ります。`Bun.spawn` で mcporter を呼び出し、JSON を stdin に書き、exit code を確認し、stdout をパースしてください。`~/.mcporter/mcporter.json` を作成しないでください。
+Automation の各実行試行（attempt）には、現在有効な Skill の MCP 依存関係と最新の Agent WorkerEnv が環境変数 `MCPORTER_CONFIG` を通じて渡されます。スクリプト内からは `Bun.spawn` で `mcporter` を起動し、子プロセスの stdin に JSON 引数を書き込み、終了コード（exit code）を確認してから stdout をパースしてください。なお、`~/.mcporter/mcporter.json` を独自に作成しないでください。
 
 ## Credential
 
-Skill は `MCP_HTTP_TOKEN` のような credential の変数名を保存します。その値は [Environment variables](../worker-env/) で設定します。生成される config には変数名が含まれ、値は含まれません。
+Skill 側には `MCP_HTTP_TOKEN` のような認証情報の環境変数名だけを記述し、実際のシークレット値は [Environment variables](../worker-env/) に登録します。実行時に自動生成される設定ファイルにも環境変数名だけが書き出され、シークレットの生値が含まれることはありません。
 
-変数がない場合、呼び出しは失敗します。token を chat、Skill、スクリプト、引数ファイル、shell コマンドに貼り付けないでください。
+必要な環境変数が未設定の場合、呼び出しはエラーで失敗します。トークンの実体をチャットメッセージ、Skill 本文、スクリプト、引数ファイル、シェルコマンド文字列の中に直接貼り付けないでください。
 
 ## 失敗と結果の範囲
 
-無効な宣言や競合する server 定義は、model コマンドや Automation スクリプトが開始する前に失敗します。transport、protocol、argument、server のエラーは、mcporter を非ゼロの exit にさせます。
+不正な依存関係宣言やサーバー定義の競合がある場合は、モデルのコマンド実行や Automation スクリプトが動き出す前の準備段階でエラーになります。また、通信エラー、プロトコル違反、引数不正、MCP サーバー側のエラーが発生した場合は、`mcporter` がゼロ以外の終了コードで終了します。
 
-Command のログと Automation のログには上限があります。Skill のページネーション、鮮度、warning、部分結果（partial-result）のルールに従ってください。process が成功終了しても、業務の結果が完全であることを証明するわけではありません。
+コマンド出力ログや Automation 実行ログのサイズには上限があります。Skill 内で定義されているページネーション、データ鮮度、警告の扱い、および部分結果（partial-result）のルールに必ず従ってください。`mcporter` プロセスが終了コード `0` で正常終了したとしても、それだけで業務上必要なデータが漏れなく取得できたとは限らないためです。
 
 ## 参考
 
-- [MCP server reference](../mcp/) は、宣言と実行時の挙動を定義します。
-- [Writing a Skill](../writing-a-skill/) は、作成の形を示します。
-- [Environment variables](../worker-env/) は、credential の保存場所を定義します。
+- 依存関係の宣言スキーマと実行時の挙動については、[MCP server reference](../mcp/) を参照してください。
+- Skill の設計・執筆手順については、[Writing a Skill](../writing-a-skill/) を参照してください。
+- 認証情報（シークレット）の登録方法については、[Environment variables](../worker-env/) を参照してください。

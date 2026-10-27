@@ -38,23 +38,27 @@ test('Setup freezes pending choices and back navigation restores the acknowledge
               { name: 'general', required: true },
               { name: 'finance', required: false }
             ],
-            selected
+            selected,
+            displayName: 'Default',
+            slug: 'default'
           }
         })
       }
-      selected = route.request().postDataJSON().data.packs
+      const data = route.request().postDataJSON().data
+      selected = data.packs
       started()
       await gate
-      return route.fulfill({ json: { packs: selected } })
+      return route.fulfill({ json: { packs: selected, displayName: data.displayName, slug: data.slug } })
     }
     return route.fulfill({ status: 404, json: {} })
   })
   try {
     await page.goto('/setup-repair')
     await page.getByRole('button', { name: 'Save plugin selection', exact: true }).click()
-    const optional = page.getByRole('checkbox').nth(1)
+    await page.getByRole('textbox', { name: 'Company name', exact: true }).fill('Acme')
+    const optional = page.getByRole('checkbox')
     await optional.check()
-    await page.getByRole('button', { name: 'Save industry selection', exact: true }).click()
+    await page.getByRole('button', { name: 'Save and continue', exact: true }).click()
     await saved
     await expect(optional).toBeDisabled()
     await expect(page.getByRole('navigation').getByRole('button').filter({ hasText: 'Plugins' })).toBeDisabled()
@@ -68,7 +72,7 @@ test('Setup freezes pending choices and back navigation restores the acknowledge
       .getByRole('button')
       .filter({ hasText: /Industry/ })
       .click()
-    await expect(page.getByRole('checkbox').nth(1)).toBeChecked()
+    await expect(page.getByRole('checkbox')).toBeChecked()
     expect(selected).toContain('finance')
   } finally {
     release()

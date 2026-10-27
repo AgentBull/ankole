@@ -5,9 +5,9 @@ section: User guide
 order: 57
 ---
 
-When the Console only shows a failed request or an Agent does not reply, logs can show whether the failure is in the control plane, Worker, chat channel, or LLM Provider.
+When the Console shows a failed request or an Agent stops replying, logs reveal whether the failure occurred in the control plane, the Worker, the chat channel, or the LLM Provider.
 
-Ankole writes structured JSON logs by default. Each record has a severity, event name, message, and related context. Find the event first. Then use the Agent UID, Provider ID, or failure reason to narrow the records.
+Ankole emits structured JSON logs by default, where every record carries a severity, an event name, a human-readable message, and structured context fields. Locate the relevant event first, and then filter by Agent UID, Provider ID, or failure reason to isolate the request.
 
 ## Get logs
 
@@ -19,7 +19,7 @@ docker ps -a --filter label=ankole.installation=ankole
 docker logs --since 30m CONTAINER_NAME
 ```
 
-The control plane creates one Worker container for each Agent. The second command lists them; the label `ankole.agent-uid` names the Agent of each container.
+Because the control plane creates a dedicated Worker container for each Agent, run the second command to list Worker containers; the `ankole.agent-uid` label identifies which Agent owns each container.
 
 Kubernetes:
 
@@ -29,19 +29,19 @@ kubectl -n ankole get pods -l ankole.io/installation=ankole
 kubectl -n ankole logs POD_NAME -c worker --since=30m
 ```
 
-Resource names can change with the release name. If the command cannot find an object, first run `kubectl -n ankole get deployments`. The value of the Worker Pod label `ankole.io/installation` is the release name unless `worker.installation` sets another value, and the Pod annotation `ankole.io/agent-uid` names the Agent of the Pod.
+Kubernetes resource names vary with your Helm release name, so run `kubectl -n ankole get deployments` first if the deployment name differs. On Worker Pods, the `ankole.io/installation` label defaults to the release name (unless overridden by `worker.installation`), and the `ankole.io/agent-uid` annotation identifies the owning Agent.
 
-Cloudflare, in `tools/deploy/cloudflare/agent-workers`:
+Cloudflare, from `tools/deploy/cloudflare/agent-workers`:
 
 ```bash
 bunx wrangler tail ankole-agent-workers
 ```
 
-The adapter writes one JSON line for each start, stop, and snapshot of a Worker.
+The Cloudflare adapter logs one JSON line for each Worker start, stop, and R2 snapshot.
 
-If an Agent's Worker does not start, **Console → Workers** shows its state and the latest reason from its backend. See [Workers](../worker-management/).
+If an Agent's Worker fails to start, open **Console → Workers** to inspect its current state and the latest error reported by the Worker provider. See [Workers](../worker-management/).
 
-Before you reproduce a problem, record the approximate time, Agent, chat channel, and user action. You can then inspect a small time window instead of reading from process startup.
+Before reproducing an issue, note the approximate timestamp, Agent, chat channel, and user action so you can inspect a narrow time window instead of scanning logs from process startup.
 
 ## Read one record
 
@@ -55,28 +55,24 @@ Before you reproduce a problem, record the approximate time, Agent, chat channel
 }
 ```
 
-- `severity` shows how serious the record is.
-- `event` is the best field for search and aggregation.
-- `message` gives a readable explanation.
-- Other fields identify the Agent, channel, Job, or request.
+- `severity` indicates the log level.
+- `event` provides a stable identifier for searching and aggregating records.
+- `message` summarizes what happened in plain text.
+- Additional fields identify the specific Agent, channel, Job, or request.
 
-Warnings and information near an error often show the full sequence. Do not copy only the last line. Keep related records before and after the failure.
+Because surrounding `info` and `warning` entries often explain what led up to an error, capture the full sequence of related records before and after the failure rather than copying only the final error line.
 
 ## A useful search order
 
-1. Limit the logs to the time of the problem.
-2. Search for `error`, `warning`, or the error code from the Console.
-3. After you find the related event, filter by Agent UID (also the ID of the Agent's Worker), Provider ID, or chat adapter.
-4. Compare the records with the state under **Console → Conversations** or **Background Agent Jobs**.
+1. Narrow the log stream to the time window around the incident.
+2. Search for `error`, `warning`, or any error code shown in the Console.
+3. Once you find the relevant `event`, filter by the Agent UID (which also serves as the Worker ID), Provider ID, or chat adapter.
+4. Cross-check those log entries against the conversation or job state under **Console → Conversations** or **Background Agent Jobs**.
 
-Logs do not contain decrypted model credentials, channel secrets, or Worker credentials. Before you share logs for support, still check for user messages, URLs, and other business data.
+Ankole never logs decrypted model credentials, channel secrets, or Worker credentials. Even so, review log excerpts for user messages, internal URLs, and other sensitive business context before sharing them outside your team.
 
 ## Temporarily increase log detail
 
-`ANKOLE_LOG_LEVEL` controls detail and uses `info` by default. To reproduce a difficult problem, you can temporarily set it to `debug` and restart the related service.
+`ANKOLE_LOG_LEVEL` controls log verbosity and defaults to `info`. When diagnosing a subtle issue, you can temporarily set `ANKOLE_LOG_LEVEL=debug` and restart the affected service, then restore `info` afterward to avoid excessive log volume.
 
-Restore the previous value after the reproduction to avoid a large continuing log volume.
-
-See the [deployment environment reference](../environment-variables/) for all variables.
-
-See the [FAQ](../faq/) for checks organized by symptom.
+See the [deployment environment reference](../environment-variables/) for all logging and bootstrap variables, and the [FAQ](../faq/) for symptom-based troubleshooting checks.

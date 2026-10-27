@@ -5,26 +5,26 @@ section: Guides
 order: 308
 ---
 
-이 페이지는 하나의 가이드에 깔끔하게 담기지 않았지만 자주 등장하는 운영자 요령 모음입니다. 각 팁은 짧고 Ankole이 실제로 작동하는 방식에 근거하며, 고생 끝에 발견하는 첫 번째 시간보다 비용이 적게 듭니다.
+이 페이지에서는 개별 가이드 하나에 넣기는 애매하지만 실무 운영에서 자주 마주치는 실용적인 요령들을 모아 소개합니다. 모두 Ankole의 실제 동작 원리에 기반한 짧은 팁으로, 미리 알아 두면 시행착오로 몇 시간씩 허비하는 일을 덜 수 있습니다.
 
 ## 로그를 로컬에서 예쁘게 읽기
 
-제어 플레인은 기본적으로 구조화된 JSON 로그를 내보냅니다 — 수집에는 좋지만 읽기는 어렵습니다. 로컬 개발에서는 devkit pretty-printer에 파이프하세요:
+제어 플레인은 기본적으로 수집 시스템에 적합한 구조화된 JSON 로그를 출력하므로 터미널에서 눈으로 바로 읽기에는 불편합니다. 로컬 개발 환경에서는 devkit의 pretty-printer로 파이프해 확인하세요.
 
 ```bash
 bun run dev   # in one terminal
 bun run kit logs pretty < /path/to/log-stream   # or pipe a log file through it
 ```
 
-프로덕션에서는 구조화된 로그를 로그 수집 시스템으로 보내세요. 로컬에서 읽을 때 pretty printer를 사용하세요.
+프로덕션 환경에서는 JSON 로그를 그대로 로그 수집 시스템에 보내고, 로컬에서 직접 확인할 때만 pretty-printer를 사용하세요.
 
 ## 버그 사냥 전에 로그 레벨 범위 설정
 
-`ANKOLE_LOG_LEVEL`은 기본값이 `info`입니다. 특정 재현을 위해 `debug`로 낮추고 끝나면 되돌려 놓으세요 — `debug`로 방치된 배포는 시끄럽고 느립니다. 유효한 값은 `debug | info | warning | error`이며, 유효하지 않은 값은 부팅 시 거부되고 조용히 무시되지 않습니다.
+`ANKOLE_LOG_LEVEL`의 기본값은 `info`입니다. 특정 문제를 재현할 때만 잠시 `debug`로 낮추고, 확인이 끝나면 바로 원래대로 되돌려 두세요. `debug` 상태로 방치하면 로그량이 폭증하고 처리 성능도 떨어집니다. 허용되는 값은 `debug | info | warning | error` 네 가지뿐이며, 잘못된 값을 넣으면 조용히 무시되지 않고 부팅 단계에서 즉시 거부됩니다.
 
 ## 터미널 없이 활성화 코드 얻기
 
-`bun dev`(또는 제어 플레인 컨테이너) 터미널이 보이지 않고 설정 페이지가 코드를 요구하면:
+초기 설정 화면에서 활성화 코드를 입력해야 하는데 `bun dev` 터미널이나 제어 플레인 컨테이너 표준 출력을 바로 볼 수 없다면 다음 명령으로 조회할 수 있습니다.
 
 ```bash
 bun run kit show bootstrap-activation-code          # local
@@ -32,66 +32,66 @@ docker compose logs control-plane | grep "SETUP ACTIVATION CODE"   # Compose
 kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "SETUP ACTIVATION CODE"   # Helm
 ```
 
-데이터베이스에서 코드를 짐작하지 마세요 — 설정 플로우가 실제로 사용하는 소스에서 읽으세요.
+데이터베이스 테이블을 뒤져 코드를 추측하려 하지 말고, 설정 플로우가 실제로 출력한 원본 소스에서 그대로 읽어 오세요.
 
 ## 모델 프로파일 슬롯을 다이얼로 취급
 
-8개의 내장 Agent profile 슬롯인 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`는 각각 하나의 다이얼입니다:
+Agent에 내장된 8개의 모델 프로파일 슬롯(`primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`)은 각각 역할에 맞게 조절하는 다이얼과 같습니다.
 
-- 에이전트가 주로 빠른 질문에 답할 때는 **`primary`**를 더 저렴한 모델로 낮추고, 품질이 비용보다 중요할 때는 올리세요.
-- **`light`**는 진짜로 저렴하고 빠른 모델에 바인딩하세요 — 고용량·저중요도 경로를 위해 존재합니다.
-- **`vision_fallback`**은 에이전트가 이미지를 보는 경우에만 설정하세요. 그렇지 않으면 바인딩하지 않고 슬롯을 아끼세요.
-- **`web_search`**와 **`web_fetch`**는 독립적입니다 — 에이전트가 웹에 접근해야 할 때만 바인딩하세요.
-- Brain 검색 모델은 **AppConfigure**에서 설정합니다. 사이트의 `brain.embedding_model`은 모든 Agent의 벡터 검색에 적용되고, 각 테넌트의 `brain.rerank_model`은 해당 테넌트의 rerank에 적용됩니다. embedding 모델을 비워 두면 벡터 검색을 비활성화하고, rerank 모델을 비워 두면 융합 결과 순서를 유지합니다. 자세한 내용은 [Brain](../brain/)을 참조하십시오.
+- 간단한 질의응답 위주의 Agent라면 **`primary`**에 가볍고 저렴한 모델을 연결하고, 비용보다 판단 품질이 중요한 역할일 때만 상위 모델로 올리세요.
+- **`light`**에는 실제로 빠르고 저렴한 경량 모델을 바인딩하세요. 호출 빈도는 높고 중요도는 낮은 보조 경로를 위해 마련된 슬롯입니다.
+- **`vision_fallback`**은 이미지를 읽어야 하는 Agent에만 설정하고, 그렇지 않다면 비워 두세요.
+- **`web_search`**와 **`web_fetch`**는 서로 독립된 슬롯이므로 웹 접근이 필요한 Agent에만 각각 바인딩하세요.
+- Brain 검색용 모델은 **AppConfigure**에서 별도로 지정합니다. 사이트 범위의 `brain.embedding_model`은 전체 Agent의 벡터 검색에 쓰이고, 각 테넌트의 `brain.rerank_model`은 해당 테넌트의 재정렬(rerank)에 쓰입니다. embedding 모델을 비워 두면 벡터 검색이 비활성화되고, rerank 모델을 비워 두면 융합(fusion) 검색 순위가 그대로 유지됩니다. 자세한 내용은 [Brain](../brain/)을 참조하세요.
 
-“느리게 느껴지는” 에이전트는 대개 실제로 하는 작업에 비해 너무 무거운 `primary`가 바인딩된 경우입니다.
+응답이 유독 느리게 느껴지는 Agent는 실제 업무 난도에 비해 지나치게 무거운 모델이 `primary`에 바인딩되어 있는 경우가 많습니다.
 
 ## 환경 변수에서 credential 순환
 
-Worker 환경 변경은 현재 실행 중인 턴이 아니라 **다음 턴**부터 적용됩니다. 따라서:
+Worker 환경 변수 변경 사항은 지금 돌고 있는 턴이 아니라 **다음 턴**부터 반영됩니다. 따라서 자격 증명을 교체할 때는 다음 순서를 따르세요.
 
-1. Console의 **Environment variables**에 새 값을 입력하고 저장하세요.
-2. 진행 중인 턴이 끝나도록 두세요 — 이미 자체 환경을 가지고 있습니다.
-3. 새 메시지를 보내 새 값이 적용되었는지 확인하세요.
+1. Console의 **Environment variables**에서 새 값을 입력하고 저장합니다.
+2. 현재 실행 중인 턴이 있다면 끝날 때까지 기다립니다(해당 턴은 이미 시작 시점의 환경을 물고 있습니다).
+3. 새 메시지를 보내 바뀐 값이 정상 적용되었는지 확인합니다.
 
-저장 당시 실행 중이던 턴으로 시크릿 변경을 판단하지 마세요. 그 턴은 새 값을 보지 못합니다.
+저장 버튼을 누르기 전부터 실행 중이던 턴의 결과를 보고 시크릿 교체가 안 되었다고 오해하지 마세요. 진행 중인 턴에는 새 값이 전달되지 않습니다.
 
 ## 암호화된 값은 필요할 때만 공개
 
-credential을 순환하려면 교체 값을 입력하세요. 확인만 하려고 이전 값을 공개하지 마세요. **Reveal**은 문제를 진단하기 위해 현재 값을 검사해야 할 때만 선택하세요.
+자격 증명을 교체할 때는 이전 값을 먼저 열어 볼 필요 없이 새 값을 바로 입력해 덮어쓰면 됩니다. **Reveal** 기능은 장애 원인을 진단하기 위해 현재 저장된 값을 직접 대조해야 할 때만 제한적으로 사용하세요.
 
 ## 멈춘 턴 복구
 
-멈춘 것처럼 보이는 턴은 대개 Ankole이 아니라 모델이나 제공자를 기다리는 것입니다. 무엇이든 취소하기 전에:
+턴이 멈춘 것처럼 보일 때 실제 원인은 Ankole 내부가 아니라 업스트림 모델 응답 지연이나 외부 도구 대기인 경우가 대부분입니다. 성급하게 취소하기 전에 다음 순서로 확인하세요.
 
-1. `/api/v2/ai-gateway/conversations`에서 턴의 최근 모델 호출을 확인하세요 — 긴 공백이 있으면 제공자가 지연의 원인입니다.
-2. worker 로그에서 진행 중인 tool call을 확인하세요 — 느린 도구는 멈춘 턴처럼 보입니다.
-3. 턴이 진짜로 꼬인 경우에만 에이전트의 세션을 steer하거나 턴이 타임아웃되도록 둘 수 있습니다. 백그라운드 Job의 취소는 `POST /api/v2/background-agent-jobs/:id/cancel`이며, 진행 중인 턴은 끝까지 완료됩니다.
+1. `/api/v2/ai-gateway/conversations`에서 해당 턴의 최근 모델 호출 기록을 확인합니다. 호출 후 응답까지 긴 공백이 있다면 모델 공급자 측 지연입니다.
+2. Worker 로그에서 현재 실행 중인 도구 호출이 있는지 살펴봅니다. 외부 명령이나 도구가 느리게 돌고 있으면 턴 전체가 멈춘 것처럼 보입니다.
+3. 턴이 실제로 잘못된 방향에 빠졌을 때만 세션에 steer 메시지를 보내거나 타임아웃되도록 두세요. 백그라운드 Job을 취소할 때는 `POST /api/v2/background-agent-jobs/:id/cancel`을 호출하며, 이때도 현재 실행 중인 턴은 안전하게 마무리된 뒤 종료됩니다.
 
-공격적으로 취소하는 것이 운영자가 절반만 된 부수 효과를 만드는 방법입니다.
+원인을 확인하지 않고 강제로 취소부터 하면 외부 작업의 부수 효과가 어정쩡하게 중간에서 끊긴 상태를 만들게 됩니다.
 
 ## 바인딩을 조용히 비활성화
 
-`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name`은 하드 삭제가 아니라 *비활성화*입니다 — 구성은 복구 가능한 상태로 유지됩니다. 설정을 잃지 않고 에이전트를 채널에서 조용히 만들고 싶을 때(자격 증명이 폐기된 경우, 휴일, 사고) 사용하세요. `PATCH`로 다시 활성화합니다.
+`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` 호출은 영구 삭제가 아니라 **비활성화**로 동작하므로 기존 설정이 그대로 보존됩니다. 토큰 폐기나 연휴, 장애 대응 등으로 기존 구성을 잃지 않은 채 특정 채널의 수신만 잠시 멈추고 싶을 때 유용하며, 나중에 `PATCH` 요청으로 다시 활성화할 수 있습니다.
 
 ## 업그레이드 전에는 매번 백업
 
-Helm 롤백은 데이터베이스 마이그레이션을 되돌리지 않습니다. 매 업그레이드 전에 컨트롤 플레인 PostgreSQL 데이터베이스와 구성된 전용 `BASE_DB_URLS` 샤드 데이터베이스를 `pg_dump`로 백업하고, 배포 부트스트랩 시크릿(`ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`)도 함께 보관하세요. 업그레이드 전 이 짧은 작업이 “롤백됨”과 “백업에서 복원, 하루를 잃음”의 차이를 만듭니다. 명령은 [Backup and restore](../backup-and-restore/)를 참조하세요.
+Helm 롤백을 실행하더라도 이미 적용된 데이터베이스 마이그레이션까지 되돌려지지는 않습니다. 따라서 업그레이드 전에는 매번 제어 플레인 PostgreSQL 데이터베이스와 전용 `BASE_DB_URLS` 샤드 데이터베이스들을 `pg_dump`로 백업하고, 배포 부트스트랩 시크릿(`ANKOLE_SECRET_BASE`, `RELEASE_COOKIE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`)도 함께 챙겨 두세요. 업그레이드 직전의 이 짧은 백업 하나가 깔끔한 복구로 끝날지, 하루 종일 복구 작업에 매달릴지를 가릅니다. 구체적인 명령은 [Backup and restore](../backup-and-restore/)를 참조하세요.
 
 ## 올바른 영구 문서 조정
 
-Agent의 책임이 불분명하면 `MISSION.md`를 편집하세요. 커뮤니케이션 또는 판단이 잘못되었으면 `SOUL.md`를 편집하세요. 웹 페이지, 슬라이드, 문서, 차트에 일관된 시각 스타일이 없으면 `DESIGN.md`를 편집하세요. 각 파일은 하나의 관심사를 소유하므로 비주얼 디자인 시스템에 동작 규칙을 넣지 마세요.
+Agent의 담당 역할과 업무 범위가 모호하면 `MISSION.md`를 다듬고, 말투나 판단 방식이 어긋나면 `SOUL.md`를 수정하세요. 생성하는 웹 페이지, 슬라이드, 문서, 차트에 일관된 시각 스타일을 입히고 싶다면 `DESIGN.md`를 편집하면 됩니다. 세 문서는 각기 다른 관심사를 담당하므로 디자인 가이드 파일에 행동 수칙을 섞어 적지 마세요.
 
 ## DingTalk 에이전트당 로봇 하나
 
-DingTalk은 엄격한 제약을 적용합니다: 에이전트당 활성화 바인딩 하나, `clientId`당 에이전트 하나. 확장한다면 에이전트마다 로봇 하나를 계획하세요. 동일한 에이전트의 두 번째 바인딩은 `dingtalk_binding_already_exists`로 실패합니다. 다른 에이전트에서 `clientId`를 재사용하면 `dingtalk_app_already_bound`로 실패합니다. 설정은 [Quickstart](../quickstart/#chat-channels)를 참조하세요.
+DingTalk 연동에는 에이전트당 활성 바인딩 하나, 그리고 `clientId`당 에이전트 하나라는 엄격한 제약이 적용됩니다. 에이전트 수를 늘릴 때는 에이전트마다 전용 로봇을 하나씩 따로 준비하세요. 같은 에이전트에 두 번째 DingTalk 바인딩을 추가하면 `dingtalk_binding_already_exists` 오류가 나고, 다른 에이전트에 이미 연결된 `clientId`를 재사용하면 `dingtalk_app_already_bound` 오류가 반환됩니다. 자세한 설정 방법은 [Quickstart](../quickstart/#chat-channels)를 참조하세요.
 
 ## Teams는 항상 공개 엔드포인트 필요
 
-Teams는 긴 연결이 아니라 Bot Framework 웹훅 호출로 전달합니다. Teams 봇이 작동을 멈추면 가장 먼저 확인할 것은 공개 HTTPS 엔드포인트입니다 — 인증서 만료, DNS 변경, 인그레스 다운타임 모두 “봇이 응답을 멈췄다”처럼 보입니다. Lark, Slack, DingTalk는 긴 연결을 사용하므로 짧은 엔드포인트 중단을 견디지만 Teams는 그렇지 않습니다.
+Microsoft Teams는 아웃바운드 장기 연결 대신 Bot Framework의 인바운드 웹훅 호출로 메시지를 전달합니다. 따라서 Teams 봇이 갑자기 응답하지 않을 때 가장 먼저 점검할 곳은 공개 HTTPS 엔드포인트입니다. TLS 인증서 만료, DNS 레코드 변경, 인그레스 순단 모두 겉으로는 “봇이 대답을 멈췄다”는 증상으로 나타납니다. 장기 연결을 쓰는 Lark, Slack, DingTalk은 짧은 인그레스 장애에도 영향받지 않지만 Teams는 즉시 영향을 받습니다.
 
 ## 다음 단계
 
-- Console 인터페이스 참조에 대해서는 [Console API reference](../console-api/)를 읽으세요.
-- 환경 노브에 대해서는 [Environment variables](../environment-variables/)를 읽으세요.
-- kit 명령에 대해서는 [kit CLI reference](../kit-cli/)를 읽으세요.
+- Console API 전체 경로는 [Console API reference](../console-api/)를 참조하세요.
+- 배포 환경 변수 목록은 [Environment variables](../environment-variables/)를 참조하세요.
+- 로컬 개발용 `kit` 명령어는 [kit CLI reference](../kit-cli/)를 참조하세요.

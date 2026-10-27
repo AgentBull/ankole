@@ -1,22 +1,23 @@
 # Discord Adapter
 
-The Discord Adapter connects one Discord bot to one Agent binding. Discord is a
-consumer IM. The category changes catalog and Console presentation only; the
-adapter uses the same Signals and Conversations contracts as every other Signal adapter.
+The Discord Adapter connects one Discord bot application to one Agent binding.
+Although Discord belongs to the `consumer_im` catalog category—which affects
+only Console and catalog grouping—it implements the exact same Signals and
+Conversations contracts as every other messaging adapter.
 
-Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+See [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Authentication](../Authentication.md) for the
-common message and identity rules.
+[Authentication](../Authentication.md) for the shared messaging and identity
+contracts.
 
 ## Provider and Public Identity
 
-The adapter reports an opaque `provider_conversation_id` and a
-`provider_message_id`. Conversations resolves these to a shared public
-Conversation UUID and Message UUID. All Agent observers of the same provider
-conversation in one tenant read those same public facts. Each participating
-Agent has its own `conversation:<public UUID>` Session; a Binding is its
-observation and delivery route, not the owner of the platform room.
+On inbound events, the adapter reports an opaque `provider_conversation_id` and
+`provider_message_id`, which `Conversations` resolves to a shared public
+Conversation UUID and Message UUID. Every Agent observing that Discord channel
+or thread within the same tenant reads those shared public records while running
+in its own `conversation:<public UUID>` Session—a Binding defines an observation
+and delivery route rather than owning the Discord channel.
 
 ## Current IDs and Features
 
@@ -29,208 +30,192 @@ observation and delivery route, not the owner of the platform room.
 | REST client | Project `Req` client against API v10 |
 | Gateway client | `IMTransport.WebSocket` through the Discord socket |
 
-The only setting is the required encrypted `botToken`. One token can belong to
-only one enabled Discord binding. Its client returns Discord message IDs for
-durable reply checkpoints, and its gateway owner advances the session sequence
-only after Conversations accepts the event.
+Configuration consists of a single required encrypted field, `botToken`, which
+can belong to at most one enabled Discord binding. The REST client returns
+Discord message IDs for durable reply checkpoints, and the Gateway owner
+advances its session sequence watermark only after `Conversations` durably
+accepts (or explicitly ignores) each event.
 
-The adapter supports all three group modes: `addressed_only`, `observe_all`,
-and `may_intervene`. The last two also need the privileged message-content
-intent described below.
-
-Inbound capabilities are `entry_receive`, `reaction_add`, `reaction_remove`,
-and `action_event`. The adapter does not declare `entry_removed`, and it does
-not convert `MESSAGE_UPDATE` into a new entry.
-
+All three group-message policies are supported: `addressed_only`, `observe_all`,
+and `may_intervene` (the latter two require Discord's privileged Message Content
+Intent, described below). Inbound capabilities are `entry_receive`,
+`reaction_add`, `reaction_remove`, and `action_event`; the adapter neither
+declares `entry_removed` nor turns `MESSAGE_UPDATE` frames into new entries.
 Outbound capabilities are `post_entry`, `reply_entry`, `edit_entry`,
-`delete_entry`, `add_reaction`, `remove_reaction`, `divider`, and `card`. The
-adapter does not declare `outbound_reconciliation`.
+`delete_entry`, `add_reaction`, `remove_reaction`, `divider`, and `card`,
+without `outbound_reconciliation`.
 
 ## Connect through the Gateway
 
-Each enabled binding has one supervised gateway owner that runs one shard. A
-bot large enough to need more shards needs a different placement contract than
-one binding to one connection.
+Each enabled binding supervises a single Gateway owner running one shard (bots
+large enough to require multi-shard partitioning fall outside this single-socket
+binding contract).
 
-Before it connects, the owner reads three REST facts: `GET /users/@me` for the
-bot identity, `GET /applications/@me` for the application flags, and `GET
-/gateway/bot` for the socket URL. It then opens the websocket, answers `HELLO`
-with `IDENTIFY`, and starts the heartbeat timer with the jitter Discord asks
-for. A heartbeat that Discord does not answer means the connection is a zombie,
-so the owner replaces it.
+Before opening the WebSocket, the owner runs three REST preflight checks—`GET /users/@me`
+for bot identity, `GET /applications/@me` for application flags, and
+`GET /gateway/bot` for the Gateway URL—then connects, answers `HELLO` with
+`IDENTIFY`, and schedules heartbeats with Discord's requested jitter. If Discord
+stops acknowledging heartbeats, the owner treats the socket as a zombie and
+replaces it.
 
-Discord has no per-event acknowledgement. The client stores the sequence number
-of the last event it handled, and a `RESUME` replays everything after it. The
-owner therefore advances the sequence only after ingress durably accepted the
-event or the adapter explicitly ignored it. Each queued event keeps the gateway
-session that received it, so an old task cannot move a new session's sequence.
-The owner keeps received events across a dropped connection, and Signals
-deduplicates replayed events with its durable source keys.
+Because Discord's Gateway has no per-event ACK—relying instead on `RESUME` to
+replay everything after the client's last stored sequence number—the owner
+updates its sequence number only after ingress commits or explicitly drops an
+event. Queued events carry the Gateway session ID that delivered them so an
+older session's worker task can never advance a newer session's sequence, while
+`Signals` deduplicates any replayed events on durable source keys across socket
+reconnects.
 
-Event handling runs in one supervised task at a time. The owner keeps reading
-frames and answering heartbeats while that task runs, because a slow ingress or
-a large attachment download would otherwise miss a heartbeat. The local queue
-holds at most 1,000 events. At that limit, the owner sheds the queued events
-that a resume will replay, keeps the in-flight event and events from an older
-session, and reconnects so Discord replays from the last confirmed sequence
-instead of growing memory without a bound.
+Event processing runs sequentially in a single supervised task while the Gateway
+owner continues reading frames and answering heartbeats, preventing slow ingress
+writes or large attachment downloads from starving heartbeats. To bound memory,
+the local queue caps at 1,000 events: if the queue fills, the owner drops queued
+events that `RESUME` can replay, preserves the in-flight task plus any events
+from an earlier unresumable session, and reconnects so Discord replays from the
+last confirmed sequence number.
 
-Close codes divide into three groups. `4004`, and `4010` through `4014`, need
-an operator to change the token or the Developer Portal, so the owner stops
-reconnecting, reports the reason, and retries the preflight after five minutes,
-which keeps it far below the daily `IDENTIFY` budget. `4007` and `4009`
-invalidate the session but keep the token, so the owner identifies again. Every
-other close resumes. Ordinary reconnect backoff doubles from one second to a
-maximum of one minute and resets on `READY` or on the next durably handled
-event, not on the resume handshake alone.
+Gateway close codes trigger three distinct recovery paths:
 
-The connection reconciler reads the current enabled bindings. A token change
-replaces the old owner, and a disabled or deleted binding stops its owner. A
-control-plane restart rebuilds the owners from binding state.
+- **Operator-action codes (`4004`, `4010`–`4014`):** require fixing the bot
+  token or Developer Portal settings, so the owner halts reconnect loops,
+  surfaces the error reason, and re-runs preflight only every five minutes to
+  stay well within Discord's daily `IDENTIFY` budget.
+- **Session-invalidating codes (`4007`, `4009`):** keep the token valid while
+  discarding the Gateway session, so the owner reconnects with a fresh
+  `IDENTIFY`.
+- **All other closes:** reconnect with `RESUME`, doubling backoff from 1 second
+  up to 1 minute and resetting backoff only after `READY` or the next durably
+  processed event—not on the `RESUME` handshake alone.
+
+The connection reconciler tracks enabled bindings: rotating `botToken` replaces
+the running owner, disabling or deleting a binding stops it, and control-plane
+restarts rebuild active owners from persisted binding rows.
 
 ## Request Intents Honestly
 
-The adapter asks for `GUILD_MESSAGES`, `GUILD_MESSAGE_REACTIONS`,
-`DIRECT_MESSAGES`, and `DIRECT_MESSAGE_REACTIONS`. It keeps no channel cache,
-so it does not ask for `GUILDS`.
+The Gateway handshake requests `GUILD_MESSAGES`, `GUILD_MESSAGE_REACTIONS`,
+`DIRECT_MESSAGES`, and `DIRECT_MESSAGE_REACTIONS`, omitting `GUILDS` because the
+adapter maintains no local channel cache.
 
-`MESSAGE_CONTENT` is privileged. Discord closes the connection with `4014` when
-a client asks for a privileged intent that the application does not have, so
-the adapter adds that bit only after the preflight sees the
-`GATEWAY_MESSAGE_CONTENT` flag on the application. Without the intent, Discord
-delivers guild messages that do not mention the bot with empty content, and the
-adapter skips them instead of mirroring blank entries. A binding in that state
-still works, but only for direct messages and addressed guild messages.
+Because Discord closes the socket with `4014` whenever a bot requests an
+unapproved privileged intent, the adapter sets the `MESSAGE_CONTENT` bit only
+when `GET /applications/@me` confirms `GATEWAY_MESSAGE_CONTENT`. Without that
+flag, Discord strips message text from unmentioned guild messages; the adapter
+skips those empty payloads rather than mirroring blank entries, leaving direct
+messages and @-mentioned guild messages working normally. To use `observe_all`
+or `may_intervene` in guild channels, enable **MESSAGE CONTENT INTENT** in the
+Discord Developer Portal.
 
-To use `observe_all` or `may_intervene` in a guild, enable **MESSAGE CONTENT
-INTENT** for the application in the Discord Developer Portal.
-
-Discord sends component interactions to an HTTP endpoint instead of the gateway
-when the application has an **Interactions Endpoint URL**. Messages still
-arrive, so the adapter does not block on this, but buttons in an Agent reply
-never reach Ankole.
+If an operator configures an **Interactions Endpoint URL** in the Developer
+Portal, Discord routes button clicks over HTTP instead of the Gateway WebSocket:
+chat messages continue arriving over the Gateway, so the connection stays up,
+but interactive buttons on Agent replies will not reach Ankole.
 
 ## Receive Messages
 
-The adapter accepts direct messages and guild channels. A thread has its own
-`provider_conversation_id`, so it resolves to a separate public Conversation.
-That provider identity includes the bot user ID and Discord channel ID. Each
-participating Agent has its own Session in that Conversation. A message
-without `guild_id` is a direct message; every other message is a group message.
+The adapter handles both direct messages (events without `guild_id`) and guild
+channels or threads. Because each Discord thread gets its own
+`provider_conversation_id`—combining the bot user ID and the Discord
+channel/thread ID—threads map to separate public Conversations, with each
+participating Agent running in its own Session.
 
-A direct message is explicit input. In a guild, these forms are explicit:
-
-- a mention of the current bot;
-- a reply to a message from the current bot.
-
-Conversations applies the binding's group mode to other guild messages. The
-adapter accepts only Discord `DEFAULT` and `REPLY` message types, and it ignores
-its own messages, other bots, webhook posts, and system notices. A message must
-have visible text after bot mention removal or a real attachment. Sticker-only,
-embed-only, and mention-only messages do not create blank turns.
-
-Discord renders a bot mention as `<@id>` markup inside the content. The adapter
-removes that markup so the Agent reads the line the human wrote.
+Direct messages always count as explicit input; in guilds, @-mentioning the
+current bot or replying to one of its messages counts as explicit input, while
+other guild messages follow the binding's group-message policy. Only Discord
+`DEFAULT` and `REPLY` message types are accepted—the adapter ignores its own
+posts, other bots, webhooks, and system notices, strips `<@id>` bot-mention
+markup so the Agent reads clean user prose, and drops sticker-only, embed-only,
+or mention-only messages that have neither remaining text nor a file attachment.
 
 ## Admit Discord Identities
 
-The author provider is always `discord`, and the stable external identity is
-the Discord user snowflake. Username and global name are display hints. They
-are not identity keys or verified contact information.
+Inbound authors use provider namespace `discord` keyed by the immutable Discord
+user snowflake; `username` and `global_name` serve purely as display hints
+rather than identity keys or verified contact fields.
 
-The binding owns `unmatched_sender_policy` (`manual_review` or
-`create_standalone`). With `manual_review`, an unmatched addressed sender
-receives the fixed mapping notice while `Conversations.IdentityAdmission`
-creates a mapping request without storing the original message; an administrator
-can then bind the Discord external identity to any existing human Principal.
-With `create_standalone`, `Conversations.IdentityAdmission` creates a human
-Principal and binds the Discord user ID.
+Each binding's `unmatched_sender_policy` (`manual_review` or
+`create_standalone`) governs unknown senders:
+
+- `manual_review`: sends the localized mapping notice to an unmatched addressed
+  sender while `Conversations.IdentityAdmission` records a mapping request
+  (without persisting the original message) so an administrator can bind that
+  Discord snowflake to an existing Human Principal.
+- `create_standalone`: provisions a new Human Principal and binds the Discord
+  snowflake automatically.
 
 ## Materialize Attachments
 
-Conversations first commits the admitted message with a pending attachment
-projection. The adapter then downloads the CDN bytes, stores them in the file
-service ([Files](../Files.md)), and updates the same entry. An unmatched sender
-cannot make Ankole download a file.
-
-Discord serves attachments without a documented size ceiling, so Ankole applies
-its own budget of 25 MB. For a larger file, the adapter keeps the provider file
-metadata and a clear `provider_download_limit` restriction. It does not create
-a local path or claim that the Agent can read the file.
+For admitted messages with attachments, `Conversations` first commits the entry
+with pending attachment metadata—ensuring unmapped senders never trigger CDN
+downloads—and the adapter then fetches the file from Discord's CDN, writes it to
+the file service ([Files](../Files.md)), and finalizes the entry. Because
+Discord enforces no single global CDN download cap, Ankole enforces a 25 MB per-file
+budget: larger attachments retain their provider metadata alongside a
+`provider_download_limit` marker without creating a local file path or claiming
+local readability.
 
 ## Send Replies and Actions
 
-The adapter uses Discord message IDs as provider message IDs. It can post, reply,
-edit, delete, add or remove a reaction, send a divider, and render a card. It
-sends file attachments as one multipart request whose `payload_json` part
-carries the message and whose `files[n]` parts carry the bytes, so text and
-attachments arrive as one message. A reply sets `fail_if_not_exists` to false,
-so a reply to an already deleted message posts as an ordinary message instead
-of failing. Message create and edit requests disable all Discord mention
-parsing, so Agent text cannot notify a user, role, or everyone by accident.
+Using Discord message snowflakes as `provider_message_id`, the adapter supports
+posting, replying (`fail_if_not_exists: false`, so replying to a deleted target
+gracefully posts a standalone message), editing, deleting, adding and removing
+reactions, posting dividers, and rendering interactive cards. Outbound files
+upload in a single `multipart/form-data` request combining `payload_json` and
+`files[n]` parts so text and attachments appear in one Discord message, and all
+create and edit calls disable Discord mention parsing (`allowed_mentions`) so
+Agent prose can never accidentally ping users, roles, or `@everyone`.
 
-A mutable Agent reply owns one or more Discord messages, split at the 2000
-character limit. After each provider mutation, the adapter stores the current
-message IDs and presentation in the source Signal checkpoint. A restart can
-therefore continue by editing the same messages. A terminal reply updates that
-surface instead of posting a second final answer. A checkpointed message that
-Discord no longer has is not an error: the human deleted it, and the reply
-continues by posting the chunk again.
+Mutable streaming replies own one or more Discord messages split at Discord's
+2,000-character limit. After every create or edit, the adapter checkpoints the
+active message IDs and rendered presentation on the source Signal so a restarted
+node resumes editing the same messages in place, and terminal delivery updates
+that existing surface instead of posting a duplicate answer. If a user deletes
+one of the checkpointed preview messages (`404`), the adapter recovers cleanly
+by posting a fresh message for that chunk.
 
-A button carries a `custom_id` of at most 100 bytes. The token identifies an
-action in the durable checkpoint; it does not contain the full action. Discord
-shows the human an error banner if the interaction callback does not arrive
-within three seconds. The owner starts the deferred acknowledgement as soon as
-the gateway frame arrives, even when an earlier message is still processing.
-Durable action handling stays in gateway order: it resolves the token, maps the
-Discord user to a Principal, checks the binding and message, and submits the
-standard signal.action.invoked stimulus. A stale token therefore produces no
-visible change, which is the correct outcome for an action the reply already
-replaced.
-
-Buttons fill action rows of at most five buttons, and one message carries at
-most five rows. Actions past that budget are dropped instead of sent in a
-request Discord would reject whole.
+Interactive card buttons pack into at most five action rows of up to five
+buttons each (dropping excess actions rather than sending a payload that Discord
+would reject outright). Each button's `custom_id` (capped at 100 bytes) carries
+a compact lookup token rather than the full action payload. Because Discord
+displays an interaction failure banner if a click is not acknowledged within
+3 seconds, the Gateway owner dispatches a deferred interaction ACK as soon as
+the frame arrives—even while an earlier message is still running—and then
+processes the click in Gateway sequence order: resolving the checkpoint token,
+mapping the clicking Discord snowflake to a Principal, verifying the binding and
+message, and emitting `signal.action.invoked` (stale tokens from superseded
+replies quietly no-op).
 
 ## Failures and Secrets
 
-Discord does not give message creation an idempotency key, and this adapter
-does not reconcile an uncertain send. A transport or server failure can mean
-that Discord accepted a request before the connection failed. The adapter
-returns `unknown` for that case and for a partially sent multi-message reply.
-Conversations does not make an unsafe automatic retry. A delete or an edit of
-a message that is already gone is the outcome the intent asked for, so `404`
-on those two operations is a success.
+Because Discord message creation lacks caller-supplied idempotency keys and the
+adapter does not reconcile uncertain sends, a transport drop or `5xx` error
+during `POST`—or partway through a multi-chunk reply, or on a `2xx` response
+missing a message ID—returns `unknown` so `Conversations` avoids unsafe
+automatic retries. By contrast, edits, deletes, and reaction mutations are
+idempotent and retryable on network or `5xx` failures, and `404` on edit or
+delete counts as success because the target message is already gone. HTTP `429`
+rate limits are retryable as well, rounding Discord's fractional-second
+`retry_after` upward so sub-second waits still pause; auth/permission errors
+require operator intervention, and `4xx` validation errors fail permanently.
 
-Edits, deletes, and reaction changes are safe to repeat, so a transport or
-server failure on those operations is retryable. A successful message
-create that has no message ID is unknown because Ankole cannot checkpoint it
-without risking a duplicate.
-
-Rate-limit responses are retryable. Discord reports `retry_after` in fractional
-seconds, and the adapter rounds it up so that a sub-second limit still waits.
-Authentication and permission failures require operator action. A confirmed
-invalid request is permanent.
-
-AppConfigure encrypts the bot token. The token does not enter connection
-status, logs, persisted errors, or stored raw provider payloads. The gateway
-`IDENTIFY` and `RESUME` payloads carry the token itself, which is why the
-adapter reads it directly for the handshake and nowhere else. Public status
-contains only safe bot identity, session state, the intent fact, queue depth,
-and bounded error classification.
+`AppConfigure` stores `botToken` encrypted at rest. The adapter reads the raw
+token only when building Gateway `IDENTIFY` and `RESUME` frames and HTTP
+authorization headers—never logging or persisting it in connection status, error
+records, or raw payloads—exposing only bot identity, session state, granted
+intents, queue depth, and bounded error codes in public status views.
 
 ## Tests
 
-Repository tests cover declaration validation, token ownership, the intent and
-close-code taxonomy, payload classification, preflight blocking, rate-limit
-delay, token rotation, ordered resume, prompt interaction acknowledgement,
-message and reaction projection, identity policies, the 25 MB limit, attachment
-storage in the file service, replay deduplication, card actions,
-outbound request construction, mention suppression, and uncertain sends. Real
-Discord acceptance needs an operator bot token that the repository does not
-contain.
+Automated tests cover plugin declaration validation, single-binding token
+ownership, Gateway intent and close-code handling, payload normalization,
+preflight backoff, `retry_after` rounding, token rotation, ordered `RESUME`
+replay, immediate interaction ACKs, message and reaction projection, sender
+identity policies, the 25 MB attachment ceiling, file-service writes, replay
+deduplication, button tokens, multipart/mention-safe outbound requests, and
+`unknown` send classification. Live Discord end-to-end tests require an operator
+bot token outside the repository.
 
-The implementation sources are:
+Implementation paths:
 
 - `plugins/discord_adapter/lib/ankole/plugins/discord_adapter.ex`
 - `plugins/discord_adapter/lib/ankole/plugins/discord_adapter/`

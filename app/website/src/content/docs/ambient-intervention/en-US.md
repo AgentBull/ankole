@@ -5,58 +5,58 @@ section: User guide
 order: 17
 ---
 
-When **May intervene** is enabled — either through the group message mode on a [signal binding](../signal-bindings/) for an external channel or through an Agent participant's `may_intervene` policy in a native **Pod Chat** group thread — the Agent sees group messages that do not address it and routes each batch of new human messages. Silence is the default. A useful batch can instead start a bounded reply, identify new work, or update one active background job.
+When **May intervene** is enabled for a group conversation, the Agent observes messages that do not explicitly address it and evaluates each incoming batch of human messages. You can enable this mode either through the group message mode on an external channel's [signal binding](../signal-bindings/) or through an Agent participant's `may_intervene` policy in a native **Pod Chat** group thread. Silence is the default; when a batch warrants action, the Agent can post a bounded reply, take on new work, or forward the messages to an active background job.
 
-Group behavior in this mode depends on two controls: conversation `standing_orders` and the group intervention setting (the Signal Binding configuration for external channels, or per-Agent `may_intervene` in Pod Chat group threads, which operate without a Signal Binding).
+Group behavior in this mode is governed by two settings: conversation `standing_orders` and the group intervention toggle (configured on the Signal Binding for external channels, or via per-Agent `may_intervene` in Pod Chat group threads, which run without a Signal Binding).
 
 ## Each message is judged once
 
-Each Agent keeps its own judgment progress for a Conversation. Agents in the same group Conversation share messages and standing orders, but they do not share judgment progress. Only **human** messages trigger ambient checks — Agent messages never wake Agents. Each check judges only the messages that arrived after the last check; older messages appear only as background and are never re-evaluated. A message the Agent decided to leave alone does not suddenly get answered several rounds later.
+Each Agent maintains its own evaluation cursor for a Conversation, so multiple Agents in the same group share messages and standing orders without sharing judgment progress. Only **human** messages trigger ambient checks—Agent messages never wake other Agents. On each check, the recognizer evaluates only the human messages that arrived since its previous cursor; older messages appear strictly as background context and are never re-evaluated. As a result, a message that the Agent chose to leave alone will not suddenly receive an answer several turns later.
 
-Every judgment records its action, authorization source, and reason. A background handoff also records its exact target. When the Agent seems too quiet or too eager, operators can inspect the selected route instead of guessing.
+Every judgment records its chosen route, authorization source, and reasoning—plus the exact target job for background handoffs—so when an Agent seems too quiet or too talkative, operators can inspect the recorded route instead of guessing.
 
 ## Four routes
 
-- **No action (`NOOP`)** keeps the Agent silent. This is the usual result for chatter, acknowledgements, duplicated answers, or work already handled by a person.
-- **Foreground reply (`FOREGROUND_REPLY`)** starts one concise visible turn for an answer, clarification, coordination, status report, or small bounded lookup. This route cannot create or respawn a background job.
-- **New work (`NEW_WORK`)** identifies a distinct, substantive task. A direct human request or a matching standing order authorizes the normal owner turn. Human-triggered turns run under the **`Human ∩ Agent` permission intersection** (`interactive_principal = waking_human`), so both the waking human and the Agent must hold permission for each accessed resource. Without either authorization source, the Agent can only ask whether it should take the work on; it gets no tools and cannot start a job in that confirmation turn.
-- **Handoff (`HANDOFF`)** silently sends the new messages to one matching live background job from the same Agent, owner Session, and Conversation (and the same binding when triggered from an external channel). An ambiguous or incomplete candidate set cannot produce a handoff.
+- **No action (`NOOP`)** — keeps the Agent silent, which is the standard outcome for side chatter, acknowledgements, duplicate answers, or requests that a person has already handled.
+- **Foreground reply (`FOREGROUND_REPLY`)** — opens a single concise visible turn to answer a quick question, clarify context, coordinate, report status, or run a small bounded lookup. Turns on this route cannot create or respawn background jobs.
+- **New work (`NEW_WORK`)** — identifies a distinct, substantive task. When backed by a direct human request or a matching standing order, Ankole starts a normal owner turn; human-triggered turns run under the **`Human ∩ Agent` permission intersection** (`interactive_principal = waking_human`), so both the waking human and the Agent must hold permission for every resource accessed. If neither authorization source is present, the Agent runs a tool-free confirmation turn that can only ask whether it should take on the work, without starting a job.
+- **Handoff (`HANDOFF`)** — silently forwards the new messages to a single matching live background job belonging to the same Agent, owner Session, and Conversation (and the same Signal Binding when triggered from an external channel). If candidate matching is ambiguous or incomplete, Ankole skips the handoff.
 
-The recognizer never creates a background job. It only selects the route and authorization source. The normal owner turn still applies the usual approval and background-work rules.
+The ambient recognizer itself never spawns a background job; it only selects the route and authorization source, leaving the owner turn to enforce normal approval and background-work rules.
 
 ## Replies attach to the person who asked
 
-When the Agent decides to speak, it separates two cases:
+When the Agent decides to speak, it distinguishes between two cases:
 
-- **Someone is asking it** — one of the new messages actually asks or addresses the Agent, even without an @ mention. Its reply then anchors to that message: on channels that support it, this renders as a quote reply or a thread reply, so the room can see whom it is answering.
-- **Volunteering** — nobody addressed it, but the Agent judges that adding information helps now (or a standing order matched). The reply goes out as a normal group message.
+- **Someone is asking it** — one of the new messages asks or addresses the Agent, even without an `@` mention. The Agent anchors its reply to that message, which renders as a quote reply or thread reply on platforms that support it so everyone in the room can see whom the Agent is answering.
+- **Volunteering** — nobody addressed the Agent directly, but adding context helps right now (or a standing order matched). The Agent posts its reply as a regular group message.
 
-The attribution is validated: the identified ask must exist in the judged batch, come from a human, and its author must still be the latest speaker. The Agent does not dig up an old question after the room has moved on; that case degrades to a normal proactive reply. If the platform later deletes an accepted ask, the stored attribution becomes degraded with no message anchor. The judgment and its progress remain.
+Ankole validates reply attribution before anchoring: the identified question must belong to the evaluated batch, come from a human, and come from the latest speaker in the room. If the conversation has already moved on, the Agent does not reach back to anchor an older question; instead, the reply degrades to a normal proactive group message. Similarly, if the external platform later deletes an accepted source message, Ankole clears the message anchor and marks the stored attribution as degraded while keeping the judgment record and cursor intact.
 
 ## Channel standing orders
 
-Standing orders are one durable policy text attached to a Conversation and shared by its Agent participants. They tell the Agent when to speak proactively in that room. Examples:
+Standing orders are a single durable policy text attached to a Conversation and shared across all of its Agent participants, telling Agents when to speak up proactively in that room. Examples:
 
 - "Only speak when CI turns red or a deploy fails."
 - "After 18:00, when someone posts a daily report, summarize it; stay quiet otherwise."
 - "This is a customer group. Do not join unless someone asks a technical question directly."
 
-**You set them by telling the Agent in the channel.** Any channel member can say "from now on, only speak here when CI turns red"; the Agent stores it as this channel's standing orders and records who asked. A change is a full replacement: when you ask it to amend the orders, it stores the complete new text. Say "clear this channel's standing orders" to remove them.
+**You set them by telling the Agent directly in the channel.** Any channel member can say, "From now on, only speak here when CI turns red," and the Agent saves that policy as the channel's standing orders along with who set it. Every update replaces the full text—when you ask the Agent to amend the orders, it writes the complete updated version—and saying "clear this channel's standing orders" removes them.
 
-Standing orders reach two places: the route judgment treats them as the operator policy of the room and can use a semantic match to authorize `NEW_WORK`, while a visible owner turn also sees them in its context.
+Standing orders feed into two places: the ambient recognizer evaluates them as the room's operator policy (allowing a semantic match to authorize `NEW_WORK`), and any visible owner turn also receives them in its prompt context.
 
-Two boundaries:
+Keep two boundaries in mind:
 
-- **They activate only in May intervene mode.** When May intervene is off (under another Signal Binding mode on an external channel, or when `may_intervene` is disabled for the Agent participant in a Pod Chat group thread), the text is stored on the Conversation (`standing_orders`) but remains inert, and the Agent reports that it is inactive after saving. Enabling May intervene activates it immediately.
-- One orders text holds at most 4000 characters.
+- **They activate only in May intervene mode.** When May intervene is off—under another Signal Binding mode on an external channel, or when `may_intervene` is disabled for the Agent participant in a Pod Chat group thread—Ankole stores the text on the Conversation (`standing_orders`) in an inert state, and the Agent notes in its confirmation reply that the orders are currently inactive. Enabling May intervene activates the stored orders immediately.
+- Standing orders hold at most 4000 characters per Conversation.
 
-The Console can also read and write standing orders; see the `/api/v2/conversations/:conversation_id/standing-orders` endpoints in the [Console API reference](../console-api/).
+Operators can also read and update standing orders through the Console; see the `/api/v2/conversations/:conversation_id/standing-orders` endpoints in the [Console API reference](../console-api/).
 
 ## Still speaking too much or too little
 
-- **Too much**: tighten or clear the standing orders first, then tighten the Agent's role instructions; for a group that only needs question-and-answer behavior, switch an external channel's binding back to **Addressed messages only** or disable `may_intervene` for that Agent participant in a Pod Chat group thread.
-- **Too little**: confirm that May intervene is enabled (on the external channel's Signal Binding or on the Agent participant's `may_intervene` setting in Pod Chat), and give the conversation one explicit standing order — the judgment defaults to conservative, and without orders the Agent speaks only when someone actually needs it.
-- **Orders saved but nothing changes**: read the Agent's reply after it saves the orders — it reports whether they are active. Inactive means May intervene is not enabled on the external channel's Signal Binding or on that Agent participant in the Pod Chat group thread.
+- **Too much**: tighten or clear the channel's standing orders first, then refine the Agent's role instructions. If a room only needs direct question-and-answer replies, switch an external channel's binding back to **Addressed messages only** or disable `may_intervene` for that Agent participant in a Pod Chat group thread.
+- **Too little**: verify that May intervene is enabled (on the external channel's Signal Binding or on the Agent participant's `may_intervene` setting in Pod Chat), and add an explicit standing order—ambient judgment defaults to conservative silence unless someone clearly needs help or a standing order matches.
+- **Orders saved but nothing changes**: check the Agent's reply when it saved the orders, which reports whether they are active. If reported as inactive, enable May intervene on the external channel's Signal Binding or on that Agent participant in the Pod Chat group thread.
 
 ## Next steps
 

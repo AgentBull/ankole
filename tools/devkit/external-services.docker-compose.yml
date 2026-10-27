@@ -29,7 +29,7 @@ services:
       retries: 30
 
   function-runtime:
-    image: ankole-function-runtime:dev
+    image: ${ANKOLE_DEV_FUNCTION_RUNTIME_IMAGE:-ankole-function-runtime:dev}
     build:
       context: ../..
       dockerfile: app/function_runtime/Dockerfile

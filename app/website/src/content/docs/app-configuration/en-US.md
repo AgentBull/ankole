@@ -5,56 +5,48 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure** contains settings that an administrator can change while the deployment instance is in service. Examples include conversation-history compaction, Agent limits, directory synchronization intervals, and plugin switches.
-
-LLM Providers, Identity Providers, chat channels, and environment variables have their own Console pages. Do not configure them again here.
+In **Console → AppConfigure**, administrators can adjust runtime settings while the deployment instance stays online—including conversation-history compaction, Agent execution limits, directory synchronization intervals, and plugin switches. Dedicated Console pages manage LLM Providers, Identity Providers, chat channels, and Worker environment variables, so do not configure those resources here.
 
 ## AppConfigure and environment variables
 
-AppConfigure settings are stored in PostgreSQL. They control Ankole product behavior while the instance runs. Most changes apply to later work and do not require a new deployment.
-
-[Deployment environment variables](../environment-variables/) start the control plane and PostgreSQL and configure the Worker backend. Restart the affected process after you change one.
-
-Use [Agent environment variables](../worker-env/) when a Skill, command-line tool, or MCP service needs a custom value such as an API key.
+Ankole stores AppConfigure settings in PostgreSQL to govern product behavior while the instance runs; most changes apply to subsequent work without requiring a redeployment. By contrast, [deployment environment variables](../environment-variables/) bootstrap the control plane, PostgreSQL, and the Worker backend, so you must restart the affected process after changing one. When a Skill, CLI tool, or MCP service needs a custom value such as an API key, configure [Agent environment variables](../worker-env/) instead.
 
 ## Find a setting
 
-The page groups related settings. You can search by key or description, or open a group to see its settings together.
+AppConfigure groups related settings together. Search by key name or description, or expand a group to inspect its settings side by side.
 
-Each row has one of these states:
+Each row appears in one of three states:
 
-- **Editable:** open the row and change it here.
-- **Read-only:** the row shows current state but cannot be changed here.
-- **Managed elsewhere:** follow the management link to the Console page that owns the setting.
+- **Editable:** open the row and update the value directly.
+- **Read-only:** view the current runtime state; the value cannot be edited here.
+- **Managed elsewhere:** follow the link to the dedicated Console page that owns the setting.
 
-The key is the stable name of the setting. Its description explains what it controls and which unit a number uses.
+Each row displays its stable key alongside a description explaining what the setting controls and what unit numeric fields expect.
 
 ## Understand scope and source
 
-Settings have **Site** or **Tenant** scope. Site keys control shared infrastructure. Tenant keys control the selected tenant's behavior. The Console shows site defaults and tenant overrides separately; Agent overrides are not supported.
+Every key has either **Site** or **Tenant** scope: site keys govern shared deployment infrastructure, while tenant keys govern behavior for the selected tenant. The Console displays site defaults and tenant overrides separately; per-Agent overrides are not supported in AppConfigure.
 
-A site key resolves its stored value, then the version default. A tenant key resolves the tenant override, then a site default for that key, then the version default. **Reset to default** removes the override at the selected scope. The source column shows which value applies.
+When resolving a site key, Ankole checks for a stored site value first and falls back to the compiled version default. When resolving a tenant key, Ankole checks the tenant override first, then any stored site default for that key, and finally the version default. Selecting **Reset to default** removes the override at the selected scope, and the **Source** column shows which layer currently applies.
 
 ## Change a setting
 
 1. Open the setting or setting group.
 2. Read the field descriptions and confirm the scope and units.
-3. Change the necessary values and save.
-4. Return to the list and confirm that the row shows an override.
+3. Update the values you need and save.
+4. Return to the list and confirm that the row indicates an active override.
 
-Common settings use a dedicated form. Some advanced settings use a JSON editor. Keep the existing field structure and do not remove fields that you do not understand.
-
-Most changes apply to later work. If the page says that a change applies at the next start, restart the control plane at a suitable time.
+Common settings provide a structured form, whereas advanced composite settings open in a JSON editor—keep the existing object structure intact and leave unfamiliar fields unchanged. Most updates apply immediately to subsequent work; if the UI notes that a key takes effect on next boot, restart the control plane during a suitable maintenance window.
 
 ## Reset a setting
 
-When you do not need a custom value, open the setting and select **Reset to default**. This removes the override at the selected scope and makes Ankole use the default declared by the installed version.
+To return a setting to its built-in default, open the row and select **Reset to default**. Ankole deletes the stored override at the selected scope and falls back to the default declared by the installed version.
 
-Resetting is different from entering the current default as a custom value. A reset follows a changed default in a later version. A stored custom value does not.
+Resetting differs from manually saving today's default number as a custom value: a reset key automatically adopts updated defaults in future Ankole versions, whereas a stored custom value stays pinned.
 
 ## Current built-in AppConfigure keys
 
-The following AppConfigure keys are built into Ankole. A Control Plane Plugin can register more keys. The **AppConfigure** page in the current instance is the authoritative list.
+Ankole ships with the built-in AppConfigure keys listed below, and Control Plane Plugins can register additional keys. Treat the **AppConfigure** page in your running instance as the authoritative catalog.
 
 ### Agent runtime
 
@@ -86,7 +78,7 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `workflow.max_running_per_agent` | Tenant | Maximum running Workflow tasks across one Agent's runs; default `8`, valid range `1`–`64` |
 | `workflow.max_agent_calls_per_run` | Tenant | Maximum subagent calls that one Workflow can create; default `32`, valid range `1`–`1,024` |
 
-These limits apply to later Workflow work. A run can request a lower concurrency or call limit, but it cannot raise the tenant limit. Read [Workflows](../workflows/) for task behavior and other size boundaries.
+Updates to these keys apply to newly started Workflow work. An individual run may request a lower concurrency or subagent-call cap, but it cannot exceed the tenant limit. Read [Workflows](../workflows/) for task execution rules and other size bounds.
 
 ### Brain
 
@@ -103,9 +95,9 @@ These limits apply to later Workflow work. A run can request a lower concurrency
 | `brain.self_healing_task_cron` | Tenant | Schedule for rebuilding stale chunk, embedding, and search-index projections |
 | `brain.signal_channel_batch_idle_time` | Tenant | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |
 | `brain.skill_learning_enabled` | Tenant | Enable Skill lesson learning and delivery; when disabled, stored lessons remain but are not supplied |
-| `brain.skill_learning_reflection_threshold` | Tenant | Unconsumed Signal Jobs one Agent must accumulate before Skill lesson reflection starts; minimum `2` |
+| `brain.skill_learning_reflection_threshold` | Tenant | Unconsumed Signal Jobs that one Agent must accumulate before Skill lesson reflection starts; minimum `2` |
 
-Read [Brain](../brain/) for its knowledge behavior and model requirements. Read [Skill lessons](../skill-lessons/) for the lessons that Brain supplies with Skills.
+Read [Brain](../brain/) for knowledge behavior and model requirements, and [Skill lessons](../skill-lessons/) for how Brain attaches learned guardrails to Skills.
 
 ### AI Gateway and observability
 
@@ -156,9 +148,9 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 | `worker.rendered_fetch_idle_ttl_ms` | Tenant | Idle lifetime for the built-in `web_fetch` rendered fallback |
 | `security.ssrf_filter` | Site | Whether model-controlled fetches reject private, loopback, link-local, and CGNAT addresses |
 
-Cloud metadata addresses are rejected even when this setting is off.
+Ankole rejects requests to cloud metadata addresses even when `security.ssrf_filter` is disabled.
 
-`agent_computer.worker.ready_timeout` controls recovery of observed unready instances. Set idle release in provider YAML with `idleReleaseAfter`. See [Workers](../worker-management/).
+`agent_computer.worker.ready_timeout` governs how long the control plane waits on an observed unready Worker before rebuilding it, whereas idle Worker release is configured per pool via `idleReleaseAfter` in the provider YAML; see [Workers](../worker-management/).
 
 ### First-run state
 
@@ -167,10 +159,8 @@ Cloud metadata addresses are rejected even when this setting is off.
 | `setup.bootstrap_activation_code` | Site, read-only | Temporary activation code for the first-run setup page |
 | `setup.completed` | Site, read-only | Whether this instance has completed first-run setup |
 
-The first-run setup flow owns these keys. To read the activation code, run `kit show bootstrap-activation-code`. Do not edit these keys on the AppConfigure page.
+The first-run `/setup` flow manages both keys automatically. To read the activation code from the terminal, run `kit show bootstrap-activation-code`; never edit these keys on the AppConfigure page.
 
 ## Encrypted settings
 
-Ankole stores credential settings in encrypted form and shows a mask in the list and editor. Saving the mask keeps the current value. Entering new content replaces it.
-
-Use **Reveal** only when you must check the current value. Do not copy a revealed credential into chat, screenshots, or tickets.
+Ankole encrypts secret settings at rest and displays a mask in both the list and editor. Saving the masked placeholder preserves the current value, whereas entering new text replaces it. Use **Reveal** only when you actively need to inspect the stored value, and never copy revealed credentials into chat threads, screenshots, or support tickets.

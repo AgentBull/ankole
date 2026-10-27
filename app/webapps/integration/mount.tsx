@@ -118,6 +118,11 @@ const app = setupSurface ? (
           path: '/schedules/new',
           component: ScheduleCronEditorPage
         }),
+        createRoute({
+          getParentRoute: () => regressionNavRoute,
+          path: '/schedules/$agent/$cronID',
+          component: ScheduleCronEditorPage
+        }),
         createRoute({ getParentRoute: () => regressionNavRoute, path: '/library/$uid', component: LibraryTestPage }),
         createRoute({
           getParentRoute: () => regressionNavRoute,
@@ -178,7 +183,7 @@ function RegressionNavigation() {
       <nav aria-label="Regression navigation">
         <Link to="/settings">Settings</Link>
         <Link to="/library/agent-one">Library</Link>
-        <Link to="/schedules/new" search={{ agent: 'agent-one', cron: 'cron-one' }}>
+        <Link to="/schedules/$agent/$cronID" params={{ agent: 'agent-one', cronID: 'cron-one' }}>
           Schedule
         </Link>
       </nav>

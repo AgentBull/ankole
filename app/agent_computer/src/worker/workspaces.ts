@@ -57,7 +57,6 @@ type Workspace = {
   calls: Map<string, Call>
   idleMs: number
   timer?: ReturnType<typeof setTimeout>
-  touchedAt: number
   closing: boolean
   materials?: PreparedExecutionMaterials
   closeBridge?: () => void
@@ -125,7 +124,6 @@ export class Workspaces {
       tools: [],
       calls: new Map(),
       idleMs: safeNumberFromBigInt(input.idleTimeoutMs, 'workspace_open.idle_timeout_ms'),
-      touchedAt: Date.now(),
       closing: false,
       closed,
       finish
@@ -261,7 +259,6 @@ export class Workspaces {
     space.tools = createComputerTools({
       agentHome: paths.home,
       workspaceRoot: workspace,
-      drive,
       workerEnv: space.materials.workerEnv,
       runtimeEnv: space.materials.runtimeEnv
     })
@@ -317,7 +314,6 @@ export class Workspaces {
   }
 
   private touch(space: Workspace): void {
-    space.touchedAt = Date.now()
     if (space.timer) clearTimeout(space.timer)
     if (!this.drain.acceptsTurns && !space.closing && [...space.calls.values()].every(call => call.result)) {
       this.closeInBackground(space)

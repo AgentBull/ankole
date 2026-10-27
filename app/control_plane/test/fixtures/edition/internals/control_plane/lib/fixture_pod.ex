@@ -67,3 +67,10 @@ defmodule Ankole.SaaSWeb.JSONAPIRouter do
     prefix: "/api/v2/saas",
     before_dispatch: {AnkoleWeb.JSONAPI.Context, :before_dispatch, [:site]}
 end
+
+defmodule Ankole.SaaSWeb.SiteJSONAPIRouter do
+  use AnkoleWeb.JSONAPI.Router,
+    scope: :saas_site,
+    domains: [],
+    prefix: "/api/v2/saas-site"
+end

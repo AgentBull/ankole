@@ -5,11 +5,8 @@ export type ProgramRequest = {
   tools?: Tool[]
   memo?: Memo[]
   timeout_ms?: number
-  max_program_bytes?: number
-  max_output_bytes?: number
   max_pending_calls?: number
   max_pending_bytes?: number
-  max_memo_entries?: number
   max_memo_bytes?: number
 }
 
@@ -63,13 +60,7 @@ function ptcWorker(request: ProgramRequest) {
   const tools: Record<string, (args?: unknown) => Promise<unknown>> = {}
   const identities = new Set<string>()
   let nameBytes = 0
-  if (new TextEncoder().encode(request.program).length > capped(request.max_program_bytes, 256 * 1024)) {
-    fail('program_source_limit_exceeded', 'program source exceeded the byte limit')
-  }
-  if (
-    memo.length > capped(request.max_memo_entries, 1024) ||
-    encode(memo) > capped(request.max_memo_bytes, 8 * 1024 * 1024)
-  ) {
+  if (memo.length > 1024 || encode(memo) > capped(request.max_memo_bytes, 8 * 1024 * 1024)) {
     fail('program_memo_limit_exceeded', 'program memo exceeded the entry or byte limit')
   }
   if (bindings.length > 128) fail('program_tool_limit_exceeded', 'program tools exceeded 128 entries')
@@ -129,11 +120,7 @@ function ptcWorker(request: ProgramRequest) {
     activity++
     const text = String(value)
     const bytes = new TextEncoder().encode(text).length
-    if (
-      bytes > (kind === 'image' ? 16384 : 65536) ||
-      output.length >= 256 ||
-      outputBytes + bytes > capped(request.max_output_bytes, 1024 * 1024)
-    ) {
+    if (bytes > (kind === 'image' ? 16384 : 65536) || output.length >= 256 || outputBytes + bytes > 1024 * 1024) {
       fail('program_output_limit_exceeded', 'program output exceeded the part or byte limit')
       throw new Error(failure!.error)
     }

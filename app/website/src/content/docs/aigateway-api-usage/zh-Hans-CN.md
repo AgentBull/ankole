@@ -1,17 +1,17 @@
 ---
 title: AIGateway API 使用
-description: 外部调用方如何使用 AIGateway REST API——OpenResponses 兼容端点、Agent and OIDC Human tokens、无状态与有状态调用、完整示例。
+description: 面向外部调用方的 AIGateway REST API 实用指南：兼容 OpenResponses 的端点、Agent 与 OIDC 人类令牌鉴权、无状态与流式调用示例。
 section: Developer guide
 order: 126
 ---
 
-AIGateway 不只是 worker 调用的内部边界；它是一个外部应用、企业系统和 SDK 可以直接调用的 REST API。本页是调用方使用它的实用指南——端点、鉴权、两种调用模式、完整示例。它以实际调用示例补充 [AIGateway](../ai-gateway/) 概念页。
+AIGateway 不仅是内部 Worker 调用的模型边界，也是一套可直接供外部应用、企业业务系统和各类 SDK 调用的 REST API。本页作为 [AIGateway](../ai-gateway/) 架构文档的实战补充，通过完整请求示例说明外部调用方如何完成鉴权、选择调用模式并访问常用端点。
 
-AIGateway API 兼容 OpenResponses，并按主体隔离数据和权限。调用方出示 Bearer Token（Agent 或 OIDC Human），发送 OpenResponses 格式的请求，再接收 JSON 响应或数据流。Provider 凭证始终由控制面保存，不会暴露给调用方。
+AIGateway API 遵循 OpenResponses 规范，并按调用主体严格隔离数据与权限。调用方只需在请求中出示 Bearer Token（Agent 令牌或 OIDC 人类令牌），发送 OpenResponses 格式的请求，即可接收 JSON 响应或事件流；上游 Provider 的密钥凭证始终保存在控制面内，不会暴露给调用方。
 
 ## 鉴权
 
-`/api/v1/ai-gateway` 下的每次调用需要 bearer token：
+访问 `/api/v1/ai-gateway` 下的任意端点都必须在请求头中携带 Bearer Token：
 
 ```bash
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -20,27 +20,27 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "你好" }'
 ```
 
-接受两种 token：
+网关接受以下两类令牌：
 
-- **Agent token**——范围限定到一个 agent 的模型绑定。集成代表特定 agent 行动时用它。
-- **OIDC 人类 token**——由声明 `ai_gateway.write` 的 OIDC Client 为活跃 Human 签发；请求只能使用该 Client 的模型别名，`subject_type = "oidc_human"`。
+- **Agent Token**：权限范围限定在单个 Agent 的模型绑定内，适用于外部集成代表特定 Agent 发起调用的场景。
+- **OIDC 人类令牌**：由声明了 `ai_gateway.write` 作用域的 OIDC 客户端为活跃人类用户（Human）签发；请求只能使用该客户端配置的模型别名，`subject_type = "oidc_human"`。
 
-获取 OIDC 人类 token：在控制台创建带 `ai_gateway.write` 作用域的 OIDC Client，配置允许的组和模型别名，再通过授权码加 PKCE 登录。需要长期使用时申请 `offline_access`，使用轮换的 Refresh Token。Human 必须属于允许的组，且只能使用 Client 的模型别名，不能使用原始 `provider_id/model` 选择符。
+获取 OIDC 人类令牌的方法：先在控制台中创建带有 `ai_gateway.write` 作用域的 OIDC 客户端，配置允许访问的权限组与模型别名，再通过授权码加 PKCE 流程登录；需要长期调用时可申请 `offline_access`，配合轮换式 Refresh Token 使用。人类用户必须属于客户端允许的权限组，且只能传入客户端公开的模型别名，不能使用原始的 `provider_id/model` 选择符。
 
-Token 怎样解析为主体，见 [主体与 AuthZ](../principal-authz/)。
+关于令牌如何解析为系统主体，请参阅 [主体与 AuthZ](../principal-authz/)。
 
 ## 无状态响应（HTTP 和 SSE）
 
-无状态调用是一次请求、一次响应。发送完整输入；拿回完整响应体：
+无状态调用采用“一次请求、一次响应”模式。提交完整输入后，接口直接返回完整的 JSON 响应体：
 
 ```bash
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{ "model": "primary", "input": "总结这个 thread。", "store": false }'
+  -d '{ "model": "primary", "input": "总结这段对话。", "store": false }'
 ```
 
-流式加 `"stream": true`，同一端点切到 Server-Sent Events：
+如需流式接收生成内容，在请求体中加入 `"stream": true"`，同一端点即切换为 Server-Sent Events（SSE）流：
 
 ```bash
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -49,26 +49,26 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "起草一份发布说明。", "stream": true }'
 ```
 
-无状态 HTTP 和 SSE 拒绝有状态字段（`previous_response_id`、`conversation`、`store`）。续接用 WebSocket 路径。
+无状态 HTTP 与 SSE 请求均拒绝有状态字段（`previous_response_id`、`conversation`、`store`）；如需跨回合持久化续接对话，请改走 WebSocket 端点。
 
 ## 其它端点
 
 | 端点 | 用途 |
 |---|---|
-| `GET /models` | 列出当前可用模型 |
-| `POST /embeddings` | 生成 embedding |
-| `POST /rerank` | 重排文档 |
-| `POST /web_search` | 搜索网页 |
-| `POST /web_fetch` | 抓取网页 |
+| `GET /models` | 列出当前主体可用的模型 |
+| `POST /embeddings` | 生成向量嵌入（Embedding） |
+| `POST /rerank` | 对文档列表重排序 |
+| `POST /web_search` | 搜索公开网页 |
+| `POST /web_fetch` | 抓取网页正文 |
 
-各端点在 [AIGateway](../ai-gateway/) 概念页和对应的 User guide 功能页中分别有说明。
+各端点的详细参数说明请参阅 [AIGateway](../ai-gateway/) 及用户指南中的对应功能页。
 
 ## 本指南不是什么
 
-它不是 AIGateway 概念页——完整路由表、有状态生命周期和错误格式见 [AIGateway](../ai-gateway/)。它也不是 SDK——Ankole 不提供客户端 SDK；调用方用标准 HTTP 客户端访问 REST API。
+本页不是完整的网关协议规范——全量路由表、WebSocket 有状态生命周期与错误码定义请查阅 [AIGateway](../ai-gateway/)。同时，Ankole 也不单独维护专用客户端 SDK，调用方使用任意标准 HTTP 客户端或兼容 OpenResponses 的通用客户端即可直接接入。
 
 ## 下一步
 
-- 完整 AIGateway 面，读 [AIGateway](../ai-gateway/)。
-- Provider 的解析和请求准备，读 [Provider Runtime](../provider-runtime/)。
-- Console API 参考，读 [Console API 参考](../console-api/)。
+- 查阅完整的 AIGateway 路由契约与有状态连接规范，请参阅 [AIGateway](../ai-gateway/)。
+- 了解底层 Provider 的路由解析与请求组装机制，请参阅 [Provider Runtime](../provider-runtime/)。
+- 查阅管理控制台的接口规范，请参阅 [Console API 参考](../console-api/)。

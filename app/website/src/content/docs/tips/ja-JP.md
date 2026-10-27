@@ -1,30 +1,30 @@
 ---
 title: 運用のヒント
-description: Ankole を運用するときに時間を節約できる、検証済みの短い手順 — ログの読み方、Agent のスコープ、secret のローテーション、詰まった Turn からの回復、model profile スロットの調整。
+description: Ankole の日常運用で役立つ実践的なノウハウ — ログ整形、アクティベーションコードの確認、モデルプロファイルの使い分け、シークレットのローテーション、詰まった Turn への対処などをまとめています。
 section: Guides
 order: 308
 ---
 
-ここには、単独のガイドにきれいに収まらないけれど頻繁に出てくる運用テクニックを集めました。各ヒントは短く、Ankole の実際の動作に根ざしており、初めて苦労して発見するよりもコストがかかりません。
+このページでは、個別の機能ガイドには収まりきらないものの、日々の運用で頻繁に役立つ実践的なテクニックをまとめています。いずれも Ankole の実際の動作仕様にもとづいており、トラブル時に手探りで原因を追う手間を大きく減らせます。
 
 ## ローカルで pretty モードのログを読む
 
-control plane は既定で構造化 JSON ログを出力します — 取り込みには向きますが読みにくい。ローカル開発では、devkit の pretty printer にパイプします：
+コントロールプレーンは既定で構造化 JSON ログを出力します。ログ基盤への取り込みには最適ですが、そのまま目視で読むには向きません。ローカル開発時は、devkit の pretty printer にパイプして整形表示できます。
 
 ```bash
 bun run dev   # 1 つのターミナルで
 bun run kit logs pretty < /path/to/log-stream   # またはログファイルをパイプする
 ```
 
-本番では構造化ログをログ収集システムに送信します。pretty printer はローカルで使用します。
+本番環境では構造化 JSON のままログ収集基盤へ送り、ローカル環境での確認にだけ pretty printer を使ってください。
 
 ## バグ調査の前にログレベルを絞る
 
-`ANKOLE_LOG_LEVEL` の既定値は `info` です。特定の再現のために `debug` に下げ、終わったら戻します — `debug` のままのデプロイはうるさく、遅くなります。有効な値は `debug | info | warning | error` で、無効な値はブート時に拒否され、黙って無視されることはありません。
+`ANKOLE_LOG_LEVEL` の既定値は `info` です。特定の事象を再現させて詳しく調べたいときだけ `debug` に変更し、調査が終わったら必ず元の値へ戻してください。`debug` のまま運用を続けるとログ出力が膨大になり、パフォーマンス低下につながります。指定可能な値は `debug | info | warning | error` の 4 つのみで、それ以外の不正な値は黙って無視されることなく起動時にエラーとして拒否されます。
 
 ## ターミナルなしでアクティベーションコードを取得する
 
-`bun dev`（または control-plane コンテナ）のターミナルが見えず、セットアップページがコードを要求する場合：
+初回セットアップ画面でアクティベーションコードの入力を求められたものの、`bun dev`（または `control-plane` コンテナ）の標準出力が手元で見えない場合は、次のコマンドで確認できます。
 
 ```bash
 bun run kit show bootstrap-activation-code          # ローカル
@@ -32,66 +32,66 @@ docker compose logs control-plane | grep "SETUP ACTIVATION CODE"   # Compose
 kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "SETUP ACTIVATION CODE"   # Helm
 ```
 
-データベースからコードを推測しないでください — セットアップフローが実際に使う source から読み取ります。
+データベースの中身を直接覗いて推測しようとせず、セットアップフロー自身が参照している正規の出力経路から確認してください。
 
 ## model profile スロットをダイヤルとして扱う
 
-8 つの組み込み Agent profile スロット、`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate` は、それぞれがダイヤルです：
+Agent に用意されている 8 つの組み込みモデルプロファイル枠（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）は、用途とコストを調整するためのダイヤルとして使い分けます。
 
-- agent が主に短い質問に答えるときは **`primary`** を安い model に下げ、品質が cost より重要なら上げます。
-- **`light`** には本当に安くて速いものをバインドします — これは高頻度・低リスクの経路のために存在します。
-- agent が画像を見る場合にだけ **`vision_fallback`** を設定します。それ以外は未バインドのままにしてスロットを節約します。
-- **`web_search`** と **`web_fetch`** は独立しています — agent が web に触れる必要があるときだけバインドします。
-- Brain の検索モデルは **AppConfigure** で設定します。サイトの `brain.embedding_model` はすべての Agent のベクトル検索に適用され、各テナントの `brain.rerank_model` はそのテナントの rerank に適用されます。embedding モデルが空の場合はベクトル検索が無効になり、rerank モデルが空の場合は融合後の順序を保ちます。詳しくは [Brain](../brain/) を参照してください。
+- **`primary`：** 短い質疑応答が中心の Agent なら軽量で安価なモデルに抑え、コストよりも推論品質が重視される役割なら上位モデルを割り当てます。
+- **`light`：** 高頻度・低リスクの内部処理で使われるため、本当に高速で安価なモデルをバインドしてください。
+- **`vision_fallback`：** Agent に画像を読み取らせる場合にのみ設定し、不要であれば未バインドのままにして枠を空けておきます。
+- **`web_search` と `web_fetch`：** それぞれ独立しているため、外部 Web へのアクセスが必要な Agent にだけバインドします。
+- **Brain の検索モデル：** **AppConfigure** で設定します。サイト単位の `brain.embedding_model` は全 Agent のベクトル検索に使われ、各テナントの `brain.rerank_model` はそのテナント内の再ランキングに使われます。Embedding モデルが未設定の場合はベクトル検索が無効になり、Rerank モデルが未設定の場合は RRF 融合後の順位がそのまま使われます。詳しくは [Brain](../brain/) を参照してください。
 
-「遅い」と感じる agent は、実際に行っている仕事に対して重すぎる `primary` がバインドされていることがよくあります。
+「応答が遅い」と感じる Agent は、実際の業務内容に対してオーバースペックな重量級モデルが `primary` に割り当てられているケースが少なくありません。
 
 ## 環境変数で credential をローテーションする
 
-worker 環境の変更は、実行中の現在の Turn ではなく**次の Turn** で反映されます。つまり：
+Worker 環境変数の変更が反映されるのは、現在進行中の Turn ではなく**次の Turn** からです。ローテーションは次の手順で行います。
 
-1. Console の **環境変数** に新しい値を入力して保存します。
-2. 進行中の Turn を完了させます — その Turn はすでに自分の環境を持っています。
-3. 新しいメッセージを送って、新しい値が反映されていることを確認します。
+1. Console の **環境変数** 画面で新しい値を入力して保存します。
+2. その時点で実行中だった Turn があれば、そのまま最後まで完了させます（すでに起動時の古い環境変数を保持しているためです）。
+3. 新しくメッセージを送り、更新後の値が使われていることを確認します。
 
-保存したときに実行中だった Turn から secret の変更を判断しないでください。その Turn は新しい値を見ません。
+保存ボタンを押した瞬間に走っていた Turn の挙動を見て「シークレットが切り替わっていない」と判断しないでください。その Turn からはまだ新しい値は見えません。
 
 ## 暗号化された値は必要なときだけ表示する
 
-credential をローテーションするには置き換え値を入力します。古い値を確認するためだけに表示しないでください。問題を診断するために現在値を調べる必要があるときだけ **表示** を選択します。
+認証情報をローテーションする際は、古い値をわざわざ画面に表示して確認するのではなく、新しい値をそのまま上書き入力してください。**表示** 機能を使うのは、トラブルシューティングのために現在登録されている値をどうしても確認しなければならない場面だけに留めましょう。
 
 ## 詰まった Turn から回復する
 
-詰まっているように見える Turn は、たいてい Ankole ではなく model か provider を待っています。何かをキャンセルする前に：
+一見フリーズしているように見える Turn も、実際には Ankole 内部の停止ではなく、上流モデルや Provider の応答待ち、あるいは時間のかかるツール実行中であることが大半です。強制キャンセルする前に、まず次の順で原因を切り分けてください。
 
-1. `/api/v2/ai-gateway/conversations` で Turn の最近の model call を確認します — 長い間隔があれば provider がボトルネックです。
-2. worker ログで実行中の tool call を確認します — 遅い tool は詰まった Turn のように見えます。
-3. Turn が本当に固まっている場合だけ、agent の session を導くか、Turn をタイムアウトさせます。background job のキャンセルは `POST /api/v2/background-agent-jobs/:id/cancel` で、実行中の Turn は完了まで走らせます。
+1. `/api/v2/ai-gateway/conversations` で直近のモデル呼び出し履歴を確認します。応答間隔が大きく空いていれば、ボトルネックは Provider 側にあります。
+2. Worker のログで実行中のツール呼び出しを確認します。重いコマンドや外部通信を待つツールは、外からは Turn が詰まっているように見えます。
+3. 本当に処理がスタックしていると確認できた場合にのみ、対象 Session に steer 指示を送るかタイムアウトを待ちます。なお、Background Job を止める `POST /api/v2/background-agent-jobs/:id/cancel` でも、現在実行中の Turn 自体は区切りまで走ってから終了します。
 
-積極的にキャンセルすることが、operator が半分だけ完了した副作用を作る方法です。
+原因を確認せずにすぐ強制キャンセルすると、外部サービスへの書き込みなどの副作用が中途半端な状態で残る原因になります。
 
 ## binding を静かに無効化する
 
-`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` は*無効化*であり、ハード削除ではありません — 設定は回復可能なままです。agent を channel 内で沈黙させたいが設定は失いたくない場合（失効した credential、休暇、インシデント）に使います。再び有効にするには `PATCH` を使います。
+`DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` はデータの完全削除ではなく**無効化（ソフト無効化）**として動作し、設定自体はいつでも復元可能な状態で残ります。認証情報の期限切れ対応、担当者の休暇中、インシデント発生時など、「設定を消さずにチャネル内での反応だけを一時的に止めたい」場面で活用してください。再開するときは `PATCH` で有効状態に戻せます。
 
 ## アップグレード前には毎回バックアップする
 
-Helm のロールバックはデータベース migration を逆転しません。アップグレード前には毎回、コントロールプレーンの PostgreSQL データベースと設定済みの専用 `BASE_DB_URLS` シャードデータベースに `pg_dump` を実行し、ブートストラップ secret（`ANKOLE_SECRET_BASE`、`RELEASE_COOKIE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`）もあわせて保全してください。この 2 分間の作業が「ロールバックした」と「バックアップからリストアして 1 日失った」の違いになります。コマンドは [バックアップとリストア](../backup-and-restore/) を参照してください。
+Helm のロールバックを実行しても、すでに適用されたデータベースマイグレーションまでは自動で巻き戻りません。アップグレード作業の前には毎回、コントロールプレーンの PostgreSQL データベースおよび設定済みの専用 `BASE_DB_URLS` シャードデータベースに対して `pg_dump` を取得し、あわせてブートストラップシークレット（`ANKOLE_SECRET_BASE`、`RELEASE_COOKIE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`）も控えを保全してください。このわずか数分のひと手間が、「数分で切り戻せた」か「リストア復旧に丸一日費やした」かの分かれ目になります。具体的なコマンドは [バックアップとリストア](../backup-and-restore/) を参照してください。
 
 ## 正しい durable ドキュメントを調整する
 
-Agent の責任が不明確なときは `MISSION.md` を編集します。コミュニケーションや判断が間違っているときは `SOUL.md` を編集します。web ページ、スライド、ドキュメント、チャートに一貫したビジュアルスタイルがないときは `DESIGN.md` を編集します。各ファイルは 1 つの関心事を所有するので、ビジュアルデザインシステムに振る舞いのルールを入れないでください。
+Agent の担当範囲や成果物の基準が曖昧なときは `MISSION.md` を編集します。受け答えのトーンや判断姿勢を直したいときは `SOUL.md` を編集します。そして、生成される Web ページ、スライド、ドキュメント、チャートのデザインに統一感を持たせたいときは `DESIGN.md` を編集します。各ファイルはそれぞれ 1 つの明確な責務を担っているため、たとえばデザイン定義用の `DESIGN.md` に業務上の行動ルールを混ぜて書かないようにしてください。
 
 ## DingTalk では agent ごとに 1 つの bot
 
-DingTalk は厳しい制約を強制します。agent ごとに有効な binding は 1 つ、`clientId` ごとに agent は 1 つです。スケールアウトするなら、agent ごとに 1 つの bot を計画してください。同じ agent への 2 つ目の binding は `dingtalk_binding_already_exists` で失敗し、別の agent での `clientId` 再利用は `dingtalk_app_already_bound` で失敗します。セットアップは [Quickstart](../quickstart/#chat-channels) を参照してください。
+DingTalk アダプターには、「1 Agent につき有効なバインディングは 1 つまで」「1 つの `clientId` に紐付けられる Agent は 1 体まで」という厳格な制約があります。複数の Agent を展開する場合は、Agent と同じ数の DingTalk ボットアプリを用意してください。同一 Agent に 2 つ目のバインディングを追加しようとすると `dingtalk_binding_already_exists` エラーになり、別の Agent で同じ `clientId` を使い回そうとすると `dingtalk_app_already_bound` エラーで拒否されます。セットアップ手順は [Quickstart](../quickstart/#chat-channels) を参照してください。
 
 ## Teams は常にパブリックエンドポイントを必要とする
 
-Teams は長い接続ではなく、Bot Framework の webhook 呼び出しとして配信します。Teams の bot が動かなくなったら、最初に確認するのはパブリック HTTPS エンドポイントです。証明書の期限切れ、DNS の変更、ingress のダウンタイムはすべて「bot が返答しなくなった」ように見えます。Lark、Slack、DingTalk は長い接続を使うため、短時間のエンドポイントの瞬断を乗り切れますが、Teams は乗り切れません。
+Microsoft Teams は常時接続ストリームではなく、Bot Framework からの受信 Webhook 呼び出しでメッセージを届けます。そのため、Teams ボットが急に応答しなくなったときに真っ先に点検すべき箇所はパブリック HTTPS エンドポイントです。TLS 証明書の期限切れ、DNS レコードの変更、Ingress の瞬断はいずれも「ボットが急に黙り込んだ」という同じ症状として現れます。常時接続を使う Lark、Slack、DingTalk なら公開エンドポイントの短い瞬断をやり過ごせますが、Teams ではそのまま配信失敗に直結します。
 
 ## 次のステップ
 
-- Console のインターフェースリファレンスについては、[Console API リファレンス](../console-api/) を読んでください。
-- 環境のつまみについては、[環境変数](../environment-variables/) を読んでください。
-- kit のコマンドについては、[kit CLI リファレンス](../kit-cli/) を読んでください。
+- Console API の一覧と仕様については、[Console API リファレンス](../console-api/) を参照してください。
+- 環境変数による設定項目については、[環境変数](../environment-variables/) を参照してください。
+- `kit` CLI の各コマンドについては、[kit CLI リファレンス](../kit-cli/) を参照してください。

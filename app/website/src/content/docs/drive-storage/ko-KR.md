@@ -1,45 +1,45 @@
 ---
 title: 제어면 드라이브 및 객체 저장소 설정
-description: Ankole.ObjectStore(Agent 드라이브, Pod file 페이지, 첨부 파일, 컴파일된 Applet 번들)에 로컬 파일, 클라우드 버킷, 데이터베이스, SFTP, WebDAV를 구성하고 이전과 백업을 수행합니다.
+description: Ankole.ObjectStore(Agent 드라이브, Pod file 페이지, 첨부 파일, 컴파일된 Applet 번들)에 로컬 파일, 클라우드 버킷, 데이터베이스, SFTP, WebDAV를 구성하고 이전 및 백업하는 방법을 설명합니다.
 section: Guides
 order: 318
 ---
 
-`ANKOLE_FILES_STORE`는 제어면 객체 저장소(`Ankole.ObjectStore`)를 구성하며, Agent 드라이브(Worker가 중지되어도 사용 가능), Pod `file` 페이지, Pod 문서/Base/Chat 및 대화 첨부 파일, 컴파일된 Applet 번들을 저장합니다. PostgreSQL은 경로, 권한, 내용 참조를 저장하고 OpenDAL backend는 콘텐츠 주소 기반 blob 바이트를 저장합니다. Ankole은 `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, `webdav`를 지원합니다.
+`ANKOLE_FILES_STORE`는 컨트롤 플레인 객체 저장소(`Ankole.ObjectStore`)를 지정하는 설정입니다. 이곳에는 Worker가 중지되어 있어도 접근 가능한 Agent 드라이브를 비롯해 Pod `file` 페이지, Pod 문서/Base/Chat 및 대화 첨부 파일, 컴파일된 Applet 번들이 저장됩니다. 파일 경로와 권한 및 콘텐츠 참조는 PostgreSQL이 관리하고, 실제 콘텐츠 주소 기반(content-addressed) blob 바이트는 OpenDAL 백엔드가 보관합니다. 지원 백엔드는 `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, `webdav`입니다.
 
-이는 사이트 시작 설정이며 모든 테넌트가 같은 객체 저장소를 사용합니다. WorkerProvider Home, 캐시, Cloudflare R2 백업은 별도 설정입니다. [WorkerProvider](../worker-providers/)와 [파일 관리](../file-management/)를 참조하세요.
+이 설정은 사이트 부팅 시점에 읽히며 사이트 내 모든 테넌트가 동일한 객체 저장소를 공유합니다. WorkerProvider의 Home 볼륨, 캐시, Cloudflare R2 백업은 이와 별도로 구성하며, 자세한 내용은 [WorkerProvider](../worker-providers/)와 [파일 관리](../file-management/)를 참조하세요.
 
 ## backend 선택
 
 | 배포 | `ANKOLE_FILES_STORE` | 구성 |
 | --- | --- | --- |
-| 단일 호스트 또는 제어면 복제본 하나 | `fs` | 영구 volume 또는 로컬 폴더 |
-| AWS S3 | `s3` | 버킷, region, AWS 자격 증명 체인 |
-| Cloudflare R2 | `s3` | S3 API endpoint, region `auto`, R2 자격 증명 |
-| 기타 S3 호환 서비스 | `s3` | endpoint, 서명 region, 자격 증명, 호환성 검증 |
+| 단일 호스트 또는 컨트롤 플레인 복제본 1개 | `fs` | 영속 볼륨 또는 로컬 디렉터리 |
+| AWS S3 | `s3` | 버킷, 리전, AWS 자격 증명 체인 |
+| Cloudflare R2 | `s3` | S3 API 엔드포인트, 리전 `auto`, R2 자격 증명 |
+| 기타 S3 호환 서비스 | `s3` | 엔드포인트, 서명 리전, 자격 증명, 사전 호환성 검증 |
 
-여러 제어면 복제본은 공유 원격 저장소를 쓰고 backend 위치와 root를 일치시키세요. 공식 Helm은 `files.store: fs`에서 복제본 둘 이상을 거부합니다. S3 드라이브는 개별 WorkerProvider의 복제본 제한을 없애지 않습니다.
+컨트롤 플레인 복제본을 여러 개 실행해야 할 때는 공유 원격 저장소를 선택하고 모든 복제본의 백엔드 위치와 루트 경로를 일치시키세요. 공식 Helm 차트에서는 `files.store: fs`일 때 복제본을 둘 이상 설정하면 배포를 거부합니다. 또한 드라이브를 S3에 두더라도 개별 WorkerProvider가 갖는 복제본 제약까지 사라지지는 않습니다.
 
-예약 실행, 채팅 연결, scheduler 하이드레이션 같은 제어면 singleton 프로세스가 단일 노드에서 실행되므로 `controlPlane.replicaCount: 1`로 설정하세요. 공유 원격 저장소는 여러 복제본의 전제 조건일 뿐 단독으로 다중 복제본 구성을 보장하지 않습니다. [제어면 복제본 설명](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)을 참조하세요.
+현재는 예약 작업 실행, 채팅 연결 유지, 스케줄러 하이드레이션 같은 컨트롤 플레인 싱글턴 프로세스가 단일 노드 기준으로 동작하므로 `controlPlane.replicaCount: 1`로 유지하세요. 공유 원격 저장소는 다중 복제본 구성의 필요조건일 뿐, 그 자체만으로 다중 복제본 운영을 보장하지는 않습니다. 자세한 내용은 [컨트롤 플레인 복제본 안내](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)를 참조하세요.
 
 ## 환경 변수
 
 | 변수 | backend | 요구 사항 |
 | --- | --- | --- |
-| `ANKOLE_FILES_STORE` | 전체 | 운영 환경 필수: 지원하는 backend 선택 |
-| `ANKOLE_FILES_FS_ROOT` | `fs` | 제어면 내부의 쓰기 가능한 절대 경로 |
-| `ANKOLE_FILES_S3_BUCKET` | `s3` | 이미 생성한 버킷 이름 |
-| `ANKOLE_FILES_S3_REGION` | `s3` | 필수. AWS는 버킷 region, R2는 `auto` |
-| `ANKOLE_FILES_S3_ENDPOINT` | `s3` | 호환 서비스 endpoint. AWS S3는 보통 생략 |
-| `ANKOLE_FILES_S3_ROOT` | `s3` | 선택적 객체 prefix. 예: `/ankole/production/` |
-| `ANKOLE_FILES_S3_ACCESS_KEY_ID` | `s3` | 선택적 정적 자격 증명. 다음 변수와 함께 설정 |
-| `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | `s3` | 선택적 정적 자격 증명. 이전 변수와 함께 설정 |
+| `ANKOLE_FILES_STORE` | 전체 | 운영 환경 필수: 지원 백엔드 중 하나 선택 |
+| `ANKOLE_FILES_FS_ROOT` | `fs` | 컨트롤 플레인 컨테이너 내부의 쓰기 가능한 절대 경로 |
+| `ANKOLE_FILES_S3_BUCKET` | `s3` | 미리 생성해 둔 버킷 이름 |
+| `ANKOLE_FILES_S3_REGION` | `s3` | 필수. AWS는 버킷 리전, R2는 `auto` |
+| `ANKOLE_FILES_S3_ENDPOINT` | `s3` | 호환 서비스 엔드포인트. AWS S3는 보통 생략 |
+| `ANKOLE_FILES_S3_ROOT` | `s3` | 선택적 객체 접두사(prefix). 예: `/ankole/production/` |
+| `ANKOLE_FILES_S3_ACCESS_KEY_ID` | `s3` | 선택적 정적 자격 증명. 아래 시크릿 키와 함께 설정 |
+| `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | `s3` | 선택적 정적 자격 증명. 위 액세스 키와 함께 설정 |
 
-정적 자격 증명이 없으면 설정된 EKS Pod Identity를 포함한 기본 AWS 자격 증명 체인을 사용합니다. 자격 증명은 제어면에만 제공하세요. Worker는 RuntimeFabric으로 자신의 드라이브에 접근하며 버킷 키는 필요 없습니다. 시작 시 읽는 설정이므로 변경 후 제어면을 다시 시작하세요. 다른 OpenDAL 옵션을 Ankole 환경 변수로 추가하지 마세요.
+정적 자격 증명을 생략하면 EKS Pod Identity를 포함한 기본 AWS 자격 증명 체인을 사용합니다. 스토리지 자격 증명은 컨트롤 플레인에만 부여하세요. Worker는 RuntimeFabric을 거쳐 자신의 드라이브에 접근하므로 버킷 키가 필요하지 않습니다. 이 변수들은 프로세스 시작 시에만 읽히므로 값을 바꾼 뒤에는 컨트롤 플레인을 재시작해야 하며, 표에 없는 임의의 OpenDAL 옵션을 Ankole 환경 변수로 추가해서는 안 됩니다.
 
 ## 추가 OpenDAL backend
 
-환경 변수는 `ANKOLE_FILES_<SCHEME>_<FIELD>` 형식이며 backend와 필드 이름은 대문자입니다. Azure Blob에는 `ANKOLE_FILES_STORE=azblob`, `ANKOLE_FILES_AZBLOB_CONTAINER`, `ANKOLE_FILES_AZBLOB_ENDPOINT`가 필요합니다. 아래는 Ankole이 제공하는 전체 필드입니다. 필수 값이 없거나 비어 있으면 시작에 실패합니다.
+추가 백엔드의 환경 변수는 `ANKOLE_FILES_<SCHEME>_<FIELD>` 형식을 따르며 백엔드 이름과 필드 이름은 모두 대문자로 표기합니다. 예를 들어 Azure Blob을 쓰려면 `ANKOLE_FILES_STORE=azblob`, `ANKOLE_FILES_AZBLOB_CONTAINER`, `ANKOLE_FILES_AZBLOB_ENDPOINT`를 설정합니다. 아래 표는 Ankole이 노출하는 전체 필드 목록이며, 필수 필드가 빠져 있거나 빈 값이면 컨트롤 플레인 부팅이 실패합니다.
 
 | backend | 필수 필드 | 선택 필드 |
 | --- | --- | --- |
@@ -53,13 +53,13 @@ order: 318
 | `sftp` | `ENDPOINT` | `ROOT`, `USER`, `KEY`, `KNOWN_HOSTS_STRATEGY` |
 | `webdav` | `ENDPOINT` | `ROOT`, `USERNAME`, `PASSWORD`, `TOKEN` |
 
-자격 증명은 제어면 Secret에 저장하세요. GCS `CREDENTIAL`은 Base64 인코딩한 자격 증명 JSON이며 `CREDENTIAL_PATH`는 원본 JSON 파일 경로입니다. 명시적 자격 증명이 없으면 상위 Google 자격 증명 체인을 사용합니다. SFTP는 제어면 이미지의 `ssh`를 사용하며 `KEY`는 개인 키 파일 경로입니다. 호스트 검증 기본값은 `strict`이므로 제어면 사용자의 `~/.ssh/known_hosts`를 구성하세요. WebDAV는 Basic 자격 증명 또는 bearer `TOKEN`을 지원합니다.
+민감한 자격 증명은 컨트롤 플레인 Secret에 보관하세요. GCS의 `CREDENTIAL`에는 Base64로 인코딩한 서비스 계정 JSON을 넣고 `CREDENTIAL_PATH`에는 원본 JSON 파일 경로를 지정하며, 둘 다 생략하면 기본 Google 자격 증명 체인을 따릅니다. SFTP는 컨트롤 플레인 이미지 내장 `ssh`를 사용하며 `KEY`에는 개인 키 파일 경로를 지정합니다. 호스트 키 검증 기본값이 `strict`이므로 컨트롤 플레인 실행 계정의 `~/.ssh/known_hosts`를 미리 구성해 두어야 합니다. WebDAV는 Basic 인증 자격 증명 또는 Bearer `TOKEN`을 지원합니다.
 
-D1과 PostgreSQL에는 기존 테이블이 필요합니다. D1에는 `TEXT` 기본 키와 `BLOB` 값을, PostgreSQL에는 `TEXT` 기본 키와 `BYTEA` 값을 사용하고 `TABLE`, `KEY_FIELD`, `VALUE_FIELD`로 이름을 지정하세요. Ankole은 테이블을 만들지 않습니다. D1, PostgreSQL, WebDAV는 native backend에서 전체 객체를 버퍼링합니다. D1의 [문자열, BLOB, 행 제한은 2,000,000바이트](https://developers.cloudflare.com/d1/platform/limits/)이며 Ankole은 객체를 여러 행으로 분할하지 않습니다. 큰 파일에는 버킷 backend를 사용하세요.
+D1과 PostgreSQL 백엔드를 쓸 때는 대상 테이블을 미리 만들어 두어야 합니다(Ankole이 자동 생성하지 않음). D1에는 `TEXT` 기본 키와 `BLOB` 값 컬럼을, PostgreSQL에는 `TEXT` 기본 키와 `BYTEA` 값 컬럼을 두고 `TABLE`, `KEY_FIELD`, `VALUE_FIELD`로 각각의 이름을 지정하세요. D1, PostgreSQL, WebDAV는 네이티브 백엔드 계층에서 객체 전체를 메모리에 버퍼링합니다. 특히 D1은 [문자열·BLOB·행 크기 상한이 2,000,000바이트](https://developers.cloudflare.com/d1/platform/limits/)이며 Ankole이 객체를 여러 행으로 쪼개 저장하지 않으므로, 대용량 파일을 다루어야 한다면 버킷 기반 백엔드를 선택하세요.
 
-SFTP는 객체와 같은 디렉터리의 임시 파일에 쓴 뒤 닫고 이름을 바꿉니다. 서버는 OpenSSH `posix-rename` 같은 원자적 교체를 지원해야 합니다. 제어면이 중간에 종료되면 `blobs/<digest>.<uuid>.tmp`가 남을 수 있습니다. 모든 쓰기 프로세스를 중지한 유지보수 시간에 삭제하세요.
+SFTP 백엔드는 대상 객체와 같은 디렉터리에 임시 파일을 기록한 뒤 파일을 닫고 이름을 바꾸는 방식으로 동작하므로, SFTP 서버가 OpenSSH `posix-rename` 같은 원자적 이름 변경을 지원해야 합니다. 쓰기 도중 컨트롤 플레인이 비정상 종료되면 `blobs/<digest>.<uuid>.tmp` 형태의 임시 파일이 남을 수 있는데, 모든 쓰기 프로세스를 내린 점검 시간에 정리하면 됩니다.
 
-Helm에서는 `files.store`로 backend를 선택하고 일반 변수는 `controlPlane.extraEnv`, 자격 증명 변수는 `secrets.existingSecret`에 넣으세요. Chart는 이 Secret을 제어면과 migration 환경에 로드합니다. 같은 Secret의 파일은 제어면의 `/etc/ankole/bootstrap`에 읽기 전용으로 마운트합니다. SSH 키 권한과 `known_hosts`는 uid 10001에 맞게 구성하세요. Compose에서는 아래 override 방법으로 선택한 backend의 변수를 두 서비스에 전달하세요. 배포 전에 읽기, 쓰기, 교체, 삭제, 큰 파일 전송을 검증하세요.
+Helm 환경에서는 `files.store`로 백엔드를 고르고 일반 변수는 `controlPlane.extraEnv`에, 자격 증명 변수는 `secrets.existingSecret`에 넣으세요. 차트는 해당 Secret을 컨트롤 플레인과 마이그레이션 Job 환경 양쪽에 주입하며, 같은 Secret의 항목들을 컨트롤 플레인 컨테이너의 `/etc/ankole/bootstrap` 아래에 읽기 전용 파일로도 마운트합니다. SSH 키 권한과 `known_hosts`는 컨테이너 실행 계정인 uid `10001`에 맞춰 구성하세요. Docker Compose에서는 아래 오버라이드 방식에 따라 선택한 백엔드 변수를 `migrate`와 `control-plane` 두 서비스 모두에 전달하고, 운영 전환 전에 읽기·쓰기·덮어쓰기·삭제·대용량 전송을 반드시 검증하세요.
 
 ## 로컬 폴더와 영구 volume
 
@@ -68,9 +68,9 @@ ANKOLE_FILES_STORE=fs
 ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files
 ```
 
-경로는 제어면 프로세스 내부 경로입니다. 컨테이너에는 영구 저장소를 mount해야 삭제 후 파일을 잃지 않습니다. 공식 이미지의 uid/gid 10001에 생성, 쓰기, 이름 변경, 삭제 권한이 필요합니다. `fs`는 루트 아래 `.tmp`도 만듭니다.
+위 경로는 컨트롤 플레인 프로세스 내부에서 바라보는 경로입니다. 컨테이너가 재생성되어도 파일이 사라지지 않도록 반드시 영속 볼륨을 마운트해야 하며, 공식 이미지 실행 계정인 uid/gid `10001`에 디렉터리 생성·쓰기·이름 변경·삭제 권한이 부여되어 있어야 합니다. `fs` 백엔드는 지정한 루트 아래에 `.tmp` 작업 폴더도 함께 생성합니다.
 
-공식 Compose는 `files_data`를 `/var/lib/ankole/files`에 mount합니다. 호스트 폴더는 먼저 만들고 uid/gid 10001 쓰기 권한을 준 뒤 override로 바꾸세요.
+공식 Compose 파일은 기본적으로 `files_data` 명명 볼륨을 `/var/lib/ankole/files`에 마운트합니다. 호스트 디렉터리를 직접 바인드 마운트하려면 먼저 폴더를 생성하고 uid/gid `10001` 쓰기 권한을 부여한 뒤 오버라이드 파일로 교체하세요.
 
 ```yaml
 services:
@@ -79,9 +79,9 @@ services:
       - ./ankole-files:/var/lib/ankole/files
 ```
 
-기존 사이트는 원래 파일 저장소를 먼저 복사하세요. 빈 폴더를 mount해도 이전 volume 내용은 자동 이전되지 않습니다.
+운영 중인 사이트의 마운트 경로를 바꿀 때는 기존 파일 저장소의 데이터를 먼저 새 폴더로 복사하세요. 빈 호스트 폴더를 마운트해도 기존 볼륨의 파일이 자동으로 옮겨지지는 않습니다.
 
-Helm 로컬 저장소 설정:
+Helm에서 로컬 영속 볼륨을 쓰는 설정 예시는 다음과 같습니다.
 
 ```yaml
 controlPlane:
@@ -94,11 +94,11 @@ files:
     # existingClaim: YOUR_EXISTING_FILES_PVC
 ```
 
-Chart는 파일 PVC를 생성 또는 인계하고 `/var/lib/ankole/files`에 mount합니다. Chart가 만든 PVC는 uninstall 후 유지됩니다. 기존 PVC도 권한과 백업 요건을 충족해야 합니다. Agent Home은 다른 저장소를 씁니다.
+차트는 파일 전용 PVC를 새로 생성하거나 지정한 기존 PVC를 인계받아 `/var/lib/ankole/files`에 마운트합니다. 차트가 생성한 PVC는 릴리스를 삭제(uninstall)하더라도 자동 삭제되지 않고 보존됩니다. 기존 PVC를 연결할 때도 동일한 권한 및 백업 요건을 갖추어야 하며, Agent Home은 이 볼륨과 별개의 스토리지를 사용합니다.
 
 ## AWS S3
 
-비공개 버킷을 만들고 선택한 prefix의 읽기, 쓰기, 삭제, multipart upload 권한을 제어면 신원에 부여하세요. KMS 암호화를 쓰면 KMS 권한도 필요합니다.
+비공개 버킷을 생성한 뒤 지정한 prefix 아래에서 읽기, 쓰기, 삭제, 멀티파트 업로드를 수행할 수 있는 IAM 권한을 컨트롤 플레인 실행 신원에 부여하세요. 버킷에 KMS 암호화를 적용했다면 관련 KMS 키 권한도 함께 필요합니다.
 
 ```dotenv
 ANKOLE_FILES_STORE=s3
@@ -107,9 +107,9 @@ ANKOLE_FILES_S3_REGION=ap-southeast-1
 ANKOLE_FILES_S3_ROOT=/ankole/production/
 ```
 
-AWS workload identity는 Ankole 정적 자격 증명 변수를 생략할 수 있습니다. 정적 자격 증명은 `ANKOLE_FILES_S3_ACCESS_KEY_ID`와 `ANKOLE_FILES_S3_SECRET_ACCESS_KEY`를 모두 배포 Secret에 제공하세요.
+AWS 워크로드 신원(EKS Pod Identity 등)을 사용하면 정적 키 환경 변수를 생략할 수 있습니다. 정적 키를 사용할 때는 `ANKOLE_FILES_S3_ACCESS_KEY_ID`와 `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` 두 값을 모두 배포 Secret에 넣어 전달하세요.
 
-Helm 예시:
+Helm 설정 예시:
 
 ```yaml
 files:
@@ -120,11 +120,11 @@ files:
     root: /ankole/production/
 ```
 
-`secrets.existingSecret`으로 두 S3 변수를 가진 bootstrap Secret을 참조할 수 있습니다. 이 Secret에는 배포에 필요한 DB 자격 증명(`DATABASE_URL` 및 내장 PostgreSQL 활성화 시 `POSTGRES_PASSWORD`), 원래 `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, `RELEASE_COOKIE`도 모두 포함되어야 합니다. Chart는 `secrets.filesS3AccessKeyID`와 `secrets.filesS3SecretAccessKey`도 허용합니다. 실제 키를 values 파일에 커밋하지 마세요.
+`secrets.existingSecret`으로 두 S3 키가 담긴 부트스트랩 Secret을 참조할 수 있습니다. 이때 해당 Secret에는 데이터베이스 자격 증명(`DATABASE_URL` 및 내장 PostgreSQL 사용 시 `POSTGRES_PASSWORD`), 원래 `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, `RELEASE_COOKIE`도 빠짐없이 함께 들어 있어야 합니다. 차트에서 `secrets.filesS3AccessKeyID`와 `secrets.filesS3SecretAccessKey` 값을 직접 받을 수도 있으나, 평문 시크릿을 `values` 파일에 커밋하지는 마세요.
 
 ## Cloudflare R2와 기타 S3 호환 서비스
 
-R2도 `s3` backend를 사용합니다.
+Cloudflare R2 역시 `s3` 백엔드로 연결합니다.
 
 ```dotenv
 ANKOLE_FILES_STORE=s3
@@ -136,13 +136,13 @@ ANKOLE_FILES_S3_ACCESS_KEY_ID=YOUR_R2_ACCESS_KEY_ID
 ANKOLE_FILES_S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 ```
 
-R2 S3 API 자격 증명과 계정의 S3 API endpoint를 사용하세요. 공개 버킷 도메인이나 Worker URL이 아닙니다. region `auto`와 지원 작업은 [R2 S3 API 호환성](https://developers.cloudflare.com/r2/api/s3/api/)을 참조하세요. Helm은 `files.s3.endpoint`, `files.s3.region`, `files.s3.root`를 사용합니다.
+이때 공개 버킷 도메인이나 Cloudflare Worker URL이 아니라 계정의 S3 API 전용 엔드포인트와 R2 S3 API 자격 증명을 입력해야 합니다. `auto` 리전 설정과 호환 API 범위는 [R2 S3 API 호환성 문서](https://developers.cloudflare.com/r2/api/s3/api/)를 참조하세요. Helm에서는 `files.s3.endpoint`, `files.s3.region`, `files.s3.root` 필드를 사용합니다.
 
-MinIO 등도 `s3`로 실제 endpoint와 서명 region을 설정합니다. S3 호환이라는 선언만으로 검증을 대신할 수 없습니다. 읽기, 쓰기, 삭제, multipart upload, 큰 파일 전송을 확인하세요. 제공하는 backend와 시작 필드는 이 페이지의 표를 참조하세요. S3 virtual-host addressing과 사용자 지정 서명 설정은 제공하지 않습니다. 상위 [S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)를 참조할 수 있습니다.
+MinIO 등 다른 S3 호환 스토리지도 `s3` 백엔드에 실제 엔드포인트와 서명 리전을 지정해 연결합니다. 다만 벤더가 S3 호환을 표방한다는 이유만으로 검증을 생략하지 말고, 읽기·쓰기·삭제·멀티파트 업로드·대용량 파일 전송이 정상 동작하는지 직접 확인하세요. Ankole이 지원하는 백엔드와 시작 변수는 이 문서의 표에 정리된 항목이 전부이며, S3 가상 호스트 주소 방식(virtual-hosted-style) 전환이나 사용자 지정 서명 옵션은 별도로 노출하지 않습니다. 내부 동작은 상위 [OpenDAL S3 백엔드 문서](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)를 참고할 수 있습니다.
 
 ## Compose에서 S3 사용
 
-공식 Compose는 YAML에 `fs`를 고정하므로 `.env`의 `ANKOLE_FILES_STORE=s3`만으로 바뀌지 않습니다. `compose.files-s3.yaml` 같은 override를 만들고 migration과 제어면에 같은 설정을 전달하세요. 다음은 정적 자격 증명 예시입니다.
+공식 `compose.yaml`에는 `ANKOLE_FILES_STORE: fs`가 명시되어 있으므로 `.env`에 `ANKOLE_FILES_STORE=s3`만 적어서는 설정이 바뀌지 않습니다. `compose.files-s3.yaml` 같은 오버라이드 파일을 만들어 `migrate`와 `control-plane` 서비스 양쪽에 동일한 S3 변수를 주입하세요. 정적 자격 증명을 쓰는 예시는 다음과 같습니다.
 
 ```yaml
 x-files-environment: &files-environment
@@ -160,30 +160,30 @@ services:
     environment: *files-environment
 ```
 
-`.env` 또는 배포 환경에 값을 설정하세요. 새 사이트는 다음 명령으로 시작할 수 있습니다. 기존 사이트는 다음 절의 객체 이전을 먼저 완료하세요.
+`.env` 또는 배포 환경에 실제 변수 값을 채운 뒤, 신규 사이트라면 아래 명령으로 바로 시작하면 됩니다(운영 중인 사이트라면 먼저 다음 절의 객체 이전 절차부터 완료하세요).
 
 ```sh
 docker compose -f compose.yaml -f compose.files-s3.yaml up -d
 ```
 
-이후 `run`, `exec`, 업그레이드, Home 가져오기에도 두 `-f`를 모두 사용하세요. AWS 자격 증명 체인은 override에서 정적 자격 증명 두 항목을 제거하고 실제 workload identity를 컨테이너에 제공하세요.
+이후 `run`, `exec`, 버전 업그레이드, Home 가져오기 명령을 실행할 때도 항상 두 `-f` 플래그를 함께 지정해야 합니다. AWS 기본 자격 증명 체인을 쓸 때는 오버라이드 파일에서 정적 키 두 줄을 빼고 컨테이너에 워크로드 신원을 연결하세요.
 
 ## backend, 버킷, prefix 변경
 
-설정 변경은 파일을 옮기지 않습니다. PostgreSQL 내용 참조에 대응하는 객체 키는 루트나 prefix 아래의 `blobs/<전체 SHA-256>`입니다. Agent 논리 드라이브 경로로 이름 붙인 일반 폴더가 아닙니다.
+환경 변수만 바꾼다고 해서 기존 파일이 새 저장소로 자동 이전되지는 않습니다. 또한 PostgreSQL의 콘텐츠 참조에 대응하는 실제 객체 키는 루트(또는 prefix) 아래의 `blobs/<전체 SHA-256>` 형식이며, Agent의 논리 드라이브 경로명을 딴 일반 폴더 구조가 아닙니다.
 
-1. 요청과 예약 작업을 중지하고 Agent를 비활성화한 뒤 작업 완료를 기다리세요. Worker와 모든 제어면을 중지해 파일 커밋과 정리도 멈추세요.
-2. DB, 원래 객체 저장소, Home, 비밀을 함께 백업하세요.
-3. `blobs/` 전체를 키 변경 없이 목표 루트 또는 prefix에 복사하세요. `fs`에서 복사할 때 `.tmp`는 제외하고 논리 드라이브 경로로 이름을 바꾸지 마세요.
-4. 모든 제어면을 같은 목표로 설정하고 시작하세요. 알려진 파일의 다운로드와 내용, 새 업로드, Worker 읽기·쓰기, 첨부 전송을 검증하세요.
-5. 검증 후 작업을 재개하고 원래 저장소를 롤백용으로 유지하세요. 전환 후 쓰기를 보존하며 되돌리려면 객체와 DB 참조도 함께 동기화해야 합니다.
+1. 신규 유입 요청과 예약 작업을 멈추고 Agent들을 비활성화한 뒤 진행 중인 작업이 끝날 때까지 기다립니다. 이어서 모든 Worker와 컨트롤 플레인 프로세스를 중지해 파일 커밋과 가비지 컬렉션까지 완전히 멈추세요.
+2. 데이터베이스, 기존 객체 저장소, Agent Home, 배포 시크릿을 한 세트로 백업합니다.
+3. `blobs/` 하위 객체 전체를 키 이름을 바꾸지 않은 채 새 대상 루트(또는 prefix)로 그대로 복사합니다. `fs`에서 복사할 때는 `.tmp` 디렉터리를 제외하고, 임의로 논리 드라이브 경로명으로 바꾸지 마세요.
+4. 모든 컨트롤 플레인 노드가 새 저장소를 바라보도록 설정을 맞춘 뒤 기동합니다. 기존 파일 다운로드와 내용 일치 여부, 신규 업로드, Worker에서의 읽기·쓰기, 채팅 첨부 전송을 차례로 검증합니다.
+5. 이상이 없으면 작업을 재개하고, 만일의 롤백에 대비해 기존 저장소도 당분간 보존합니다. 만약 전환 이후에 새로 쓰인 파일까지 살리면서 이전 저장소로 되돌아가야 한다면 신규 객체와 데이터베이스 참조를 함께 맞춰야 합니다.
 
-독립 사이트끼리 같은 객체 prefix를 공유하지 마세요. 한 사이트의 미참조 내용 정리가 다른 사이트에 필요한 객체를 삭제할 수 있습니다. 같은 사이트의 복제본은 설정이 같아야 합니다.
+서로 독립된 두 Ankole 사이트가 같은 버킷 prefix를 공유하게 두지 마세요. 한 사이트의 가비지 컬렉션이 실행될 때 다른 사이트에서 참조 중인 객체까지 미사용 파일로 판단해 지워 버릴 수 있습니다. 반대로 같은 사이트에 속한 복제본들은 모두 동일한 저장소 설정을 공유해야 합니다.
 
 ## 백업과 정리
 
-DB 백업에는 참조, 버킷/폴더 백업에는 blob 바이트가 있으므로 함께 복원하세요. 제어면 가비지 컬렉션은 Agent 드라이브, Pod `file` 페이지, Pod 문서/Base/Chat 및 대화 첨부 파일, 컴파일된 Applet 번들 등 모든 소유 참조에서 더 이상 참조되지 않는 blob을 제거합니다. 아직 참조되는 객체를 삭제하는 만료 규칙을 추가하지 마세요.
+데이터베이스 백업에는 메타데이터와 참조만 들어 있고 실제 파일 바이트는 버킷이나 로컬 폴더에 있으므로, 백업과 복원은 항상 두 저장소를 함께 묶어 수행해야 합니다. 컨트롤 플레인의 가비지 컬렉션은 Agent 드라이브, Pod `file` 페이지, Pod 문서/Base/Chat 및 대화 첨부 파일, 컴파일된 Applet 번들 등 모든 소유 참조에서 어디에서도 가리키지 않는 미사용 blob만 골라 삭제합니다. 따라서 버킷 측에 아직 참조 중인 정상 객체까지 만료 삭제하는 수명 주기(lifecycle) 규칙을 걸어 두어서는 안 됩니다.
 
-S3는 multipart upload를 사용하며 프로세스 중단 후 미완료 업로드가 남을 수 있습니다. 작업에 맞는 기간으로 미완료 업로드를 중단하는 lifecycle rule을 설정하세요. `fs`는 열 때 하루 넘게 변경되지 않은 임시 파일을 정리합니다. 이것은 백업을 대신하지 않습니다.
+다만 S3 멀티파트 업로드 도중 프로세스가 끊기면 미완료 업로드 조각이 버킷에 남을 수 있으므로, 워크로드에 맞는 유예 기간 뒤에 미완료 멀티파트 업로드만 정리(abort)하는 수명 주기 규칙은 설정해 두는 것이 좋습니다. `fs` 백엔드는 저장소를 열 때 생성된 지 하루가 넘도록 갱신되지 않은 임시 파일을 스스로 정리하지만, 이러한 정리 동작이 정기 백업을 대신하지는 않습니다.
 
-Worker가 없을 때 Console에서 알려진 파일을 업로드·다운로드하고 이후 Worker 하나로 접근과 첨부를 검증하세요. `AccessDenied`는 신원과 버킷 권한, `fs` 쓰기 실패는 mount·uid 10001·용량, 이전 파일 누락은 버킷·region·prefix·복사 결과를 확인하세요. [백업과 복원](../backup-and-restore/) 및 이전 파일을 위한 [2.0 업그레이드](../upgrade-to-2/)를 참조하세요.
+점검 시에는 먼저 Worker가 떠 있지 않은 상태에서 Console을 통해 파일을 업로드·다운로드해 보고, 이어서 Worker 하나를 띄워 파일 접근과 첨부 전송까지 확인하세요. `AccessDenied`가 나면 실행 신원과 버킷 정책을, `fs` 쓰기 오류가 나면 볼륨 마운트·uid `10001` 권한·디스크 잔여 용량을, 마이그레이션 후 기존 파일 누락이 보이면 버킷·리전·prefix 설정과 `blobs/` 복사 결과를 점검하세요. 자세한 백업 절차는 [백업과 복원](../backup-and-restore/)을, 구버전 파일 이전은 [2.0 업그레이드](../upgrade-to-2/)를 참조하세요.

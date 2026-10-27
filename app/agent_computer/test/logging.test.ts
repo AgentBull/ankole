@@ -155,6 +155,28 @@ describe('@ankole/agent-computer worker logger', () => {
     expect(Object.keys(entry).some(key => key.startsWith('logging.googleapis.com/'))).toBe(false)
     expect((recordValue(entry.labels) ?? {}).component).toBe('agent-computer')
   })
+
+  it('prefers ANKOLE_VERSION and falls back to ANKOLE_RELEASE_REVISION for the default version label', () => {
+    const withVersion = createCapture()
+    createWorkerLogger(
+      {},
+      {
+        env: { ANKOLE_VERSION: '2.0.0', ANKOLE_RELEASE_REVISION: 'sha-fallback' },
+        destination: withVersion.stream
+      }
+    ).info('worker.started', 'started')
+    expect((recordValue(withVersion.entries()[0]?.labels) ?? {}).version).toBe('2.0.0')
+
+    const withFallback = createCapture()
+    createWorkerLogger(
+      {},
+      {
+        env: { ANKOLE_VERSION: '', ANKOLE_RELEASE_REVISION: 'sha-fallback' },
+        destination: withFallback.stream
+      }
+    ).info('worker.started', 'started')
+    expect((recordValue(withFallback.entries()[0]?.labels) ?? {}).version).toBe('sha-fallback')
+  })
 })
 
 function createCapture(): { stream: DestinationStream; entries(): JSONObject[] } {

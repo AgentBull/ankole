@@ -3,7 +3,7 @@ defmodule AnkoleWeb.JSONAPI.PodRealtime do
   use Ankole.Ash.OperationResource,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
-    domain: Ankole.Pod,
+    domain: AnkoleWeb.MemberAPI,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
   authz do

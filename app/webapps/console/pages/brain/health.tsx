@@ -1,3 +1,4 @@
+import { recordValue, stringArg } from '@agentbull/active-support'
 import { Badge, Button, Skeleton, toast } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -295,7 +296,7 @@ function FailureCount({ count }: { count: number }) {
 
 function EmbeddingSignature({ value }: { value: unknown }) {
   const { t } = useTranslation()
-  const error = objectString(value, 'error')
+  const error = stringArg(recordValue(value), 'error')
 
   if (value == null) return <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
   if (error) return <HealthReason reason={error} />
@@ -331,13 +332,8 @@ function healthReasonKey(reason: string) {
 }
 
 function configStatusKey(status: unknown) {
-  if (objectString(status, 'invalid')) return 'console.brain.health_config_invalid' as const
-  if (objectString(status, 'unavailable')) return 'console.brain.health_config_unavailable' as const
+  const record = recordValue(status)
+  if (stringArg(record, 'invalid')) return 'console.brain.health_config_invalid' as const
+  if (stringArg(record, 'unavailable')) return 'console.brain.health_config_unavailable' as const
   return 'console.brain.health_internal_error' as const
-}
-
-function objectString(value: unknown, key: string) {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
-  const item = (value as Record<string, unknown>)[key]
-  return typeof item === 'string' ? item : undefined
 }

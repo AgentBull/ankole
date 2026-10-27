@@ -143,7 +143,6 @@ function spawnRunner(input: {
   ) as Record<string, string>
   Object.assign(env, {
     ANKOLE_BROWSER_BOUND_ENDPOINT: input.lease.endpoint,
-    ANKOLE_BROWSER_LEASE_TOKEN: input.lease.lease_token,
     ANKOLE_BROWSER_CONTEXT_ORDINAL: String(input.lease.context_ordinal),
     ANKOLE_BROWSER_PAGE_ORDINAL: String(input.lease.page_ordinal),
     ANKOLE_BROWSER_RUN_ID: input.runId,

@@ -457,7 +457,7 @@ test('schedule names reject whitespace and reopening waits for a completed updat
       return route.fulfill({ json: { data: [] } })
     }
   )
-  await page.goto('/schedules/new?agent=agent-one&cron=cron-one')
+  await page.goto('/schedules/agent-one/cron-one')
   const name = page.getByRole('textbox', { name: /^Name/ })
   await expect(name).toHaveValue('Original')
   await name.fill('   ')

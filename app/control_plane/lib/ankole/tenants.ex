@@ -21,6 +21,7 @@ defmodule Ankole.Tenants do
   resources do
     resource Tenant do
       define(:get_tenant, action: :read, get_by: [:id], not_found_error?: false)
+      define(:get_tenant_by_slug, action: :read, get_by: [:slug], not_found_error?: false)
       define(:list_tenants, action: :read)
     end
   end
@@ -85,6 +86,15 @@ defmodule Ankole.Tenants do
   def privileged_id, do: AppConfigure.get_global_by_key_in_tx(@privileged_key)
 
   def list, do: Ankole.Ash.read!(Ash.Query.for_read(Tenant, :list))
+
+  @doc "Returns every Base shard ID assigned to an existing tenant."
+  def assigned_base_db_ids do
+    Tenant
+    |> Ash.Query.select([:base_db_id])
+    |> Ash.Query.distinct([:base_db_id])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.base_db_id)
+  end
 
   def get(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),

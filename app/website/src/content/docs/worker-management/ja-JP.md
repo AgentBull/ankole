@@ -1,81 +1,81 @@
 ---
 title: Worker
-description: Console で各 Agent の Worker を確認し、control plane による管理方法を理解し、よくある障害を解決する。
+description: Console で各 Agent の専用 Worker の状態を確認し、コントロールプレーンによるライフサイクル管理の仕組みと障害時の対処法を理解します。
 section: User guide
 order: 52
 ---
 
-各 Agent は専用 Worker と `/workspace` の永続 Home を持ちます。Console で Worker provider の種類、YAML 設定、別途保存する認証情報を指定します。Agent 作成時に provider を選び、その後は変更できません。異なるインスタンス仕様には別の provider を作成します。
+すべての Agent は、自分専用の Worker と `/workspace` 配下の永続 Home を持ちます。Worker プロバイダーの種別、YAML 設定、および別枠で暗号化保存される認証情報は Console から管理します。どのプロバイダーを使うかは Agent の作成時に選択し、後から別のプロバイダーへ変更することはできません。異なるインスタンススペックを使い分けたい場合は、別の Worker プロバイダーを作成します。
 
 ## Worker pool
 
-1 つの Worker provider が 1 つの Worker pool を定義します。pool はプラットフォームの種類、YAML 設定、別途暗号化した認証情報を持ち、site に属します。異なる tenant の Agent が同じ pool を選べますが、各 Agent は専用 Worker、永続 Home、キャッシュ、Worker 認証情報を保持します。
+1 つの Worker プロバイダー設定が 1 つの Worker プールを定義します。プールはプラットフォーム種別、YAML 設定、および個別に暗号化された認証情報を持ち、サイト全体に属します。異なるテナントの Agent が同じプールを選択することはできますが、実行時には各 Agent が自分専用の Worker インスタンス、永続 Home、キャッシュ、接続用認証情報を独立して保持します。
 
-1. **Console → Settings → Worker providers** で **New Worker provider** を選びます。
-2. 種類を選び、YAML の例からイメージ、インスタンス仕様、ストレージ、接続先を設定します。
-3. 別の認証情報フィールドにプラットフォームのキーを入力し、保存後に接続確認を実行します。
-4. 1 つの pool を既定にするか、Agent 作成時に pool を選びます。どちらも指定されない場合、Agent 作成は失敗します。
+1. **Console → Settings → Worker providers** を開き、**New Worker provider** を選択します。
+2. プラットフォーム種別を選び、サンプル YAML をもとにイメージ、インスタンス仕様、ストレージ、接続先エンドポイントを設定します。
+3. 専用の認証情報欄にプラットフォームのキーを入力して保存し、接続テストを実行します。
+4. いずれか 1 つのプールをサイト既定に設定するか、Agent 作成時に毎回プールを明示的に選択します（既定プールがなく作成時にも指定しなかった場合、Agent の作成は失敗します）。
 
-site の既定 pool は最大 1 つです。既定の変更は後から作成する Agent にだけ適用され、既存 Agent は元の provider を保持します。仕様や場所が異なる場合は別の pool を作成します。同じ種類の pool も複数作成できます。作成後は provider ID、種類、ストレージの場所、Agent の provider 選択を変更できません。Agent Worker 行が参照する pool は削除できません。
+サイト全体で既定に設定できるプールは最大 1 つです。既定プールを変更しても既存の Agent の割り当ては変わらず、それ以降に新しく作成する Agent にのみ適用されます。スペックやリージョンを分けたい場合は同じ種別のプールを複数登録できます。なお、一度作成した後はプロバイダー ID、種別、ストレージ保存先、および各 Agent のプロバイダー選択を変更することはできません。また、いずれかの Agent Worker レコードから参照されているプールは削除できません。
 
-pool は選択したプラットフォームでインスタンスを管理し、ある Agent のコンピュータを別の Agent に割り当てません。作成は [Agents](../agents/)、実行と復旧は [Agent Computer Worker](../agent-computer-worker/) を参照してください。
+プールはあくまで指定プラットフォーム上で専用インスタンスをプロビジョニングするための枠組みであり、ある Agent の計算環境を別の Agent に使い回すことはありません。Agent の作成手順は [Agents](../agents/) を、実行制御と復旧の内部設計は [Agent Computer Worker](../agent-computer-worker/) を参照してください。
 
 ## Agent ごとに 1 台の Worker
 
-Agent 作成時は provider の選択と Worker 行を保存し、インスタンスは起動しません。環境ツール、Codex Job、Automation Job が必要になった時点で control plane が Worker を起動します。主会話と Workflow のモデル呼び出しは control plane で実行し、Worker なしでも進められます。
+Agent を作成した時点では、選択したプロバイダーと Worker レコードが保存されるだけで、まだ実インスタンスは起動しません。環境ツール、Codex Job、または Automation Job が実際に必要になったタイミングで、コントロールプレーンがオンデマンドで Worker を立ち上げます。通常のチャット応答や Workflow のモデル呼び出しはコントロールプレーン側で完結するため、Worker を起動せずにそのまま進行できます。
 
-同じ Agent の Session と Job は Home 内の別々の workspace を使い、コンピュータと Home を共有します。開いている環境 workspace と実行中の Codex turn はそれぞれ Worker slot を 1 つ使います。`ANKOLE_MAX_CONCURRENT_SLOTS` はその Worker の容量を設定します。pool や別の Agent を追加しても、既存 Agent の Worker slot や、別途設定する Background Agent Job の同時実行上限は増えません。
+同一 Agent 内の複数 Session や Job は、同じ Worker インスタンスと Home を共有しつつ、Home 配下の個別のワークスペースディレクトリを使って動作します。開いている環境ワークスペースと実行中の Codex Turn はそれぞれ Worker スロットを 1 つ消費し、その上限は `ANKOLE_MAX_CONCURRENT_SLOTS` で決まります。なお、Worker プールを増やしたり別の Agent を追加したりしても、既存 Agent 1 体あたりの Worker スロット数や Background Agent Job の同時実行上限が増えるわけではありません。
 
 ## Worker を表示する
 
-**Console → Workers** で Agent、provider、状態、負荷、heartbeat、最新のプラットフォームエラーを確認します。
+**Console → Workers** を開くと、各 Agent に紐づくプロバイダー、現在のステータス、負荷状況、最終ハートビート、およびプラットフォームから返された直近のエラー理由を確認できます。
 
 | 状態 | 意味 |
 | --- | --- |
-| `absent` | インスタンスなし。必要時に作成 |
-| `starting` | generation を保存済み。作成または接続承認を待機 |
-| `ready` | 接続済みで Turn を実行可能 |
-| `stale` | 以前の接続が切断 |
-| `paused` | プロセスとメモリを保持して休止 |
-| `draining` | 解放または置換を待機 |
-| `deleting` | インスタンスとストレージの削除を待機 |
+| `absent` | 実インスタンスは存在しません。作業が発生した時点で作成されます |
+| `starting` | 新しい世代（generation）を記録し、インスタンスの作成または接続確立を待っています |
+| `ready` | 接続が完了し、Turn の作業を受け付けられる状態です |
+| `stale` | 直前まで確立していた接続が切断された状態です |
+| `paused` | プロセス状態とメモリを保持したまま一時休止しています |
+| `draining` | 進行中の作業を終えて解放または新世代へ入れ替わるのを待っています |
+| `deleting` | インスタンスと専用ストレージの削除完了を待っています |
 
-作成がタイムアウトした場合は同じ generation で再試行します。結果が不明なら待機を続け、書き込み元が二重になるインスタンスは作成しません。設定変更の前に **Reason** を確認してください。
+起動がタイムアウトした場合は、同じ世代（generation）のまま再試行されます。プロビジョニング要求の成否が不明な間は待機を続け、書き込み元が二重になる（スプリットブレインを起こす）ような別インスタンスの重複作成は行いません。設定を変更する前に、必ず画面上の **Reason** 欄を確認してください。
 
 ## Provider とストレージ
 
-プラットフォーム制限、認証情報、接続、SQLite キャッシュは [WorkerProvider とキャッシュディスク](../worker-providers/)を参照してください。旧デプロイは [1.0 から 2.0 への更新](../upgrade-to-2/)を参照してください。
+各プラットフォームの細かい制約、必要な認証情報、ネットワーク要件、および SQLite キャッシュの扱いについては、[WorkerProvider とキャッシュディスク](../worker-providers/) を参照してください。旧バージョンからの移行手順については、[1.0 から 2.0 への更新](../upgrade-to-2/) を参照してください。
 
-| 種類 | 永続 Home | アイドル時 |
+| 種類 | 永続 Home の保存先 | アイドル時の挙動 |
 | --- | --- | --- |
-| Docker | Agent ごとのローカル volume | コンテナ削除 |
-| Kubernetes | 専用 PVC または共有 PVC 内のディレクトリ | Pod 削除 |
-| Cloudflare | R2 ディレクトリバックアップ | バックアップ後に削除 |
-| Vercel | Agent ごとの Drive | sandbox 削除 |
-| Lambda MicroVMs | EFS の Agent ディレクトリ | メモリを保持して休止 |
-| Function Compute | Agent ごとの AgenticSpace または OSS prefix | メモリを保持して休止 |
+| Docker | Agent ごとのローカルボリューム | コンテナを削除 |
+| Kubernetes | 専用 PVC、または共有 PVC 内のサブディレクトリ | Pod を削除 |
+| Cloudflare | R2 上のディレクトリバックアップ | バックアップ完了後にコンテナを削除 |
+| Vercel | Agent ごとの専用 Drive | サンドボックスを削除 |
+| Lambda MicroVMs | EFS 上の Agent ディレクトリ | メモリ状態を保持したまま休止 |
+| Function Compute | Agent ごとの AgenticSpace または OSS プレフィックス | メモリ状態を保持したまま休止 |
 
-Vercel の `sessionTimeoutSeconds` はアカウントの上限内に設定します。既定値は 86400 秒、上限が 45 分の場合は 2700 秒です。Lambda のメモリクォータは、実行中と休止中の Worker に加えて、ストレージ削除用インスタンスの分も確保してください。Function Compute の再開は Worker イメージ内の OSS 再接続ヘルパーを使用するため、対応するバージョンの Worker イメージと control plane を一緒にデプロイしてください。
+Vercel の `sessionTimeoutSeconds` は利用アカウントの上限時間内に収めてください（既定値は `86400` 秒ですが、上限が 45 分のプランでは `2700` 秒に設定します）。AWS Lambda では、稼働中および休止中の Worker に加え、ストレージ削除ヘルパー用のメモリクォータ枠も確保しておく必要があります。Alibaba Function Compute では休止からの再開時に Worker イメージ内の OSS 再接続ヘルパーを使用するため、必ずバージョンを揃えた Worker イメージとコントロールプレーンを組み合わせてデプロイしてください。
 
-Home はインスタンス削除やイメージ変更後も残ります。Codex スレッドは `/workspace/.codex`、SQLite キャッシュは `/var/cache/ankole/codex` にあります。再構築ではキャッシュだけを削除します。Docker のローカル volume はホスト消失に耐えません。Cloudflare の強制停止では最終バックアップ後の書き込みを失う場合があります。Home と [Agent ドライブ](../file-management/) の両方をバックアップしてください。
+永続 Home のデータは、インスタンスの削除やイメージの更新を行っても維持されます。Codex のスレッド履歴は `/workspace/.codex` に、再構築可能な SQLite キャッシュは `/var/cache/ankole/codex` に配置され、Worker の明示的な再構築（rebuild）ではキャッシュ側だけが消去されます。なお、Docker のローカルボリュームはホストマシンのディスク障害には耐えられず、Cloudflare では強制停止が発生した場合に前回バックアップ以降の差分が失われる可能性があります。永続 Home と [Agent ドライブ](../file-management/) の両方を定期的にバックアップしてください。
 
 ## 解放、置換、削除
 
-- provider YAML の `idleReleaseAfter` を設定します。全 6 種類の既定値は `15m` で、`never` も設定できます。
-- メモリ休止対応の provider はアイドル Worker を休止します。他の種類はインスタンスを削除し、永続ストレージと設定済みキャッシュ volume を残します。
-- イメージやインスタンス設定の変更はアイドル時に置換します。プロトコル変更は即時置換です。古い休止インスタンスは作業再開前に置換します。
-- `agent_computer.worker.ready_timeout` の既定値は 600 秒です。既に観測したインスタンスだけを再構築し、結果不明の作成を終了扱いにはしません。
-- Agent 削除では、全インスタンスの消失後に Home とキャッシュを削除し、最後に Worker 行を削除します。Agent UID はサーバーが生成し、再利用しません。
+- アイドル回収までの時間はプロバイダー YAML の `idleReleaseAfter` で指定します（全 6 種別とも既定値は `15m` で、自動停止させない `never` も選択できます）。
+- メモリ保持型の休止に対応したプロバイダーではアイドル状態の Worker を休止させ、それ以外のプロバイダーでは永続ストレージと設定済みキャッシュボリュームを残してインスタンスだけを削除します。
+- コンテナイメージやインスタンススペックの変更は Worker がアイドルになったタイミングで新しい世代へ入れ替わりますが、プロトコルバージョンの変更時は即座に入れ替わります。また、古い構成のまま休止していたインスタンスは、次の作業を再開する前に入れ替えられます。
+- `agent_computer.worker.ready_timeout` の既定値は `600` 秒です。一度でも稼働を観測できたインスタンスだけを再構築対象とし、作成結果がまだ確定していないリクエストを勝手に終了扱いにすることはありません。
+- Agent を削除すると、稼働中インスタンスの完全終了を確認したうえで Home とキャッシュを消去し、最後にデータベース上の Worker レコードを削除します。なお、Agent UID はサーバー側で自動採番され、削除後に同じ UID が再利用されることはありません。
 
 ## 未準備の Worker を調べる
 
-provider の認証情報、ストレージ、容量、`endpoints` を確認します。Docker は `ANKOLE_DOCKER_GID`、Kubernetes は Role、Pod イベントと PVC、Cloudflare はイメージ設定と token、Lambda はビルド状態、ビルドロール、VPC connector、EFS 接続を調べます。
+Worker がいつまでも `ready` にならない場合は、プロバイダーの認証情報、ストレージ設定、クォータ空き容量、および `endpoints` の到達性を確認してください。種別ごとの主な確認ポイントは、Docker なら `ANKOLE_DOCKER_GID`、Kubernetes なら RBAC Role・Pod イベント・PVC バインド状態、Cloudflare ならイメージ設定とトークン、Lambda ならビルド状態・ビルド IAM ロール・VPC コネクター・EFS マウント設定です。
 
-provider ラベルで対象を確認し、停止前にログを読みます。Kubernetes は通常の削除完了を待ち、ノード障害を grace 0 で回避しないでください。Docker は停止してから削除します。
+手動でコンテナや Pod を停止する際は、プロバイダーが付与したラベルで対象 Agent を慎重に確認し、停止前に必ずログを取得してください。Kubernetes では通常の Pod 削除が完了するのを待ち、ノード障害時に `--grace-period=0` などの強制削除で無理に回避しないでください。Docker 環境で手動削除する場合は、先に停止してから削除します。
 
 ```bash
 docker stop CONTAINER_NAME
 docker rm CONTAINER_NAME
 ```
 
-必要時に control plane が新しいインスタンスを作成します。Home とキャッシュ volume は残ります。実行中の Turn は中断され、各再試行規則に従います。ready でも待機する場合は負荷と Turn 容量を比較してください。`ANKOLE_MAX_CONCURRENT_SLOTS` は provider YAML の環境設定で、変更後はアイドル時に置換します。[性能調整](../performance-tuning/)を参照してください。
+手動削除した後も Home とキャッシュボリュームはそのまま残り、次に作業が必要になった時点でコントロールプレーンが新しいインスタンスを自動作成します（実行中だった Turn は中断され、それぞれの再試行ルールに従って処理されます）。ステータスが `ready` なのに作業が待たされる場合は、現在の負荷と同時実行スロットの上限を見比べてください。`ANKOLE_MAX_CONCURRENT_SLOTS` はプロバイダー YAML 内の環境変数で調整でき、変更後はアイドル時に入れ替わります。詳しくは [性能調整](../performance-tuning/) を参照してください。

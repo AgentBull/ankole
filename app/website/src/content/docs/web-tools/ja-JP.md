@@ -1,111 +1,111 @@
 ---
 title: Web ツール
-description: Agent の web 検索とページ読み取りを設定し、代わりにブラウザを使うべき場面を見極めます。
+description: Agent の Web 検索とページ読み取りを設定する方法と、ブラウザ自動化へ切り替えるべき場面の見極め方を説明します。
 section: User guide
 order: 33
 ---
 
-Agent は `web_search` を使って公開ページを探し、`web_fetch` を使って選んだページを読み取ります。`web_search` には設定済みの Provider が必要ですが、`web_fetch` は Provider が設定されていない場合でも Worker 組み込みのレンダリングフォールバックを利用できます。
+Agent は公開 Web ページを探すときに `web_search` を使い、見つけたページの本文を読み取るときに `web_fetch` を使います。`web_search` を利用するには対応する Provider の設定が必須ですが、`web_fetch` については Provider が未設定でも Worker 組み込みのレンダリングフォールバックを利用できます。
 
 ## 正しいツールを選ぶ
 
-| 能力 | 使う場面 | 実行面 |
+| 能力 | 適した場面 | 実行面 |
 |---|---|---|
-| `web_search` | キーワード、時間、ソース範囲から公開ページを探す | Main Agent と Background Agent Job |
-| `web_fetch` | 既知の公開 URL を 1 つ以上テキストとして読む | Main Agent と Background Agent Job |
-| [ブラウザ自動化](../browser-automation/) | ログイン、クリック、入力、ページ移動、スクリーンショット、対話型ページの読み取り | **Background Agent Job のみ** |
+| `web_search` | キーワード、期間、対象ドメイン条件から公開ページを検索する | Main Agent と Background Agent Job |
+| `web_fetch` | URL が判明している 1 つ以上の公開ページをテキストとして読み取る | Main Agent と Background Agent Job |
+| [ブラウザ自動化](../browser-automation/) | ログイン、クリック、フォーム入力、画面遷移、スクリーンショット撮影、対話型 Web アプリの操作 | **Background Agent Job のみ** |
 
-ブラウザ自動化は `browser` Skill が提供し、`ankole-runtime: background_job` を宣言します。これは `web_search` や `web_fetch` の Provider 一覧には表示されず、通常の main-Agent turn で直接実行することもできません。
+ブラウザ自動化は `browser` Skill によって提供されており、`ankole-runtime: background_job` が宣言されています。そのため、`web_search` や `web_fetch` の Provider 選択肢には表示されず、通常のメイン Agent の Turn 内で直接動かすこともできません。
 
-タスクにブラウザが必要なときは、main Agent に Background Agent Job を作成してもらうか、既存のものを利用してもらってください。Job は現在の会話をブロックせず、必要なときに質問、状態、または結果を送り返します。
+ブラウザ操作が必要な作業を依頼したいときは、メイン Agent に新しく Background Agent Job を立ち上げさせるか、既存の Job を使わせてください。Job は現在のチャット会話をブロックせずに裏側で進み、確認事項や進捗、完了結果を元の会話へ返します。
 
 ## Web ツールの設定
 
 ### Provider の追加
 
 1. **Console → LLM Providers** を開きます。
-2. `web_search`、`web_fetch`、またはその両方をサポートする Provider 種別を選択します。
-3. API key と、要求される Provider のフィールドを入力します。
-4. 保存し、Provider が有効になっていることを確認します。
+2. `web_search`、`web_fetch`、またはその両方に対応している Provider 種別を選択します。
+3. API キーと、その Provider で必須となっている設定項目を入力します。
+4. 設定を保存し、Provider が有効（Enabled）になっていることを確認します。
 
-1 つの Provider 種別に対して複数のインスタンスを作成できます。たとえば 2 つの Bright Data SERP インスタンスで、異なるリージョンを使ったり、異なる Agent に提供したりできます。
+同じ Provider 種別から複数のインスタンスを作成することも可能です。たとえば Bright Data SERP のインスタンスを 2 つ登録し、検索リージョンを使い分けたり、Agent ごとに別々のアカウントを割り当てたりできます。
 
 ### Provider の Agent への割り当て
 
-1. **Console → Agents** を開き、Agent を選択します。
-2. **Model profiles** で `web_search` を見つけ、検索をサポートする Provider を選択します。
-3. `web_fetch` を見つけ、ページ読み取りをサポートする Provider を選択します。
-4. 両方の profile を保存し、新しい会話を開始します。
+1. **Console → Agents** を開き、対象の Agent を選択します。
+2. **Model profiles** の中から `web_search` を探し、検索に対応した Provider を選択します。
+3. 続けて `web_fetch` を探し、ページ読み取りに対応した Provider を選択します。
+4. 両方のプロファイルを保存し、新しい会話を開始します。
 
-これらは Provider 専用の profile です。モデルや context 長は不要です。各 Provider 種別が自身の能力を宣言するため、一覧には一致するインスタンスだけが表示されます。
+これらは Provider 指定専用のプロファイルであるため、モデル名やコンテキスト長の設定は不要です。各 Provider 種別が対応機能（capability）を宣言しているため、プルダウンには条件に合致するインスタンスだけが表示されます。
 
-一覧が空の場合は、まず一致する Provider を追加してください。最初の Provider の設定は [クイックスタート](../quickstart/#llm-providers) を参照してください。
+選択肢が空の場合は、先に該当機能を持つ Provider を追加してください。初回の Provider 登録手順については、[クイックスタート](../quickstart/#llm-providers) を参照してください。
 
 ## 現在の組み込み Provider
 
-Control Plane Plugin がさらに Provider 種別を追加できます。Ankole に組み込まれている種別は次のとおりです。
+Control Plane Plugin によってさらに Provider 種別を追加することもできますが、標準で Ankole に同梱されている Provider は次のとおりです。
 
 ### `web_search` Provider
 
-| Provider | `web_fetch` もサポート | 主な違い | 使う場面 |
+| Provider | `web_fetch` も対応 | 主な特徴 | 適した場面 |
 |---|---|---|---|
-| **Parallel** | はい | 1 つの Provider が検索と抽出を提供。objective、複数クエリ、モード、合計文字予算をサポート | 検索と読み取りに 1 つの credential を使いたい、または調査向きのクエリがある |
-| **Bright Data SERP** | いいえ | SERP API を使用。Zone が必要で、国、言語、Google ドメインを選択可能 | 検索リージョン、言語、ローカライズ結果を制御する必要がある |
-| **Jina Search** | いいえ | リージョン、ロケーション、言語、ページ、キャッシュ、検索エンジンのオプションをサポート | リージョン、ページング、またはキャッシュ制御付きの直接 web 検索が必要 |
-| **AgentBull Cloud** | はい | 検索とページ抽出に加えモデル機能（`llm`、`embedding`、`rerank`、`image_generate`）を集約し、ソース範囲、時間範囲、キャッシュ迂回をサポート | Web ツールとモデルを 1 つの API キーにまとめたい、または明示的なソースと時間の範囲が必要 |
+| **Parallel** | はい | 単一 Provider で検索と本文抽出の両方を提供。目的（objective）指定、複数クエリ、モード切替、合計文字数バジェットに対応 | 検索と読み取りを 1 つの認証情報にまとめたいとき、またはリサーチ向けのクエリを投げたいとき |
+| **Bright Data SERP** | いいえ | SERP API を使用。Zone 指定が必須で、国・言語・Google ドメインを細かく指定可能 | 検索リージョンや言語、ローカライズされた検索結果を厳密に制御したいとき |
+| **Jina Search** | いいえ | リージョン、ロケーション、言語、ページ番号、キャッシュ、検索エンジンの指定に対応 | 地域指定、ページネーション、キャッシュ制御を伴う直接的な Web 検索を行いたいとき |
+| **AgentBull Cloud** | はい | 検索・ページ抽出に加えてモデル機能（`llm`、`embedding`、`rerank`、`image_generate`）も統合。対象ドメイン範囲、期間指定、キャッシュ回避に対応 | Web ツールと各種モデルを単一の API キーに集約したいとき、またはドメインや期間を絞った検索が必要なとき |
 
-Parallel または AgentBull Cloud の Provider インスタンスは 1 つで、`web_search` と `web_fetch` の両方に割り当てられます。
+Parallel または AgentBull Cloud を使う場合は、1 つの Provider インスタンスを `web_search` と `web_fetch` の両方にそのまま割り当てられます。
 
-Jina Search と Jina Reader は別々の Provider 種別です。同じ Jina の credential を使う場合でも、別々に追加して、それぞれ対応する profile に割り当ててください。
+一方、Jina Search と Jina Reader は別々の Provider 種別として定義されています。同じ Jina の API キーを使う場合でも、それぞれ個別の Provider として登録し、対応するプロファイルへ割り当ててください。
 
 ### `web_fetch` Provider
 
-| Provider | `web_search` もサポート | 主な違い | 使う場面 |
+| Provider | `web_search` も対応 | 主な特徴 | 適した場面 |
 |---|---|---|---|
-| **Parallel** | はい | Parallel Search と同じ Provider と credential を使ってページテキストを抽出 | すでに Parallel Search を使っており、設定を 1 つにまとめたい |
-| **AgentBull Cloud** | はい | 同じ AgentBull Cloud Provider と API キーを使って公開ページテキストを抽出 | すでにモデルや検索で AgentBull Cloud を使っており、credential を 1 つにまとめたい |
-| **Jina Reader** | いいえ | 公開ページを Markdown に変換。リンク保持、対象・待機セレクタ、キャッシュ、エンジン、token 上限をサポート | 記事本文、またはページの選択部分が必要 |
+| **Parallel** | はい | Parallel Search と同じ Provider・認証情報でページ本文を抽出 | すでに Parallel Search を導入しており、設定を一本化したいとき |
+| **AgentBull Cloud** | はい | 同じ AgentBull Cloud Provider と API キーで公開ページ本文を抽出 | すでにモデルや検索で AgentBull Cloud を利用しており、認証情報をまとめたいとき |
+| **Jina Reader** | いいえ | 公開ページを Markdown へ変換。リンク保持、対象・待機セレクタ、キャッシュ、エンジン切替、トークン上限に対応 | 記事本文のきれいな Markdown 変換や、ページ内の特定要素だけの抽出が必要なとき |
 
-`web_fetch` は公開 HTTPS ページ向けです。ログインはせず、PDF、画像、アーカイブ、音声、動画のダウンローダーでもありません。
+`web_fetch` はログイン不要の公開 HTTPS ページを対象としており、認証突破や PDF・画像・アーカイブ・音声・動画ファイルのダウンロードには対応していません。
 
-Worker 組み込みのレンダリングフォールバックは Provider ではないため、Console の Provider 一覧には表示されません。レンダリングされたページテキストを読むだけです。
+なお、Worker 組み込みのレンダリングフォールバックは外部 Provider ではないため、Console の Provider 一覧には表示されません。描画後のページからテキストを読み取るだけのシンプルな仕組みです。
 
-フォールバックはクリック、タイピング、ログイン状態の再利用、スクリーンショットができません。main Agent にブラウザ自動化を提供することもありません。
+そのため、組み込みフォールバックではクリックや文字入力、ログイン状態の保持、スクリーンショット撮影は行えず、メイン Agent にブラウザ自動化機能を提供するものでもありません。
 
-セレクタと待機オプションは、Provider が遅延して現れるページテキストを読む一助になりますが、実際のインタラクションを提供するものではありません。ログイン、クリック、フォーム入力が必要なタスクでは、Background Agent Job 内のブラウザ自動化を使ってください。
+また、Provider のセレクタ指定や待機オプションを使えば遅延描画されるテキストを拾いやすくすることはできますが、実際のユーザー操作を代替するものではありません。ログインやクリック、フォーム入力を伴う作業では、Background Agent Job 内のブラウザ自動化を利用してください。
 
 ## Agent に Web ツールを使わせる
 
-特別なコマンドは不要です。得たい結果を説明してください。たとえば:
+特別なスラッシュコマンドなどは不要です。達成したい結果を自然な言葉で伝えてください。たとえば次のように依頼します。
 
-> 今週の関連アナウンスを 3 件見つけてください。元のページを読んで変更点を比較し、ソースのリンクを含めてください。
+> 今週公開された関連アナウンスを 3 件探してください。一次情報のページを読んで変更点を比較し、出典リンクも添えてください。
 
-Agent はまず検索し、次に読むべきページを選択します。すでに URL を知っている場合は、それを Agent に渡して、ページを読んで要約するよう依頼してください。
+このように依頼すると、Agent はまず `web_search` で候補を探し、続いて読むべきページを選んで `web_fetch` で内容を確認します。対象ページの URL が最初から分かっている場合は、その URL を直接貼って要約や抽出を依頼してください。
 
-次の場合は明示的にブラウザを依頼します。
+反対に、次のようなケースでは「ブラウザを使って確認して」と明示的に依頼するとスムーズです。
 
-- ページにログインが必要なとき
-- コンテンツを見る前に Agent がクリック、入力、またはページ移動をする必要があるとき
-- タスクにスクリーンショット、またはレンダリングされたページの確認が必要なとき
-- 複雑な操作の後にだけコンテンツが現れるとき
+- 閲覧にログインが必要なページ
+- 本文を表示する前にクリック、文字入力、画面遷移が必要なページ
+- スクリーンショットの撮影や、実際の描画レイアウトの目視確認が必要な作業
+- 複雑な UI 操作を行った後にはじめて目的のデータが表示されるページ
 
-ブラウザの作業は Background Agent Job 内で実行されます。通常の検索、公開ページの読み取り、複数ソースの比較には、`web_search` と `web_fetch` を直接使ってください。
+ブラウザ操作は Background Agent Job 内で実行されます。通常の Web 検索や公開記事の読み取り、複数ソースの比較であれば、`web_search` と `web_fetch` を使う方が高速で手軽です。
 
 ## Web タスクがうまく動かないとき
 
 ### 検索または読み取りの失敗
 
-次の項目を順に確認してください。
+上から順に次の点を確認してください。
 
-1. 現在の Agent がタスクに必要な profile を持っていること。`web_search` には Provider が必要です。
-2. `web_fetch` に Provider がない場合、Worker が組み込みのレンダリングフォールバックを提供すること。
-3. 選択した Provider 種別が要求する能力を宣言していること。
-4. Provider が有効で、credential と必須フィールドが正しいこと。
-5. profile を変更した後に新しい会話を開始したこと。
-6. 対象がログイン不要の公開 HTTPS ページであること。
+1. 対象の Agent に必要なプロファイルが設定されているか（特に `web_search` には Provider の割り当てが必須です）。
+2. `web_fetch` に Provider を設定していない場合、Worker 側で組み込みレンダリングフォールバックが利用できる状態にあるか。
+3. 選択した Provider 種別が、使いたい機能（検索または読み取り）に対応しているか。
+4. Provider が有効化されており、API キーや必須項目に誤りがないか。
+5. プロファイル変更後に、新しいチャット会話を開始したか。
+6. アクセス先がログイン不要の公開 HTTPS ページであるか。
 
 ### ブラウザ自動化が実行されなかった
 
-Agent の `browser` Skill が有効で、Background Agent Job を作成できることを確認してください。ブラウザ自動化を `web_search` や `web_fetch` の profile に割り当てようとしないでください。
+対象の Agent で `browser` Skill が有効になっており、かつ Background Agent Job を作成できる状態にあるかを確認してください。なお、`web_search` や `web_fetch` のプロファイル欄にブラウザ自動化を割り当てることはできません。
 
-すでに Background Agent Job にあるタスクなら、Worker の空き状況と、Job が報告するブラウザセッションやアクセスの問題を確認してください。
+すでに Background Agent Job として動いているタスクで失敗する場合は、Worker の空きスロット状況と、Job ログに記録されたブラウザセッションやネットワーク到達性のエラーを確認してください。

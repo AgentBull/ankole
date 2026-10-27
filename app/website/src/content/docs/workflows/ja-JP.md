@@ -1,28 +1,28 @@
 ---
 title: Workflow
-description: 有界の作業を並行するサブエージェントに分け、構造化された 1 つの結果を元の会話で受け取ります。
+description: 範囲の決まった定型作業を複数の並行サブエージェントに分割し、構造化された 1 つの集約結果を元の会話で受け取る方法を説明します。
 section: User guide
 order: 19
 ---
 
-Workflow は、メイン Agent が固定された有界のプログラムを実行し、独立したタスクをサブエージェントに委譲する機能です。多数の候補のレビュー、有限のソース集合から同じ項目を抽出する作業、独立した判断の比較、または最終合成前の検証段階に使います。
+Workflow は、メイン Agent が有限で決定論的な編成プログラムを実行し、独立した複数のサブタスクをサブエージェントへ並行委譲するための機能です。多数の候補の並列レビュー、決まった情報源セットからの定型項目抽出、独立した複数視点での評価比較、あるいは最終統合前の検証ステップなどに適しています。
 
-Workflow は現在の会話から開始され、`run_id` をすぐに返します。タスクの実行中も会話を続けられます。Workflow が完了または失敗すると、Ankole は元の会話を起こし、メイン Agent が結果を読んで作業を続けられるようにします。
+Workflow は現在のチャット会話から開始され、即座に `run_id` を返します。裏側でサブタスクが動いている間も、同じ会話でそのままやり取りを続けられます。Workflow が完了（または失敗）すると Ankole が元の会話を起こし、メイン Agent が集約結果を受け取って後続の作業を進めます。
 
 ## 適切な実行形態を選ぶ
 
-| 必要なこと | 使用する機能 | 理由 |
+| やりたいこと | 適した機能 | 理由 |
 |---|---|---|
-| 現在の会話が必要な 1 つの短いタスク | メイン Agent の Turn | 現在の context とメイン Turn の完全な tool set を維持します。 |
-| 有限の独立した確認、または固定された分析段階 | Workflow | 有界のサブエージェントタスクを並行実行し、集約結果を 1 つ返します。 |
-| ファイル、workspace、後からのメッセージ、または人の入力が必要な 1 つの長い状態付きタスク | [Background Agent Job](../background-jobs/) | 一時停止と再開ができる永続的な Codex thread を所有します。 |
-| schedule または webhook で起動する機械的なスクリプト | [Automation Job](../automation-jobs/) | 判断が不要な場合、トリガーがモデル Turn なしで決定性処理を実行します。 |
+| 現在の会話の文脈だけで完結する短い作業 | メイン Agent の Turn | 会話コンテキストとメイン Turn の全ツールセットをそのまま使えます。 |
+| 件数の決まった独立チェックの並列実行、または定型の多段階分析 | Workflow | 境界の明確なサブエージェントタスクを並列実行し、1 つの集約結果にまとめます。 |
+| ファイル操作、専用ワークスペース、途中の対話、人間の追加入力を伴う長時間タスク | [Background Agent Job](../background-jobs/) | 一時停止や再開が可能な永続的な Codex スレッドとワークスペースを持てます。 |
+| スケジュールや Webhook をきっかけに動く機械的なチェック処理 | [Automation Job](../automation-jobs/) | モデルの推論判断が不要な場面で、モデル Turn を回さずに決定論的スクリプトを実行できます。 |
 
-Workflow は汎用 DAG engine、scheduler、event bus ではありません。外部イベントや人の判断を待てません。開始後に作業の方向を変える必要がある場合は Background Agent Job を使います。
+Workflow は汎用の DAG ワークフローエンジンやスケジューラー、イベントバスではありません。実行途中で外部イベントや人間の承認を直接待ち受けることはできないため、開始後に状況を見ながら方針を柔軟に変えたい作業には Background Agent Job を使ってください。
 
 ## Agent に Workflow を開始させる
 
-有限の入力集合、独立したタスク、完了条件、最終形式を説明します。例:
+依頼する際は、「有限の入力対象」「各サブタスクで行うこと」「完了条件」「最終出力の形式」を具体的に伝えます。たとえば次のように指示します。
 
 ```text
 Run this as a Workflow. Review these 40 proposals in parallel against the five
@@ -30,15 +30,15 @@ criteria below. Return one JSON result with every verdict, the failed reviews,
 and a final shortlist. Do not expand beyond these 40 proposals.
 ```
 
-メイン Agent が編成プログラムを書いて開始します。JavaScript を書いたり API を呼んだりする必要はありません。Agent は run ごとの同時実行上限、サブエージェント call 数の上限、自身が利用できる custom model profile を設定できます。profile を選ばない場合、Workflow タスクは `primary` を使います。
+ユーザーが自分で JavaScript コードを書いたり API を叩いたりする必要はありません。メイン Agent が編成プログラムを組み立てて実行を開始します。その際、Agent は Run あたりの同時実行数上限、サブエージェント呼び出し総数の上限、および自身が利用可能なカスタムモデルプロファイルを指定できます（プロファイルを指定しない場合、各 Workflow タスクは `primary` プロファイルを使用します）。
 
-開始操作は run ID と現在の `running` ステータスを返します。メイン Agent は run をポーリングしてはいけません。同じ会話を続け、必要なときに後から状態を尋ねられます。
+開始ツールは `run_id` と初期ステータス `running` を返します。メイン Agent はポーリングで完了を待ち続けてはならず、いったん Turn を終えて通常の会話を続けられる状態を保ち、必要に応じて後から進捗を確認します。
 
 ## 編成の実行方法
 
-プログラムは固定された JSON `args` を受け取り、`agent(prompt, options)` を呼び出せます。`Promise.all` 内の call は並行実行されます。通常の JavaScript 条件により、前の call が完了した後に検証や合成の段階を選べます。すべての collection と loop には、目で確認できる有限の上限が必要です。
+編成プログラムは不変の JSON 引数 `args` を受け取り、`agent(prompt, options)` 関数を呼び出してサブエージェントを起動します。`Promise.all` で束ねた呼び出しは並列に実行され、通常の JavaScript の条件分岐を使って、前段の結果が出揃ってから後段の検証ステップや統合ステップへ進むといった構成も組めます。なお、すべてのコレクション操作とループには、コード上で明確に確認できる有限の上限が必要です。
 
-次の簡略化したプログラムは最大 20 項目をレビューし、失敗した call を `null` のまま保持して、成功した結果を合成します。
+次の簡略化した例では、最大 20 件の項目を並列レビューし、失敗した呼び出し（`null`）を除外したうえで成功分だけを最終要約にまとめています。
 
 ```js
 const items = args.items.slice(0, 20)
@@ -68,61 +68,61 @@ const summary = await agent(`Summarize these reviews: ${JSON.stringify(successfu
 return { reviews, summary }
 ```
 
-プログラムと `args` は run の開始後に変わりません。control plane は各編成ステップをステートレスな `ankole-function-runtime` サービスの `POST /v1/program/run` に送ります。各ステップはネットワーク、ファイルシステム、環境変数、プロセス、FFI の権限を拒否した新しい worker で実行され、`Math.random()` と `Date.now()` には決定論的な値が使われます。タスクの実行中、worker は常駐しません。
+プログラム本体と `args` は Run 開始後に変更できません。コントロールプレーンは編成ステップを進めるたびに、ステートレスな `ankole-function-runtime` サービスの `POST /v1/program/run` を呼び出します。各ステップはネットワーク、ファイルシステム、環境変数、サブプロセス、FFI の権限をすべて遮断したクリーンなワーカー上で実行され、`Math.random()` や `Date.now()` にも決定論的な固定シード値が使われます。サブエージェントの応答を待っている間、関数ランタイムのワーカーが常駐し続けることはありません。
 
-control plane が再起動すると、6 MiB の永続 memo 予算の範囲で保存済みのタスク結果から固定プログラムを replay します。保存済みの成功タスクはもう一度作成されず、replay 時の `agent()` call 順序や引数が一致しない場合は run が失敗します。中断されたタスクは再試行されることがあるため、タスク実行を exactly-once として扱わないでください。
+コントロールプレーンが再起動した場合でも、`6 MiB` の永続メモ（memo）予算の範囲内で保存済みの完了タスク結果を使って編成プログラムを最初からリプレイし、続きから再開します。すでに成功して記録されたタスクが再実行されることはありませんが、リプレイ時に `agent()` の呼び出し順序や引数が前回と食い違った場合は Run 全体がエラー終了します。なお、実行途中で中断された未完了タスクは再試行されることがあるため、サブタスクの処理を「厳密に 1 回だけ（exactly-once）」とみなさないでください。
 
 ## 各サブエージェントが使えるもの
 
-各 `agent()` call は、Agent Worker スロットを占有せずに control plane 上の独立した会話（`wf_task:<call_id>`）で実行されます。Agent の identity と mission、およびタスク prompt を受け取ります。プログラムが後の prompt に含めない限り、元の会話 transcript や別のタスクの結果は受け取りません。
+各 `agent()` 呼び出しは、Agent Computer Worker のスロットを消費せず、コントロールプレーン上の独立した会話コンテキスト（`wf_task:<call_id>`）として実行されます。サブエージェントに渡されるのは、親 Agent の Identity・Mission とそのタスク用のプロンプトだけです。編成プログラム側で明示的にプロンプトへ埋め込まないかぎり、元のチャット履歴や他の並列タスクの結果が見えることはありません。
 
-Workflow タスクは Web tool と、Brain が有効な場合は読み取り専用の `recall` と `get_page` を使えます。shell、file、MCP、Skill、Brain 書き込み、schedule の tool は直接受け取らず、別の Workflow を作成することもできません（編成の深さは 1 です）。
+Workflow タスクが直接利用できるツールは、Web ツール（`web_search` / `web_fetch`）と、Brain が有効な場合の読み取り専用ツール（`recall` および `get_page`）に限られます。シェル、ファイル操作、MCP、Skill、Brain への書き込み、スケジュールの各ツールは直接公開されず、サブエージェントの中からさらに別の Workflow をネスト起動することもできません（編成のネスト深度は `1` 固定です）。
 
-workspace での実行や数時間にわたる作業が必要な場合、タスクは [Background Agent Job](../background-jobs/)（`create_background_job`、`show_background_job_details`、`send_message_to_background_job`、`stop_background_job`）を委譲し、`sleep`（1 分〜48 時間、1 call あたり最大 16 回）で同時実行スロットを解放して休眠できます。委譲した Job のライフサイクルイベント、親からのメッセージ、または期限で再起動します。`sleep` に `attention: true` を設定するとメイン Agent に通知され、休眠メモの確認と返信を求められます。作業が完了したら、`submit_result` で結果を提出します。
+どうしてもワークスペース上での作業や数時間規模の処理が必要な場合は、タスク内から [Background Agent Job](../background-jobs/)（`create_background_job`、`show_background_job_details`、`send_message_to_background_job`、`stop_background_job`）へ作業を委譲し、`sleep`（1 分〜48 時間、1 呼び出しあたり最大 16 回）を使って同時実行スロットを解放したまま休眠できます。休眠中のタスクは、委譲先 Job のライフサイクルイベント、親からのメッセージ送信、または指定期限の到来によって再起動します。`sleep` 時に `attention: true` を指定するとメイン Agent へ通知が飛び、休眠メモの確認と返信を促せます。作業がすべて完了したら、`submit_result` を呼んで結果を提出します。
 
-各 wake 区間では、1 つの call が最大 3 回までタスクを試行できます。成功した call は提出値に解決されます。試行を使い切った call は `null` に解決されるため、プログラムは失敗を記録して続行するか、run が不完全な理由を最終結果で説明できます。1 つのタスクが失敗しても、Workflow 全体が自動的に失敗することはありません。
+1 回の起動区間（wake 区間）につき、各呼び出しは最大 3 回までタスクを試行できます。正常に提出された呼び出しはその提出値に解決され、試行回数を使い切った呼び出しは `null` に解決されます。そのため、1 つのサブタスクが失敗しても Workflow 全体が即座に失敗することはなく、編成プログラム側で失敗分を記録して残りの処理を続行したり、最終結果に未完了の理由を添えて返したりできます。
 
 ## 構造化結果を必須にする
 
-`agent()` call は結果 schema を宣言できます。Ankole は生成した `submit_result` tool を Provider の strict mode で送り、control plane でも提出値を再検証します。schema が拒否されてもタスクは active のままなので、サブエージェントは値を修正できます。
+`agent()` のオプションで結果の JSON Schema を宣言すると、Ankole は生成した `submit_result` ツールを Provider の strict モードで送信し、提出された値をコントロールプレーン側でも再検証します。スキーマ違反で拒否された場合でもタスクは終了せずそのまま継続するため、サブエージェントはその場で出力を修正して再提出できます。
 
-schema は OpenAPI 3 JSON Schema の閉じた subset であり、仕様全体ではありません。結果は `object`、`array`、`string`、`number`、`integer`、`boolean` のいずれか 1 つの非 null 型です。入れ子を含むすべての object は `properties` を宣言し、すべての property を `required` に列挙し、`additionalProperties: false` を設定する必要があります。optional object field、nullable 値、union、`$ref`、`oneOf` / `anyOf` / `allOf` はサポートされません。
+使用できるスキーマは OpenAPI 3 JSON Schema の厳格なサブセットに限定されます。ルートおよび各要素には `object`、`array`、`string`、`number`、`integer`、`boolean` のいずれか単一の非 null 型を指定します。ネストされたものも含め、すべての `object` では必ず `properties` を定義し、全プロパティ名を `required` に列挙し、かつ `additionalProperties: false` を設定しなければなりません。省略可能なオブジェクトフィールド、nullable 値、ユニオン型、`$ref`、および `oneOf` / `anyOf` / `allOf` はサポートされていません。
 
-schema を省略すると、タスクは string を返します。プログラムは集約した最終結果を return する必要があります。string はそのまま最終 text になり、他の JSON 値は JSON text になります。
+スキーマ指定を省略した場合、各タスクは文字列（`string`）を返します。編成プログラムの末尾では必ず最終的な集約結果を `return` してください（文字列ならそのまま最終テキストになり、それ以外の JSON 値はシリアライズされた JSON 文字列として返されます）。
 
 ## Run の表示、メッセージ送信、一覧、キャンセル
 
-メイン Agent に次の操作を依頼します。
+進行中や完了済みの Run を操作したいときは、メイン Agent に依頼して次のツールを実行させます。
 
-- `show_workflow` はステータス、タスク数、最大 32 件の live タスク（休眠 `note`、`attention`、再起動期限を含む）、最大 10 件の失敗サマリー、terminal error を報告します。完了した結果は byte offset `0` から、最大 8,000 UTF-8 byte の segment 単位で読み取ります。
-- `send_message_to_workflow_task` は `run_id` と `call_seq` で指定した live タスクに非同期メッセージを追加し、休眠中のタスクを再起動したり、`attention: true` で休眠したタスクに応答したりします。
-- `list_workflows` はこの Agent の live または終了済み run を、1 回に最大 32 件一覧します。終了済み run には `completed`、`failed`、`cancelled` が含まれます。
-- `cancel_workflow` は idempotent です。新しいタスクと遅れて届いた結果による run の復活を防ぎ、実行中のタスク Turn と委譲された Background Agent Job に停止を要求します。モデル call の停止には短い時間がかかる場合があります。
+- `show_workflow`：現在のステータス、タスク件数、最大 32 件の実行中タスク（休眠時の `note`、`attention`、再起動期限を含む）、最大 10 件の失敗サマリー、および終了エラーを返します。完了した最終結果はバイトオフセット `0` から最大 `8,000` UTF-8 バイト単位のセグメントで読み取れます。
+- `send_message_to_workflow_task`：`run_id` と `call_seq` で指定した実行中タスクへ非同期メッセージを送り、休眠中のタスクを即座に起こしたり、`attention: true` で待機しているタスクへ指示を返したりします。
+- `list_workflows`：その Agent の実行中または終了済み（`completed`、`failed`、`cancelled`）の Run を 1 回につき最大 32 件まで一覧取得します。
+- `cancel_workflow`：べき等なキャンセル操作です。新規サブタスクの起動や遅延到着した結果による Run の復活を防ぎ、実行中のタスク Turn と委譲先の Background Agent Job に停止を要求します（進行中のモデル呼び出しが完全に止まるまでには少し時間がかかる場合があります）。
 
-完了または失敗した run は元の会話を起こします。キャンセル済み run は完了イベントを送らないため、確認が必要な場合は Agent に状態を確認させます。
+正常完了またはエラー終了した Run は元の会話を自動的に起こしますが、手動キャンセルした Run は完了イベントを発火しません。キャンセル後の最終状態を確認したい場合は、Agent に状態照会を依頼してください。
 
-Console では、ホームのバックグラウンドアクティビティ領域に読み取り専用の Workflow アクティビティ（`site_console:agent:<agent_uid>:workflow` 権限に基づく live call、ステータス件数、休眠メモ、期限、`attention` フラグ、有界のエラーサマリー）が表示されます。run の開始、メッセージ送信、完全な結果の読み取り、キャンセルにはメイン Agent の Workflow tool を使います。
+また、Console ホーム画面のバックグラウンドアクティビティ欄でも、読み取り専用の Workflow 稼働状況（`site_console:agent:<agent_uid>:workflow` 権限にもとづく実行中 call、ステータス別件数、休眠メモ、期限、`attention` フラグ、エラーサマリー）を確認できます。Run の新規開始、タスクへのメッセージ送信、完全な結果の取得、およびキャンセル操作には、メイン Agent の Workflow ツールを使用します。
 
 ## コストと容量を制御する
 
-各タスクの各試行は 1 回の完全なモデル Turn であり、有料の Web call も行う場合があります。同時実行数が変えるのは所要時間であり、call の総数ではありません。有限の入力サイズから call 上限を決め、各タスクの prompt と結果を小さく保ちます。
+各サブタスクの 1 試行ごとに 1 回分の完全なモデル Turn が回り、必要に応じて従量課金の Web ツール呼び出しも発生します。同時実行数の上限を変えても変化するのは完了までの所要時間だけで、呼び出し総数が減るわけではありません。必ず有限の入力件数から呼び出し上限を見積もり、各サブタスクに渡すプロンプトと返却データのサイズをコンパクトに保ってください。
 
-| 境界 | デフォルト | ハード上限 |
+| 制限項目 | 既定値 | ハード上限 |
 |---|---:|---:|
-| 1 つの run で同時実行するタスク | 8 | 32 |
-| 1 つの Agent で実行中の Workflow タスク | 8 | 64 |
-| 1 つの run に含まれるサブエージェント call | 32 | 1,024 |
-| 各 wake 区間での試行回数 | 最大 3 | 3 |
-| 1 つのサブエージェント call の休眠回数 | — | 16 |
-| 1 回の休眠時間 | — | 1 分〜48 時間 |
-| 保存されるプログラム | — | 256 KiB |
-| 保存される `args` | — | 64 KiB |
-| 1 つの call 引数 object | — | 8 KiB |
-| 1 つの親タスクメッセージ | — | 8 KiB |
-| 1 つの提出結果値 | — | 24 KiB |
-| 永続 memo 予算 | — | 6 MiB |
-| 最終集約結果 | — | 1 MiB |
+| 1 Run あたりの同時実行タスク数 | 8 | 32 |
+| 1 Agent あたりの実行中 Workflow タスク総数 | 8 | 64 |
+| 1 Run に含まれるサブエージェント呼び出し総数 | 32 | 1,024 |
+| 各 wake 区間での最大試行回数 | 最大 3 | 3 |
+| 1 サブエージェント呼び出しあたりの最大休眠回数 | — | 16 |
+| 1 回あたりの休眠時間 | — | 1 分〜48 時間 |
+| 保存される編成プログラムのサイズ | — | 256 KiB |
+| 保存される `args` のサイズ | — | 64 KiB |
+| 1 回の呼び出し引数オブジェクトのサイズ | — | 8 KiB |
+| 1 通の親タスクメッセージのサイズ | — | 8 KiB |
+| 1 回の提出結果データのサイズ | — | 24 KiB |
+| 永続メモ（memo）の合計予算 | — | 6 MiB |
+| 最終集約結果のサイズ | — | 1 MiB |
 
-管理者は最初の 3 つのインスタンス上限を [AppConfigure](../app-configuration/) で設定できます。run のリクエストはデプロイメント上限を引き上げられません。Workflow には batch 全体の token または通貨予算がなく、各タスクには通常の Turn ごとの反復、出力 token、非アクティブ時間の上限が適用されます。関連する制御については [コスト管理](../cost-management/) を参照してください。
+表の先頭 3 項目については、管理者が [AppConfigure](../app-configuration/) からインスタンス既定値を調整できます（個別の Run リクエスト側からデプロイ上限を超えて引き上げることはできません）。なお、Workflow 単位での一括トークン上限や金額上限はなく、各サブタスクに対して通常の Turn ごとの反復回数・出力トークン数・無通信タイムアウトの上限が個別に適用されます。コスト面の管理については [コスト管理](../cost-management/) も参照してください。
 
-run がサイズ境界を超える場合は、fanout を減らす、タスクから返すサマリーを短くする、または入力を複数の Workflow に分割します。プログラムまたは入力を変更する必要がある場合は、新しい run を作成します。失敗した run は、異なる code で編集または再開できません。
+もしデータサイズの上限に達する場合は、並列展開数（fanout）を絞るか、各サブタスクから返す要約をより短くするか、あるいは入力データを複数の Workflow Run に分割してください。編成プログラムや入力 `args` を変更したい場合は、新しい Run として作り直します（失敗した Run のコードを後から書き換えて途中再開することはできません）。

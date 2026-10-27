@@ -104,6 +104,62 @@ defmodule AnkoleWeb.SetupControllerTest do
              "https://#{conn.host}"
   end
 
+  test "setup company and business step updates the privileged tenant and stores packs", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> api_get(~p"/api/v2/browser/setup/brain-packs")
+
+    response = api_response(conn, 200)
+    assert response["displayName"] == tenant.display_name
+    assert response["slug"] == tenant.slug
+
+    conn =
+      conn
+      |> recycle()
+      |> api_put(~p"/api/v2/browser/setup/brain-packs", %{
+        "displayName" => "Acme",
+        "slug" => "acme",
+        "packs" => ["legal"]
+      })
+
+    assert api_response(conn, 200) == %{
+             "displayName" => "Acme",
+             "slug" => "acme",
+             "packs" => ["legal"]
+           }
+
+    assert {:ok, updated} = Ankole.Tenants.get(tenant.id)
+    assert updated.display_name == "Acme"
+    assert updated.slug == "acme"
+    assert WebSession.setup_brain_packs(conn) == ["legal"]
+  end
+
+  test "setup rejects an invalid tenant slug without changing the profile", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> api_put(~p"/api/v2/browser/setup/brain-packs", %{
+        "displayName" => "Acme",
+        "slug" => "not valid",
+        "packs" => ["legal"]
+      })
+
+    assert api_error(conn, 422)
+    assert {:ok, unchanged} = Ankole.Tenants.get(tenant.id)
+    assert unchanged.display_name == tenant.display_name
+    assert unchanged.slug == tenant.slug
+    assert WebSession.setup_brain_packs(conn) == []
+  end
+
   test "OIDC authorization uses the forwarded HTTPS origin for its callback", %{conn: conn} do
     assert {:ok, _provider} =
              IdentityProviders.save_provider(

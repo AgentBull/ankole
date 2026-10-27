@@ -1,6 +1,6 @@
 import IntlMessageFormat from 'intl-messageformat'
 import type { Locale } from './config'
-import { BCP47, DEFAULT_LOCALE } from './config'
+import { DEFAULT_LOCALE } from './config'
 import en from './locales/en.json'
 import ja from './locales/ja.json'
 import ko from './locales/ko.json'
@@ -21,7 +21,7 @@ export function t(locale: Locale, key: string, values?: Record<string, unknown>)
 
   let fmt = cache.get(cacheKey)
   if (!fmt) {
-    fmt = new IntlMessageFormat(msg, BCP47[locale])
+    fmt = new IntlMessageFormat(msg, locale)
     cache.set(cacheKey, fmt)
   }
 

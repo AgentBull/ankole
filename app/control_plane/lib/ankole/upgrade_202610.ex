@@ -13,8 +13,9 @@ defmodule Ankole.Upgrade202610 do
   Remove this file, its Mix alias, its Release call, and
   `files.importAgentHomeClaim` when every supported direct-upgrade origin
   includes these steps and upgrade checks find no old identity-provider scope,
-  shared Slack/Teams key, missing application identity, legacy Skill directory,
-  `legacy_directory_path`, or legacy Delivery attachment path.
+  legacy Slack/Teams/Lark binding key (`signals.lark.bindings.*`), missing
+  application identity, legacy Skill directory, `legacy_directory_path`, or
+  legacy Delivery attachment path.
   """
 
   import Bitwise
@@ -269,7 +270,7 @@ defmodule Ankole.Upgrade202610 do
     end
   end
 
-  # One transaction covers every reference to each shared binding key.
+  # One transaction covers every reference to each legacy binding key.
   defp migrate_binding_configurations do
     {:ok, snapshot} = Ankole.Plugins.Registry.prepare_snapshot()
     specs = Map.values(snapshot.discovered)
@@ -281,19 +282,24 @@ defmodule Ankole.Upgrade202610 do
         Enum.flat_map(specs, & &1.app_config_patterns)
       )
 
+    config_modules =
+      for spec <- specs,
+          %{contract_id: "signals.adapter", id: id, config_module: module} <-
+            spec.adapter_declarations,
+          into: %{},
+          do: {id, module}
+
     # Only discovery crosses tenants. Each binding write runs in its tenant.
     bindings =
       Repo.across_tenants(fn ->
-        Repo.all(from binding in Binding, where: binding.adapter in ["slack", "teams"])
+        Repo.all(from binding in Binding, where: binding.adapter in ["lark", "slack", "teams"])
       end)
 
     bindings
-    |> Enum.filter(fn binding ->
-      binding.config_ref == "app-config://#{config_module(binding).chat_config_key(binding.name)}"
-    end)
+    |> Enum.filter(&legacy_binding_config?(&1, config_modules))
     |> Enum.group_by(& &1.config_ref)
     |> Enum.each(fn {"app-config://" <> old_key, bindings} ->
-      case Repo.transact(fn -> migrate_shared_key(old_key, bindings) end) do
+      case Repo.transact(fn -> migrate_shared_key(old_key, bindings, config_modules) end) do
         {:ok, :ok} -> :ok
         {:error, reason} -> raise "binding configuration migration failed: #{inspect(reason)}"
       end
@@ -302,9 +308,19 @@ defmodule Ankole.Upgrade202610 do
     backfill_application_identities(specs)
   end
 
-  defp migrate_shared_key(old_key, bindings) do
+  defp legacy_binding_config?(%Binding{adapter: "lark", config_ref: config_ref}, _modules) do
+    String.starts_with?(config_ref, "app-config://signals.lark.bindings.")
+  end
+
+  defp legacy_binding_config?(%Binding{adapter: adapter} = binding, modules)
+       when adapter in ["slack", "teams"] do
+    module = Map.fetch!(modules, adapter)
+    binding.config_ref == "app-config://#{module.chat_config_key(binding.name)}"
+  end
+
+  defp migrate_shared_key(old_key, bindings, config_modules) do
     with {:ok, config} <- AppConfigure.get_global_by_key_in_tx(old_key),
-         :ok <- migrate_bindings(bindings, config) do
+         :ok <- migrate_bindings(bindings, config, config_modules) do
       old_ref = "app-config://#{old_key}"
 
       remaining? =
@@ -325,9 +341,13 @@ defmodule Ankole.Upgrade202610 do
     end
   end
 
-  defp migrate_bindings(bindings, config) do
+  defp migrate_bindings(bindings, config, config_modules) do
     Enum.reduce_while(bindings, :ok, fn binding, :ok ->
-      new_key = config_module(binding).binding_config_key(binding.agent_uid, binding.name)
+      new_key =
+        Map.fetch!(config_modules, binding.adapter).binding_config_key(
+          binding.agent_uid,
+          binding.name
+        )
 
       result =
         Repo.with_tenant(binding.tenant_id, fn ->
@@ -453,9 +473,6 @@ defmodule Ankole.Upgrade202610 do
       {:error, :configuration_changed}
     end
   end
-
-  defp config_module(%Binding{adapter: "slack"}), do: Ankole.Plugins.SlackAdapter.Config
-  defp config_module(%Binding{adapter: "teams"}), do: Ankole.Plugins.Microsoft365Adapter.Config
 
   @doc """
   Copies the files that Agents kept in their Agent Homes under `agents_root`

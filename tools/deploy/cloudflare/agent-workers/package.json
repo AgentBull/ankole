@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "deploy": "bun scripts/deploy.ts",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "bun check -p tsconfig.json --noEmit",
     "test": "bun test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"

@@ -5,30 +5,30 @@ section: Developer guide
 order: 122
 ---
 
-An Agent can run commands and edit files during a normal conversation. It can also delegate durable work to a Background Agent Job. These are separate runtime paths: a conversation uses the Agent Computer Worker's foreground tools, while every Background Agent Job uses CodexRunner. The amount of code in a message does not select between them.
+An Agent can run commands and edit files inline during a conversation, or delegate long-running work to a Background Agent Job. Those two modes use separate runtime paths—conversation turns call foreground tools on the Agent Computer Worker, whereas every Background Agent Job runs through CodexRunner—chosen by the task's lifecycle rather than how much code appears in a message.
 
-The decisive property, stated up front: every Agent command runs on the Agent's own computer. Each Agent has its own Worker container, and the container is the only isolation boundary. Commands run as the Worker's user without an inner sandbox, and the Agent works in its Agent Home under `/workspace`. The Agent may change its own computer; it shares no Worker, cache disk, or credential with another Agent. By contrast, Pod Applet backend functions and AIGateway or Workflow Programmatic Tool Calling (PTC) scripts run in stateless isolates on `ankole-function-runtime` rather than on the Agent Computer Worker.
+Every Agent command executes on that Agent's dedicated computer: an isolated Worker container where `/workspace` mounts Agent Home and commands run as the Worker user without a nested inner sandbox. While an Agent may freely modify its own Worker environment, it never shares a Worker container, cache disk, or credentials with any other Agent. By contrast, Pod Applet backend functions and AIGateway or Workflow Programmatic Tool Calling (PTC) scripts execute inside stateless isolates on `ankole-function-runtime` rather than on the Agent Computer Worker.
 
 ## Shell commands
 
-The Agent runs shell commands through the command tool, backed by `app/agent_computer/src/tools/computer/command-tool.ts`. Each command runs as the Worker's user in its own process group, with a fresh environment that does not contain the Worker credential. A cancellation or a timeout ends the whole group; the default foreground budget is 180 seconds. The working directory must be inside the Agent Home. The [browser](../browser-automation/) daemon, the Codex app-server, and Automation scripts also run as the Worker's user, and the Worker needs no extra kernel privileges.
+Foreground turns execute shell commands through the `command` tool (`app/agent_computer/src/tools/computer/command-tool.ts`). Each command spawns in its own process group under the Worker user (`uid` `1000`, without `sudo`) with a clean environment stripped of the Worker credential, a working directory inside Agent Home, and a default 180-second foreground timeout—cancelling or timing out terminates the entire process group. The [browser](../browser-automation/) daemon, Codex app-server, and Automation scripts likewise run as the Worker user without requiring elevated kernel privileges.
 
-Commands run as uid 1000 without sudo. They can write Home, install user-space packages, and start subprocesses; they cannot install system packages. Sessions and Jobs of one Agent can see its files. The instance isolates Agents; the Worker has no database connection or object-store credentials.
+Running as `uid` `1000` allows commands to write inside Agent Home, install user-space packages, and spawn subprocesses, while preventing system-level OS package installation. Sessions and Jobs belonging to one Agent share `/workspace`, while container boundaries isolate different Agents, and Workers hold neither database connections nor object-store credentials.
 
 ## File reads and apply_patch
 
-Alongside the shell, the computer tools give the Agent two file primitives:
+Alongside shell execution, the Worker provides two dedicated file tools:
 
-- **Read a file** — `read-file-tool.ts`, for inspecting a file's contents directly rather than shelling out to `cat`.
-- **Edit files** — `apply-patch-tool.ts`, a freeform `apply_patch` tool that uses the same grammar as the pinned Codex release.
+- **Read a file** — `read-file-tool.ts`, for reading file contents directly without shelling out to `cat`.
+- **Edit files** — `apply-patch-tool.ts`, a freeform `apply_patch` tool sharing the exact patch grammar of the pinned Codex release.
 
-The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. The Worker passes it to the native Codex binary through `/usr/local/bin/apply_patch`. Background Agent Jobs get the same freeform tool from the AIGateway model card and use the same binary.
+During foreground turns, the main Agent sends raw patches through AIGateway as a `custom_tool_call`, which the Worker passes to the native Codex binary at `/usr/local/bin/apply_patch`; Background Agent Jobs receive the same freeform tool from the AIGateway model card and invoke the same binary.
 
-This shared path keeps normal conversations and Background Agent Jobs on one edit protocol. A patch that does not match fails in the native tool and returns that failure to the model. For a quick search, the shell is fine. Use `apply_patch` for file edits.
+Sharing one native binary keeps interactive turns and Background Agent Jobs on a single edit protocol: if a patch fails to match, the native binary rejects it cleanly and returns the error to the model. Use shell commands for quick searches and `apply_patch` for file edits.
 
 ## The /workspace filesystem
 
-Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a symbolic link to `/workspace`; path checks resolve symbolic links before checking the Home boundary. Its layout is:
+Each Agent's persistent Home directory mounts at `/workspace`, with `/agents/<agent_uid>` symlinked to `/workspace`. Path checks resolve all symbolic links before enforcing the Home boundary. Its layout is:
 
 ```text
 /workspace/
@@ -45,33 +45,31 @@ Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a sym
     └── temp/
 ```
 
-`SOUL.md`, `MISSION.md`, `DESIGN.md`, and `ConfidentialityPolicy.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work, and `ConfidentialityPolicy.md` defines disclosure rules when the Agent selects audience scopes in Brain. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
+At the root, `SOUL.md`, `MISSION.md`, `DESIGN.md`, and `ConfidentialityPolicy.md` mirror the durable documents managed in the [Agent Library](../agent-library/): the first two define behavior and responsibilities, `DESIGN.md` specifies the design system for visual work, and `ConfidentialityPolicy.md` guides audience selection when writing to Brain. Alongside them, `installed-skills/` holds Agent Skills, `sessions/` holds conversation workspaces keyed by stable PostgreSQL numeric IDs starting at `10000`, and `jobs/` holds isolated Background Agent Job workspaces.
 
-Home survives instance deletion and image changes. A rebuild removes only `/var/cache/ankole`. Docker local volumes depend on their host; a forced Cloudflare stop can lose writes since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
+Agent Home survives instance deletion and container image updates—rebuilding a Worker clears only `/var/cache/ankole`. Storage durability follows the backing provider: local Docker volumes rely on the host disk, whereas forcing a Cloudflare Worker stop can lose writes made since the last R2 backup; see [Workers](../worker-management/) for provider storage limits.
 
-The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files, and use `ankole-pod` to read or update Pod pages, Base tables, and Applets through the control plane. Job workspaces and Codex threads live in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
-
-Background Agent Jobs load Skills on demand through `skill_view`.
+Attachments, published files, Skills, and Automation scripts live separately in the control-plane Files drive. Agents run `ankole-files` to read from or publish to that drive and `ankole-pod` to read or update Pod pages, Base tables, and Applets through the control plane, while Job workspaces and Codex threads stay in persistent Home. Before starting a turn, the Worker synchronizes `installed-skills/` with the drive, and Background Agent Jobs load Skills on demand via `skill_view`.
 
 ## Jupyter live kernel for iterative Python
 
-When the work is iterative Python — variables that must persist across executions, a DataFrame you want to inspect cell by cell, or a stateful REPL — the shell is the wrong tool. The `jupyter-live-kernel` skill is the right one. It is a builtin skill (`default_enabled: true`) that runs as a [background job](../background-jobs/), built on Ankole's Unix-socket adapter around hamelnb. The kernel stays alive across executions, so you can define a variable in one step and read it in the next, instead of reloading data every call.
+When a task requires stateful, iterative Python—keeping variables alive across steps, inspecting a DataFrame cell by cell, or exploring an API interactively—one-shot shell commands are the wrong fit. Instead, Agents use the `jupyter-live-kernel` Skill (`default_enabled: true`), which runs inside a [Background Agent Job](../background-jobs/) over Ankole's Unix-socket adapter around `hamelnb`. Because the Python kernel stays resident across cells, the Agent can load data once and iterate without re-importing or re-reading files on every step.
 
-The skill's own guidance is the rule of thumb: prefer a one-shot shell execution for short, stateless Python scripts; prefer this skill when you would normally want a Jupyter notebook or a stateful Python REPL. Data science, DataFrame inspection, notebook editing, and stateful API exploration are its sweet spot. The system Python, JupyterLab, ipykernel, and the hamelnb helper are already in the worker image, so a fresh agent can use the skill without installing anything.
+Follow the Skill's own rule of thumb: run short, stateless Python scripts directly in the shell, and reach for `jupyter-live-kernel` whenever you would naturally open a Jupyter notebook or stateful REPL—data science, DataFrame inspection, `.ipynb` editing, and interactive exploration. System Python, JupyterLab, `ipykernel`, and `hamelnb` come preinstalled in the Worker image, so Agents can start immediately with zero setup.
 
 ## CodexRunner for Background Agent Jobs
 
-CodexRunner is the execution engine for every Background Agent Job. A Job can research a topic, produce a document, modify a repository, or do other long-running work; its lifecycle, not its subject, selects CodexRunner. The runner talks to the Codex app-server through `app-server-client.ts` and prepares a separate Job workspace and runtime configuration.
+CodexRunner executes every Background Agent Job—whether a Job researches a topic, drafts a document, edits a repository, or performs other multi-step work, its background lifecycle (rather than its subject matter) routes it to CodexRunner. Communicating with the Codex app-server through `app-server-client.ts`, CodexRunner provisions an isolated Job workspace and runtime config.
 
-Console calls the corresponding model profile **Background Agent Jobs**. Its stored key and API name is `coding`.
+In the Console, the corresponding model profile appears as **Background Agent Jobs**, stored in PostgreSQL and the API under the key `coding`.
 
 ## How these paths are selected
 
-The operator surface is narrow:
+Operators govern these execution paths through three straightforward controls:
 
-- **Computer tools** (`command`, `read_file`, and `apply_patch`) ship with every Worker. They are available during normal conversation turns.
-- **Jupyter live kernel** is a `default_enabled` skill, so you control it through the [Agent Library](../agent-library/) the same way you control the [browser](../browser-automation/) skill. Narrow it for an agent that should not run iterative Python.
-- **CodexRunner** runs every Background Agent Job. Every model call goes through AIGateway. Configure the Background Agent Jobs profile when Jobs need a different provider or model. If it is unset, the control plane uses the Agent's `heavy` profile.
+- **Computer tools** (`command`, `read_file`, and `apply_patch`) ship in every Worker and are available during foreground conversation turns.
+- **Jupyter live kernel** is a `default_enabled` Skill managed in the [Agent Library](../agent-library/) just like the [browser](../browser-automation/) Skill; disable it per Agent whenever an Agent should not run stateful Python sessions.
+- **CodexRunner** drives every Background Agent Job, routing all model calls through AIGateway. Configure the **Background Agent Jobs** (`coding`) profile when Jobs need a dedicated provider or model; if left unset, the control plane falls back to the Agent's `heavy` profile.
 
 ## Next steps
 

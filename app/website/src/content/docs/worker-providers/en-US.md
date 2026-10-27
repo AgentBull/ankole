@@ -5,92 +5,92 @@ section: Guides
 order: 317
 ---
 
-A WorkerProvider selects where an Agent's computer runs and how it stores Home and cache. Each Agent has one fixed provider and its own Worker. Providers belong to the site. Console stores credentials encrypted in separate fields; do not put credentials in configuration YAML. See [Workers](../worker-management/) for creation and daily operations.
+A WorkerProvider defines where an Agent's computer runs and how it mounts persistent Home and cache storage. Every Agent is permanently bound to a single WorkerProvider and receives its own isolated Worker, while WorkerProviders themselves belong to the site. Enter platform secrets in the Console's dedicated encrypted credential fields rather than inside provider YAML; see [Workers](../worker-management/) for day-to-day pool management.
 
-Vercel requires the `vercel-worker-provider` Control Plane Plugin. Alibaba Function Compute requires `china-market-ai-providers`, which also supplies model adapters. Enable the required Plugin and restart the control plane before use. Ankole rejects Plugin disable while any Agent still uses its Worker providers, including paused Agents and pending deletion.
+Vercel support comes from the `vercel-worker-provider` Control Plane Plugin, and Alibaba Function Compute support comes from `china-market-ai-providers` (which also registers regional model providers). Enable the corresponding Plugin in the Site Admin Console and restart the control plane before creating its WorkerProvider; Ankole blocks disabling either Plugin while any Agent—including paused Agents or Agents pending deletion—remains assigned to one of its provider kinds.
 
 ## Three storage roles
 
 | Storage | Contents | Persistence requirement |
 | --- | --- | --- |
-| Agent Home: `/workspace` | Workspaces, installed software, threads in `/workspace/.codex` | Must survive instance deletion and image replacement; back it up |
-| Worker cache: `/var/cache/ankole` | SQLite, WAL, and local process locks under `codex/` | Rebuildable; private to each Agent |
-| Control-plane drive | Attachments, published files, Skills, Automation scripts | PostgreSQL references and OpenDAL bytes must be backed up together |
+| Agent Home: `/workspace` | Session and Job workspaces, user-installed packages, Codex threads in `/workspace/.codex` | Must survive instance deletion and image upgrades; include in backups |
+| Worker cache: `/var/cache/ankole` | SQLite databases, WAL files, and local process locks under `codex/` | Rebuildable; strictly private to each Agent |
+| Control-plane drive | Chat attachments, published deliverables, installed Skills, Automation scripts | Back up PostgreSQL metadata and OpenDAL object storage together |
 
-A drive S3 bucket cannot replace Worker Home or the SQLite cache disk. Cloudflare R2 Home backups and Function Compute OSS Home storage also have separate configuration. See [Drive storage configuration](../drive-storage/).
+Never share the control-plane drive's S3 bucket as a Worker Home mount or SQLite cache disk; Cloudflare R2 Home snapshots and Function Compute OSS Home prefixes likewise require their own dedicated storage configuration. See [Drive storage configuration](../drive-storage/).
 
 ## Provider comparison
 
 | `kind` | Home | Cache | Idle action | Instance lifetime |
 | --- | --- | --- | --- | --- |
-| `docker` | Private local named volume | Private local named volume | Delete container | No fixed adapter limit |
-| `kubernetes` | Private PVC or Agent directory in a shared PVC | Private PVC or `emptyDir` | Delete Pod | No fixed adapter limit |
-| `cloudflare` | Restore from R2 at startup; back up before normal exit | Instance disk | Back up and delete container | Platform-controlled |
-| `vercel` | Private Drive per Agent | Instance disk | Delete sandbox | Configured; 24 hours by default |
-| `lambda` | Agent directory on EFS | Instance disk | Suspend with memory | 8 hours, including suspension |
-| `function_compute` | AgenticSpace or Agent prefix in OSS | Instance disk | Pause with memory | 24 hours |
+| `docker` | Private named local volume | Private named local volume | Delete container | No fixed adapter cap |
+| `kubernetes` | Dedicated PVC or per-Agent directory on a shared PVC | Dedicated PVC or `emptyDir` | Delete Pod | No fixed adapter cap |
+| `cloudflare` | Restored from R2 on boot; snapshotted before graceful exit | Ephemeral instance disk | Snapshot to R2 and delete container | Governed by Cloudflare Containers |
+| `vercel` | Dedicated Drive per Agent | Ephemeral instance disk | Delete sandbox | Configurable (`24h` default) |
+| `lambda` | Per-Agent directory on EFS | Ephemeral instance disk | Suspend with memory | `8h` total (including suspended time) |
+| `function_compute` | AgenticSpace or per-Agent OSS prefix | Ephemeral instance disk | Pause with memory | `24h` per active/resumed window |
 
-These are limits selected by the Ankole adapters, not a complete platform specification. Check account quotas, plans, and region availability.
+The table above reflects the contracts enforced by Ankole's provider adapters; always verify your cloud account's own quotas, pricing plan, and regional availability as well.
 
-All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This controls idle release and cannot extend the platform lifetime. Location, storage keys, provider type, and existing Agent assignments cannot change. Size, environment, or endpoint changes replace idle Workers. Seed YAML imports only when the provider table is empty; use Console for later changes.
+All six providers default to `idleReleaseAfter: 15m` (or `never` to disable idle release), which governs when Ankole releases idle Workers without extending hard platform lifetime limits. Once created, a provider's region/location, storage identifiers, `kind`, and existing Agent bindings are immutable. Edits to instance size, `env`, or `endpoints` replace Workers once they go idle. Ankole imports seed YAML only when the provider table is empty—manage all subsequent updates in the Console.
 
 ## Provider requirements
 
 ### Docker
 
-- Uses a local Docker Engine and the `local` volume driver. Suitable for development and single-host deployments. Replacement keeps volumes; host loss loses Home. Store backups on another machine.
-- The control plane needs Docker socket access. Compose `ANKOLE_DOCKER_GID` must match the socket group. This access is equivalent to host root access.
-- The selected `network` must reach the control plane and external services. Configuration does not accept capability or security-option overrides.
-- Home and cache use separate volumes. Do not replace the local cache volume with a network filesystem mount.
+- Runs against a local Docker Engine using the `local` volume driver—well suited to local development and single-host deployments. Replacing a container preserves its volumes, whereas losing the host machine destroys Home, so replicate backups off-host.
+- The control plane requires access to the Docker socket (equivalent to `root` on the host), and `ANKOLE_DOCKER_GID` in Docker Compose must match that socket's group ID.
+- Attach Workers to a Docker `network` that can reach both the control plane and required external APIs; Ankole rejects custom Linux capability or `security-opt` overrides in provider YAML.
+- Home and cache mount separate local volumes—never substitute a network filesystem mount for the local SQLite cache volume.
 
 ### Kubernetes
 
-- Select either `storage.claimTemplate` or `storage.sharedClaim`. Shared Home across nodes needs `ReadWriteMany`. Private block storage can use `ReadWriteOnce`, or `ReadWriteOncePod` with CSI support. Use a separate block PVC or `emptyDir` for cache.
-- Trusted Worker processes start as root; model commands run as uid 1000. Worker and storage cleanup helper Pods need baseline Pod Security permission. They do not satisfy the restricted policy.
-- Home must permit root writes and ownership changes to uid 1000, or map all access to uid 1000. Root-squash NFS without that mapping does not meet this requirement.
-- The control plane needs RBAC for Pods, Secrets, PVCs, and cleanup helpers. Remote kubeconfig requires all three `endpoints` explicitly and cannot use local `ownerConfigMap`. You cannot switch between in-cluster credentials and remote kubeconfig after creation.
-- Pre-pull the Worker image on new nodes. Image preparation does not pull images for Kubernetes. Wait for normal Pod deletion; do not bypass an unreachable node with forced deletion or zero grace.
+- Configure Home with either `storage.claimTemplate` (per-Agent PVC) or `storage.sharedClaim` (shared PVC). Multi-node shared Home requires `ReadWriteMany`, whereas per-Agent block PVCs can use `ReadWriteOnce` (or `ReadWriteOncePod` when supported by your CSI driver). Back the cache with a separate block PVC or node `emptyDir`.
+- Trusted Worker entrypoints start as `root` before dropping model commands to `uid 1000`, so Worker Pods and helper Pods that clean up storage require at least the `baseline` Pod Security standard and cannot run under `restricted`.
+- Home storage must either allow container `root` to write and `chown` files to `uid 1000`, or map all client access to `uid 1000`—default root-squash NFS without `uid 1000` mapping will fail.
+- Grant the control plane namespace RBAC for Pods, Secrets, PVCs, and cleanup helper Pods. Remote `kubeconfig` pools must specify all three `endpoints` explicitly, cannot use in-cluster `ownerConfigMap`, and cannot switch between in-cluster auth and remote `kubeconfig` after creation.
+- Pre-pull the Worker image onto new cluster nodes, as Ankole's image-preparation step does not pre-pull images on Kubernetes, and always wait for graceful Pod termination rather than force-deleting Pods on unreachable nodes.
 
 ### Cloudflare
 
-- Deploy the [Cloudflare adapter](https://github.com/AgentBull/ankole/tree/main/tools/deploy/cloudflare/agent-workers) first. Configure Worker image mappings, R2, and a separate `adapterToken`.
-- The instance disk must fit the image, restored Home, cache, and temporary files. R2 capacity does not enlarge the instance disk. Ankole accepts `lite`, `standard-1` through `standard-4`, and custom sizes. They must also satisfy [Cloudflare limits](https://developers.cloudflare.com/containers/platform/limits/).
-- Normal release backs up Home first. A forced platform stop can lose writes since the last backup. A failed backup is not a completed release. `stopGraceSeconds` defaults to 300 seconds for drain and backup.
-- The current public file relay requires one control-plane replica. An S3 drive does not remove that relay limit.
+- Deploy the [Cloudflare adapter](https://github.com/AgentBull/ankole/tree/main/tools/deploy/cloudflare/agent-workers) first, configuring Worker image mappings, an R2 bucket, and a dedicated `adapterToken`.
+- Size the container disk so it fits the container image, restored `/workspace`, SQLite cache, and temporary files simultaneously—R2 bucket capacity does not expand container local disk. Ankole accepts `lite`, `standard-1` through `standard-4`, and custom sizes permitted by [Cloudflare Container limits](https://developers.cloudflare.com/containers/platform/limits/).
+- On graceful idle release, the Worker snapshots `/workspace` to R2 before exiting (`stopGraceSeconds` defaults to `300` seconds, and a failed R2 upload aborts the release); however, an abrupt platform eviction can lose writes made since the prior snapshot.
+- Because the public file relay terminates on a single node, run exactly one control-plane replica even when your drive uses S3.
 
 ### Vercel
 
-- Home uses a private Drive in the same region. `teamId`, `projectId`, `region`, and `driveSizeGiB` cannot change after creation.
-- Prepare a `linux/amd64` image in the project's VCR repository and use the target digest. `cpus` accepts 1 or an even number from 2 to 32. The adapter requests 2048 MiB per vCPU.
-- `sessionTimeoutSeconds` defaults to 86400 (24 hours). Set 2700 for an account with a 45-minute limit, including a trial account that reports this limit. The value must not exceed the account limit. See [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Sandbox deletion keeps Drive and loses instance cache.
+- Provisions a private Vercel Drive per Agent in the same region; `teamId`, `projectId`, `region`, and `driveSizeGiB` cannot change after creation.
+- Push a `linux/amd64` Worker image to your project's VCR registry and pin its digest. `cpus` accepts `1` or any even integer from `2` through `32`, requesting `2048 MiB` of RAM per vCPU.
+- `sessionTimeoutSeconds` defaults to `86400` (`24` hours); lower it to `2700` on accounts capped at 45 minutes (including trial accounts) so it never exceeds your plan ceiling—see [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Deleting a sandbox preserves the Agent's Drive while clearing the ephemeral instance cache.
 
 ### AWS Lambda MicroVMs
 
-- This type uses Lambda MicroVMs. It needs an `arm64` Worker image, an image-build S3 bucket and IAM role, a VPC network connector, and reachable EFS.
-- Official Worker images accept only `memoryMiB: 4096` or `8192`. Correct lower saved values in Console before runtime or cleanup can proceed. `env` has at most 47 entries; `stopGraceSeconds` has a maximum of 59 seconds.
-- Memory quota covers running Workers, suspended Workers, and storage deletion helpers. Suspension does not release this capacity. After deletion, wait for AWS to confirm termination before treating capacity as free. See [MicroVM quotas and lifecycle](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html).
-- EFS stores Home; SQLite stays on instance disk. The eight-hour limit includes suspension. Old build objects and images are not collected automatically. Repair failed build roles, images, or networking before retrying.
+- Launches `arm64` Worker images on Lambda MicroVMs, requiring an image-build S3 bucket and IAM role, a VPC connector, and reachable EFS mount targets.
+- Official Worker images support only `memoryMiB: 4096` or `8192`—update any lower saved value in the Console before launching or deleting Workers. `env` accepts at most `47` entries, and `stopGraceSeconds` caps at `59` seconds.
+- Your regional MicroVM memory quota counts active Workers, suspended Workers, and storage-cleanup helper instances together: suspending a Worker does not free quota, and after deleting an instance you must wait for AWS to confirm termination before counting that capacity as free. See [MicroVM quotas and lifecycle](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html).
+- EFS backs `/workspace` while SQLite stays on local MicroVM disk, and the eight-hour instance lifetime includes suspended time. Ankole does not garbage-collect old S3 build artifacts or ECR images automatically; fix broken IAM roles, images, or VPC routing before retrying a failed launch.
 
 ### Alibaba Function Compute
 
-- Builds a second-generation template from an `amd64` image in ACR Enterprise. It needs a Team, Sandbox API key, POP AccessKey, and authorized RAM role. Template capture has no Agent identity or credential.
-- Select either `storage.agenticFs` or `storage.oss`. AgenticFS needs a VPC, filesystem, region/zone, capacity quota, and file-count quota. Its access point must be ready before mounting. See [AgenticFS Volume requirements](https://help.aliyun.com/zh/functioncompute/create-an-agenticfs-volume).
-- The image must include OSSFS2 2.0.10 or later and keep `/workspace` empty before mounting. The official Worker image meets these requirements; its entry creates runtime directories after the mount.
-- OSS mounts only this Agent's `<root>/<agent_uid>` and does not provide full POSIX semantics. Keep SQLite cache off OSS mounts. A failed `chown` alone does not prove that the mount is unwritable.
-- Provider `env` can add variables but cannot override variables recorded by the image. Pause requests retain memory; resume requests use a new 24-hour timeout. Old templates are not collected automatically.
-- Resume reconnects OSSFS2 through the image helper while keeping the mount and open files. This prevents reads from waiting on TCP connections that became unusable during memory pause. If the helper fails, the provider deletes the instance and the next reconciliation rebuilds it from Home. Use a Worker image with this helper and its matching control-plane version.
+- Builds a second-generation sandbox template from an `amd64` Worker image in ACR Enterprise using a Team, Sandbox API key, POP AccessKey, and RAM role (the shared template itself contains no Agent identity or Worker credential).
+- Choose either `storage.agenticFs` or `storage.oss`: AgenticFS requires a VPC, filesystem, region/zone, capacity quota, and file-count quota with a ready access point before mounting; see [AgenticFS Volume requirements](https://help.aliyun.com/zh/functioncompute/create-an-agenticfs-volume).
+- Ensure the Worker image bundles `ossfs2` `2.0.10+` and leaves `/workspace` empty prior to mounting—the official Worker image satisfies both and initializes subdirectories after mounting.
+- OSS mounts only `<root>/<agent_uid>` without full POSIX locking, so keep the SQLite cache off OSS mounts (note that a failing `chown` on OSS does not by itself mean the mount is read-only).
+- Provider `env` entries can add new variables without overriding variables baked into the image. Pausing retains memory, resuming grants a fresh 24-hour window, and old sandbox templates are not pruned automatically.
+- On resume, the control plane runs the Worker image's `ossfs2` reconnection helper while preserving the mount and open file descriptors so reads never hang on TCP connections dropped during pause; if the helper fails, Ankole deletes the instance and rebuilds it from Home on the next reconciliation pass. Always deploy matching control-plane and Worker image versions.
 
-External providers and remote Kubernetes need instance-reachable `runtimeFabricUrl`, `relayOrigin`, and `aiGatewayUrl`. Do not use Compose service names or cluster-only addresses that the instance cannot reach.
+Cloud Worker providers and remote Kubernetes clusters require externally reachable URLs for `runtimeFabricUrl`, `relayOrigin`, and `aiGatewayUrl`—never pass internal Docker Compose service names or cluster-private DNS names that Workers outside that network cannot resolve.
 
-A provider with explicit `endpoints.relayOrigin` requires one control-plane replica: file transfers must reach the node that owns the relay. Official Helm rejects multiple replicas for this configuration. This also applies to Vercel, Lambda, Function Compute, and remote Kubernetes.
+Whenever a provider sets an explicit `endpoints.relayOrigin`—including Vercel, Lambda, Function Compute, and remote Kubernetes—run a single control-plane replica so file-relay transfers always reach the owning node; the official Helm chart rejects multi-replica deployments when `relayOrigin` is configured.
 
 ## Cache disk requirements
 
-SQLite and process locks need local filesystem semantics: reliable locks, shared memory, atomic file operations, and uid 1000 read/write access. Use local SSD, a block device mounted as a filesystem, or node `emptyDir`. Do not use NFS, EFS, SMB, or S3/R2/OSS FUSE mounts for Codex SQLite cache. [SQLite WAL](https://www.sqlite.org/wal.html) does not support network filesystems.
+Codex's SQLite databases and process locks under `/var/cache/ankole` require genuine local POSIX filesystem semantics: reliable file locking, shared memory (`mmap`), atomic renames, and `uid 1000` read/write permissions. Back `/var/cache/ankole` with a local SSD volume, an attached block volume formatted as a local filesystem, or Kubernetes node `emptyDir`—never place the Codex SQLite cache on NFS, EFS, SMB, or S3/R2/OSS FUSE mounts, because [SQLite WAL](https://www.sqlite.org/wal.html) is unsafe over network filesystems.
 
-Each Agent needs a private cache directory or PVC. Monitor space, inodes, and node ephemeral storage. There is no universal minimum capacity guarantee. The official Helm cache PVC defaults to 20 GiB; size it for actual logs, concurrency, and work.
+Give every Agent its own private cache directory or PVC and monitor disk usage, inode consumption, and node ephemeral storage. The official Helm chart defaults cache PVCs to `20 GiB`; adjust that size to match your Agents' log volume and concurrency.
 
-Persistent cache in native Kubernetes provider YAML; replace the StorageClass as needed:
+To configure a persistent block cache PVC in native Kubernetes provider YAML (substituting your cluster's `StorageClass`):
 
 ```yaml
 cache:
@@ -102,15 +102,15 @@ cache:
         storage: 20Gi
 ```
 
-For temporary cache, use:
+Or, to use an ephemeral `emptyDir` cache bounded in size:
 
 ```yaml
 cache:
   sizeLimit: 5Gi
 ```
 
-These are provider YAML fields. Helm values use `worker.cache.type: pvc`, `worker.cache.size`, and `worker.cache.storageClass`, or `worker.cache.type: emptyDir`. Keep the two formats separate.
+Do not mix provider YAML keys with Helm chart values (`worker.cache.type: pvc`, `worker.cache.size`, and `worker.cache.storageClass`, or `worker.cache.type: emptyDir`).
 
-Docker cache volumes and Kubernetes cache PVCs survive normal release, image changes, and ordinary instance-setting replacement. An explicit rebuild clears cache; cache-setting changes replace it. `emptyDir` and external-provider instance disks disappear with their instances. Home survives these operations. Do not delete SQLite, WAL, or lock files while the app-server runs.
+Docker cache volumes and Kubernetes cache PVCs persist across graceful idle releases, image upgrades, and ordinary instance-setting updates; running an explicit Worker rebuild wipes the cache, while modifying cache settings replaces the cache volume. By contrast, Kubernetes `emptyDir` caches and cloud-provider local disks are discarded whenever the instance stops, while `/workspace` persists. Never delete SQLite database, WAL, or lock files manually while the Codex app-server is running.
 
-Startup checks verify directory access and basic reads/writes. They do not prove reliable SQLite locking on network storage. For lock errors, full disks, or unbound cache PVCs, check Console **Workers → Reason**, platform events, and mount type first. See [Performance tuning](../performance-tuning/) and [Backup and restore](../backup-and-restore/).
+Note that Worker startup probes check basic directory permissions and read/write access, which cannot detect broken advisory locking on a network filesystem—so if you encounter SQLite lock errors, full disks, or unbound cache PVCs, inspect **Console → Workers → Reason**, platform events, and volume mount types first. See [Performance tuning](../performance-tuning/) and [Backup and restore](../backup-and-restore/).

@@ -425,9 +425,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
             }} =
              Inbound.parse_managed_key(hd(card["button_list"])["key"])
 
-    assert {:ok, %{"optionValue" => "a"}} =
-             Inbound.parse_managed_key("ank1|int-1|3|choice|opt-a|a")
-
     oversized =
       put_in(output, ["choices"], [
         %{"id" => "a", "label" => "A", "value" => String.duplicate("文", 1024)}

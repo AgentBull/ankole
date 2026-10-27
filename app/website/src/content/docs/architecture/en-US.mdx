@@ -7,159 +7,125 @@ order: 100
 
 import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
 
-Ankole is an enterprise Agent Harness with a Company Brain. It runs on company infrastructure and gives models the context, authority, persistent execution, and feedback that company decisions require.
+Ankole is an enterprise Agent Harness built around a Company Brain. Running on your organization's infrastructure, it gives models the institutional context, scoped authority, persistent execution, and feedback loops that enterprise decisions require.
 
-An Agent can work for hours, use the shared Company Brain, act through browsers, terminals, files, and connected systems, and deliver a judgment that people can inspect and later outcomes can test.
-
-The Harness identifies each actor, applies access rules, restores long work, keeps context current, and carries corrections into later decisions.
+Within the Harness, an Agent can work across multi-hour tasks, draw on the shared Company Brain, act through browsers, terminals, files, and connected systems, and deliver judgments that people can inspect and real-world outcomes can validate. At every step, Ankole identifies the acting Principal, enforces access rules, recovers interrupted work, keeps context current, and carries corrections forward into future decisions.
 
 ## System map
 
 <DocsArchitectureDiagram lang="en-US" />
 
-One private deployment instance has one logical control plane, a stateless `Function Runtime` (`ankole-function-runtime`) service, and one Agent Computer Worker for each Agent. The control plane manages identity, state, and scheduling, runs Pod collaborative workspaces, calls `Function Runtime` isolates for Pod Applet backend functions and deterministic TypeScript programs, and creates the Workers. Each Worker provides the dedicated compute environment where its Agent works.
+A private deployment instance consists of one logical control plane, a stateless `Function Runtime` (`ankole-function-runtime`) service, and a dedicated Agent Computer Worker for each Agent. The control plane manages identity, durable state, and scheduling; hosts Pod collaborative workspaces; invokes `Function Runtime` isolates for Pod Applet backend functions and deterministic TypeScript programs; and provisions Workers so each Agent operates inside its own compute environment.
 
-Pod (pages, real-time documents, two-tier Base tables on physical shards, Applets, and multiplayer Pod Chat) and external adapters record conversation messages. Signals admits messages, external events, and schedules; Sessions executes their work. Unified authentication and Identity Providers supply passwordless Email OTP (`SiteCredential`), enterprise SSO, and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
+Across the workspace, Pod (pages, real-time documents, two-tier Base tables on physical shards, Applets, and multiplayer Pod Chat) and external channel adapters record conversation messages. From there, `Ankole.Signals` admits incoming messages, external events, and scheduled triggers, and `Ankole.Sessions` executes the resulting work. Unified authentication and Identity Providers supply passwordless Email OTP (`SiteCredential`), enterprise SSO, and organization directory sync, while AIGateway provides a single boundary for models, embeddings, reranking, images, and web capabilities.
 
 ## Control plane, Function Runtime, and Agent Computer Workers
 
 ### The control plane stores state and makes decisions
 
-The Elixir/OTP control plane owns Pod (pages, documents, Base tables and physical shards, Applets, and multiplayer Pod Chat), the Console, Principals and access, system configuration, signal routing, sessions, Brain, Workflows, Background Agent Jobs, AIGateway, and Control Plane Plugins.
+The Elixir/OTP control plane owns Pod (pages, documents, Base tables and physical shards, Applets, and multiplayer Pod Chat), the Console, Principals and access control, system configuration, signal routing, sessions, Brain, Workflows, Background Agent Jobs, AIGateway, and Control Plane Plugins. Every module follows one durability rule: any state change that affects a user-visible result commits to PostgreSQL before driving execution or external delivery. Consequently, processes can restart at any time while accepted messages, Job state, memory, and audit records remain intact.
 
-All these modules use the same rule. State that changes a user-visible result goes to PostgreSQL before it drives execution or external delivery.
-
-A process can restart, but accepted messages, Job state, memory, and audit records must remain.
-
-OTP supervision trees give Agents, connections, and Jobs separate failure domains. If one execution branch hangs or crashes, the control plane can recover that branch without failing the complete deployment instance.
-
-Formal verification checks critical control-plane code and core state machines. This verifies key state transitions and boundary invariants across retries, restarts, and concurrent inputs.
+At runtime, OTP supervision trees place Agents, external connections, and Jobs in separate failure domains, so if one execution branch hangs or crashes, the control plane recovers that branch without taking down the deployment instance. Formal verification also checks critical control-plane code and core state machines to ensure key state transitions and boundary invariants hold across retries, restarts, and concurrent inputs.
 
 ### A Worker is the Agent's work computer
 
-The control plane runs the main Agent loop. It starts the Agent Computer Worker when environment tools or Codex need the Agent's computer. The Worker executes tools, Skills, browsers, terminals, file operations, automation scripts, and Codex Jobs. The control plane commits durable results.
+The control plane runs the main Agent loop and starts the Agent Computer Worker on demand whenever environment tools or Codex need the Agent's computer. Inside the Worker, the Agent runs tools, Skills, browsers, terminals, file operations, automation scripts, and Codex Jobs, while the control plane commits durable results.
 
-Each Agent has one Worker identity and at most one admitted Worker instance at a time, and Agents never share a Worker, a cache disk, or a credential. The Worker container or Pod is the only isolation boundary: the Agent's commands run without an inner sandbox and may change the Agent's own computer. On Kubernetes, the Pod template's runtime class can add gVisor.
+Each Agent has one Worker identity and at most one admitted Worker instance at a time, and Agents never share a Worker, a cache disk, or credentials. That Worker container or Pod serves as the isolation boundary: commands run as `uid` `1000` without `sudo` or an inner sandbox and may modify the Agent's own computer (on Kubernetes, the Pod template's runtime class can add gVisor). Depending on the selected provider—Docker, Kubernetes, Cloudflare, Vercel, AWS Lambda MicroVMs, or Alibaba Function Compute—the control plane mounts persistent Agent Home at `/workspace` and disposable caches at `/var/cache/ankole`.
 
-The control plane manages each Worker through its selected provider: Docker, Kubernetes, Cloudflare, Vercel, AWS Lambda MicroVMs, or Alibaba Function Compute. Agent Home is persistent storage at `/workspace`; `/var/cache/ankole` holds disposable caches. Commands run as uid 1000 without sudo.
-
-RuntimeFabric connects the control plane and Workers over one Phoenix Channel per Worker. It carries wakeups, steering, cancellation, progress, and execution results.
-
-It is a low-latency live channel, not a database. Recovery still uses PostgreSQL state after a connection fails.
+RuntimeFabric connects the control plane and Workers over one Phoenix Channel per Worker, carrying wakeups, steering, cancellation, progress updates, and execution results. Because RuntimeFabric is a low-latency live transport rather than a database, crash recovery always reads committed state from PostgreSQL after a disconnect.
 
 ### Worker pools select the platform and configuration
 
-Operators configure Worker pools through **Settings → Worker providers**. Each provider is one site-level pool with a platform type, YAML configuration, and encrypted platform credentials. Several Agents can use the same pool, but each keeps its own computer and persistent Home. Different types or instance sizes use separate pools.
+Operators configure Worker pools under **Settings → Worker providers**, where each provider defines a site-level pool with a platform type, YAML configuration, and encrypted platform credentials. Multiple Agents can share a pool while keeping separate computers and persistent Home directories; use separate pools when you need different platforms or instance sizes.
 
-Agent creation selects a pool explicitly or uses the site's default. The binding stays with that Agent. The control plane starts its Worker on demand, releases or pauses it when idle, and replaces an outdated instance while preserving Home. The cache can be rebuilt separately. See [Worker pools](../worker-management/).
+When creating an Agent, the operator either picks a pool explicitly or uses the site default, permanently binding the Agent to that pool. From then on, the control plane starts the Worker on demand, pauses or releases it when idle, and replaces outdated instances while preserving Home and rebuilding `/var/cache/ankole` separately; see [Worker pools](../worker-management/).
 
-Each Worker has its own capacity for environment workspaces and Codex turns. Main conversation and Workflow model calls run in the control plane and do not consume that capacity. More pools provide more placement choices; they do not move an existing Agent's work between shared computers.
+Each Worker tracks its own slot capacity for environment workspaces and Codex turns, whereas main-conversation and Workflow model calls run in the control plane without consuming Worker capacity. Adding pools gives operators more placement options rather than migrating an existing Agent's work across shared machines.
 
 ## How one message becomes resumable work
 
 ### Conversations preserve messages
 
-A conversation is a shared space for people and Agents. `Ankole.Conversations` stores its participants and messages. Pod writes native messages directly. An adapter observes messages in an external conversation; the external platform remains their authority.
+A conversation is a shared space for people and Agents whose participants and messages live in `Ankole.Conversations`. Pod writes native messages directly to PostgreSQL, whereas channel adapters observe messages in external conversations where the external platform remains the system of record.
 
-Conversation messages and Agent work have separate records. Messages belong to participants. Model calls, tool results, and compaction belong to the session's model state in AIGateway. A session does not cross conversations, so one conversation's work cannot enter another conversation.
+Ankole stores conversation messages separately from internal Agent execution state: messages belong to participants, while model calls, tool results, and context compaction belong to the Session's model chain in AIGateway. Because a Session never crosses conversations, internal work from one conversation cannot leak into another.
 
 ### Signals admit every stimulus
 
-A message that addresses the Agent creates a signal. Time, external events, check-back, and task completion also create signals. `Ankole.Signals` records the source, source event ID, target, attribution, and authorization before it wakes a session.
+Whenever a message addresses an Agent—or when a schedule fires, an external event arrives, a check-back timer triggers, or a background task completes—`Ankole.Signals` records the source, source event ID, target, attribution, and authorization before waking a Session.
 
-Native messages and their signals commit in one transaction. Admission removes duplicates by `(Agent, source, id)`. This does not guarantee that every later action happens once.
+Native Pod messages and their Signals commit in a single transaction. During admission, `Ankole.Signals` removes duplicates by `(Agent, source, id)` to prevent double-enqueueing, though downstream actions still rely on their own idempotency and receipts.
 
-A signal can name a session explicitly. Otherwise, participation or a Signal Routing Rule selects the target. A conversation-host adapter observes messages and delivers replies. An event-source adapter only supplies signals. Automation Jobs can perform mechanical checks and send a signal to the parent session when judgment is needed. See [Automation Jobs](../automation-jobs/).
+A Signal can target a Session explicitly; otherwise, Ankole selects the target through conversation participation or a Signal Routing Rule. Conversation-host adapters both observe incoming messages and deliver replies, whereas event-source adapters only emit Signals. Likewise, Automation Jobs can run mechanical checks on a Worker and send a Signal to the parent Session only when model judgment is needed; see [Automation Jobs](../automation-jobs/).
 
 ### Sessions execute and recover work
 
-`Ankole.Sessions` owns the queue, Admission, Driver, Run, tools, and recovery. One session runs one Run at a time. Admission checks the tenant, Agent state, authorization, and quota whenever execution starts.
+`Ankole.Sessions` owns the queue, Admission, Driver, Run, tools, and recovery. Each Session executes one Run at a time, and Admission verifies the tenant, Agent state, authorization, and token quota whenever execution begins.
 
-Each Agent has its own session in the conversation. All conversation participants can see that work. Interactive and human-triggered turns — including human-woken `may_intervene` turns (Agent messages never wake Agents) — run under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`), where both the human and the Agent must hold access. Autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) run under the Agent's own permissions.
+Within a conversation, each Agent has its own Session whose visible output is shared with all conversation participants. Interactive and human-triggered turns—including human-woken `may_intervene` turns, since Agent messages never wake other Agents—run under the **`Human ∩ Agent` permission intersection** (`%Ankole.AuthZ.Actor{principal: agent, interactive_principal: human}`), requiring both the human and the Agent to hold access. Autonomous non-human turns (`cron`, `webhook`, and background service triggers without an interactive human) run under the Agent's own permissions.
 
-Cron rules and background tasks have separate sessions. They publish results into a target conversation. The conversation's next turn reads those new messages without importing the other session's internal work.
+Cron schedules and background tasks run in separate Sessions and publish finished messages into a target conversation; on its next turn, that conversation reads the published messages without importing the background Session's internal tool history.
 
-AIGateway stores and continues model session state. The runtime selects inputs, instructions, tools, continuation, and compaction. The Driver's PostgreSQL epoch rejects stale writes. Recovery uses committed progress: model calls can repeat, recorded tool results are reused, and uncertain tool operations are reported as interrupted.
+AIGateway persists and continues model session state while the runtime selects inputs, instructions, tools, continuation checkpoints, and compaction. A monotonic PostgreSQL epoch on the Driver fences off stale writes, and recovery resumes from committed progress: interrupted model calls can repeat, committed tool results are reused, and uncertain Worker tool calls surface as `interrupted`.
 
 ### Presentation and Delivery commit visible results
 
-Presentation decides the visible reply once. A native reply becomes a message in the completion transaction. A silent turn creates no message. An external reply creates a durable Delivery intent, which the adapter sends.
+At the end of a turn, Presentation determines the visible reply once: a silent turn produces no message, a native Pod reply commits as a message in the completion transaction, and an external reply writes a durable Delivery intent for the adapter to send.
 
-A confirmed external send becomes a message in the transaction that records delivery success. A later platform event with the same message ID refers to the same message. Failed, expired, and unknown deliveries do not create messages. An unknown outcome is not sent again blindly.
+Once an external platform confirms delivery, Ankole commits the conversation message in the same transaction that marks delivery succeeded, and any later platform echo carrying the same external message ID reconciles to that row. Failed, expired, and unknown deliveries never create messages, and Ankole never blindly resends a delivery whose outcome is unknown.
 
-Streamed text shows current progress. It becomes conversation history only after message commit. A disconnected page reads committed history and execution state; it does not replay a partial stream.
+Live token streaming previews progress in real time, entering conversation history only once the final message commits. Consequently, a browser client that reconnects after a drop reads committed history and live execution state rather than replaying a partial stream.
 
-See [Conversations, signals, and sessions](../conversations-signals-sessions/) for the design choices, costs, and source-checked comparison.
+See [Conversations, signals, and sessions](../conversations-signals-sessions/) for the design rationale, trade-offs, and code-level comparison.
 
 ## Brain: a world model that stays current
 
-Brain is not a vector database filled with chat excerpts. It maintains an evolving world model. New evidence can extend, revise, or retire earlier claims. When evidence conflicts, Dreaming records the contradiction for human review instead of silently rewriting the claims.
+Rather than acting as a vector database of raw chat excerpts, Brain maintains an evolving world model. Knowledge enters from direct conversations with an Agent, eligible group messages that nobody addressed directly to it, and registered file or URL Sources. As new evidence arrives, Brain extends, revises, or retires earlier claims, and when evidence conflicts, offline Dreaming records the contradiction for human review instead of silently overwriting prior claims.
 
-Knowledge can come from conversations with the Agent, eligible group messages that nobody addressed to it, and registered file or URL Sources.
+All Agents in a tenant share one knowledge space (strictly separated across tenants), where each protected passage, claim, and timeline event carries a `world`, permission-group, or Principal audience scope. Registering a Source or observing an external conversation records provenance without widening access to the learned knowledge.
 
-All Agents in one tenant share one knowledge space. Tenants have separate knowledge spaces. Each protected passage, claim, and timeline event uses a `world`, permission-group, or Principal audience scope. A Source or external conversation records provenance; it does not grant access to the learned knowledge.
+During live turns, unified recall supplies the long-term context that the current task needs; offline, Dreaming consolidates fresh evidence, identifies patterns, grades earlier predictions, and flags conflicts for review. While [Brain](../brain/) owns “what the world is like now,” [Skill Lessons](../skill-lessons/) capture Agent-specific process guardrails learned from repeated execution evidence, attaching them to the relevant Skill without modifying its source and retiring them when invalidated.
 
-During a turn, unified recall supplies the long-term context that the current work needs. Offline Dreaming organizes new evidence, finds patterns, grades earlier predictions, and flags conflicts for review.
-
-[Brain](../brain/) owns “what the world is like now.” [Skill Lessons](../skill-lessons/) preserve Agent-specific process guardrails learned from repeated work evidence. They accompany the relevant Skill without changing its source and retire when invalidated.
-
-This structure implements the homepage promise that an Agent learns the team's rules over time. Compounding does not mean a longer log. It means that the next job starts from better knowledge and a better method.
-
-Long-term memory is the user view of this system. Brain owns storage, Dreaming, and write authority.
+Together, Brain and Skill Lessons fulfill Ankole's core promise that Agents learn how your team works over time—compounding not by growing longer logs, but by starting each new task with sharper knowledge and a better method. Users experience this system as long-term memory, while Brain owns storage, Dreaming, and write authority.
 
 ## Background Agent Jobs: long work without blocking the main session
 
-A main Agent can delegate research, data analysis, file work, code changes, and Deep Research to a Background Agent Job. The main session remains available and can continue talking to the user.
+A foreground Agent can delegate extended research, data analysis, file work, code changes, and Deep Research to a Background Agent Job while keeping the main Session free to continue talking with the user.
 
-The control plane stores the Job lifecycle. After instance replacement, the Worker resumes from workspace and Codex thread files in persistent Home. PostgreSQL owns the accepted work and its recovery state.
+The control plane persists the Job lifecycle in PostgreSQL, and if a Worker instance is replaced, the new Worker resumes from the Job workspace and Codex thread files stored in persistent Home. Throughout execution, the main Agent and the Job can communicate: a Job can request human input (releasing its Worker execution slot while waiting and resuming once answered), return failures and final results, or stay silent when asked.
 
-The main Agent and Job can continue to communicate. A Job can ask for input, return failures and final results, or stay silent when requested. When it waits for a person, it releases its execution slot and resumes after the answer arrives.
-
-Deep Research is an advanced use of this architecture. An Agent Plugin supplies the workspace template, Skills supply the research method, and a Background Agent Job supplies durable execution.
-
-The Job workspace remains in persistent Home. The Agent publishes research material and deliverables to its control-plane drive when they must be available outside the Worker.
+Deep Research builds directly on these primitives: an Agent Plugin provides the workspace template, Skills provide the research methodology, and a Background Agent Job provides durable execution. While the scratch workspace stays in persistent Home, the Agent publishes research materials and deliverables to its control-plane Files drive whenever they must be accessible outside the Worker.
 
 See [Background Agent Jobs](../background-jobs/) and [Deep Research](../deep-research-job/).
 
 ## AIGateway: one boundary for AI capabilities
 
-AIGateway separates model capabilities from Agent execution. Main Agents, Jobs, Brain, and external API clients use the same boundary for LLM, embedding, rerank, image, Web Search, and Web Fetch Providers.
+AIGateway separates upstream AI capabilities from Agent execution so foreground Agents, Jobs, Brain, and external API clients all share one boundary for LLM, embedding, rerank, image, Web Search, and Web Fetch Providers.
 
-Agent model profiles select models for Agent execution. Each tenant selects a Brain maintainer Agent whose `light`, `heavy`, and `web_fetch` profiles serve Brain work. Site AppConfigure selects the embedding model; tenant AppConfigure selects the rerank model. The control plane stores Provider credentials in encrypted form, and AIGateway uses them for upstream requests.
+Agent model profiles select models for Agent turns, while each tenant designates a Brain maintainer Agent whose `light`, `heavy`, and `web_fetch` profiles serve Brain operations; site AppConfigure selects the embedding model, and tenant AppConfigure selects the rerank model. The control plane stores Provider credentials encrypted at rest and uses them for upstream requests, exposing only permitted model selectors and call outputs to Agents and Workers so Workers never manage per-Provider lifecycles.
 
-Agents and Workers receive only the model choices and call results that they can use.
-
-AIGateway supports calls that store no history and model session state that can continue. It owns request conversion, stream events, tool results, context compaction, usage records, and final-result commits.
-
-Workers do not implement a separate lifecycle for each Provider.
-
-When the tool catalog is large, a model can search tools on demand through Tool Search, or submit one program through Programmatic Tool Calling that calls many tools and returns only the results. AIGateway and Workflow execute deterministic TypeScript programs in stateless `ankole-function-runtime` isolates (`POST /v1/program/run`). A Provider with native support passes native calls through, and AIGateway supplies the same capability in the gateway for every other Provider. One Provider can also hold several credentials as a pool, including account credentials such as a ChatGPT subscription. Failure attribution, retries, and usage records stay per credential.
+Supporting both stateless calls and continuable model sessions, AIGateway handles request conversion, stream normalization, tool results, context compaction, usage accounting, and final-result commits. When the tool catalog is large, a model can discover tools dynamically through Tool Search or submit a single TypeScript orchestration program through Programmatic Tool Calling. AIGateway and Workflow run those deterministic programs inside stateless `ankole-function-runtime` isolates (`POST /v1/program/run`), passing native calls straight through when a Provider supports them and providing the same capability in the gateway for every other Provider. Each Provider can also pool multiple credentials—including account-backed OAuth pools such as a ChatGPT subscription—keeping failure attribution, retries, and usage records scoped to the individual credential.
 
 See [AIGateway](../ai-gateway/) and [Add an LLM Provider](../adding-a-provider/).
 
 ## Enterprise identity, access, and extensions
 
-Ankole represents people, Agents, and system services as Principals. Unified passwordless authentication spans Pod and the Console: personal `SiteCredential` Email OTP and tenant Enterprise Identity Providers (OIDC/OAuth SSO and organization directory synchronization) authenticate workspace members and administrators without stored passwords.
+Ankole represents people, Agents, and system services uniformly as Principals. Passwordless authentication spans Pod and the Console: personal `SiteCredential` Email OTP and tenant Enterprise Identity Providers (OIDC/OAuth SSO and directory sync) authenticate workspace members and administrators without stored passwords, while chat channels send and receive messages across the same or separate platforms.
 
-A chat channel sends and receives messages. These Providers can use different platforms.
+`Ankole.AuthZ` evaluates every permission check at runtime against the Principal, permission groups, resource, action, and conditions—access is never enforced by a prompt instruction, and a model cannot grant itself permissions.
 
-AuthZ decides at runtime from the Principal, permission group, resource, action, and condition. Access is not a sentence in a prompt, and a model cannot declare that it has a permission.
-
-Compile-time, site-scoped Control Plane Plugins contribute subsystem adapters (Signals, Identity Providers, AI Gateway providers, and Worker providers), supervised OTP processes, outer HTTP plugs, scoped extension JSON:API routes, domain transaction hooks, `AppConfigure` fields, and typed UI slots. Agent Plugins add tools and workspace templates.
-
-Skills describe how to do a type of work and can be limited to the main Agent or Background Agent Jobs.
-
-External MCP servers enter through Skills. A Skill declares its connection, the Worker generates a per-execution configuration and removes it when the execution ends, and the model never faces one resident list of every MCP tool.
+Compile-time, site-scoped Control Plane Plugins contribute subsystem adapters (Signals, Identity Providers, AIGateway providers, and Worker providers), supervised OTP processes, outer HTTP plugs, scoped extension JSON:API routes, domain transaction hooks, `AppConfigure` fields, and typed UI slots. Agent Plugins contribute Codex tools and workspace templates, while Skills teach specific workflows and can be scoped to foreground turns, Background Agent Jobs, or both. External MCP servers likewise enter through Skills: when a Skill declares an MCP connection, the Worker generates an ephemeral per-execution config and removes it afterward so the model never faces one permanently resident list of every MCP tool.
 
 See [Principals and permission groups](../principal-and-groups/), [Signal routing rules](../signal-bindings/), [Agent Library](../skills/), and the [MCP server reference](../mcp/).
 
 ## Durability boundaries
 
-PostgreSQL 18+ stores durable domain facts in the control-plane database — identity, access, configuration, Pod metadata and documents, messages, sessions, Jobs, memory, delivery state, and audit records — while physical **Base shard databases (`BASE_DB_URLS`)** store tenant Base table rows. During point-in-time recovery, every Base shard recovery target must be greater than or equal to (`>=`) the control-plane database recovery target. Use these PostgreSQL records to decide whether the system committed a result.
+PostgreSQL 18+ stores durable domain facts in the control-plane database—identity, access, configuration, Pod metadata and documents, messages, sessions, Jobs, memory, delivery state, and audit records—while physical **Base shard databases (`BASE_DB_URLS`)** store tenant Base table rows. During point-in-time recovery, every Base shard recovery target must be greater than or equal to (`>=`) the control-plane database recovery target. Treat these PostgreSQL records as the source of truth for whether Ankole committed an outcome.
 
-The object store (control-plane file store) holds Pod files, Pod and conversation attachments, compiled Applet bundles, published files, Skills, and Automation scripts. Persistent Home separately stores workspaces, local packages, and Codex threads. Back up the control-plane PostgreSQL database, all physical Base shard databases, the object store, all Homes, and the original deployment encryption key together.
+The object store (control-plane file store) holds Pod files, Pod and conversation attachments, compiled Applet bundles, published files, Skills, and Automation scripts, while persistent Home separately holds workspaces, local packages, and Codex threads. Always back up the control-plane PostgreSQL database, all physical Base shard databases, the object store, all Agent Homes, and the deployment encryption key together.
 
-RuntimeFabric, `ankole-function-runtime` isolates, live Worker processes, stream previews, and `/var/cache/ankole` are stateless or rebuildable. Persistent Home must survive instance deletion and needs a storage backup. See [Backup and restore](../backup-and-restore/).
+RuntimeFabric connections, `ankole-function-runtime` isolates, live Worker processes, stream previews, and `/var/cache/ankole` are stateless or rebuildable, whereas persistent Home must survive instance replacement and requires durable storage backups; see [Backup and restore](../backup-and-restore/).
 
 ## Three deployment forms
 
@@ -169,7 +135,7 @@ RuntimeFabric, `ankole-function-runtime` isolates, live Worker processes, stream
 | **Kubernetes · recommended for enterprise deployment** | One Helm deployment runs the control plane and `ankole-function-runtime` deployments, and the control plane creates one Worker Pod through the Kubernetes API for each Agent | PostgreSQL 18+ and physical Base shard databases, the object store, and persistent Home PVCs or shared storage; cache volumes are separate |
 | **Source installation** | `bun run services:start` runs PostgreSQL 18 and `ankole-function-runtime`; `bun dev` runs the control plane, which creates a Docker Worker container in watch mode for each Agent | PostgreSQL 18, `var/ankole-dev/files`, and private persistent Docker Home volumes |
 
-The logical boundary is the same for every form. The instance has one control plane, and the control plane gives each Agent its own Worker. See [Quick start](../quickstart/#1-deploy-ankole) for the complete procedures.
+Every deployment form preserves the same logical boundary: one control plane orchestrates the instance and provisions an isolated Worker per Agent. See [Quick start](../quickstart/#1-deploy-ankole) for step-by-step installation procedures.
 
 ## Five technical decisions
 
@@ -181,6 +147,6 @@ The logical boundary is the same for every form. The instance has one control pl
 | **Agent Computer Workers provide execution** | Give each Agent its own computer for tools, files, terminals, browsers, and Codex |
 | **The PostgreSQL ledger stores facts** | Make messages, Jobs, memory, decisions, and committed operations resumable and auditable |
 
-These decisions support one result. An Agent can work for hours, accept new information while it runs, fail and recover independently, and leave a trace for each committed action.
+Together, these five choices let an Agent work for hours, absorb new context mid-run, fail and recover in isolation, and leave an auditable record of every committed action.
 
-For the longer runtime argument, read <a href="https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">Why OTP Is a Better Runtime for Multi-Agent Orchestration</a>.
+For the deeper runtime rationale, read <a href="https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">Why OTP Is a Better Runtime for Multi-Agent Orchestration</a>.

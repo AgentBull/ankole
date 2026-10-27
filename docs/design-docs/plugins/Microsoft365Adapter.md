@@ -1,21 +1,24 @@
 # Microsoft 365 Adapter
 
-The Microsoft 365 Adapter receives Teams messages, sends Agent replies, and
-imports people and groups from Entra ID. Chat and identity use separate
-settings. The control plane keeps all Microsoft credentials.
+The Microsoft 365 Adapter receives Microsoft Teams messages, sends Agent
+replies, and imports users and groups from Microsoft Entra ID. Teams chat
+bindings and Entra ID identity providers use separate settings, while all
+Microsoft credentials remain on the control plane.
 
-Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+See [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+[Plugins](../Plugins.md) for the shared messaging, identity, and Plugin
+contracts.
 
 ## Provider and Public Identity
 
-The adapter reports an opaque `provider_conversation_id` and a
-`provider_message_id`. Conversations resolves these to a shared public
-Conversation UUID and Message UUID. All Agent observers of the same provider
-conversation in one tenant read those same public facts. Each participating
-Agent has its own `conversation:<public UUID>` Session; a Binding is its
-observation and delivery route, not the owner of the platform room.
+On inbound Teams activities, the adapter reports an opaque
+`provider_conversation_id` and `provider_message_id`, which `Conversations`
+resolves to a shared public Conversation UUID and Message UUID. Every Agent
+observing that Teams conversation within the same tenant reads those shared
+public records while running in its own `conversation:<public UUID>` Session—a
+Binding defines an observation and delivery route rather than owning the Teams
+channel or chat.
 
 ## Current IDs and Features
 
@@ -30,136 +33,127 @@ observation and delivery route, not the owner of the platform room.
 | Subscription state | `principals.entra_id.graph_subscriptions.<id>` |
 | Provider library | `plugins/microsoft365_adapter/lib/microsoft_openapi` |
 
-The plugin also declares two webhook handlers. `teams` accepts `messages`.
-`entra-id` accepts `directory`.
+The plugin registers two HTTP webhook handlers: `teams` handles `messages`, and
+`entra-id` handles `directory`.
 
-The signal adapter supports all three group modes. Inbound capabilities are
-`entry_receive`, `entry_removed`, `reaction_add`, `reaction_remove`, and
-`action_event`.
+The `teams` Signal adapter supports all three group-message modes, inbound
+capabilities `entry_receive`, `entry_removed`, `reaction_add`,
+`reaction_remove`, and `action_event`, and outbound capabilities `post_entry`,
+`reply_entry`, `edit_entry`, `delete_entry`, `divider`, and `card` (without
+outbound reactions or `outbound_reconciliation`).
 
-Outbound capabilities are `post_entry`, `reply_entry`, `edit_entry`,
-`delete_entry`, `divider`, and `card`. The adapter does not declare outbound
-reactions or outbound reconciliation.
-
-The identity adapter supports OIDC authorization, code exchange, full directory
-sync, and real-time directory sync.
+The `entra-id` identity adapter supports OIDC authorization, OIDC code exchange,
+full directory sync, and real-time directory sync.
 
 ## Receive Microsoft Webhooks
 
-Azure Bot Service sends activities to this route:
+Azure Bot Service posts Teams activities to:
 
 ```text
 https://<host>/webhooks/v1/teams/<appID>/messages
 ```
 
-Microsoft Graph sends directory notifications to this route:
+Microsoft Graph posts Entra ID change notifications to:
 
 ```text
 https://<host>/webhooks/v1/entra-id/<provider_id>/directory
 ```
 
-The Teams handler checks the Bot Framework token before it loads a binding. The
-token audience must match `appID`, and its `serviceurl` claim must match the
-activity's `serviceUrl`. The handler completes durable Conversation observation
-before it returns status 200.
+Before loading any binding, the Teams handler verifies the Bot Framework JWT:
+its `aud` claim must match `<appID>` and its `serviceurl` claim must match the
+activity payload's `serviceUrl`. The handler then completes durable
+`Conversations.Observe` before returning HTTP `200`.
 
-The directory handler checks the stored `clientState`. For an update, it fetches
-the current Graph object before it changes Principal or AuthZ records. For a
-group deletion, it disables the group by ID. It ignores user deletions until a
-later full sync.
+On the Entra ID webhook, the handler verifies the stored `clientState` secret:
+user or group updates re-fetch the live object from Microsoft Graph before
+mutating `Principal` or `AuthZ` rows, group deletions disable the corresponding
+group by ID, and user deletions wait for the next full directory sync.
 
 ## Settings
 
-The Teams configuration contains `appID`, encrypted `appPassword`,
-`botTenancy`, and optional `tenantID`. It also contains
-`identityProvider`, which references the Entra ID identity provider that owns
-the Principal subject namespace (a single provider is adopted by default), and
-`userName`.
+Teams chat bindings configure `appID`, encrypted `appPassword`, `botTenancy`,
+optional `tenantID`, `userName`, and `identityProvider` (referencing the Entra
+ID identity provider that owns the Principal subject namespace, with a single
+configured provider adopted automatically by default).
 
-The Entra ID configuration contains `tenantID`, `clientID`, and encrypted
-`clientSecret`. The `oidc.*` fields control login. The `sync.*` fields control
-full and real-time directory sync.
-
-Real-time sync also requires `publicBaseURL`. `SubscriptionReconciler` uses this
-URL to create the Graph notification route. It runs at startup, after the host
-saves identity settings, and every six hours. AppConfigure stores subscription
-IDs and `clientState` values under the subscription state key.
+Entra ID identity providers configure `tenantID`, `clientID`, and encrypted
+`clientSecret`, using `oidc.*` keys for sign-in and `sync.*` keys for full and
+real-time directory imports. Enabling real-time Graph notifications also
+requires `publicBaseURL`: `SubscriptionReconciler` uses that URL to register and
+renew Graph change subscriptions at node startup, after saving identity
+settings, and every six hours, persisting subscription IDs and `clientState`
+secrets in `AppConfigure` under `principals.entra_id.graph_subscriptions.<id>`.
 
 ## Receive Teams Messages
 
-The Teams handler accepts messages, soft deletes, reactions, Adaptive Card
-submissions, and conversation events. It ignores message edits,
-undeletes, and unsupported invoke activities.
+The Teams webhook handler processes messages, soft deletes, emoji reactions,
+Adaptive Card action submissions, and conversation-update events, while ignoring
+message edits, undeletes, and unsupported invoke activities.
 
-Personal chats give explicit input. A mention entity for the current bot makes
-a group or channel message explicit. Conversations applies the configured
-group policy to other messages.
+Personal 1-on-1 chats always count as explicit input; in group chats and Teams
+channels, an @-mention entity targeting the current bot counts as explicit
+input, while other messages follow the binding's group-message policy. While the
+default `addressed_only` mode works with standard Bot Framework delivery,
+`observe_all` and `may_intervene` require the Teams app manifest to grant the
+Resource-Specific Consent (RSC) read permissions needed to receive unaddressed
+messages.
 
-The opaque `provider_conversation_id` uses the base Teams conversation ID. Channel
-threads use the thread root from the conversation ID. The activity ID is the
-provider message ID.
-
-The default `addressed_only` mode needs only normal bot delivery. The other
-group modes require the Teams application to receive unaddressed messages.
-The application manifest must grant the required RSC read permissions.
+The adapter derives `provider_conversation_id` from the base Teams conversation
+ID—anchoring channel threads on the thread root parsed from the conversation
+ID—and uses the Bot Framework activity ID as `provider_message_id`.
 
 ## Observe Conversations and Deliver Replies
 
-Teams has no API that lists every bot conversation. The adapter learns a
-conversation when it receives a message. It then imports known channels and
-members through connector APIs.
+Because Microsoft Teams offers no API to enumerate all conversations in which a
+bot is installed, the adapter discovers conversations organically when messages
+arrive, recording the activity's regional `serviceUrl` on the channel record
+(which cannot be guessed beforehand) and importing known channels and members
+through Bot Connector APIs.
 
-The adapter stores the regional service URL with the channel record. It cannot
-guess this URL before it sees the conversation.
+Outbound execution processes only durable Delivery intents: posting, replying,
+editing, deleting, sending dividers, and rendering Adaptive Cards (outbound file
+uploads and emoji reactions are not supported). Before paging text at 12,000
+graphemes, the Rust kernel converts prose Markdown once while using CommonMark
+byte spans to preserve fenced, indented, and inline code verbatim.
 
-The adapter sends only operations already stored as Delivery intents. It can post,
-reply, edit, delete, send a divider, or render an Adaptive Card. It cannot send
-files or reactions.
-
-Markdown conversion changes prose only. The kernel uses CommonMark source
-positions to protect the original bytes of fenced, indented, and inline code.
-The adapter converts the full text once before the 12,000-grapheme paging step.
-
-Bot Framework has no read-back API for this path. The adapter does not claim
-reconciliation. Delivery stops an uncertain send as `unknown`. An operator can
-requeue a visible durable reply for one more call with a possible-duplicate
-notice. Other uncertain operations stay stopped.
+Because Bot Framework provides no outbound read-back endpoint on this path, the
+adapter omits `outbound_reconciliation` and settles uncertain sends as
+`unknown`; operators can manually requeue a visible durable reply once with a
+possible-duplicate notice, while other uncertain operations stay stopped.
 
 ## Import People and Groups
 
-OIDC login reads the current user through Microsoft Graph. The Graph directory
-object ID becomes the external subject ID. Teams authors use the activity
-`aadObjectId`, so chat and directory sync can resolve the same Principal.
+OIDC sign-in loads the signed-in user from Microsoft Graph and uses the Entra
+directory object ID as `external_id`; because Teams activities carry that same
+ID in `aadObjectId`, Teams chat senders and synced Entra users resolve to the
+same Principal automatically.
 
-Full sync reads groups before users. It keeps direct user memberships and does
-not expand nested groups. Full sync skips disabled users. It also skips guest
-users unless `sync.includeGuests` is true.
-
-Graph subscriptions cover users and groups. The reconciler creates and renews
-them. Periodic full sync repairs changes missed by notifications.
+Full directory sync imports groups before users, recording direct user
+memberships without expanding nested groups and skipping disabled accounts (plus
+guest accounts unless `sync.includeGuests` is `true`). `SubscriptionReconciler`
+maintains Graph change subscriptions for users and groups, while periodic full
+syncs heal any notifications missed in transit.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings and subscription state. Conversations
-records public Messages and Delivery intents. Signals stores authorized
-stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people,
-groups, memberships, and grants.
-
-The adapter authenticates to Microsoft, converts events, and renews
-subscriptions. Agent Computer never receives Microsoft credentials.
-
-After a restart, startup sync enqueues a channel refresh for each enabled Teams
-binding. `SubscriptionReconciler` also checks each active Entra provider and
-ensures or removes its Graph subscriptions.
+PostgreSQL persists encrypted settings and Graph subscription state in
+`AppConfigure`, public Messages and Delivery intents in `Conversations`,
+accepted stimuli in `Signals`, execution state in `Sessions`, and people,
+groups, memberships, and grants in `Principals` and `AuthZ`. Agent Computer
+never receives Microsoft credentials. On control-plane startup, background jobs
+refresh stored channel metadata for enabled Teams bindings, and
+`SubscriptionReconciler` ensures or prunes Graph subscriptions across active
+Entra ID providers.
 
 ## Tests
 
-The repository tests provider HTTP behavior, token verification, webhook
-dispatch, normalization, intent mapping, directory sync, and subscriptions.
-A real Microsoft acceptance test needs operator credentials and a public HTTPS
-deployment instance.
+Automated tests cover `microsoft_openapi` HTTP behavior, Bot Framework JWT
+verification, webhook routing, activity normalization, Delivery intent mapping,
+Entra directory sync, and Graph subscription lifecycle; live Microsoft 365
+acceptance testing requires operator credentials and a publicly reachable HTTPS
+endpoint.
 
-The implementation sources are:
+Implementation paths:
 
 - `plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter.ex`
 - `plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/`

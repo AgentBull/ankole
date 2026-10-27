@@ -5,13 +5,13 @@ section: Developer guide
 order: 115
 ---
 
-An AIGateway provider is how Ankole talks to an upstream AI service — an LLM, an embedding model, a web-search API. This page is the contributor walkthrough: the provider DSL, the compiled `ProviderDefinition` it produces, the settings and capabilities a provider declares, and the prepare function that owns request construction. It builds on the [AIGateway](../ai-gateway/) concept page; this is *how to add a provider*.
+An AIGateway provider connects Ankole to an upstream AI service such as an LLM, an embedding model, or a web-search API. Building on the [AIGateway](../ai-gateway/) architecture overview, this contributor walkthrough shows how to add a provider: writing the provider DSL, understanding the compiled `ProviderDefinition`, declaring settings and capabilities, and implementing the prepare function that constructs upstream requests.
 
-The decisive property, stated up front: the provider module owns request preparation in Elixir; the Rust `UniversalAIClient` owns the wire — transport, encoding, response normalization. The compiled definition describes only stable metadata, settings, and which prepare function owns each capability. A provider is not a full HTTP client; it is a prepare function plus a declaration.
+Keep one core boundary in mind from the start: the Elixir provider module prepares the request, while the Rust `UniversalAIClient` handles wire transport, encoding, and response normalization. Because the compiled definition captures only static metadata, declared settings, and which prepare function handles each capability, a provider is not a full HTTP client—it is a declarative specification paired with an Elixir prepare function.
 
 ## The provider DSL
 
-A provider module uses `Ankole.AIGateway.ProviderDSL` and declares itself with a small block-structured DSL. The DSL records metadata and capability ownership; it deliberately does not describe request body fields — each provider's prepare function is normal Elixir code in the same module.
+To define a provider, `use Ankole.AIGateway.ProviderDSL` and open a block-structured `provider` declaration. Rather than modeling request-body fields in the DSL, you declare static metadata and capabilities in the `provider` block and construct the request payload in plain Elixir inside the same module:
 
 ```elixir
 defmodule Ankole.AIGateway.Providers.MyProvider do
@@ -36,7 +36,7 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
 end
 ```
 
-The `provider` block compiles into a `ProviderDefinition` struct, consumed by the AIGateway registry at runtime.
+At compile time, the `provider` block produces a `ProviderDefinition` struct that the AIGateway registry consumes at runtime.
 
 ## The compiled definition
 
@@ -51,11 +51,11 @@ A `ProviderDefinition` carries:
 | `settings` | the declared `Setting` list |
 | `capabilities` | the declared `Capability` list |
 
-The registry resolves a provider by `provider_kind`, looks up the capability for the requested kind, calls the capability's `prepare` function, and hands the result to `UniversalAIClient`.
+At runtime, the registry looks up the provider by `provider_kind`, finds the `Capability` matching the requested kind, invokes that capability's `prepare` function, and passes the resulting request to `UniversalAIClient`.
 
 ## Settings
 
-A `Setting` declares one operator or request option:
+Each `setting` call declares one operator-configurable or per-request option:
 
 ```elixir
 setting(:api_key, encrypted: true, scope: :credential)
@@ -75,13 +75,13 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `advanced?` | presentation metadata for Console forms; does not change validation or runtime |
 | `scope` | `:credential` (per pool member), `:connection` (per provider row), or `:request` (per model profile) |
 
-Every provider row has a credential pool, including the one-member case. The resolver selects one healthy member and decrypts its `:credential` settings before it calls the prepare function. Connection settings such as endpoint and custom headers stay shared by the full row. Request settings come from the model profile. The prepare function reads all three scopes from the resolved settings map and does not implement pool selection.
+Every configured provider row manages a credential pool, even when the operator enters only one credential. Before calling your prepare function, the AIGateway resolver selects a healthy pool member, decrypts its `:credential` settings, and merges them with `:connection` settings (such as an endpoint override or custom headers shared across the provider row) and `:request` settings from the model profile. Because all three scopes arrive pre-merged in the resolved settings map, the prepare function never implements pool selection itself.
 
-`advanced?` is presentation only. It hides the field behind an advanced toggle in the Console and does not change validation or behavior.
+Setting `advanced: true` affects only Console presentation, placing the field behind an advanced toggle without altering validation or runtime behavior.
 
 ## Capabilities
 
-A `Capability` binds a user-facing model capability to the prepare function and the wire shape:
+Each `Capability` block links a user-facing capability kind to an Elixir prepare function and a Rust wire shape:
 
 ```elixir
 language_model do
@@ -102,11 +102,11 @@ end
 | `supports_parallel_tool_calls?` | whether the provider accepts parallel tool calls |
 | `supports_native_image_generation?` | whether an LLM can execute the public image tool without a hosted `image_generate` profile |
 
-The six capability kinds map to the external names the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, and the three web/image kinds are unchanged. A provider that serves only LLMs declares only `language_model`; a provider that serves LLMs and embeddings declares both.
+The six capability kinds map to the external names that the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, while `web_search`, `web_fetch`, and `image_generate` keep the same names. Declare only the capabilities that the upstream service actually offers—for instance, an LLM-only provider declares just `language_model`, whereas a provider serving both chat and embeddings declares `language_model` and `embedding_model`.
 
 ## The prepare function
 
-The prepare function is normal Elixir code in the provider module, named by the capability's `prepare` field. It receives a `PrepareContext` (the resolved settings, the model request, the agent's context) and returns a prepared request that `UniversalAIClient` sends:
+The prepare function is normal Elixir code in the provider module, referenced by the capability's `prepare` field. AIGateway passes it a `PrepareContext` (containing the resolved settings, the model request, and the Agent's context) and expects back a prepared `%UniversalAIRequest{}` for `UniversalAIClient` to send:
 
 ```elixir
 def prepare_language_model(%PrepareContext{} = context) do
@@ -117,17 +117,17 @@ def prepare_language_model(%PrepareContext{} = context) do
 end
 ```
 
-This is where provider differences live — URL construction, auth headers, body shaping, and the rules of a specific upstream API. The prepare function is the provider's actual work; the DSL declaration is how that work is discovered and routed. Credential retry remains outside this function: the control plane can select another member, rebuild the request, and ask the kernel to perform one new transport attempt.
+All provider-specific rules live here: URL construction, authentication headers, request-body shaping, and upstream API conventions. While the DSL makes the provider discoverable and routable, the prepare function performs the actual request translation. Credential failover also stays outside this function: if an attempt fails on a credential error, the control plane selects another pool member, calls `prepare` again to rebuild the request, and asks the Rust kernel to make one fresh transport attempt.
 
 ## Register the provider
 
-First-party providers are compiled into the release and discovered by the registry. For a plugin-contributed provider, declare it through the `ai_gateway.provider` contract in a Control Plane Plugin's `adapter_declarations/0`, and the registry picks it up from the plugin's declaration — same model as a signal adapter, different contract id.
+First-party providers are compiled directly into the release and discovered automatically by the registry. To contribute a provider from a Control Plane Plugin, declare it under the `ai_gateway.provider` contract in the plugin's `adapter_declarations/0` callback; the registry loads it through the same mechanism used for signal adapters, just under a different contract ID.
 
-See [Develop Skills and Control Plane Plugins](../writing-a-skill/) for Plugin registration. The Provider contract is `ai_gateway.provider`, and the kind ID must match `~r/\A[a-z][a-z0-9_]{0,62}\z/`.
+See [Develop Skills and Control Plane Plugins](../writing-a-skill/) for plugin registration details. The provider contract ID is `ai_gateway.provider`, and `provider_kind` must match `~r/\A[a-z][a-z0-9_]{0,62}\z/`.
 
 ## What this guide is not
 
-It is not an HTTP-client tutorial — the prepare function builds a prepared request, and the Rust client does the HTTP. It is not a way to bypass the kernel's transport; the `api_resolver` and `upstream` wire shape are what the Rust `UniversalAIClient` owns, and a provider picks from the existing resolvers rather than inventing its own transport. And it is not a substitute for reading the existing providers; `lib/ankole/ai_gateway/providers/` is the canonical reference, and the simplest one (OpenAI or openai_compatible) is the right starting point.
+This guide is not a general HTTP-client tutorial: your Elixir prepare function builds a `%UniversalAIRequest{}`, and the Rust client executes the HTTP call. Nor is it a way to bypass kernel transport—the Rust `UniversalAIClient` owns the `upstream` wire shape and `api_resolver` implementations, so a provider selects from the existing resolvers rather than inventing custom transport code. Finally, treat `lib/ankole/ai_gateway/providers/` as the canonical reference; reading a straightforward implementation such as OpenAI or `openai_compatible` is the best starting point.
 
 ## Next steps
 

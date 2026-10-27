@@ -1,56 +1,56 @@
 ---
 title: ChatGPT 订阅 Provider
-description: 通过设备码登录把 ChatGPT 订阅接入 AIGateway，并用凭据池管理多个账号。
+description: 通过设备码登录将 ChatGPT 订阅接入 AIGateway，并通过凭据池统一调度多个账号。
 section: User guide
 order: 41
 ---
 
-ChatGPT 订阅是普通的 AIGateway Provider。任何模型档案都可以指向它，包括普通对话和后台 Agent 任务。模型档案选择 Provider 行和模型。
+在 Ankole 中，ChatGPT 订阅作为一种标准的 AIGateway Provider 接入。无论是日常对话档案还是“后台 Agent 任务”档案，任何模型档案都可以绑定到它——模型档案只需指定目标 Provider 记录与具体模型名称。
 
-Provider 行拥有一个凭据池。控制面加密保存每个账号的 token，负责刷新 OAuth token，并为每次请求选择可用的池成员。Agent Computer 只会收到 AIGateway 地址和 AIGateway Key，不会收到 ChatGPT refresh token。
+每条 Provider 记录内部都维护着一个凭据池：控制面负责加密保存每个订阅账号的令牌、自动完成 OAuth 令牌刷新，并为每次请求挑选健康的池成员。运行在 Worker 侧的 Agent Computer 只会收到 AIGateway 的网关地址与专属访问密钥，绝不会接触到 ChatGPT 的 Refresh Token。
 
 ## 创建 Provider
 
 1. 打开 **Console → 模型提供商**。
-2. 新增 Provider，并选择 **ChatGPT 订阅** 类型。
-3. 填写稳定的 Provider ID，例如 `chatgpt-main`。
-4. 保存 Provider。
+2. 点击新增 Provider，类型选择 **ChatGPT 订阅**。
+3. 填写一个稳定的 Provider ID（例如 `chatgpt-main`）。
+4. 保存配置。
 
-默认端点和身份请求头与 Codex 协议一致。只有部署有明确要求时，才修改高级设置中的端点或请求头。
+默认的请求端点与身份请求头已按 Codex 协议预置妥当；除非私有网络环境有明确的代理转发要求，否则无需改动「高级设置」中的端点地址或请求头。
 
 ## 通过设备码添加账号
 
-1. 打开刚创建的 ChatGPT 订阅 Provider。
-2. 选择“添加 ChatGPT 账号”。
-3. 打开 Console 显示的验证链接，输入一次性验证码。
-4. 等待 Console 完成登录并添加池成员。
-5. 要增加备用账号时，在同一个 Provider 中重复以上流程。
+1. 点开刚才创建的 ChatGPT 订阅 Provider。
+2. 点击“添加 ChatGPT 账号”。
+3. 在浏览器中打开 Console 展示的验证链接，输入页面给出的一次性设备验证码完成授权。
+4. 等待 Console 自动完成登录握手并将该账号加入凭据池。
+5. 如需扩容并发与额度，可在同一个 Provider 下重复上述步骤继续添加备用账号。
 
-Console 会优先使用官方设备码登录。若该入口不可用，Console 会显示浏览器登录链接，并要求粘贴完整的回调 URL。Enterprise 运维者也可以直接添加受信任的 access token 和对应的 ChatGPT Account ID。
+登录时，Console 会优先发起官方设备码授权流程；若当前环境下设备码入口不可用，页面会自动切换为浏览器授权链接模式，完成登录后将浏览器跳转的完整回调 URL 粘贴回 Console 即可。此外，ChatGPT Enterprise 企业管理员也可以直接录入受信任的 Access Token 及对应的 ChatGPT Account ID。
 
 ## 配置凭据池
 
-每个成员显示 label、priority、source、健康状态、请求计数、限额信息，以及模型或图像用量。页面永远不会回显 secret token。
+凭据池列表会展示每个账号成员的备注标签（label）、优先级（priority）、接入来源（source）、当前健康状态、累计请求次数、上游限额窗口以及模型与图像生成用量，但绝不会在页面上回显任何明文密钥或令牌。
 
-可以选择以下策略。Console 会翻译显示名称，API 和存储使用规范键名：
+你可以为凭据池指定以下任一调度策略（Console 界面会显示中文名称，API 与数据库存储则使用对应的规范英文键名）：
 
-| Console 显示 | API 值 | 行为 |
+| Console 显示名称 | API 键名 | 调度行为 |
 | --- | --- | --- |
-| 优先使用首个 | `fill_first` | 持续使用第一个健康成员，直到它不可用。 |
-| 轮询 | `round_robin` | 每次选择后轮转。 |
-| 最少使用 | `least_used` | 选择请求计数最小的成员。 |
-| 随机 | `random` | 随机选择一个健康成员。 |
+| 优先使用首个 | `fill_first` | 始终固定使用排在最前的健康成员，直至该账号触发限流或不可用时才顺延切换。 |
+| 轮询 | `round_robin` | 每次请求依次轮转使用池中的健康成员。 |
+| 最少使用 | `least_used` | 优先挑选累计请求计数最小的健康成员。 |
+| 随机 | `random` | 每次从健康成员中随机抽取一个。 |
 
-`exhausted` 成员会在冷却结束后自动回池。`dead` 成员必须重新登录或替换凭据。也可以禁用或删除成员。只修改 label 不会清除 `dead` 状态。
+触发限流进入 `exhausted`（配额耗尽）状态的账号，会在冷却窗口结束后自动恢复回池；而进入 `dead`（凭证失效）状态的账号则必须重新登录授权或替换凭据才能恢复（仅修改备注标签不会清除 `dead` 状态）。你也可以随时在列表中手动禁用或移除某个账号成员。
 
 ## 分配给 Agent
 
-1. 打开 **Console → 智能体**，选择目标 Agent。
-2. 打开需要配置的模型档案。持久任务使用“后台 Agent 任务”，普通模型回合使用对应的其他档案。
-3. 选择 ChatGPT 订阅 Provider 和账号有权使用的模型。
-4. 按需设置推理强度和 Fast Mode。
+1. 打开 **Console → 智能体**，进入目标 Agent 的编辑页。
+2. 找到需要配置的模型档案：长时异步任务请编辑“后台 Agent 任务”档案，日常交互回合请编辑对应的基础模型档案。
+3. 选择刚刚配好的 ChatGPT 订阅 Provider，并选定订阅账号有权访问的模型。
+4. 按需设置推理强度（Reasoning Effort）与快速模式（Fast Mode）。
 5. 保存模型档案。
 
-所有调用仍然通过 AIGateway。网关会尽量让同一个有状态 thread 使用同一账号，在可重试的 Provider 失败后轮换池成员，但不会切换到另一个 Provider。若所有成员都不可用，交互式调用会返回带下一次恢复时间的限额错误；后台 Agent 任务会回到 `queued`，等最早可恢复的池成员。
+配置完成后，所有模型调用依旧统一流经 AIGateway：对于同一个有状态会话线程，网关会尽量固定复用同一个池内账号；一旦遇到可重试的上游限流或瞬时故障，会自动轮换池内其他健康账号重试，但不会跨 Provider 切换到其他模型提供商。如果池内所有账号均处于冷却不可用状态，前台交互调用会直接返回附带最早恢复时间的配额耗尽提示；而后台 Agent 任务则会自动退回 `queued` 队列挂起，静候最早冷却结束的账号恢复后继续执行。
 
-后台任务如何创建、控制和排障，见 [后台 Agent 任务](../background-jobs/)。
+关于后台任务的创建、交互与排障方法，请参阅 [后台 Agent 任务](../background-jobs/)。

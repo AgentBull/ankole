@@ -18,7 +18,8 @@ WORKDIR /repo
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
-ARG RUST_TOOLCHAIN=1.98.1
+ARG RUST_TOOLCHAIN=1.99.1
+ARG TARGETARCH
 
 ARG ANKOLE_EDITION=foss
 ENV ANKOLE_EDITION=${ANKOLE_EDITION}
@@ -90,28 +91,61 @@ RUN --mount=type=cache,target=/root/.cache/hex \
 
 WORKDIR /repo
 
+COPY --parents \
+  ./app/control_plane/config/config.exs \
+  ./app/control_plane/config/dependencies.exs \
+  ./app/control_plane/config/prod.exs \
+  ./app/webapps/entries.json \
+  ./
+
+RUN --mount=from=ankole-internals,source=/,target=/mnt/internals \
+  if [ "${ANKOLE_EDITION}" = "saas" ]; then \
+    mkdir -p /repo/internals/control_plane /repo/internals/webapps \
+    && cp /mnt/internals/control_plane/config.exs /repo/internals/control_plane/config.exs \
+    && cp /mnt/internals/webapps/entries.json /repo/internals/webapps/entries.json; \
+  fi
+
+WORKDIR /repo/app/control_plane
+
+RUN --mount=type=cache,target=/root/.cargo/git \
+  --mount=type=cache,target=/root/.cargo/registry \
+  MJML_BUILD=true TORQUE_BUILD=true mix deps.compile --skip-local-deps
+
+WORKDIR /repo
+
+COPY app/kernel ./app/kernel
+COPY libs/im_transport ./libs/im_transport
+COPY libs/feishu_protocol ./libs/feishu_protocol
+
+WORKDIR /repo/app/control_plane
+
+RUN --mount=type=cache,target=/root/.cargo/git \
+  --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
+  mix deps.compile ankole_kernel im_transport feishu_protocol \
+  && mix deps.loadpaths
+
+WORKDIR /repo
+
 COPY tsconfig.json tsconfig.base.json ./
 COPY app/control_plane ./app/control_plane
 COPY app/agent_computer/src ./app/agent_computer/src
-COPY app/kernel ./app/kernel
 COPY app/library ./app/library
 COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
-COPY libs ./libs
+COPY libs/ankole-editor ./libs/ankole-editor
+COPY libs/applet-sdk ./libs/applet-sdk
+COPY libs/uikit ./libs/uikit
 COPY plugins ./plugins
 COPY --from=ankole-internals / ./internals/
 COPY tools/openapi-client-generator ./tools/openapi-client-generator
 
 WORKDIR /repo/app/control_plane
 
-RUN --mount=type=cache,target=/root/.cache/hex \
-  --mount=type=cache,target=/root/.cache/rebar3 \
-  mix deps.get --only prod
-
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,target=/repo/app/kernel/target \
-  MJML_BUILD=true TORQUE_BUILD=true mix compile
+  --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
+  mix compile
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
@@ -126,12 +160,12 @@ RUN ANKOLE_SECRET_BASE=build-smoke \
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,target=/repo/app/kernel/target \
+  --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
   bun run build
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,target=/repo/app/kernel/target \
+  --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
   mix release
 
 FROM ${RUNNER_IMAGE}

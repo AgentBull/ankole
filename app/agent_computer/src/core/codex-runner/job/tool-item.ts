@@ -1,4 +1,4 @@
-import { jsonObject, type JsonObject } from '@agentbull/active-support'
+import { isRecord, stringArg, type JsonObject } from '@agentbull/active-support'
 import { compareCodePointStrings } from '../../../common/ordering'
 import { normalizedCollaborationToolName } from '../protocol'
 
@@ -22,9 +22,9 @@ export type CodexToolItem = {
 }
 
 export function projectCodexToolItem(item: JsonObject, modelIdentity?: ToolIdentity): CodexToolItem | undefined {
-  const id = stringValue(item.id)
+  const id = stringArg(item, 'id')
   if (!id) return undefined
-  const errorCode = stringValue(jsonObject(item.error).code)
+  const errorCode = isRecord(item.error) ? stringArg(item.error, 'code') : undefined
   const common = {
     id,
     durationMs: positiveNumber(item.durationMs),
@@ -37,7 +37,7 @@ export function projectCodexToolItem(item: JsonObject, modelIdentity?: ToolIdent
 
   switch (item.type) {
     case 'commandExecution': {
-      const output = stringValue(item.aggregatedOutput)
+      const output = stringArg(item, 'aggregatedOutput')
       const exitCode = positiveNumber(item.exitCode)
       return {
         ...common,
@@ -49,11 +49,11 @@ export function projectCodexToolItem(item: JsonObject, modelIdentity?: ToolIdent
     case 'fileChange':
       return { ...common, identity: { name: 'apply_patch' }, input: { changes: item.changes } }
     case 'mcpToolCall': {
-      const server = stringValue(item.server)
+      const server = stringArg(item, 'server')
       const namespace =
-        modelIdentity?.namespace ?? stringValue(item.namespace) ?? (server ? mcpNamespace(server) : undefined)
-      const tool = stringValue(item.tool)
-      const name = modelIdentity?.name ?? stringValue(item.name) ?? (tool ? responsesIdentifier(tool) : undefined)
+        modelIdentity?.namespace ?? stringArg(item, 'namespace') ?? (server ? mcpNamespace(server) : undefined)
+      const tool = stringArg(item, 'tool')
+      const name = modelIdentity?.name ?? stringArg(item, 'name') ?? (tool ? responsesIdentifier(tool) : undefined)
       return name
         ? {
             ...common,
@@ -64,8 +64,8 @@ export function projectCodexToolItem(item: JsonObject, modelIdentity?: ToolIdent
         : undefined
     }
     case 'dynamicToolCall': {
-      const name = stringValue(item.tool)
-      const namespace = stringValue(item.namespace)
+      const name = stringArg(item, 'tool')
+      const namespace = stringArg(item, 'namespace')
       return name
         ? {
             ...common,
@@ -77,7 +77,7 @@ export function projectCodexToolItem(item: JsonObject, modelIdentity?: ToolIdent
         : undefined
     }
     case 'collabAgentToolCall': {
-      const tool = stringValue(item.tool)
+      const tool = stringArg(item, 'tool')
       return tool
         ? {
             ...common,
@@ -140,8 +140,4 @@ export function compareToolIdentity(left: ToolIdentity, right: ToolIdentity): nu
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
 }

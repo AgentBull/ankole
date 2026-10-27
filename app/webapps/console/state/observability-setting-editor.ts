@@ -1,4 +1,4 @@
-import { isRecord } from '@agentbull/active-support'
+import { isRecord, safeJsonParse } from '@agentbull/active-support'
 
 export const OBSERVABILITY_TRACE_KEYS = {
   enabled: 'observability.traces.enabled',
@@ -109,10 +109,6 @@ export function sameObservabilityHeaderRows(
 
 function stringDraft(text: string | undefined): string {
   if (!text) return ''
-  try {
-    const value: unknown = JSON.parse(text)
-    return typeof value === 'string' ? value : ''
-  } catch {
-    return ''
-  }
+  const value = safeJsonParse(text).unwrapOr(undefined)
+  return typeof value === 'string' ? value : ''
 }

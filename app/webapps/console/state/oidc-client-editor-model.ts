@@ -1,7 +1,7 @@
+import { compact, equal, uniq } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { ModelProfileWriteRequest } from './model-profiles-model'
+import type { ModelProfileWriteRequest, ProfileDraft } from './model-profiles-model'
 import type { CreateOidcClientData } from '../api/v2/generated/types.gen'
-import type { ProfileDraft } from './model-profiles-model'
 export const supportedScopes = ['openid', 'profile', 'email', 'offline_access', 'ai_gateway.write'] as const
 export type OidcScope = (typeof supportedScopes)[number]
 
@@ -39,13 +39,15 @@ export type ClientDraft = {
   type: 'public' | 'confidential'
 }
 
+export type ProfileDraftSnapshot = Omit<ProfileDraft, 'error'>
+
 export type ClientModelAliasDraft = {
   key: string
   name: string
   persisted: boolean
   profile: ProfileDraft
   nameError?: string
-  savedProfileKey?: string
+  savedProfile?: ProfileDraftSnapshot
 }
 
 export function emptyDraft(): ClientDraft {
@@ -83,7 +85,7 @@ export function draftFromClient(client: OidcClientItem): ClientDraft {
           name,
           persisted: true,
           profile: draft,
-          savedProfileKey: profileDraftKey(draft)
+          savedProfile: profileDraftSnapshot(draft)
         }
       }),
     enabled: client.enabled,
@@ -94,20 +96,17 @@ export function draftFromClient(client: OidcClientItem): ClientDraft {
   }
 }
 
-function draftKey(draft: ClientDraft): string {
-  return JSON.stringify({
+function draftSnapshot(draft: ClientDraft) {
+  return {
     ...draft,
+    allowedGroupIDs: [...draft.allowedGroupIDs],
+    allowedIdentityProviderIDs: [...draft.allowedIdentityProviderIDs],
+    scopes: [...draft.scopes],
     modelAliases: draft.modelAliases.map(alias => ({
       name: alias.name,
-      profile: {
-        contextLength: alias.profile.contextLength,
-        description: alias.profile.description,
-        model: alias.profile.model,
-        providerID: alias.profile.providerID,
-        providerOptions: alias.profile.providerOptions
-      }
+      profile: profileDraftSnapshot(alias.profile)
     }))
-  })
+  }
 }
 
 export function writeBody(draft: ClientDraft, modelAliases: Record<string, ModelProfileWriteRequest>): ClientWriteBody {
@@ -136,36 +135,33 @@ function profileDraftFromRequest(profile: ModelProfileWriteRequest): ProfileDraf
   }
 }
 
-export function profileDraftKey(profile: ProfileDraft): string {
-  return JSON.stringify({
+export function profileDraftSnapshot(profile: ProfileDraft): ProfileDraftSnapshot {
+  return {
     contextLength: profile.contextLength,
     description: profile.description,
     model: profile.model,
     providerID: profile.providerID,
-    providerOptions: profile.providerOptions
-  })
+    providerOptions: structuredClone(profile.providerOptions)
+  }
+}
+
+export function sameProfileDraft(left: ProfileDraft, right: ProfileDraftSnapshot | undefined): boolean {
+  return right !== undefined && equal(profileDraftSnapshot(left), right)
 }
 
 function lines(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean)
-    )
-  ]
+  return uniq(compact(value.split(/\r?\n/).map(line => line.trim())))
 }
 export const OIDCClientEditorModel = createModel(() => {
   let source = Symbol()
   const sourceKey = signal<string>()
   const draft = signal<ClientDraft>(emptyDraft())
-  const savedDraft = signal(draftKey(draft.value))
-  const dirty = computed(() => draftKey(draft.value) !== savedDraft.value)
+  const savedDraft = signal(draftSnapshot(draft.value))
+  const dirty = computed(() => !equal(draftSnapshot(draft.value), savedDraft.value))
   const markSaved = (next: ClientDraft) =>
     batch(() => {
       draft.value = next
-      savedDraft.value = draftKey(next)
+      savedDraft.value = draftSnapshot(next)
     })
   return {
     sourceKey,

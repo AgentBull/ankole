@@ -71,11 +71,9 @@ export class BrowserRuntime {
    * compatibility check stays at the `createWebTools` call site instead.
    */
   renderedWebFetchFallback(settings: RenderedFetchBrowserMaterializeSettings): {
-    ssrfFilter: boolean
     fetchBatch: (urls: string[], signal?: AbortSignal) => Promise<unknown>
   } {
     return {
-      ssrfFilter: settings.ssrfFilter,
       fetchBatch: (urls, signal) => this.fetchRendered(urls, settings, signal)
     }
   }

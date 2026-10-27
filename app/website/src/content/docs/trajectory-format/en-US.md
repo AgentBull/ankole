@@ -5,74 +5,73 @@ section: Developer guide
 order: 121
 ---
 
-Ankole records what an agent did in two places, for two kinds of work: AIGateway stores conversation messages (the live transcript a stateful Responses conversation produces), and Background Agent Jobs store turn trajectories (the per-turn record of a durable job's execution). This page documents both storage shapes, the canonical ChatML format, and the model-visible projection that strips protocol detail. It builds on [AIGateway](../ai-gateway/) and [Background Agent Jobs](../background-agent-jobs/).
+Ankole records Agent execution history in two distinct stores tailored to two kinds of work: AIGateway stores conversation messages (the live transcript that a stateful Responses conversation produces), while Background Agent Jobs store turn trajectories (the per-turn execution log of a durable background job). This page explains both storage schemas, canonical ChatML projection, and how Ankole strips wire-protocol internals before showing history to a model, building on [AIGateway](../ai-gateway/) and [Background Agent Jobs](../background-agent-jobs/).
 
-The decisive property, stated up front: the model never sees raw storage rows. Both shapes project to a model-visible form that strips protocol identities and replaces them with turn-local call aliases — the model sees "tool call 1 → tool result 1," not internal UUIDs or wire protocol fields. The stored form is for durability and audit; the projected form is for the model.
+Models never inspect raw database rows directly. Instead, both stores project into a sanitized, model-visible representation that strips internal UUIDs and wire-protocol fields in favor of turn-local call aliases—so the model sees `"call_1 → result of call_1"` while PostgreSQL retains the full audit record.
 
-Here, an AIGateway conversation is a Session's model history. It is separate from the shared Conversation and Messages owned by `Ankole.Conversations`. Public history can supply current background context; it does not replace the stored model chain or its tool journal.
+Note that an AIGateway conversation represents a single Session's model transcript and is distinct from the shared participant Conversation and Messages owned by `Ankole.Conversations`. Shared channel history can supply background context at turn boundaries, but never replaces the Session's AIGateway response chain or tool journal.
 
 ## AIGateway conversation messages
 
-AIGateway owns the live conversation transcript. Each message is a row in `ai_gateway_messages`:
+AIGateway owns the live model transcript in `ai_gateway_messages`:
 
 | Field | Meaning |
 |---|---|
-| `subject_uid` | the Principal the conversation belongs to |
-| `conversation_id` | the conversation this message is part of |
-| `type` | the message type (assistant, tool result, and so on) |
-| `role` | the role the message plays in the transcript |
-| `status` | lifecycle status |
-| `previous_message_id` | a self-reference continuation anchor — renders as `previous_response_id` on the API, so the conversation chains |
-| `content` | the message content (a JSON value, not a single string) |
-| `metadata` | opaque caller metadata plus AIGateway-owned response facts (model, provider, usage, provider raw ids) |
+| `subject_uid` | Principal that owns the conversation |
+| `conversation_id` | AIGateway conversation that this message belongs to |
+| `type` | Message item kind (assistant reply, tool result, compaction checkpoint, and so on) |
+| `role` | Role that the message plays in the transcript |
+| `status` | Item lifecycle status |
+| `previous_message_id` | Self-referencing continuation pointer—exposed on the API as `previous_response_id` to form a linked chain |
+| `content` | Structured JSON message payload (not a bare string) |
+| `metadata` | Opaque caller metadata alongside AIGateway-owned response facts (resolved model, provider, token usage, upstream response IDs) |
 
-The `previous_message_id` is the continuation anchor: each message points at its predecessor, producing a linked chain. On the API, this renders as `previous_response_id`, so a caller or a compaction can resume from any anchor. The `metadata` field carries facts AIGateway owns — the model and provider used, the token usage, the provider's raw response id — alongside opaque caller metadata. It must not carry a second item list.
+Each row's `previous_message_id` points to its predecessor, forming an append-only chain exposed on the Responses API as `previous_response_id` so callers or compaction checkpoints can resume from any anchor. Meanwhile, `metadata` combines opaque caller tags with facts that AIGateway owns—the provider and model used, token counts, and raw upstream IDs—and must never store a duplicate item list.
 
-A compaction (see [Context compression](../context-compression-and-caching/)) writes a summary checkpoint as the new visible anchor. Previous rows remain stored for recovery and audit. The projected model context starts at the summary rather than replaying those earlier messages.
+When context compaction runs (see [Context compression](../context-compression-and-caching/)), AIGateway appends a summary checkpoint as the new visible anchor: earlier rows stay in PostgreSQL for recovery and audit, while projected model requests start from the summary checkpoint rather than replaying older turns.
 
 ## Background Agent Job trajectories
 
-A background job stores its per-turn execution as an append-only stream of sanitized semantic thread items in `background_agent_job_turn_items`. Each item belongs to a turn, has a position, a revision, an item key, and the semantic item itself:
+Each Background Agent Job records its per-turn execution as an append-only sequence of sanitized semantic thread items in `background_agent_job_turn_items`:
 
 | Field | Meaning |
 |---|---|
-| `turn_id` | the job turn this item belongs to |
-| `position` | the item's order within the turn |
-| `revision` | the turn revision that accepted the item |
-| `item_key` | a stable key for the item (a `client:` key marks a caller message) |
-| `item` | one typed semantic thread item |
+| `turn_id` | Job turn that this item belongs to |
+| `position` | Zero-based ordering within the turn |
+| `revision` | Turn revision under which the item was committed |
+| `item_key` | Stable item identifier (`client:` prefixes mark caller-supplied messages) |
+| `item` | Typed semantic thread item payload |
 
-The rows are append-only: a steer or nudge appends new items instead of rewriting stored ones. Every reader projects each stored item into canonical ChatML messages at read time, and an item that projects no messages stays stored for thread replay. A turn with no item rows renders an empty trajectory.
+Because `background_agent_job_turn_items` is strictly append-only, steering messages and nudges append new rows rather than mutating existing ones. Readers project each semantic item into canonical ChatML messages at read time; items that emit zero ChatML messages remain stored for exact thread replay, and a turn with no items projects an empty trajectory.
 
-Tool-result message metadata records `execution_mechanism` as `provider_hosted` when the model Provider executes the tool, or `local_dynamic` when Codex invokes a dynamic tool implemented by Ankole. This stable fact distinguishes tools that use the same display name.
+On tool-result messages, `metadata.execution_mechanism` records `provider_hosted` when the upstream model Provider executed the tool natively, or `local_dynamic` when Codex invoked a dynamic tool implemented by Ankole—disambiguating tools that share a display name.
 
-This is a separate storage shape from the AIGateway conversation messages, because a background job's trajectory belongs to the job, not to a conversation. The job's turns are their own thread; the conversation it reports back to receives the result, not the trajectory.
+Background Agent Job trajectories live separately from `ai_gateway_messages` because a job's multi-turn Codex thread belongs to the job itself: the originating chat conversation receives the job's final report or status wakeup rather than its internal step-by-step trajectory.
 
 ## The model-visible projection
 
-The control plane projects stored Job items with `Ankole.Sessions.Tools.Jobs.visible_trajectory/1`. The model-visible projection contains:
+When a main Agent inspects a Background Agent Job, the control plane projects stored items through `Ankole.Sessions.Tools.Jobs.visible_trajectory/1`, which:
 
-- **Strips stored protocol identities** — internal message ids, wire-protocol fields, anything the model should not act on.
-- **Replaces tool-call ids with turn-local aliases** — `call_1`, `call_2`, and so on. The model sees which tool result belongs to which tool call (the only useful relationship), without the internal UUIDs that wire them.
-- **Preserves content and role** — the actual messages, the tool calls and their results, in the order they happened.
-- **Preserves bounded-content facts** — trajectory-level `metadata.redacted` and `metadata.content_truncated` stay visible. The control-plane projection sets `content_truncated` when it must reduce selected message content to meet its page limit.
-
+- **Strips internal protocol identifiers** — removing database UUIDs, upstream wire fields, and metadata that models should not depend on.
+- **Replaces tool-call IDs with turn-local aliases** — rewriting raw call identifiers to `call_1`, `call_2`, and so on, preserving the exact pairing between each tool call and its result without leaking internal keys.
+- **Preserves roles, content, and chronological order** — keeping assistant messages, tool calls, and tool outputs in the exact sequence in which they occurred.
+- **Retains truncation and redaction markers** — keeping trajectory-level `metadata.redacted` and `metadata.content_truncated` flags visible, and setting `content_truncated` whenever the control plane trims message bodies to fit its pagination budget.
 
 ## How the two shapes relate
 
 | | AIGateway messages | Background job trajectories |
 |---|---|---|
-| What it stores | live conversation transcript | per-turn job execution record |
+| What it stores | Live Session model transcript | Per-turn Background Agent Job execution log |
 | Who owns it | AIGateway | Background Agent Jobs |
-| Canonical format | AIGateway's message schema | semantic items projected to ChatML |
-| Model sees it through | the stateful Responses API | `visible_trajectory/1` projection |
-| Compaction | AIGateway writes a new visible checkpoint; earlier rows remain | not compacted (jobs are bounded by retry budget) |
+| Canonical format | `ai_gateway_messages` schema | Semantic items projected to ChatML |
+| Model sees it through | Stateful Responses API | `visible_trajectory/1` projection |
+| Compaction | AIGateway appends a summary checkpoint; prior rows remain | Not compacted (bounded by Job turn and retry budgets) |
 
-The two do not mix. A conversation's messages are AIGateway's; a job's trajectory is the job's. The job reports its result back to the owning conversation through a wakeup event (see [Background Agent Jobs](../background-agent-jobs/)), not by writing into the conversation's message store.
+The two stores never cross-write: conversation turns commit to AIGateway, while Background Agent Jobs commit to `background_agent_job_turn_items` and report outcomes back to the owning conversation via durable wakeup Signals (see [Background Agent Jobs](../background-agent-jobs/)).
 
 ## What this guide is not
 
-It is not a ChatML specification — the canonical ChatML format is a standard, and Ankole's read-time projection keeps that shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/api/v2/ai-gateway/conversations/:id/messages`, `/api/v2/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
+This page covers how Ankole stores and projects transcripts across its two execution paths, rather than redefining the external ChatML standard itself. Operators and integrations that need to inspect stored messages or job trajectories over HTTP should use the Console JSON:API endpoints (`/api/v2/ai-gateway/conversations/:id/messages` and `/api/v2/background-agent-jobs/:id`), documented in the [Console API reference](../console-api/).
 
 ## Next steps
 

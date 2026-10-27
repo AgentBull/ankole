@@ -1,21 +1,25 @@
 # BrainV3
 
-Brain is the tenant-shared knowledge space. Agents, humans, and background
-learning write into one body of pages and claims, and every read applies the
-querier's knowledge boundary. Brain replaces per-agent memory files: what one
-Agent learns, every authorized Principal can reach.
+Brain is the tenant-shared knowledge space. Agents, Humans, and background
+learning write into a single body of pages and claims, and every read enforces
+the querier's knowledge and disclosure boundaries. Brain replaces per-Agent
+memory files: what one Agent learns, every authorized Principal can reach.
 
-The Elixir control plane owns all Brain state and logic. A chat Session
-reaches Brain only through the AIGateway-hosted `brain` tool, which executes
-inside the Response. A codex Job reaches the read subset through the Worker
-read-tool bridge, where `Ankole.Sessions.Tools.Brain` executes each call. The
-Worker holds no Brain state and no Brain logic; its Brain tool is the transport
-codec for that bridge.
+The Elixir control plane owns all Brain state and domain logic:
+
+- A chat Session reaches Brain exclusively through the AIGateway-hosted `brain`
+  tool, which executes inside the model Response.
+- A Codex Background Agent Job reaches the read-only Brain subset through the
+  Worker read-tool bridge, where `Ankole.Sessions.Tools.Brain` executes each
+  call on the control plane. The Worker itself holds neither Brain state nor
+  Brain logic; its local Brain tool acts solely as the transport codec for that
+  bridge.
 
 ## Storage
 
-Brain stores its state in PostgreSQL. Every primary key is an application
-generated UUIDv7; the database never generates a random UUID for these tables.
+Brain stores all durable state in PostgreSQL. Every primary key is an
+application-generated UUIDv7; PostgreSQL never generates random UUIDs for these
+tables.
 
 | Table | What it stores |
 | --- | --- |
@@ -24,7 +28,7 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 | `brain_schema_link_types` | The relation predicate vocabulary |
 | `brain_schema_calibration_domains` | Named calibration domains for Take scorecards |
 | `brain_sources` | Registered learning Sources and shipped-library projection sets with their revision fingerprints |
-| `brain_objects` | One page per slug: type, subtype, title, Markdown body and optional Brain Source body owner |
+| `brain_objects` | One page per slug: type, subtype, title, Markdown body, and optional Brain Source body owner |
 | `brain_object_versions` | Append-only body, metadata, tag, and author snapshots |
 | `brain_chunks` | Retrieval chunks of page bodies, with BM25 text and vector columns |
 | `brain_claims` | Atomic assertions: bitemporal Facts and calibratable Takes |
@@ -37,259 +41,288 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 | `brain_take_domain_assignments` | Which calibration domains one Take belongs to |
 | `brain_contradictions` | Judged claim pairs with verdict and triage status |
 
-Vector search uses `pgvector` `halfvec` HNSW indexes; text search uses
-`pg_search` BM25 indexes with a configurable tokenizer. Entity identity uses
-exact slugs, redirects, normalized aliases, then exact titles. Ambiguous
-matches return candidates; fuzzy titles do not establish identity.
+Vector search uses `pgvector` `halfvec` HNSW indexes, while full-text search
+uses `pg_search` BM25 indexes with a configurable tokenizer. Entity resolution
+matches exact slugs first, then slug redirects, normalized aliases, and finally
+exact titles; when a name matches multiple pages, resolution returns candidates
+rather than guessing, and fuzzy title similarity never establishes identity.
 
-The tokenizer and embedding model are site settings because BM25 and HNSW
-indexes cover the shared physical tables. Rerank is a tenant setting and does
-not define an index. Every query still filters by tenant.
-Schema packs and library projections are installed separately in each tenant.
+Because BM25 and HNSW indexes span shared physical tables, the search tokenizer
+and embedding model are site-wide settings. By contrast, reranking runs at query
+time without an index and is configured per tenant. Every query filters by
+tenant, and schema packs and library projections are installed independently in
+each tenant.
 
-Installed relation names and inverse names feed the conversation extraction
-prompt. They are preferred vocabulary, not a closed set: other
-labels are valid when no installed term fits.
+Brain includes installed relation names and their inverses in the prompt that
+extracts claims from conversations. Those terms serve as a preferred vocabulary
+rather than a closed set: the model may emit another relation label when no
+installed term fits.
 
-The Console creates and replaces page tags through the Object write
-contract. Tags are exact, case-sensitive strings; input trims surrounding
-whitespace, rejects blank values, and stores one row per distinct tag. An
-omitted `tags` field keeps the current set; `[]` clears it. The content hash
-covers the tag set, and each update snapshots the previous tags with the
-ObjectVersion author. Merge refreshes that hash after tags move.
-The Console draft keeps tags as an array and edits each tag in a separate
-field. Embedded line breaks and literal backslashes stay inside that tag.
-Version rollback restores only body and meta; it does not restore tags.
+Operators create and replace page tags in the Console through the Object write
+contract. Tags are exact, case-sensitive strings; the server trims surrounding
+whitespace, rejects blank strings, and stores one row per distinct tag. If a
+write omits `tags`, the server preserves the current set; passing `[]` clears
+all tags. The Object content hash covers the tag set, each update snapshots the
+previous tags alongside the `ObjectVersion` author, and page merges recompute
+that hash after moving tags. In the Console editor, drafts hold tags as an array
+and render one input per tag so embedded newlines and literal backslashes stay
+inside a single tag. Rolling back to a prior version restores only `body` and
+`meta`, leaving current tags unchanged.
 
-`ObjectVersion.snapshot` owns immutable body, metadata, tag, and author snapshots.
-It requires the object writer's transaction, so a failed edit cannot
-leave history without the corresponding page change. `Ankole.Brain.Chunks`
-reconciles positions under the current Object row lock. Its resource actions
-create, replace, or remove projection rows; replacement clears the full vector
-state. An unchanged position retains its row and vector. Embedding results use
-one atomic action that compares the input text, embedding timestamp, and model
-signature before it commits. PostgreSQL checks the complete vector state and
-rejects partial success or failure records. Embeddings use the Ash `:vector`
-type and `AshPostgres.Extensions.Vector` to store 4096 float32 values in the
-PostgreSQL `vector(4096)` column.
+`ObjectVersion.snapshot` writes immutable body, metadata, tag, and author
+snapshots and requires the caller's Object write transaction, ensuring that a
+failed edit never leaves an orphan history entry. Under the same Object row
+lock, `Ankole.Brain.Chunks` reconciles chunk positions: its resource actions
+create, replace, or delete projection rows, clearing the full vector state
+whenever a chunk changes while keeping both the row and vector for unchanged
+positions.
+
+Embedding writes use a single atomic resource action that verifies the input
+text, embedding timestamp, and model signature before committing. PostgreSQL
+check constraints validate the complete vector state and reject partial success
+or failure records. Embeddings use the Ash `:vector` type and
+`AshPostgres.Extensions.Vector` to store 4,096 `float32` values in a PostgreSQL
+`vector(4096)` column.
 
 ## Scope and Disclosure
 
-Every claim, timeline row, and Markdown audience block carries one
+Every claim, timeline event, and Markdown audience segment carries one
 `audience_scope`:
 
 - `world`: active Human members, Agents, and System Principals of the current
-  tenant. Human guests do not receive this scope.
+  tenant (Human guests do not receive `world`).
 - `group:<name>`: members of one AuthZ Principal group.
-- `principal:<uid>`: one Principal.
+- `principal:<uid>`: one specific Principal.
 
-Two boundaries apply on every read, in order:
+Every read enforces two boundaries in sequence:
 
-1. **Knowledge boundary.** A querier reaches a row when the row's scope is in
-   the querier's accessible scopes (own principal scope, current group scopes,
-   and `world` for an eligible Principal), when the querier authored the row,
-   or when an Agent the querier owns authored or holds it. An owner cannot
-   reach group-scoped rows through its Agent. `Ankole.Brain.Access` owns this
-   rule and applies it as an SQL prefilter plus a row filter.
-2. **Disclosure boundary.** A reply that other Principals can see narrows
-   further: relaxed mode requires the asker to satisfy the scope, strict mode
-   requires every present member to satisfy it. Group-memory disclosure mode
-   is an Agent setting.
+1. **Knowledge boundary.** A querier can reach a row when the row's scope is in
+   the querier's accessible scopes (its own `principal:<uid>` scope, its current
+   `group:<name>` scopes, and `world` for eligible Principals), when the querier
+   authored the row, or when an Agent that the querier owns authored or holds
+   the row (though an Agent owner cannot reach `group:<name>` rows through its
+   Agent). `Ankole.Brain.Access` enforces this rule through an SQL prefilter
+   paired with an in-memory row filter.
+2. **Disclosure boundary.** When other Principals can read the reply, disclosure
+   narrows the result further: `relaxed` mode requires the asking Principal to
+   satisfy the scope, whereas `strict` mode requires every present room member
+   to satisfy it. The disclosure mode for group memory is configured per Agent.
 
-For a native conversation, strict disclosure checks every participant except
-the Agent that produces the current answer. Other Agents remain recipients.
-A scheduled reply without an asker uses the same recipient set. An empty or
-unresolved set denies disclosure. IM conversations use their provider recipient
-rules.
+In a native conversation, `strict` disclosure checks every room participant
+except the Agent generating the current reply (other Agents in the room still
+count as recipients). Scheduled replies with no human asker check that same
+recipient set, and if the recipient set is empty or unresolved, Brain denies
+disclosure. External IM conversations resolve recipients through the rules of
+their IM provider.
 
-Writer eligibility mirrors the read rule: a writer can write a scope it can
-itself reach; the system writer can write every scope.
+Write eligibility mirrors read reachability: a writer may write any scope that
+it can reach itself, while the system writer may write any scope. Both
+`remember` and URL Source registration follow this rule. When the model omits an
+explicit scope, Brain defaults to `principal:<asker_uid>` in a direct chat, the
+backing Principal group in a member-backed group chat, and `principal:<agent_uid>`
+on all other turns. When the model supplies an explicit scope, the write keeps
+that scope if the writer is eligible; `ConfidentialityPolicy.md` guides model
+scope selection.
 
-`remember` and URL Source registration use the same scope rule. If the model
-omits the scope, a private chat uses the asking Principal, a member-backed
-group chat uses its Principal group, and other turns use the Agent Principal.
-If the model selects a scope explicitly, the write keeps that scope after the
-writer eligibility check. `ConfidentialityPolicy.md` guides this selection.
-
-Page bodies carry scopes inline as `audience` tags in Markdoc tag syntax.
-The normative grammar — CommonMark plus one root-level `audience` tag plus
-`[[slug]]` wikilinks — is owned by the native kernel and specified in
-[`BrainMarkdoc.md`](BrainMarkdoc.md). `Ankole.Brain.Markdoc` delegates to that
-kernel parser without a compatibility path. A page render removes the segments
-whose scope the querier cannot reach or disclose, and an unparseable body
-renders empty instead of leaking unfiltered content.
+Page bodies embed scopes inline using block-level Markdoc `audience` tags. The
+Rust kernel owns the normative grammar (CommonMark plus root-level `audience`
+tags and `[[slug]]` wikilinks, specified in [`BrainMarkdoc.md`](BrainMarkdoc.md)),
+and `Ankole.Brain.Markdoc` delegates directly to that kernel parser with no
+fallback path. Rendering a page strips segments that fail the caller's knowledge
+or disclosure checks, and if a stored body fails to parse, Brain renders an
+empty body rather than risking unfiltered disclosure.
 
 ## Pages, Facts, and Takes
 
-A page (`brain_objects`) is the unit of curated knowledge: one slug under a
-type-owned prefix (`people/`, `companies/`, `concepts/`, ...), a Markdown
-body, and append-only versions. Concurrent edits use an expected content
-hash; a mismatch rejects the write.
+A page (`brain_objects`) is the unit of curated knowledge: a unique slug under a
+type-owned prefix (`people/`, `companies/`, `concepts/`, and so on), a Markdown
+body, and append-only version snapshots. Concurrent edits coordinate via an
+`expected_content_hash`; if the hash does not match the stored row, the control
+plane rejects the write.
 
-The `agent` type and `agents/<uid>` namespace are reserved for the canonical
-pages of this instance's Agent Principals. Only the Principal lifecycle can
-create them, with subtype `internal`. Generic writes, Source projections,
-library projections cannot create these identities.
-Knowledge and calibration updates to an existing Agent page remain valid.
-Model-facing instructions explain this boundary before a write, and the
-extraction type list excludes `agent`: Skills, models, tools, automations,
-and assistant personas use ordinary knowledge types, not Principal pages.
+The `agent` page type and `agents/<uid>` slug namespace are reserved exclusively
+for canonical pages of Agent Principals in the current tenant. Only the
+Principal lifecycle can create these pages (using subtype `internal`); generic
+Object writes, Source projections, and library projections cannot create them,
+though knowledge and calibration writes to an existing Agent page remain valid.
+Model-facing instructions state this rule up front, and the extraction prompt
+omits `agent` from its page-type list so Skills, models, tools, automations, and
+personas use ordinary knowledge types instead.
 
-Library projections use `library` Sources. Product and Plugin knowledge
-files and published Skills own their bodies while `managed_by_source_id`
-is set. Claims, links, timelines, tags, and aliases can attach to the slug.
-Instance writes cannot edit a managed body. The Console can fork a knowledge
-page into tenant ownership; later product updates then leave that body alone.
-Skill discovery records cannot be forked. Removing a shipped file withdraws
-its page and preserves attached data; a returning file restores the page in
-place. Directory and file reads must complete before a set projects pages or
-withdraws missing pages. Inventory read failures preserve that set's pages
-and Source revision; other sets synchronize independently. A complete read of an
-invalid file rejects the file and withdraws its projection.
+Shipped product knowledge, Plugin knowledge files, and published Skills project
+into Brain through `library` Sources, which own the projected page bodies while
+`managed_by_source_id` is set. Tenant claims, links, timelines, tags, and
+aliases can still attach to those slugs, and although ordinary instance writes
+cannot edit a managed body, an operator in the Console can fork a library
+knowledge page into tenant ownership so later product upgrades leave its body
+untouched (Skill discovery projections cannot be forked).
 
-Library writes lock the Source before the Object and check archive state
-and body ownership in the page transaction. Source archive and withdrawal
-commit together, so a running sync cannot restore an archived inventory.
-One page failure does not roll back other pages.
+During a library sync, all directory and file reads for a projection set must
+succeed before Brain projects updates or withdraws missing pages. If a shipped
+file is removed, Brain withdraws its page while retaining attached claims and
+links, restoring the page in place if the file later returns. If reading an
+inventory fails, Brain leaves that set's pages and Source revision untouched
+while allowing other sets to sync independently; if a file is read completely
+but fails validation, Brain rejects that file and withdraws its projection.
+Library writes lock the `Source` row before the `Object` row and verify archive
+status and body ownership inside each page transaction (one page failure does
+not roll back other pages), while archiving a Source commits together with page
+withdrawal so an in-flight sync cannot resurrect an archived set.
 
-A shipped Skill can declare `brain-recall-only: true`. It remains one standard
-Skill with its global Skill name, but it is absent from the model-visible Skill
-catalog. The library sweep projects only its name, description, and tags into
-a world-visible managed Object of type `agent-skills` at
-`lazyload-agent-skills/<skill-name>`; the full `SKILL.md`, resources, and Agent
-lesson remain in the Skill loader. The `agent-skills` type and slug prefix are
-reserved for this projection. An Agent's current effective Plugin and Skill
-settings filter these records before retrieval limits and name resolution.
-Disabling a Skill prevents discovery and loading without deleting its shared
-tenant projection; removing the shipped file or the metadata declaration
-withdraws the projection.
+A shipped Skill may declare `brain-recall-only: true` in its frontmatter. It
+remains a standard Skill under its global name, but Ankole omits it from the
+inline Skill catalog and instead projects only its name, description, and tags
+into a `world`-scoped managed Object of reserved type `agent-skills` at
+`lazyload-agent-skills/<skill-name>` (keeping the full `SKILL.md`, bundled
+resources, and learned lessons inside the Skill loader). Before applying recall
+limits or resolving Skill names, Brain filters `agent-skills` pages against the
+querier Agent's effective Plugin and Skill configuration: disabling a Skill
+hides it from discovery and loading without deleting the shared tenant row,
+whereas removing the shipped file or `brain-recall-only` flag withdraws the
+projection.
 
-A claim is one atomic assertion attached to a page or a signal channel.
-`claim_type` separates two families with disjoint field sets, enforced by a
-database check:
+A claim (`brain_claims`) is one atomic assertion attached to a page or signal
+channel. A PostgreSQL check constraint on `claim_type` separates two disjoint
+families:
 
-- **Facts** are bitemporal: `valid_from`, optional `valid_until`, a closed
-  kind list (`event`, `preference`, `commitment`, `belief`, `fact`), a
-  notability level, and a confidence on a 0.05 grid. A change inserts a new
-  row and connects the old one through `superseded_by`; expiry keeps history.
-- **Takes** are predictions and judgments: an open kind string, a weight on
-  the same grid, and a resolution lifecycle (`graded_*`, `resolved_*`) that
-  feeds calibration.
+- **Facts** are bitemporal assertions carrying `valid_from`, an optional
+  `valid_until`, a closed kind enum (`event`, `preference`, `commitment`,
+  `belief`, `fact`), a notability level, and confidence on a `0.05` grid.
+  Updating a Fact inserts a new row and links the prior row via `superseded_by`,
+  preserving full history when Facts expire or change.
+- **Takes** are predictions and judgments carrying an open kind string, a weight
+  on the same `0.05` grid, and a resolution lifecycle (`graded_*`, `resolved_*`)
+  that feeds calibration scorecards.
 
-Fact writes run semantic dedup inside the same parent, holder, and audience
-scope: the top cosine neighbor at or above 0.95 merges as a duplicate or
-supersedes when the text changed. Takes never enter dedup.
+Writing a Fact runs semantic deduplication within the same parent, holder, and
+`audience_scope`: if the nearest cosine neighbor is at or above `0.95`, Brain
+merges identical assertions or supersedes the older Fact when the wording
+changed. Takes never undergo semantic deduplication.
 
-Claim resource actions own insertion, expiry, consolidation, calibration, and
-resolution. A stored Take can resolve once; a stale snapshot cannot replace its
-decision. Source withdrawal commits Fact expiry and Take deactivation together.
-Embedding results compare the prior vector state before they write, so a late
-failure cannot erase a successful rebuild. Late Fact dedup clears the complete
-failed vector state while it links the historical assertion to the current one.
+`Claim` resource actions govern insertion, expiry, consolidation, calibration,
+and resolution:
+
+- A Take can resolve at most once, so a stale read snapshot cannot overwrite a
+  recorded verdict.
+- Withdrawing a Source expires its Facts and deactivates its Takes in one
+  transaction.
+- Embedding updates compare the prior vector state before writing so a delayed
+  embedding error cannot overwrite a newer successful vector, and late Fact
+  deduplication clears any failed vector state while linking the superseded row
+  to the current Fact.
 
 ## Schema Packs
 
-A schema pack seeds the instance ontology: page types with slug prefixes and
-extractability, link types, and calibration domains. Setup installs the
-`general` base pack plus the selected industry packs; installation
-materializes the manifests into the `brain_schema_*` tables, which are
-authoritative afterwards. Packs merge by name: a type registered by an
-earlier install keeps its row, and a later pack can only widen subtype
-suggestions. Conflicting declarations fail the install.
+Schema packs seed a tenant's ontology by declaring page types (with slug
+prefixes and extractability flags), link predicates, and calibration domains.
+Tenant setup installs the `general` base pack plus any selected industry packs,
+materializing their manifests into the `brain_schema_*` tables, which serve as
+the authoritative registry afterward. Packs merge by type name: an already
+registered type keeps its core definition, a later pack may only append subtype
+suggestions, and conflicting core declarations abort installation.
 
-The pack, type, relation, calibration-domain, and Take-assignment rows are Ash
-resources of the `Ankole.Brain` domain. Register actions keep the first declaring
-pack and core type facts immutable. Subtype additions use one SQL union that
-preserves first-seen order and cannot lose a concurrent addition. Take/domain
-assignment retries return the first stored provenance and confidence. Native
-checks enforce the string-array and confidence contracts. A composite tenant
-foreign key prevents a Take assignment from referencing another tenant's claim.
+Pack, page-type, link-type, calibration-domain, and Take-assignment rows are all
+Ash resources in `Ankole.Brain`. Registration actions keep the first declaring
+pack and core type attributes immutable, while subtype additions merge via an
+atomic SQL union that preserves first-seen order under concurrent writes.
+Retrying a Take-to-domain assignment returns the originally recorded provenance
+and confidence. PostgreSQL check constraints validate string arrays and
+confidence bounds, and a composite tenant foreign key prevents a Take assignment
+from pointing to another tenant's claim.
 
-Vocabulary and merge proposals, and contradiction findings, have resource-owned
-state machines. A review changes the stored state once; an old snapshot cannot
-reverse a decision. Proposal retries preserve the first evidence. The vocabulary
-identity index covers both pending and rejected rows, so a concurrent suggestion
-cannot reopen a rejected term. Approved rows remain audit records. Contradiction
-recording classifies negative or low-confidence model verdicts as dismissed;
-only open findings accept an operator decision.
+Vocabulary promotions, duplicate-page merge suggestions, and contradiction
+triage rows each use Ash state machines:
+
+- Operator reviews transition a row once, preventing stale UI snapshots from
+  reversing a recorded decision.
+- Retrying a proposal preserves its initial evidence, and the unique index on
+  vocabulary suggestions spans both `pending` and `rejected` rows so concurrent
+  sweeps cannot reopen a rejected term (while `approved` rows remain as audit
+  records).
+- Contradiction detection immediately records negative or low-confidence model
+  verdicts as `dismissed`, leaving only `open` findings eligible for operator
+  triage.
 
 ## Retrieval
 
-`recall` fuses two candidate routes over the querier-reachable rows. For an
-Agent, current lazy-Skill visibility is part of the base query, before either
-route takes its candidate limit:
+`recall` fuses two candidate queries over rows reachable by the querier (for an
+Agent querier, both queries filter out disabled lazy Skills before taking their
+candidate limits):
 
-1. BM25 over claim text and chunk text.
-2. Vector search over `halfvec` embeddings: an HNSW scan on the first 4000
-   dimensions selects candidates, the full vector orders them exactly.
+1. **BM25 lexical search** across claim text and chunk text.
+2. **Vector similarity search** across `halfvec` embeddings, using an HNSW index
+   scan on the first 4,000 dimensions to select candidates and exact full-vector
+   distances to order them.
 
-The Rust kernel's reciprocal-rank fusion combines the routes and returns real
-additive scores: an id both routes found carries the sum of both
-contributions. An optional cross-encoder reranks fused chunk candidates when
-`brain.rerank_model` is configured; a timeout keeps the fused scores. Ranking
-then applies these factors:
+In the Rust kernel, reciprocal-rank fusion (RRF) combines both candidate lists
+into real additive scores, so any item returned by both routes receives the sum
+of both RRF contributions. When `brain.rerank_model` is configured, a
+cross-encoder reranks the fused chunk candidates (falling back to the RRF scores
+if the reranker times out). Recall then applies domain scoring adjustments:
 
-- Facts: effective confidence under time decay,
-  `confidence * exp(-age / halflife)`, with per-kind halflives from
-  `brain.forgetting`. Takes use their weight.
-- Chunks: a graph adjacency boost for pages linked to at least two hits,
-  recency from the page's effective date, and salience from the page's active
-  Takes (count, average weight, and the share held by people or Agents).
-  These factors are calculated at recall time and apply to reranked scores.
+- **Facts** decay with age using `confidence * exp(-age / halflife)` based on
+  per-kind halflives in `brain.forgetting`, whereas **Takes** use their stored
+  weight directly.
+- **Chunks** receive recall-time boosts (applied atop reranked scores) for graph
+  adjacency when a page links to two or more hits, recency from the page's
+  `effective_date`, and salience from the page's active Takes (combining count,
+  mean weight, and the share held by Humans or Agents).
 
-Assembly skips an item that exceeds the remaining token budget and continues
-with smaller candidates. Chunk overlap uses grapheme boundaries for Chinese,
-Japanese, and Korean text without whitespace.
+Result assembly packs ranked items greedily: if one candidate exceeds the
+remaining token budget, assembly skips it and continues scanning smaller items.
+For Chinese, Japanese, and Korean text without spaces, chunk overlap splits on
+Unicode grapheme boundaries.
 
-`context_pack` assembles the ambient injection for a turn: cards for the
-resolved entities and channel, current facts first, under a fixed 4,000-token
-budget. Opening injection records its item positions on each stateful request.
-An opening retry can inject memory until its first Response is complete. Later
-tool rounds use the pack already in history. Compaction excludes these items
-from user originals and summary input. Each checkpoint refreshes its pack from
-the latest user task in the current input or the original chain at the request's
-anchor, through earlier checkpoints. It reserves the fresh pack in the
-checkpoint budget and stores it outside the output, before retained user
-originals and the summary when the provider replays it.
+For ambient turn memory, `context_pack` builds entity and channel cards (placing
+current Facts first) within a fixed 4,000-token budget:
 
-Context assembly and volunteer pointers are best effort. An unexpected
-exception returns an empty result and emits one warning with the
-failure class and stack locations. Logs omit exception messages and function
-arguments. The warning does not stop the Turn or change the injection budget.
+- On stateful Responses, opening injection records its item positions on the
+  request; an opening retry may re-inject memory until the first Response
+  completes, whereas subsequent tool rounds reuse the pack already in history.
+- Compaction omits injected memory items from both retained user originals and
+  summarization input.
+- Each compaction checkpoint builds a fresh pack from the latest user task (in
+  current input or in the original chain at the request's anchor across prior
+  checkpoints), reserves that pack inside the checkpoint budget, and stores it
+  outside the checkpoint output so provider replay places it ahead of retained
+  user originals and the summary.
 
-Page contradiction reads select at most twenty open findings, newest first,
-and load their counterpart claims in one batch. Each counterpart still passes
-the reader and disclosure checks before it enters the result.
+Both `context_pack` and `volunteer_pointers` run best-effort: if an unexpected
+exception occurs, Brain returns an empty injection and emits a single warning
+containing only the exception class and stacktrace (omitting exception messages
+and function arguments) without aborting the Turn or altering token budgets.
 
-Read projections preserve stored text after access and disclosure checks.
-They do not remove words with an injection phrase blacklist. Skill lesson
-writes use their own content admission gate (see `SkillLessons.md`).
+Reading contradictions on a page fetches up to 20 `open` findings (newest first)
+and batch-loads their counterpart claims, filtering each counterpart through the
+caller's knowledge and disclosure boundaries before returning it. Read
+projections return stored text verbatim once access and disclosure checks pass,
+without stripping phrases via a prompt-injection blocklist; Skill lesson writes
+enforce their own admission gate in `SkillLessons.md`.
 
 ## Tools
 
-`Ankole.Brain.Tools` is the model-facing catalog and executor. AIGateway
-declares it as the hosted `brain` tool and executes each call inside the
-Response as the request subject: an Agent Turn or an OIDC Human. The subject
-is the querier; a Turn's conversation supplies the disclosure recipients and
-the default write scope. A workflow task gets the read-only subset `recall`
-and `get_page` of the hosted tool.
+`Ankole.Brain.Tools` defines the model-facing catalog and executor. On stateful
+chat Responses, AIGateway registers it as the hosted `brain` tool and executes
+calls inline as the authenticated request subject (an Agent Turn or an OIDC
+Human): that subject acts as the querier, while an Agent Turn's conversation
+determines disclosure recipients and the default write scope. Workflow tasks
+receive only the read-only hosted operations (`recall` and `get_page`).
 
-Function declarations use `strict: false`. A call omits optional arguments
-that its selected operation does not need.
+Tool function schemas set `strict: false` so model calls can omit optional
+parameters that do not apply to the chosen operation.
 
-A codex Job does not receive the hosted tool, because in Codex code mode the
-model can call only the tools that Codex itself declared. When `brain.enabled`
-is true, the turn start carries the `Ankole.Sessions.Tools.Brain` declarations
-in `request_context.brain_tools`; the Worker declares them to Codex unchanged
-as dynamic Job tools and sends each call through the `tools.read` RPC.
-`Ankole.Sessions.ReadToolBroker` validates the arguments against the same
-declaration and
-`Ankole.Sessions.Tools.Brain` runs the operation through the same
-`Ankole.Brain.Tools` executor, with the Job's Agent as the querier and the
-`Ankole.Brain.RequestContext` of the Job's Signal as the disclosure boundary.
-A Signal that the Agent does not own refuses the read. The result text is the
-JSON document the hosted tool would return, with the lazy Skill hint first when
-it names a Skill discovery record.
+Codex Background Agent Jobs do not receive the AIGateway-hosted tool because
+Codex code mode can invoke only tools declared directly to Codex. Instead, while
+`brain.enabled` is `true`, Turn start populates `request_context.brain_tools`
+with `Ankole.Sessions.Tools.Brain` declarations; the Worker registers those
+exact schemas as dynamic Codex tools and forwards calls over the `tools.read`
+RPC. On the control plane, `Ankole.Sessions.ReadToolBroker` validates arguments
+against the same schema and `Ankole.Sessions.Tools.Brain` invokes
+`Ankole.Brain.Tools` with the Job's Agent as querier and the source Signal's
+`Ankole.Brain.RequestContext` as the disclosure boundary. If the Signal does not
+belong to that Agent, the broker rejects the read. Otherwise, it returns the
+exact JSON payload that the hosted tool returns, prepending the `skill_view`
+load hint whenever the target is an `agent-skills` discovery page.
 
 | Operation | What it does |
 | --- | --- |
@@ -303,274 +336,278 @@ it names a Skill discovery record.
 | `synthesize` | Writes an analysis page from reachable knowledge, at the caller's eligibility |
 | `delta` | Reports knowledge changes since a cursor; excludes forgotten pages |
 
-`context_pack` and `volunteer_pointers` serve the memory injection of a
-stateful Response rather than the model. `docs/design-docs/AIGateway.md`
-describes the declaration, the public items, and the injection. Request input
-stores the caller's originals. Packs and pointer lines are separate local facts;
-provider replay adds them to a copy in a fixed order. Checkpoints do not reopen
-opening injection; pointers refresh for new user input. Each new
-checkpoint refreshes its pack from the original task. Stored checkpoints are
-not rewritten. A checkpoint's missing pack lasts until a later checkpoint or the
-conversation reset at 04:30.
+Unlike the model-callable operations above, `context_pack` and
+`volunteer_pointers` power automatic memory injection on stateful Responses (see
+`docs/design-docs/AIGateway.md` for item schemas and replay ordering). AIGateway
+stores the caller's original request input separately from local context packs
+and pointer lines, splicing them into a transient copy in a fixed order during
+provider replay. Compaction checkpoints never reopen opening injection:
+`volunteer_pointers` refreshes on new user input, each new checkpoint refreshes
+its `context_pack` from the original task without mutating earlier stored
+checkpoints, and if a checkpoint lacks a pack, that absence persists until the
+next checkpoint or the daily `04:30` conversation reset.
 
 ## Learning
 
-Background learning writes memory without a `remember` call:
+Three background pipelines extract knowledge without an explicit `remember` tool
+call:
 
-- **Signals learning** extracts durable claims from finished signal-channel
-  conversation slices. A channel batch enters extraction after
-  `brain.signal_channel_batch_idle_time` seconds of silence or at
-  conversation end. Extraction runs before the commit transaction; the
-  commit compares the starting watermark under the Source row lock and
-  writes claims, entity links, and the Source watermark in one transaction.
-  A run from an older watermark writes nothing. Before the model call, exact alias matching collects
-  the stored pages the slice already names, and the prompt lists them with
-  the rule to reuse their slugs — write-time dedup of named entities, since
-  neither slug idempotency nor vector similarity recognizes the same entity
-  under a second wording. Source learning does not carry this list: its
-  extraction produces no entity slugs.
-- **Source learning** keeps one `media` page per registered `file` or `url`
-  Source. A run fetches the content, compares the fingerprint, extracts
-  claims from every content window, and commits object, claim, and revision
-  changes in one transaction under a Source row lock. Relearning expires the
-  previous revision's facts in the same transaction. An extraction whose
-  items all fail write validation rolls the run back whole: the fingerprint
-  does not advance, so the run retries instead of recording an empty
-  replacement as done. `url` Sources use only the Brain maintainer Agent's
-  `web_fetch` profile. Without that profile the run fails with
-  `web_fetch_model_not_configured`; a failed provider request fails it with
-  the provider's reason. Brain sends no request to a Worker. `file` Sources
-  accept UTF-8 text only.
+- **Signals learning** extracts durable claims from completed signal-channel
+  conversation slices once a channel sits idle for
+  `brain.signal_channel_batch_idle_time` seconds or when the conversation ends.
+  Model extraction runs outside database transactions; before calling the model,
+  exact alias matching gathers stored pages that the slice already mentions and
+  injects their slugs into the prompt so the model reuses canonical slugs at
+  write time (neither slug idempotency nor vector cosine similarity can unify
+  alternate phrasings of the same entity afterward). At commit time, Brain locks
+  the `Source` row, verifies that the starting watermark still matches (dropping
+  stale runs without writing), and commits claims, entity links, and the new
+  watermark in one transaction.
+- **Source learning** maintains one `media` page for each registered `file`
+  (UTF-8 text only) or `url` Source (which never produces entity slugs). Each
+  run fetches the content, checks the revision fingerprint, extracts claims
+  across every content window, and commits the Object, claims, and new
+  fingerprint in one transaction under the `Source` row lock while expiring
+  Facts from the prior revision. If every extracted item fails write validation,
+  Brain rolls back the entire transaction without advancing the fingerprint so
+  the run retries rather than marking an empty extraction complete. Fetching a
+  `url` Source uses only the Brain maintainer Agent's `web_fetch` profile on the
+  control plane (never dispatching to a Worker): if that profile is unconfigured,
+  the run fails with `web_fetch_model_not_configured`, and upstream provider
+  errors fail with the provider's reason.
+- **OIDC Client Source learning** registers one `kind=oidc_client` Source per
+  Client (`upstream_id=client_id`) from completed AIGateway requests, maintaining
+  one Source-owned `media` page per `(Client, conversation)` pair without
+  creating Signals, Channels, Bindings, Actors, or Agent runs.
+  `OIDCClientConversations` builds the evidence transcript (stripping Brain
+  injections, system instructions, reasoning traces, tool calls, and compaction
+  checkpoints) while attributing the authenticated Human as the request
+  submitter (rather than assuming that they spoke every line of a pasted
+  dialogue) and marking assistant turns as generated output rather than proof of
+  external events.
 
-- **OIDC Client Source learning** registers `kind=oidc_client` with
-  `upstream_id=client_id` from stored AIGateway requests. A Client has one
-  Source; each Client/conversation pair has one Source-owned `media` page.
-  The authenticated Human remains the submission identity, not the assumed
-  speaker of every line in a submitted transcript. Model output is attributed
-  as generated text, not as evidence that an external event occurred.
-  `OIDCClientConversations` owns the Gateway evidence projection and excludes
-  Brain injection, instructions, reasoning, tool records, and checkpoints.
-  This path adds no Signals, Channels, Bindings, Actors, or Agent execution.
+  Before building model windows, Brain splits dialogue turns into individual
+  excerpts that retain request ID, parent ID, submitting Human, speaker label,
+  and input-versus-output provenance; short excerpts pack into shared model
+  calls without ever splitting a single encoded evidence record.
 
-  Brain splits dialogue text before it encodes extraction excerpts. Every
-  excerpt keeps the request ID, parent ID, submission identity, speaker, and
-  submitted-input or generated-output field. Short excerpts share one model
-  call; the window builder never splits an encoded evidence record.
+  Every 15 minutes by default (or immediately via **Learn now** in the Sources
+  Console), self-healing scans all terminal request revisions, including
+  lower-ID requests that finished out of order, and enqueues `LearnSource` for
+  changed conversations. Extraction runs outside transactions; each conversation commit
+  locks the `Source`, checks the prior projection, expires prior Source Facts on
+  re-extraction, and writes the page, chunks, Claims, and learned revision in
+  `Object.meta` atomically. If the model returns a non-object item, the run
+  aborts before committing; a failing conversation stays pending without
+  blocking sibling conversations, and messages appended mid-extraction are
+  picked up on the next sweep.
 
-  Self-healing scans terminal request revisions and enqueues `LearnSource` for
-  changed material. The default self-healing interval is 15 minutes. The
-  Sources Console also supports Learn now. Revisions include every terminal
-  request and its state, so a lower-ID request that finishes later is not lost.
-  Extraction runs outside the transaction. Each material commit locks the
-  Source, checks the previous projection, and writes the page, chunks, Claims,
-  and learned revision in `Object.meta` together. A changed conversation is
-  extracted again; the commit expires that page's previous Source facts.
-  A failed material remains pending while other conversations can proceed.
-  An extraction response with a non-object item fails before any commit.
-  An append during extraction remains discoverable on the next sweep.
+  When `default_audience_scope` is unset, OIDC Client learning defaults to
+  `principal:<submitting Human uid>`. First learning pins the resolved audience
+  in page metadata for both the page body and extracted Claims: later edits to
+  the Source default affect only unlearned conversations, archiving the Source
+  fences subsequent commits while keeping stored knowledge, deleting the OIDC
+  Client preserves both the Source and its pages, and historical requests
+  without trusted Client provenance are never backfilled.
 
-  An unset `default_audience_scope` uses `principal:<submitting Human uid>`.
-  The configured default is captured in the page metadata on first learning,
-  and both the original text and extracted Claims use it. Changing the Source
-  default applies to conversations not yet learned; it does not change stored
-  audiences. Archiving fences later commits and retains stored knowledge.
-  Client deletion retains the Source and its evidence. Historical requests
-  without trusted Client origin are not backfilled.
+Across all extraction pipelines, granularity (one independently mutable
+assertion per claim, `0.05`-grid confidence, and first-person conviction caps)
+is guided by prompts while the server enforces structural invariants; JSON
+integers `0` and `1` at the grid endpoints are accepted and stored as floats.
 
-Extraction quality is a prompt contract: one independently changeable
-assertion per item, confidence on the grid, first-person conviction caps.
-The server enforces only the mechanical gates. JSON integers at the grid
-endpoints (`0` and `1`) are valid and are stored as floats.
-
-The conversation prompt does not promise that background learning has run.
-An explicit request to remember durable information uses `remember`, and a
-successful tool result is required before the Agent reports a saved memory.
-An omitted scope retains the conversation audience. Retrying a rejected
-Principal UID must not widen that audience. The Agent uses relevant history
-already in context and retrieves more when needed. When current status
-matters, it checks historical claims against available sources and carries
-remaining uncertainty into its answer or background Job handoff.
+In live conversations, the system prompt never assumes that background learning
+has already run: when a user explicitly asks the Agent to remember durable
+information, the Agent must call `remember` and wait for tool success before
+confirming that the memory was saved. Omitting `scope` preserves the
+conversation's default audience, and if `remember` rejects an invalid Principal
+UID, retrying must not widen the scope. When answering questions where current
+status matters, the Agent cross-checks historical Brain claims against live
+sources and states any remaining uncertainty in its reply or Background Job
+brief.
 
 ## Dreaming and Self-Healing
 
-Dreaming is the instance maintenance round, scheduled by
-`brain.dreaming_task_cron`. The Brain health Console can also enqueue a round
-immediately. Both entrypoints use the same unique Oban job; a queued or
-running round is not duplicated, and a manual request does not change the
-schedule. A disabled Brain rejects manual requests. Phases run in order and
-one failing phase is recorded without blocking the rest:
+Dreaming is the periodic maintenance pipeline scheduled by
+`brain.dreaming_task_cron` (and triggerable on demand from the Brain health
+Console). Both entry points share a single unique Oban job so concurrent
+triggers deduplicate without altering the cron schedule, and manual triggers are
+rejected while Brain is disabled. Dreaming runs ten phases sequentially,
+recording any phase error without halting later phases:
 
-1. `consolidate` — writes dense fact buckets as takes held by `brain` and
-   keeps the source facts. These takes can appear in open threads until
-   they are resolved or deactivated.
-2. `patterns` — finds recurring themes across at least three distinct pages
-   using up to 40 recent high-notability facts per audience from the last
-   30 days. Existing patterns from that audience are supplied to the model
-   to update the same semantic topic. Pages use
-   `analysis/patterns/<scope-hash>/<topic>`, never a date-based daily digest.
-   Each audience batch commits pages and replacement `derived_from` links
-   together; citations must name supplied evidence and each body keeps the
-   evidence audience. No useful pattern is a successful no-op. Generated
-   pattern pages are excluded as new evidence.
-3. `extract_timelines` — extracts dated events from each audience passage.
-   It requires the Dreaming model and advances `timelines_extracted_at` only
-   after successful extraction. A changed body remains pending.
-4. `grade_takes` — grades expired or stale Takes against page evidence
-   (`Ankole.Brain.Calibration`). A Take is expired when its `until_date`, a
-   date column, is before today, and stale when it has no due date and is
-   older than six months. `Claims.write_take` rejects a due date that is not
-   one calendar date with `:invalid_until_date`, for every writer. A verdict
-   of `correct`, `incorrect`, or `partial` on an expired Take is also its
-   resolution: the same commit writes `resolved_at`, `resolved_quality`,
-   `resolved_outcome` (`true`, `false`, or NULL for `partial`),
-   and `resolution_provenance` `dreaming grade` through the same resolve
-   step (`Claims.resolve_take_in_tx/2`) that the Console uses, with the Brain
-   maintainer Agent's actor reference in `resolved_by`, and deactivates the
-   Take, so it leaves the candidate set and enters the scorecards without a
-   manual resolve. A Console resolve stores the Human's actor reference instead.
-   Resolution stays immutable, so a Take that a Human resolved during the
-   model call keeps the Human's verdict. An
-   `unresolvable` verdict keeps the Take in the queue for later evidence, and
-   a stale Take without a due date keeps only its grade, because its period is
-   still open. Without a Dreaming model the phase reports
-   `skipped: dreaming_model_not_configured`; the Dreaming job logs every
-   skipped phase as a warning, and `/brain/health` reports the same state
-   under `grading`. A Take records the input hash only after a
-   successful grade. The hash covers the exact prompt, selected evidence,
-   installed domain names and pack mapping, provider, model, credential-free
-   connection settings, and request options with provider defaults. Model
-   configuration and domains are read once per round and again at commit.
-   Unchanged inputs skip the model. Each round attempts
-   at most 50 changed inputs; cached Takes do not consume that limit. Batches
-   contain at most 50 Takes. Before commit, the owner locks the Take and checks
-   its eligibility and current inputs again. Failed calls and results for inputs
-   that changed during the call record no new hash and retry in a later round.
-   A change after the commit check remains different from the saved request hash
-   and triggers a later grade. Credential rotation does not invalidate grades.
-   An upstream change behind the same unversioned model name cannot be detected.
-5. `calibration_profile` — writes each holder's Brier scorecard into the
-   fenced calibration section of the holder page (`Ankole.Brain.Calibration`
-   owns the Brier formula; the expert directory reads the same function).
-6. `contradictions` — judges newest claim pairs within the same page, holder,
-   and audience scope once per pair; confident contradictions open triage rows, everything else lands dismissed. An
-   operator decision (`resolved` or `dismissed`) applies only to an open row,
-   under a row lock.
-7. `schema_suggest` — counts vocabulary terms in tags and subtypes. At 20
-   pages it proposes a subtype; at 100 pages it proposes a type. The Console
-   retains approval and rejection records. Approval registers the schema and
-   updates affected pages and slug references in one tenant transaction.
-   Promotion keeps each Human Principal's canonical `people/<uid>` page in
-   place. Other tagged person pages can move to the new type.
-8. `merge_suggest` — the mechanical backstop behind write-time entity
-   dedup: pairs live pages of one type that share a normalized alias
-   into `brain_merge_suggestions`, one row per
-   pair forever. Nothing merges automatically; a Console approval merges
-   the pair in one transaction (claims, holders, timelines, aliases,
-   tags, and links repoint, the duplicate becomes a slug redirect), and canonical
-   Principal pages, library pages, media-primitive pages, and duplicates
-   with a written body are refused.
-9. `purge` — hard-deletes soft-deleted pages past the TTL.
-10. `skill_lessons` — see `docs/design-docs/SkillLessons.md`.
+1. **`consolidate`** summarizes dense Fact clusters into Takes held by `brain`
+   while retaining the underlying Facts; those Takes surface in open threads
+   until resolved or deactivated.
+2. **`patterns`** detects recurring themes spanning at least three pages across
+   up to 40 high-notability Facts per audience from the past 30 days, passing
+   existing pattern pages for that audience so the model updates stable semantic
+   topics at `analysis/patterns/<scope-hash>/<topic>` (never date-stamped daily
+   digests). Each audience batch atomically commits updated pages and
+   replacement `derived_from` links, requiring citations to reference supplied
+   evidence, preserving the evidence's `audience_scope`, treating "no pattern"
+   as a clean no-op, and excluding pattern pages themselves from future input
+   evidence.
+3. **`extract_timelines`** extracts dated timeline events from each audience
+   segment using the Dreaming model, advancing `timelines_extracted_at` only
+   after extraction succeeds so edited bodies stay pending.
+4. **`grade_takes`** evaluates expired or stale Takes against reachable page
+   evidence (`Ankole.Brain.Calibration`). A Take is expired once its calendar
+   `until_date` precedes today (`Claims.write_take` rejects non-calendar values
+   with `:invalid_until_date` across all writers), and stale when it has no
+   `until_date` and is older than six months.
 
-Self-healing runs on its own cron: it embeds pending rows, repairs missing
-projections, and reports drift. It reconciles body-owned wikilink and alias
-mention edges without a Dreaming model. `links_extracted_at` records this
-mechanical work independently of timeline extraction. Reconciliation removes
-only stale edges with its own body provenance and keeps manual or learned
-relations. Unchanged edges keep their IDs. Content writes advance the logical `updated_at` timestamp. A body edit
-triggers both passes; a title edit also triggers timeline extraction because
-the title is part of its model input. Other field edits carry completed
-watermarks to the new timestamp. They do not complete pending work for an
-earlier body or title. Projection-only writes preserve the logical timestamp.
-A later target or alias creation does not by
-itself invalidate this body watermark; explicit reconciliation can retry an
-unresolved reference. Time decay itself stores nothing: ranking
-recomputes effective confidence on read, and `brain.forgetting` holds the
-halflives.
+   When an expired Take receives a `correct`, `incorrect`, or `partial` verdict,
+   grading resolves it in the same transaction via `Claims.resolve_take_in_tx/2`
+   (the same step used by Console resolution, recording the Brain maintainer
+   Agent in `resolved_by` rather than a Human): it sets `resolved_at`,
+   `resolved_quality`, `resolved_outcome` (`true`, `false`, or `NULL` for
+   `partial`), and `resolution_provenance = "dreaming grade"`, and deactivates
+   the Take so it enters Brier scorecards immediately. Because resolution is
+   immutable, a Human verdict committed while the model call was in flight wins.
+   An `unresolvable` verdict leaves the Take queued for future evidence, and
+   grading an open-ended stale Take records only its provisional grade without
+   resolving it. If no Dreaming model is configured, the phase reports
+   `skipped: dreaming_model_not_configured`, logs a warning, and surfaces that
+   status on `/brain/health` under `grading`.
 
-These model calls are stateless and have no tools or conversation history.
-Grading, contradiction checks, and pattern detection receive available claim
-dates, context, attribution, and provenance. Grading also receives the Take's
-period and provenance. Its evidence is public or has the Take's audience scope.
-On-demand synthesis receives claim IDs, pages, holders,
-and provenance, with Fact validity dates and Take periods kept separate.
-Brain model calls set a phase-specific `brain.*` caller in AIGateway traces,
-so operators can inspect each prompt and result in Langfuse.
+   Each round attempts at most 50 changed Takes in batches of up to 50, reading
+   model settings and calibration domains at round start and re-verifying them
+   under row lock at commit. A Take stores its request input hash (covering the
+   exact prompt, evidence, installed domain names and pack mappings, provider,
+   model, non-secret connection settings, and effective request options) only
+   after a grade commits: unchanged hashes skip the model without counting
+   toward the 50-item cap, failed calls or mid-call input edits record no hash
+   so a later round retries, post-commit edits diverge from the saved hash to
+   trigger re-grading, credential rotation leaves hashes valid, and upstream
+   weight changes behind an unversioned model alias are undetectable.
+5. **`calibration_profile`** renders each holder's Brier scorecard into the
+   fenced calibration block on their page (`Ankole.Brain.Calibration` owns the
+   Brier calculation shared with the expert directory).
+6. **`contradictions`** evaluates newly paired claims sharing a page, holder,
+   and `audience_scope` at most once per pair: high-confidence contradictions
+   open triage rows, all other verdicts are stored as `dismissed`, and operator
+   decisions (`resolved` or `dismissed`) apply only to `open` rows under a row
+   lock.
+7. **`schema_suggest`** counts recurring tags and subtypes, proposing a subtype
+   at 20 pages and a page type at 100 pages. Console approvals and rejections
+   persist as audit rows; approving a promotion registers the schema entry and
+   migrates matching pages and slug references in one tenant transaction while
+   keeping canonical `people/<uid>` Human Principal pages at their reserved
+   slugs.
+8. **`merge_suggest`** acts as the mechanical backstop behind write-time entity
+   dedup, pairing live pages of the same type that share a normalized alias into
+   `brain_merge_suggestions` (at most one row per pair permanently). Merges
+   never run automatically: when an operator approves a pair in the Console, one
+   transaction repoints claims, holders, timelines, aliases, tags, and links and
+   converts the duplicate into a slug redirect, while refusing canonical
+   Principal pages, library pages, media-primitive pages, and duplicates that
+   already have a non-empty body.
+9. **`purge`** permanently deletes soft-deleted pages whose retention TTL has
+   expired.
+10. **`skill_lessons`** runs Skill lesson maintenance; see
+    `docs/design-docs/SkillLessons.md`.
+
+On a separate cron schedule, **self-healing** embeds pending chunks and claims,
+repairs missing projections, reports drift, and reconciles body-owned wikilink
+and alias-mention edges mechanically without invoking a model. Link
+reconciliation tracks its own `links_extracted_at` watermark independently of
+`timelines_extracted_at`, deleting only stale edges with body provenance while
+preserving manual or learned links and keeping existing edge IDs for unchanged
+links.
+
+Content edits advance an Object's logical `updated_at` timestamp: editing `body`
+triggers both link reconciliation and timeline extraction, editing `title`
+triggers timeline extraction (because the prompt includes the title), and
+editing other metadata carries already completed watermarks forward without
+marking earlier pending `body` or `title` work complete. Projection-only updates
+leave `updated_at` unchanged, and creating a new target page or alias later does
+not invalidate already reconciled body watermarks unless explicit reconciliation
+reruns. Time decay writes nothing to disk: `recall` computes decayed Fact
+confidence on read from `brain.forgetting`.
+
+All background Brain model calls are stateless, tool-free, and history-free:
+
+- Grading, contradiction detection, and pattern synthesis receive claim dates,
+  context, attribution, and provenance (with grading additionally receiving the
+  Take's time window and restricting evidence to `world` or the Take's own
+  `audience_scope`).
+- On-demand `synthesize` receives claim IDs, pages, holders, and provenance
+  while keeping Fact validity intervals separate from Take periods.
+- Every call tags AIGateway traces with a phase-specific `brain.*` caller so
+  operators can inspect prompts and completions in Langfuse.
 
 ## Configuration
 
-Operator settings live under declared `brain.*` AppConfigure keys. The site
-owns `embedding_model` with its dimensions and `search_tokenizer`. Tenant
-settings include `enabled`, `maintainer_agent_uid`, `rerank_model`, `chunking`,
-`forgetting`, the two cron expressions, `signal_channel_batch_idle_time`,
-`skill_learning_enabled`, and `skill_learning_reflection_threshold`; a missing
-tenant override inherits the site value.
+Operator settings are declared under `brain.*` `AppConfigure` keys:
 
-The selected maintainer Agent supplies `light` for Signals and Source
-extraction, `heavy` for Dreaming, and `web_fetch` for URL Source learning. The
-Brain settings editor selects the Agent and links to that Agent's model profile
-editor; it does not duplicate those three profile controls. Embedding and
-rerank stay in the Brain editor because they serve Brain retrieval rather
-than one Agent's model loop. All Brain model calls, including embedding
-and rerank, execute as the selected Agent and attribute usage to that Agent.
-The selected Agent must be active. Disabling it makes Brain unhealthy and
-stops all model calls and local URL fetching until the Agent is enabled or
-replaced. Stored knowledge and pure-text recall remain available during that
-state.
+- **Site keys:** `embedding_model` (with dimensions) and `search_tokenizer`.
+- **Tenant keys** (inheriting site defaults when unset): `enabled`,
+  `maintainer_agent_uid`, `rerank_model`, `chunking`, `forgetting`, the Dreaming
+  and self-healing cron expressions, `signal_channel_batch_idle_time`,
+  `skill_learning_enabled`, and `skill_learning_reflection_threshold`.
+
+Brain delegates model profiles to the configured maintainer Agent (using `light`
+for Signals and Source extraction, `heavy` for Dreaming, and `web_fetch` for URL
+Source learning), so the Brain Console settings page links directly to that
+Agent's model-profile editor rather than duplicating those three selectors.
+Embedding and rerank models remain on the Brain settings page because they serve
+shared retrieval rather than an Agent loop, though every Brain model call
+(including embedding and rerank) executes as and bills usage to the maintainer
+Agent. If the maintainer Agent is disabled, Brain reports unhealthy and halts
+all model calls and control-plane URL fetches until an active Agent is restored
+or selected, while keeping stored pages and lexical recall available.
 
 ## Retrieval index recovery
 
-Brain requires `pg_search` 0.25.11. The development and Compose PostgreSQL
-image pins this version. External PostgreSQL installations must supply the
-same extension and loaded library; see the
-[database image upgrade procedure](../../tools/devkit/postgres-for-ankole/README.md).
+Brain requires `pg_search` `0.25.11`, which is pinned in the development and
+Compose PostgreSQL images; external PostgreSQL deployments must install and load
+that exact extension version (see the
+[database image upgrade procedure](../../tools/devkit/postgres-for-ankole/README.md)).
 
-PostgreSQL base tables hold the knowledge facts. `Ankole.Brain.SearchIndexes`
-owns the BM25 and HNSW index definitions and repairs missing, invalid, or
-unready indexes. PostgreSQL can report an index as valid even when its native
-search reader fails. Such a failure needs operator recovery; recall does not
-replace the knowledge boundary with an empty result or a different query.
+PostgreSQL base tables hold all authoritative Brain records, while
+`Ankole.Brain.SearchIndexes` manages BM25 and HNSW index DDL and repairs
+missing, invalid, or unready indexes. Because PostgreSQL catalog flags can still
+mark an index valid when its native `pg_search` reader fails at query time,
+`recall` surfaces the error for operator recovery rather than silently returning
+empty results or bypassing the knowledge boundary.
 
-If a BM25 index reader fails, identify the failing BM25 index
-from the query and confirm the base table is readable. In a maintenance
-window, rebuild that index in the application database:
+When a BM25 index reader fails, identify the affected index from the failing
+query, confirm that the underlying base table is readable, and rebuild the index
+during a maintenance window:
 
 ```sql
 REINDEX INDEX public.brain_claims_bm25_idx;
 -- Use brain_chunks_bm25_idx instead if the failing query reads brain_chunks.
 ```
 
-This command can block concurrent access while it rebuilds the index. It does
-not change the base rows. Repeat the failed recall after the rebuild. If it
-still fails, retain the error and inspect the installed `pg_search` version;
-do not reset the database or bypass the read boundary.
+`REINDEX INDEX` leaves base table rows untouched but may block concurrent
+writes while rebuilding. Retry the failed `recall` afterward; if it still fails,
+preserve the error output and verify the loaded `pg_search` library version
+rather than resetting the database or bypassing access filters.
 
 ## Console
 
-The Console `Brain` area gives operators: object browsing with version
-history and rollback, claim listing with take resolution, source management
-(register, learn, archive), contradiction triage, duplicate-page merge decisions, per-principal knowledge audit,
-search preview as any Principal, and health counters. The implementation in
-[`BrainMarkdoc.md`](BrainMarkdoc.md) includes a full-page Object source editor
-with segment preview, diagnostics, and server-authoritative save validation.
-
-Lists keep loaded rows visible when a later page fails to load. The error and
-Retry control appear below those rows. Retry requests the failed page and adds
-its rows to the same list.
+The Console `Brain` section provides object browsing with version history and
+rollback, claim inspection and manual Take resolution, Source management
+(register, learn now, archive), contradiction triage, duplicate-page merge
+review, per-Principal knowledge audits, Principal-scoped search previews, health
+counters, and the full-page Markdoc Object editor described in
+[`BrainMarkdoc.md`](BrainMarkdoc.md). When loading a subsequent page of a
+paginated Console list fails, already loaded rows remain visible above an
+inline error and **Retry** button that fetches and appends the failed page.
 
 ### Resource write contracts
 
-All Brain rows use Ash resources of the `Ankole.Brain` domain. Object actions
-keep content edits, Source projections, ownership changes, and maintenance stamps
-separate. Content edits compare the stored content hash. Projection writes check
-the stored Source owner. Maintenance stamps do not advance the content clock.
-Source actions keep upstream identity immutable and reject sync and extraction
-writes after archive. Registration retries keep the first Source facts.
+Every Brain table is backed by an Ash resource in the `Ankole.Brain` domain:
 
-`Ankole.Brain` is the domain interface. Resource reads use Ash queries and
-domain functions. Each multi-step operation runs in
-`Repo.transact_top_level/2`, locks its rows, runs its write steps, and commits
-them together:
+- `Object` actions separate user content edits (guarded by `content_hash`),
+  Source projections (guarded by `managed_by_source_id`), ownership transfers,
+  and maintenance watermarks (which never advance `updated_at`).
+- `Source` actions keep upstream identity immutable, preserve initial facts on
+  registration retries, and reject sync or extraction commits once archived.
+
+`Ankole.Brain` is the domain façade. Resource reads go through Ash queries and
+domain defines, and every multi-step write opens `Repo.transact_top_level/2`,
+locks its target rows, composes its write steps, and commits atomically:
 
 | Module | Operations |
 |---|---|
@@ -579,83 +616,79 @@ them together:
 | `Sources` | `archive_source`, `update_source_default_scope` |
 | `Promotion` / `Merge` / `Dreaming` | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
 
-The Console API at `/api/v2/brain` (`AnkoleWeb.JSONAPI.ConsoleRouter`) gives
-the `json_api` routes of `Ankole.Brain`. Each list is a `:console_list` read
-action that gives the first 100 rows. A Console write is a generic action on
-its subject resource (`console_create`, `console_update`, `fork_library_page`,
+`AnkoleWeb.JSONAPI.ConsoleRouter` mounts the `json_api` routes of `Ankole.Brain`
+at `/api/v2/brain`. Resource listings run `:console_list` read actions returning
+up to 100 rows, while Console mutations invoke generic actions on the target
+resource (`console_create`, `console_update`, `fork_library_page`,
 `console_rollback`, `console_forget`, `restore_object`, `console_supersede`,
 `console_resolve`, `decide`, `console_approve`, `console_reject`,
-`archive_source`, `update_default_scope`): the Principal of the session is the
-Ash actor (`Ankole.Brain.Console`), and the action runs the same `_in_tx` steps
-or top-level domain function. A missing target gives 404, and a reason that
-conflicts with the current state (`content_hash_conflict`, `object_deleted`,
-`slug_taken`, `conflict`) gives 409; another domain reason gives 422 with the
-reason as the code.
+`archive_source`, and `update_default_scope`) with the session Principal as the
+Ash actor (`Ankole.Brain.Console`), delegating to the same domain functions and
+`_in_tx` steps. Missing targets return HTTP 404; state conflicts
+(`content_hash_conflict`, `object_deleted`, `slug_taken`, and `conflict`) return
+HTTP 409; and all other domain rejections return HTTP 422 with the domain reason
+as the error code.
 
-`Ankole.Brain.ConsoleViews` supplies the health snapshot, the object page, the
-object types, the search preview, the per-principal audit, and the Dreaming
-trigger at `/api/v2/brain`. These generic transport actions return typed maps.
-They use the simple data layer and do not start a transaction. The Brain
-operations that they call own their transactions. The object page accepts
-`slug` as a query parameter, so slugs can contain `/`. Search preview applies
-the selected Principal's knowledge and disclosure boundaries; the operator
-audit can read the full claim detail.
+`Ankole.Brain.ConsoleViews` exposes stateless Console views using
+`Ash.DataLayer.Simple` without opening outer transactions of its own: health
+snapshots, Object detail pages (passing `slug` as a query parameter so `/` slugs
+work), page-type catalogs, Principal-scoped search previews (enforcing both
+knowledge and disclosure boundaries), operator Principal audits (exposing full
+claim detail), and manual Dreaming triggers. The Brain operations that those
+views call own their own transactions.
 
-Background Brain writes also run in `Repo.transact_top_level/2` in their owning
-modules: `Calibration.grade_takes/0`, `Forget.forget_claim/3`,
-`Timelines.write_timeline/3`, `Patterns.run/0`, `SourceLearning.learn/1`,
-`OIDCClientLearning.learn/1`, `ConversationsLearning.process_conversation/1`,
-`LibraryKnowledge.sync/1`, and `SchemaPacks.install_packs/1`.
-Tenant creation and setup completion install the schema packs in their own
-transaction with `SchemaPacks.install_packs_in_tx/1`.
+Background pipelines likewise execute top-level writes through
+`Repo.transact_top_level/2` in their owning modules: `Calibration.grade_takes/0`,
+`Forget.forget_claim/3`, `Timelines.write_timeline/3`, `Patterns.run/0`,
+`SourceLearning.learn/1`, `OIDCClientLearning.learn/1`,
+`ConversationsLearning.process_conversation/1`, `LibraryKnowledge.sync/1`, and
+`SchemaPacks.install_packs/1` (while tenant creation and initial setup call
+`SchemaPacks.install_packs_in_tx/1` inside their enclosing transaction).
 
-A conversation slice writes its memory items in one transaction and keeps the
-transaction after an item fails validation. So an item write gives an error
-only before its first write. A Fact write locks its semantic dedup target and
-reads it again before it inserts the new Fact. When a concurrent write
-superseded or expired the target, the dedup query runs again and finds the
-replacement, so a slice never commits two current Facts. When the old Fact
-cannot be marked after the insert, the Fact write rolls back the transaction of
-its caller. A timeline write rolls back the same way when the chunk projection
-of its host fails after the insert.
+When `ConversationsLearning` commits a slice of memory items in one transaction,
+validation runs before each item's first SQL write so an invalid item can be
+skipped without aborting valid siblings. By contrast, `write_fact` locks and
+re-reads its semantic-dedup target before inserting: if a concurrent writer
+already superseded or expired that target, `write_fact` reruns the dedup lookup
+against the replacement so two current Facts never commit side by side, and if
+marking the superseded Fact fails after insertion (or if chunk reconciliation
+fails after inserting a timeline event), the helper rolls back the caller's
+transaction.
 
-Each top-level Brain operation rejects a caller transaction before it writes. A
-step that runs in the transaction of another operation is an `_in_tx` function
-of the owning module, for example `Objects.create_object_in_tx/1` or
-`Chunks.reconcile_in_tx/1`. An `_in_tx` function refuses to run outside a
-transaction. `write_fact` and `supersede_claim` request the embedding of new
-claim text from the network before they open a transaction, so no transaction
-waits for the network.
+Every top-level Brain entry point rejects calls made inside an already open
+transaction, while intra-domain composition helpers (`Objects.create_object_in_tx/1`,
+`Chunks.reconcile_in_tx/1`, and peers) refuse to run outside a transaction. Both
+`write_fact` and `supersede_claim` fetch new claim embeddings over the network
+before opening a database transaction so connections never sit idle waiting on
+network I/O.
 
-The knowledge boundary (`Access`) and the lazy Skill projection
-(`LazySkillVisibility`) filter Ash queries. Their filters use the Claim
-calculations `current?`, `live_parent?`, and `current_external_fact?`, and the
-`object` relationships of Chunk and Timeline. Conversations, Messages,
-Participants, Signals, Principals, Agents, Jobs, and Agent Skills are read
-through the defines and functions of their own domains.
+In Ash queries, `Access` and `LazySkillVisibility` compose resource filters over
+the `Claim` calculations `current?`, `live_parent?`, and
+`current_external_fact?` and the `object` relationships on `Chunk` and
+`Timeline`, while cross-domain reads (Conversations, Messages, Participants,
+Signals, Principals, Agents, Jobs, and Agent Skills) go through their owning
+domains' interfaces.
 
-Some reads are not reads of one resource. They stay Ecto or SQL queries, give
-values and not resource rows, and are registered in the persistence boundary
-(`app/control_plane/test/ankole/persistence_boundary.exs`):
+Multi-table analytical, retrieval, and DDL operations that do not project a
+single Ash resource stay in Ecto or raw SQL and are explicitly allowlisted in
+`app/control_plane/test/ankole/persistence_boundary.exs`:
 
-- Read models (M4): the Dreaming bucket and term-usage counts, the
-  duplicate-page scan, and the known pages of a learning transcript
-  (`ConversationsLearning.known_pages/1`, Objects and their ranked aliases).
-- Retrieval (M9): the candidate, boost, and neighborhood queries of `Recall`,
-  and the semantic Fact dedup query of `Claims`. They select identifiers and
-  values; the ranked Claims, Chunks, and dedup targets load through Ash. The
-  Ecto forms of `Claims.filter_live_parents/1`, `Claims.current_external_facts/1`,
-  and of the Claim, Chunk, and Link filters of `Access` and
-  `LazySkillVisibility` serve only these queries.
-- Set maintenance (M8): the merge repoint statements and the index DDL of
-  `SearchIndexes` (site scope: the indexes cover the tables of all tenants).
+- **Read models (M4):** Dreaming bucket and vocabulary counts, the
+  duplicate-page alias scan, and `ConversationsLearning.known_pages/1` (Objects
+  and ranked aliases).
+- **Retrieval (M9):** candidate, graph-boost, and neighborhood queries in
+  `Recall` plus the cosine Fact-dedup lookup in `Claims` (which select IDs and
+  scores before loading full `Claim` and `Chunk` rows through Ash; the Ecto
+  filter helpers `Claims.filter_live_parents/1`, `Claims.current_external_facts/1`,
+  and the Ecto forms of `Access` and `LazySkillVisibility` exist solely for
+  these M9 queries).
+- **Set maintenance (M8):** page-merge foreign-key repointing statements and
+  site-scoped index DDL in `SearchIndexes`.
 
-Brain aggregates, Ash actions, row locks, and native queries use `Ankole.Repo`
-in the same process transaction. The process tenant and dynamic repository apply
-to the whole operation. Brain options cannot select a second Repo.
-
-Links, tags, names, and timeline events retain their native retry keys. Merge
-reparent actions own the native deduplication and foreign-key updates while the
-merge holds both Object locks. The merge, redirect, and review decision commit
-in one transaction. Native vector and full-text queries retain their storage
-and query operators.
+Every Brain aggregate, Ash action, row lock, and native SQL query executes
+through `Ankole.Repo` inside the calling process's tenant context and dynamic
+repository; Brain callers cannot inject an alternate `Repo`. Links, tags,
+aliases, and timeline rows preserve their native idempotency keys, merge
+reparent actions deduplicate and repoint foreign keys while holding both Object
+locks so the merge, slug redirect, and review verdict commit together, and
+vector and BM25 queries use native PostgreSQL operators directly.

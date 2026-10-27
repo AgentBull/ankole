@@ -5,30 +5,30 @@ section: Developer guide
 order: 103
 ---
 
-A Session is one Agent's unit of execution. Its key is `{agent_uid, session_id}`. An Agent can run multiple Sessions concurrently. Each Session advances through one Driver in `Ankole.Sessions`.
+A Session is a single Agent's unit of execution, keyed by `{agent_uid, session_id}`. An Agent can run multiple Sessions concurrently, and each Session advances through a dedicated Driver process in `Ankole.Sessions`.
 
-A Conversation stores shared statements. Each participating Agent has a separate Session for that Conversation. AIGateway stores the model history used by the Session. A generic Signal can target a Session without a Conversation.
+While a Conversation stores the shared message stream visible to participants, each Agent in that Conversation owns its own separate Session, and AIGateway stores the model transcript used by that Session. Generic business Signals can also target a Session directly without any backing Conversation.
 
 ## One writer
 
-A DynamicSupervisor starts temporary `:gen_statem` Drivers. `:global` gives each Session key one name across the Erlang cluster. The persistent workspace epoch is the write fence. Admission advances it, and Driver transactions check it under a row lock. A stale Driver cannot commit after a network partition.
+Under `Ankole.Sessions`, a `DynamicSupervisor` starts temporary `:gen_statem` Driver processes, and `:global` registers at most one active Driver name per `{agent_uid, session_id}` across the Erlang cluster. To guard against split-brain writes, Ankole uses a persistent workspace epoch as a write fence: signal admission increments the epoch, and every Driver transaction verifies that epoch under a row lock so a stale Driver isolated by a network partition cannot commit.
 
 ## Durable inputs and model history
 
-Signals are the durable inbox. AIGateway's Response chain records model output and tool results. A control-plane tool commits its effect and receipt together. The Driver commits the round into the chain and deletes its receipts in one transaction. A replacement Driver reconstructs progress from these facts.
+Signals serve as the Session's durable inbox, while AIGateway's Response chain records model outputs and tool results. When a control-plane tool executes, Ankole commits its domain side effect and a receipt atomically; once the tool round finishes, the Driver appends the completed round to the AIGateway chain and deletes those receipts in a single transaction. If a Driver crashes, its replacement reconstructs the exact in-flight state from these persisted records.
 
-At a model request boundary, Sessions reads current Conversation Messages. The read watermark belongs to the actual request metadata. The current main and steer Messages are excluded from the background slice. Shared history supplies context; it does not supply permission to act for a past author. Admission checks the current requester.
+At each model request boundary, `Ankole.Sessions` reads new Conversation Messages using a read watermark stored in the request metadata, excluding the current main and steering Messages from the background context slice. Although shared Conversation history supplies conversational context, it never grants the Agent authority to act on behalf of an earlier speaker—admission always evaluates the Principal of the current requester.
 
-Signal completion and final reply intent commit together. Internal revisions preserve the reply owner. Tool results remain available after withdrawal or retry. A command such as `/compress` completes with its feedback and checkpoint; it does not need a normal final model Response.
+When a turn finishes, the Driver commits Signal completion and the final outbound reply intent together, preserving the original reply owner across internal revisions and keeping completed tool results available across withdrawals or retries. Slash commands such as `/compress` commit their user feedback and compaction checkpoint directly without requiring a final language-model Response.
 
 ## Worker and operation identity
 
-The Agent's Worker is requested when an environment tool or Codex needs its computer. Environment work uses `RunRef`, scoped to the Agent, Session and Signal. Codex uses `JobTurnRef`, which also identifies the Job and attempt. An operation has its own identity, so a replacement Driver can adopt work already in progress.
+`Ankole.Sessions` provisions or wakes the Agent's Worker only when an environment tool or Codex Job requires a computer. Environment operations carry a `RunRef` scoped to the Agent, Session, and Signal, whereas Codex turns carry a `JobTurnRef` that additionally identifies the Job and attempt. Because each operation has its own stable identity, a replacement Driver can adopt Worker operations that are already running rather than duplicating them.
 
-RuntimeFabric uses one Phoenix Channel per Worker. Phoenix Tracker locates it across nodes. The Worker generation and incarnation reject stale routes. Each Worker remains bound to one Agent.
+RuntimeFabric maintains one Phoenix Channel per Worker and locates active sockets across cluster nodes via Phoenix Tracker. On every message, RuntimeFabric checks the Worker's generation and incarnation numbers to reject stale routes, ensuring each Worker remains exclusively bound to a single Agent.
 
 ## Recovery
 
-Signals inserts a durable Oban wakeup in its admission transaction. The wakeup commits with the caller's domain writes. A Reconciler scans due open inputs, including attempts already started. It wakes the existing Driver or ensures a new one. It also asks the Workflow owner to repair missing RunServers and cleanup. Stored `last_attempt_at` and failure budgets control repeated attempts.
+During signal admission, `Ankole.Signals` inserts a durable Oban wakeup job inside the same PostgreSQL transaction as the caller's domain writes. Periodically, a Reconciler scans due open Signals—including attempts that have already started—and either nudges the live Driver or starts a fresh one; it also asks the Workflow subsystem to recover missing `RunServers` and run pending cleanups. Persisted `last_attempt_at` timestamps and failure budgets bound repeated retry attempts.
 
-Native chats, external chats, scheduled work, and business events use these execution rules. Read [Signals](../signals/), [Agent loop](../agent-loop/), and [Agent Computer Worker](../agent-computer-worker/) for their adjacent owners.
+Native Pod chats, external chat channels, scheduled runs, and business events all share this Session execution model. Read [Signals](../signals/), [Agent loop](../agent-loop/), and [Agent Computer Worker](../agent-computer-worker/) for the adjacent subsystems.

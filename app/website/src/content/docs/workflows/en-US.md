@@ -5,24 +5,24 @@ section: User guide
 order: 19
 ---
 
-A Workflow lets the main Agent run a fixed, bounded program that delegates independent tasks to subagents. Use it to review many candidates, extract the same fields from a finite set of sources, compare independent judgments, or run a verification stage before synthesis.
+A Workflow lets the Main Agent execute a fixed, bounded orchestration program that fans out independent tasks across parallel subagents—ideal for evaluating dozens of candidates, extracting structured fields from a finite set of sources, comparing independent assessments, or running a verification pass before final synthesis.
 
-The Workflow starts from the current conversation and immediately returns a `run_id`. The conversation remains available while the tasks run. When the Workflow completes or fails, Ankole wakes the original conversation so the main Agent can read the result and continue.
+When launched from a chat conversation, the Workflow returns a `run_id` immediately so the conversation remains responsive while subagent tasks execute in the background. Once the Workflow finishes or fails, Ankole wakes the originating conversation so the Main Agent can inspect the aggregate output and reply.
 
 ## Choose the right execution shape
 
 | Need | Use | Why |
 |---|---|---|
-| One short task that needs the current conversation | Main Agent turn | It keeps the current context and complete main-turn tool set. |
-| A finite set of independent checks or fixed analysis stages | Workflow | It runs bounded subagent tasks in parallel and returns one aggregate result. |
-| One long, stateful task that needs files, a workspace, later messages, or user input | [Background Agent Job](../background-jobs/) | It owns a durable Codex thread that can pause and resume. |
-| A scheduled or webhook-triggered mechanical script | [Automation Job](../automation-jobs/) | The trigger runs deterministic handling without a model turn when judgment is not needed. |
+| A short task tied to the current conversation | Main Agent turn | Keeps full conversation context and the complete main-turn tool set. |
+| A finite batch of independent checks or fixed multi-stage synthesis | Workflow | Runs bounded subagent calls in parallel and returns one structured aggregate result. |
+| A long, stateful task needing files, a workspace, steering messages, or mid-run user input | [Background Agent Job](../background-jobs/) | Owns a durable Codex thread that can pause, accept steering, and resume. |
+| A scheduled or webhook-triggered deterministic check | [Automation Job](../automation-jobs/) | Runs deterministic TypeScript without a model turn whenever open-ended judgment is unnecessary. |
 
-A Workflow is not a general DAG engine, scheduler, or event bus. It cannot wait for an external event or for a decision from you. Use a Background Agent Job when the work must change direction after it starts.
+A Workflow is neither a general-purpose DAG engine, a cron scheduler, nor an event bus: it cannot block on external webhooks or prompt you mid-run. Whenever a task needs to adapt its plan interactively after starting, use a Background Agent Job instead.
 
 ## Ask the Agent to start a Workflow
 
-Describe the finite input set, the independent task, the completion rule, and the final format. For example:
+In chat, specify the finite input set, the per-item check, the completion rule, and the output structure—for example:
 
 ```text
 Run this as a Workflow. Review these 40 proposals in parallel against the five
@@ -30,15 +30,15 @@ criteria below. Return one JSON result with every verdict, the failed reviews,
 and a final shortlist. Do not expand beyond these 40 proposals.
 ```
 
-The main Agent writes the orchestration program and starts it. You do not need to write JavaScript or call an API. The Agent can set a per-run concurrency limit, a maximum number of subagent calls, and a custom model profile that is available to it. If it does not select a profile, Workflow tasks use `primary`.
+The Main Agent authors and launches the orchestration program automatically—you never have to write JavaScript or call an API directly. When starting the run, the Agent can specify a per-run concurrency cap, a maximum subagent call count, and any model profile available to it (defaulting to `primary`).
 
-The start operation returns the run ID and current `running` status. The main Agent must not poll the run. You can keep talking in the same conversation and ask for the state later.
+Starting a Workflow returns the `run_id` and initial `running` state immediately. Rather than polling in a loop, the Main Agent yields so you can keep chatting in the same thread and check progress whenever you want.
 
 ## How the orchestration runs
 
-The program receives fixed JSON `args` and can call `agent(prompt, options)`. Calls inside `Promise.all` run in parallel. Normal JavaScript conditions can select a later verification or synthesis stage after earlier calls finish. Every collection and loop must have a visible finite bound.
+Each orchestration program receives immutable JSON `args` and invokes subagents via `agent(prompt, options)`. Wrapping calls in `Promise.all` executes them concurrently, and standard JavaScript conditionals can run a follow-up verification or synthesis stage once earlier calls settle—provided every collection and loop has an explicit finite bound.
 
-This simplified program reviews at most 20 items, keeps failed calls as `null`, and then synthesizes the successful results:
+For example, this program reviews up to 20 items in parallel, filters out any failed (`null`) items, and synthesizes the surviving reviews:
 
 ```js
 const items = args.items.slice(0, 20)
@@ -68,61 +68,61 @@ const summary = await agent(`Summarize these reviews: ${JSON.stringify(successfu
 return { reviews, summary }
 ```
 
-The program and its `args` do not change after the run starts. The control plane sends each orchestration step to `POST /v1/program/run` on the stateless `ankole-function-runtime` service. Each step runs in a fresh worker with network, filesystem, environment, process, and FFI permissions denied, and deterministic `Math.random()` and `Date.now()` values. The worker does not stay alive while tasks run.
+Once a run starts, both the program source and `args` are immutable. For each orchestration step, the control plane posts the program and memoized history to `POST /v1/program/run` on the stateless `ankole-function-runtime` service, where it executes inside an ephemeral worker with network, filesystem, environment, child-process, and FFI access denied and deterministic `Math.random()` and `Date.now()` values—no worker process stays resident while subagent tasks run.
 
-A control-plane restart replays the fixed program from persisted task results against a 6 MiB durable memo budget. A successful task that is already stored is not created again, and any divergence in replayed `agent()` call order or arguments fails the run. An interrupted task can be retried, so do not treat task execution as exactly once.
+If the control plane restarts mid-run, Ankole replays the fixed program against persisted task results within a `6 MiB` durable memo budget: already-completed tasks return their stored results immediately without re-executing, whereas any divergence in replayed `agent()` call order or arguments fails the Workflow run. Because an in-flight task interrupted by a restart may be retried, design task prompts for at-least-once execution.
 
 ## What each subagent can access
 
-Each `agent()` call runs in an independent conversation (`wf_task:<call_id>`) on the control plane without holding an Agent Worker slot. It receives the Agent identity and mission plus the task prompt. It does not receive the original conversation transcript or the result of another task unless the program includes that result in a later prompt.
+Every `agent()` call runs in its own isolated control-plane conversation (`wf_task:<call_id>`) without occupying an Agent Worker slot. Each subagent receives the Agent's identity and `MISSION.md` plus its task prompt, and never sees the parent chat transcript or sibling task outputs unless the orchestration script passes them explicitly in a downstream prompt.
 
-A Workflow task can use Web tools and, when Brain is enabled, the read-only `recall` and `get_page` tools. It does not receive shell, file, MCP, Skill, Brain write, or schedule tools directly, and it cannot start another Workflow (orchestration depth is one).
+Subagents can invoke Web tools and—when Brain is enabled—the read-only `recall` and `get_page` tools. They have no direct shell, file, MCP, Skill, Brain-write, or schedule tools, and cannot launch nested Workflows (orchestration depth is strictly `1`).
 
-When a task needs workspace execution or multi-hour work, it can delegate [Background Agent Jobs](../background-jobs/) (`create_background_job`, `show_background_job_details`, `send_message_to_background_job`, `stop_background_job`) and call `sleep` (from 1 minute to 48 hours, up to 16 sleeps per call) to hibernate without holding a concurrency slot until a delegated Job lifecycle event, an owner message, or its deadline wakes it. Setting `attention: true` on `sleep` notifies the main Agent so it can inspect the task note and reply. When the work is ready, the task finishes by calling `submit_result`.
+When a subagent needs workspace execution or multi-hour work, it can delegate [Background Agent Jobs](../background-jobs/) (`create_background_job`, `show_background_job_details`, `send_message_to_background_job`, `stop_background_job`) and call `sleep` (for `1` minute up to `48` hours, up to `16` sleeps per subagent call) to hibernate without holding a concurrency slot until a delegated Job lifecycle event, an owner message, or its sleep deadline wakes it. Passing `attention: true` to `sleep` notifies the Main Agent so it can read the task's sleep `note` and reply. Once its work is complete, the subagent finishes by calling `submit_result`.
 
-Within each wake segment, a call can make at most three task attempts. A successful call resolves to the submitted value. A call that exhausts its attempts resolves to `null`; the program can record the failure and continue, or make the final result explain why the run is incomplete. One failed task does not automatically make the whole Workflow fail.
+Within each wake segment, Ankole allows up to three task attempts: a successful submission resolves `agent()` to the submitted value, whereas exhausting all three attempts resolves `agent()` to `null` so the orchestration script can either continue with partial results or explain why the output is incomplete. A single failed subagent call never aborts the entire Workflow automatically.
 
 ## Require structured results
 
-An `agent()` call can declare a result schema. Ankole sends the generated `submit_result` tool with provider strict mode and validates the submitted value again in the control plane. A schema rejection leaves the task active so the subagent can correct its value.
+Any `agent()` call can pass a JSON `schema` option. Ankole exposes the generated `submit_result` tool with provider strict mode enabled and re-validates the submitted payload in the control plane; if validation fails, Ankole keeps the task active so the subagent can fix and resubmit its output.
 
-The schema is a closed subset of OpenAPI 3 JSON Schema, not the complete specification. A result has one non-null type: `object`, `array`, `string`, `number`, `integer`, or `boolean`. Every object, including a nested object, must declare `properties`, list every property in `required`, and set `additionalProperties: false`. Optional object fields, nullable values, unions, `$ref`, and `oneOf`/`anyOf`/`allOf` are not supported.
+Workflow schemas support a closed subset of OpenAPI 3 JSON Schema: each result must have a single non-null root type (`object`, `array`, `string`, `number`, `integer`, or `boolean`), and every `object`—including nested objects—must declare `properties`, list every key in `required`, and set `additionalProperties: false`. Optional properties, nullable types, unions, `$ref`, and `oneOf` / `anyOf` / `allOf` are rejected.
 
-If no schema is supplied, the task returns a string. The program must return its aggregate result. A string becomes the final text; another JSON value becomes JSON text.
+When you omit `schema`, the subagent submits a plain string. At the end of the script, the orchestrator's `return` value becomes the Workflow output—strings are stored directly as text, and any other JSON value is serialized as JSON text.
 
 ## Read, message, list, or cancel runs
 
-Ask the main Agent to use these operations:
+Ask the Main Agent to manage Workflows through its built-in tools:
 
-- `show_workflow` reports the status, task counts, up to 32 live tasks (including sleep `note`, `attention`, and wake deadlines), up to ten failure summaries, and any terminal error. A completed result is read from byte offset `0` in segments of at most 8,000 UTF-8 bytes.
-- `send_message_to_workflow_task` appends an asynchronous message (`run_id`, `call_seq`) to wake or inform a live task, such as answering a task that slept with `attention: true`.
-- `list_workflows` lists this Agent's live or finished runs, up to 32 at a time. Finished runs include `completed`, `failed`, and `cancelled`.
-- `cancel_workflow` is idempotent. It prevents new tasks and late results from reviving the run, then asks running task turns and delegated Background Agent Jobs to stop. A model call can take a short time to stop.
+- `show_workflow` returns the run status, task counters, up to `32` live tasks (with sleep `note`, `attention`, and wake deadlines), up to `10` failure summaries, and any terminal run error, reading completed output from byte offset `0` in `8,000`-byte UTF-8 chunks.
+- `send_message_to_workflow_task` appends an asynchronous message (`run_id`, `call_seq`) to wake or guide a live subagent—for instance, answering a subagent that called `sleep` with `attention: true`.
+- `list_workflows` lists up to `32` live or finished (`completed`, `failed`, or `cancelled`) runs belonging to the Agent.
+- `cancel_workflow` idempotently marks the run cancelled, blocks new task launches or late submissions from reviving it, and signals active subagent turns and delegated Background Agent Jobs to stop (in-flight model requests may take a moment to unwind).
 
-Completed and failed runs wake the original conversation. A cancelled run does not send that completion event, so ask the Agent to confirm its state if you need confirmation.
+While `completed` and `failed` Workflows automatically wake the originating conversation, `cancel_workflow` does not emit a completion wakeup—ask the Agent to confirm the cancelled status if needed.
 
-In the Console, the Home background activity area displays read-only Workflow activity (live calls, status counts, sleep notes, deadlines, attention flags, and bounded error summaries under `site_console:agent:<agent_uid>:workflow`). Starting, messaging, reading full results, and cancelling runs use the main Agent's Workflow tools.
+In the Console, the Home background-activity panel provides a read-only view of Workflow runs (live calls, status counts, sleep notes, wake deadlines, attention flags, and bounded error summaries under `site_console:agent:<agent_uid>:workflow`), while starting, messaging, reading full outputs, and cancelling runs all happen through the Main Agent's Workflow tools.
 
 ## Control cost and capacity
 
-Every task attempt is a complete model turn and can also make paid Web calls. Concurrency changes elapsed time, not the total number of calls. Set the call limit from the finite input size, and keep each task prompt and result narrow.
+Because every subagent attempt executes a full language-model turn—and may invoke paid Web search or fetch providers—higher concurrency shortens wall-clock duration without reducing total token or API spend. Size your call cap to match your finite input list, and keep per-task prompts and return schemas concise.
 
 | Boundary | Default | Hard limit |
 |---|---:|---:|
-| Concurrent tasks in one run | 8 | 32 |
-| Running Workflow tasks for one Agent | 8 | 64 |
-| Subagent calls in one run | 32 | 1,024 |
-| Attempts per wake segment | up to 3 | 3 |
-| Sleeps for one subagent call | — | 16 |
-| One sleep duration | — | 1 minute to 48 hours |
-| Stored program | — | 256 KiB |
-| Stored `args` | — | 64 KiB |
-| One call argument object | — | 8 KiB |
-| One owner task message | — | 8 KiB |
-| One submitted result value | — | 24 KiB |
-| Durable memo budget | — | 6 MiB |
-| Final aggregate result | — | 1 MiB |
+| Concurrent tasks in one run | `8` | `32` |
+| Running Workflow tasks for one Agent | `8` | `64` |
+| Subagent calls in one run | `32` | `1,024` |
+| Attempts per wake segment | up to `3` | `3` |
+| Sleeps for one subagent call | — | `16` |
+| One sleep duration | — | `1` minute to `48` hours |
+| Stored program | — | `256 KiB` |
+| Stored `args` | — | `64 KiB` |
+| One call argument object | — | `8 KiB` |
+| One owner task message | — | `8 KiB` |
+| One submitted result value | — | `24 KiB` |
+| Durable memo budget | — | `6 MiB` |
+| Final aggregate result | — | `1 MiB` |
 
-An administrator can set the first three instance limits in [AppConfigure](../app-configuration/) within their hard ranges. A run request cannot raise the deployment limits. Workflow has no batch-wide token or currency budget; every task still uses the ordinary per-turn iteration, output-token, and inactivity limits. See [Cost management](../cost-management/) for the related controls.
+Administrators can adjust the first three concurrency and call defaults in [AppConfigure](../app-configuration/) within their hard ceilings, and per-run options can only lower—never exceed—those instance limits. Workflows enforce no single batch-wide token or currency cap; instead, each subagent turn obeys the Agent's standard iteration, output-token, and inactivity limits (see [Cost management](../cost-management/)).
 
-If a run exceeds a size boundary, reduce the fanout, return shorter task summaries, or split the input into separate Workflows. Create a new run when the program or input must change; a failed run cannot be edited or resumed with different code.
+If a Workflow hits a payload or memo size cap, lower the fanout, return tighter per-task summaries, or partition the input across multiple Workflows. Because program code and `args` are immutable once started, launch a fresh Workflow run whenever you need to revise the script or inputs.

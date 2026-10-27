@@ -31,6 +31,7 @@ import {
 import type { GetHumanAccessResponse } from '../api/v2/generated/types.gen'
 import { fromDocument } from '../api/json-api'
 import { ErrorBlock } from '../../common/error-block'
+import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import { requestErrorMessage } from '../../common/request-errors'
 import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../console-form'
 import { AgentLink } from '../console-list-page'
@@ -40,13 +41,6 @@ import { principalGroupDisplayName } from '../state/principal-group-text'
 import { principalLabel } from '../state/principal-label'
 
 type RestrictionItem = GetHumanAccessResponse['restrictions'][number]
-
-function humanizeToken(value: string): string {
-  return value
-    .replace(/[._-]+/g, ' ')
-    .trim()
-    .replace(/^\w/, char => char.toUpperCase())
-}
 
 /** Summarizes a group or grant condition without dumping raw JSON blocks or `"true"` noise. */
 export function formatConditionSummary(condition: unknown): string | null {
@@ -154,7 +148,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
         <h3 className="text-lg font-semibold">{t('console.human_access.title')}</h3>
         {state ? (
           <Badge variant={state.status === 'active' ? 'success' : 'outline'}>
-            {t(`console.status.${state.status}`, { defaultValue: humanizeToken(state.status) })}
+            {t(`console.status.${state.status}`, { defaultValue: humanizeTechnicalLabel(state.status) })}
           </Badge>
         ) : null}
       </div>
@@ -231,7 +225,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                             <span className="font-medium">{groupLabel}</span>
                             <Badge variant="outline">
                               {t(`console.principal_groups.kind_${group.kind}`, {
-                                defaultValue: humanizeToken(group.kind)
+                                defaultValue: humanizeTechnicalLabel(group.kind)
                               })}
                             </Badge>
                           </div>
@@ -341,8 +335,10 @@ export function HumanAccessSection({ uid }: { uid: string }) {
               {state.cleanup_jobs.map(job => (
                 <p key={job.id}>
                   #{job.id} ·{' '}
-                  {t(`console.human_access.cleanup_state_${job.state}`, { defaultValue: humanizeToken(job.state) })} ·{' '}
-                  {job.attempt}/{job.max_attempts}
+                  {t(`console.human_access.cleanup_state_${job.state}`, {
+                    defaultValue: humanizeTechnicalLabel(job.state)
+                  })}{' '}
+                  · {job.attempt}/{job.max_attempts}
                 </p>
               ))}
             </div>
@@ -359,9 +355,11 @@ export function HumanAccessSection({ uid }: { uid: string }) {
               {state.work.map(work => (
                 <div key={`${work.kind}:${work.id}`} className="grid gap-1 border-b border-border py-2 text-sm">
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span>{humanizeToken(work.kind)}</span>
+                    <span>{humanizeTechnicalLabel(work.kind)}</span>
                     <span aria-hidden>·</span>
-                    <span>{t(`console.status.${work.status}`, { defaultValue: humanizeToken(work.status) })}</span>
+                    <span>
+                      {t(`console.status.${work.status}`, { defaultValue: humanizeTechnicalLabel(work.status) })}
+                    </span>
                     <span aria-hidden>·</span>
                     <AgentLink uid={work.agent_uid} />
                   </span>
@@ -377,7 +375,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
               {state.history.map(item => (
                 <div key={item.id} className="grid gap-1 border-b border-border pb-3 text-sm">
                   <span>
-                    {humanizeToken(item.action)} · {humanizeToken(item.source)}
+                    {humanizeTechnicalLabel(item.action)} · {humanizeTechnicalLabel(item.source)}
                   </span>
                   <p>{item.reason}</p>
                   <p className="text-xs text-muted-foreground">
@@ -478,8 +476,10 @@ function RestrictionClearCard({
       <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{humanizeToken(restriction.source)}</span>
-            {restriction.disposition ? <Badge variant="outline">{humanizeToken(restriction.disposition)}</Badge> : null}
+            <span className="font-medium">{humanizeTechnicalLabel(restriction.source)}</span>
+            {restriction.disposition ? (
+              <Badge variant="outline">{humanizeTechnicalLabel(restriction.disposition)}</Badge>
+            ) : null}
           </div>
           <span>{restriction.reason}</span>
         </div>

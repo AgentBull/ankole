@@ -1,60 +1,60 @@
 # Ankole Block Editor Specification
 
-This specification gives the behavior of the `@ankole/block-editor` package in `libs/ankole-editor`, version 0.1.0 in `package.json`. It covers the page tree, the Markdown and XML source formats, the editor, the React component, the host interface, the example host, and compatibility checks.
+This specification defines the behavior of the `@ankole/block-editor` package in `libs/ankole-editor` (version `0.1.0` in `package.json`). It covers the page tree, the Markdown and XML source formats, the editing engine, the React component, the host interface, the example host, and browser compatibility checks.
 
 ## 0. Authority and conventions
 
-- This specification is the only authority for the behavior of the package. If the code and this specification do not agree, that is a defect. When you change a behavior, change this specification in the same change.
-- Each statement in this specification is a requirement, except a paragraph with the label "Note".
-- `upstream/fixtures/commonmark-dialect.json` records each example where this format is different from the CommonMark reference implementation. This file is part of this specification.
-- `upstream/NOTICE.md` gives the sources and licenses of the third-party test data.
-- In shortcuts, ⌘ is the Command key on Apple platforms (macOS, iOS, and iPadOS) and the Ctrl key on other platforms. In this specification, Ctrl is the Control key on all platforms. On Apple platforms, editor shortcuts do not use Ctrl with a letter, because the system uses these keys to edit text.
-- Document errors and warnings are in Chinese. Interface labels default to Chinese and can be translated through `BlockEditor.labels` (section 7.6). Parsing and serialization do not depend on interface labels.
+- This specification is the sole authority for package behavior. Any disagreement between the implementation and this document is a defect; whenever you change behavior, update this specification in the same change.
+- Every statement in this specification is a normative requirement, except paragraphs explicitly labeled "Note".
+- `upstream/fixtures/commonmark-dialect.json` records every case where this Markdown dialect differs from the CommonMark reference implementation and forms part of this specification.
+- `upstream/NOTICE.md` lists the sources and licenses of third-party test fixtures.
+- In keyboard shortcuts, `⌘` denotes the Command key on Apple platforms (macOS, iOS, and iPadOS) and the `Ctrl` key on other platforms, whereas `Ctrl` denotes the Control key on every platform. On Apple platforms, editor shortcuts never combine `Ctrl` with a letter because macOS reserves those bindings for native text editing.
+- Document errors and warnings are emitted in Chinese. Interface labels also default to Chinese and can be localized via `BlockEditor.labels` (section 7.6); parsing and serialization never depend on interface labels.
 
 | Term | Meaning |
 | --- | --- |
-| Page | One complete document body. Each read, write, and revision check applies to one full page. |
-| Page tree | The content of a page: elements, attributes, text, and ordered child nodes |
+| Page | One complete document body. Every read, write, and revision check applies to a whole page. |
+| Page tree | The structured content of a page: elements, attributes, text, and ordered child nodes |
 | Element | A node with a name, attributes, and ordered child nodes |
-| Block element, inline element | The two kinds of element that the vocabulary gives (section 2) |
-| Shorthand | CommonMark and GitHub Flavored Markdown (GFM) syntax, for example `**bold**` and `- list` |
-| Tag | Syntax that writes an element directly, for example `<u>underline</u>` |
-| Vocabulary | The list of known elements. It gives the kind, content, attributes, and attribute values of each element. |
-| Unknown element | An element with a name that is not in the vocabulary |
-| Normalization | The operation that changes a page tree into its normal form (section 3). This specification writes it as `N`. |
-| Read-only element | An element that the editor shows, but that you can change only in the source (section 7.4) |
+| Block element, inline element | The two element categories defined in the vocabulary (section 2) |
+| Shorthand | CommonMark and GitHub Flavored Markdown (GFM) syntax, such as `**bold**` and `- list` |
+| Tag | Explicit angle-bracket syntax for an element, such as `<u>underline</u>` |
+| Vocabulary | The catalog of known elements, defining each element's kind, allowed content, attributes, and attribute values |
+| Unknown element | Any element whose name is not in the vocabulary |
+| Normalization | The transformation that puts a page tree into canonical normal form (section 3), written `N` in this specification |
+| Read-only element | An element rendered in the editor that can be modified only in source mode (section 7.4) |
 
 ## 1. Page tree
 
 ### 1.1 Nodes
 
-A page tree has only two types of node:
+A page tree contains only two node types:
 
 - Text node: `{ type: 'text', value: string }`.
 - Element node: `{ type: 'element', name: string, attrs: Record<string, string>, children: Node[] }`.
 
-The order of child nodes is part of the content. The order of attributes is not. All attribute values are strings. An attribute with an empty string value is not the same as no attribute, except for the optional attributes in section 3.1. The tree has no node IDs, comments, processing instructions, CDATA sections, or DTDs.
+Child node order is significant; attribute order is not. Every attribute value is a string, and an attribute whose value is `""` is distinct from an omitted attribute except for the optional attributes listed in section 3.1. The tree contains no node IDs, comments, processing instructions, CDATA sections, or DTDs.
 
 ### 1.2 Names
 
-- Element name: the first character is a Unicode letter. Each other character is a letter, a digit, `-`, or `_`.
-- Attribute name: the first character is a Unicode letter or `_`. Each other character is a letter, a digit, `-`, or `_`. You cannot use `xmlns` as an attribute name.
-- Each name must also be a valid XML name. Names are case-sensitive. A name that contains `:` or `.` is not valid.
+- Element name: starts with a Unicode letter, followed by zero or more letters, digits, `-`, or `_`.
+- Attribute name: starts with a Unicode letter or `_`, followed by zero or more letters, digits, `-`, or `_`. `xmlns` is forbidden as an attribute name.
+- Every name must also be a valid XML name. Names are case-sensitive, and names containing `:` or `.` are invalid.
 
 ### 1.3 Characters
 
-Text and attribute values can contain only these XML 1.0 characters: U+0009, U+000A, U+000D, U+0020–U+D7FF, U+E000–U+FFFD, and U+10000–U+10FFFF. A lone surrogate is not valid. No read or write applies Unicode normalization (NFC or NFD).
+Text and attribute values may contain only valid XML 1.0 characters: U+0009, U+000A, U+000D, U+0020–U+D7FF, U+E000–U+FFFD, and U+10000–U+10FFFF. Lone surrogates are invalid. Neither reading nor writing applies Unicode normalization (NFC or NFD).
 
 ### 1.4 Root element
 
-The root element is `page`. `page` has no attributes and can occur only as the root. Markdown source does not contain the root element. XML source contains it as `<page>…</page>`. The title, identity, and revision number of a page are not in the page tree.
+The root element is `page`, which takes no attributes and may appear only as the root. Markdown source omits the `<page>` wrapper, whereas XML source wraps the document in `<page>…</page>`. Page metadata—title, identity, and revision number—lives outside the page tree.
 
 ### 1.5 Size limits
 
-- A source has a maximum of 8,388,608 UTF-16 code units.
-- A page has a maximum of 100,000 element and text nodes in total. This count does not include layout whitespace. A page has a maximum of 128 levels below the root.
+- Source input has a maximum length of 8,388,608 UTF-16 code units.
+- A page has a maximum of 100,000 element and text nodes combined (excluding layout whitespace) and a maximum nesting depth of 128 levels below `page`.
 
-If content goes past a limit, the package reports an error. It does not truncate the content.
+When input exceeds any of these limits, the package raises an error instead of truncating content.
 
 ## 2. Vocabulary
 
@@ -78,87 +78,87 @@ If content goes past a limit, the package reports an error. It does not truncate
 | `span` | Inline | Inline | `style`: any value | — |
 | `strong`, `em`, `s`, `u`, `mark`, `sub`, `sup`, `code` | Inline | Inline | — | — |
 
-A known element (an element in the vocabulary) can have attributes that are not in the vocabulary. The package keeps these attributes without change and reports them as warnings (section 6.4). The package also keeps an unknown element and all its attributes without change, and reports the element as a warning.
+If a known element carries attributes outside the vocabulary, the package preserves them unchanged and reports each one as a warning (section 6.4). Likewise, the package preserves unknown elements and all of their attributes unchanged and reports each unknown element as a warning.
 
-`embed` holds only a reference. `ref` names the page that the embed shows. A base embed can also have `table` and `view`. The embedded page controls the format, existence, and lifecycle of these values. A page does not hold fields, records, views, or settings of the embedded page. The editor does not load the embedded page, read its assets, or delete it; those operations belong to the product that stores pages.
+`embed` stores only a reference: `ref` identifies the target page, and a Base embed may also specify `table` and `view`. Because the target page owns the format, existence, and lifecycle of those values, the host page never embeds the target's fields, records, views, or settings. The editor itself never loads an embedded page, fetches its assets, or deletes it; those operations belong to the host product.
 
-The product gives two address forms. A page link uses `ankole:page/<page ID>` in `href`, and an image that a page owns uses `ankole:asset/<digest>/<file name>` in `src`. The package treats both as any other attribute value. It reads, prints, and copies them without change, and it does not resolve them.
+Ankole uses two internal URI forms in attributes: `ankole:page/<page ID>` in `href` for page links, and `ankole:asset/<digest>/<file name>` in `src` for page-owned images. The package treats both like any other attribute string—reading, printing, and copying them verbatim without resolving them.
 
 ## 3. Normalization
 
-Normalization (`N`) removes only differences that a reader cannot see. If two trees are equal after `N`, they show the same page. Each Markdown or XML parse, each print, each import into the editor, and each read from the editor applies `N`.
+Normalization (`N`) strips only differences that are invisible to a reader: if two trees are equal after `N`, they represent the same page. The package applies `N` whenever it parses Markdown or XML, prints output, imports a tree into the editor, or reads a tree from the editor.
 
 ### 3.1 Attributes
 
-- `N` sorts attributes by name, in the order of Unicode code points.
-- If a known attribute has a value that section 2 does not give, that is an error.
-- If the vocabulary declares `alt`, `title`, `lang`, `meta`, or `style` for an element, `N` removes that attribute when its value is an empty string. `N` also removes `start="1"` from `ol`, and `colspan="1"` and `rowspan="1"` from `th` and `td`.
-- An element without one of its required attributes is an error.
+- `N` sorts attributes by name in Unicode code-point order.
+- If a known attribute has a value outside those permitted in section 2, `N` reports an error.
+- When the vocabulary declares `alt`, `title`, `lang`, `meta`, or `style` on an element and its value is `""`, `N` drops the attribute. `N` also drops `start="1"` on `ol` and `colspan="1"` and `rowspan="1"` on `th` and `td`.
+- Missing a required attribute on an element is an error.
 
 ### 3.2 Block content
 
-The content types in this section are the values in the Content column of section 2. "Only …" content, for example "Only `li`", is a fixed set of child elements.
+The content categories below correspond to the **Content** column in section 2. An "Only …" rule (such as "Only `li`") restricts children to that exact set of elements.
 
-- In an element with "Block" or "Only …" content, text that contains only spaces, tabs, CR, and LF is layout whitespace. `N` removes it. Other text is an error.
-- In an element with "Only …" content, any other child element is an error.
-- If an element with "Block" content directly contains a known inline element, that is an error.
-- An element with "Text" content (`pre`) can contain only text. An element with "Empty" content cannot have child nodes.
-- `N` removes a `ul` or `ol` that has no list items.
-- `N` merges two adjacent lists with the same name (both `ul` or both `ol`) into one list. The merged list has all attributes of the two lists, and its `start` comes from the first list. For an attribute other than `start`, two different values are an error.
+- Inside an element with "Block" or "Only …" content, text consisting solely of spaces, tabs, CR, and LF is layout whitespace and `N` removes it; any other direct text is an error.
+- Inside an element with "Only …" content, any child element outside that allowed set is an error.
+- Inside an element with "Block" content, a direct child that is a known inline element is an error.
+- An element with "Text" content (`pre`) may contain only text, and an element with "Empty" content may have no child nodes.
+- `N` removes any `ul` or `ol` that has zero list items.
+- `N` merges adjacent lists of the same element name (two `ul`s or two `ol`s) into a single list. The merged list keeps `start` from the first list and combines all other attributes; if the two lists disagree on any attribute other than `start`, `N` reports an error.
 
 ### 3.3 Content of unknown elements
 
-- If the child nodes include both a known block element and inline content, that is an error. Inline content is text that is not whitespace, or a known inline element.
-- If the child nodes include a known block element, `N` processes them as block content (section 3.2).
-- If all of these conditions are true, each text child is layout whitespace, also at the start and the end. `N` removes it.
-  - The child nodes include an element.
-  - The child nodes include no known inline element.
-  - Each text child contains only spaces, tabs, CR, and LF, and contains a line break.
-- In all other cases, `N` processes the child nodes as inline content (section 3.4).
+- Mixing a known block element with inline content (non-whitespace text or a known inline element) among the children of an unknown element is an error.
+- If the children include a known block element, `N` normalizes them as block content (section 3.2).
+- If all three conditions below hold, every text child—including leading and trailing text—is treated as layout whitespace and removed by `N`:
+  - At least one child is an element.
+  - No child is a known inline element.
+  - Every text child contains only spaces, tabs, CR, and LF, and includes at least one line break.
+- Otherwise, `N` normalizes the children as inline content (section 3.4).
 
 ### 3.4 Inline content
 
-`N` first expands inline content into a sequence of segments. Then it rebuilds the content with the rules below. A segment is a run of text or one atomic element. Each segment has a set of formats, a style, and a link. The link is the `a` that contains the segment, or no link.
+To normalize inline content, `N` first flattens it into a sequence of segments and then rebuilds the element hierarchy using the rules below. Each segment is either a contiguous run of text or a single atomic element, annotated with a set of active formats, an inline `style`, and an optional enclosing `a` link.
 
 Expansion rules:
 
-- A `strong`, `em`, `s`, `u`, `mark`, `sub`, `sup`, or `code` element without attributes becomes a format of its segments. Nested copies of one format are equal to one copy.
-- A `span` with no attributes, or with only a `style` attribute, becomes the style of its segments. To join nested styles, `N` puts the outer style first. If the outer style does not end with a semicolon, `N` adds `;`. Then `N` adds a space before the inner style.
-- Segments in an `a` get that link. Links cannot be nested. An `a` with no content is an atomic element.
-- `br` and `img` are atomic elements. They have no formats and no style, but they keep their link.
-- All other elements are atomic elements: unknown inline elements, format elements with attributes, and `span` elements with attributes other than `style`. They get the formats, style, and link of their outer elements. `N` normalizes the inside of each of these elements by the rules for that element.
+- Attribute-free `strong`, `em`, `s`, `u`, `mark`, `sub`, `sup`, and `code` elements add their format to enclosed segments; nested occurrences of the same format collapse into one.
+- A `span` with no attributes or with only a `style` attribute contributes to the `style` of its enclosed segments. When nested styles combine, `N` places the outer style first, appends `;` if the outer style does not already end with one, and separates the inner style with a single space.
+- Segments inside an `a` inherit that link. Nested links are invalid, and an empty `a` is treated as an atomic element.
+- `br` and `img` are atomic elements: they carry neither formats nor `style`, though they retain an enclosing link.
+- Every other inline element—unknown inline elements, format elements that carry attributes, and `span` elements with attributes other than `style`—is also atomic. It inherits the formats, `style`, and link of its ancestors, while `N` normalizes its own children according to that element's content rules.
 
-`N` changes line breaks from the source (soft line breaks) with these rules:
+Soft line-break rules:
 
-- In text that is not code, `N` replaces each line break (CRLF, CR, or LF) with one space. The replacement also includes the spaces and tabs before the line break and all whitespace after it. In these cases, `N` replaces this text with an empty string:
-  - The nearest visible characters on the two sides of the line break are both Chinese or Japanese characters.
-  - The line break is at the start or end of the content.
-  - The line break comes directly after a `br`.
-- A Chinese or Japanese character is a Han character, a Hiragana or Katakana character, or a character in U+3000–U+303F, U+30FC, U+FE30–U+FE4F, or U+FF00–U+FFEF.
-- To find the nearest visible character, `N` goes past whitespace. But whitespace in code, underline, strikethrough, or highlight text is visible. A `br` is a boundary of the content. Each other atomic element is a visible character that is not Chinese or Japanese.
-- In code text, `N` replaces each line break with one space.
+- Outside `code`, `N` replaces each line break (CRLF, CR, or LF)—together with any spaces or tabs immediately before it and all whitespace immediately after it—with a single space, except in three cases where `N` deletes the break and surrounding whitespace altogether:
+  - The nearest visible characters on both sides of the line break are Chinese or Japanese characters.
+  - The line break lies at the very start or end of the inline content.
+  - The line break immediately follows a `br`.
+- A Chinese or Japanese character is any Han, Hiragana, or Katakana character, or any code point in U+3000–U+303F, U+30FC, U+FE30–U+FE4F, or U+FF00–U+FFEF.
+- When scanning for the nearest visible character, `N` skips plain whitespace, whereas whitespace formatted as `code`, underline, strikethrough, or highlight counts as visible. A `br` acts as a content boundary, and every other atomic element counts as a visible character that is neither Chinese nor Japanese.
+- Inside `code` text, `N` replaces each line break with a single space.
 
-Other rules:
+Additional cleanup rules:
 
-- `N` moves whitespace at the two ends of bold or italic text out of the bold or italic format. The other formats of that whitespace do not change. This rule does not apply to code text.
-- `N` merges adjacent text that has the same formats, style, and link. It removes empty text.
+- Outside `code` text, `N` hoists leading and trailing whitespace out of bold (`strong`) and italic (`em`) formatting while keeping all other formats on that whitespace intact.
+- `N` merges adjacent text segments that share identical formats, `style`, and link, and drops empty text segments.
 
 Rebuild rules:
 
-- `N` wraps adjacent segments with the same style in one `span` with that `style`. The `span` is the outermost element.
-- In a range with the same style, adjacent segments with the same link make one link unit. `N` writes each link unit as one `a`. If parts of one link have different styles, each part becomes a separate `a`.
-- A unit is a link unit or a segment outside a link. From left to right, `N` selects the format that covers the most consecutive units. It wraps those units in that format, and then processes the inside. The comparison order is `strong`, `em`, `s`, `u`, `mark`, `sub`, `sup`. If two formats cover the same number of units, `N` uses the first format in this order. For bold and italic ranges, a unit that contains only whitespace does not break the range.
-- `code` is always the innermost format. It directly wraps text or an atomic element.
-- `N` rebuilds the inside of a link with the same rules. If a format covers a full link, `N` writes the format outside the link.
+- `N` wraps maximal runs of adjacent segments that share the same non-empty `style` in a single outer `span`.
+- Within each constant-style run, adjacent segments that share the same link form a link unit and are wrapped in one `a`. If a link spans segments with different `style` values, each styled run produces its own `a`.
+- Let a *unit* be either a link unit or an unlinked segment. Scanning left to right, `N` picks the format that covers the longest run of consecutive units, wraps that run, and recurses inside it. Ties break in the priority order `strong`, `em`, `s`, `u`, `mark`, `sub`, `sup`. For `strong` and `em`, a whitespace-only unit does not interrupt a run.
+- `code` is always the innermost format, wrapping text or an atomic element directly.
+- `N` rebuilds the interior of each link by the same rules; if a format covers the entire link, `N` places that format outside `a`.
 
 ## 4. Markdown
 
 ### 4.1 Input syntax
 
-- The base is CommonMark 0.31.2 with these GFM extensions: tables, task list items, strikethrough, and bare URLs (GFM autolink literals). Footnotes are not part of the syntax.
-- The syntax does not include three CommonMark constructs: indented code blocks, raw HTML, and angle-bracket autolinks. Indentation does not make a code block, and it does not stop other blocks. A heading, thematic break, fence, or list marker with four or more spaces of indentation is still valid.
-- The parser reads each `<…>` as a tag (section 4.3). The tag syntax is the JSX tag syntax of MDX, without expressions.
-- The parser decodes character references (HTML named character references and numeric character references) in text, links, code info strings, and attribute values.
+- The base grammar is CommonMark 0.31.2 with four GFM extensions: tables, task list items, strikethrough, and bare URLs (GFM autolink literals). Footnotes are not supported.
+- Three CommonMark constructs are omitted: indented code blocks, raw HTML, and angle-bracket autolinks. Leading indentation never creates a code block and never prevents block markers, so headings, thematic breaks, code fences, and list markers indented by four or more spaces remain valid.
+- Every `<…>` construct is parsed as a tag (section 4.3) using MDX's expression-free JSX tag syntax.
+- HTML named and numeric character references are decoded in text, link destinations and titles, code fence info strings, and attribute values.
 
 ### 4.2 Elements from shorthand
 
@@ -168,169 +168,169 @@ Rebuild rules:
 | ATX heading, Setext heading | `h1`…`h6` |
 | Thematic break | `hr` |
 | `>` block quote | `blockquote` |
-| Bullet list, ordered list | `ul` or `ol`. The start number of an ordered list goes into `start`. |
-| List item, `[ ]` or `[x]` task item | `li`. A task item has `task="todo"` or `task="done"`. |
-| Fenced code block | `pre`. The first word of the info string goes into `lang`. The text after it goes into `meta`. |
-| GFM table | `table` > `tr` > `th` (first row) or `td`. The alignment of a column goes into the `align` of each cell in that column. The content of each cell is one `p`. |
+| Bullet list, ordered list | `ul` or `ol`. An ordered list's starting number is stored in `start`. |
+| List item, `[ ]` or `[x]` task item | `li`, with `task="todo"` or `task="done"` on task items. |
+| Fenced code block | `pre`. The first word of the info string becomes `lang`, and the remainder becomes `meta`. |
+| GFM table | `table` > `tr` > `th` (header row) or `td`. Column alignment sets `align` on every cell in that column, and each cell wraps its inline content in a single `p`. |
 | `*x*`, `_x_` | `em` |
 | `**x**`, `__x__` | `strong` |
 | `~~x~~`, `~x~` | `s` |
 | `` `x` `` | `code` |
-| Hard line break (two spaces or a backslash at the end of a line) | `br` |
+| Hard line break (two trailing spaces or a trailing backslash) | `br` |
 | Link | `a`, with `href` and `title` |
 | Image | `img`, with `src`, `alt`, and `title` |
-| Link reference, image reference | `a` or `img`, from its definition. If two definitions have the same label, the first definition applies. |
-| Link reference definition | Not in the page tree |
-| GFM bare URL | `a`. An address that starts with `www.` gets the prefix `http://`. An email address gets the prefix `mailto:`. |
+| Link reference, image reference | `a` or `img` resolved from its definition; when duplicate labels exist, the first definition wins. |
+| Link reference definition | Omitted from the page tree |
+| GFM bare URL | `a`. Addresses starting with `www.` receive an `http://` prefix, and email addresses receive a `mailto:` prefix. |
 
 ### 4.3 Tags
 
 Syntax:
 
-- A start tag is `<name attributes…>`, an end tag is `</name>`, and an empty element is `<name />`.
-- An attribute is `name="value"` or `name='value'`. An attribute `name` without a value has a value equal to its name.
-- These are errors: an attribute value written as `{…}`, an attribute written as `{...x}`, a fragment `<>`, and a repeated attribute name.
-- `{…}` in body text is plain text. A `<` in code is text.
+- Start tags use `<name attributes…>`, end tags use `</name>`, and self-closing empty elements use `<name />`.
+- Attributes take the form `name="value"` or `name='value'`; a bare attribute `name` receives `"name"` as its value.
+- JSX value expressions (`{…}`), spread attributes (`{...x}`), fragments (`<>`), and duplicate attribute names are syntax errors.
+- `{…}` in body text is literal text, and `<` inside inline code or code blocks is literal text.
 
-The position of a tag sets its kind, block or inline:
+Where a tag appears determines whether the parser treats it as block or inline:
 
-1. If a line contains only tags and whitespace, those tags are block tags. The content between block tags can have an indent. Except in rules 5–7, the parser reads that content as Markdown blocks, and blank lines separate the blocks.
-2. A tag in the middle of text is an inline element. The parser reads its content as inline Markdown. An inline element can continue across line breaks in the same paragraph. But between its start and its end, there cannot be a blank line or a line that contains only a tag.
-3. If a paragraph contains only one known block element or one unknown element, the parser reads that element as a block. If that known block element has "Block" content, the parser wraps its inline content in a `p`.
-4. If a paragraph contains only known block elements, with only whitespace between them, the parser reads each element as a block. An example is `<td>a</td>` cells with one cell on each line.
-5. You can write a known element with inline or empty content (for example `p`, `h2`, or `u`) as block tags. Then its content is a maximum of one paragraph, and that paragraph can contain inline tags. More paragraphs or other blocks are an error. The parser reads a block element as that element. It reads an inline element as a `p` that contains only that element.
-6. You can write an unknown element as block tags. The parser reads its content as inline content if all of these conditions are true:
-   - Each line of the content contains only tags. There is no text paragraph.
-   - The tags include a known inline element.
-   - The tags include no known block element.
+1. A line containing only tags and whitespace forms block tags. Content between block tags may be indented and—except under rules 5–7—is parsed as Markdown blocks separated by blank lines.
+2. A tag embedded within paragraph text is an inline element whose content is parsed as inline Markdown. An inline tag may span soft line breaks inside a paragraph, provided no blank line or tag-only line appears between its start and end tags.
+3. If a paragraph consists solely of a single known block element or a single unknown element, the parser treats that element as a block; if it is a known block element whose content model is "Block", its inline content is wrapped in a `p`.
+4. If a paragraph consists solely of known block elements separated only by whitespace (such as one `<td>a</td>` per line), each element is parsed as a block.
+5. A known element with inline or empty content (such as `p`, `h2`, or `u`) may be written with block tags, provided its body is at most a single paragraph (which may contain inline tags); multiple paragraphs or nested blocks are an error. A block element parses directly as that element, whereas an inline element is wrapped in a `p`.
+6. When an unknown element is written with block tags, the parser treats its body as inline content if all three conditions hold:
+   - Every line inside the body contains only tags (no plain-text paragraph).
+   - At least one tag is a known inline element.
+   - None of the tags is a known block element.
 
-   In all other cases, the parser reads the content as blocks.
-7. You can write `pre` as block tags. Then its content can only be one code fence, or it can be empty. The parser merges the attributes of the tag with the `lang` and `meta` of the fence. An attribute in both places is an error.
+   Otherwise, the parser reads its body as block content.
+7. When `pre` is written with block tags, its body must be either empty or a single fenced code block. The parser merges the `<pre>` tag's attributes with the fence's `lang` and `meta`, raising an error if either attribute is specified in both places.
 
 ### 4.4 Lenient forms
 
-If the strict read fails, the parser changes the source at each `<` as the table below shows. Then it reads the source again. The parser does not change the source at these `<` characters:
+If strict parsing fails, the parser rewrites unescaped `<` characters according to the table below and retries once. It leaves `<` untouched in three positions:
 
-- a `<` in code
-- a `<` that a backslash escapes
-- a `<` at a link destination, which comes directly after `](` and optional whitespace
+- inside code spans or fenced code blocks
+- immediately after a backslash escape
+- at the start of a link destination (immediately after `](` and optional whitespace)
 
 | After the `<` | Action |
 | --- | --- |
-| `!--`, `![CDATA[`, `?`, or `!` | Error: comment, CDATA, processing instruction, or `<!…>` declaration |
-| An angle-bracket autolink, for example `<https://…>` or `<a@b.c>` | Error |
-| A complete tag | Add double quotes around each attribute value that has no quotes. The HTML void elements are `area`, `base`, `br`, `col`, `embed`, `hr`, `img`, `input`, `link`, `meta`, `param`, `source`, `track`, and `wbr`. Add ` /` to the start tag of each of these elements. |
-| Other text | The `<` is text. |
+| `!--`, `![CDATA[`, `?`, or `!` | Raise an error for a comment, CDATA section, processing instruction, or `<!…>` declaration |
+| An angle-bracket autolink such as `<https://…>` or `<a@b.c>` | Raise an error |
+| A complete tag | Wrap unquoted attribute values in double quotes, and self-close HTML void start tags (`area`, `base`, `br`, `col`, `embed`, `hr`, `img`, `input`, `link`, `meta`, `param`, `source`, `track`, `wbr`) by inserting ` /` before `>` |
+| Other text | Escape `<` so it parses as literal text |
 
-The parser maps error positions back to the original source.
+Any error positions reported on retry are mapped back to offsets in the original source.
 
 ### 4.5 Canonical output
 
-The printer writes canonical Markdown. For each element, it uses the first form that is possible, in this order: shorthand, GFM, tag.
+The Markdown printer emits canonical output, choosing the first applicable representation for each element in the order: shorthand, GFM, tag.
 
 Block elements:
 
 | Element | Condition for shorthand | Form if the condition is false |
 | --- | --- | --- |
-| `p` | It has no attributes, and it has content. It is not one line of only tags with no whitespace. It is not only one unknown element. | `<p …>…</p>`. An empty paragraph is `<p />`. |
-| `h1`…`h6` | It has no attributes. | A single-line tag |
-| `blockquote` | It has no attributes. | Block tags |
-| `ul`, `ol` | The list has no attributes, except `start` on `ol`. The list items have no attributes, except `task`. In each task item, the first child is a `p` with content and no attributes. | Block tags for the list and for each list item |
-| `pre` | It has only `lang` and `meta`. `lang` contains no whitespace, `` ` ``, `&`, or `\`. If there is `meta`, there is also `lang`. `meta` contains no line break, `` ` ``, `&`, or `\`, and has no whitespace at its two ends. | Block tags with all attributes on the tag. The content is a fence without an info string. |
-| `hr` | It has no attributes. | `<hr … />` |
-| `table` | The table and its rows have no attributes. The first row has only `th` cells, and the other rows have only `td` cells. All rows have the same number of cells. In each column, all cells have the same `align`, and that value is not `justify`. Cells have no attribute other than `align`. Each cell contains exactly one `p` without attributes. The text in a cell has no whitespace at its two ends. Attribute values in cells do not contain `\|`. | Block tags. If each cell in a row contains only one paragraph that can be shorthand, each cell of that row is on one line. In other rows, the cells are also block tags. |
-| Other block elements | — | Block tags if all child nodes are elements that are not inline. An empty element if there are no child nodes. A single-line tag in all other cases. |
+| `p` | Has no attributes, is non-empty, is not a single line of tags with no whitespace, and is not a single unknown element. | `<p …>…</p>`, or `<p />` when empty. |
+| `h1`…`h6` | Has no attributes. | Single-line tag |
+| `blockquote` | Has no attributes. | Block tags |
+| `ul`, `ol` | The list has no attributes other than `start` on `ol`; items have no attributes other than `task`; and every task item begins with an attribute-free, non-empty `p`. | Block tags for both the list and every list item |
+| `pre` | Carries only `lang` and `meta`; `lang` contains no whitespace, `` ` ``, `&`, or `\`; `meta` is present only when `lang` is also present; and `meta` has no line breaks, `` ` ``, `&`, `\`, or leading/trailing whitespace. | Block `<pre …>` tags carrying all attributes, wrapping an info-free code fence. |
+| `hr` | Has no attributes. | `<hr … />` |
+| `table` | Neither the table nor its rows have attributes; the first row has only `th` cells and subsequent rows have only `td` cells; every row has the same cell count; every cell in a column shares the same `align` (excluding `justify`) and has no other attributes; every cell contains a single attribute-free `p` whose text has no leading or trailing whitespace; and no attribute value inside a cell contains `\|`. | Block tags. Rows in which every cell contains a single shorthand-eligible paragraph print one cell per line; other rows print cells as block tags as well. |
+| Other block elements | — | Block tags when all children are non-inline elements, `<name … />` when empty, or a single-line tag otherwise. |
 
 Inline elements:
 
 | Element | Condition for shorthand | Shorthand |
 | --- | --- | --- |
 | `strong`, `em`, `s` | No attributes | `**…**`, `*…*`, `~~…~~` |
-| `code` | No attributes, and only one text child node | `` `…` `` |
-| `a` | Only `href` and `title` | `[text](url "title")`. A bare URL if the conditions below are true. |
+| `code` | No attributes, and a single text child | `` `…` `` |
+| `a` | Only `href` and `title` | `[text](url "title")`, or a bare URL when all conditions below hold |
 | `img` | Only `src`, `alt`, and `title` | `![alt](url "title")` |
 
-The printer writes all other inline elements as tags. It also writes an element in this table as a tag if its condition is false.
+All other inline elements—and any element in the table above whose shorthand condition fails—are printed as tags.
 
-Output rules:
+Output formatting rules:
 
-- The list marker is `-`. If `-` makes the parser read a list item as a thematic break or an empty sublist, the printer uses `*`. The numbers of an ordered list start at `start` and increase by one. The content of a list item starts one space after the marker.
-- If a list item contains only one block, or only one paragraph and one sublist, the printer puts no blank lines in the item. In all other cases, it puts a blank line between the blocks in the item.
-- Headings are ATX headings. Fences use backticks. If the content contains backticks, the printer makes the fence longer. A thematic break is `---`. A hard line break is `<br />`.
-- One blank line separates blocks. The content of block tags has an indent of two spaces.
-- In text, the printer escapes each character that the parser can read as syntax. It uses a backslash, or a character reference when necessary. It always writes `<` as `\<`.
-- Tag attributes use double quotes and are in name order. In attribute values, the printer writes `&` as `&amp;`, `<` as `&lt;`, `"` as `&quot;`, tab as `&#9;`, LF as `&#10;`, and CR as `&#13;`.
-- If a line of text contains only tags and whitespace, the printer writes the whitespace as numeric character references. The parser then reads the line as a paragraph. The printer writes a line that contains only tags, with no whitespace, in a `<p>` tag.
-- The printer writes a link as a bare URL if all of these conditions are true:
-  - The link contains only one text segment and has no title.
-  - `href` is equal to the text, to `http://` and the text, or to `mailto:` and the text.
-  - When GFM reads the text alone, it gets exactly the same link.
-  - Before the link, there is the start of the content or whitespace.
-  - After the link, there is the end of the content, or zero or more of `.,:!?)` and then whitespace or the end of the text.
-- The output does not end with a line break.
+- Unordered lists use `-`, switching to `*` whenever `-` would parse as a thematic break or an empty sublist. Ordered lists start at `start` and increment by 1. List item content begins one space after the marker.
+- A list item containing a single block, or a single paragraph followed by a single sublist, is printed tight (no internal blank lines); all other list items separate child blocks with a blank line.
+- Headings use ATX `#` markers. Code fences use backticks, lengthening the fence whenever the code body contains backticks. Thematic breaks print as `---`, and hard line breaks print as `<br />`.
+- Top-level and nested blocks are separated by a single blank line, and block-tag bodies are indented by two spaces.
+- In plain text, characters that would otherwise trigger Markdown or tag syntax are escaped with a backslash (or a character reference where a backslash is insufficient); `<` is always written as `\<`.
+- Tag attributes use double quotes in code-point name order, escaping `&` as `&amp;`, `<` as `&lt;`, `"` as `&quot;`, tab as `&#9;`, LF as `&#10;`, and CR as `&#13;`.
+- If a paragraph line would consist solely of inline tags and whitespace, the printer encodes that whitespace as numeric character references so the parser still reads the line as a paragraph; if the line consists solely of inline tags with no whitespace, the printer wraps the paragraph in `<p>…</p>`.
+- A link prints as a bare URL when all five conditions hold:
+  - It has a single text child and no `title`.
+  - `href` equals `text`, `http://${text}`, or `mailto:${text}`.
+  - Parsing `text` alone under GFM produces the exact same link.
+  - The link sits at the start of inline content or immediately after whitespace.
+  - The link sits at the end of inline content, or is followed by zero or more characters from `.,:!?)` and then whitespace or end of content.
+- Printed Markdown has no trailing newline.
 
-The printer reads the full output back and compares the result with `N(tree)`. If the parser cannot read the output, the printer throws an `Error` with `规范 Markdown 无法读回：` ("Canonical Markdown cannot be read back: ") and then the cause. If the result is different, the printer throws an `Error` with `规范 Markdown 读回后得到不同的页面` ("Canonical Markdown gives a different page when it is read back"). In both cases, the printer does not return the output.
+Before returning, the printer reparses its own output and compares the resulting tree against `N(tree)`. If reparsing fails, the printer throws `Error` prefixed with `规范 Markdown 无法读回：` ("Canonical Markdown cannot be read back: ") followed by the underlying cause; if the reparsed tree differs from `N(tree)`, it throws `Error` with `规范 Markdown 读回后得到不同的页面` ("Canonical Markdown gives a different page when it is read back"). In either case, no output is returned.
 
 ### 4.6 Differences from CommonMark
 
-The tests open the official CommonMark 0.31.2 examples in the editor. They compare the content that the editor shows with the content of the reference implementation. These differences do not count:
+The test suite opens all official CommonMark 0.31.2 examples in the editor and compares the rendered structure against the CommonMark reference implementation, ignoring four expected presentation equivalences:
 
-- A soft line break shows as a space.
-- Whitespace in bold or italic text is equal to plain whitespace.
-- In a list item, the comparison uses only the breaks between paragraphs. It does not compare `<p>` wrappers.
-- The comparison decodes percent-encoded characters in link and image addresses.
+- Soft line breaks normalize to spaces.
+- Leading or trailing whitespace hoisted out of bold or italic formatting matches plain whitespace.
+- List-item comparisons check paragraph breaks rather than tight-versus-loose `<p>` wrappers.
+- Percent-encoded characters in link and image URLs are compared after decoding.
 
-`upstream/fixtures/commonmark-dialect.json` records each other difference. Each entry gives the cause and the exact result, which is the page XML or the error message. All differences come only from these causes:
+Every remaining divergence is recorded in `upstream/fixtures/commonmark-dialect.json` with its cause and exact expected XML or error message. All dialect differences stem from six design choices:
 
-- Indentation does not make a code block, and it does not stop other blocks.
-- Tags are page elements. The parser reads a vocabulary element as that element, keeps an unknown element as an unknown element, and reads the Markdown in tags.
-- A `<` that does not start a complete tag is text.
-- GFM reads bare URLs and email addresses as links.
-- Adjacent lists of the same type merge.
-- Angle-bracket autolinks, comments, CDATA, processing instructions, declarations, tags that are not complete or not closed, and elements that break the vocabulary rules are errors.
+- Leading indentation never forms a code block and never blocks other block markers.
+- `<…>` tags represent page elements: known elements map to vocabulary nodes, unknown elements remain preserved as unknown elements, and tag interiors are parsed as Markdown.
+- A `<` that does not begin a complete tag falls back to literal text.
+- Bare URLs and email addresses become links under GFM autolink rules.
+- Adjacent lists of the same kind merge into one list.
+- Angle-bracket autolinks, comments, CDATA sections, processing instructions, `<!…>` declarations, incomplete or unclosed tags, and vocabulary violations raise errors.
 
 ## 5. XML
 
-Read:
+Reading XML:
 
-- The parser accepts only XML 1.0. An XML declaration is optional. In the declaration, `version` must be `1.0`. If the declaration has `encoding`, it must be UTF-8.
-- DOCTYPE, comments, and processing instructions are errors. The parser reads CDATA as text. It reads only the five predefined XML entities and numeric character references.
-- The root element must be `page`. The parser applies `N` to the result.
+- Only XML 1.0 is accepted. An XML declaration is optional; when present, `version` must be `1.0` and `encoding` (if specified) must be `UTF-8`.
+- `DOCTYPE` declarations, comments, and processing instructions raise errors. CDATA sections are read as plain text, and only the five predefined XML entities plus numeric character references are recognized.
+- The root element must be `page`, and the parser applies `N` before returning the tree.
 
-Print:
+Printing XML:
 
-- The printer writes no XML declaration and adds no layout whitespace. It writes an element with no child nodes as `<name />`.
-- Attributes use double quotes and are in name order.
-- In text, the printer writes `&` as `&amp;`, `<` as `&lt;`, `>` as `&gt;`, and CR as `&#13;`. In attribute values, it also writes `"` as `&quot;`, tab as `&#9;`, and LF as `&#10;`.
+- The XML printer omits the XML declaration, inserts no layout whitespace, and writes childless elements as `<name />`.
+- Attributes are double-quoted and sorted by name.
+- Text escapes `&` as `&amp;`, `<` as `&lt;`, `>` as `&gt;`, and CR as `&#13;`; attribute values additionally escape `"` as `&quot;`, tab as `&#9;`, and LF as `&#10;`.
 
 ## 6. Errors and warnings
 
 ### 6.1 Error object
 
-If a source is not valid, the parse function throws `DocumentError`. `DocumentError` has these fields:
+When source input is invalid, parsing throws `DocumentError` with these fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `format` | `'markdown' \| 'xml'` | The source format |
-| `reason` | `string` | What is wrong |
-| `fix` | `string` | How to correct it |
+| `reason` | `string` | What failed |
+| `fix` | `string` | How to fix the problem |
 | `start`, `end` | `number` | UTF-16 offsets in the original source |
-| `line`, `column` | `number` | The line number and the column number. Both start at 1. The column counts UTF-16 code units. |
+| `line`, `column` | `number` | 1-based line and column numbers (column counts UTF-16 code units) |
 
-`message` has the format `{Markdown|XML} 第 {line} 行第 {column} 列：{reason}。{fix}` ("Markdown or XML, line {line}, column {column}: {reason}. {fix}").
+`message` uses the format `{Markdown|XML} 第 {line} 行第 {column} 列：{reason}。{fix}` ("Markdown or XML, line {line}, column {column}: {reason}. {fix}").
 
-If an error has no position of a specific node, it points to the start of the source.
+When an error is not tied to a specific node position, it points to the start of the source (`line = 1`, `column = 1`, `start = 0`).
 
 ### 6.2 Error reasons
 
-These texts contain placeholders:
+The templates below use these placeholders:
 
-- `x` and `y` are names from the source.
-- `a` is an attribute name.
-- `v` is an attribute value.
-- `c` is a character.
-- `U+XXXX` is a code point.
-- `…` is more detail.
+- `x` and `y`: element or attribute names from the source
+- `a`: an attribute name
+- `v`: an attribute value
+- `c`: a character
+- `U+XXXX`: a Unicode code point
+- `…`: context-specific detail
 
 | Category | `reason` | Meaning |
 | --- | --- | --- |
@@ -379,286 +379,269 @@ These texts contain placeholders:
 | Vocabulary and tree | `页面超过 100000 个节点或 128 层嵌套` | The page has more than 100,000 nodes or 128 levels of nesting. |
 | Vocabulary and tree | `含有 XML 1.0 不允许的字符或孤立代理项` | The content contains a character that is not an XML 1.0 character, or a lone surrogate. |
 
-Each error has a `fix`. These fixes must give specific advice:
+Every error includes an actionable `fix`. In particular:
 
-- Tag that is not closed: if the tag opens in a paragraph, the fix tells you to write the end tag in the same paragraph. It also tells you that a blank line, or a line with only a tag, cannot be between the start and the end. In other cases, the fix tells you to write the end tag after the content. Both fixes also tell you to write a `<` in text as `&lt;`.
-- Value of a known attribute that is not valid: the fix lists the valid values. An example is `align 的值应为 left、center、right 或 justify。` ("The value of align must be left, center, right, or justify.").
-- Wrapper element in an element with "Only …" content: the fix tells you to remove the wrapper tags. A wrapper element contains child elements that the outer element accepts, for example `thead` in `table`.
+- **Unclosed tag**: if the tag opened inside a paragraph, `fix` instructs the author to close it in the same paragraph without a blank line or tag-only line in between; otherwise, `fix` instructs the author to place the closing tag after the content. In both cases, `fix` also notes that a literal `<` in text should be written as `&lt;`.
+- **Invalid value on a known attribute**: `fix` lists the allowed values—for example, `align 的值应为 left、center、right 或 justify。` ("The value of align must be left, center, right, or justify.").
+- **Wrapper element inside an "Only …" parent** (such as `thead` inside `table`, wrapping children that the parent itself accepts): `fix` instructs the author to remove the wrapper tags.
 
-For an XML syntax error, `reason` is the message from the XML parser, and `fix` is `请修正这处 XML 语法。` ("Correct this XML syntax.").
+For low-level XML syntax errors, `reason` carries the message from the XML parser and `fix` is `请修正这处 XML 语法。` ("Correct this XML syntax.").
 
 ### 6.3 Errors from the editor and from writes
 
 | Condition | Thrown error |
 | --- | --- |
 | The revision number is stale. | `Error('文档已变化，源码草稿已保留。请导出草稿并重新读取文档后合并修改。')` ("The document changed. The source draft is kept. Export the draft, read the document again, and then merge your changes.") |
-| An input method editor (IME) composition is not complete. | `Error('输入法组合尚未结束，请完成输入后再应用')` ("The IME composition is not complete. Complete the input, and then apply it.") |
-| The source is not valid. | `DocumentError` |
-| The printer cannot print the new page. | The print error from section 4.5. The page does not change. |
-| The editor content breaks a page rule, for example pasted content with too many levels of nesting. | `readTree` and `read()` throw `TreeError`. |
-| The editor cannot read a node. | `Error('Unexpected block …')`, `Error('Unexpected block leaf …')`, or `Error('Unexpected inline node …')`. This error shows a defect in the editor. |
+| An input method editor (IME) composition is still active. | `Error('输入法组合尚未结束，请完成输入后再应用')` ("The IME composition is not complete. Complete the input, and then apply it.") |
+| The source is invalid. | `DocumentError` |
+| The printer cannot serialize the new page. | The print error from section 4.5; the page remains unchanged. |
+| Editor content violates a page tree limit (for example, pasted content that exceeds maximum nesting depth). | `readTree` and `read()` throw `TreeError`. |
+| The editor encounters an unexpected internal node. | `Error('Unexpected block …')`, `Error('Unexpected block leaf …')`, or `Error('Unexpected inline node …')`, indicating an editor defect. |
 
 ### 6.4 Warnings
 
-`unknownNames(tree)` returns the warning texts in document order, with no duplicates. An unknown element gives `未知元素 <x>` ("unknown element <x>"). An unknown attribute on a known element gives `<x> 的未知属性 a` ("unknown attribute a on <x>"). The attributes of an unknown element do not get separate warnings.
+`unknownNames(tree)` returns warning strings in document order without duplicates. For an unknown element, it emits `未知元素 <x>` ("unknown element <x>"); for an unknown attribute on a known element, it emits `<x> 的未知属性 a` ("unknown attribute a on <x>"). Attributes on unknown elements do not produce additional warnings.
 
 ## 7. Editor
 
 ### 7.1 Assembly
 
-The editing engine is in `src/core`. It is a fork of Wordgard and is part of the source of this package. Changes to it follow the rules of this package. The package does not copy upstream changes into it automatically. `src/core/README.md` gives its origin, its license, and its differences from upstream.
+The editing engine lives in `src/core` as a maintained fork of Wordgard within this package. Changes to `src/core` follow this package's rules rather than tracking upstream automatically; see `src/core/README.md` for provenance, licensing, and divergences from upstream.
 
-`editorExtension()` returns the only editor assembly. The visible editor and the headless editor use the same assembly. The assembly contains these parts:
+`editorExtension()` builds the single canonical editor assembly shared by both the visible editor and headless instances. That assembly comprises:
 
 - the page schema (section 7.2)
-- the corrections that keep the page in normal form (section 7.5, Normal form)
-- history
-- the revision count of `PageSession`
-- block-boundary keys (`blockKeys`)
-- lists (`listEditing`)
-- keyboard shortcuts and typing shortcuts (`shortcuts`)
-- links (`links`)
-- the clipboard (`clipboard`)
-- input events (`nativeInput`)
-- tables (`tableEditing`)
-- page-end clicks (`pageEnd`)
-- the extension of each block definition
+- normal-form transaction filters (section 7.5, Normal form)
+- undo/redo history
+- `PageSession` revision tracking
+- block-boundary key handling (`blockKeys`)
+- list editing (`listEditing`)
+- keyboard and typing shortcuts (`shortcuts`)
+- link handling (`links`)
+- clipboard handling (`clipboard`)
+- DOM input event handling (`nativeInput`)
+- table editing (`tableEditing`)
+- page-end click handling (`pageEnd`)
+- the extension contributed by each registered block definition
 
-`initialState(initial, config)` makes an editor state with the assembly `config`. `initial` is a Markdown string or a page tree. If the Markdown is not valid, the function throws `DocumentError`. The caret starts at the end of the page. If you focus the editor or insert a block before a click, the action occurs at the end of the page. `headlessState(initial)` returns a headless state with `editorExtension()`.
+`initialState(initial, config)` creates an editor state from `initial` (either a Markdown string or a page tree) and assembly `config`, throwing `DocumentError` if the Markdown is invalid. The caret starts at the end of the page, so focusing the editor or inserting a block before clicking acts at the end of the page. `headlessState(initial)` creates a headless state configured with `editorExtension()`.
 
 ### 7.2 Import: page tree to editor document
 
-`pageDocument(tree)` applies `N` to `tree`. Then it makes the editor document as this table shows. `replaceTree(state, tree)` returns an update that replaces the full page.
+`pageDocument(tree)` normalizes `tree` with `N` and converts it into an editor document according to the table below. `replaceTree(state, tree)` builds an editor update that replaces the entire page.
 
 | Element | Editor node |
 | --- | --- |
-| `p`, `h1`…`h6` | Paragraph, heading. `align`, `indent`, and `style` are marks on the node. |
-| `blockquote` | Quote, which is a container. The editor imports each child block. |
-| `ul`, `ol` | Bullet list, numbered list. `start` is a parameter of the numbered list. |
-| `li` | List item, which is a container. The editor imports each child block. `task` is a mark on the list item. |
-| `pre` | Code block. `lang` and `meta` are marks. A line break in the text is a line-break node. |
+| `p`, `h1`…`h6` | Paragraph or heading, with `align`, `indent`, and `style` stored as node marks. |
+| `blockquote` | Quote container; each child block is imported recursively. |
+| `ul`, `ol` | Bullet list or numbered list (`start` becomes a parameter on the numbered list). |
+| `li` | List-item container; each child block is imported recursively, and `task` becomes a mark on the list item. |
+| `pre` | Code block, with `lang` and `meta` as marks and line breaks represented as line-break nodes. |
 | `hr` | Divider |
-| `table`, `tr`, `th`, `td` | Table, row, header cell, cell. Cells are containers. `colspan`, `rowspan`, and `align` are marks on the cell. |
-| `callout` | Callout, which is a container. The editor imports each child block. |
+| `table`, `tr`, `th`, `td` | Table, row, header cell, and cell. Cells are containers, with `colspan`, `rowspan`, and `align` stored as marks on the cell. |
+| `callout` | Callout container; each child block is imported recursively. |
 | `embed` | Embed |
-| Format elements, `span` with `style` | Marks on text: bold, italic, strikethrough, underline, highlight, subscript, superscript, code, and style |
-| `a` with content | A link mark on text. The mark keeps all attributes of the link. |
+| Format elements, `span` with `style` | Text marks: bold, italic, strikethrough, underline, highlight, subscript, superscript, code, and style |
+| `a` with content | Link mark on text, preserving all attributes of `a` |
 | `br` | Line-break node |
-| `img` | Image node. `alt` and `title` are marks. |
-| Unknown elements, `a` without content, format elements with attributes, `span` with attributes other than `style` | Read-only element (section 7.4). An inline read-only element gets the formats, style, and link of its outer elements. |
+| `img` | Image node, with `alt` and `title` stored as marks |
+| Unknown elements, empty `a`, format elements with attributes, `span` with attributes other than `style` | Read-only element (section 7.4). Inline read-only elements inherit the formats, `style`, and link of their ancestors. |
 
-The editor keeps each attribute that the table does not name, and each unknown attribute, in one mark on the node. Copy, undo, and block type changes keep this mark.
+Any attribute not listed above—including unknown attributes—is preserved in an extra-attributes mark on the node across copy, undo, and block-type conversions.
 
-A bullet list can mix task items and plain items. Table rows can have different lengths, and a row can be empty. A cell can be empty. The editor keeps merged cells as document data, but it has no commands to merge or split cells.
+Bullet lists may mix task items and plain items. Table rows may vary in length or be empty, and cells may be empty. Merged cells (`colspan` / `rowspan`) are preserved as document data, although the editor provides no interactive commands to merge or split cells.
 
-An empty page imports as one empty paragraph with a placeholder mark. This paragraph holds the caret.
+An empty page imports as a single empty paragraph carrying a placeholder mark so that it can hold the caret.
 
 ### 7.3 Read: editor document to page tree
 
-`readTree(doc)` reads the document with the table in section 7.2, in the reverse direction. Then it applies `N`:
+`readTree(doc)` converts an editor document back into a page tree by reversing the mapping in section 7.2 and applying `N`:
 
-- It does not read an empty paragraph with a placeholder mark.
-- It does not read characters in text and attribute values that are not XML 1.0 characters. Examples are control characters from a paste, and one half of a surrogate pair during input. The text in the editor does not change.
+- An empty paragraph carrying the placeholder mark is omitted.
+- Characters in text or attribute values that are invalid in XML 1.0 (such as pasted control characters or an unpaired surrogate during input) are stripped from the output without mutating the editor state.
 
-For each valid page tree `T`, an import and then a read give `N(T)`.
+For every valid page tree `T`, importing `T` and reading it back yields `N(T)`.
 
 #### Prepare a submission
 
-`preparePageUpdate(transaction)` prepares the final local transaction of a batch for XML storage. Run input appenders first, and call it after IME composition ends. The function reads and writes the document through the XML conversion chain, makes a correction for the parts that differ, and merges that correction into the transaction. Mark changes keep text positions. The returned transaction keeps the mapped selection and effects, annotations, and history boundary.
+`preparePageUpdate(transaction)` prepares the final local transaction of an edit batch for XML storage; run input appenders first and call it only after IME composition has ended. It round-trips the resulting document through the XML codec, computes a diff for any normalization adjustments, and folds that correction into the transaction without shifting text positions on mark-only changes. The returned transaction preserves the mapped selection, effects, annotations, and history boundary.
 
-The client applies the returned transaction in place of the original. It composes that transaction's changes with the earlier changes in the batch, then sends the result. Normalizing only the wire data while keeping the old client document breaks the next batch. Remote replay applies the prepared changes without a new local preparation.
+The client must apply the returned transaction instead of the original one, compose its changes onto earlier changes in the batch, and transmit the combined change set. Normalizing only the outgoing payload while leaving the unnormalized document in memory would desynchronize the next batch. When replaying remote changes, the client applies the already-prepared change set directly without running `preparePageUpdate` again.
 
 ### 7.4 Read-only elements
 
-A read-only element holds one element, and a read gives that element without change. The editor shows the content of the element:
+A read-only node wraps a single page-tree element and returns it verbatim on read while rendering its contents in the editor:
 
-- A vocabulary element shows in the editor style.
-- `img` shows the image.
-- A link shows its text. When the pointer hovers over the link, the editor shows the address.
-- A task item shows a checkbox that you cannot operate.
-- A callout and an embed show in their own styles.
-- A block-level unknown element shows its content and a label with the element name.
-- An inline unknown element shows its content. When the pointer hovers over it, the editor shows the element name.
+- Known vocabulary elements render in the editor's standard typography.
+- `img` renders the image.
+- Links render their text and reveal the target URL on pointer hover.
+- Task items render a non-interactive checkbox.
+- Callouts and embeds render in their respective block styles.
+- Block-level unknown elements render their children alongside a badge naming the element.
+- Inline unknown elements render their children and show the element name on pointer hover.
 
-The text content of a read-only element is all the text in the element, joined in order. You change a read-only element in the source. An image node shows the image, and you also change its attributes in the source.
+The plain-text value of a read-only element is the concatenation of all text inside it in document order. Authors edit read-only elements—and image attributes—through the source view.
 
 ### 7.5 Edit behavior
 
-- **Normal form**: Before the editor applies an update that changes the document, it corrects the update with the rules of sections 2 and 3:
-  - It merges adjacent lists of the same type. The merged list keeps the attributes of the first list. It also gets the attributes that only the second list has.
-  - It removes formats, styles, and links in code blocks.
-  - It removes `colspan` and `rowspan` with the value 1.
-  - It removes attribute values that are not valid, spans larger than 9999, and optional attributes with an empty value.
-- **Typing shortcuts**: The editor uses the Markdown syntax of the page (section 4.1, without tags) as typing shortcuts.
-  - A block marker converts its paragraph when you type the space after the marker. This applies only to a paragraph that is directly in the page, a quote, a callout, or a table cell.
-  - A fence converts when you press Enter. An inline format converts when you type its end marker.
-  - Three more shortcuts apply when you type the last character of one of these texts, and the paragraph then contains only that text. `[] ` changes the paragraph into a task item. `" ` or `| ` changes the paragraph into a quote. `---` changes the paragraph into a divider and adds an empty paragraph after it.
-  - If you type `[ ] ` or `[x] ` at the start of a bullet list item, only that item becomes a task item.
-  - Only typed text converts. A paste or a delete does not convert. When an IME composition ends, the editor checks for a shortcut one time.
-  - Each conversion is one undo step. An undo directly after a conversion restores the typed characters.
-- **Typed URLs**: In text that is not code and not a link, an address becomes a link when you press Space or Enter after it. All of these conditions must be true:
-  - The address is directly before the caret.
-  - The address starts at the start of the text or after whitespace.
-  - The address starts with `http://`, `https://`, or `www.`.
-  - The last character of the address is not one of `.,;:!?'")]`.
+- **Normal form**: Before applying any document-changing update, the editor normalizes it under the rules of sections 2 and 3:
+  - Adjacent lists of the same kind merge, keeping the first list's attributes plus any attributes present only on the second list.
+  - Formats, styles, and links inside code blocks are stripped.
+  - `colspan="1"` and `rowspan="1"` are removed.
+  - Invalid attribute values, cell spans above 9999, and empty optional attributes are removed.
+- **Typing shortcuts**: Markdown shorthand from section 4.1 (excluding `<…>` tags) acts as live typing shortcuts:
+  - Typing a space after a block marker converts the current paragraph when it sits directly inside the page root, a quote, a callout, or a table cell.
+  - Pressing Enter after a code-fence marker converts the paragraph into a code block, and typing the closing delimiter of an inline marker applies that inline format.
+  - Three additional shortcuts trigger when their final character leaves the paragraph containing nothing else: `[] ` converts to a task item, `" ` or `| ` converts to a quote, and `---` converts to a divider followed by a new empty paragraph.
+  - Typing `[ ] ` or `[x] ` at the start of a bullet list item converts only that item into a task item.
+  - Shortcuts trigger only on typed input—never on paste or delete—and run once when an IME composition commits.
+  - Every shortcut conversion forms its own undo step, so undoing immediately afterward restores the literal characters typed.
+- **Typed URLs**: Outside code and existing links, pressing Space or Enter immediately after a URL turns it into a link when all four conditions hold:
+  - The URL sits immediately before the caret.
+  - It starts at the beginning of the text block or right after whitespace.
+  - It begins with `http://`, `https://`, or `www.` (addresses starting with `www.` receive an `http://` prefix).
+  - Its final character is not in `.,;:!?'")]`.
 
-  An address that starts with `www.` gets the prefix `http://`. Imported text does not become a link automatically.
-- **Lists**: A list item is a container. Its first text block is the text of the list item. Its sublists are blocks after that text block.
-  - If you press Enter in a list item, the editor splits the item at the caret. The text after the caret and the blocks after it in the item move to a new list item. A new item after a checked task item is an unchecked task item.
-  - A new or outdented empty list item has no blocks. The printer writes it as `-`. If an edit makes the only paragraph of a list item empty, and the paragraph has no attributes, the item becomes an empty list item.
-  - If an empty list item gets a sublist, the editor adds an empty paragraph above the sublist.
-  - When a list item becomes a paragraph, its blocks become blocks of the page directly.
-  - If you use Shift+Tab to outdent a list item in a sublist, its child items and the sibling items after it become its child items. The blocks that were after the sublist in the old parent item go into a new list item after the outdented item.
-  - The first item of a list cannot nest one level deeper. Tab does not indent the first item of a list. If the selection starts at the first item of a list, the first item stays in its position, and the other items nest under it.
-  - When the text of a list item merges into another block, the other blocks of that item go into the previous list item. The first item of a list has no previous list item. For that item, the other blocks go before the list.
-  - If you press Enter in an empty list item, an item in a sublist outdents one level. A top-level item becomes a paragraph, and the list splits at that position.
-  - If you press Enter at the start of a list item that is not empty, the editor adds an empty list item before it.
-- **Callouts**: If both ends of the selection are in the same callout, a delete or a cut removes only content and keeps the callout. If you delete all blocks in a callout, one empty paragraph stays in it.
-- **Embeds**: The delete keys do not delete an embed (refer to Delete). The Up Arrow and Down Arrow keys move the caret past it. The block menu can delete it. A selection that contains it can also delete it. For example, a click on it makes a node selection that contains it. Deleting the block removes only the embed. The page that it names stays.
-- **Delete**: Backspace deletes backward, and Delete deletes forward.
-  - Backspace deletes one character before the caret. It deletes an emoji, a zero-width joiner (ZWJ) sequence, or a character outside the Basic Multilingual Plane as one unit. For other characters with combining marks, each Backspace removes the last combining mark. Delete removes the full character after the caret.
-  - On Apple platforms, Ctrl+H deletes the character before the caret, and Ctrl+D deletes the character after the caret. Ctrl+K deletes to the end of the line. Option+Backspace and Option+Delete delete by word. Command+Backspace deletes to the start of the line, and Command+Delete deletes to the end of the line.
-  - On other platforms, Ctrl+Backspace and Ctrl+Delete delete by word.
-  - When the caret is at the start or end of a block, the two tables below apply. These rules also apply to delete input events from the browser, for example a delete from an on-screen keyboard.
-  - On Apple platforms, the text that Ctrl+K deletes does not go into the kill ring, and Ctrl+Y cannot paste it back.
-  - If a key or an input event comes before the editor reads the new DOM selection, it acts at the caret position on the screen.
-- **Input events**: The editor processes these `beforeinput` types: insert text, replace text, line break, paragraph break, transpose, and yank from the kill ring. It also processes drag and drop, delete by cut, all delete types, undo, redo, bold, italic, underline, and strikethrough.
-  - The browser inserts IME composition text. The editor processes a paste in the `paste` event.
-  - The editor cancels these types, and the page does not change: `deleteEntireSoftLine`, `formatSuperscript`, `formatSubscript`, `formatJustifyLeft`, `formatJustifyCenter`, `formatJustifyRight`, `formatJustifyFull`, `formatIndent`, `formatOutdent`, `formatRemove`, `formatSetBlockTextDirection`, `formatSetInlineTextDirection`, `formatBackColor`, `formatFontColor`, `formatFontName`, `insertOrderedList`, `insertUnorderedList`, `insertHorizontalRule`, `insertLink`.
-  - The editor cannot cancel some `insertReplacementText` events, for example a spelling correction. For these events, the browser changes the page. If the change stays in a text node that was there before the event, the editor reads the result and inserts it one time. If the browser changes the page structure, the editor renders the page again from the document, and the change is lost.
-  - The browser applies some changes itself: typed text, composition text, and inline deletes. Between the `beforeinput` and `input` events of such a change, the editor does not render the page again. During this time, a layout read gets the page from the last render.
+  Importing text never auto-links URLs beyond normal Markdown parsing.
+- **Lists**: Every list item is a block container whose first text block holds the item's label text, followed by any nested sublists or child blocks:
+  - Pressing Enter inside a list item splits it at the caret, moving trailing text and subsequent child blocks into a new sibling item. Splitting after a checked task item creates an unchecked task item.
+  - Newly created or outdented empty list items contain no child blocks and print as `-`. If editing leaves a list item with a single empty, attribute-free paragraph, the item collapses to an empty list item.
+  - Attaching a sublist to an empty list item inserts an empty paragraph above the sublist.
+  - Converting a list item to a paragraph promotes its child blocks directly to the surrounding container.
+  - Outdenting a sublist item with Shift+Tab adopts both its existing children and any following sibling items as its children, while any blocks that followed the sublist in the former parent item move into a new list item after the outdented item.
+  - The first item of a list cannot indent deeper: pressing Tab on it is a no-op, and indenting a multi-item selection that starts on the first item leaves the first item in place while nesting the remaining selected items beneath it.
+  - When a list item's text merges into a preceding block, its remaining child blocks append to the previous list item—or move before the list if it was the first item.
+  - Pressing Enter in an empty list item outdents it by one level when nested, or converts it into a paragraph (splitting the list) at the top level.
+  - Pressing Enter at the very start of a non-empty list item inserts an empty list item above it.
+- **Callouts**: Deleting or cutting a selection whose endpoints lie inside the same callout removes only the selected content and keeps the callout wrapper; if all blocks inside a callout are deleted, one empty paragraph remains.
+- **Embeds**: Backspace and Delete at an adjacent block boundary skip over an embed rather than deleting it (see Delete below), and Up/Down Arrow move the caret past it. Users can delete an embed from the block menu or by deleting a selection that spans or selects the embed node (such as clicking the embed to create a node selection). Deleting an embed block removes only the reference; the target page itself is untouched.
+- **Delete**: Backspace deletes backward and Delete deletes forward:
+  - Backspace removes one grapheme/code-point unit before the caret: an emoji, a zero-width joiner (ZWJ) sequence, or a supplementary-plane character deletes as a single unit, whereas for BMP base characters with combining marks each Backspace strips only the last combining mark. Forward Delete removes the entire character cluster after the caret.
+  - On Apple platforms, Ctrl+H deletes one character backward, Ctrl+D deletes one character forward, Ctrl+K deletes to the end of the line (without writing to the kill ring, so Ctrl+Y does not yank it back), Option+Backspace and Option+Delete delete by word, Command+Backspace deletes to the start of the line, and Command+Delete deletes to the end of the line.
+  - On non-Apple platforms, Ctrl+Backspace and Ctrl+Delete delete by word.
+  - At the start or end of a block, both key presses and browser delete input events (including on-screen keyboards) follow the boundary tables below.
+  - If a key or input event arrives before the editor has read an updated DOM selection, the command acts at the caret position currently shown on screen.
+- **Input events**: The editor handles `beforeinput` events for text insertion, text replacement, line breaks, paragraph breaks, character transposition, kill-ring yank, drag-and-drop, cut deletion, all delete input types, undo, redo, bold, italic, underline, and strikethrough:
+  - During IME composition the browser inserts composition text natively, and clipboard pastes are handled on the `paste` event.
+  - The editor cancels these `beforeinput` types without changing the page: `deleteEntireSoftLine`, `formatSuperscript`, `formatSubscript`, `formatJustifyLeft`, `formatJustifyCenter`, `formatJustifyRight`, `formatJustifyFull`, `formatIndent`, `formatOutdent`, `formatRemove`, `formatSetBlockTextDirection`, `formatSetInlineTextDirection`, `formatBackColor`, `formatFontColor`, `formatFontName`, `insertOrderedList`, `insertUnorderedList`, `insertHorizontalRule`, and `insertLink`.
+  - Some `insertReplacementText` events (such as OS spellcheck replacements) are non-cancelable, so the browser mutates the DOM directly. If the mutation stays within a pre-existing text node, the editor reads the updated text and applies it once; if the browser alters DOM structure, the editor re-renders from the document state and discards the browser mutation.
+  - For browser-applied edits—plain typing, composition updates, and inline deletes—the editor defers DOM re-rendering between `beforeinput` and `input`; any layout measurement during that window observes the previous render.
 - **Paste and copy**:
-  - From pasted HTML, the editor keeps headings, lists and nested lists, quotes, and tables. It also keeps task items (`aria-checked`, or GitHub task list items), code blocks with `data-language`, links (`href`, `title`), and images (`src`, `alt`, `title`).
-  - For formats, the editor reads the format elements and `<b>`, `<i>`, `<del>`, and `<strike>`. Bold comes only from the font weights `bold` and 700.
-  - For styles, the editor keeps only text case changes (`text-transform`) and alignment (`data-align` or `text-align`). It disregards `text-align: start` and reads `end` as `right`. It removes all other styles and all block styles.
-  - The editor reads callouts and embeds only in the form that the editor writes.
-  - When you copy between editors, the clipboard HTML carries the exact data of the copied content. If that data is not there, or does not agree with the page schema, the editor reads the HTML.
-  - If the clipboard has only plain text, the editor reads it as Markdown. If the result has blocks other than paragraphs, or formats, links, or line breaks, the editor inserts it as page content. If the result has only plain paragraphs, contains unknown elements, or cannot be read, the editor inserts the plain text.
-  - In a code block, the editor always inserts plain text, and line breaks become line-break nodes. If the clipboard has only HTML, the editor uses the text of the HTML, with one line for each block.
-  - When the editor inserts page content, only the text blocks at the two edges are open. If the first block is a text block, it merges into the block at the caret. If the last block is a text block, the text after the caret merges into it. Lists, tables, quotes, and callouts go in as full blocks.
-  - A fully selected quote, callout, list item, cell, list, or table copies as a full block. A cell copies with its row and its table. A list item copies with its list. A cell selection copies a table of the selected cells. A partial selection in a list item copies without the list.
-  - In copied plain text, each text block is one line. A copied table has one line for each row, with a tab between cells.
-- **Page-end click**: This rule applies when the last block is a leaf block or a container. A leaf block is an embed, a divider, or a block-level read-only element. A container is a table, a quote, or a callout. A click in the empty area below the last block adds an empty paragraph at the end of the page. The caret goes into that paragraph.
-- **History**: Each of these is one undo step:
-  - a format change from the toolbar
-  - a block menu action
-  - an insert from the insert menu or the slash menu
-  - a block shortcut (duplicate, move, or change type)
-  - a drag of a block handle to change the order of blocks
-  - a typing shortcut conversion
-  - a whole-page write
+  - Pasting HTML preserves headings, flat and nested lists, quotes, tables, task items (`aria-checked` or GitHub task-list markup), code blocks (`data-language`), links (`href`, `title`), and images (`src`, `alt`, `title`).
+  - Inline formatting recognizes vocabulary format tags plus `<b>`, `<i>`, `<del>`, and `<strike>`; CSS `font-weight` maps to bold only for `bold` and `700`.
+  - Inline styles retain only `text-transform` and alignment (`data-align` or `text-align`, ignoring `start` and mapping `end` to `right`); all other inline styles and all block styles are stripped.
+  - Callouts and embeds are recognized from HTML only in the exact markup written by the editor.
+  - Copying from an editor embeds the exact serialized slice in the clipboard HTML; on paste, the editor prefers that slice whenever it is present and valid for the schema, falling back to HTML parsing otherwise.
+  - When the clipboard contains only plain text, the editor parses it as Markdown and inserts structured page content if parsing succeeds without unknown elements and yields non-paragraph blocks, inline formats, links, or hard breaks; otherwise, it inserts the literal plain text.
+  - Inside a code block, paste always inserts literal text with line breaks converted to line-break nodes (extracting one text line per block if the clipboard carries only HTML).
+  - When inserting multi-block content, only leading and trailing text blocks stay open: a leading text block merges into the block at the caret, a trailing text block absorbs the text after the caret, and lists, tables, quotes, and callouts insert as closed blocks.
+  - Copying a fully selected quote, callout, list item, cell, list, or table copies the whole block structure: a single cell includes its row and table, a list item includes its enclosing list, and a multi-cell selection produces a table of the selected cells, whereas a partial selection inside one list item copies inline content without the list wrapper.
+  - Plain-text copy writes one line per text block and formats tables as one line per row with tab-separated cells.
+- **Page-end click**: When the final block on the page is a leaf block (embed, divider, or block-level read-only element) or a container (table, quote, or callout), clicking in the blank area below it appends a new empty paragraph and places the caret inside it.
+- **History**: Each of the following actions records a single undo step:
+  - toggling a format from the toolbar
+  - running a block-menu action
+  - inserting a block from the insert menu or slash menu
+  - invoking a block shortcut (duplicate, move, or turn into)
+  - dragging a block handle to reorder blocks
+  - triggering a typing-shortcut conversion
+  - applying a whole-page write
 
-A text block is a block that contains text directly: a paragraph, a heading, or a code block. When the caret is at the start of a block, a backward delete does this:
+A *text block* is a block that holds text directly: a paragraph, a heading, or a code block. When the caret is at the start of a block, backward delete behaves as follows:
 
 | Block at the caret | Backspace, Ctrl+H, delete by word | Command+Backspace |
 | --- | --- | --- |
-| A list item, or the block at the start of a list item | The list item becomes a paragraph. A top-level list splits at this position, and the paragraph goes between the two parts. The first item of a sublist becomes a paragraph in the parent list item. The other items of a sublist become paragraphs in their positions. The sublist of the item comes after the paragraph. | An item in a sublist outdents one level, together with its child items. A top-level item merges into the nearest text block before it. |
-| A paragraph or block after the first paragraph of a list item | This block, and the content after it in the list item, move out of the list to a position after this list item. The list splits at this position. | Same as Backspace |
-| A paragraph or heading with an indent | The indent decreases by one level. | Same as Backspace |
-| The first paragraph of a quote | All paragraphs of the quote become plain paragraphs. | This paragraph merges into the nearest text block before the quote. If there is no text block before it, nothing changes. |
-| The first paragraph of a callout | This paragraph merges into the nearest text block before the callout. If the callout becomes empty, the editor deletes it. If there is no text block before the callout, nothing changes. | Same as Backspace |
-| The first paragraph of a table cell | Nothing changes. | Same as Backspace |
-| A block after a divider, an embed, or a block-level read-only element | The block merges into the nearest text block before them. These blocks stay in their positions. If there is no text block before them, nothing changes. | Same as Backspace |
-| A block after a quote, a callout, or a table | The block merges into the last text block in it. For a table, this text block is in the last cell. | Same as Backspace |
-| The first block of the page | If the block is empty and other blocks come after it, the editor deletes it and moves the caret to the next block. In other cases, nothing changes. | Same as Backspace |
-| Any other block | The block merges into the previous block. The type of the previous block does not change. | Same as Backspace |
+| A list item, or the first block of a list item | Converts the list item into a paragraph. At the top level, the list splits around the new paragraph. In a sublist, the first item becomes a paragraph inside the parent list item, while any other item becomes a paragraph in place; any nested sublist of the converted item follows the paragraph. | Outdents a sublist item (along with its children) by one level, or merges a top-level item into the nearest preceding text block. |
+| A block after the first paragraph of a list item | Moves this block and any following blocks in the same item out of the list immediately after the item, splitting the list there. | Same as Backspace |
+| An indented paragraph or heading | Decreases `indent` by one level. | Same as Backspace |
+| The first paragraph of a quote | Unwraps all paragraphs in the quote into plain paragraphs. | Merges this paragraph into the nearest text block before the quote, or does nothing if none exists. |
+| The first paragraph of a callout | Merges this paragraph into the nearest text block before the callout (deleting the callout if it becomes empty), or does nothing if no text block precedes it. | Same as Backspace |
+| The first paragraph of a table cell | Does nothing. | Same as Backspace |
+| A block immediately after a divider, embed, or block-level read-only element | Merges into the nearest text block before those leaf blocks while leaving them in place, or does nothing if none exists. | Same as Backspace |
+| A block immediately after a quote, callout, or table | Merges into the last text block inside that container (for a table, inside its last cell). | Same as Backspace |
+| The first block of the page | If the block is empty and followed by other blocks, deletes it and moves the caret to the next block; otherwise does nothing. | Same as Backspace |
+| Any other block | Merges into the previous block while keeping the previous block's type. | Same as Backspace |
 
-When the caret is at the end of a block, a forward delete (Delete, Ctrl+D, Ctrl+K, delete by word, or Command+Delete) does this:
+When the caret is at the end of a block, forward delete (Delete, Ctrl+D, Ctrl+K, delete by word, or Command+Delete) behaves as follows:
 
 | Condition | Result |
 | --- | --- |
-| The next block is a divider, an embed, or a block-level read-only element. | The nearest text block after them merges into the block at the caret. These blocks stay in their positions. If there is no text block after them, nothing changes. |
-| The block at the caret is the last paragraph of a quote or a callout. | The nearest text block after the container merges into the block at the caret. |
-| The next block is a quote or a callout. | The first text block in it merges into the block at the caret. If the container becomes empty, the editor deletes it. |
-| The next block is a table, or the block at the caret is the last paragraph of a table cell. | Nothing changes. |
-| Any other condition | The text of the next block, of the next list item, or of the first child item merges into the block at the caret. The type of the block at the caret does not change. If the caret is in an empty list item, quote, callout, or cell, this text goes into a new paragraph in it. |
+| The next block is a divider, embed, or block-level read-only element. | Pulls the nearest text block after those leaf blocks into the block at the caret while leaving the leaf blocks in place, or does nothing if none exists. |
+| The block at the caret is the last paragraph of a quote or callout. | Pulls the nearest text block after the container into the block at the caret. |
+| The next block is a quote or callout. | Pulls the first text block inside that container into the block at the caret, deleting the container if it becomes empty. |
+| The next block is a table, or the block at the caret is the last paragraph of a table cell. | Does nothing. |
+| Any other condition | Merges the text of the next block, next list item, or first child item into the block at the caret without changing the current block's type. If the caret sits in an empty list item, quote, callout, or cell, the merged text populates a new paragraph inside it. |
 
-Enter:
+Enter key behavior:
 
-- In a heading: in the middle, the text after the caret becomes a paragraph after the heading. At the start, the editor adds an empty paragraph before the heading. At the end, the editor adds an empty paragraph after the heading.
-- In a paragraph of a quote: the text after the caret becomes a paragraph after the quote. The paragraphs after it in the quote make a new quote after this paragraph. At the start of the first paragraph of the quote, Enter does a different thing. If that paragraph is not empty, Enter adds an empty paragraph before the quote. The caret does not move.
-- In a callout: the editor adds a paragraph in the callout. If the callout has other blocks, and its last paragraph is empty, Enter in that paragraph moves it to a position after the callout.
-- In a list: refer to Lists.
+- **In a heading**: pressing Enter in the middle splits trailing text into a new paragraph below; pressing Enter at the start inserts an empty paragraph above; pressing Enter at the end inserts an empty paragraph below.
+- **In a paragraph inside a quote**: pressing Enter splits trailing text into a plain paragraph after the quote, and any remaining paragraphs of the quote form a second quote below it—except at the very start of the quote's first non-empty paragraph, where Enter inserts an empty paragraph above the quote without moving the caret.
+- **In a callout**: pressing Enter inserts a new paragraph inside the callout, unless the callout has multiple blocks and the caret is in a trailing empty paragraph, in which case that empty paragraph moves below the callout.
+- **In a list**: see **Lists** above.
 
-The block type operation `applyBlockType(editor, type, replace?)` is one undo step. `replace` is a range that the operation deletes first, in the same step. An example is the query text of the slash menu.
+`applyBlockType(editor, type, replace?)` converts block types in a single undo step; when `replace` is supplied (such as the `/query` range from the slash menu), that range is deleted first in the same step:
 
 | `type` | Behavior |
 | --- | --- |
-| `paragraph`, `h1`, `h2`, `h3` | Changes the selected blocks into paragraphs or headings. Keeps the alignment, the indent, the style, and the attributes that are not in the vocabulary. |
-| `bullet`, `number`, `check` | Changes the selected paragraphs, headings, and code blocks into list items. Each block becomes the paragraph of a list item and keeps its alignment, style, and attributes that are not in the vocabulary. A block with no content and no attributes becomes an empty list item. The indent of a block becomes its nesting level in the list. Each item can be a maximum of one level deeper than the previous item. The first item of a new list does not nest. If a list of the same type is directly before the blocks, the new list items go into that list. In a bullet list, each run of consecutive task items or plain items counts as one list. The operation changes the type of the run that contains the selected items. |
-| `quote`, `callout` | Puts the text of the paragraph, heading, or code block at the caret into a new paragraph. Wraps that paragraph in a quote or a callout. The new paragraph keeps the alignment, indent, style, and attributes outside the vocabulary from the old block. The caret moves to the end of the new paragraph. If the caret is in a different type of block, the operation splits that block at the caret. It puts an empty quote or callout between the two parts and moves the caret into it. A list splits at the list item with the caret. If the caret is at the end of the last list item, the second part is an empty list item. |
-| `code` | Changes the selected blocks into code blocks. Keeps only the text, the line breaks, and the attributes that are not in the vocabulary. If the old block is a code block, keeps its language and `meta`. A code block has no alignment, indent, or style. |
-| `divider`, `embed` | Inserts a divider, or an empty embed at the caret. If the paragraph at the caret is empty and has no attributes outside the vocabulary, that paragraph becomes the new block. An empty paragraph comes after it. In other cases, the operation splits the block at the caret and puts the new block between the two parts. A list splits as for `quote`. The caret moves to a position after the new block. |
+| `paragraph`, `h1`, `h2`, `h3` | Converts selected blocks to paragraphs or headings while preserving `align`, `indent`, `style`, and non-vocabulary attributes. |
+| `bullet`, `number`, `check` | Converts selected paragraphs, headings, and code blocks into list items, keeping `align`, `style`, and non-vocabulary attributes on each item's paragraph (an empty, attribute-free block becomes an empty list item). Block `indent` maps to list nesting depth, clamped so the first item stays at depth 0 and each subsequent item nests at most one level deeper than its predecessor. If a matching list sits immediately above, the new items append to it. Within a bullet list, contiguous runs of task items and plain items count as distinct logical lists, and conversion retargets the run containing the selection. |
+| `quote`, `callout` | Copies the text of the paragraph, heading, or code block at the caret into a new paragraph wrapped in a quote or callout (preserving `align`, `indent`, `style`, and non-vocabulary attributes) and places the caret at the end. In any other block type, splits the block at the caret, inserts an empty quote or callout between the halves, and moves the caret inside; lists split at the current item (leaving a trailing empty item if split at the end of the last item). |
+| `code` | Converts selected blocks into code blocks, keeping only text, line breaks, and non-vocabulary attributes (plus existing `lang` and `meta` if already a code block); `align`, `indent`, and `style` are dropped. |
+| `divider`, `embed` | Inserts a divider or empty embed at the caret. If the current paragraph is empty and has no non-vocabulary attributes, it is replaced by the new block followed by an empty paragraph; otherwise the current block splits around the new block (lists split as for `quote`), and the caret moves after it. |
 
-When a code block changes into another type, the editor removes `meta`. When a heading changes into another type, the editor does not keep the heading level. When a code block splits in the middle, the two parts both keep the language and `meta`.
+Converting a code block to another type drops `meta`; converting a heading to another type discards its heading level; splitting a code block preserves both `lang` and `meta` on both halves.
 
-Block menu actions apply to top-level blocks:
+Block-menu actions operate on top-level blocks:
 
-- Duplicate: makes a deep copy that keeps all attributes. The check state of a task item also stays. The caret moves to the copy.
-- Delete: the caret moves to the next block. If there is no next block, the caret moves to the previous block. If the page becomes empty, the editor adds an empty paragraph.
-- Move up, Move down: the block changes position with the adjacent block.
+- **Duplicate**: creates a deep copy preserving all attributes (including task-item check state) and moves the caret into the copy.
+- **Delete**: removes the block and moves the caret to the next block (or the previous block if none follows, inserting an empty paragraph if the page becomes empty).
+- **Move up / Move down**: swaps the block with its adjacent top-level sibling.
 
-The `转换为` (Turn into) item of the block menu applies only to paragraphs, headings, and code blocks. In a list item, the slash menu and the insert menu also run block type operations. `paragraph`, `h1`–`h3`, and `code` move the list item out of the list. `bullet`, `number`, and `check` change the type of the list.
+In the block menu, `转换为` (Turn into) is enabled only on paragraphs, headings, and code blocks. Inside a list item, invoking a block-type command from the slash menu or insert menu moves the item out of the list for `paragraph`, `h1`–`h3`, and `code`, or switches the list kind for `bullet`, `number`, and `check`.
 
 ### 7.6 React component
 
-Props of `BlockEditor`:
+`BlockEditor` accepts these props:
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `initial` | `string \| DocumentElement` | `''` | The component reads it only one time, when it makes the editor. |
-| `onReady` | `(editor) => void \| (() => void)` | — | The component calls it after it makes the editor. The component calls the returned function when it unmounts. |
-| `onChange` | `() => void` | — | The component calls it synchronously each time an accepted update changes the page. It gets no content. |
-| `onError` | `(error: unknown) => void` | — | Reports a rejected edit without replacing the current document. Without a callback, the component displays the error. |
-| `readOnly` | `boolean` | `false` | Refer to the text below. |
-| `labels` | `Partial<EditorLabels>` | Chinese defaults | Host translations for visible and accessible editor text. Unspecified labels keep their defaults. |
-| `ariaLabel` | `string` | `文档编辑器` ("document editor") | The accessible name of the edit area |
-| `placeholder` | `string` | `输入 / 添加 Block，或直接开始写作…` ("Type / to add a Block, or start to write…") | The prompt for an empty page. Refer to the text below. |
-| `className` | `string` | `''` | The component adds it to the outer element. |
-| `header`, `footer` | `ReactNode` | — | Content before and after the body |
-| `toolbar` | `ReactNode` | The default toolbar | `null` hides the toolbar. Custom content runs in the editor context. |
-| `children` | `ReactNode` | — | Content in the editor context. It can use `useEditor` and `useEditorState`. |
+| `initial` | `string \| DocumentElement` | `''` | Read once when mounting the editor instance. |
+| `onReady` | `(editor) => void \| (() => void)` | — | Called after the editor mounts; if it returns a cleanup function, that function runs on unmount. |
+| `onChange` | `() => void` | — | Called synchronously (with no arguments) whenever an accepted update changes the page. |
+| `onError` | `(error: unknown) => void` | — | Called when an edit is rejected while keeping the current document intact; if omitted, the component renders an inline error banner. |
+| `readOnly` | `boolean` | `false` | Disables editing; see details below. |
+| `labels` | `Partial<EditorLabels>` | Chinese defaults | Host translations for visible and accessible UI strings; omitted keys keep their Chinese defaults. |
+| `ariaLabel` | `string` | `文档编辑器` ("document editor") | Accessible name of the editing surface |
+| `placeholder` | `string` | `输入 / 添加 Block，或直接开始写作…` ("Type / to add a Block, or start to write…") | Empty-page prompt; see details below. |
+| `className` | `string` | `''` | Extra CSS class added to the outer wrapper |
+| `header`, `footer` | `ReactNode` | — | Custom content rendered before and after the page body |
+| `toolbar` | `ReactNode` | The default toolbar | Pass `null` to hide the toolbar; custom nodes render inside the editor context. |
+| `children` | `ReactNode` | — | Additional nodes rendered inside the editor context with access to `useEditor` and `useEditorState`. |
 
-A host re-render, new callback, or label change does not make a new editor.
-Labels use `PhraseSet`; hosts own locale selection and translation catalogs.
-`ariaLabel` and `placeholder` override the corresponding labels when supplied.
-Slash search matches the translated block title and detail, plus its fixed
-keyword aliases. Labels do not change document text, selection, or undo history.
-The interface descriptions below use the default Chinese labels.
+Host re-renders, updated callbacks, and `labels` changes update the mounted view in place without recreating the editor instance, and changing `labels` never alters document text, selection, or undo history. Internally, `labels` uses `PhraseSet` while hosts own locale selection and translation catalogs; explicit `ariaLabel` and `placeholder` props take precedence over matching keys in `labels`. Slash-menu search matches translated block titles and descriptions alongside fixed English keyword aliases. The UI descriptions below cite the default Chinese labels.
+
 When `readOnly` is `true`:
 
-- You cannot edit the page.
-- The toolbar is in a disabled `fieldset`. The default toolbar shows only the hint text and the disabled undo and redo buttons.
-- The editor does not show the empty-page prompt, the slash menu, the selection toolbar, the block menu, or the block handles.
-- You can still read and select the body text, and assistive technology can still access it.
+- Document editing is disabled.
+- The toolbar is wrapped in a disabled `<fieldset>`, and the default toolbar renders only the hint text plus disabled Undo and Redo buttons.
+- The empty-page placeholder, slash menu, selection toolbar, block menu, and block handles are hidden.
+- Users and assistive technologies can still read and select body text.
 
-When the page has only one empty paragraph and you can edit the page, that paragraph shows the empty-page prompt. The prompt is not page text. It is not part of the paragraph text, and it does not change the caret. The `aria-placeholder` of the edit area has the same prompt.
+When the page is editable and consists of a single empty paragraph, that paragraph displays the empty-page placeholder visually and sets the same string on `aria-placeholder` without inserting document text or shifting the caret.
 
-`onChange` can run before the editor renders the update. Then a layout read in `onChange` gets the page from the previous render. In the editor context, `useEditor()` returns the editor. `useEditorState(select?)` returns the state that the editor rendered, or the value that `select` reads from that state. The component renders again after the editor renders. This lets the component measure the page. For a state with no change, `select` must return an equal value.
+Because `onChange` can fire before the DOM reflects the update, reading layout inside `onChange` measures the previous render. Inside the editor React context, `useEditor()` returns the editor instance, and `useEditorState(select?)` returns the rendered editor state (or `select(state)`), re-rendering after the editor flushes its DOM so components can safely measure layout. When the state has not changed, `select` must return a referentially or structurally equal value.
 
-User interface:
+User interface controls:
 
-- **Default toolbar**: has these items:
-  - the `插入` (Insert) menu
-  - the `当前 Block 菜单` (Current Block menu) button
-  - the hint text `选中文字设置格式 · / 添加内容` ("Select text to format it · Type / to add content")
-  - `撤销` (Undo)
-  - `重做` (Redo)
-- **Selection toolbar**: shows when the selection contains text that is not whitespace and is not in a code block. The buttons, in order, are bold, italic, underline, strikethrough, inline code, link, and highlight. The pressed state of each button shows the format of the selection. The toolbar hides during an IME composition and when the focus is in an input box. It also hides when the selection goes out of the visible area, and after you press Escape.
-- **Link form**: opens from the toolbar or with ⌘K. The form uses an address without change if it starts with `http://`, `https://`, `mailto:`, `tel:`, `/`, or `#`. An address that is a domain name with a suffix, for example `example.com`, gets the prefix `https://`. For all other input, the form shows an error and does not change the body text. If the text has a link, the form also shows `移除链接` (Remove link).
-- **Slash menu**: opens when you type `/` at the start of the text run at the caret, or after whitespace or `(`. An example of the start of a text run is the position directly after bold text or a link. The menu does not open in a code block, where `/` is code text. The query after `/` has a maximum of 75 characters. It cannot contain whitespace or any of `.,+*?$@|#{}()^-[]\/!%'"~=<>_:;`. The menu filters options by title and description, and the filter is not case-sensitive. When you select an option, the editor deletes the query text and runs the block type operation in one undo step.
-- **Insert menu**: `插入` (Insert) on the toolbar runs the block type operation at the caret. The `+` of a block handle inserts a paragraph below the block under the pointer, and then runs the operation there.
-- **Block menu**: has these items:
-  - `转换为` (Turn into) lists the types that the block can change into. It is disabled when the block cannot change its type.
-  - `创建副本` (Duplicate)
-  - `上移` (Move up)
-  - `下移` (Move down)
-  - `删除 Block` (Delete Block)
+- **Default toolbar**: contains `插入` (Insert), `当前 Block 菜单` (Current Block menu), the hint `选中文字设置格式 · / 添加内容` ("Select text to format it · Type / to add content"), `撤销` (Undo), and `重做` (Redo).
+- **Selection toolbar**: appears whenever a non-whitespace selection lies outside code blocks, offering bold, italic, underline, strikethrough, inline code, link, and highlight buttons in that order with `aria-pressed` states reflecting the selection. It hides during IME composition, when focus moves into an input field, when the selection scrolls out of view, or when the user presses Escape.
+- **Link form**: opens from the selection toolbar or via `⌘K`. URLs starting with `http://`, `https://`, `mailto:`, `tel:`, `/`, or `#` are saved verbatim, and bare domain names with a TLD (such as `example.com`) receive an `https://` prefix; all other inputs display a validation error and leave the document unchanged. When editing an existing link, the form also offers `移除链接` (Remove link).
+- **Slash menu**: opens when typing `/` at the start of a text run (for instance at block start or immediately after bold text or a link), after whitespace, or after `(`, except inside code blocks where `/` is literal text. Queries after `/` are capped at 75 characters, break on whitespace or any character in `.,+*?$@|#{}()^-[]\/!%'"~=<>_:;`, and filter options case-insensitively by title, description, and keyword aliases. Picking an option deletes `/query` and applies the block type in a single undo step.
+- **Insert menu**: `插入` (Insert) in the top toolbar runs the chosen block-type command at the caret, whereas clicking `+` on a block handle inserts a new paragraph below the hovered top-level block and runs the command there.
+- **Block menu**: provides `转换为` (Turn into, disabled when the block cannot convert), `创建副本` (Duplicate), `上移` (Move up), `下移` (Move down), and `删除 Block` (Delete Block). Invoking `当前 Block 菜单` in the toolbar or pressing `⌘/` targets the top-level block at the caret, whereas clicking a block handle targets the hovered top-level block; all three entry points show the same items.
+- **Block handle**: appears when hovering over a top-level block and can be dragged to reorder blocks in a single undo step.
 
-  The `当前 Block 菜单` (Current Block menu) button on the toolbar and ⌘/ act on the top-level block at the caret. A block handle acts on the top-level block under the pointer. The menu has the same items in the three places.
-- **Block handle**: shows when the pointer is on a top-level block. You can drag it to change the order of blocks. A drag is one undo step.
-
-The insert options are in this order:
+Insert and slash menu options appear in this order:
 
 1. `正文` (Text)
 2. `一级标题` (Heading 1)
@@ -675,60 +658,58 @@ The insert options are in this order:
 
 | Action | Shortcut |
 | --- | --- |
-| Edit the link of the selected text, or the link at the caret | ⌘K |
-| Open the block menu of the block at the caret. This has no effect if the selection goes across more than one top-level block. | ⌘/ |
-| Duplicate the selected blocks, and put the copies after them | ⌘D |
-| Move the selected blocks before the previous sibling block or after the next sibling block | ⌘Shift+↑, ⌘Shift+↓ |
-| Change the type of the selected blocks | On Apple platforms, Command+Option with a digit. On other platforms, Ctrl+Shift with the same digit. 0: paragraph. 1, 2, 3: heading of that level. 4: task list. 5: bullet list. 6: numbered list. 8: code block. |
-| Select the text of the block at the caret, and then all of the page | ⌘A, two times |
-| Move from the selection to the selection toolbar | Alt+F10 |
-| Move the focus in the selection toolbar | Left Arrow, Right Arrow, Home, End |
-| Close a menu, or cancel a link change | Escape |
+| Edit the link on the selection or at the caret | ⌘K |
+| Open the block menu for the block at the caret (no-op if the selection spans multiple top-level blocks) | ⌘/ |
+| Duplicate selected blocks below the selection | ⌘D |
+| Move selected blocks above the previous sibling or below the next sibling | ⌘Shift+↑, ⌘Shift+↓ |
+| Convert selected blocks to another block type | Apple platforms: Command+Option+digit; other platforms: Ctrl+Shift+digit (`0` paragraph; `1`–`3` heading 1–3; `4` task list; `5` bullet list; `6` numbered list; `8` code block) |
+| Select the current block's text, then the entire page on a second press | ⌘A (twice) |
+| Move focus from an active selection to the selection toolbar | Alt+F10 |
+| Navigate buttons inside the selection toolbar | Left Arrow, Right Arrow, Home, End |
+| Close an open menu or cancel link editing | Escape |
 | Bold, italic, underline | ⌘B, ⌘I, ⌘U |
 | Inline code | ⌘E |
 | Strikethrough | ⌘Shift+S or ⌘Shift+X |
 | Highlight | ⌘Shift+H |
-| Undo, redo | ⌘Z, ⌘Shift+Z. On other platforms, Ctrl+Y also does a redo. |
+| Undo, redo | ⌘Z, ⌘Shift+Z (plus Ctrl+Y for redo on non-Apple platforms) |
 | Hard line break | Shift+Enter |
-| Increase or decrease the indent. A list item changes its nesting level. A paragraph or a heading changes its `indent`, to a maximum of 49 levels. | Tab, Shift+Tab, with the caret at any position in the block. In a code block, Tab inserts a tab character. |
-| Move to the next or previous cell in a table | Tab, Shift+Tab. The caret moves to the end of the text in the cell and goes past empty rows. Tab in the last cell, or Shift+Tab in the first cell, moves out of the table. |
+| Indent or outdent (adjusts nesting depth in lists, or `indent` up to 49 on paragraphs and headings; inserts a literal tab inside code blocks) | Tab, Shift+Tab anywhere in the block |
+| Move to the next or previous table cell (places caret at end of cell text, skips empty rows, and exits the table from the first/last cell) | Tab, Shift+Tab |
 
-A selection across more than one cell is a cell selection. In a cell selection, typed text and deletes change only the content of the cells. The table and the cell alignment stay the same.
+Selecting across multiple table cells creates a cell selection, in which typing or deleting modifies cell contents while preserving table structure and cell alignment.
 
-The shortcuts that duplicate, move, and change the type of blocks act on the selected blocks:
+Block shortcuts (duplicate, move, and turn into) resolve their target blocks as follows:
 
-- A list item includes its child items.
-- In a quote, a callout, or a table cell, the shortcuts act on the blocks in it.
-- If the selection goes across more than one sibling block, the shortcuts act on all of these blocks. If not, they act on the block where the selection starts.
+- Selecting a list item includes its nested child items.
+- Inside a quote, callout, or table cell, shortcuts target the inner blocks of that container.
+- Multi-block selections act on every spanned sibling block; single-block or collapsed selections act on the block where the selection starts.
 
-During an IME composition, Enter, Escape, and keys with `keyCode=229` do not submit or cancel a menu or the link form.
+While an IME composition is active, Enter, Escape, and `keyCode=229` events never submit or dismiss menus or the link form.
 
 ### 7.7 PageSession
 
-`PageSession` is the entry point for whole-page reads and writes. The source panel and writes from a language model use the same instance.
+`PageSession` manages whole-page reads and revision-checked writes, shared by both the source panel and language-model edits:
 
 | Member | Behavior |
 | --- | --- |
-| `new PageSession(editor)` | Starts the revision count. A new instance on the same editor replaces the old instance. |
-| `revision` | The revision number. It increases by 1 each time a dispatched update changes the page. |
+| `new PageSession(editor)` | Initializes revision tracking on `editor`, replacing any earlier `PageSession` attached to the same editor. |
+| `revision` | Current revision counter, incremented by 1 each time a dispatched update changes the document. |
 | `read()` | Returns `{ revision, markdown, xml }`. |
-| `readXml()` | Returns `{ revision, xml }`, reusing the accepted document's validated XML source. |
-| `apply({ format, source, revision })` | Refer to the steps below. |
-| `dispose()` | Stops the count and rejects later writes through this instance. Reads remain available. |
+| `readXml()` | Returns `{ revision, xml }`, reusing the validated XML cached for the accepted document. |
+| `apply({ format, source, revision })` | Replaces the page after checking preconditions (see steps below). |
+| `dispose()` | Detaches the session so subsequent `apply` calls throw, while `read()` and `readXml()` remain available. |
 
-`apply` does these steps in this order:
+`apply({ format, source, revision })` executes these steps in order:
 
-1. If this instance was replaced or disposed, it throws an error.
-2. If an IME composition is not complete, it throws an error.
-3. If `revision` is not equal to the `revision` of the session, it throws an error.
-4. It parses `source` as `format` (`'markdown'` or `'xml'`).
-5. It prints the new page. If the print is not possible, it throws an error.
-6. It replaces the full page in one update that you can undo.
-7. It returns `{ revision, markdown, xml, warnings }`.
+1. Throw if this `PageSession` has been replaced or disposed.
+2. Throw if an IME composition is currently active.
+3. Throw if `revision` does not match `this.revision`.
+4. Parse `source` according to `format` (`'markdown'` or `'xml'`).
+5. Run canonical printing on the new tree, throwing if printing fails.
+6. Replace the entire page in a single undoable update.
+7. Return `{ revision, markdown, xml, warnings }`.
 
-When `apply` throws an error, the page does not change.
-
-A revision number is valid only in one editor instance.
+Whenever `apply` throws, the current document remains untouched. Revision numbers are meaningful only within the editor instance that produced them.
 
 ## 8. Package and host
 
@@ -738,166 +719,151 @@ A revision number is valid only in one editor instance.
 | --- | --- |
 | `@ankole/block-editor` | `BlockEditor`, `useEditor` |
 | `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml` |
-| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `insertEmbed`, `insertImage`, `toggleFormat`, `undo`, and the types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `PageChanges` |
-| `@ankole/block-editor/styles.css` | The styles of the editor and its overlays |
+| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `insertEmbed`, `insertImage`, `toggleFormat`, `undo`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `PageChanges` |
+| `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
-A host imports only these entry points. They serve the Pod, Worker, and
-embedding example. The example uses `useEditor`, `toggleFormat`, and `undo` for
-its custom toolbar. Internal editor helpers and test types use relative imports.
-`PageSession.read()` reads a page snapshot. `PageSession.apply()` replaces the
-page from Markdown or XML and checks its revision.
+Host applications—including the Pod web app, Worker tools, and the embedding playground—import exclusively from these four entry points (for example, the embedding playground builds its custom toolbar with `useEditor`, `toggleFormat`, and `undo`), whereas internal package modules and tests use relative imports. Hosts read snapshots with `PageSession.read()` and perform revision-checked whole-page replacements with `PageSession.apply()`.
 
-The optional `host` in `BlockEditor` supplies `EditorHost`:
+Passing the optional `host` prop to `BlockEditor` wires `EditorHost` integration hooks:
 
 | Hook | Contract |
 | --- | --- |
-| `mountEmbed(attributes, container, update)` | Mount the referenced resource and return its cleanup function. `update` changes only the reference attributes through an editor transaction. |
-| `resolveAsset(address)` | Resolve the image address; the editor preserves its alt text and title. |
-| `openPage(id)` | Open a page link in the host's navigation. |
-| `deleteEmbed(id)` | Handle the explicit block-menu deletion action. Ordinary selection edits remove the reference only. |
+| `mountEmbed(attributes, container, update)` | Mounts the referenced resource into `container` and returns a teardown callback; calling `update` mutates only the embed's reference attributes via an editor transaction. |
+| `resolveAsset(address)` | Resolves an image asset URI to a display URL while the editor preserves `alt` and `title`. |
+| `openPage(id)` | Navigates to an internal page link in the host application. |
+| `deleteEmbed(id)` | Handles explicit deletion from the block menu; ordinary selection deletes remove only the embed reference. |
 
-`insertEmbed` and `insertImage` insert at the current selection in one undoable
-editor transaction. `PageCollaboration` owns the local pending change set and
-one in-flight batch. The host supplies send, change, reset, and sync callbacks;
-the server assigns revisions. Preparation failures preserve the local document
-and publish an error. The host owns reconnecting the transport. Calling
-`dispose()` ends that collaboration instance.
+`insertEmbed` and `insertImage` insert at the current selection in a single undoable transaction.
 
-Document transactions validate the source, node, and depth bounds (section 1.5)
-before updating editor state, revision, or undo history. A rejected transaction
-keeps the preceding legal draft. When a remote change combined with pending
-local edits exceeds a bound, collaboration preserves the current legal draft and
-requests reset/reload recovery from the host.
+For real-time editing, `PageCollaboration` tracks pending local changes and keeps at most one batch in flight at a time: the host supplies `send`, `change`, `reset`, and `sync` callbacks and manages transport reconnection, while the server assigns authoritative revisions. If preparing an outgoing batch fails, `PageCollaboration` leaves the local document intact and emits an error. Calling `dispose()` terminates that collaboration session.
+
+Before committing any document transaction to editor state, revision counters, or undo history, the editor checks the source, node-count, and nesting-depth bounds from section 1.5; if a transaction exceeds a bound, the editor rejects it and keeps the previous valid draft. Likewise, if combining an incoming remote change with pending local edits exceeds a bound, `PageCollaboration` preserves the current valid local draft and asks the host to recover via reset/reload.
 
 ### 8.2 Dependencies and build
 
-- This package is an internal Ankole workspace library and keeps `private: true`. Its public package name is `@ankole/block-editor`. An internal host declares `"@ankole/block-editor": "workspace:*"` in its own `package.json`.
-- This package is a TypeScript source package, and the host builds it. `bun run build` checks the types of the library, the example host, and the tests. `bun run build:playground` builds the example host separately.
-- The `package.json` and `bun.lock` in the Ankole root control the dependencies. The package directory has no lockfile of its own. `@ankole/uikit` uses `workspace:*`.
-- The root pins `mdast-util-gfm-strikethrough` to `2.0.1`. This version keeps strikethrough at punctuation and tag boundaries when text follows it. A separate host must also use this version or a later version with the same fix.
-- `react` and `react-dom` 19.3.0 are peer dependencies. The host and the editor use the same instance of each. `style-mod` and `@marijn/find-cluster-break` are dependencies of this package, because the editing engine uses them.
-- A host that uses the React component and the UI Kit styles must also declare `"@ankole/uikit": "workspace:*"`. It must also have direct dependencies on the React peer dependencies above.
-- The host CSS loads `@ankole/uikit/styles.css` first, and then `@ankole/block-editor/styles.css`. The editor styles apply only in `.ankole-editor` and `.ankole-editor-overlay`. They do not change `html`, `body`, or `#root`.
-- Each install must apply the patches in `patches/`. The `patchedDependencies` field in the Ankole root declares them, and `bun install` in the root applies them. A separate host that installs the package from a tarball must declare them in its own `patchedDependencies`:
-  - `mdast-util-to-markdown@2.2.0`: When a format boundary writes a letter as a character reference, a literal backslash before it must not escape the reference. The regression test is in `test/generated.test.ts`.
-- Remove a patch and its `patchedDependencies` entry when all of these conditions are true:
-  - Upstream fixes the problem of the patch.
-  - The regression test passes.
-  - The tests in the three browsers pass.
+- `@ankole/block-editor` is a private workspace package (`"private": true`), consumed by internal hosts via `"@ankole/block-editor": "workspace:*"`.
+- Because hosts compile its TypeScript source directly, `bun run build` type-checks the library, playground, and tests rather than emitting a bundle; `bun run build:playground` builds the standalone example host.
+- Dependencies are locked at the Ankole repository root (`package.json` and `bun.lock`, with `"@ankole/uikit": "workspace:*"`), so `libs/ankole-editor` maintains no lockfile of its own.
+- The root workspace pins `mdast-util-gfm-strikethrough` to `2.0.1` so strikethrough parses reliably across punctuation and tag boundaries when followed by text; external consumers must use `2.0.1` or a newer release carrying that fix.
+- `react` and `react-dom` `19.3.0` are peer dependencies that the host and editor must share as singletons, whereas `style-mod` and `@marijn/find-cluster-break` are direct dependencies used by the editing engine. Any host rendering `BlockEditor` with UI Kit styles must also depend directly on `"@ankole/uikit": "workspace:*"` and the React peer dependencies.
+- Host stylesheets must import `@ankole/uikit/styles.css` before `@ankole/block-editor/styles.css`. Editor rules are scoped strictly under `.ankole-editor` and `.ankole-editor-overlay` and never style `html`, `body`, or `#root`.
+- Every installation must apply the patches under `patches/`. In the Ankole monorepo, the root `patchedDependencies` field applies them automatically during `bun install`; external tarball consumers must declare the same `patchedDependencies` entry in their own root manifest:
+  - `mdast-util-to-markdown@2.2.0`: prevents a literal preceding backslash from escaping a character reference emitted at a formatting boundary (covered by `test/generated.test.ts`).
+- Remove a patch and its `patchedDependencies` entry only when upstream ships the fix and both the regression test and the three-browser end-to-end suite pass without it.
 
 ### 8.3 Block definitions
 
-A block with its own editor node has a `BlockDefinition` with these fields:
+Custom block types with dedicated editor nodes implement `BlockDefinition`:
 
 | Field | Meaning |
 | --- | --- |
-| `name` | The element name |
-| `type` | The node type that holds the element |
-| `schema` | The node types, marks, and overrides that the block adds to the page schema |
-| `extension` | The edit behavior and the display of the block |
-| `import(element, { blocks })` | Makes a node from an element. `blocks` imports the child blocks. |
-| `read(node, { children })` | Reads an element from a node. `children` reads the child blocks. |
-| `insert` | The menu item: `title`, `detail`, `glyph`, `turnInto` (if the block can replace the text block at the caret), and `insert(editor)` |
+| `name` | Vocabulary element name |
+| `type` | Editor node type representing the element |
+| `schema` | Node types, marks, and schema overrides added to the page schema |
+| `extension` | Editing behavior and DOM rendering for the block |
+| `import(element, { blocks })` | Converts a page-tree element into an editor node (`blocks` imports child blocks) |
+| `read(node, { children })` | Converts an editor node back into a page-tree element (`children` reads child blocks) |
+| `insert` | Menu descriptor: `title`, `detail`, `glyph`, optional `turnInto` flag (when the block can convert the text block at the caret), and `insert(editor)` |
 
-To install a block type, add its definition to the `blocks` list in `src/blocks/index.ts`. Then add the kind, content, and attributes of its element to `src/document/vocabulary.ts`. You do not change the Markdown and XML readers and writers. This package has two block definitions: `callout` and `embed`.
+To register a block type, add its `BlockDefinition` to `blocks` in `src/blocks/index.ts` and declare its element kind, content model, and attributes in `src/document/vocabulary.ts`; the Markdown and XML codecs require no changes. Currently, `callout` and `embed` are implemented via `BlockDefinition`.
 
 ## 9. Example host
 
-Run these commands from the Ankole root:
+Start the example playground from the Ankole root:
 
 ```sh
 bun install --frozen-lockfile
 bun run --filter @ankole/block-editor dev
 ```
 
-- <http://127.0.0.1:3046>: the full example page.
-- <http://127.0.0.1:3046/playground/embedded.html>: two independent editors on one page.
+- <http://127.0.0.1:3046>: full playground with side-by-side source inspector.
+- <http://127.0.0.1:3046/playground/embedded.html>: two independent editor instances mounted on one page.
 
-Behavior of the full example page:
+In the full playground:
 
-- The source panel switches between Markdown and XML. After you change the source, you cannot edit the page on the left until you select `应用修改` (Apply changes) or `放弃修改` (Discard changes). `PageSession.apply` applies the changes. If the apply fails, the draft and the page do not change. The success notice lists the warnings.
-- `往返验证` (Round-trip check) exports the page as Markdown and makes a new editor from that Markdown. Then it compares the XML that it reads from the two editors, and clears the undo history.
-- `导出` (Export) saves a `.md` or `.xml` file in the format that the source panel shows. `打开文件` (Open file) selects the format from the file extension.
-- The page saves to the browser `localStorage` under the key `ankole.block-lab.markdown.v2`. A save occurs 250 milliseconds after a content change, and immediately when the page unloads (the `pagehide` event). If the saved data cannot be read, the original text stays as a draft for repair. Nothing overwrites it before the repair. `恢复示例` (Restore example) replaces the page with the example page.
+- The source inspector toggles between Markdown and XML. While unapplied edits exist in the source pane, visual editing on the left is locked until you click `应用修改` (Apply changes) or `放弃修改` (Discard changes). Applying calls `PageSession.apply`: on failure, both the source draft and the visual page remain unchanged; on success, any unknown-element or unknown-attribute warnings appear in the status notice.
+- `往返验证` (Round-trip check) exports the current page to Markdown, mounts a fresh editor from that Markdown, verifies that both editors produce identical XML, and clears undo history.
+- `导出` (Export) downloads a `.md` or `.xml` file matching the active source tab, and `打开文件` (Open file) infers the format from the uploaded file extension.
+- Changes autosave to `localStorage` under `ankole.block-lab.markdown.v2` 250 ms after each edit and immediately on `pagehide`. If stored data fails to parse on load, the raw text is preserved in the source draft for manual repair and autosave will not overwrite it until repaired. `恢复示例` (Restore example) resets the page to the built-in sample document.
 
 ## 10. Compatibility and verification
 
 ### 10.1 Browsers
 
-The build targets for JS and CSS are `chrome126`, `firefox153`, and `safari17`.
+JavaScript and CSS build targets are `chrome126`, `firefox153`, and `safari17`.
 
 | Scope | Requirement | Automated check |
 | --- | --- | --- |
-| Chromium 126 and later | Required | Playwright Chromium. The built output runs the same scenarios on Chrome for Testing 126.0.6478.182. |
-| The latest Firefox ESR | Required | Playwright Firefox. Native Firefox 153.4.0esr runs some scenarios through WebDriver. |
-| Safari 17 and later | Required | Not verified. Playwright WebKit is not Safari. |
-| Mobile browsers | Best effort | Not verified |
+| Chromium 126 and later | Required | Playwright Chromium, plus the same scenarios against built output on Chrome for Testing `126.0.6478.182`. |
+| Latest Firefox ESR | Required | Playwright Firefox, plus WebDriver scenarios on native Firefox `153.4.0esr`. |
+| Safari 17 and later | Required | Not covered in CI (Playwright WebKit is not Safari). |
+| Mobile browsers | Best effort | Manual verification only |
 
-`compat/browsers.json` pins the versions of the compatibility browsers. They install into `output/browsers`, which Git ignores.
+Pinned compatibility browser versions live in `compat/browsers.json` and install into the Git-ignored `output/browsers` directory.
 
 ### 10.2 Test commands
 
-- `bun run test` checks these parts:
-  - the page tree and normalization
-  - Markdown and XML reads, writes, and canonical output
-  - error positions
-  - real documents from the repository
-  - the editing engine (`test/core`)
-  - editor import and read
-  - list keys and block-boundary keys
-  - block actions and shortcuts
-  - whole-page writes
+- `bun run test` runs the fast unit and property suite covering:
+  - page-tree validation and normalization
+  - Markdown and XML parsing, printing, and canonical output
+  - source error offsets, lines, and columns
+  - real repository documents
+  - the `src/core` editing engine (`test/core`)
+  - editor import and read round trips
+  - list and block-boundary key bindings
+  - block menu actions and shortcuts
+  - whole-page `PageSession` writes
 
-  fast-check makes pages with all vocabulary elements. These pages also contain tables of any shape and merged cells. For each page `T`, an import and then a read must give `N(T)`. A whole-page write and then a read must also give `N(T)`. The default seed is `20261005`. `FC_SEED` sets a different seed. The headless editor tests run the same assembly on a view that is marked as fake. `test:e2e` checks the behavior that uses a DOM.
-- `bun run test:upstream` checks the 652 examples of CommonMark 0.31.2 (section 4.6) and 52 Tiptap fixtures. The page tree of each Tiptap fixture must make an exact round trip through the editor.
-- `bun run test:e2e` runs in Chromium, Firefox, and WebKit on port 3146. It checks these parts:
-  - the browser tests of the editing engine (`test/core/browser`), which `e2e/core.spec.ts` runs. In WebKit, one upstream case that hits a pixel position is a known failure.
-  - edits
-  - deletes, Enter, and Tab at block boundaries
-  - shortcuts
-  - delete keys
-  - input event types
-  - arrow keys, and the caret in empty blocks
+  Using `fast-check` (default seed `20261005`, overridable via `FC_SEED`), the suite generates arbitrary pages across all vocabulary elements—including irregular tables and merged cells—and verifies that both import-then-read and `apply`-then-read yield `N(T)`. Headless tests run the full `editorExtension()` assembly against a fake view; DOM-dependent behavior is verified in `test:e2e`.
+- `bun run test:upstream` runs all 652 CommonMark 0.31.2 examples (section 4.6) plus 52 Tiptap fixtures, requiring every Tiptap page tree to round-trip losslessly through the editor.
+- `bun run test:e2e` runs Playwright across Chromium, Firefox, and WebKit on port `3146`, covering:
+  - `src/core` browser tests (`test/core/browser` via `e2e/core.spec.ts`; one pixel-hit upstream case in WebKit is a known failure)
+  - interactive typing and formatting edits
+  - Backspace, Delete, Enter, and Tab at block boundaries
+  - keyboard and typing shortcuts
+  - platform delete bindings
+  - `beforeinput` event handling
+  - arrow-key navigation and caret placement in empty blocks
   - page-end clicks
-  - menus
-  - selections
-  - the clipboard and Markdown paste
-  - the source panel
-  - embedding
-  - upstream cases
+  - toolbar, slash, insert, and block menus
+  - text, node, and table-cell selections
+  - clipboard copy/paste and Markdown plain-text paste
+  - the playground source inspector
+  - multi-editor embedding
+  - upstream rendering cases
 
-  Some cases do not run in all browsers or on all platforms:
-  - IME cases that only the Chrome DevTools Protocol (CDP) of Chromium can drive do not run in the other two engines.
-  - Cases for keys that only Apple platforms have do not run on other platforms.
-  - Transpose cases do not run in Firefox, because Firefox does not transpose characters.
-  - Cases for a native drag that selects text run only in Firefox.
+  Engine- or OS-specific cases are skipped where unsupported:
+  - CDP-driven IME tests run only in Chromium.
+  - Apple-specific shortcut tests run only on Apple platforms.
+  - Character-transposition tests skip Firefox, which lacks native transpose input events.
+  - Native drag-selection tests run only in Firefox.
 
-  A browser exception or a console error makes the test fail. `E2E_PREVIEW=1` uses the built output.
-- `E2E_PREVIEW=1 bun run test:chromium126` runs the same scenarios on Chrome for Testing 126.
-- `bun run test:native` runs WebDriver tests in native Firefox ESR on port 3147. `NATIVE_BROWSER=safari` uses Safari.
-- `bun run generate:corpus` writes the shared golden file in `corpus/rust`. `bun run test:corpus` checks it without rewriting it. It holds pages, rejected sources, exact document-limit boundaries, and local edit batches from the production transaction pipeline. Each batch has the expected client XML and document. Replay compares the in-memory client with a server that stores and reads XML after every batch. A mismatch fails the preflight. `FC_SEED` selects the generated samples or the independent property-test seed. `corpus/rust/README.md` describes format version 2 and its limits.
-- `bun run test:package` installs the editor and UI Kit from tarballs and checks the public types. Then it checks reads and writes on a headless editor state and builds a host. Last, it runs the embedding tests in the three browsers, exercising `PageSession`, `PageCollaboration`, the host hooks, cursor-position image insertion, and undo.
-- `bun run type-check`, `bun run fmt:check`, and `bun run build` check the types, the format, and the build.
-- `bun run test:e2e:install` and `bun run test:compat:install chromium126 firefox-esr` install the test browsers.
+  Any uncaught page exception or console error fails the test. Setting `E2E_PREVIEW=1` runs against the prebuilt `dist/` output.
+- `E2E_PREVIEW=1 bun run test:chromium126` runs the Playwright suite against Chrome for Testing 126.
+- `bun run test:native` runs WebDriver scenarios against native Firefox ESR on port `3147` (or Safari when `NATIVE_BROWSER=safari`).
+- `bun run generate:corpus` regenerates the shared golden file in `corpus/rust`, and `bun run test:corpus` verifies the committed golden file without modifying it. The corpus stores valid pages, rejected inputs, exact limit-boundary cases, and multi-step local edit batches produced by the production transaction pipeline, checking that an in-memory client stays identical to an XML-persisting server after every batch (any divergence fails preflight). `FC_SEED` overrides the generation or property-test seed; see `corpus/rust/README.md` for format v2 details.
+- `bun run test:package` packs `@ankole/block-editor` and `@ankole/uikit` into tarballs, installs them into a clean consumer project, verifies public TypeScript types and headless reads/writes, builds the consumer bundle, and runs the three-browser embedding suite covering `PageSession`, `PageCollaboration`, `EditorHost` hooks, caret-position image insertion, and undo.
+- `bun run type-check`, `bun run fmt:check`, and `bun run build` verify TypeScript types, formatting, and workspace build checks.
+- `bun run test:e2e:install` and `bun run test:compat:install chromium126 firefox-esr` download Playwright and pinned compatibility browsers.
 
-With `E2E_PREVIEW=1`, `test:e2e` and `test:chromium126` use the built output that `dist/` contains. They do not make a new build. `test:native` always uses the built output. Before you use the built output, run `bun run build:playground`. The tests do not retry automatically.
+When `E2E_PREVIEW=1` is set (and always for `test:native`), tests serve the existing `dist/` directory without rebuilding, so run `bun run build:playground` beforehand. No test suite retries failed cases automatically.
 
 ### 10.3 Manual checks
 
-Automated tests cannot prove the items below. For acceptance, record these data for each item:
+Because automated drivers cannot exercise native OS input methods or system clipboards end to end, record the following evidence whenever running manual acceptance checks:
 
-- the operating system
-- the full browser version
-- the IME name and version
-- the steps
-- the event trace
+- operating system and version
+- full browser version string
+- IME name and version
+- exact reproduction steps
+- DOM input event trace
 - screenshots
-- the exported Markdown
+- exported Markdown
 
 | Scope | Environment | Pass condition |
 | --- | --- | --- |
-| Desktop | Windows with Chromium 126 or Firefox ESR. Microsoft Pinyin, Japanese, and Korean IMEs. | Select candidates, go to the next page of candidates, commit with Enter, and cancel with Escape. Do this in an empty paragraph, at a bold boundary, and in a list, a callout, and a table. No text is inserted two times, no block splits too early, and no format is lost. |
-| Desktop | macOS with Chromium 126, Firefox ESR, or Safari 17. The system Pinyin, Japanese, and Korean IMEs. | During a composition: focus changes, mouse selections, Tab, undo, and redo. After the page opens again, the content is the same. |
-| Desktop | The browsers in section 10.1. Latin dead keys, accents, emoji and ZWJ sequences, and bidirectional text. | Each delete removes the character unit that section 7.5 (Delete) gives. The logical boundaries of selections are correct. Screenshots confirm the caret position in bidirectional text and at line breaks. |
-| Desktop | The system clipboard with content from Word, browsers, and Office | Formats, nested lists, tables, links, and blank lines stay after a real paste from another application and an export. |
-| Mobile | Safari on iOS or iPadOS 17. Chromium 126 on Android with Gboard or the system IME. | Candidates, autocorrect, voice input, continuous composition, touch selection, the on-screen keyboard over the content, zoom, and scroll. |
+| Desktop | Windows with Chromium 126 or Firefox ESR; Microsoft Pinyin, Japanese, and Korean IMEs | Pick candidates, page through candidate lists, commit with Enter, and cancel with Escape inside an empty paragraph, at a bold boundary, and inside a list, callout, and table: no duplicated text, premature block splits, or lost formatting. |
+| Desktop | macOS with Chromium 126, Firefox ESR, or Safari 17; macOS Pinyin, Japanese, and Korean IMEs | Trigger focus changes, mouse selections, Tab, undo, and redo mid-composition; reloading the page afterward shows identical persisted content. |
+| Desktop | Browsers in section 10.1 with Latin dead keys, accents, emoji/ZWJ sequences, and bidirectional text | Backspace and Delete remove the exact units specified in section 7.5 (Delete), selection boundaries stay logically sound, and screenshots confirm caret placement in bidi text and at line wraps. |
+| Desktop | System clipboard pastes from Word, web browsers, and Office apps | Inline formatting, nested lists, tables, links, and paragraph breaks survive both pasting from the external app and re-exporting to Markdown. |
+| Mobile | Safari on iOS/iPadOS 17; Chromium 126 on Android with Gboard or the system IME | Candidate selection, autocorrect, dictation, continuous composition, touch selection handles, virtual keyboard viewport resizing, pinch-zoom, and scrolling all work without corrupting content or losing the caret. |

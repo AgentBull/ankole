@@ -1,57 +1,57 @@
 ---
 title: Agent Library
-description: テナントおよび Agent 単位の Agent Plugin と Skill、ならびにサイトスコープの Control Plane Plugin を管理します。
+description: テナントおよび Agent 単位の Agent Plugin・Skill と、サイトスコープの Control Plane Plugin の管理方法を説明します。
 section: User guide
 order: 32
 ---
 
-Site Admin Console の **Agent Library** ページでは、2 つの異なる拡張境界を管理します。テナントおよび個別 Agent スコープのモデル能力（**Agent Plugin** と **Skill**）と、厳密に**サイトスコープ**のプラットフォーム拡張（**Control Plane Plugin**。スコープが **グローバル既定値** のときのみ表示）です。
+Site Admin Console の **Agent Library** ページでは、性質の異なる 2 つの拡張境界を管理します。1 つはテナントおよび個別 Agent スコープのモデル能力（**Agent Plugin** と **Skill**）、もう 1 つは厳密に**サイトスコープ**で管理されるプラットフォーム拡張（**Control Plane Plugin**。スコープを **グローバル既定値** に合わせたときのみ表示）です。
 
-これらはすべて、このデプロイインスタンスにコンパイルまたはパッケージ済みで同梱されている信頼されたファーストパーティ製コンポーネントです。Agent Library は公開マーケットプレイスではなく、ここで項目を有効化してもインターネットから未知のコードがダウンロードされることはありません。
+いずれも、デプロイインスタンスのビルド時またはパッケージング時に同梱された信頼できるファーストパーティ製コンポーネントです。Agent Library は外部の公開マーケットプレイスではないため、ここで項目を有効化してもインターネットから未知のコードがダウンロードされることはありません。
 
 ## 3 種類の能力を理解する
 
 | タイプ | スコープ | 用途 | 変更が適用されるタイミング |
 |---|---|---|---|
-| **Agent Plugin** | テナント既定値 + Agent ごとの override | 関連する Skill、MCP 能力、workspace template をまとめる | Agent の次の turn |
-| **Skill** | テナント既定値 + Agent ごとの override | 反復可能な 1 種類の仕事の手順とリソース | Agent の次の turn |
-| **Control Plane Plugin** | サイトスコープのみ（`/api/v2/site/control-plane-plugins`） | ビルド時コンパイルのフルスタック拡張（サブシステムアダプター、OTP サービス、HTTP Plug、拡張ルート、ドメインフック、設定フィールド、Web UI スロット） | ビルドで常時有効（`activation: :always`）、または control plane の次回起動時（`activation: :optional`） |
+| **Agent Plugin** | テナント既定値 + Agent ごとの上書き | 関連する複数の Skill、MCP 機能、ワークスペーステンプレートを 1 つのパッケージにまとめる | Agent の次の Turn |
+| **Skill** | テナント既定値 + Agent ごとの上書き | 反復可能な単一業務の手順書と補助リソースを提供する | Agent の次の Turn |
+| **Control Plane Plugin** | サイトスコープのみ（`/api/v2/site/control-plane-plugins`） | ビルド時にコンパイルされるフルスタック拡張（サブシステムアダプター、OTP サービス、HTTP Plug、拡張ルート、ドメインフック、設定フィールド、Web UI スロット） | ビルド時に常時有効（`activation: :always`）、またはコントロールプレーンの次回起動時（`activation: :optional`） |
 
 ### Agent Plugin: 1 つの package にまとめられた能力
 
-Ankole Agent Plugin は、<a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugin</a> の superset です。
+Ankole の Agent Plugin は、<a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugin</a> の上位互換（スーパーセット）として設計されています。
 
-OpenAI Plugin は、1 つ以上の Skill、MCP server、任意の UI を 1 つの package にまとめられます。Ankole はこの構造を保持し、**workspace template** を追加します。
+OpenAI Plugin は 1 つ以上の Skill、MCP サーバー、任意の UI を 1 つのパッケージに束ねる仕組みですが、Ankole はこの構造をそのまま踏襲したうえで、さらに **ワークスペーステンプレート（workspace template）** を追加しています。
 
-したがって、Agent Plugin は仕事の方法、実行 tool、task の初期環境をまとめて提供できます。1 つの prompt 以上のものです。
+そのため、単なるプロンプトの断片にとどまらず、「作業手順」「実行ツール」「タスク開始時の初期ディレクトリ環境」を一式まとめて Agent に提供できます。
 
-Console で Agent Plugin を有効にすると、その package が Agent に利用可能になります。個々の Skill は引き続き個別に有効化または無効化できます。
+Console で Agent Plugin を有効化すると、そのパッケージ一式が Agent から利用可能になります。パッケージに含まれる個々の Skill については、必要に応じて個別に有効化・無効化を切り替えることもできます。
 
 #### workspace template は複雑な task を準備する
 
-`workspace-template/` ディレクトリは Agent Plugin に属します。Ankole が Background Agent Job を作成するとき、この template を新しい Job の workspace にコピーできます。
+Agent Plugin には `workspace-template/` ディレクトリを含めることができます。Ankole が Background Agent Job を新規作成する際、このテンプレートの内容が新しい Job のワークスペースへコピーされます。
 
-template は `AGENTS.md`、ディレクトリ、調査方法、validation script、Playbook、その他の task file を提供できます。Job は更新と復旧が可能な durable な workspace を受け取ります。
+テンプレートには、`AGENTS.md`、作業用ディレクトリ構成、調査メソドロジー、検証スクリプト、Playbook、その他の補助ファイルを含められます。これにより、Job は最初から構造化され、更新や障害復旧にも対応した永続ワークスペース上で作業を開始できます。
 
-Ankole の最先端の [Deep Research](../deep-research-job/) は代表的な例です。メイン Agent はまず調査の依頼を確認し、その後 `deep-research` workspace template を使って Background Agent Job を作成します。
+代表的な実例が [Deep Research](../deep-research-job/) です。メイン Agent はまず会話の中でユーザーと調査要件をすり合わせ、その後 `deep-research` のワークスペーステンプレートを指定して Background Agent Job を起動します。
 
-template は調査の workflow、証拠のディレクトリ、分析方法、validation tool を提供します。Job は 1 つの workspace で source を収集し、分析を改訂し、最終 report を作成できます。
+テンプレート側にあらかじめ調査ワークフロー、証拠保管用ディレクトリ、分析手法、検証ツールが揃っているため、Job は単一のワークスペース内で情報収集から分析の推敲、最終レポートの執筆までを一貫して進められます。
 
-workspace template を持つ Agent Plugin を有効にしても、既存の会話は変わらず、Job も作成されません。Ankole が新しい Job workspace を初期化するのは、task がその template を選択したときだけです。
+なお、ワークスペーステンプレートを持つ Agent Plugin を有効化しただけでは、進行中の会話に影響したり勝手に Job が作成されたりすることはありません。テンプレートからの初期化が行われるのは、実際にタスクがそのテンプレートを指定して新しい Job ワークスペースを作成する時点だけです。
 
 ### Skill: 反復可能な 1 つの仕事の方法
 
-Ankole の Skill は、<a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">公式の Agent Skills specification</a> に準拠しています。
+Ankole の Skill は、<a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">公式の Agent Skills 仕様</a>に準拠しています。
 
-各 Skill は、YAML frontmatter を持つ `SKILL.md` を少なくとも 1 つ含みます。`scripts/`、`references/`、`assets/` を含めることもできます。
+各 Skill には YAML フロントマター付きの `SKILL.md` が少なくとも 1 つ含まれ、必要に応じて `scripts/`、`references/`、`assets/` ディレクトリを同梱できます。
 
-Agent は最初に名前と説明を見ます。task が一致した後でのみ、完全な手順と必要なリソースを読み込みます。
+Agent は最初、各 Skill の名前と概要説明（`description`）だけを参照します。そして現在のタスクに合致すると判断したときにはじめて、詳細な手順書や関連リソースを読み込みます。
 
-Skill は、ある種類の仕事の完了方法を説明します。workflow がライブデータ、認証、または制御された action を必要とする場合、Skill は MCP domain tool を選択し、mcporter を通じて呼び出すことができます。MCP catalog は model に見える第二の tool registry ではありません。
+Skill には特定の業務を完遂するための手順が記されています。作業の途中でリアルタイムデータの取得や外部認証、制御された操作が必要になる場合、Skill は対象の MCP ドメインツールを指定し、`mcporter` 経由で呼び出すことができます。なお、MCP カタログ全体がモデルに直接見える第 2 のツールレジストリとして公開されるわけではありません。
 
 #### Ankole 拡張: Skill の実行 surface を選択する
 
-Ankole は標準 frontmatter に `ankole-runtime` を追加します。
+Ankole では、標準のフロントマターを拡張して `ankole-runtime` フィールドをサポートしています。
 
 ```yaml
 ---
@@ -61,110 +61,110 @@ ankole-runtime: any
 ---
 ```
 
-| 値 | Skill が利用できる場所 | こんなときに使う |
+| 値 | Skill を利用できる実行面 | 適した用途 |
 |---|---|---|
-| `any` | メイン Agent と Background Agent Job | どちらの実行 surface でも安全に完了できる仕事。フィールドがない場合の既定値でもある |
-| `main` | メイン Agent の会話のみ | ユーザーに質問する、選択を確認する、Background Agent Job を作成・管理する必要がある仕事 |
-| `background_job` | Background Agent Job のみ | 長時間実行される、Job workspace に依存する、または 1 つの Job で file、browser 作業、データを処理する仕事 |
+| `any` | メイン Agent と Background Agent Job の両方 | どちらの実行環境でも安全に完結できる作業（フィールド省略時の既定値） |
+| `main` | メイン Agent の会話のみ | ユーザーへの確認質問、方針のすり合わせ、Background Agent Job の起動・管理を行う作業 |
+| `background_job` | Background Agent Job のみ | 長時間かかる処理、Job ワークスペースを前提とする作業、単一 Job 内でファイル・ブラウザー操作・データ処理を完結させる作業 |
 
-このフィールドは Skill がどこで見えるかを制御します。Background Agent Job を作成するものではありません。
+このフィールドは「どの実行面でその Skill を公開するか」を制御するものであり、設定しただけで自動的に Background Agent Job が作られるわけではありません。
 
-Deep Research のエントリ Skill は `main` を使用します。元の会話で依頼を確認し、Job を作成するからです。調査用の Skill は Background Agent Job 内で実行できます。
+たとえば Deep Research の入り口となる Skill は、元の会話で調査条件を確認してから Job を起動する役割を担うため `main` を指定しており、実際の調査を進める Skill 群は Background Agent Job 側で実行される構成になっています。
 
 #### Ankole 拡張: Brain から Skill を発見する
 
-一部の SOP や方法論は、現在の作業に関連するときだけ役立ちます。すべての Prompt に表示すると context を浪費します。同梱 Skill は `brain-recall-only: true` を宣言できます。これは標準 Skill のままであり、Agent Plugin、Skill の有効化、実行 surface、`skill_view` の規則も変わりません。違いは、model に見える Skill カタログへ入れず、Brain が意味に基づいて発見することです。
+特定の業務でしか使わない SOP（標準作業手順書）や専門メソドロジーをすべてのプロンプトに毎回載せていると、コンテキストウィンドウを無駄に消費してしまいます。そこで同梱 Skill では `brain-recall-only: true` を宣言できます。これを有効にしても、Agent Plugin との親子関係、有効・無効の切り替え、実行面（`ankole-runtime`）、および `skill_view` のルールは通常の Skill と変わりません。唯一の違いは、モデルに常時提示する Skill カタログからは除外し、代わりに Brain が意味検索によって必要なタイミングで発見できるようにする点です。
 
-Brain は Skill の名前、説明、tag を検索します。一致した後、Agent は `skill_view` を呼び出します。`skill_view` は `ankole-runtime` に従い、互換性のある実行 surface では Skill を読み込み、それ以外では正しい routing または rejection の結果を返します。Skill または親 Agent Plugin を無効にすると、その Agent は Brain から発見することも読み込むこともできません。この意味検索の経路には、有効な Brain が必要です。この mode は、必要なときだけ利用でき、すべての Prompt を常に占有すべきではない同梱の方法論や SOP に適しています。
+Brain は Skill の名前、説明、タグを対象に検索を行います。関連する Skill が見つかると、Agent は `skill_view` を呼び出して内容を読み込みます。このとき `skill_view` は `ankole-runtime` の制約に従い、現在の実行面と互換性があれば本文を返し、互換性がなければ適切なルーティング案内または拒否応答を返します。Skill または親の Agent Plugin が無効化されている場合は、Brain の検索結果にも現れず読み込むこともできません。なお、この発見経路を利用するには Brain が有効になっている必要があります。常時プロンプトを占有させたくない専門手順書や SOP に最適なモードです。
 
 ### Control Plane Plugin: サイトスコープのフルスタック拡張
 
-Control Plane Plugin は OpenAI Plugin ではなく、Agent の作業 context にも入らず、テナント単位や Agent 単位でスコープされることもありません。リリースに静的コンパイルされるサイトスコープの拡張であり、ノード起動時に解決されて不変の `:persistent_term` スナップショットとして公開されます。
+Control Plane Plugin は OpenAI Plugin とは別物であり、Agent のプロンプトコンテキストに入ることも、テナント単位・Agent 単位で切り分けられることもありません。リリースバイナリに静的コンパイルされるサイトスコープのプラットフォーム拡張であり、ノード起動時に解決されて不変の `:persistent_term` スナップショットとして公開されます。
 
-Control Plane Plugin はフルスタックで以下の拡張ポイントを提供できます。
+Control Plane Plugin は、プラットフォーム全体にわたって次の拡張ポイントを提供できます。
 
-- サブシステムアダプター（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）および監督下の OTP プロセス（`children/0`）
-- 外側の HTTP エッジ `Plug` とスコープ付き拡張 JSON:API ルート
-- 同期ドメイントランザクション `hooks/0`（`Ankole.Plugins.Hook`）
+- サブシステムアダプター（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）および監視下の OTP プロセス（`children/0`）
+- 外側の HTTP エッジ `Plug` とスコープ付きの拡張 JSON:API ルート
+- 同期ドメイントランザクションフック `hooks/0`（`Ankole.Plugins.Hook`）
 - 宣言的な `AppConfigure` 設定フィールド（`ConfigFields`）と型付き Web UI スロット（`entries.json` の `overrides`）
 
-各 Control Plane Plugin は `activation: :optional | :always` を宣言します。任意のプラグイン（既定の `:optional`）は `plugins.enabled_ids` で選択し、control plane の次回起動時に適用されます。`activation: :always` を持つプラットフォームプラグインはソースビルドで常時有効に固定され、無効化できません。再起動なしで即座に切り替える動的ランタイムスイッチや段階的ロールアウトには、OpenFeature（`Ankole.Features`）を使用します。
+各 Control Plane Plugin は `activation: :optional | :always` を宣言します。任意有効のプラグイン（既定の `:optional`）は `plugins.enabled_ids` で選択し、コントロールプレーンの次回起動時に反映されます。一方、`activation: :always` を宣言したコアプラグインはビルド時点で常時有効に固定されており、無効化できません。再起動を伴わずに即座に挙動を切り替える動的スイッチや段階的ロールアウトには、OpenFeature（`Ankole.Features`）を使用します。
 
 ## Agent Plugin と Skill を管理する
 
 ### instance の既定値を設定する
 
 1. Console で **Agent Library** を開きます。
-2. scope を **グローバル既定値** に設定します。
-3. **Agent Plugins** または **Skills** で能力を見つけます。
-4. その既定値を有効化または無効化します。
+2. スコープを **グローバル既定値** に設定します。
+3. **Agent Plugins** または **Skills** から対象の項目を探します。
+4. 既定の状態（有効または無効）を切り替えます。
 
-グローバル既定値は、新しい Agent と override を持たない Agent に適用されます。既に開始した turn は変わりません。Agent は次の turn で新しい能力セットを読み取ります。
+グローバル既定値は、今後新しく作成する Agent および個別の上書き設定（override）を持たないすべての Agent に適用されます。すでに実行中の Turn には影響せず、次の Turn から新しい能力セットが読み込まれます。
 
-一般的でリスクの低い能力は既定で有効にし、例外に対して狭めます。
+汎用性が高くリスクの低い機能はグローバル既定で有効にし、不要な Agent だけ個別に絞り込む運用がシンプルです。
 
-少数の役割にしか適用されない能力、特別な credential を必要とする能力、または実質的な risk がある能力は、既定で無効にし、必要な場所でのみ有効化する方が管理しやすくなります。
+反対に、限られた役割でしか使わない機能、専用の認証情報を必要とする機能、あるいは操作リスクの大きい機能は、グローバル既定では無効にしておき、必要な Agent にだけ個別に有効化する方が安全に管理できます。
 
 ### 1 つの Agent を override する
 
-1. Agent Library の上部で、scope を対象の Agent に変更します。
-2. Agent Plugin または Skill を見つけます。
+1. Agent Library 画面の上部で、スコープを対象の Agent に切り替えます。
+2. 対象の Agent Plugin または Skill を探します。
 3. **グローバルに従う**、**有効**、**無効** のいずれかを選択します。
 
-**グローバルに従う** は例外を削除します。その後 instance の既定値を変更すると、この Agent にも適用されます。明示的な有効または無効の値は、その Agent の override として残ります。
+**グローバルに従う** を選ぶと個別設定が解除され、以降グローバル既定値を変更した際にこの Agent にもそのまま反映されるようになります。**有効** または **無効** を明示的に選んだ場合は、その Agent 専用の上書き設定として維持されます。
 
-Agent Plugin は複数の Skill を含むことができます。親を無効にするとその Skill は利用できなくなりますが、各 Skill の設定は書き換えられません。親を再度有効にすると、Skill はそれぞれの実効状態に戻ります。
+なお、複数の Skill を内包する親の Agent Plugin を無効化すると配下の Skill もすべて利用できなくなりますが、各 Skill の個別設定自体は書き換えられずに保持されます。親 Plugin を再度有効化すれば、各 Skill は元の有効・無効状態にそのまま戻ります。
 
 ### Skill 教訓を確認する
 
-Agent は、完全な Skill 手順と共に、日付付きの作業上の注意事項を受け取れます。Dreaming は Job の証拠からリース付きの教訓を作り、運用者は人の教訓を追加できます。共有の `SKILL.md` は変わりません。
+Agent は Skill 本体の手順とあわせて、日付付きの短い作業上の注意事項（Skill 教訓）を受け取ることができます。Dreaming が Job の実行記録からリース付きの教訓を自動生成するほか、運用者が手動で教訓を追加することもでき、いずれの場合も共有の `SKILL.md` 本体は変更されません。
 
-Agent Library の scope を対象の Agent に変更し、Skill card を見つけます。card には、有効な教訓と廃止済みの教訓、証拠 Job、再確認日、廃止理由が表示されます。運用者は教訓を追加または廃止できます。Agent は次の turn から廃止済み教訓を読みません。
+確認・管理するには、Agent Library のスコープを対象の Agent に変更して該当する Skill カードを開きます。カード上には現在有効な教訓と廃止済みの教訓、根拠となった証拠 Job、再確認日、廃止理由が表示され、その場で教訓の追加や廃止を行えます。廃止した教訓は、次の Turn から Agent に渡されなくなります。
 
-一般的な規則を各 Agent の教訓にコピーしないでください。すべての Agent に適用する規則は、Skill の source に記述します。証拠の規則、リース、設定については [Skill 教訓](../skill-lessons/) を参照してください。
+なお、全 Agent に共通する一般的なルールを各 Agent の教訓へ個別にコピーして回らないでください。全体に適用すべきルールは Skill 本体のソースに記述します。証拠条件、リース期間、関連設定の詳細については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ## Control Plane Plugin を管理する
 
 ### 任意のサイトプラグインを有効化または無効化する
 
-Control Plane Plugin は厳密にサイトスコープ（`/api/v2/site/control-plane-plugins`）であり、Site Admin Console（`/site-admin-console`）で Agent Library のスコープを **グローバル既定値** に設定したときのみ表示されます。
+Control Plane Plugin はサイトスコープ専用（`/api/v2/site/control-plane-plugins`）であり、Site Admin Console（`/site-admin-console`）で Agent Library のスコープを **グローバル既定値** に合わせたときにのみ表示されます。
 
-1. Site Admin Console で **Agent Library** を開き、スコープを **グローバル既定値** にしたまま **Control Plane Plugins** タブを開きます。
-2. 任意の Plugin（`activation: :optional`）を見つけ、**次回起動時に有効** に設定します。`activation: :always` の Plugin はビルドで固定有効のため無効化トグルはありません。
-3. 保存して control plane を再起動します。
-4. **Control Plane Plugins** タブに戻り、**現在 active** になっていることを確認します。
-5. Plugin が提供する Channel Provider、identity source、Worker プロバイダー、または設定を構成します。
+1. Site Admin Console で **Agent Library** を開き、スコープを **グローバル既定値** にしたまま **Control Plane Plugins** タブを選択します。
+2. 対象の任意プラグイン（`activation: :optional`）を探し、**次回起動時に有効** に切り替えます（`activation: :always` のプラグインはビルド固定のため切り替えトグルは表示されません）。
+3. 設定を保存し、コントロールプレーンを再起動します。
+4. 再起動後に **Control Plane Plugins** タブを再度開き、ステータスが **現在 active** になっていることを確認します。
+5. そのプラグインが提供する Channel Provider、Identity ソース、Worker プロバイダー、または関連設定を構成します。
 
-Docker Compose:
+Docker Compose 環境での再起動：
 
 ```bash
 docker compose restart control-plane
 ```
 
-Kubernetes:
+Kubernetes 環境での再起動：
 
 ```bash
 kubectl -n ankole rollout restart deployment/ankole-control-plane
 ```
 
-任意の Control Plane Plugin の無効化も次回起動時に適用されます。設定トランザクション内では `veto_disable` 参照チェックが強制されるため、Worker プロバイダー Plugin は、いずれかのテナントでそのプロバイダー種別を参照する Worker（一時停止中の Worker や削除処理中の Agent を含む）が割り当てられている間は無効化できません。無効化する前に、稼働中の Channel Provider、identity source、Worker が依存していないことを確認してください。再起動なしの動的な機能切り替えには OpenFeature（`Ankole.Features`）を使用します。
+任意の Control Plane Plugin を無効化する場合も、同じく次回起動時に反映されます。なお、設定変更のトランザクション内では `veto_disable` による参照整合性チェックが強制されます。そのため、Worker プロバイダー系プラグインについては、いずれかのテナント内にそのプロバイダー種別を参照する Worker（一時停止中の Worker や削除処理中の Agent を含む）が 1 つでも残っている間は無効化できません。無効化する前に、稼働中の Channel Provider、Identity ソース、Worker がそのプラグインに依存していないことを確認してください。再起動なしの動的な機能切り替えには OpenFeature（`Ankole.Features`）を使用します。
 
 ## トラブルシューティング
 
 ### Agent Plugin と Skill
 
-- **能力が見つからない:** deployment package に含まれているか確認してください。library はインストール済みのコンポーネントしか表示できません。
-- **Skill は有効だが Agent が使えない:** 親の Agent Plugin が無効になっていないか確認し、新しい turn を開始してください。
-- **Skill が一部の task にしか現れない:** `ankole-runtime` を確認してください。`main` の Skill は Background Agent Job に入らず、`background_job` の Skill は通常のメイン Agent の会話に入りません。
-- **一部の Agent がグローバルな変更を無視する:** Agent ごとの override を持っている可能性があります。各 Agent の scope を選択して設定を確認してください。
-- **Background Agent Job が workspace template を選択できない:** Agent Plugin がその Agent に対して有効であり、Plugin が `workspace-template/` を含むことを確認してください。
+- **目的の機能が見当たらない：** デプロイパッケージに同梱されているか確認してください。Agent Library にはインストール済みのコンポーネントしか表示されません。
+- **Skill を有効にしたのに Agent が使えない：** 親の Agent Plugin が無効になっていないか確認したうえで、新しい Turn を開始してください。
+- **一部のタスクでしか Skill が現れない：** `ankole-runtime` の設定を確認してください。`main` 指定の Skill は Background Agent Job には渡されず、`background_job` 指定の Skill は通常のメイン Agent 会話には渡されません。
+- **一部の Agent にグローバル既定値の変更が効かない：** その Agent に個別の上書き設定（override）が入っている可能性があります。スコープを該当 Agent に切り替えて確認してください。
+- **Background Agent Job でワークスペーステンプレートを選べない：** 対象の Agent で該当する Agent Plugin が有効になっているか、およびその Plugin に `workspace-template/` が含まれているかを確認してください。
 
 ### Control Plane Plugin
 
-- **Control Plane Plugins タブが表示されない:** Control Plane Plugin はサイトスコープ専用です。Site Admin Console（`/site-admin-console`）を開き、**Agent Library** のスコープを **グローバル既定値** に切り替えてください。
-- **Control Plane Plugin が「次回起動時に有効」と表示される:** 設定は `plugins.enabled_ids` に保存されていますが、起動スナップショットを更新するには control plane の再起動が必要です。
-- **Control Plane Plugin を無効化できない:** その Plugin が `activation: :always`（ビルド固定有効）を宣言しているか、いずれかのテナントの Agent Worker がその Worker プロバイダー種別を参照しているため `veto_disable` によって拒否されています。
-- **再起動後に control plane が起動しない:** 起動 log を読み、再度起動する前に Plugin の configuration または依存を修正してください。
-- **Channel Provider がまだ見つからない:** Plugin が **現在 active** であることを確認し、その Channel Provider の configuration を検査してください。
+- **Control Plane Plugins タブが表示されない：** Control Plane Plugin はサイトスコープ専用です。Site Admin Console（`/site-admin-console`）を開き、**Agent Library** のスコープを **グローバル既定値** に切り替えてください。
+- **ステータスが「次回起動時に有効」のまま変わらない：** 設定自体は `plugins.enabled_ids` に保存されていますが、起動時のスナップショットを更新するにはコントロールプレーンの再起動が必要です。
+- **プラグインを無効化できない：** `activation: :always`（ビルド固定有効）が宣言されているか、あるいはいずれかのテナントの Agent Worker がその Worker プロバイダー種別を参照しているために `veto_disable` でブロックされています。
+- **再起動後にコントロールプレーンが立ち上がらない：** 起動ログを確認し、プラグインの設定値や依存関係の不備を修正してから再起動してください。
+- **有効化したのに Channel Provider がまだ表示されない：** プラグインのステータスが **現在 active** になっているかを確認し、該当 Channel Provider の設定内容を見直してください。
 
-両方の拡張方法については、[Skill と Control Plane Plugin の開発](../writing-a-skill/) を参照してください。
+Skill と Control Plane Plugin の双方の開発方法については、[Skill と Control Plane Plugin の開発](../writing-a-skill/) を参照してください。

@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
+    "type-check": "bun check --noEmit",
     "test": "bun test ./test"
   },
   "devDependencies": {

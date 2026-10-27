@@ -5,73 +5,73 @@ section: Guides
 order: 305
 ---
 
-browser Skill은 에이전트가 실제 브라우저 작업을 수행할 수 있게 해줍니다 — 페이지 열기, 클릭, 입력, 렌더링된 상태 읽기, 스크린샷 촬영, 그리고 라이브 세션에 대한 재현 가능한 Playwright 스크립트 실행. 이 Skill은 [Skill](../agent-library/)이며 내장 tool이 아니고, [백그라운드 Job](../background-jobs/)으로 실행됩니다. 이 페이지는 운영자 관점입니다: 이 Skill이 무엇인지, 언제 켜야 하는지, 에이전트가 브라우저로 무엇을 할 수 있고 무엇을 할 수 없는지.
+`browser` Skill을 사용하면 에이전트가 실제 웹 브라우저 세션을 열어 페이지 이동, 요소 클릭, 입력란 작성, 렌더링된 화면 상태 확인, 스크린샷 캡처, 그리고 라이브 세션 위에서 재현 가능한 Playwright 스크립트 실행까지 수행할 수 있습니다. 이 기능은 기본 내장 도구가 아니라 [Agent Library의 Skill](../agent-library/)로 제공되며, 실행 시 [Background Agent Job](../background-jobs/) 안에서 돌아갑니다. 이 문서는 운영자 관점에서 브라우저 자동화 Skill의 구조와 활성화 방법, 그리고 에이전트에 적용되는 실행 제약을 안내합니다.
 
-핵심 속성을 먼저 명시합니다: 에이전트 세션당 브라우저 소유자는 하나뿐이며, 그 소유자는 에이전트가 아니라 runtime이다. 에이전트는 워커 이미지가 주입하는 사전 구성된 `ankole-browser` CLI를 통해 브라우저를 구동합니다. Chromium을 직접 실행하거나 `chromium.connectOverCDP`를 호출하면 안 된다 — 그러면 두 번째 소유자가 생기고 세션 복구를 우회하기 때문입니다.
+가장 중요한 원칙은 **에이전트 세션당 브라우저 소유자가 오직 하나뿐이며, 그 소유자는 에이전트가 아니라 런타임**이라는 점입니다. 에이전트는 워커 이미지에 사전 구성된 `ankole-browser` CLI를 통해서만 브라우저를 조작해야 합니다. 에이전트가 임의로 Chromium 프로세스를 직접 띄우거나 `chromium.connectOverCDP`를 호출하면 두 번째 소유자가 생겨 런타임의 세션 복구 경로가 깨지므로 엄격히 금지됩니다.
 
 ## 브라우저 자동화란 무엇인가
 
-Ankole에서 브라우저 자동화는 `app/library/skills/browser/SKILL.md`에 포함된 `browser` Skill이다. 백그라운드 Job runtime(`ankole-runtime: background_job`)용으로 태그된 내장 Skill(`default_enabled: true`)이다. 에이전트가 이 Skill을 호출하면 작업은 소유 turn과 격리된 백그라운드 Job 안에서, runtime이 소유하는 실제 Chromium 세션을 대상으로 실행됩니다.
+Ankole의 브라우저 자동화는 `app/library/skills/browser/SKILL.md`에 정의된 내장 `browser` Skill(`default_enabled: true`)로 제공되며, 백그라운드 Job 런타임 전용(`ankole-runtime: background_job`)으로 태그되어 있습니다. 에이전트가 이 Skill을 사용하면 메인 대화 turn과 분리된 백그라운드 Job 안에서 런타임이 관리하는 실제 Chromium 세션을 대상으로 작업이 실행됩니다.
 
-Skill 자체의 description이 모델이 사용 여부를 결정할 때 읽는 계약입니다: 작업이 렌더링된 페이지 상태, 상호작용, 스크린샷, 영구 로그인 상태, 또는 재현 가능한 Playwright 워크플로에 의존하면 브라우저를 사용하고, 일반적인 발견과 텍스트 추출에는 [web_search](../web-tools/)나 [web_fetch](../web-tools/)를 우선합니다.
+모델은 Skill 매니페스트의 `description`을 읽고 브라우저 사용 여부를 판단합니다. 작업이 클라이언트 측 렌더링 결과, 화면 조작, 스크린샷, 로그인 세션 유지, 또는 반복 가능한 Playwright 워크플로에 의존할 때만 브라우저를 선택하고, 단순 검색이나 본문 텍스트 추출에는 [web_search](../web-tools/)와 [web_fetch](../web-tools/)를 우선 사용합니다.
 
 ## 브라우저를 사용해야 하는 경우
 
-브라우저는 무거운 경로입니다. fetch만으로 부족할 때만 사용하세요. 구체적으로:
+실제 브라우저 구동은 비용이 큰 경로이므로 단순 HTTP 조회만으로 해결되지 않는 상황에만 사용하세요. 대표적인 경우는 다음과 같습니다.
 
-- **렌더링된 상호작용** — JavaScript가 실행된 다음에, 또는 클릭, 스크롤, 필드 입력 후에만 페이지가 필요한 데이터를 보여주는 경우.
-- **영구 로그인 상태** — runtime이 이미 인증한 세션이 필요하고, 단순한 fetch로는 로그인을 재현할 수 없는 경우.
-- **스크린샷** — 작업에 시각적 산출물이 필요하거나, 사람이 페이지 상태를 확인해야 하는 경우.
-- **재현 가능한 Playwright 워크플로** — 같은 다단계 브라우저 루틴을 두 번 이상 실행해야 하는 경우.
+- **렌더링 후 상호작용이 필요한 페이지** — 클라이언트 JavaScript가 실행된 뒤에야 데이터가 나타나거나 클릭, 스크롤, 폼 입력을 거쳐야 원하는 화면에 도달할 수 있는 경우입니다.
+- **로그인 세션 유지** — 런타임에 이미 인증된 브라우저 세션이 필요하며 단순 HTTP 요청만으로는 인증 상태를 재현할 수 없는 경우입니다.
+- **시각적 스크린샷 확보** — 결과물로 화면 캡처 이미지가 필요하거나 사람이 직접 렌더링 상태를 눈으로 확인해야 하는 경우입니다.
+- **재현 가능한 다단계 Playwright 워크플로** — 동일한 다단계 브라우저 조작 절차를 반복해서 실행해야 하는 경우입니다.
 
-페이지를 찾거나 텍스트만 읽으려면 `web_search`나 `web_fetch`를 대신 사용하세요. browser Skill 자신도 그렇게 말한다: 이 tool들은 이 Skill밖에 있으며, 렌더링된 상호작용, 로그인 상태, 스크린샷, 브라우저 측 코드가 필요 없을 때는 그것들을 우선해야 한다. fetch는 더 저렴하고 빠르며 브라우저 세션을 소비하지 않습니다.
+단순히 웹 페이지를 검색하거나 정적 본문 텍스트만 읽으면 될 때는 `web_search`나 `web_fetch`를 사용하세요. `browser` Skill 지침에도 명시되어 있듯, 화면 조작이나 로그인 세션, 스크린샷, 브라우저 내부 스크립트 실행이 필요하지 않다면 가벼운 웹 도구를 쓰는 편이 훨씬 빠르고 저렴하며 브라우저 세션 슬롯도 점유하지 않습니다.
 
 ## 활성화 방법
 
-브라우저는 Skill이므로 tool 플래그가 아니라 [Agent Library](../agent-library/)를 통해 켠다. `default_enabled`가 `true`이므로 축소하지 않는 한 새 Agent에는 브라우저가 이미 사용 가능합니다. 두 계층:
+브라우저 자동화는 개별 도구 플래그가 아니라 Skill이므로 [Agent Library](../agent-library/)에서 활성화 여부를 관리합니다. 기본값이 `default_enabled: true`이므로 별도로 끄지 않는 한 새로 생성한 Agent에서도 바로 사용할 수 있습니다. 제어 계층은 두 단계로 나뉩니다.
 
-1. **테넌트 기본값** — Skill은 `default_enabled: true`로 제공됩니다. 그대로 두면 테넌트의 모든 Agent가 브라우저를 사용할 수 있습니다.
-2. **Agent별 재정의** — 브라우저를 가지면 안 되는 Agent는 비활성화하고, 테넌트 기본값이 비활성화된 경우 필요한 Agent에 대해 활성화합니다.
+1. **테넌트 기본값** — 기본 배포 상태(`default_enabled: true`)를 유지하면 해당 테넌트의 모든 Agent가 브라우저를 사용할 수 있습니다.
+2. **Agent별 재정의** — 브라우저 접근을 막아야 하는 특정 Agent에서만 개별 비활성화하거나, 반대로 테넌트 기본값을 꺼 둔 상태에서 꼭 필요한 Agent에만 선택적으로 켤 수 있습니다.
 
-두 계층 모두 [Console API 참조](../console-api/)에서 다루는 Console의 library-capability 라우트로 설정합니다. Agent의 `library-capabilities`를 읽으면 Skill 동기화가 트리거되므로, 보이는 것은 현재 파일시스템과 조정된 레지스트리이며 오래된 스냅샷이 아닙니다.
+두 설정 모두 [Console API 참조](../console-api/)에 안내된 Console의 library-capability 라우트를 통해 제어합니다. 특정 Agent의 `library-capabilities`를 조회하면 파일시스템과 레지스트리가 즉시 동기화되므로 오래된 스냅샷이 아닌 최신 상태가 반영됩니다.
 
 ## runtime이 주입하는 것
 
-Agent는 브라우저 구성을 직접 선택하지 않습니다. 브라우저 Job이 시작되기 전에 runtime은 Job에 필요한 모든 것을 주입하며, 그 값은 Agent에게 불투명하다:
+에이전트는 브라우저 실행 경로와 연결 구성을 스스로 고르지 않습니다. 브라우저 Job이 시작되기 전에 런타임이 필요한 환경 정보를 모두 준비해 불투명(opaque)한 설정값으로 주입합니다.
 
-- runtime이 소유한 브라우저 세션으로의 **불투명한 route**
-- **최종 browser material** (Agent가 구동할 준비된 세션)
-- CLI가 통신하는 **데몬 소켓**
-- 스크린샷과 기타 출력물을 위한 **아티팩트 루트**
+- 런타임이 관리하는 브라우저 세션을 가리키는 **불투명 라우트(route)**
+- 에이전트가 바로 조작할 수 있게 준비된 **최종 브라우저 세션 정보(browser material)**
+- CLI가 명령을 주고받는 **데몬 소켓 경로**
+- 스크린샷 및 각종 결과물을 저장할 **아티팩트 루트 디렉터리**
 
-Agent는 이 값들을 `ankole-browser` CLI를 통해 사용합니다. `app/agent_computer/src/browser-runtime/index.ts`의 `BrowserRuntime` 클래스가 materializer, 데몬 슈퍼바이저, 웹 fetch 어댑터를 소유하므로 브라우저 세션의 수명 주기는 runtime의 책임입니다. Agent의 책임은 CLI를 호출하는 것입니다.
+에이전트는 오직 `ankole-browser` CLI를 통해서만 이 주입된 자원을 사용합니다. `app/agent_computer/src/browser-runtime/index.ts`의 `BrowserRuntime` 클래스가 세션 준비기(materializer), 데몬 슈퍼바이저, 웹 fetch 어댑터를 일괄 관리하므로 브라우저 세션의 전체 수명 주기는 런타임이 책임지고, 에이전트는 CLI 명령만 호출하면 됩니다.
 
 ## 제약: 브라우저 소유자는 하나
 
-이것이 Agent가 어겨서는 안 되는 규칙입니다. runtime이 브라우저 소유자입니다. Agent는 반드시:
+다음은 에이전트가 절대 어겨서는 안 되는 핵심 규칙입니다. 브라우저의 유일한 소유자는 런타임이므로 에이전트는 반드시 다음 원칙을 지켜야 합니다.
 
-- **모든 것에 사전 구성된 `ankole-browser` CLI를 사용해야 한다** — open, snapshot, click, fill, screenshot, batch, 그리고 Playwright 스크립트용 `run`.
-- **Chromium을 직접 실행하면 안 된다.**
-- **`chromium.connectOverCDP`를 호출하거나** 프로필 이름, 자격 증명, provider 구성, CDP 엔드포인트, 컨트롤 플레인 식별자를 찾아서는 안 된다.
+- **모든 브라우저 작업에 사전 구성된 `ankole-browser` CLI만 사용해야 합니다**(`open`, `snapshot`, `click`, `fill`, `screenshot`, `batch`, 그리고 Playwright 스크립트 실행용 `run` 포함).
+- **Chromium 실행 파일을 직접 띄워서는 안 됩니다.**
+- **`chromium.connectOverCDP`를 직접 호출하거나** 프로필 이름, 자격 증명, provider 설정, CDP 엔드포인트, 컨트롤 플레인 내부 식별자를 임의로 탐색해서는 안 됩니다.
 
-이유는 복구입니다. runtime은 데몬 슈퍼바이저, materializer, 세션 복구 경로를 소유합니다. 두 번째 브라우저 소유자 — Agent가 띄운 Chromium이나 Agent가 연 CDP 연결 — 는 그 경로밖에 있다. runtime이 세션을 복구, 체크포인트, 또는 내려치기하려고 할 때 Agent의 사이드 채널을 볼 수도 제어할 수도 없으므로 세션은 일관되지 않은 상태로 끝납니다. 사전 구성된 CLI는 유일한 소유 진입점이며, Agent가 접촉해야 하는 유일한 경로입니다.
+이렇게 강제하는 이유는 장애 복구와 상태 일관성 때문입니다. 런타임은 데몬 슈퍼바이저와 세션 준비기 및 복구 경로를 직접 통제합니다. 만약 에이전트가 별도로 Chromium을 실행하거나 독자적인 CDP 연결을 열어 두 번째 소유자가 되면 런타임의 관리 범위를 벗어나게 됩니다. 그 상태에서 런타임이 세션을 복구하거나 체크포인트를 남기거나 정리(teardown)하려 할 때 에이전트가 열어 둔 우회 연결을 감지하거나 제어할 수 없어 세션 상태가 깨집니다. 따라서 사전 구성된 `ankole-browser` CLI만이 유일하게 허용된 진입점입니다.
 
 ## Agent가 브라우저를 구동하는 방법
 
-`ankole-browser` CLI는 Agent에게 작업의 형태에 따라 선택하는 세 가지 실행 표면을 제공합니다:
+`ankole-browser` CLI는 작업의 복잡도에 맞춰 선택할 수 있는 세 가지 실행 방식을 제공합니다.
 
-- 탐색과 한두 개의 결정적 동작을 위한 **짧은 CLI 명령** — `open`, `snapshot -i`, `click @e2`, `fill @e4 "value"`, `screenshot`.
-- 알려진 짧은 시퀀스를 위한 **`batch`** — 따옴표로 묶은 명령이나 argv 배열의 배열을 stdin으로 받아 개별 명령과 같은 파서를 적용합니다.
-- 루프, 분기, 반복 추출, 팝업 또는 다운로드 조정, 정밀한 대기, 여러 값을 메모리에 보관해야 하는 작업에는 ESM JavaScript 파일용 **`run`**. `run`은 네이티브 Playwright 객체를 CLI 명령이 사용하는 것과 동일한 물리적 브라우저 세션에 연결하므로 스크립트와 CLI 단계는 하나의 세션을 공유합니다.
+- **짧은 단일 CLI 명령** — 화면 구조를 살피거나 한두 단계의 명확한 조작을 수행할 때 `open`, `snapshot -i`, `click @e2`, `fill @e4 "value"`, `screenshot` 등을 개별 실행합니다.
+- **`batch` 실행** — 이미 파악된 짧은 연속 동작을 한 번에 처리할 때 따옴표로 감싼 명령 문자열이나 `argv` 배열 목록을 표준 입력(`stdin`)으로 넘겨 개별 명령과 동일한 파서로 일괄 실행합니다.
+- **ESM JavaScript 파일용 `run`** — 반복문, 조건 분기, 다건 데이터 추출, 팝업·다운로드 처리, 정교한 대기 조건, 또는 여러 중간 변수를 메모리에 유지해야 하는 복합 작업에 사용합니다. `run`은 일반 CLI 명령이 쓰던 것과 동일한 물리적 브라우저 세션에 네이티브 Playwright 객체를 연결해 주므로 단일 스크립트와 개별 CLI 명령이 하나의 세션을 자연스럽게 공유합니다.
 
-마지막 점이 중요하다: `run`은 두 번째 브라우저를 열지 않습니다. runtime이 소유한 세션을 재사용하므로 단일 소유자 규칙은 Playwright 스크립트 안에서도 성립합니다.
+특히 `run`을 실행하더라도 별도의 새 브라우저가 열리지 않고 런타임이 보유한 기존 세션을 그대로 재사용하므로, Playwright 스크립트 내부에서도 단일 소유자 원칙이 온전히 유지됩니다.
 
 ## 운영자가 건드리지 않는 것
 
-워커 이미지가 브라우저 환경 변수를 설정합니다. 여기에는 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_RUNNER`가 포함됩니다. Console의 **Environment variables**에서 이 이름들을 재정의할 수 없다. 다른 브라우저 동작이 필요하면 Skill을 변경하세요.
+`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_RUNNER`를 비롯한 브라우저 내부 환경 변수는 워커 이미지가 직접 설정합니다. Console의 **Environment variables** 화면에서 이 예약 변수들을 임의로 덮어쓸 수 없으며, 브라우저 활용 방식 자체를 조정해야 할 때는 Skill 지침을 수정하세요.
 
 ## 다음 단계
 
-- 브라우저를 켜는 Skill과 활성화 모델에 대해서는 [Agent Library](../agent-library/)를 읽으세요.
-- 더 가벼운 대안 — 브라우저 없이 검색과 텍스트 fetch — 은 [Web tools](../web-tools/)를 읽으세요.
-- 브라우저를 실행하는 Job에 대해서는 [Background Agent Jobs](../background-jobs/)를 읽으세요.
+- 브라우저 Skill의 카탈로그 구조와 활성화 모델은 [Agent Library](../agent-library/)를 참조하세요.
+- 브라우저를 띄우지 않는 가벼운 웹 검색 및 본문 추출 도구는 [Web tools](../web-tools/)를 참조하세요.
+- 브라우저 세션이 실행되는 백그라운드 작업 수명 주기는 [Background Agent Jobs](../background-jobs/)를 참조하세요.

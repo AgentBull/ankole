@@ -50,6 +50,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
         schema: Schema.new(&validate_chat_config/1),
         description: "Encrypted binding-owned Lark / Feishu chat configuration."
       ),
+      # Migrated to `signals.lark.binding_configs.*` by `Ankole.Upgrade202610`;
+      # retire this pattern with `Ankole.Upgrade202610` once the upgrade window closes.
       AppConfigure.define_pattern(
         id: "signals.lark.bindings.*",
         key_pattern: @legacy_chat_key_pattern,

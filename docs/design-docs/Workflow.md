@@ -1,137 +1,146 @@
 # Workflow
 
-A Workflow runs one fixed JavaScript program that can call bounded subagent
-tasks. The main Agent starts the run once. The control plane stores the program,
-each task, and each result in PostgreSQL. The main Agent receives one new event
-when the run completes or fails.
+A Workflow runs one fixed JavaScript program that orchestrates bounded subagent
+tasks. The main Agent starts the run once; the control plane persists the
+program, every task call, and every result in PostgreSQL; and when the run
+completes or fails, the main Agent receives a single lifecycle event.
 
-A Workflow is for bounded fanout and multi-stage control flow. A
-BackgroundAgentJob is for one long-running Codex task that can receive later
-messages. A Workflow task cannot create another Workflow, so orchestration has
-depth one. A task can create BackgroundAgentJobs and hibernate until they
-finish, which lets one `agent()` call own hours of delegated work behind a
-bounded schema result.
+Workflows and `BackgroundAgentJob`s solve complementary problems: a Workflow
+handles bounded fanout and multi-stage control flow, whereas a
+`BackgroundAgentJob` runs one long-lived Codex session that can accept follow-up
+messages. Because a Workflow task cannot spawn a nested Workflow, orchestration
+has a fixed depth of one. However, a Workflow task can delegate
+`BackgroundAgentJob`s and hibernate until they finish, allowing a single
+`agent()` call to supervise hours of background work behind one schema-validated
+result.
 
-Every Workflow participant follows the shared async-work Session contract in
-[Sessions](Sessions.md#execute-tools-and-asynchronous-work): the session id is the
-address, the owner session is the parent, mail wakes a hibernating unit, and
-lifecycle signals travel one level up.
+Every Workflow participant follows the shared asynchronous Session contract in
+[Sessions](Sessions.md#execute-tools-and-asynchronous-work): its Session ID is
+its address, `owner_session_id` names its parent, incoming mail wakes a
+hibernating unit, and lifecycle Signals travel one level up to that parent.
 
 ## What the Main Agent Can Do
 
-Each model tool performs one Workflow operation. The tools do not use an
-`action` field to select operations.
+Each model-facing tool performs a single Workflow operation rather than
+multiplexing subcommands through an `action` parameter.
 
-`workflow` starts one run. Its input contains:
+`workflow` starts a new run from these arguments:
 
-- `title`: required display text of at most 200 characters
+- `title`: required display text (at most 200 characters)
 - `script`: required JavaScript source for the program body
-- `args`: an optional JSON object that the script reads as `args`
-- `concurrency`: an optional per-run task limit from 1 through 32
-- `max_agent_calls`: an optional total task limit from 1 through 1,024
-- `model_profile`: an optional custom model profile from the current turn
+- `args`: optional JSON object exposed to the script as `args`
+- `concurrency`: optional per-run concurrent task limit (`1` through `32`)
+- `max_agent_calls`: optional total task limit for the run (`1` through `1,024`)
+- `model_profile`: optional custom model profile inherited from the current turn
 
-The configured Workflow limits can reduce `concurrency` and `max_agent_calls`.
-The tool returns the decimal `run_id` and the initial `running` status. The
-main Agent must not poll the run. The control plane sends one completion or
-failure event to the owner Session.
+Deployment-wide Workflow settings cap `concurrency` and `max_agent_calls` if the
+caller requests higher numbers. `workflow` returns the decimal `run_id` and the
+initial `running` status; the main Agent must not poll the run, because the
+control plane delivers a completion or failure Signal to the owner Session
+automatically.
 
-`show_workflow` reads one run that belongs to the current Agent. Without
-`result_offset`, it returns the concrete status, task counts, at most 32 live
-tasks, and at most ten task failure summaries. A live task row carries
-`call_seq`, `label`, `status`, the task's sleep `note`, its `attention` flag,
-`wake_at`, and `wake_count`, with attention rows first. A sleeping task
-is executing, not finished: it hibernates until an event wakes it. For a
-completed run, set `result_offset` to a stable UTF-8 byte offset to read one
-bounded result segment. PostgreSQL returns only the requested byte window and the total byte count.
-Result reads omit task summaries. A segment contains at most 8,000 bytes. Use its next
-offset to read the next segment.
+`show_workflow` inspects one run owned by the current Agent:
 
-`send_message_to_workflow_task` appends one owner message to a live task,
-addressed by `run_id` and `call_seq`. The append is asynchronous and idempotent
-per tool call: a sleeping task wakes with the message, a running task receives
-it when its current Turn ends, a queued task reads it after its dispatch, and a
-terminal task rejects it. The tool cannot block on a task reply.
+- When `result_offset` is omitted, it returns the current run status, task
+  counts, up to 32 live tasks (ordered with `attention` rows first, each showing
+  `call_seq`, `label`, `status`, sleep `note`, `attention`, `wake_at`, and
+  `wake_count`), and up to 10 task failure summaries. A `sleeping` task is still
+  in progress—not finished—hibernating until an event wakes it.
+- For a completed run, passing a UTF-8 byte offset in `result_offset` reads one
+  bounded result slice (up to 8,000 bytes) alongside the total byte length while
+  omitting task summaries; pass the returned next offset to read subsequent
+  slices directly from PostgreSQL.
 
-`list_workflows` lists at most 32 runs that belong to the current Agent. The
-optional status is `live` or `done`. `live` selects `running`. `done` selects
-`completed`, `failed`, and `cancelled`. The optional `page` is the turn-local
-page reference from the preceding result.
+`send_message_to_workflow_task` asynchronously and idempotently appends one
+owner message to a live task identified by `run_id` and `call_seq`, without
+blocking for a task reply: a sleeping task wakes to process the message, a
+running task receives it when its active Turn finishes, a queued task reads it
+upon dispatch, and a terminal task rejects it.
 
-`cancel_workflow` accepts one `run_id`. Cancellation is idempotent. It stops new
-tasks, asks running task turns to stop, and prevents restart recovery from
-starting the run again. Cancellation does not send a completion event.
+`list_workflows` returns up to 32 runs owned by the current Agent, optionally
+filtered by status (`live` for `running`; `done` for `completed`, `failed`, and
+`cancelled`) and paginated with the turn-local `page` cursor from the previous
+call.
 
-Each Workflow task receives one private `submit_result` tool. This tool is not
-available to the main Agent. A successful submission must match the task schema.
-The control plane declares this tool with provider strict mode and validates
-the value when it commits the result. A rejected value does not end the task turn, so the
-subagent can correct it and submit it again.
+`cancel_workflow` idempotently cancels a run by `run_id`: it blocks new task
+dispatch, signals active task turns to stop, prevents recovery from resuming the
+run, and suppresses the normal completion event.
+
+Inside each subagent task, the tool catalog includes a private `submit_result`
+tool—never exposed to the main Agent—declared with provider strict mode. When
+the subagent calls `submit_result`, the control plane validates the payload
+against the task's JSON Schema before committing; if validation fails, the task
+turn remains open so the subagent can fix the payload and submit again.
 
 ## Task Sleep and Wake
 
-A task turn can end in exactly three ways: `submit_result`, `sleep`, or
-failure. The private `sleep` tool parks the call as durable `sleeping` state
-and ends the turn. A sleeping task holds no Worker slot and does not count
-against run or Agent concurrency. Its required `note` (at most 200 characters)
-tells the owner what it waits for through `show_workflow`.
+Every task turn ends in one of three outcomes: `submit_result`, `sleep`, or
+failure. Calling the private `sleep` tool parks the call in the durable
+`sleeping` state and ends the current turn. While sleeping, a task holds no
+Worker slot and consumes neither per-run nor per-Agent concurrency; its required
+`note` (at most 200 characters) explains through `show_workflow` what the task
+is waiting on.
 
-Every sleep schedules one durable deadline event (`workflow.task.wakeup`) at
-`now + wake_after_ms`, bounded between one minute and 48 hours. Any ready
-Signal on the task session wakes the task earlier: an owner
-`workflow.task.message`, or a lifecycle event from a BackgroundAgentJob the
-task created. The wake claim reuses the ordinary dispatch gates, so a full
-Agent re-defers the wake. The wake turn continues the same AIGateway
-conversation; the triggering event renders as its user message, and the turn
-request context carries the durable task contract (`prompt`, `schema`, `label`)
-so every wake can rebuild `submit_result`.
+Each `sleep` schedules a durable deadline Signal (`workflow.task.wakeup`) at
+`now + wake_after_ms`, clamped between 1 minute and 48 hours. Any earlier ready
+Signal on the task Session wakes the task ahead of that deadline—such as an
+owner `workflow.task.message` or a lifecycle event from a `BackgroundAgentJob`
+that the task created. Claiming a wake passes through the standard dispatch
+gates, so if the Agent is at capacity, Ankole defers the wake again. Once
+admitted, the wake turn resumes the existing AIGateway conversation with the
+triggering event rendered as the user message and rebuilds `submit_result` from
+the persisted task contract (`prompt`, `schema`, and `label`).
 
-Each sleep resets the call attempt budget to zero and consumes one unit of the
-hard wake budget of 16 sleeps per call. A crashed wake turn returns the call to
-`queued`. Its open wake event owns redelivery, and the three-attempt budget
-bounds repeated wake failures. The hourly watchdog treats a sleeping call
-whose deadline passed more than an hour ago as overdue: with an open mailbox
-event it re-notifies the session, and with none it fails the call as
-`workflow_task_wake_lost` instead of sleeping forever.
+Each sleep resets the call's per-wake attempt counter to zero while consuming
+one unit from the hard cap of 16 sleeps per call. If a wake turn crashes before
+submitting or sleeping, Ankole returns the call to `queued`, where the still-open
+wake Signal drives redelivery within the three-attempt budget. An hourly
+watchdog also scans for sleeping calls whose `wake_at` deadline passed more than
+an hour ago: if the Session still has an open mailbox Signal, the watchdog
+re-notifies the Session; if no open Signal exists, it fails the call with
+`workflow_task_wake_lost` rather than letting it sleep indefinitely.
 
 ### Delegating BackgroundAgentJobs
 
-The task tool catalog includes `create_background_job`,
+Each Workflow task receives `create_background_job`,
 `show_background_job_details`, `send_message_to_background_job`, and
-`stop_background_job`. A Job created by a task records the task session as its
-`owner_session_id`, so the Job lifecycle wakeup reaches the task
-mailbox and never notifies the main Agent's session. The task judges the Job
-outcome and submits the schema-shaped result; a delegated Job that enters
-`waiting_on_user` also wakes the task, which answers with its own context or
-escalates.
+`stop_background_job`. When a task creates a Job, Ankole sets the Job's
+`owner_session_id` to the task Session so Job lifecycle wakeups—including
+`waiting_on_user` clarifications—route to the task's mailbox rather than waking
+the main Agent. Upon waking, the task evaluates the Job output (answering a
+clarification from its own context or escalating to the owner) and eventually
+calls `submit_result`.
 
-Task dispatch, owner messages, and deadline wakeups carry the run's native
-Conversation ID or provider binding. This route is the delivery context for a
-delegated Job. The task keeps its own Session ID and AIGateway conversation.
-A native task cannot post an ordinary reply to the parent Conversation because
-its task Session is not that Conversation's Session. Job lifecycle events target
-the task Session. The task submits its result to the Workflow, whose result wakes
-the main Agent.
+Task dispatches, owner messages, and deadline wakeups propagate the parent run's
+native Conversation ID or external Binding as the delivery context for delegated
+Jobs, while the task itself runs in its own `wf_task:<call_id>` Session and
+AIGateway conversation. Because that task Session is not the parent
+Conversation's Session, a native task cannot post direct chat replies to the
+parent Conversation; instead, Job events wake the task, the task submits its
+typed result to the Workflow, and the finished Workflow wakes the main Agent.
 
-When a run reaches a terminal status, cleanup stops every live Job whose owner
-session is one of the run's task sessions, using the idempotent Job stop. Job
-creation locks the owning run and task in the insert transaction, so a task
-cannot add a Job after either row stops running.
+Creating a delegated Job locks both the parent run and the calling task inside
+the insert transaction, preventing a task from spawning a Job after either parent
+row has stopped running. When a Workflow run reaches any terminal status,
+post-commit cleanup idempotently stops every live Job whose `owner_session_id`
+belongs to one of that run's task Sessions.
 
 ### Attention
 
-`sleep` with `attention: true` marks the call as waiting for owner input. The
-same transaction appends one `workflow.run.attention` event to the owner
-session with an hour-bucket idempotent source id, so any number of escalations
-inside one hour collapse into one owner wakeup. The payload is a pointer: the
-owner reads current waiting notes through `show_workflow` and answers each task
-with `send_message_to_workflow_task`. The wake claim clears the attention flag.
-A lost attention event self-heals: the task's deadline fires, and a renewed
-attention sleep lands in a new bucket.
+Calling `sleep` with `attention: true` flags the task as waiting for owner
+guidance and, in the same transaction, enqueues a `workflow.run.attention`
+Signal on the owner Session using an idempotent source ID bucketed by hour—so
+multiple task escalations within the same hour coalesce into a single owner
+wakeup. Because the attention event acts as a lightweight pointer, the main
+Agent inspects waiting notes via `show_workflow` and replies to individual tasks
+with `send_message_to_workflow_task`. Admitting the resulting wake clears the
+task's `attention` flag, and if an attention wakeup is ever missed, the task's
+sleep deadline eventually fires so a subsequent `attention: true` sleep lands in
+a fresh hour bucket.
 
 ## Script Contract
 
-The control plane puts the stored script in this fixed wrapper:
+The control plane wraps the stored JavaScript source in this fixed harness:
 
 ```js
 "use strict";
@@ -150,146 +159,155 @@ if (__wf_value !== undefined) {
 }
 ```
 
-The script can call `agent(prompt, opts)`. `prompt` must be a non-empty string.
-`opts` can contain `label`, `model_profile`, and `schema`. A schema must use the
-supported OpenAPI 3 JSON Schema subset and must have one non-null top-level type:
-`object`, `array`, `string`, `number`, `integer`, or `boolean`.
+Scripts invoke subagents through `agent(prompt, opts)`, where `prompt` is a
+non-empty string and `opts` may specify `label`, `model_profile`, and `schema`.
+Task schemas use the supported OpenAPI 3 JSON Schema subset with a single
+non-null top-level type (`object`, `array`, `string`, `number`, `integer`, or
+`boolean`):
 
-Each object schema, including a nested object, must explicitly contain
-`properties`, `required`, and `additionalProperties: false`. `required` must
-list every property exactly once and must not contain another name. Object
-schemas do not support `minProperties` or `maxProperties`. Array, string,
-number, and integer schemas keep their supported item, length, pattern, range,
-and `multipleOf` bounds.
+- Every `object` schema—at the root or nested—must explicitly declare
+  `properties`, `required` (listing every declared property key once and no
+  extra keys), and `additionalProperties: false`, without `minProperties` or
+  `maxProperties`.
+- `array`, `string`, `number`, and `integer` schemas retain their supported
+  item, length, regex pattern, numeric range, and `multipleOf` constraints.
 
-A successful call resolves to its submitted value. A failed call resolves to
-`null` after its retry budget is exhausted. A valid success value can never be
-`null`, so the script can use `null` as the task-failure signal. The owner event
-and `show_workflow` contain the failure summaries.
+When a task succeeds, `agent(...)` resolves to its validated result; when a task
+exhausts its retries and fails, `agent(...)` resolves to `null` (since a valid
+schema result is never `null`, scripts can branch cleanly on `null` for task
+failures while full failure summaries appear in the owner completion event and
+`show_workflow`).
 
-Use `Promise.all` for parallel calls. Normal JavaScript conditions and loops
-can create later stages without another main-Agent turn. Every loop must have a
-fixed bound that is visible in the script.
+Scripts use `Promise.all` for concurrent fanout and ordinary JavaScript
+conditionals and loops—each written with an explicit, statically visible upper
+bound—to drive multi-stage pipelines without round-tripping through the main
+Agent. The function isolate exposes no filesystem, network, module-import, or
+real-clock timer APIs, replaces `Math.random()` and `Date.now()` with
+deterministic shims, and spins up a fresh short-lived isolate per replay step
+rather than holding an isolate open while tasks execute.
 
-The runner supplies no file, network, import, or timer API. `Math.random()` and
-`Date.now()` use deterministic shims. The runner starts a new isolate for each
-replay and does not keep an isolate alive while tasks run.
-
-The script must return its final value. A string becomes result text directly.
-Another JSON value becomes JSON text. A script that returns `undefined` has an
-empty result.
+Returning a string from the script stores it directly as the result text,
+returning any other JSON value serializes it with `JSON.stringify`, and
+returning `undefined` produces an empty result.
 
 ## Which Process Does What
 
 The Elixir control plane:
 
-- authorizes create, read, list, cancel, and task-result requests
-- stores each run and call in PostgreSQL
-- limits task admission for one run and one Agent
-- runs each task through a Session Driver on the control plane
-- gives tasks Web and read-only Brain tools, Job delegation, sleep, and submit_result
-- keeps the same AIGateway conversation and committed tool history on retries
-- starts deterministic replay and commits each replay result
-- runs each task at most three times
-- sends the terminal event to the owner Session
+- authorizes run creation, inspection, listing, cancellation, and task-result
+  submissions
+- persists runs and task calls in PostgreSQL
+- enforces per-run and per-Agent task concurrency caps
+- executes each task through a control-plane Session Driver equipped with Web
+  tools, read-only Brain tools, BackgroundAgentJob delegation tools, `sleep`,
+  and `submit_result`
+- preserves the task's AIGateway conversation and committed tool receipts across
+  retries (up to three call attempts per wake segment)
+- drives deterministic script replay, commits memo updates, and delivers the
+  terminal run Signal to the owner Session
 
 The function runtime:
 
-- runs the fixed JavaScript wrapper in a restricted, one-shot User Worker
-- records unresolved `agent` calls as a pending batch
-- checks the memo sequence during replay
-- enforces execution, output, pending-call, and memo limits
-- cancels an in-flight isolate when the control plane cancels the run
+- executes the wrapped JavaScript in a sandboxed, one-shot User Worker
+- collects unresolved `agent()` invocations as the next pending batch
+- verifies memo call order and arguments on every replay
+- enforces CPU/wall-clock, output, pending-call, and memo-size caps
+- aborts an in-flight isolate when the control plane cancels the run
 
-Agent Computer runs Codex Jobs delegated by a task. A Workflow task itself
-holds no Worker slot. The Driver applies the task's model, iteration, output,
-and inactivity limits and up to three repair attempts when it neither submits
-nor sleeps. The Workflow owner keeps the three-call-attempt limit. Recovery of
-a crashed Driver adopts its running call without another call attempt.
+Agent Computer executes only `BackgroundAgentJob`s delegated by tasks—a Workflow
+task itself never occupies an Agent Computer Worker slot. Within a task turn,
+the Session Driver enforces model, iteration, output, and inactivity limits and
+allows up to three in-turn repair prompts if the model stops without calling
+`submit_result` or `sleep`, while the Workflow call row tracks the outer
+three-attempt cap (if a Driver crashes mid-turn, recovery adopts the running
+call without burning an extra call attempt).
 
-PostgreSQL is the durable owner. RunServer performs replay; `PokeRun` is its
-Oban wakeup. The conversation Reconciler also repairs a missing
-RunServer or pending terminal cleanup when no task event exists yet.
-
-After a replay commit, the caller delivers new task events to their Drivers.
-Terminal cleanup delivers the owner event after the state commit. An attention
-sleep returns its owner event to the tool's post-commit actions.
-Future task wakeups use EnsureDriver. Reconciler repairs a missed delivery.
+PostgreSQL owns durable Workflow state, a transient `RunServer` coordinates
+replays for an active run, `PokeRun` provides its durable Oban wakeup, and the
+conversation Reconciler repairs any run missing its `RunServer` or awaiting
+terminal cleanup—even if a node crashed before dispatching the first task event.
+After committing a replay step, the caller wakes the newly created task Drivers;
+after terminal cleanup commits, it wakes the owner Session; and `attention`
+sleeps emit their owner Signal in the tool's post-commit hook, with
+`EnsureDriver` and the Reconciler healing any missed PubSub wakeups.
 
 ## Human Work Authorization
 
-Each run stores `authorization_kind`, `human_uid`, and `human_access_version`
-from the source Signal under [Human Offboarding](HumanOffboarding.md).
-Task dispatch and delegated Jobs retain that fact. A replay, new task, wake,
-or retry must pass the current Human check before admission.
-Run creation does not admit a replay. RunServer checks the stored authorization
-in its replay-input transaction before it calls the function service. This check does not
-wait for asynchronous Human work cleanup.
+Under [Human Offboarding](HumanOffboarding.md), every Workflow run freezes
+`authorization_kind`, `human_uid`, and `human_access_version` from the
+triggering Signal and propagates that snapshot to task dispatches and delegated
+Jobs. Run creation itself does not run a replay; instead, `RunServer` re-checks
+current Human access inside its replay-input transaction before invoking the
+function runtime—without waiting for asynchronous offboarding sweeps—and every
+new task dispatch, wake, or retry re-checks Human access at admission.
 
-Revocation marks the run cancelled, cancels pending calls, and prevents new
-dispatch. Already admitted calls can finish and retain their results. Cleanup
-does not send an offboarding abort to an admitted Worker turn.
+If Human access is revoked, Ankole marks the run `cancelled`, cancels unstarted
+calls, and blocks further dispatch, while allowing already admitted task turns
+and Worker turns to finish and record their results without sending an
+offboarding abort.
 
 ## What PostgreSQL Stores
 
-`workflow_runs` stores the immutable script and arguments, the owner identity
-and reply route, requested limits, exact cumulative memo byte count, model
-profile, status, final result, and terminal error. A run ID is a PostgreSQL
-identity bigint from 1,000 through the JavaScript maximum safe integer. A
-terminal run also stores the time when its task and delegated-Job cleanup
-finished. RuntimeFabric carries the run ID as a decimal string.
+`workflow_runs` stores the immutable script and `args`, owner identity and reply
+route, requested concurrency/call caps, exact cumulative `memo_bytes`, model
+profile, run status, final result text, terminal error, and
+`cleanup_completed_at`. Run IDs are PostgreSQL `bigint` identity values starting
+at `1,000` up to `Number.MAX_SAFE_INTEGER` (carried over `RuntimeFabric` as
+decimal strings). Run creation is idempotent per `(agent, owner_session, source_tool_call)`,
+returning the existing row—even if already terminal—on duplicate requests.
 
-Creation is idempotent for the same Agent, owner Session, and source tool call.
-A repeated request returns the stored run, including a terminal run, instead of
-creating a second run.
+`workflow_agent_calls` stores one row per `agent()` call keyed uniquely by
+`(run_id, call_seq)` so replay never duplicates a task. Each row records the
+zero-based `call_seq`, original call arguments, `label`, `model_profile`,
+`status`, `attempt_count`, sleep `note`, sleep deadline, `wake_count`,
+`attention` flag, terminal result envelope, and error; delegated
+`BackgroundAgentJob`s link back via `owner_session_id = "wf_task:<call_id>"`
+without needing a separate foreign-key column.
 
-`workflow_agent_calls` stores one row for each `agent()` call. The row contains
-the run ID, zero-based call sequence, original arguments, label, model profile,
-status, attempt count, sleep note, sleep deadline, wake count, attention flag,
-result envelope, and error. The unique `(run_id, call_seq)` key prevents replay
-from creating the same task twice. A Job delegated by a task needs no link
-column: the Job's `owner_session_id` is the task session.
-
-The task Session is `wf_task:<call_id>`. The dispatch Signal source ID
-is `workflow:call:<call_id>:dispatch`. These identities make task dispatch
-idempotent. One replay commit accepts the dispatch Signals of all its new calls
-as one list (see [Signals](Signals.md)).
-
-The control plane updates `memo_bytes` in the same transaction that stores new
-call arguments or a terminal result envelope. It measures the exact Torque
-encoding and rejects a write that would move the run above 6 MiB.
+Task dispatch is likewise idempotent: each call uses Session `wf_task:<call_id>`
+and Signal source ID `workflow:call:<call_id>:dispatch`, and a replay commit
+enqueues all new dispatch Signals in a single batch call (see
+[Signals](Signals.md)). Whenever Ankole inserts new call arguments or writes a
+terminal call envelope, the same transaction measures exact Torque-encoded byte
+growth, updates `memo_bytes`, and rejects any write that would push the run past
+its 6 MiB durable memo cap.
 
 ## Replay and Memo Semantics
 
-The control plane orders calls by `call_seq` and builds the longest terminal
-prefix. A succeeded call contributes `{ok: true, value}`. A failed call
-contributes `{ok: false, code, summary}`. Queued and running calls stop the
-prefix.
+Before calling the function runtime, the control plane sorts the run's calls by
+`call_seq` and assembles the longest contiguous prefix of terminal calls—mapping
+succeeded calls to `{ok: true, value}` and failed calls to
+`{ok: false, code, summary}`—stopping at the first `queued`, `running`, or
+`sleeping` row.
 
-The function worker runs the program from the start with this memo. Each replayed
-`agent()` call must match the stored name and arguments at the same position.
-The worker returns the stored envelope for a matched call. If a call does not
-match the supplied memo, the worker fails the replay with
-`program_replay_diverged`. It returns the next unresolved batch as pending
-calls when the memo matches.
+The function runtime re-executes the immutable script from the top against that
+memo prefix:
 
-The control plane compares the pending batch with existing non-terminal rows.
-It reuses exact matches and inserts only the new suffix. A changed argument, a
-missing stored call, or an altered order fails the run with
-`workflow_replay_diverged`. A Workflow script cannot change after creation.
+- For each replayed `agent()` call within the prefix, the runtime verifies that
+  the call name and arguments match the recorded entry at that exact index,
+  returning the stored envelope on match or failing with
+  `program_replay_diverged` on mismatch.
+- Once execution advances past the memo prefix, the runtime captures the next
+  batch of unresolved `agent()` promises and returns them as pending calls.
 
-This prefix rule means that a later stage starts only after every call before
-that stage is terminal. Calls in one pending batch can run in parallel.
+Back on the control plane, `Replay` compares the returned pending batch against
+any non-terminal rows already persisted: exact matches are reused, new trailing
+calls are appended, and any mutated argument, missing stored call, or reordered
+sequence fails the run with `workflow_replay_diverged`. Because the prefix stops
+at the first non-terminal call, later pipeline stages wait until all earlier
+calls settle, while calls issued together in one `Promise.all` batch run
+concurrently.
 
 ## States and Recovery
 
-A run has this state path:
+Workflow runs follow a one-way lifecycle:
 
 ```text
 running -> completed | failed | cancelled
 ```
 
-A call has these state paths:
+Individual `agent()` calls transition along these paths (never leaving a
+terminal state once settled):
 
 ```text
 queued -> running -> succeeded | failed
@@ -300,99 +318,84 @@ running -> queued
 queued -> failed
 ```
 
-`running -> queued` and `queued -> failed` cover task retry and a
-dispatch-time configuration failure. A failed wake attempt returns to `queued`.
-The same open wake Signal owns redelivery, even when the original dispatch
-Signal has completed. A terminal state cannot return to a live state.
+Here, `running -> queued` and `queued -> failed` handle task retries (including
+failed wake turns, where the open wake Signal retains redelivery ownership after
+the initial dispatch Signal has completed) and dispatch-time configuration
+errors.
 
-`wake_kind` and `wake_at` store the wait contract. A sleeping call requires
-`wake_kind = sleep` and a deadline. A queued call can have an `agent_capacity`
-wait and its retry time, or no wait. Running and terminal calls have neither
-field. PostgreSQL checks these combinations. Claim clears both fields and
-sets `progress_at`; a new committed tool-result round advances `progress_at`.
-The watchdog uses this timestamp, not unrelated metadata updates.
+PostgreSQL constraints enforce valid `(status, wake_kind, wake_at)` triples:
+`sleeping` calls require `wake_kind = sleep` and a `wake_at` timestamp; `queued`
+calls either carry `wake_kind = agent_capacity` with a retry timestamp or leave
+both null; and `running` or terminal calls clear both columns. Claiming a call
+clears the wait columns and sets `progress_at`, and each newly committed
+tool-result round advances `progress_at` in the same transaction under the
+`(slot, run, call)` lock order—replaying an existing journal, rolling back a
+round, finishing a stale attempt, or touching unrelated metadata never refreshes
+`progress_at`.
 
-One temporary `RunServer` serializes replay for one run. PostgreSQL is the
-source of truth. The conversation Reconciler asks the Workflow owner for runs
-without a `RunServer` and terminal runs that need cleanup, then inserts the
-`PokeRun` job. The pass reads every tenant and needs no transaction:
-each idempotent job insert stands alone, and the next pass repeats a failed
-one. This also covers a crash before the first task event.
-A new replay reads the script and memo from PostgreSQL, so completed tasks do
-not run again. Each function replay handle monitors its `RunServer` owner and
-execution task. Exit of either process cancels its HTTP request. The function
-service runs each replay step in a fresh restricted worker.
+At most one temporary `RunServer` runs per active Workflow to serialize replays
+against PostgreSQL truth:
 
-An unexpected function-request cancellation failure emits a warning with the
-failure class and stack locations. It omits exception messages and function
-arguments and returns the best-effort cancellation result.
+- Across all tenants, the conversation Reconciler scans without an outer
+  transaction for active runs lacking a `RunServer` and terminal runs lacking
+  `cleanup_completed_at`, inserting standalone idempotent `PokeRun` jobs (with
+  the next pass retrying any failed insert).
+- Each in-flight function-runtime request monitors both its `RunServer` and its
+  caller task, cancelling the HTTP call if either exits (if HTTP cancellation
+  raises unexpectedly, Ankole logs a scrubbed warning with only the exception
+  class and stacktrace—omitting messages and arguments—and returns a best-effort
+  result).
+- A site-wide replay supervisor caps concurrent function-runtime replay HTTP
+  requests at four—distinct from Workflow task concurrency—so if all four replay
+  slots are busy, additional `RunServer`s stay durable and retry after 30
+  seconds.
 
-The replay supervisor runs at most four function replay requests at one time. If
-all four slots are in use, another running run stays durable and its `RunServer`
-retries after 30 seconds. This limit controls replay requests, not Workflow task
-concurrency.
+Task recovery preserves committed progress:
 
-If a successful `sleep` or `submit_result` result has committed for the current
-input, recovery reads its receipt or recorded tape and closes that input without
-a new task claim or model request. It preserves the committed Workflow state,
-even when the tenant is suspended. Without a committed ending result, recovery
-uses the retry or adoption path.
+- If a `sleep` or `submit_result` receipt has already committed for the active
+  input, recovery reads the receipt or recorded tape and finalizes the input
+  without re-claiming the task or calling a model—even if the tenant is
+  suspended.
+- Otherwise, if a task turn exits without submitting or sleeping—or if the
+  hourly watchdog finds a `running` call with no `progress_at` advance for an
+  hour—Ankole returns the call to `queued`, failing the call on the third failed
+  attempt within the current wake segment. Like `BackgroundAgentJob`s,
+  recoverable Worker errors keep the triggering task Signal open because the
+  `workflow_agent_calls` row owns retry accounting.
+- If a terminal `workflow.run.completed` or `workflow.run.failed` Signal
+  exhausts owner-Session retries and enters `dead_letter`, Ankole posts a
+  fallback notice rendered directly from the durable Signal payload (task counts
+  and result preview), matching the `BackgroundAgentJob` wakeup guarantee so the
+  user sees the outcome even when the main Agent fails to relay it.
 
-If a task turn exits before it submits a result or sleeps, the control plane
-returns the same call to `queued`. The
-third failed attempt inside one wake segment makes the call `failed`. The same
-triggering event stays open through these attempts, and a Workflow task event
-follows the Job rule for dead-letter accounting: recoverable Worker errors keep
-the event open because the call row owns the retry budget. The hourly watchdog
-applies the same compensation when a running call has no newly committed
-tool-result round for one hour. Run locks the current Workflow call in the
-slot, run, and call order before it records the round. The new round
-and the call's progress timestamp commit in the same transaction. An existing
-journal, a rolled-back round, an earlier attempt, or a cancelled or terminal
-call does not renew that timestamp. A single model or tool round with no
-committed progress remains subject to the watchdog. The watchdog also recovers
-overdue sleeping calls as described under Task Sleep and Wake.
+Whenever a running call transitions to `sleeping`, `succeeded`, `failed`, or
+back to `queued` for retry, post-commit cleanup releases its concurrency slot by
+running `Mail.release_capacity/1` in a top-level transaction:
 
-A dead-lettered `workflow.run.completed` or `workflow.run.failed` wakeup keeps
-the Job-wakeup guarantee: the notice renders the run counts and result preview
-from the durable payload, so the outcome reaches the user without the Agent
-runtime that failed to relay it.
+- `Recovery.reconcile_stale_tasks/3` wires that capacity release into
+  `after_commit` on `Repo.transact_top_level/2` before running terminal cleanup
+  (logging any capacity-wake error without blocking cleanup, since deferred
+  waiters retain their retry timestamp), and Sessions transactions that fold in
+  a task transition call `Ankole.Workflow.cleanup_terminal_transition/1` after
+  commit.
+- Capacity release wakes the oldest `agent_capacity`-waiting call across the
+  Agent's running Workflows that has not hit its per-run `concurrency` cap,
+  locking `(slot_scope, run, call, session, signal)` in order. Tasks that failed
+  before admission hold no slot to release, and calls deferred for Worker
+  shortage, delivery errors, or retry backoff keep their scheduled retry time.
 
-After a running call sleeps, succeeds, or reaches a terminal failure, the
-post-commit work runs `Mail.release_capacity/1` in its own top-level
-transaction. `Recovery.reconcile_stale_tasks/3` registers this
-work with `Repo.transact_top_level/2` through `after_commit`, then runs terminal
-cleanup. A failed capacity wake is logged and does not prevent that cleanup;
-the deferred task keeps its retry time. A Sessions transaction that composes a
-task transition calls `Ankole.Workflow.cleanup_terminal_transition/1` after its
-commit. It advances the oldest queued call across the Agent's running workflows
-that waits for capacity. A workflow at its own concurrency limit is not
-eligible. The wake transaction locks the Agent slot scope, run, call, Session,
-and Signal in that order. A task that failed before admission did not release a
-slot. Deferrals for a Worker shortage, delivery failure, or an active retry keep
-their own retry time.
-
-A completed or failed run changes every remaining queued or running call to
-`cancelled` in the same transaction as the run terminal state. This releases
-every task-capacity slot before external cleanup. After the transaction commits,
-the control plane appends idempotent `command.stop` events for cancelled task
-sessions in one transaction and stops live Jobs owned by any task session in
-the run. The run
-records one cleanup completion time only after all stop operations succeed.
-The replay and watchdog owner functions return the run with this time, or with
-cleanup errors that require another attempt. `RunServer` uses this result to
-stop or retry. Startup recovery includes terminal runs without that time and
-repeats the idempotent cleanup before it marks them complete.
-
-Cancellation uses the same durable call cleanup. After the transaction commits,
-cleanup tells the active `RunServer` to stop. On normal exit, that owner
-cancels any running function replay and stops its replay task. Cleanup does not
-start a replacement `RunServer`; a later wake reads the terminal state before
-function replay. A late replay or task result cannot revive the cancelled run.
-
-Control-plane Pods form a cluster as described in [RuntimeFabric](RuntimeFabric.md).
-A duplicate driver is safe: PostgreSQL state guards and unique call and event
-keys prevent duplicate durable effects.
+When a run enters `completed`, `failed`, or `cancelled`, the terminal
+transaction immediately marks all remaining `queued`, `running`, and `sleeping`
+calls `cancelled`, freeing capacity slots up front. Post-commit cleanup then
+batch-appends idempotent `command.stop` Signals to cancelled task Sessions,
+stops any live delegated `BackgroundAgentJob`s, and stamps
+`cleanup_completed_at` once every stop succeeds (returning cleanup errors to
+`RunServer` for retry, with startup recovery re-running cleanup for any terminal
+run still missing `cleanup_completed_at`). On explicit `cancel_workflow`,
+post-commit cleanup asks any running `RunServer` to stop—aborting any active
+replay request—without spawning a replacement `RunServer`, and PostgreSQL state
+guards ensure late replay responses or task results can never revive a cancelled
+run, even across a multi-node [RuntimeFabric](RuntimeFabric.md) cluster.
 
 ## Cost Boundaries
 
@@ -414,61 +417,68 @@ keys prevent duplicate durable effects.
 | Program pending-call bytes | 1 MiB | 8 MiB |
 | Final result text | n/a | 1 MiB |
 
-The AppConfigure keys `workflow.max_concurrency_per_run`,
-`workflow.max_running_per_agent`, and `workflow.max_agent_calls_per_run` set the
-deployment limits. A run request cannot raise these limits.
+Operators tune deployment defaults via the AppConfigure keys
+`workflow.max_concurrency_per_run`, `workflow.max_running_per_agent`, and
+`workflow.max_agent_calls_per_run`; individual `workflow` tool calls can lower
+these bounds for a run, never raise them.
 
-The 6 MiB durable memo budget reserves space below the runner's 8 MiB input
-limit. If a run reaches the budget, it fails with a message that tells the main
-Agent to reduce fanout, return summaries, or split the work into more runs.
-
-Workflow has no batch-wide token budget. Each task uses the ordinary
-turn limits from its request context.
+Keeping the durable memo cap at 6 MiB leaves headroom beneath the function
+runtime's 8 MiB request limit. If a run exceeds 6 MiB, it fails with an
+actionable error instructing the main Agent to reduce fanout, return compact
+summaries from tasks, or split the pipeline across multiple runs. Workflows do
+not impose a shared cross-task token budget; instead, each task turn enforces
+the standard per-turn token limits from its Session request context.
 
 ## Console activity inspection
 
-The Home background activity area reads Workflow facts for one Agent in the
-current tenant. Its separate read permission is `site_console:agent:<agent_uid>:workflow`.
-Live calls are queried independently of the parent run state, so a running call
-admitted before Human access was revoked remains visible under its cancelled
-parent. The projection also includes running runs with no live calls and terminal
-runs whose `cleanup_completed_at` is still unset. Calls and runs have independent
-cursors; native status counts, sleep notes, deadlines, attention and bounded error
-summaries explain persisted facts without inferring that an old update is stuck.
-The call projection includes `wake_kind` and `wake_at`. The Console shows a sleep
-deadline only for `wake_kind: "sleep"`. Capacity retries retain queued status.
+In the Console, the Home background-activity panel queries Workflow state for a
+single Agent in the active tenant, gated independently by
+`site_console:agent:<agent_uid>:workflow`:
 
-This endpoint reads no scripts, full results or memo bodies and performs no
-cancellation, wakeup or cleanup. A delegated Background Job retains its Workflow
-task Session as `owner_session_id`; these related rows are not added into a
-single busy count. See [Background Agent Job](BackgroundAgentJob.md) and
-[Automation Jobs](AutomationJobs.md) for the other independently authorized groups.
+- Live calls are queried independently of parent run status so a `running` call
+  admitted before Human access revocation remains visible even after its parent
+  run turns `cancelled`.
+- Run rows include `running` runs that currently have zero live calls as well as
+  terminal runs whose `cleanup_completed_at` is still null.
+- Calls and runs paginate with separate cursors and project `wake_kind`,
+  `wake_at`, persisted status counts, sleep notes, `attention` flags, and
+  bounded error summaries directly—rendering a sleep countdown only when
+  `wake_kind` is `"sleep"`, keeping capacity waiters labeled `queued`, and never
+  guessing from timestamp age whether a task is stuck.
+
+This read-only projection omits script source, full result bodies, and raw memo
+payloads, triggers no cancellations, wakeups, or cleanups, and keeps delegated
+`BackgroundAgentJob` counts (linked via `owner_session_id`) separate rather than
+summing them into a combined busy counter; see
+[Background Agent Job](BackgroundAgentJob.md) and
+[Automation Jobs](AutomationJobs.md) for the sibling activity sections.
 
 ## Module Owners
 
-`Ankole.Workflow` declares the resources and cross-domain interfaces, including
-reads, `cleanup_terminal_transition/1`, `create_with_dispatch`,
-`send_task_message`, and `defer_task_event`. A Sessions or Background Agent Job
-transaction composes the `_in_tx` functions of `TaskLifecycle`, `Lifecycle`,
-and `Slot` directly, then performs cleanup after its own commit.
+`Ankole.Workflow` is the root Ash domain declaring resources and cross-domain
+entry points—including read actions, `cleanup_terminal_transition/1`,
+`create_with_dispatch`, `send_task_message`, and `defer_task_event`—while
+`Sessions` and `BackgroundAgentJobs` transactions compose `*_in_tx` helpers from
+`TaskLifecycle`, `Lifecycle`, and `Slot` directly and run post-commit cleanup
+after their outer transaction commits.
 
-`RunServer` calls `Replay.commit_replay_pending/3`, `Replay.complete_replay/3`,
-`Replay.fail_replay/4`, and `Recovery.reconcile_stale_tasks/3` directly. These
-private domain operations use `Repo.transact_top_level/2` and reject a caller
-transaction before they write. Each operation owns the cleanup that follows
-its commit. The watchdog also releases committed capacity before cleanup.
+Inside the domain, responsibilities split cleanly across submodules:
 
-`Queries` reads projections; `Lifecycle` creates and ends runs;
-`TaskLifecycle` owns task transitions; `Replay` commits the durable memo;
-`Mail` appends events and releases capacity; `Slot` owns the slot, run, and
-call lock order; `Recovery` restores lost wakeups. `RunServer` coordinates
-replay and keeps its waiting-period watchdog.
-Reads and row locks use Ash queries. `Queries.capacity_candidate/2` is a
-registered read model: it selects the next capacity waiter across calls, runs,
-and Signals and gives only identifiers. The resource actions own legal
-transitions through `AshStateMachine`; each action uses the caller's tenant
-and transaction. `TaskLifecycle` uses one
-compensation function when a stopped run has a running call. It cancels
-the call and notifies its Session in the same transaction. A retry that queues a
-running call releases its slot and wakes capacity waiters after commit, just as
-a terminal result does.
+- `RunServer` coordinates replays and waiting-period watchdogs, calling
+  `Replay.commit_replay_pending/3`, `Replay.complete_replay/3`,
+  `Replay.fail_replay/4`, and `Recovery.reconcile_stale_tasks/3`—private
+  top-level operations that open `Repo.transact_top_level/2`, reject open caller
+  transactions, and own their post-commit cleanup (with watchdog sweeps also
+  releasing capacity slots before cleanup).
+- `Queries` serves read projections—including the registered read model
+  `Queries.capacity_candidate/2`, which selects only the IDs of the next
+  capacity waiter across calls, runs, and Signals.
+- `Lifecycle` creates and terminates runs; `TaskLifecycle` drives task state
+  transitions (including a single compensation helper that cancels an active
+  call and notifies its Session in one transaction when its parent run stops,
+  and releasing capacity slots when a running call retries back to `queued`);
+  `Replay` persists memo prefixes; `Mail` enqueues Signals and wakes capacity
+  waiters; `Slot` enforces the `(slot, run, call)` lock order; and `Recovery`
+  repairs lost wakeups.
+- Resource actions enforce valid transitions through `AshStateMachine` inside
+  the caller's tenant and transaction.

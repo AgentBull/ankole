@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.30 (2026-10-28)
+
+- Collect the company name, editable tenant slug, and business packs during Setup, and explain how business selections shape the Company Brain ontology.
+- Simplify the Setup step navigator with compact single-line rows and a subtle current-step treatment.
+- Support source-build Console extension slots (`ConsoleAppSlots`) and site-administrator extension JSON:API routers (`/api/v2/saas-site` OpenAPI and client generation).
+- Migrate `1.x` `signals.lark.bindings.*` Lark binding settings onto `signals.lark.binding_configs.<digest>` during `Ankole.Upgrade202610`.
+- Forward `ANKOLE_VERSION` and `ANKOLE_ENV` from the control plane to launched Workers, and fall back to `ANKOLE_RELEASE_REVISION` for Worker log and trace version labels when `ANKOLE_VERSION` is unset.
+- Compare JSON object settings structurally in Console editors so reordered keys keep clean forms clean, reject non-object JSON command frames in the browser daemon and Job emit bridge, and ignore malformed SSE payloads in Pod chat streams.
+
 ## Version 2.0.0-alpha.29 (2026-10-27)
 
 - Start the setup activation-code command in a cold process.

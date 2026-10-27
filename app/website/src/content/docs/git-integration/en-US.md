@@ -5,13 +5,11 @@ section: Guides
 order: 303
 ---
 
-An Ankole Agent uses standard git commands through the shell tools that the Worker provides. The same tools are available in a normal conversation and in a Background Agent Job.
-
-The Agent runs git on its own Worker in persistent `/workspace`. It uses the normal shell and file tools. The repository remains when the instance or image changes.
+An Ankole Agent runs standard `git` commands through the shell and file tools on its own Worker. Because those commands execute inside the Worker's persistent `/workspace` directory, cloned repositories survive Worker restarts, container replacements, and image updates. The same git workflow works both in interactive conversations and in Background Agent Jobs.
 
 ## What the agent can do with git
 
-Through the `command` tool, the agent runs git commands as the Worker's user:
+Through the `command` tool, the Agent runs `git` commands as the Worker's user:
 
 ```bash
 git clone https://github.com/your-org/your-repo.git
@@ -20,19 +18,19 @@ git add -A && git commit -m "Fix: resolve the null-pointer case"
 git push origin feature/agent-fix
 ```
 
-The agent clones into the workspace (under `/workspace/jobs/<job-id>/` or `sessions/<id>/`), makes changes through file edit and patch tools, commits, and pushes — all through the shell, as the Worker's user.
+The Agent clones the repository into its workspace (under `/workspace/jobs/<job-id>/` or `sessions/<id>/`), modifies files with its editing and patching tools, and commits and pushes through the shell as the Worker's user.
 
-During a normal conversation, the Agent uses the foreground shell and file tools. If it delegates the work to a Background Agent Job, the Job runs in its own workspace and can return a result or finish silently. See [Background Agent Jobs](../background-jobs/) for this workflow.
+During a normal conversation, the Agent runs these shell and file tools in the foreground. When the task is larger, the Agent can delegate it to a Background Agent Job, which runs in its own isolated job workspace and either returns a summary or finishes silently. See [Background Agent Jobs](../background-jobs/) for details on that workflow.
 
 ## What you need
 
-- **Git credentials.** In **Console → Environment variables**, store the SSH key or PAT as an encrypted variable such as `GIT_SSH_KEY` or `GIT_TOKEN`. The new value is available from the Agent's next turn. See [Environment variables](../worker-env/).
-- **The repo accessible from the worker.** The worker needs network access to the git host. In a private network, confirm the worker can reach the git server. The Docker Compose deployment puts Worker containers on the `ankole_workers` network, which reaches the control plane and the internet, so a public git host is reachable. With the Helm chart's `networkPolicy.enabled`, Worker Pods reach the control plane, DNS, and public addresses; a git server on a private address is not reachable while its range is in `networkPolicy.workerDeniedCIDRs`.
-- **A Background Agent Jobs model profile, when needed.** The default fallback is enough to start. Configure this profile only when Jobs need a different provider or model.
+- **Git credentials.** In **Console → Environment variables**, store an SSH key or personal access token as an encrypted variable such as `GIT_SSH_KEY` or `GIT_TOKEN`. The Agent receives the updated variable starting on its next turn. See [Environment variables](../worker-env/).
+- **Network access from the Worker to the repository.** Confirm that the Worker can reach your git host, especially on a private network. In a Docker Compose deployment, Worker containers join the `ankole_workers` network, which can reach both the control plane and the public internet. In a Helm deployment with `networkPolicy.enabled`, Worker Pods can reach the control plane, DNS, and public IP addresses, but cannot reach a private git server whose address range falls inside `networkPolicy.workerDeniedCIDRs`.
+- **A model profile for Background Agent Jobs, when needed.** The default fallback profile is enough to get started, so you only need to configure the `coding` profile if Background Agent Jobs require a dedicated provider or model.
 
 ## The workspace
 
-Git repos clone into the per-session or per-job workspace:
+The Agent clones git repositories into its per-session or per-job workspace directory:
 
 ```text
 /workspace/
@@ -42,21 +40,21 @@ Git repos clone into the per-session or per-job workspace:
         └── ...           # the working tree
 ```
 
-Repositories under `/workspace` survive Worker replacement and image changes. Keep a remote repository or another backup for recovery from storage loss. Publishing with `ankole-files put` makes files available in the [Agent drive](../file-management/).
+Repositories under `/workspace` survive Worker replacement and image updates, though you should always push to a remote repository or keep a backup to protect against underlying storage loss. When the Agent needs to share build artifacts or deliverables outside `/workspace`, it can run `ankole-files put` to publish them to the [Agent drive](../file-management/).
 
 ## A worked example
 
-Set up a coding agent that reviews PRs:
+To set up a coding Agent that reviews pull requests:
 
-1. In **Console → Environment variables**, store the PAT as an encrypted variable named `GIT_TOKEN`.
-2. Create the Agent and bind its required `primary`, `light`, and `heavy` profiles. Configure Background Agent Jobs separately only if you need to override its fallback.
-3. Author a `MISSION.md` that names the repo, the review criteria, and the branch naming convention.
-4. In a channel, ask the agent: "Review the latest PR on `your-repo`. Clone, check out, run the tests, report what you find."
-5. The Agent clones, checks out, runs tests through `command`, and reports back. It can do this in the conversation or delegate it to a Background Agent Job.
+1. In **Console → Environment variables**, store your personal access token as an encrypted variable named `GIT_TOKEN`.
+2. Create the Agent and bind its `primary`, `light`, and `heavy` model profiles. Configure the Background Agent Jobs profile only if you want to override its fallback model.
+3. Write a `MISSION.md` document that specifies the target repository, review criteria, and branch naming conventions.
+4. In a connected chat channel, ask the Agent: "Review the latest PR on `your-repo`. Clone, check out, run the tests, and report what you find."
+5. The Agent clones the repository, checks out the branch, runs the test suite with `command`, and posts its findings—either directly in the conversation or through a Background Agent Job.
 
 ## What this guide is not
 
-It is not a git tutorial — the agent uses standard git commands. It is not a CI/CD integration — Ankole does not run CI; the agent can trigger CI through shell commands if the repo's CI is command-driven. And it is not a code-review automation guide — the agent reviews code the way its persona tells it to, through the shell tools.
+This page is not a general `git` tutorial, because the Agent simply runs standard `git` CLI commands. Nor does Ankole act as a built-in CI/CD runner, although an Agent can trigger external CI pipelines from the shell when your repository exposes a CLI or API for them. Finally, rather than enforcing a rigid code-review workflow, Ankole lets you define how the Agent reviews code through its mission instructions and Skills.
 
 ## Next steps
 

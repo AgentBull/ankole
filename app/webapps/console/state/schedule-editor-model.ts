@@ -1,25 +1,31 @@
+import { equal, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { dateTimeLocalValue, instantFromDateTimeLocal } from './token-quota-editor-model'
 
 export type ScheduleIntervalUnit = 'seconds' | 'minutes' | 'hours' | 'days'
 
 const INTERVAL_UNIT_MS: Record<ScheduleIntervalUnit, number> = {
-  seconds: 1_000,
-  minutes: 60_000,
-  hours: 3_600_000,
-  days: 86_400_000
+  seconds: ms('1s'),
+  minutes: ms('1m'),
+  hours: ms('1h'),
+  days: ms('1d')
 }
 
 export function decomposeEveryMs(everyMs: string): { value: string; unit: ScheduleIntervalUnit } {
   const trimmed = everyMs.trim()
   if (!trimmed) return { value: '', unit: 'minutes' }
-  const ms = Number(trimmed)
-  if (!Number.isFinite(ms) || ms <= 0) return { value: trimmed, unit: 'seconds' }
-  if (ms % INTERVAL_UNIT_MS.days === 0) return { value: String(ms / INTERVAL_UNIT_MS.days), unit: 'days' }
-  if (ms % INTERVAL_UNIT_MS.hours === 0) return { value: String(ms / INTERVAL_UNIT_MS.hours), unit: 'hours' }
-  if (ms % INTERVAL_UNIT_MS.minutes === 0) return { value: String(ms / INTERVAL_UNIT_MS.minutes), unit: 'minutes' }
-  if (ms % INTERVAL_UNIT_MS.seconds === 0) return { value: String(ms / INTERVAL_UNIT_MS.seconds), unit: 'seconds' }
-  return { value: String(ms / INTERVAL_UNIT_MS.seconds), unit: 'seconds' }
+  const durationMs = Number(trimmed)
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return { value: trimmed, unit: 'seconds' }
+  if (durationMs % INTERVAL_UNIT_MS.days === 0) {
+    return { value: String(durationMs / INTERVAL_UNIT_MS.days), unit: 'days' }
+  }
+  if (durationMs % INTERVAL_UNIT_MS.hours === 0) {
+    return { value: String(durationMs / INTERVAL_UNIT_MS.hours), unit: 'hours' }
+  }
+  if (durationMs % INTERVAL_UNIT_MS.minutes === 0) {
+    return { value: String(durationMs / INTERVAL_UNIT_MS.minutes), unit: 'minutes' }
+  }
+  return { value: String(durationMs / INTERVAL_UNIT_MS.seconds), unit: 'seconds' }
 }
 
 export function composeEveryMs(value: string, unit: ScheduleIntervalUnit): string {
@@ -116,9 +122,8 @@ export type ScheduleEditorDraft = {
   occurrences?: ScheduleOccurrenceBound
   deliveryTargets: DeliveryTargetDraft[]
   task: string
-  payload: string
+  payload: JSONObject
   hasAutomationJob: boolean
-  idempotencyKey: string
 }
 
 /** Maps stored delivery targets to editable drafts. */
@@ -160,9 +165,8 @@ export const ScheduleEditorModel = createModel(() => {
   const timezone = signal('')
   const deliveryTargets = signal<DeliveryTargetDraft[]>([])
   const task = signal('')
-  const payload = signal('{}')
+  const payload = signal<JSONObject>({})
   const hasAutomationJob = signal(false)
-  const idempotencyKey = signal('')
   const initialDraft = signal<ScheduleEditorDraft>()
   const validationError = signal<string>()
   const fieldErrors = signal<ScheduleFieldErrors>({})
@@ -185,9 +189,8 @@ export const ScheduleEditorModel = createModel(() => {
       deliveryTargets.value =
         draft.deliveryTargets.length > 0 ? draft.deliveryTargets.map(target => ({ ...target })) : [emptyTarget()]
       task.value = draft.task
-      payload.value = draft.payload
+      payload.value = { ...draft.payload }
       hasAutomationJob.value = draft.hasAutomationJob
-      idempotencyKey.value = draft.idempotencyKey
       validationError.value = undefined
       fieldErrors.value = {}
     })
@@ -204,15 +207,15 @@ export const ScheduleEditorModel = createModel(() => {
       if (occurrences) out.occurrences = { ...occurrences }
       return out
     }
-    const ms = Number(everyMs.value)
-    if (!Number.isFinite(ms) || ms <= 0) return null
+    const durationMs = Number(everyMs.value)
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return null
     // The planner rejects an `every` schedule without an anchor; there is no
     // server-side default.
     const anchor = anchorAt.value.trim()
     if (!anchor) return null
     return {
       kind: 'every',
-      every_ms: Math.floor(ms),
+      every_ms: Math.floor(durationMs),
       anchor_at: anchor,
       ...(occurrences ? { occurrences: { ...occurrences } } : {})
     }
@@ -244,10 +247,8 @@ export const ScheduleEditorModel = createModel(() => {
     return { targets }
   }
 
-  const buildPayload = (): Record<string, unknown> | null => {
-    const parsed = parseJSON(payload.value)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-    const out = { ...(parsed as Record<string, unknown>) }
+  const buildPayload = (): JSONObject => {
+    const out: JSONObject = { ...payload.value }
     const trimmedTask = task.value.trim()
     if (trimmedTask) out.task = trimmedTask
     else delete out.task
@@ -264,7 +265,7 @@ export const ScheduleEditorModel = createModel(() => {
     original.timezone.trim() !== timezone.value.trim()
 
   const deliveryFieldsChanged = (original: ScheduleEditorDraft): boolean =>
-    !sameJSON(normalizeDraftTargets(original.deliveryTargets), normalizeDraftTargets(deliveryTargets.value))
+    !equal(normalizeDraftTargets(original.deliveryTargets), normalizeDraftTargets(deliveryTargets.value))
 
   /** Whether any field differs from the initialized draft; false until a draft is loaded. */
   const dirty = computed(() => {
@@ -276,10 +277,9 @@ export const ScheduleEditorModel = createModel(() => {
       original.name !== name.value ||
       original.status !== status.value ||
       original.task !== task.value ||
-      original.payload !== payload.value ||
-      original.idempotencyKey !== idempotencyKey.value ||
+      !equal(original.payload, payload.value) ||
       scheduleFieldsChanged(original) ||
-      !sameJSON(meaningfulTargets(original.deliveryTargets), meaningfulTargets(deliveryTargets.value))
+      !equal(meaningfulTargets(original.deliveryTargets), meaningfulTargets(deliveryTargets.value))
     )
   })
 
@@ -301,7 +301,6 @@ export const ScheduleEditorModel = createModel(() => {
     task,
     payload,
     hasAutomationJob,
-    idempotencyKey,
     validationError,
     fieldErrors,
     dirty,
@@ -309,7 +308,7 @@ export const ScheduleEditorModel = createModel(() => {
       if (sourceKey.value === nextSourceKey) return
       sourceKey.value = nextSourceKey
       apply(draft)
-      initialDraft.value = { ...draft }
+      initialDraft.value = { ...draft, payload: { ...draft.payload } }
     },
     clearValidation() {
       validationError.value = undefined
@@ -359,27 +358,17 @@ export const ScheduleEditorModel = createModel(() => {
       deliveryTargets.value = deliveryTargets.value.filter((_target, targetIndex) => targetIndex !== index)
     },
     isComplete(): boolean {
-      return Boolean(
-        name.value.trim() && taskSatisfied() && buildSchedule() && buildDelivery() && buildPayload() !== null
-      )
+      return Boolean(name.value.trim() && taskSatisfied() && buildSchedule() && buildDelivery())
     },
-    toCreateBody(idempotencyKeyOverride?: string): CronScheduleWriteBody | null {
+    toCreateBody(idempotencyKey: string): CronScheduleWriteBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const nextPayload = buildPayload()
       const ownerSession = ownerSessionId.value.trim()
       const binding = bindingName.value.trim()
       const trimmedName = name.value.trim()
-      const idempotency = (idempotencyKeyOverride ?? idempotencyKey.value).trim()
-      if (
-        !ownerSession ||
-        !trimmedName ||
-        !schedule ||
-        !delivery ||
-        !idempotency ||
-        nextPayload === null ||
-        !taskSatisfied()
-      ) {
+      const idempotency = idempotencyKey.trim()
+      if (!ownerSession || !trimmedName || !schedule || !delivery || !idempotency || !taskSatisfied()) {
         return null
       }
       const body: CronScheduleWriteBody = {
@@ -400,7 +389,7 @@ export const ScheduleEditorModel = createModel(() => {
       const delivery = buildDelivery()
       const original = initialDraft.value
       const nextPayload = buildPayload()
-      if (!schedule || !delivery || !original || nextPayload === null || !taskSatisfied()) return null
+      if (!schedule || !delivery || !original || !taskSatisfied()) return null
       const body: CronScheduleUpdateBody = {}
       const trimmedName = name.value.trim()
       if (!trimmedName) return null
@@ -411,23 +400,11 @@ export const ScheduleEditorModel = createModel(() => {
         body.timezone = tz || null
       }
       if (deliveryFieldsChanged(original)) body.delivery = delivery
-      if (!sameJSON(nextPayload, parseJSON(original.payload))) body.payload = nextPayload
+      if (!equal(nextPayload, original.payload)) body.payload = nextPayload
       return body
     }
   }
 })
-
-function parseJSON(value: string): unknown {
-  try {
-    return JSON.parse(value || '{}')
-  } catch {
-    return null
-  }
-}
-
-function sameJSON(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
 
 function emptyTarget(): DeliveryTargetDraft {
   return { bindingName: '', conversationId: '', threadId: '' }

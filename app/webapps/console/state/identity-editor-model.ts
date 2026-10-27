@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { equal, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 export type IdentityEditorDraft = {
@@ -24,7 +24,7 @@ export const IdentityEditorModel = createModel(() => {
       (adapterID.value !== source.adapterID ||
         providerID.value !== source.providerID ||
         enabled.value !== source.enabled ||
-        JSON.stringify(config.value) !== JSON.stringify(source.config))
+        !equal(config.value, source.config))
     )
   })
 
@@ -74,14 +74,14 @@ export const IdentityEditorModel = createModel(() => {
       return (accepted: IdentityEditorDraft) => {
         if (generation !== requestedGeneration) return false
         batch(() => {
-          if (JSON.stringify(adapterID.value) === JSON.stringify(submitted.adapterID)) {
+          if (adapterID.value === submitted.adapterID) {
             adapterID.value = accepted.adapterID
           }
-          if (JSON.stringify(providerID.value) === JSON.stringify(submitted.providerID)) {
+          if (providerID.value === submitted.providerID) {
             providerID.value = accepted.providerID
           }
-          if (JSON.stringify(enabled.value) === JSON.stringify(submitted.enabled)) enabled.value = accepted.enabled
-          if (JSON.stringify(config.value) === JSON.stringify(submitted.config)) config.value = accepted.config
+          if (enabled.value === submitted.enabled) enabled.value = accepted.enabled
+          if (equal(config.value, submitted.config)) config.value = accepted.config
           initialDraft.value = { ...accepted }
           if (validationError.value === submittedValidation) validationError.value = undefined
         })

@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@agentbull/active-support'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
@@ -24,10 +25,11 @@ export function resourceID(value: string | null, minimum: number): number | unde
 }
 
 export function parseJSON(text: string, field: string): { ok: true; value: unknown } | { ok: false; error: string } {
-  try {
-    return { ok: true, value: JSON.parse(text) }
-  } catch (error) {
-    return { ok: false, error: i18n.t('common.must_be_valid_json', { field, detail: requestErrorMessage(error) }) }
+  const parsed = safeJsonParse(text)
+  if (parsed.isOk()) return { ok: true, value: parsed.value }
+  return {
+    ok: false,
+    error: i18n.t('common.must_be_valid_json', { field, detail: requestErrorMessage(parsed.error.cause) })
   }
 }
 

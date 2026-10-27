@@ -64,10 +64,7 @@ export class BrowserDaemonSupervisor {
     const child = spawn(command!, args, {
       env: commandEnv(
         {
-          ANKOLE_BROWSER_DAEMON_SOCKET: this.options.socketPath,
-          ...(process.env.ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS
-            ? { ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS: process.env.ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS }
-            : {})
+          ANKOLE_BROWSER_DAEMON_SOCKET: this.options.socketPath
         },
         { agentHome: process.env.HOME! }
       ),

@@ -38,7 +38,7 @@ import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-mo
 import {
   aiGatewayProvider,
   aiGatewayProviders,
-  buildConnectionOptions,
+  buildSettingOptions,
   connectionSettings,
   initialSettingValue,
   settingValidationMessage,
@@ -292,7 +292,7 @@ export function ProviderEditorPage() {
       return
     }
 
-    const built = buildConnectionOptions(settings, model.options.value, settingValidationMessage)
+    const built = buildSettingOptions(settings, model.options.value, settingValidationMessage)
     if (!built.ok) {
       model.validationError.value = built.error
       return

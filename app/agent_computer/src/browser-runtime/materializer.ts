@@ -174,7 +174,7 @@ export class BrowserRouteMaterializer {
     return BrowserBackendSchema.parse({
       kind: 'local_chromium',
       executable: this.localChromiumExecutable,
-      args: browserArgsFromEnv(process.env.ANKOLE_BROWSER_CHROMIUM_ARGS_JSON)
+      args: []
     })
   }
 
@@ -279,13 +279,4 @@ async function fingerprintDirectory(root: string): Promise<string> {
 async function atomicJSON(path: string, value: unknown): Promise<void> {
   await mkdirAgent(dirname(path))
   await writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`, 0o600)
-}
-
-function browserArgsFromEnv(value: string | undefined): string[] {
-  if (!value?.trim()) return []
-  const parsed = JSON.parse(value) as unknown
-  if (!Array.isArray(parsed) || !parsed.every(item => typeof item === 'string')) {
-    throw new Error('ANKOLE_BROWSER_CHROMIUM_ARGS_JSON must be a JSON string array')
-  }
-  return parsed
 }

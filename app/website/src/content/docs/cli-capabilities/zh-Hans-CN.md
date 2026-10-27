@@ -1,61 +1,66 @@
 ---
 title: Worker CLI 能力
-description: 把 Agent 能力做成 shell 命令，由 --help 承载契约，并把一句话指针放在 Agent 做相关决策的位置。
+description: 将特定 Agent 能力封装为 Shell 命令行工具，由 --help 承载完整使用契约，并在关键决策点放置一句话指引。
 section: Developer guide
 order: 114
 ---
 
-Ankole 的一部分能力是 Agent Computer 里的 shell 命令，而不是模型可见的工具。Agent 像使用 `gh` 或 `kubectl` 一样经 shell 调用它们。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook 端点命令与 automation job 命令都采用这种形态。
+在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `gh` 或 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook 端点管理命令以及 Automation Job 管理命令，全部采用这种交付形态。
 
-本页说明什么时候用这种形态交付能力，以及让它无需工具注册、无需技能索引条目、无需 system prompt 段落也能被发现并正确使用的披露架构。
+本页说明什么样的能力适合做成 CLI，以及如何在不注册模型工具、不塞入全局 Skill 索引、也不膨胀系统提示词的前提下，让 Agent 依然能够精准发现并正确调用这些命令。
 
 ## 什么时候 CLI 是正确形态
 
-同时满足下列条件时，能力适合 CLI 形态：
+当一项能力同时符合以下三个特征时，做成 CLI 往往比做成模型工具更合适：
 
-- Agent 在更大的 shell 工作流里、与其他命令并肩使用它，脚本或 background agent job 也可能需要调用它。
-- 它只在一条决策路径上有意义。从不创建 webhook 的 Agent 不需要知道 `create-webhook-cli` 存在。
-- 它不需要让模型填写 JSON schema，几个 flag 就能承载输入。
+- **天然融入 Shell 工作流**：Agent 往往需要把它与其他终端命令串联组合使用，或者还需要在自动化脚本及后台 Agent 任务中直接调用它。
+- **仅在特定决策分支上才用得到**：例如，一个从不需要配置外部事件接入的 Agent，压根不需要在日常每轮对话里都知道 `create-webhook-cli` 的存在。
+- **参数结构简单直观**：无需让模型构造复杂的嵌套 JSON Schema，靠几个标准命令行参数（flag）就能清晰表达输入。
 
-模型可见工具在每个 turn 都消耗上下文；CLI 在 Agent 走到相关路径之前零成本。
+要知道，挂载在模型上下文里的可见工具在**每一个对话回合**都会消耗 Token 预算；而做成 CLI 的能力在 Agent 真正走到相关业务分支之前，上下文开销是零。
 
 ## 披露架构
 
-三条规则取代工具注册与技能索引：
+为了让 Agent 无需全局工具表也能顺畅使用 CLI，我们用三条渐进式披露准则替代传统的工具注册与全局索引：
 
-**`--help` 就是契约文档。**CLI 的 `--help` 输出承载 Agent 正确使用该能力所需的知识：它是什么、信任模型、保证、以及一次完整使用长什么样。它随二进制发布，与其描述的行为同版本，不会像独立文档那样漂移。为零上下文的读者书写，陈述目标与约束而非程序步骤。`create-webhook-cli --help` 是参考样例。
+**1. `--help` 本身就是权威契约文档。**
+CLI 输出的 `--help` 帮助信息直接承载 Agent 正确调用该能力所需的全部上下文：这项命令解决什么问题、背后的安全与信任模型、持久性与幂等保证，以及一次完整的端到端调用示例。由于帮助文本直接随二进制同库编译发布，始终与代码实际行为保持严格同版本，绝不会像外部独立文档那样逐渐脱节。编写 `--help` 时应面向零背景知识的读者，重点讲清目标与边界约束，而非罗列死板的机械步骤（可参考 `create-webhook-cli --help` 的写法）。
 
-**指针放在决策面上。**发现性来自一句话指针，放在 Agent 恰好在做相邻决策的位置：某个工具描述、某个集成特定外部系统的 Skill、或另一个 CLI 的 `--help`。每条指针陈述能力何时相关、去哪里读全文，不引导选择。这种形态的每个能力必须在相关路径的必经面上至少有一条指针——让能力有意义的那条路径，同时给出披露它的位置。
+**2. 把一句话指针放在必经的决策面上。**
+Agent 之所以能“想起来”有这个命令，靠的是埋在相邻决策节点上的一句话指针——它可以放在某个相邻工具的描述里、某个对接特定外部系统的 Skill 里，或是另一个关联 CLI 的 `--help` 末尾。每条指针只客观点明“在什么场景下需要用到该能力”以及“运行哪条 `--help` 查看详情”，绝不强行诱导模型调用。凡是做成 CLI 的能力，都必须在通往该场景的必经入口处至少留有一条指针：让这项能力派上用场的那条业务路径，天然就决定了应该把指针放在哪里。
 
-**通用知识住 `--help`，领域知识住插件 Skill。**对该能力的一切使用都成立的契约归 `--help`；集成某个外部系统的 Skill 只保留该系统的增量。例如 GitHub webhook Skill 开篇即指引 Agent 阅读 `create-webhook-cli --help` 获取通用 webhook 契约，自身只覆盖 hook 注册、ping 验证、delivery 对账与 GitHub hook 配额。第二个集成免费复用整个通用层。
+**3. 通用平台契约写在 `--help`，外部系统差异留在插件 Skill。**
+凡是对该能力所有使用场景普遍成立的平台级规则，一律收敛进 CLI 的 `--help`；对接具体第三方平台的 Skill 只需补充该外部系统特有的增量知识。例如，GitHub Webhook Skill 开篇第一句就引导 Agent 先运行 `create-webhook-cli --help` 了解通用的 Webhook 安全与投递契约，而 Skill 正文自己只写 GitHub 侧的 Hook 注册接口、Ping 握手校验、投递对账与仓库配额限制。这样一来，日后新增第二个平台的 Webhook 集成时，整套底层通用契约都能零成本直接复用。
 
 ## Automation job
 
-Automation job 是确定性脚本消费者。Checkback、cron schedule 或 webhook endpoint 可以设置 `automation_job_id`，让脚本消费触发，而不是每次都直接唤醒 Agent 会话。未设置该字段的触发器保持原有直接唤醒行为。
+Automation Job 是确定性脚本消费者：无论是 Checkback 延迟回查、Cron 定时计划还是 Webhook 端点，都可以配置 `automation_job_id` 将触发事件交由脚本消费，而不必每次都直接唤醒 Agent 会话（未配置该字段的触发器仍保持直接唤醒会话的默认行为）。
 
-Agent 在工作区内创建独立目录，写入 `main.ts`，手工验证运行环境与不调用 SDK 的分支，再用 `create-automation-job-cli` 注册。注册时目录被复制到新的云盘文件夹 `automation/<目录名>-<随机后缀>`，并以 `drive_prefix` 返回这个文件夹。每次运行都把该文件夹在触发时的内容复制到新的运行目录，在那里用 Bun 运行 `main.ts`，所以脚本写进工作目录的文件不会保留到下一次运行。修改脚本时，Agent 执行 `ankole-files put <dir> <drive_prefix>`，无需重新注册。
+创建流程上，Agent 会先在本地工作区新建独立目录并编写 `main.ts`，手动运行验证基础环境与不依赖平台 SDK 的纯逻辑分支，随后调用 `create-automation-job-cli` 完成注册。注册时，整个脚本目录会被上传至控制面云盘的 `automation/<目录名>-<随机后缀>` 路径下，并在返回结果中给出对应的 `drive_prefix`。此后每次触发执行，Worker 都会将触发当刻云盘该路径下的文件复制到一个全新的临时运行目录，再用 Bun 执行其中的 `main.ts`——因此脚本在当前工作目录下临时生成的文件不会留存到下一次运行。后续如需更新代码，Agent 直接执行 `ankole-files put <dir> <drive_prefix>` 覆盖云盘目录即可，无需重新注册。
 
-每个 attempt 都会获得最新 Agent WorkerEnv，以及从当前 enabled Skills 按次生成的 `MCPORTER_CONFIG`。Worker 不预测脚本会使用哪个 server。脚本可以通过 mcporter 和 stdin JSON 调用一个已选 MCP 工具。Automation 不读 Skill instructions，也不使用 Agent Home 持久 mcporter 配置。
+每次触发运行（attempt）都会获取最新的 Agent `WorkerEnv` 环境变量，并根据当前已启用的 Skill 动态生成当次专属的 `MCPORTER_CONFIG`。Worker 不会预先猜测脚本会用到哪个 MCP 服务；脚本可通过 `mcporter` 配合标准输入（stdin）JSON 直接调用任一已启用 Skill 暴露的 MCP 工具。注意：Automation Job 运行时不加载 Skill 的 Markdown 文本指令，也不读取 Agent Home 下持久保存的本地 `mcporter` 配置。
 
-运行 SDK 提供 `context()` 与 `emitEvent(payload)`。`context().event` 是该触发器直接投递时会写入 Signal 的同一 CloudEvents 信封。脚本不调用 `emitEvent` 即静默成功；调用一次或多次则向归属会话持久写入 `automation_job.emitted`。
+运行时 SDK 向脚本暴露两个核心函数：`context()` 与 `emitEvent(payload)`。其中 `context().event` 返回的正是该触发器在直接唤醒模式下写入 Signal 的同款 CloudEvents 事件信封。若脚本执行完毕未调用 `emitEvent`，当次运行即视为静默成功；若调用了一次或多次 `emitEvent`，则会向归属会话持久化写入 `automation_job.emitted` 信号。
 
-`context()` 与 `emitEvent` 只存在于平台 run 内。直接执行 `bun main.ts` 只能验证运行环境和不调用这两个函数的分支。注册后，必须为每个 SDK 分支使用一次测试触发器，再检查对应的持久 run。`emitEvent` 不会降级为 stdout；只有 Signal 已持久化后，它返回的 Promise 才会 resolve。
+需要注意，`context()` 与 `emitEvent` 仅在平台受管运行（platform run）上下文中注入。在工作区直接裸跑 `bun main.ts` 只能验证语法环境与纯本地逻辑分支；完成注册后，必须用真实的测试触发器把每个调用了 SDK 的分支实际跑通一遍，并核查生成的持久化运行记录。此外，`emitEvent` 绝不会降级退化为往标准输出打印日志——只有当对应的 Signal 已在控制面数据库持久化落盘后，它返回的 Promise 才会正式 resolve。
 
-每次触发消费都会在同一个 PostgreSQL 事务里创建持久运行记录：checkback claim、cron advance 或 webhook accept 与 run 行同时提交。脚本异常、非零退出和超时是终态，不重试。Worker 丢失属于基础设施故障，现有 Oban wake edge 会用新的 fenced attempt 重派。重派可能重复脚本副作用，因此脚本必须让重复执行无害。
+每一次触发消费都会在同一个 PostgreSQL 事务内原子写入持久化运行记录（即 Checkback 认领、Cron 游标推进或 Webhook 接收动作，与脚本 `run` 记录同时提交）。脚本自身抛错、返回非零退出码或执行超时均属于确定的运行终态，系统不会自动重跑；而若因底层 Worker 容器失联导致中断，则属于基础设施故障，现有的 Oban 唤醒链路会发起一次带新栅栏标识的重试（fenced attempt）。由于基础设施重派可能导致脚本逻辑再次执行，编写脚本时必须保证外部副作用具备幂等安全性。
 
-这些命令只在活跃 Agent turn 内可用：
+以下管理命令仅在活跃的 Agent 回合（turn）内可用：
 
 - `create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]`
 - `list-automation-jobs-cli [--limit <1-500>]`
 - `show-automation-job-cli --id <automation-job-id> [--runs <1-100>]`
 - `cancel-automation-job-cli --id <automation-job-id>`
 
-Console 的“自动化任务”页展示 job 及其最近运行状态、attempt 次数、错误、exit code 与有界 stdout/stderr 尾部。模型侧规范说明仍由 `create-automation-job-cli --help` 单点拥有。
+在运维侧，Console 的“自动化任务”页面会展示每个 Job 及其近期运行状态、尝试次数、报错详情、退出码与有界 `stdout`/`stderr` 日志尾部；而面向模型侧的完整使用规范，则始终由 `create-automation-job-cli --help` 单点维护。
 
 ## 新增 CLI 能力的要求
 
-- 实现放在 `app/agent_computer/src/cli/` 下，每个命令族一个目录。
-- `--help` 与 `-h` 输出完整契约，stdout、exit 0，不依赖 turn 或网络。命令包装器会前置子命令，所以在参数列表任意位置检测 help flag。
-- 保留简短 usage 字符串用于参数错误；它不是契约文档。
-- 在 Agent 需要该能力的每个决策面加一句指针，指针不带倾向：陈述条件，指出 `--help`。
-- 插件 Skill 集成该能力与外部系统时，开篇放 `--help` 指针，Skill 只写领域增量。
+向代码库新增一项 Worker CLI 能力时，请遵循以下工程规范：
+
+- 实现代码统一放在 `app/agent_computer/src/cli/` 下，每个命令族单独建一个子目录。
+- 无论传入 `--help` 还是 `-h`，都必须向标准输出打印完整的使用契约并以退出码 `0` 正常结束，且帮助输出不得依赖活跃回合上下文或网络连接。由于外层命令包装器可能会在参数前前置子命令名，请遍历整个参数列表在任意位置识别帮助标志。
+- 参数校验失败时仅输出简短的 `usage` 用法提示，不要把简短报错提示当作完整契约文档。
+- 在 Agent 可能用到该能力的每一个上游决策点补充一句话指针；措辞保持客观中立，只讲清适用条件并引导查阅 `--help`。
+- 当编写插件 Skill 将该 CLI 能力与某个外部系统结合时，在 Skill 开篇直接指向 `--help`，正文只写该外部系统特有的领域规则。

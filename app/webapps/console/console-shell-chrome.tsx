@@ -37,10 +37,12 @@ import {
 import { useMutation } from '@tanstack/react-query'
 import { useRef, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useLocation } from '@tanstack/react-router'
+import { Link, Outlet, useLocation, useMatches } from '@tanstack/react-router'
+import { SlotGate } from '../common/slots'
 import { ThemeToggle } from '../common/theme-toggle'
 import { endSiteSession } from '../common/browser-session'
 import { ConsoleReadiness } from './console-readiness'
+import { useConsoleSlots } from './slots'
 import { TenantSwitcher } from './tenant-switcher'
 
 /**
@@ -113,6 +115,7 @@ const NAV_SECTIONS: NavSection[] = [
 /** Routed console frame: header, sidebar navigation, and the active page outlet. */
 export function ConsoleLayout() {
   const { t } = useTranslation()
+  const matchedSlotRoute = useMatches({ select: matches => matches.at(-1)?.staticData.consoleSlot })
   const [navigationOpen, setNavigationOpen] = useState(false)
   const navigationTriggerRef = useRef<HTMLButtonElement>(null)
   const logout = useMutation({
@@ -191,7 +194,13 @@ export function ConsoleLayout() {
             </Link>
           </div>
           <div className="flex items-center gap-2">
-            <TenantSwitcher />
+            {matchedSlotRoute ? (
+              <SlotGate slot={matchedSlotRoute}>
+                {enabled => (enabled && matchedSlotRoute.scope === 'site' ? null : <TenantSwitcher />)}
+              </SlotGate>
+            ) : (
+              <TenantSwitcher />
+            )}
             <ConsoleReadiness />
             <ThemeToggle />
             <Tooltip>
@@ -236,46 +245,90 @@ export function ConsoleLayout() {
 function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation()
   const { t } = useTranslation()
+  const slots = useConsoleSlots()
   const version = systemVersion()
+  const coreLabels = new Set(NAV_SECTIONS.map(section => section.label).filter(Boolean))
+  const extensionSections = slots.navSections ?? []
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <nav className="min-h-0 flex-1 overflow-y-auto p-3" aria-label={t('console.aria.sections')}>
-        {NAV_SECTIONS.map((section, index) => (
-          <div key={section.label ?? 'home'} className={cn('grid content-start gap-0.5', index > 0 && 'mt-5')}>
-            {section.label ? (
-              <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                {t(section.label)}
-              </h2>
-            ) : null}
-            {section.items.map(item => {
-              const Icon = item.icon
-              const isActive =
-                (item.to === '/'
-                  ? location.pathname === '/'
-                  : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)) ||
-                (Boolean(item.match) &&
-                  (location.pathname === item.match || location.pathname.startsWith(`${item.match}/`)))
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  activeOptions={{ exact: item.to === '/', includeSearch: false }}
-                  aria-current={isActive ? 'page' : undefined}
-                  onClick={onNavigate}
-                  className={cn(
-                    'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:-outline-offset-2',
-                    isActive
-                      ? 'border-foreground bg-accent text-accent-foreground'
-                      : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
-                  )}>
-                  <Icon className="size-4 shrink-0" aria-hidden />
-                  <span className="truncate">{t(item.label)}</span>
-                </Link>
-              )
-            })}
-          </div>
-        ))}
+        {NAV_SECTIONS.map((section, index) => {
+          const appended = extensionSections.filter(ext => ext.label && ext.label === section.label)
+          return (
+            <div key={section.label ?? 'home'} className={cn('grid content-start gap-0.5', index > 0 && 'mt-5')}>
+              {section.label ? (
+                <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  {t(section.label)}
+                </h2>
+              ) : null}
+              {section.items.map(item => (
+                <ConsoleNavLink key={item.to} item={item} pathname={location.pathname} onNavigate={onNavigate} />
+              ))}
+              {appended.map(ext => (
+                <SlotGate key={ext.id} slot={ext}>
+                  {sectionEnabled =>
+                    sectionEnabled
+                      ? ext.items.map(item =>
+                          item.when ? (
+                            <SlotGate key={item.id} slot={{ pluginId: ext.pluginId, when: item.when }}>
+                              {itemEnabled =>
+                                itemEnabled ? (
+                                  <ConsoleNavLink item={item} pathname={location.pathname} onNavigate={onNavigate} />
+                                ) : null
+                              }
+                            </SlotGate>
+                          ) : (
+                            <ConsoleNavLink
+                              key={item.id}
+                              item={item}
+                              pathname={location.pathname}
+                              onNavigate={onNavigate}
+                            />
+                          )
+                        )
+                      : null
+                  }
+                </SlotGate>
+              ))}
+            </div>
+          )
+        })}
+        {extensionSections
+          .filter(ext => !ext.label || !coreLabels.has(ext.label))
+          .map(ext => (
+            <SlotGate key={ext.id} slot={ext}>
+              {sectionEnabled =>
+                sectionEnabled ? (
+                  <div className="mt-5 grid content-start gap-0.5">
+                    {ext.label ? (
+                      <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                        {t(ext.label)}
+                      </h2>
+                    ) : null}
+                    {ext.items.map(item =>
+                      item.when ? (
+                        <SlotGate key={item.id} slot={{ pluginId: ext.pluginId, when: item.when }}>
+                          {itemEnabled =>
+                            itemEnabled ? (
+                              <ConsoleNavLink item={item} pathname={location.pathname} onNavigate={onNavigate} />
+                            ) : null
+                          }
+                        </SlotGate>
+                      ) : (
+                        <ConsoleNavLink
+                          key={item.id}
+                          item={item}
+                          pathname={location.pathname}
+                          onNavigate={onNavigate}
+                        />
+                      )
+                    )}
+                  </div>
+                ) : null
+              }
+            </SlotGate>
+          ))}
       </nav>
       <footer className="border-t border-border px-6 py-3 text-xs text-muted-foreground">
         <span className="block truncate" title={version}>
@@ -283,6 +336,30 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
         </span>
       </footer>
     </div>
+  )
+}
+
+function ConsoleNavLink({ item, pathname, onNavigate }: { item: NavItem; pathname: string; onNavigate?: () => void }) {
+  const { t } = useTranslation()
+  const Icon = item.icon
+  const isActive =
+    (item.to === '/' ? pathname === '/' : pathname === item.to || pathname.startsWith(`${item.to}/`)) ||
+    (Boolean(item.match) && (pathname === item.match || pathname.startsWith(`${item.match}/`)))
+  return (
+    <Link
+      to={item.to}
+      activeOptions={{ exact: item.to === '/', includeSearch: false }}
+      aria-current={isActive ? 'page' : undefined}
+      onClick={onNavigate}
+      className={cn(
+        'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:-outline-offset-2',
+        isActive
+          ? 'border-foreground bg-accent text-accent-foreground'
+          : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
+      )}>
+      <Icon className="size-4 shrink-0" aria-hidden />
+      <span className="truncate">{t(item.label)}</span>
+    </Link>
   )
 }
 

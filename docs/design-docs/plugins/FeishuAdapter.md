@@ -1,21 +1,23 @@
 # Feishu and Lark Adapter
 
-The Lark Adapter receives Feishu or Lark messages and sends Agent replies. It
-also imports users and departments. Chat and identity use separate settings,
-and the control plane keeps all provider credentials.
+The Lark Adapter receives Feishu or Lark messages, sends Agent replies, and
+imports organization users and departments. Chat bindings and identity providers
+use separate settings, while all provider credentials remain on the control
+plane.
 
-Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+See [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+[Plugins](../Plugins.md) for the shared messaging, identity, and Plugin
+contracts.
 
 ## Provider and Public Identity
 
-The adapter reports an opaque `provider_conversation_id` and a
-`provider_message_id`. Conversations resolves these to a shared public
-Conversation UUID and Message UUID. All Agent observers of the same provider
-conversation in one tenant read those same public facts. Each participating
-Agent has its own `conversation:<public UUID>` Session; a Binding is its
-observation and delivery route, not the owner of the platform room.
+On inbound events, the adapter reports an opaque `provider_conversation_id` and
+`provider_message_id`, which `Conversations` resolves to a shared public
+Conversation UUID and Message UUID. Every Agent observing that Feishu or Lark
+chat within the same tenant reads those shared public records while running in
+its own `conversation:<public UUID>` Session—a Binding defines an observation
+and delivery route rather than owning the platform chat.
 
 ## Current IDs and Features
 
@@ -29,22 +31,19 @@ observation and delivery route, not the owner of the platform room.
 | Identity configuration | `principals.identity_providers.lark.<id>` |
 | Provider library | `plugins/lark_adapter/lib/feishu_openapi` |
 
-The signal adapter supports `addressed_only`, `observe_all`, and
-`may_intervene`.
+The Signal adapter supports all three group-message policies (`addressed_only`,
+`observe_all`, and `may_intervene`), inbound capabilities `entry_receive`,
+`entry_removed`, `reaction_add`, `reaction_remove`, and `action_event`, and
+outbound capabilities `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
+`outbound_reconciliation`, `add_reaction`, `remove_reaction`, `divider`, and
+`card`.
 
-Inbound capabilities are `entry_receive`, `entry_removed`, `reaction_add`,
-`reaction_remove`, and `action_event`.
-
-Outbound capabilities are `post_entry`, `reply_entry`, `edit_entry`,
-`delete_entry`, `outbound_reconciliation`, `add_reaction`, `remove_reaction`,
-`divider`, and `card`.
-
-The identity adapter supports OIDC authorization, code exchange, full directory
-sync, and real-time directory sync.
+On the identity side, the adapter supports OIDC authorization, OIDC code
+exchange, full directory sync, and real-time directory sync.
 
 ## Settings
 
-The chat configuration contains these fields:
+Chat bindings configure these fields:
 
 | Field | Purpose |
 | --- | --- |
@@ -54,275 +53,229 @@ The chat configuration contains these fields:
 | `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
-The Signal Binding configures how the Agent handles unaddressed group messages.
+How the Agent treats unaddressed group messages is configured on the Signal
+Binding itself. Identity-provider settings share `appID`, `appSecret`, and
+`domain`, using `oidc.*` keys for sign-in and `sync.*` keys for user and
+department imports.
 
-`ConnectionReconciler` resolves
-the bot `open_id` from `bot/v3/info` in the reconciler process before it
-starts a connection owner, and keeps it only in the owner's process-local chat
-consumer config as `runtimeBotOpenID`. `Ankole.Plugins.LarkAdapter.BotIdentity`
-caches the result for each `domain` and `appID` pair: a resolved `open_id` for
-24 hours, a failure until its retry time. The retry time is the provider's
-`Retry-After` or `x-ogw-ratelimit-reset` delay when the response names one,
-else 1, 2, 4, 8, 16, and then 30 minutes after each further failed attempt;
-both are limited to 30 minutes. While a failure is cached, the owner is not
-started and no provider call is made; the reconcile result carries the stable
-reason and the retry time. A saved binding configuration removes the cached
-entry. An identity-only connection does not need the bot identity and starts
-without this lookup.
+Before starting a chat connection owner, `ConnectionReconciler` fetches the bot
+`open_id` from `bot/v3/info` inside the reconciler process and passes it only in
+the owner's process-local chat consumer config as `runtimeBotOpenID`
+(identity-only connections need no bot identity and skip this lookup).
+`Ankole.Plugins.LarkAdapter.BotIdentity` caches each `(domain, appID)` lookup:
 
-Identity settings use `appID`, `appSecret`, and `domain`. `oidc.*` controls
-login, while `sync.*` controls user and department import.
+- Resolved `open_id` values cache for 24 hours.
+- Failures cache until their retry deadline—honoring the provider's
+  `Retry-After` or `x-ogw-ratelimit-reset` header when present, or backing off
+  across `1`, `2`, `4`, `8`, `16`, and `30` minutes (both capped at 30 minutes).
+  While a failure remains cached, the reconciler skips starting the owner and
+  avoids extra provider calls, reporting the stable failure reason and retry
+  timestamp; saving updated binding settings evicts the cached entry.
 
-One Agent can have several enabled Lark bindings. Each enabled binding must own
-a different `domain` and `appID` pair across the deployment instance. A
-disabled binding releases its pair. The binding save transaction validates
-this ownership before it writes the binding and its encrypted configuration.
-
-Each binding stores its configuration under
-`signals.lark.binding_configs.<binding-digest>`, where `<binding-digest>` is
-derived from the normalized Agent UID and binding name. The `signals.lark.bindings`
-root is also registered so `config_ref` values under that prefix remain
-readable.
+A single Agent may enable multiple Lark bindings, provided each enabled binding
+claims a distinct `(domain, appID)` pair across the deployment (disabling a
+binding releases its pair, and the binding save transaction validates ownership
+before writing the binding or its encrypted settings). Each binding persists
+settings under `signals.lark.binding_configs.<binding-digest>`, where
+`<binding-digest>` hashes the normalized Agent UID and binding name
+(`Ankole.Upgrade202610` migrates `signals.lark.bindings.*` rows onto that key
+while the `signals.lark.bindings` pattern stays registered for the upgrade
+window).
 
 ## Connect to Feishu or Lark
 
-One `domain` and `appID` pair identifies an application. `ConnectionReconciler`
-selects the required pairs, and `Ankole.Plugins.ConnectionLifecycle` supervises
-one WebSocket client for each pair. The client is a temporary child. If it
-exits, `ConnectionLifecycle` restarts that pair immediately once, then waits
-5 seconds and 30 seconds between further attempts. Other connections stay
-connected.
+Each `(domain, appID)` pair identifies one platform application.
+`ConnectionReconciler` builds specs from stored settings alone
+(`ConnectionReconciler.binding_spec/2`), resolves bot identity in
+`owner_child_spec/3`, and hands each active pair to
+`Ankole.Plugins.ConnectionLifecycle` to supervise a single temporary WebSocket
+client: if a client exits, `ConnectionLifecycle` restarts that pair immediately
+once and then waits 5 seconds and 30 seconds between subsequent attempts while
+other pairs stay connected.
 
-Chat and identity work can share a connection when the pair and secret match.
-Conflicting secrets make that connection unavailable. A restart rebuilds the
-in-memory connection list. `ConnectionReconciler.binding_spec/2` reads stored
-configuration only; the bot identity lookup happens in `owner_child_spec/3`,
-before the supervisor starts the client.
+Chat bindings and real-time directory sync share one WebSocket whenever their
+`(domain, appID)` pair and `appSecret` match; if two consumers supply
+conflicting secrets for the same pair, Ankole marks that connection unavailable.
+Restarts rebuild the active connection set from PostgreSQL.
 
-The WebSocket client handles reconnects, provider pings, fragments, and event
-dispatch. It acknowledges events after their handlers complete. Provider
-redelivery is safe because host writes are idempotent.
-
-A multi-node deployment instance must assign each application connection to one
-node.
-The local registry cannot make that assignment across nodes.
+The WebSocket client manages reconnects, keepalive pings, frame reassembly, and
+event dispatch, acknowledging frames only after their handlers finish (provider
+redeliveries are safe because control-plane writes are idempotent). In a
+multi-node cluster, operators must pin each application connection to a single
+node because the local process registry does not arbitrate connection ownership
+across nodes.
 
 ## Receive Messages and Actions
 
-The adapter normalizes messages, recalls, reactions, and card actions, then
-submits them through Conversations.Observe. Conversations owns shared Messages
-and external references. Required work enters `Ankole.Signals.accept_in_tx/1`.
+Inbound messages, recalls, reactions, and card clicks normalize through
+`Conversations.Observe`, which owns shared Messages and `ExternalMessageRef`
+rows and enqueues required Agent work via `Ankole.Signals.accept_in_tx/1`.
 
-The opaque `provider_conversation_id` is `lark:<encoded_chat_id>`. A Message
-keeps its original provider message ID. Reply and thread identifiers use
-provider root IDs when present.
+Chats map to `provider_conversation_id` `lark:<encoded_chat_id>`, preserving the
+original Feishu/Lark message ID and attaching root thread/reply IDs when
+present. Direct messages and group messages carrying a structured @-mention of
+the current bot count as explicit input; other group messages follow the
+binding's group-message policy. Recalls emit `entry_removed`, emoji reactions
+update stored message metadata without waking the Agent (keyed by operator
+`user_id` when present, or `open_id` when Feishu omits `user_id`), and card
+button/form actions always wake the Agent.
 
-Direct messages give explicit input. A structured mention of the current bot
-makes a group message explicit. Conversations applies the binding policy to
-other group messages.
+Every Lark identity path selects a primary immutable `external_id` in strict
+priority order—`user_id`, then `union_id`, then `open_id`—never using mutable
+contact addresses as the primary Lark `external_id`:
 
-Every Lark identity path selects an immutable `external_id` strictly in this
-order: `user_id`, `union_id`, then `open_id`. Mutable contact addresses never
-act as the primary Lark `external_id`.
+- Across message admission, directory sync, IM group membership, and card
+  actions, the adapter binds whichever of those immutable IDs wins as primary
+  and records the remaining Lark IDs as provider-scoped aliases on the same
+  Principal in the same transaction (if an alias already belongs to another
+  Principal, the entire transaction fails rather than reassigning the alias).
+- External-organization collaborators who lack a local `user_id` fall back
+  cleanly to `union_id` or `open_id`; only senders lacking all three immutable
+  IDs are ignored. Both `enterprise_email` (`work_email`) and `email` bind under
+  the `email` external-identity namespace.
+- When sender lookup misses, the adapter's `author_hydrator` fetches the
+  sender's Contact profile once to resolve `[user_id, union_id, open_id]` plus
+  `email`, `mobile`, and `display_name` before identity admission proceeds.
 
-The adapter writes every remaining Lark ID as a provider-scoped alias for the
-same Principal in the same transaction. Message admission, directory sync, IM
-group membership, and card operators use this rule. A conflict with an existing
-alias fails the complete write; the adapter does not move an alias between
-Principals. An external-tenant member can have no `user_id`, so `union_id` or
-`open_id` becomes the primary external ID. Only a person with none of these
-immutable IDs is ignored. Both `enterprise_email` (`work_email`) and `email`
-bind under the `email` external-identity namespace.
+During an inbound Turn, `<agent_environment_info>` exposes the public
+Conversation UUID. Because Feishu message events omit sender display names,
+identity admission projects any Contact-synced display name onto the event, and
+for group turns the prompt renderer formats `speaker` as `name(uid)` (or
+`uid(uid)` when no name is known). Human Principal UIDs remain opaque UUIDv7s,
+separate from provider-scoped Lark IDs and `email` bindings.
 
-The adapter also declares an `author_hydrator`. On an identity miss, the
-gateway fetches the sender's contact profile once, resolves `[user_id, union_id,
-open_id]`, and supplies `email`, `mobile`, and `display_name` as contact and
-profile facts before admission continues.
+Inbound content covers plain text, rich posts, stickers, images, files, audio,
+media, video, locations, shared chats, and shared user cards:
 
-An inbound Turn exposes its public Conversation UUID in
-`<agent_environment_info>`. A display name is a separate optional fact.
-The message webhook does not supply one, so identity admission projects a name
-already synchronized from Contact into the current event. For a group message,
-the control-plane prompt renderer writes `speaker` as `name(uid)` and repeats
-the `uid` when no name is known. Human Principal UIDs are opaque UUIDv7
-values; the Lark IDs and `email` rows are provider-scoped external identities.
-
-Reaction events use the operator `user_id` when it is present. They use the
-operator `open_id` as the stable reaction actor key when Feishu omits
-`user_id`.
-
-The adapter supports text, rich posts, stickers, images, files, audio, media,
-video, locations, shared chats, and shared users. For a provider file, the
-adapter first submits a durable `pending` observation with the provider
-reference. It does this for every matching chat consumer before the first
-download starts. The adapter then downloads the bytes once and stores them in
-the file service ([Files](../Files.md)). It submits `complete` or `failed` with
-the same provider message ID. A failed download keeps the provider reference without a local
-file. Rich posts can carry files in a top-level `files` list beside the text
-and image blocks. The adapter submits these files through the same attachment
-download path, using each file's key and name and the containing message ID.
-
-Conversations assigns the attachment's numeric ID before the download. A
-successful download gets the scoped drive path
-`chats/<public conversation UUID>/inbox/<digest>/<filename>`, where
-`<digest>` is the start of the content SHA-256 and `<filename>` is the provider
-filename. Provider message IDs and file keys are stored adapter details;
-they do not appear in the drive path.
-
-The pending observation time is the attachment settle anchor. A slow download
-does not move the 1,200 millisecond quiet window. Conversations can wait up to
-four seconds for materialization before it releases pending work. If the final
-observation arrives after this limit, Conversations replaces the pending entry
-in the open Signal. It retries a replay-safe started turn, or routes the
-attachment to a new turn after an external side effect. A provider redelivery
-with the same content hash is a no-op. It does not create a duplicate Signal
-or postpone a Signal that is already ready.
-
-If a message with a structured mention has no attachment but refers to a recent
-file or image, the adapter can reuse up to three attachments from the same
-sender and channel from the previous 120 seconds.
-
-A recall emits `entry_removed`. A reaction updates the stored message but does
-not wake the Agent. A card action always wakes the Agent.
+- Before starting a file download—including files listed in the top-level
+  `files` array of a rich post—the adapter records a durable `pending`
+  observation across every matching chat binding, allocates the numeric
+  attachment ID, downloads the blob once into the file service
+  ([Files](../Files.md)) under
+  `chats/<public conversation UUID>/inbox/<digest>/<filename>` (where `<digest>`
+  is the SHA-256 prefix and provider message/file keys stay in adapter metadata
+  out of the path), and then submits `complete` or `failed` under the same
+  provider message ID (retaining the provider reference without a local file on
+  failure).
+- The initial `pending` observation timestamp anchors the 1,200 ms batching
+  quiet window so slow downloads do not push that window out. `Conversations`
+  waits up to 4 seconds for downloads to finish before releasing queued work; if
+  completion arrives later, `Conversations` patches the open Signal (retrying a
+  replay-safe started turn, or opening a follow-up turn if external side effects
+  already ran), while duplicate redeliveries with an identical content hash
+  no-op without creating extra Signals or delaying ready work.
+- When a user @-mentions the bot without attaching a file while referencing a
+  recent upload, the adapter can attach up to three files sent by that same
+  sender in the same chat within the preceding 120 seconds.
 
 ## Send Replies
 
-The adapter sends only operations already stored as Delivery intents. It can post,
-reply, edit, delete, reconcile, change reactions, send dividers, and send cards.
+Outbound execution processes only durable Delivery intents: posting, replying,
+editing, deleting, reconciling (`outbound_reconciliation` verifies the recorded
+provider message ID), updating reactions, posting dividers, and sending cards.
+Text sends derive deterministic provider UUIDs from intent idempotency keys,
+and image or file sends upload blob bytes read via `blob_ref` from the file
+service first. If a reply target message has been deleted, the adapter falls
+back to posting directly to the chat; if Lark rejects a final edit due to its
+message-edit cap, the adapter posts a new message instead.
 
-The adapter uploads the attachment bytes, read from the file service by
-`blob_ref`, before it sends image or file messages. Text
-messages use provider UUIDs derived from intent idempotency keys. Reconciliation
-checks the recorded provider message ID.
+Non-image files up to 30 MiB upload through Feishu's native IM file endpoint.
+Larger files up to 100 MiB—or uploads rejected with provider error `234006`—fall
+back to the application's Drive cloud-space root:
 
-A non-image file of at most 30 MiB uses the native IM file endpoint. A larger
-file within the 100 MiB transfer limit uses the application cloud-space
-root. Provider error `234006` also starts this fallback when the local size
-check did not. The adapter prepares one multipart transaction, uploads the
-provider plan in sequence without concurrent parts, and finishes the
-transaction. This sequence follows Feishu's
-[multipart upload protocol](https://open.feishu.cn/document/server-docs/docs/drive-v1/upload/multipart-upload-file-/introduction).
-It then grants `view` access to the whole chat with an `openchat` member for a
-group message, or to the sender with an `openid` member for a direct message.
-It reads the provider file URL and sends a localized text message that tells
-the user that the file was uploaded to cloud space because it was too large
-for an IM attachment. The intent stores the cloud file token, URL, byte size,
-and block count after a confirmed message send.
+1. Following Feishu's
+   [multipart upload protocol](https://open.feishu.cn/document/server-docs/docs/drive-v1/upload/multipart-upload-file-/introduction),
+   the adapter opens a multipart upload transaction, uploads parts sequentially
+   without concurrency, and commits the upload.
+2. It grants `view` permission either to the group chat (`openchat` member) or
+   to the DM recipient (`openid` member), fetches the Drive URL, sends a
+   localized chat notice explaining that the file was uploaded to cloud space
+   due to IM size limits, and records the cloud file token, URL, byte size, and
+   block count on the confirmed Delivery intent (if permission grant or URL
+   lookup fails after upload, the adapter attempts to delete the orphaned cloud
+   file before returning the error).
 
-This path requires the application scopes
+Cloud-space fallback requires sufficient Drive storage plus the app scopes
 `drive:drive.metadata:readonly`, `drive:file:upload`,
-`docs:permission.member:create`, and `space:document:delete`. They let the
-application read its cloud-space root and file metadata, upload files, add file
-collaborators, and delete an unusable upload. The application must also have
-enough cloud-space capacity. If access grant or URL lookup fails after upload
-completion, the adapter tries to delete the unusable file before it returns the
-error.
-
-If the content of a referenced attachment is gone, larger than 100 MiB, or
-outside the supported attachment contract, the adapter marks the durable reply
-as requiring operator action with a stable code such as
-`attachment_file_missing`. Conversations blocks that row instead of retrying
-the same invalid attachment forever. Documented cloud
-permission, quota, and root-capacity errors also require operator action.
-Invalid multipart plans and invalid provider responses are permanent errors.
-Other provider errors use the normal intent retry policy.
-
-The cloud fallback emits
-`lark_adapter.intent.large_file_upload_started`,
-`lark_adapter.intent.large_file_upload_completed`, and
-`lark_adapter.intent.large_file_upload_failed` structured logs. Failed cleanup
-emits `lark_adapter.intent.large_file_cleanup_failed`. The
-`[:ankole, :lark_adapter, :large_file_upload]` telemetry event reports native
-duration, file size, and block count. Its metadata reports the outcome, failed
-stage, fallback reason, and recipient member type without file content or an
-access URL.
-
-If a reply target no longer exists, the adapter can post to the chat instead.
-If Lark rejects a final edit because of its edit limit, the adapter can send a
-new message.
+`docs:permission.member:create`, and `space:document:delete`. Missing blobs,
+files over 100 MiB, unsupported attachment shapes, or cloud permission/quota/capacity
+errors mark the Delivery intent as requiring operator action (for example,
+`attachment_file_missing`) so `Conversations` blocks the row instead of retrying
+forever; malformed multipart plans or invalid provider payloads fail
+permanently, while transient errors follow standard retry backoff. Structured
+logs (`lark_adapter.intent.large_file_upload_started`,
+`..._completed`, `..._failed`, and `lark_adapter.intent.large_file_cleanup_failed`)
+and the `[:ankole, :lark_adapter, :large_file_upload]` telemetry event report
+duration, byte size, block count, outcome, failed stage, fallback reason, and
+recipient member kind without leaking file contents or access URLs.
 
 ## Show a Live CardKit Reply
 
-`CardKit` can open, update, finish, and refresh a preview. It keeps an ordered
-chain of cards for each visible Agent turn.
+For visible Agent turns, `CardKit` manages an ordered chain of streaming preview
+cards, coalescing updates to at most one provider sync per turn per second while
+handling explicit Feishu rate limits per turn rather than funneling unrelated
+chats through a global queue. Automatic cron wakes prepend a compact quoted note
+naming the scheduled rule on their first card (omitted on manual cron runs).
 
-The preview coalesces CardKit changes and starts at most one provider sync for a
-turn each second. The Feishu client handles explicit provider rate-limit
-responses without placing unrelated replies in one shared queue.
+When Markdown contains remote images, the downloader validates the URL and every
+resolved IPv4/IPv6 hop (including redirects) before connecting—dialing the
+checked IP directly while preserving the original `Host` header, TLS SNI, and
+certificate hostname check. Cloud-metadata IPs are always blocked, private IPs
+honor `security.ssrf_filter` (defaulting to allow intranet hosts), DNS or SSRF
+blocks leave a plain text link, and image fetches cap at 20 MiB without
+transport retries.
 
-Remote Markdown image downloads check the URL and all resolved IPv4 and IPv6
-addresses before each request, including redirects. The connection uses a
-checked IP while HTTP Host, TLS SNI, and certificate verification keep the
-original hostname. Cloud metadata addresses are always rejected; private
-addresses follow `security.ssrf_filter`, whose default permits intranet access.
-A DNS failure or blocked target leaves a text link. Downloads enforce a
-20 MiB streaming limit and do not retry transport failures.
+Card sizing targets stay below 24 KiB and 160 CardKit elements (at most five
+Markdown tables per card and four per Markdown element), splitting source
+Markdown into ~12 KiB pages with at most four answer tables without mutating the
+stored Markdown; because page splits depend strictly on the answer prefix,
+appending text never shifts an already sealed boundary, and only the active tail
+card renders transient reasoning, tool progress, or interactive controls (if a
+late revision would alter a closed card, terminal Delivery sends a clean
+fallback).
 
-The Signal checkpoint is the durable CardKit ledger. It records card IDs,
-message IDs, source pages, the active page, stream state, the last confirmed
-presentation, and the sequence high-water mark. A restarted process renders
-the durable active page as one complete card and replaces the existing message.
-It then uses whole-message card edits for that page. If the answer needs another
-page, the sealed recovered page stays inline and the new tail returns to CardKit.
+Each mutation carries a strictly increasing sequence number (retrying an
+identical mutation reuses its logical UUID and sequence; changed payloads
+advance the sequence), persisted in the source Signal's CardKit checkpoint
+alongside card IDs, message IDs, page slices, stream status, and last confirmed
+presentation:
 
-Each provider mutation uses a strictly increasing sequence. A retry reuses the
-same logical UUID and sequence. A changed mutation gets a later sequence.
+- Live streaming updates mutate CardKit elements in place, whereas finalizing a
+  streamed card replaces the message with one closed inline card (a card created
+  directly from an already finished turn stays in CardKit because its full body
+  was sent in one shot).
+- CardKit streams carry a nine-minute lease: known closed-stream errors reopen
+  the stream, missing cards or element-topology conflicts replace the message in
+  place with a single complete card, and multi-page overflows during refresh
+  seal the current card via whole-message patch and append new page cards.
+- After a process restart, recovery renders the active page as a complete card
+  to replace the existing message, switches that page to whole-message edits,
+  and resumes CardKit streaming on any subsequent overflow page. Terminal
+  recovery always renders from the durable Delivery intent—even if the last
+  CardKit checkpoint held an intermediate draft—recording a non-retry fallback
+  and stopping preview updates whenever plain-text fallback is needed so the
+  Delivery intent remains sole owner of terminal output (auth/permission errors
+  mark `recovery_state` blocked until an operator updates the binding, which
+  requeues both blocked previews and intents).
+- When a user answers an interactive clarification card, the adapter rebuilds
+  that card from the durable reply-interaction checkpoint—stripping buttons and
+  forms and displaying the chosen or custom answer as plain text visible to all
+  chat members (or stripping controls without an answer when superseded).
 
-Working cards use CardKit element and content mutations. Finalization replaces
-an existing streamed message with one complete closed card and records that
-page as inline. A card created from an already terminal reply
-stays CardKit because its complete content was sent once.
-
-The first card for an automatic cron wake starts with a small quoted note that
-identifies the scheduled task as the source. A manual cron run does not show
-this note.
-
-When a user submits a clarification answer, the adapter rebuilds the active card
-from the durable reply-interaction checkpoint. An answered card removes all
-buttons and forms and shows the accepted choice or custom answer as plain text.
-The card is shared in a group, so every member who can see the card can also see
-the submitted answer. A superseded card removes the controls without showing an
-answer.
-
-The renderer aims to stay below 24 KiB and 160 elements. A card holds at most
-five Markdown tables, and one Markdown element holds at most four. It splits
-Markdown into source pages of about 12 KiB with at most four answer tables,
-without changing the stored Markdown. Page boundaries depend only on the
-answer prefix, so a growing answer never moves a sealed boundary.
-
-Only the final open card can show temporary thought, progress, or actions.
-Closed cards do not change. If later output would change a closed card, the
-final Delivery sends a consistent fallback instead.
-
-The stream lease is nine minutes. A known closed-stream error reopens the active
-stream. A missing card or an element-topology conflict replaces the active
-message with one complete card without sending a second message. When a
-refreshed answer spans more pages than the persisted chain, refresh seals the
-active card with a whole-message patch and creates the missing page cards.
-Authentication and permission errors require operator action. A recovery
-refresh that fails with a not-retryable error records a blocked
-`recovery_state` on the checkpoint and stops; an operator update to the
-binding requeues blocked previews together with blocked intent replies.
-Terminal recovery renders the terminal presentation from the durable intent,
-even when the last confirmed CardKit checkpoint contains a working
-presentation. If CardKit requires a plain-text fallback during that refresh,
-the preview records a non-retry fallback and stops; the intent is the sole
-owner of provider-visible terminal delivery.
-
-Preview updates can disappear. The final assistant reply is stored in its Delivery intent.
-Conversations records that reply only after the provider confirms it.
+Because previews are ephemeral presentation, `Conversations` commits the final
+public Agent Message only after the provider confirms the durable Delivery
+intent.
 
 ## Let a Job Use Lark Tools
 
-An enabled `lark` Agent Plugin can use a compatible Lark binding. WorkerEnv
-selects the current signal route's binding and resolves one tenant token when
-the execution starts. A sole available Lark binding is implicit. If an
-Agent has several available Lark bindings and the execution has no matching
-route, WorkerEnv supplies no Lark credential variables. A route that names a
-disabled or unavailable binding does not fall back to another Lark binding. The
-Lark Agent Plugin reads the stored provider identity metadata to obtain the
-`open_id` required by its direct-message shortcut. WorkerEnv projects these
-variables:
+When the `lark` Agent Plugin is enabled, `WorkerEnv` resolves a bot tenant
+access token at execution start from the current Signal route's Lark binding—or
+implicitly from the Agent's sole available Lark binding (if multiple Lark
+bindings are available and the execution carries no matching Lark route, or if
+the routed binding is disabled or unavailable, `WorkerEnv` injects no Lark
+variables rather than guessing another binding). Using stored provider identity
+metadata to look up recipient `open_id` values for direct-message shortcuts,
+`WorkerEnv` injects:
 
 - `LARKSUITE_CLI_APP_ID`
 - `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`
@@ -330,124 +283,89 @@ variables:
 - `LARKSUITE_CLI_DEFAULT_AS=bot`
 - `LARKSUITE_CLI_STRICT_MODE=bot`
 
-WorkerEnv never sends `appSecret`.
+`WorkerEnv` never exposes `appSecret`, and Skills come exclusively from the
+enabled Agent Plugin—configuring a `SignalBinding` supplies credentials without
+enabling Skills on its own.
 
-The Agent Plugin enables Skills. The routing rule (`SignalBinding` in code) supplies credentials only
-and cannot make a Skill available.
+For user-scoped Feishu approvals, the `lark-approvals` Skill (`ankole-runtime: main`,
+exposed only to human-initiated foreground Turns and never to unattended/scheduled
+Turns or background Jobs—though foreground Turns may still delegate receipt
+parsing, currency math, or data prep to a background Job) uses a separate
+per-Human profile path:
 
-The `lark-approvals` Skill is a separate user path. A Turn from an active human
-Principal receives an opaque Lark CLI profile name that the control plane
-derives with HMAC-SHA256 from `runtime_fabric.worker_auth_key`. Version 1 uses
-the Principal UID. Later access versions use the UID, a NUL separator, and the
-decimal access version. The control plane rejects a Human turn without a
-positive access version. The Worker receives only the prepared profile and
-the active-human marker; it receives no Principal or access-version fields.
-After disablement and reviewed restoration, the new profile requires new app
-registration and user authorization. Old profiles stay on disk for admitted
-attempts, but future turns cannot select them through the trusted wrapper. This
-does not revoke provider credentials outside Ankole.
-
-The Skill wrapper removes the bot credential environment before every command.
-This is necessary because the Lark CLI environment credential provider has
-priority over a selected stored profile. The wrapper then passes the derived
-profile explicitly. Approval commands use `--as user`. Approval file upload
-uses `--as bot` to get a tenant token from the same PersonalAgent app.
-
-Separation between senders is a Skill rule, not a sandbox boundary. The shared
-configuration directory lists every registered profile, and `lark-cli` stays on
-the Agent shell path, so a command that bypasses the wrapper could select
-another person's profile. The Skill states this and always calls the wrapper.
-The current extension model is first-party and trusted, so Ankole does not add
-per-human filesystem isolation for it.
-
-Each Agent Computer's shared Lark CLI configuration holds one derived profile
-and one PersonalAgent app for each human Principal access version. The first setup has two
-separate provider flows:
-
-1. PersonalAgent app registration creates the app and stores its generated app
-   ID and app secret with `lark-cli profile add --app-secret-stdin`.
-2. The user approves and publishes the `approval:approval` and
-   `approval:instance.file` app scopes in the developer console before the
-   first approval file upload.
-3. User device login grants the user approval scopes and stores the user token
-   for that app.
-
-Both device flows keep the opaque device code outside model Turns. A begin
-command returns only the verification data. The wrapper stores the exact code
-under
-`.lark-cli/.ankole-profile-state/<derived-profile>/app-registration.json` or
-`auth-login.json`. The profile directory has mode `0700`, and each state file
-has mode `0600` and an absolute expiry. A complete command takes no device code.
-Each derived profile owns at most one state file for each flow; a new begin
-atomically replaces only that file. The wrapper keeps a pending flow, and it
-removes a successful, denied, expired, or invalid flow. The path contains only
-the HMAC-derived profile, not the Principal UID. App-registration failures
-report the provider error code, description, and HTTP status.
-
-`auth login` does not create the app. The wrapper never asks the user for an app
-secret and never puts one in a command argument or WorkerEnv. User login cannot
-grant app scopes. If upload reports `app_scope_not_applied`, the Skill gives the
-provider scope link to the user and stops instead of changing app permissions.
-
-Lark CLI strict mode is `bot` in the binding WorkerEnv. Each user profile
-has a profile-level `strict-mode=off` override because it must supply both the
-user token and the PersonalAgent app tenant token. The wrapper removes the
-environment strict-mode value and pins the identity for each command.
-
-Profile creation, profile policy repair, first login, login completion, and
-logout use a file lock in the Agent Computer's shared Lark CLI configuration
-directory. Approval reads, approval file uploads, and approval writes do not use
-this lock, so different user profiles can run in parallel. A scheduled or
-otherwise unattended Turn has no human profile and cannot use this Skill.
-The Skill declares `ankole-runtime: main`, so background Jobs do not receive it.
-The main Agent can delegate receipt extraction, currency conversion, and expense
-data preparation to a background Job. Approval queries, account checks, uploads,
-and submissions stay in the human-initiated main Turn.
+- From `runtime_fabric.worker_auth_key`, the control plane derives an opaque
+  HMAC-SHA256 `lark-cli` profile name—hashing `principal_uid` for access version
+  `1`, or `principal_uid <> <<0>> <> decimal_access_version` for higher
+  versions (rejecting any Human turn without a positive `access_version`)—and
+  sends the Worker only the derived profile name and active-human marker, never
+  raw Principal UIDs or version numbers. If a Human is disabled and later
+  restored, their incremented `access_version` maps to a fresh profile requiring
+  new PersonalAgent app setup and user login; older profiles remain on disk for
+  already admitted runs while staying unreachable through the wrapper (without
+  revoking tokens on Feishu's servers).
+- Before invoking `lark-cli`, the Skill wrapper scrubs the bot `LARKSUITE_CLI_*`
+  environment variables (including `LARKSUITE_CLI_STRICT_MODE=bot`, since env
+  credentials override named profiles and each user profile sets
+  `strict-mode=off` to hold both a user token and its PersonalAgent tenant
+  token) and explicitly passes the derived profile, pinning `--as user` on
+  approval reads/writes and `--as bot` on approval file uploads. Note that
+  sender separation here is enforced by Skill wrapper convention rather than OS
+  sandbox isolation, because all profiles share the Worker's `.lark-cli`
+  directory under Ankole's trusted first-party extension model.
+- Initial provisioning per `(principal, access_version)` runs three steps:
+  1. PersonalAgent app registration creates a dedicated app and stores its
+     credentials via `lark-cli profile add --app-secret-stdin` (never asking the
+     user for an app secret or passing secrets via CLI args or `WorkerEnv`;
+     registration errors surface HTTP status, provider code, and description).
+  2. Before uploading approval attachments, the user enables and publishes
+     `approval:approval` and `approval:instance.file` in the Feishu developer
+     console (if an upload hits `app_scope_not_applied`, the Skill returns the
+     console link and stops rather than mutating app scopes).
+  3. OAuth device login (`auth login`, which never creates an app or grants app
+     scopes) authorizes the user token.
+- During both device flows, opaque device codes stay out of model context: the
+  `begin` subcommand returns only user verification instructions and writes the
+  device code with mode `0600` and an absolute expiry inside mode-`0700`
+  `.lark-cli/.ankole-profile-state/<derived-profile>/app-registration.json` or
+  `auth-login.json` (atomically replacing any prior file for that flow and
+  deleting the file once completed, denied, expired, or invalid), so `complete`
+  needs no device-code argument. A shared file lock serializes profile creation,
+  policy repair, login, and logout, while approval queries, uploads, and
+  submissions run lock-free in parallel across users.
 
 ## Import People and Departments
 
-OIDC login resolves the person through `[user_id, union_id, open_id]`. Full sync
-runs under `DirectoryAccess` and writes users, departments, memberships, and
-`email` contact identities (for both `enterprise_email` and `email`) to
-Principal and AuthZ records. It records `:offboarded` for `is_resigned` or
-`is_exited`, `:suspended` for `is_frozen`, and `:healthy` recovery when those
-flags are false.
-
-Real-time `contact.user.*` events (with `contact.user.deleted_v3` treated as a
-departure) pass `[user_id, union_id, open_id]` to
-`DirectoryAccess.receive_event/2`. An incomplete user event, a department event,
-or a scope change enqueues a full sync. Disabling WebSocket sync does not
-disable full directory sync.
-
-Authentication does not grant console access. AuthZ must resolve the person's
-grants for Site Console or Pod administration.
+OIDC sign-in resolves Principals across `[user_id, union_id, open_id]` (granting
+identity without automatically granting Site Console or Pod admin roles, which
+still come from `AuthZ`). Full directory sync runs through `DirectoryAccess` to
+persist users, departments, group memberships, and `email` bindings (covering
+both `enterprise_email` and `email`), mapping `is_resigned` / `is_exited` to
+`:offboarded`, `is_frozen` to `:suspended`, and cleared flags to `:healthy`
+recovery. Real-time `contact.user.*` events (treating `contact.user.deleted_v3`
+as a departure) forward `[user_id, union_id, open_id]` to
+`DirectoryAccess.receive_event/2`, while incomplete user payloads, department
+changes, or visibility-scope updates enqueue a full sync (disabling WebSocket
+events leaves scheduled/manual full sync intact).
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings. Conversations records public Messages and Delivery intents. Signals stores
-authorized stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people, departments, memberships,
-and grants.
-
-The adapter converts provider events, runs connections, renders CardKit, and
-classifies provider errors. Agent Computer never receives the application
-secret. Callback failure logs record the failure class and source locations
-without exception messages, function arguments, or callback data; token fetch
-and refresh errors use fixed public messages with redacted `details`, and a
-failed card callback returns a fixed HTTP 500 response.
-
-A control-plane restart rebuilds long connections. The startup job refreshes
-stored IM groups, and a full directory sync repairs identity drift. CardKit
-checkpoints and Delivery intents in PostgreSQL let provider delivery continue. If a
-durable reply succeeded while its preview checkpoint stayed open, startup uses
-the Delivery terminal presentation to replace and close the original card.
+PostgreSQL persists all durable state across `AppConfigure`, `Conversations`,
+`Signals`, `Sessions`, `Principals`, and `AuthZ`, while the adapter remains
+stateless across restarts—rebuilding WebSocket connections, refreshing stored IM
+group metadata on startup, reconciling open CardKit checkpoints against
+confirmed Delivery intents (closing any lingering open preview card with the
+confirmed terminal presentation), and scrubbing sensitive data from failure logs
+(logging only exception classes and source locations, redacting token-fetch
+`details`, and returning a generic HTTP 500 on failed card callbacks).
 
 ## Tests
 
-The repository tests the provider library, declarations, connection handling,
-event conversion, stored replies, CardKit recovery, login, and directory sync.
-Real provider acceptance needs operator credentials and a compatible client.
+Automated tests cover the `feishu_openapi` client, plugin declarations,
+WebSocket lifecycle, inbound normalization, outbound Delivery intents, CardKit
+streaming and recovery, OIDC login, and directory sync; live acceptance tests
+against Feishu or Lark require operator credentials and a real client.
 
-The implementation sources are:
+Implementation paths:
 
 - `plugins/lark_adapter/lib/ankole/plugins/lark_adapter.ex`
 - `plugins/lark_adapter/lib/ankole/plugins/lark_adapter/`

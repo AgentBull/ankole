@@ -102,15 +102,15 @@ export const PrincipalGroupEditorModel = createModel(() => {
       return (accepted: PrincipalGroupEditorDraft) => {
         if (generation !== requestedGeneration) return false
         batch(() => {
-          if (JSON.stringify(name.value) === JSON.stringify(submitted.name)) name.value = accepted.name
-          if (JSON.stringify(displayName.value) === JSON.stringify(submitted.displayName)) {
+          if (name.value === submitted.name) name.value = accepted.name
+          if (displayName.value === submitted.displayName) {
             displayName.value = accepted.displayName
           }
-          if (JSON.stringify(description.value) === JSON.stringify(submitted.description)) {
+          if (description.value === submitted.description) {
             description.value = accepted.description
           }
-          if (JSON.stringify(kind.value) === JSON.stringify(submitted.kind)) kind.value = accepted.kind
-          if (JSON.stringify(computedCondition.value) === JSON.stringify(submitted.computedCondition)) {
+          if (kind.value === submitted.kind) kind.value = accepted.kind
+          if (computedCondition.value === submitted.computedCondition) {
             computedCondition.value = accepted.computedCondition
           }
           initialDraft.value = { ...accepted }
