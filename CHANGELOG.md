@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 2.0.0-alpha.30 (2026-10-27)
+
+- Keep standard PPTX charts editable when a data edit adds or removes series. Preserve other workbook cells and correct scatter and bubble values.
+- Keep image Python packages available when the per-Agent Python bootstrap runs from an active Agent environment.
+
 ## Version 2.0.0-alpha.29 (2026-10-27)
 
 - Start the setup activation-code command in a cold process.

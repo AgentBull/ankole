@@ -136,6 +136,7 @@ retains the existing PNG, its permissions, and its symbolic link.
 Standard PPTX charts store their series data in an embedded workbook. Chart
 creation writes cell references and matching caches. Edits to an existing
 series update its workbook cells and caches together.
+A change to the series count uses free workbook columns and preserves other cells.
 Remove each patch when a stable OfficeCLI release provides its guarantees.
 
 A provider cannot be deleted while a Worker row refers to it. Without an

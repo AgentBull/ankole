@@ -48,6 +48,7 @@ with zipfile.ZipFile(io.BytesIO(workbook)) as xlsx:
     cells = {}
     for cell in ws.iter(S + 'c'):
         cells[cell.get('r')] = (cell.get('t'), ''.join(cell.itertext()))
+    assert cells['Z99'] == ('inlineStr', 'User data'), cells.get('Z99')
     output, columns = [], set()
     for series in chart.findall('.//' + C + 'ser'):
         values = {}
@@ -78,6 +79,7 @@ with zipfile.ZipFile(io.BytesIO(workbook)) as xlsx:
                 actual.append(value)
             values[kind] = actual
         output.append(values)
+    assert 'Z' not in columns, columns
 open(sys.argv[1] + '.xlsx', 'wb').write(workbook)
 print(json.dumps(output))
 `,
@@ -95,9 +97,42 @@ function createChart(path: string, type: string, ...props: string[]): void {
   office('create', path)
   office('add', path, '/', '--type', 'slide')
   office('add', path, '/slide[1]', '--type', 'chart', '--prop', `type=${type}`, ...props.flatMap(p => ['--prop', p]))
+  office('save', path)
+  office('close', path)
+  const fixture = spawnSync(
+    'python3',
+    [
+      '-c',
+      String.raw`
+import io, posixpath, sys, zipfile
+import xml.etree.ElementTree as ET
+from openpyxl import load_workbook
+C = '{http://schemas.openxmlformats.org/drawingml/2006/chart}'
+R = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+with zipfile.ZipFile(sys.argv[1]) as ppt:
+    parts = [(info, ppt.read(info)) for info in ppt.infolist()]
+    part, chart = next((info.filename, ET.fromstring(data)) for info, data in parts
+        if info.filename.endswith('.xml') and ET.fromstring(data).tag == C + 'chartSpace')
+    rels = ET.fromstring(ppt.read(posixpath.join(posixpath.dirname(part), '_rels', posixpath.basename(part) + '.rels')))
+    rid = chart.find(C + 'externalData').get(R + 'id')
+    target = next(rel.get('Target') for rel in rels if rel.get('Id') == rid)
+    embedded = posixpath.normpath(posixpath.join(posixpath.dirname(part), target)).lstrip('/')
+    workbook = load_workbook(io.BytesIO(ppt.read(embedded)))
+    workbook['Sheet1']['Z99'] = 'User data'
+    output = io.BytesIO()
+    workbook.save(output)
+with zipfile.ZipFile(sys.argv[1], 'w') as ppt:
+    for info, data in parts:
+        ppt.writestr(info, output.getvalue() if info.filename == embedded else data)
+`,
+      path
+    ],
+    { encoding: 'utf8', timeout: 10_000 }
+  )
+  expect(fixture.status, fixture.stderr).toBe(0)
 }
 
-test('standard column chart data stays editable across shorter and longer data sets', () => {
+test('standard column chart data stays editable across data lengths and series counts', () => {
   const root = mkdtempSync('/tmp/ankole-office-chart-')
   const path = join(root, 'column.pptx')
   try {
@@ -125,6 +160,14 @@ test('standard column chart data stays editable across shorter and longer data s
       { tx: ['Net growth'], cat: ['A', 'B', 'C', 'D'], val: ['7', '8', '9', '10'] },
       { tx: ['Tax'], cat: ['A', 'B', 'C', 'D'], val: ['2', '3', '4', '5'] }
     ])
+    office('set', path, '/slide[1]/chart[1]', '--prop', 'categories=North,South', '--prop', 'data=Solo:11,12')
+    expect(chartData(path)).toEqual([{ tx: ['Solo'], cat: ['North', 'South'], val: ['11', '12'] }])
+    office('set', path, '/slide[1]/chart[1]', '--prop', 'data=Alpha:21,22;Beta:31,32;Gamma:41,42')
+    expect(chartData(path)).toEqual([
+      { tx: ['Alpha'], cat: ['North', 'South'], val: ['21', '22'] },
+      { tx: ['Beta'], cat: ['North', 'South'], val: ['31', '32'] },
+      { tx: ['Gamma'], cat: ['North', 'South'], val: ['41', '42'] }
+    ])
   } finally {
     office('close', path)
     rmSync(root, { recursive: true, force: true })
@@ -150,6 +193,11 @@ for (const type of ['scatter', 'bubble']) {
       office('set', path, '/slide[1]/chart[1]', '--prop', 'series1=Updated:9.5,8.25,7')
       expect(chartData(path)).toEqual([
         { tx: ['Updated'], xVal: ['1.5', '4.25', '9'], yVal: ['9.5', '8.25', '7'], ...size }
+      ])
+      office('set', path, '/slide[1]/chart[1]', '--prop', 'data=First:10,20,30;Second:40,50,60')
+      expect(chartData(path)).toEqual([
+        { tx: ['First'], xVal: ['1.5', '4.25', '9'], yVal: ['10', '20', '30'], ...size },
+        { tx: ['Second'], xVal: ['1.5', '4.25', '9'], yVal: ['40', '50', '60'], ...size }
       ])
     } finally {
       office('close', path)

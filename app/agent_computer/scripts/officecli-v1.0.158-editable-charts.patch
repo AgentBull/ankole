@@ -1,5 +1,5 @@
 diff --git a/src/officecli/Core/Chart/ChartEmbeddedDataSync.cs b/src/officecli/Core/Chart/ChartEmbeddedDataSync.cs
-index 7a9cc16..d44be41 100644
+index 7a9cc16..87c09a4 100644
 --- a/src/officecli/Core/Chart/ChartEmbeddedDataSync.cs
 +++ b/src/officecli/Core/Chart/ChartEmbeddedDataSync.cs
 @@ -38,7 +38,29 @@ public static class ChartEmbeddedDataSync
@@ -18,7 +18,7 @@ index 7a9cc16..d44be41 100644
 +        for (int i = 0; i < series.Count; i++)
 +            foreach (var kind in Kinds)
 +                if (Slot(series[i], kind) is { } slot
-+                    && ReadLiteral(slot, kind).Values is { Count: > 0 })
++                    && ReadValues(slot, kind).Values is { Count: > 0 })
 +                    snap.Formulas[(i, kind)] = $"Sheet1!${ColName(column++)}$1";
 +
 +        var embedded = chartPart.AddNewPart<EmbeddedPackagePart>(
@@ -33,6 +33,123 @@ index 7a9cc16..d44be41 100644
  
      public static Snapshot? Capture(ChartPart chartPart)
      {
+@@ -61,16 +83,33 @@ public static class ChartEmbeddedDataSync
+         if (embedded == null) return;
+ 
+         var series = AllSeries(chartPart);
+-        // A Set that added or removed a series shifts the indices the snapshot
+-        // is keyed by — leave that chart alone rather than guess.
+-        if (series.Count != snap.SeriesCount) return;
++        bool changedSeries = series.Count != snap.SeriesCount;
++        if (changedSeries)
++        {
++            // Rebuild from the current data; old indices do not identify the new series.
++            using var source = embedded.GetStream(FileMode.Open, FileAccess.Read);
++            using var workbook = SpreadsheetDocument.Open(source, false);
++            if (workbook.WorkbookPart is not { } workbookPart) return;
++            var sheet = workbookPart.Workbook?.Sheets?.Elements<Sheet>().FirstOrDefault();
++            if (sheet?.Id?.Value is not { } sheetId || sheet.Name?.Value is not { } sheetName
++                || workbookPart.GetPartById(sheetId) is not WorksheetPart worksheet
++                || worksheet.Worksheet is not { } sheetRoot) return;
++            int column = sheetRoot.Descendants<Cell>()
++                .Select(cell => ColIndex(new string((cell.CellReference?.Value ?? "").TakeWhile(char.IsLetter).ToArray())))
++                .DefaultIfEmpty(0).Max() + 1;
++            snap = new Snapshot { SeriesCount = series.Count };
++            for (int i = 0; i < series.Count; i++)
++                foreach (var kind in Kinds)
++                    if (Slot(series[i], kind) is { } slot && ReadValues(slot, kind).Values is { Count: > 0 })
++                        snap.Formulas[(i, kind)] = $"{ModernFunctionQualifier.QuoteSheetNameForRef(sheetName)}!${ColName(column++)}$1";
++        }
+         var writes = new List<(string Sheet, int Col, int Row, string Value, bool IsNumber)>();
+         foreach (var ((si, kind), oldFormula) in snap.Formulas)
+         {
+             if (si >= series.Count || Slot(series[si], kind) is not { } slot) continue;
+-            if (slot.Descendants<C.Formula>().Any()) continue; // still a reference — untouched
++            if (!changedSeries && slot.Descendants<C.Formula>().Any()) continue;
+ 
+-            var (values, isNumber, formatCode) = ReadLiteral(slot, kind);
++            var (values, isNumber, formatCode) = ReadValues(slot, kind);
+             if (values == null) continue;
+             if (!TryParseRange(oldFormula, values.Count, out var sheet, out var cells, out var newFormula))
+                 continue; // not a plain vector range: keep the literal
+@@ -110,22 +149,26 @@ public static class ChartEmbeddedDataSync
+     private static OpenXmlCompositeElement? Slot(OpenXmlCompositeElement ser, string kind) =>
+         ser.Elements<OpenXmlCompositeElement>().FirstOrDefault(e => e.LocalName == kind);
+ 
+-    private static (List<string>? Values, bool IsNumber, string? FormatCode) ReadLiteral(
++    private static (List<string>? Values, bool IsNumber, string? FormatCode) ReadValues(
+         OpenXmlCompositeElement slot, string kind)
+     {
+         if (kind == "tx")
+         {
+             // A literal series name is a bare <c:v> under <c:tx>.
+             var v = slot.GetFirstChild<C.NumericValue>()?.Text;
+-            return v == null ? (null, false, null) : (new List<string> { v }, false, null);
++            if (v != null) return (new List<string> { v }, false, null);
+         }
+-        if (slot.GetFirstChild<C.NumberLiteral>() is { } numLit)
+-            return (Points(numLit.Elements<C.NumericPoint>().Select(p => (p.Index?.Value ?? 0u, p.NumericValue?.Text ?? "")),
+-                        numLit.PointCount?.Val?.Value),
+-                    true, numLit.FormatCode?.Text);
+-        if (slot.GetFirstChild<C.StringLiteral>() is { } strLit)
+-            return (Points(strLit.Elements<C.StringPoint>().Select(p => (p.Index?.Value ?? 0u, p.NumericValue?.Text ?? "")),
+-                        strLit.PointCount?.Val?.Value),
++        var numbers = (OpenXmlCompositeElement?)slot.GetFirstChild<C.NumberLiteral>()
++            ?? slot.GetFirstChild<C.NumberReference>()?.GetFirstChild<C.NumberingCache>();
++        if (numbers != null)
++            return (Points(numbers.Elements<C.NumericPoint>().Select(p => (p.Index?.Value ?? 0u, p.NumericValue?.Text ?? "")),
++                        numbers.GetFirstChild<C.PointCount>()?.Val?.Value),
++                    true, numbers.GetFirstChild<C.FormatCode>()?.Text);
++        var strings = (OpenXmlCompositeElement?)slot.GetFirstChild<C.StringLiteral>()
++            ?? slot.GetFirstChild<C.StringReference>()?.GetFirstChild<C.StringCache>();
++        if (strings != null)
++            return (Points(strings.Elements<C.StringPoint>().Select(p => (p.Index?.Value ?? 0u, p.NumericValue?.Text ?? "")),
++                        strings.GetFirstChild<C.PointCount>()?.Val?.Value),
+                     false, null);
+         return (null, false, null);
+     }
+diff --git a/src/officecli/Core/Chart/ChartHelper.Reader.cs b/src/officecli/Core/Chart/ChartHelper.Reader.cs
+index e12ba2b..c38133e 100644
+--- a/src/officecli/Core/Chart/ChartHelper.Reader.cs
++++ b/src/officecli/Core/Chart/ChartHelper.Reader.cs
+@@ -2570,7 +2570,8 @@ internal static partial class ChartHelper
+                 serText.AppendChild(new C.NumericValue(sName));
+             }
+ 
+-            var valEl = ser.GetFirstChild<C.Values>();
++            OpenXmlCompositeElement? valEl = ser.GetFirstChild<C.Values>()
++                ?? (OpenXmlCompositeElement?)ser.GetFirstChild<C.YValues>();
+             if (valEl != null)
+             {
+                 valEl.RemoveAllChildren();
+@@ -2588,7 +2589,6 @@ internal static partial class ChartHelper
+         if (newData.Count > allSer.Count && allSer.Count > 0)
+         {
+             var lastSer = allSer[^1];
+-            var parent = lastSer.Parent!;
+             for (int i = allSer.Count; i < newData.Count; i++)
+             {
+                 var (sName, sVals) = newData[i];
+@@ -2609,7 +2609,8 @@ internal static partial class ChartHelper
+                 }
+ 
+                 // Update values
+-                var valEl = newSer.GetFirstChild<C.Values>();
++                OpenXmlCompositeElement? valEl = newSer.GetFirstChild<C.Values>()
++                    ?? (OpenXmlCompositeElement?)newSer.GetFirstChild<C.YValues>();
+                 if (valEl != null)
+                 {
+                     valEl.RemoveAllChildren();
+@@ -2622,7 +2623,8 @@ internal static partial class ChartHelper
+                 var spPr = newSer.GetFirstChild<C.ChartShapeProperties>();
+                 if (spPr != null) spPr.Remove();
+ 
+-                parent.AppendChild(newSer);
++                lastSer.InsertAfterSelf(newSer);
++                lastSer = newSer;
+             }
+         }
+     }
 diff --git a/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs b/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs
 index f1e2c51..77669a5 100644
 --- a/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs
