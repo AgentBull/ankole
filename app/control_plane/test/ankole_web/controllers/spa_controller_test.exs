@@ -64,7 +64,11 @@ defmodule AnkoleWeb.SpaControllerTest do
     browser_count = Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count)
 
     conn = conn |> pod_conn(tenant) |> get(~p"/sessions/new")
-    assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!("auth")
+
+    assert html_response(conn, 200) =~
+             ~s(src="http://assets.test/#{String.trim_leading(source, "/")}")
+
     assert get_resp_header(conn, "location") == []
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count) == browser_count
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0

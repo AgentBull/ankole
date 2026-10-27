@@ -5,6 +5,7 @@
 - Report the verified time of the current login in OIDC ID Tokens after email reauthentication, and preserve each authorization code's time through token exchange.
 - Keep unchanged PPTX chart data linked to its original workbook cells when series are added or removed. Preserve other workbook cells and correct scatter and bubble values.
 - Keep image Python packages available when the per-Agent Python bootstrap runs from an active Agent environment.
+- Use the published Agent OS base for the current Worker toolchain.
 
 ## Version 2.0.0-alpha.30 (2026-10-28)
 

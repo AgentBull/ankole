@@ -1091,7 +1091,10 @@ defmodule AnkoleWeb.OIDCControllerTest do
     page =
       authorization |> recycle() |> get("/sessions/new", %{"oauth_request" => oauth_request})
 
-    assert html_response(page, 200) =~ "entrypoints/auth.tsx"
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!("auth")
+
+    assert html_response(page, 200) =~
+             ~s(src="http://assets.test/#{String.trim_leading(source, "/")}")
 
     assert html_response(page, 200) =~
              ~s(<meta name="ankole-login-tenant-name" content="#{tenant.display_name}">)
