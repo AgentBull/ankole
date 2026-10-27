@@ -7,6 +7,24 @@ defmodule Ankole.AgentWorkers.ConfigurationTest do
   alias Ankole.AgentWorkers.Providers.Configuration
   alias Ankole.AgentWorkers.WorkerBootstrap
 
+  test "development mounts without a target image leave Worker runtime unconfigured" do
+    assert {:error, :worker_runtime_not_configured} =
+             Ankole.AgentWorkers.Config.load(
+               source_root: "/repo/app/agent_computer/src",
+               internal_skills_root: "/repo/internals/skills"
+             )
+
+    assert {:error, :worker_runtime_not_configured} =
+             Ankole.AgentWorkers.Config.load(
+               runtime_fabric_endpoint: "ws://console.ankole.localhost:4000/runtime-fabric/worker"
+             )
+
+    assert {:error, {:missing, :image}} = Ankole.AgentWorkers.Config.load(image: "")
+
+    assert {:error, {:missing, :runtime_fabric_endpoint}} =
+             Ankole.AgentWorkers.Config.load(image: "worker:dev")
+  end
+
   @cloudflare """
   adapterUrl: https://workers.example.test
   endpoints:

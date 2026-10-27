@@ -172,7 +172,7 @@ export async function startComposeServices({
 export function resolveAppDatabaseName(explicitName?: string): string {
   if (explicitName) return validateDatabaseName(explicitName)
 
-  const databaseURL = loadAppEnvValue('DATABASE_URL')
+  const databaseURL = loadAppDevelopmentEnv().DATABASE_URL
   if (!databaseURL) return 'ankole_dev'
 
   try {
@@ -185,32 +185,18 @@ export function resolveAppDatabaseName(explicitName?: string): string {
 }
 
 /** Loads app development env files without overwriting already-set process env. */
-export function loadAppDevelopmentEnv(): NodeJS.ProcessEnv {
+export function loadAppDevelopmentEnv(root = appRootPath): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_ENV: process.env.NODE_ENV ?? 'development'
   }
 
-  for (const file of appEnvFiles()) {
-    for (const [name, value] of Object.entries(parseEnvFile(file))) {
-      if (env[name] === undefined) env[name] = value
-    }
-  }
-
-  return env
+  const local = Object.assign({}, ...appEnvFiles(root).map(parseEnvFile))
+  return { ...local, ...env }
 }
 
-function loadAppEnvValue(name: string): string | undefined {
-  if (process.env[name]) return process.env[name]
-
-  for (const file of appEnvFiles()) {
-    const value = parseEnvFile(file)[name]
-    if (value !== undefined) return value
-  }
-}
-
-function appEnvFiles(): string[] {
-  return [join(appRootPath, '.env.local'), join(appRootPath, '.env.development')]
+function appEnvFiles(root: string): string[] {
+  return ['.env.dev', '.env.dev.local', '.env.local'].map(file => join(root, file))
 }
 
 function parseEnvFile(path: string): Record<string, string> {

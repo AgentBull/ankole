@@ -148,7 +148,7 @@ defmodule Ankole.Brain.RequestContext do
     asker = asker_uid(event)
 
     with {:ok, channels} <- disclosure_channels(event),
-         {:ok, present_uids} <- strict_present_uids(channels, asker) do
+         {:ok, present_uids} <- strict_present_uids(channels, asker, event.agent_uid) do
       if is_nil(asker) and not Enum.any?(channels, &im_channel?/1) do
         Access.open_disclosure()
       else
@@ -184,9 +184,9 @@ defmodule Ankole.Brain.RequestContext do
     end
   end
 
-  defp strict_present_uids(channels, asker) do
+  defp strict_present_uids(channels, asker, replying_agent_uid) do
     Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, acc} ->
-      case strict_channel_recipient_uids(channel, asker) do
+      case strict_channel_recipient_uids(channel, asker, replying_agent_uid) do
         {:ok, recipients} -> {:cont, {:ok, recipients ++ acc}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -199,7 +199,8 @@ defmodule Ankole.Brain.RequestContext do
 
   defp strict_channel_recipient_uids(
          %Conversation{kind: :external, external_kind: :im_group} = channel,
-         _asker
+         _asker,
+         _replying_agent_uid
        ) do
     with {:ok, recipients} <- channel_group_member_uids(channel),
          true <- recipients != [] do
@@ -210,13 +211,18 @@ defmodule Ankole.Brain.RequestContext do
     end
   end
 
-  defp strict_channel_recipient_uids(%Conversation{kind: :external, external_kind: :im_dm}, asker)
+  defp strict_channel_recipient_uids(
+         %Conversation{kind: :external, external_kind: :im_dm},
+         asker,
+         _replying_agent_uid
+       )
        when is_binary(asker),
        do: {:ok, [asker]}
 
   defp strict_channel_recipient_uids(
          %Conversation{kind: :external, external_kind: :im_dm, id: conversation_id},
-         nil
+         nil,
+         _replying_agent_uid
        ) do
     case human_speaker_uids(conversation_id) do
       [] -> {:error, :empty_dm_recipient_set}
@@ -224,16 +230,22 @@ defmodule Ankole.Brain.RequestContext do
     end
   end
 
-  defp strict_channel_recipient_uids(%Conversation{kind: :native, id: id}, _asker) do
+  defp strict_channel_recipient_uids(
+         %Conversation{kind: :native, id: id},
+         _asker,
+         replying_agent_uid
+       ) do
     recipients =
       [query: [filter: [conversation_id: id], select: [:principal_uid]]]
       |> Ankole.Conversations.list_participants!()
       |> Enum.map(& &1.principal_uid)
+      |> Enum.reject(&(&1 == replying_agent_uid))
 
     if recipients == [], do: {:error, :empty_native_recipient_set}, else: {:ok, recipients}
   end
 
-  defp strict_channel_recipient_uids(%Conversation{}, _asker), do: {:ok, []}
+  defp strict_channel_recipient_uids(%Conversation{}, _asker, _replying_agent_uid),
+    do: {:ok, []}
 
   defp channel_group_member_uids(%Conversation{
          external_kind: :im_group,

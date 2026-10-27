@@ -105,6 +105,14 @@ outcome and submits the schema-shaped result; a delegated Job that enters
 `waiting_on_user` also wakes the task, which answers with its own context or
 escalates.
 
+Task dispatch, owner messages, and deadline wakeups carry the run's native
+Conversation ID or provider binding. This route is the delivery context for a
+delegated Job. The task keeps its own Session ID and AIGateway conversation.
+A native task cannot post an ordinary reply to the parent Conversation because
+its task Session is not that Conversation's Session. Job lifecycle events target
+the task Session. The task submits its result to the Workflow, whose result wakes
+the main Agent.
+
 When a run reaches a terminal status, cleanup stops every live Job whose owner
 session is one of the run's task sessions, using the idempotent Job stop. Job
 creation locks the owning run and task in the insert transaction, so a task

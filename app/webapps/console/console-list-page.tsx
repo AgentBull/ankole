@@ -261,6 +261,7 @@ export function SubNav({
             key={item.to}
             {...target}
             activeOptions={{ exact: Boolean(item.end), includeSearch: false }}
+            aria-current={isActive ? 'page' : undefined}
             className={cn(
               'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:-outline-offset-2',
               'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-foreground after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',

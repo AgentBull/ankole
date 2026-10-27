@@ -325,6 +325,36 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert {:ok, _group} = AuthZ.get_principal_group("siteadmin")
     end
 
+    test "a system-generated group can be inspected by name and ID", %{conn: conn} do
+      %{principal: member} = human_fixture()
+      %{principal: agent} = agent_fixture()
+      name = "signal_source:#{agent.uid}:read-members"
+
+      assert :ok =
+               AuthZ.ensure_synced_group_member(
+                 %{name: name, display_name: "Signal senders", domain: :signal_source},
+                 member.uid
+               )
+
+      assert {:ok, group} = AuthZ.get_principal_group(name)
+      uid = member.uid
+
+      for selector <- [name, group.id] do
+        assert {200, [%{"uid" => ^uid}]} =
+                 request(conn, :get, "/api/v2/principal-groups/#{selector}/members")
+      end
+
+      assert {400, _} =
+               request(conn, :get, "/api/v2/principal-groups/signal_source:missing/members")
+
+      Repo.delete_all(
+        from grant in AuthZ.Grant,
+          where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+      )
+
+      assert {403, _} = request(conn, :get, "/api/v2/principal-groups/#{name}/members")
+    end
+
     test "static membership roundtrip and refused manual edits", %{conn: conn} do
       name = "readers_#{System.unique_integer([:positive])}"
       assert {:ok, _group} = AuthZ.create_principal_group(%{name: name, display_name: "Readers"})

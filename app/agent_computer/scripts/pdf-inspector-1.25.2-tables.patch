@@ -1,0 +1,145 @@
+--- a/src/tables/detect_heuristic.rs
++++ b/src/tables/detect_heuristic.rs
+@@ -6,8 +6,8 @@
+ use super::cell_text::join_cell_items;
+ use super::financial::try_split_financial_item;
+ use super::grid::{
+-    find_column_boundaries, find_column_index, find_row_boundaries, find_row_index,
+-    recover_header_row,
++    complete_row_columns, find_column_boundaries, find_column_index, find_row_boundaries,
++    find_row_index, recover_header_row,
+ };
+ use super::{Table, TableDetectionMode};
+ 
+@@ -1399,8 +1399,24 @@
+         vec![vec![Vec::new(); columns.len()]; rows.len()];
+     let mut item_indices = Vec::new();
+ 
++    let header_items: Vec<_> = items
++        .iter()
++        .copied()
++        .filter(|(_, item)| {
++            find_row_index(&rows, item.line_y()) == Some(0)
++                && !super::crosses_other_rows(item, &rows, Some(0))
++        })
++        .collect();
++    let complete_columns: std::collections::HashMap<usize, usize> =
++        complete_row_columns(&columns, &header_items)
++            .unwrap_or_default()
++            .into_iter()
++            .collect();
+     for (idx, item) in items {
+-        let col = find_column_index(&columns, item.x);
++        let col = complete_columns
++            .get(idx)
++            .copied()
++            .or_else(|| find_column_index(&columns, item.x));
+         let row = find_row_index(&rows, item.line_y());
+         if super::crosses_other_rows(item, &rows, row) {
+             continue;
+--- a/src/tables/grid.rs
++++ b/src/tables/grid.rs
+@@ -334,6 +334,49 @@
+         .map(|(idx, _)| idx)
+ }
+ 
++/// Match a complete row by column order when its measured boxes intersect
++/// the corresponding column lanes. Headers and numbers need not share a left edge.
++pub(crate) fn complete_row_columns(
++    columns: &[f32],
++    items: &[(usize, &TextItem)],
++) -> Option<Vec<(usize, usize)>> {
++    if columns.len() < 2 || items.len() != columns.len() {
++        return None;
++    }
++    let mut row = items.to_vec();
++    row.sort_by(|a, b| a.1.x.total_cmp(&b.1.x));
++    if row
++        .iter()
++        .any(|(_, item)| !item.advance_known || !item.width.is_finite() || item.width <= 0.0)
++        || row
++            .windows(2)
++            .any(|pair| pair[0].1.x + pair[0].1.width > pair[1].1.x)
++    {
++        return None;
++    }
++    for (col, (_, item)) in row.iter().enumerate() {
++        let left = if col == 0 {
++            columns[0] - (columns[1] - columns[0]) / 2.0
++        } else {
++            (columns[col - 1] + columns[col]) / 2.0
++        };
++        let right = if col + 1 == columns.len() {
++            columns[col] + (columns[col] - columns[col - 1]) / 2.0
++        } else {
++            (columns[col] + columns[col + 1]) / 2.0
++        };
++        if item.x + item.width < left || item.x > right {
++            return None;
++        }
++    }
++    Some(
++        row.into_iter()
++            .enumerate()
++            .map(|(col, (idx, _))| (idx, col))
++            .collect(),
++    )
++}
++
+ /// Find which row index a Y position belongs to
+ pub(crate) fn find_row_index(rows: &[f32], y: f32) -> Option<usize> {
+     let threshold = 15.0;
+@@ -423,8 +466,17 @@
+     let mut mapped_count = 0;
+     let mut header_indices = Vec::new();
+ 
++    let complete_columns: std::collections::HashMap<usize, usize> =
++        complete_row_columns(&table.columns, header_items)
++            .unwrap_or_default()
++            .into_iter()
++            .collect();
+     for (idx, item) in header_items {
+-        if let Some(col) = find_column_index(&table.columns, item.x) {
++        if let Some(col) = complete_columns
++            .get(idx)
++            .copied()
++            .or_else(|| find_column_index(&table.columns, item.x))
++        {
+             let text = item.text.trim();
+             if !text.is_empty() {
+                 if !header_cells[col].is_empty() {
+@@ -483,6 +535,34 @@
+             mcid: None,
+             baseline_shift: 0.0,
+         }
++    }
++
++    #[test]
++    fn complete_rows_keep_columns_with_different_text_alignment() {
++        let columns = vec![50.0, 130.0, 412.0, 516.0];
++        let mut items = vec![
++            make_item("Item", 50.0, 730.0, 10.0),
++            make_item("Description", 130.0, 730.0, 10.0),
++            make_item("Quantity", 340.0, 730.0, 10.0),
++            make_item("Amount", 440.0, 730.0, 10.0),
++        ];
++        fn indexed(items: &[TextItem]) -> Vec<(usize, &TextItem)> {
++            items.iter().enumerate().collect()
++        }
++        assert_eq!(
++            complete_row_columns(&columns, &indexed(&items)),
++            Some(vec![(0, 0), (1, 1), (2, 2), (3, 3)])
++        );
++        // A missing cell, split label, overlap, or unknown width is not a complete row.
++        assert!(complete_row_columns(&columns, &indexed(&items[..3])).is_none());
++        items[3] = make_item("units", 390.0, 730.0, 10.0);
++        assert!(complete_row_columns(&columns, &indexed(&items)).is_none());
++        items[3] = make_item("Amount", 440.0, 730.0, 10.0);
++        items[2].width = 110.0;
++        assert!(complete_row_columns(&columns, &indexed(&items)).is_none());
++        items[2].width = 40.0;
++        items[2].advance_known = false;
++        assert!(complete_row_columns(&columns, &indexed(&items)).is_none());
+     }
+ 
+     // --- find_column_index ---

@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { uploadAttachment } from '../api'
 import { InternalAPIError } from '../../common/internal-api-client'
@@ -52,7 +53,7 @@ export const ChatAttachments = createModel((upload: Upload = uploadAttachment) =
     canSend,
     add(selected: Iterable<File>) {
       const added = [...selected].map(file => ({
-        id: crypto.randomUUID(),
+        id: uuidV4(),
         file,
         url: URL.createObjectURL(file),
         state: 'uploading' as const

@@ -54,7 +54,7 @@ defmodule Ankole.Sessions.Tools.BrainTest do
 
     assert Enum.map(declarations, & &1["name"]) == ["recall", "get_page"]
 
-    assert Enum.map(declarations, &Map.take(&1, ~w(type name description parameters))) ==
+    assert Enum.map(declarations, &Map.take(&1, ~w(type strict name description parameters))) ==
              Ankole.Brain.Tools.function_specs(Tools.Brain.operations())
 
     for declaration <- declarations do

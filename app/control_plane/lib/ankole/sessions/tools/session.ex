@@ -149,7 +149,7 @@ defmodule Ankole.Sessions.Tools.Session do
                 {
                   "type": "function",
                   "name": "read_channel_history",
-                  "description": "Read earlier messages of the current channel, oldest first. Use it when a request needs more of the discussion than your context shows, for example a weekly summary, a todo list from a discussion, or what was decided earlier.\nThe history holds the messages this channel binding has observed, including your own replies. Narrow it with since and until (RFC 3339 time) and with query (a case-insensitive text match). Each result is one page; pass its next_page as page to read on.",
+                  "description": "Read earlier messages of the current channel, oldest first. Use it when a request needs more of the discussion than your context shows, for example a weekly summary, a todo list from a discussion, or what was decided earlier.\nThe history holds messages of the shared conversation, including messages recorded by other Agent bindings and your own replies. Narrow it with since and until (RFC 3339 time) and with query (a case-insensitive text match). Each result is one page; pass its next_page as page to read on.",
                   "parameters": {
                     "type": "object",
                     "properties": {

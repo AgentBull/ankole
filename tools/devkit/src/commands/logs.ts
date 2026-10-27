@@ -42,15 +42,15 @@ export function formatPrettyLogMessage(log: PrettyLog, messageKey: string): stri
   return context ? `${context}${duration}: ${message}` : message
 }
 
-export async function runPrettyLogs(): Promise<void> {
+export async function runPrettyLogs(input: NodeJS.ReadableStream = process.stdin): Promise<void> {
   const transport = build(ankolePrettyLogOptions())
   const inputFilter = createPrettyLogInputFilter()
-  process.stdin.pipe(inputFilter).pipe(transport)
+  input.pipe(inputFilter).pipe(transport)
 
   await new Promise<void>((resolve, reject) => {
     transport.once('close', resolve)
     transport.once('error', reject)
-    process.stdin.once('error', reject)
+    input.once('error', reject)
     inputFilter.once('error', reject)
   })
 }

@@ -261,6 +261,7 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
                   key={item.to}
                   to={item.to}
                   activeOptions={{ exact: item.to === '/', includeSearch: false }}
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={onNavigate}
                   className={cn(
                     'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:-outline-offset-2',

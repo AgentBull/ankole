@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
@@ -251,7 +252,7 @@ export function SchedulesListPage() {
                         pending: runCron.isPending,
                         onAction: () =>
                           runCron.mutate({
-                            body: { data: { idempotency_key: crypto.randomUUID() } },
+                            body: { data: { idempotency_key: uuidV4() } },
                             path: { agent_uid: row.agent_uid, id: row.id }
                           })
                       }
@@ -615,7 +616,7 @@ export function ScheduleCronEditorPage() {
       updateCron.mutate({ body: { data: body }, path: { agent_uid: agentUID, id: cronID } })
       return
     }
-    const body = model.toCreateBody(crypto.randomUUID())
+    const body = model.toCreateBody(uuidV4())
     if (!body) {
       model.validationError.value = t('console.schedules.schedule_invalid')
       return
@@ -666,7 +667,7 @@ export function ScheduleCronEditorPage() {
                 disabled={runCron.isPending}
                 onClick={() =>
                   runCron.mutate({
-                    body: { data: { idempotency_key: crypto.randomUUID() } },
+                    body: { data: { idempotency_key: uuidV4() } },
                     path: { agent_uid: agentUID, id: existingRow.id }
                   })
                 }>

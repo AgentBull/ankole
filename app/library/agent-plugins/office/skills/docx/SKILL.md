@@ -87,7 +87,7 @@ Deliverable standards every document MUST meet — know these before reaching fo
 
 ### Visual delivery floor (applies to EVERY document)
 
-Before declaring done, run `officecli view "$FILE" html` and Read the returned HTML path to confirm ALL of these:
+Before declaring done, run `officecli view "$FILE" html -o "${FILE%.docx}.html"` and Read the explicit HTML output file to confirm ALL of these:
 
 - **No placeholder tokens rendered as data.** `$xxx$`, `{var}`, `{{name}}`, `<TODO>`, `lorem`, `xxxx` must never appear in a heading, body, cover, TOC, caption, header, or footer. A literal `{name}` meant for a human to fill belongs inside a visible instruction paragraph ("Replace `{name}` before sending"), never as finished content.
 - **No truncated titles or overflowing cells.** Widen the column or set `wrapText` rather than trimming content.
@@ -105,7 +105,7 @@ Six steps. Every non-trivial build follows this shape.
 2. **Orient.** Existing file: `officecli view "$FILE" outline` — heading tree, section count, whether a TOC / watermark / tracked changes already exist. Never edit blind.
 3. **Build incrementally.** Structural first, content next, formatting last: styles & numbering defs → sections / page setup → headings & body → tables / images / fields / TOC → headers / footers → comments. After each structural op, `get` it back before stacking on top.
 4. **Format to spec.** Explicit heading sizes, spacing, widths, alignment, tabs, list indents — formatting is part of the deliverable, not optional polish.
-5. **Save, then trust structure over cached text.** `officecli save "$FILE"` writes the XML. TOC / PAGE / NUMPAGES / SEQ / PAGEREF fields carry **cached values** that may be stale or empty until a human recalculates (F9 in Word). Confirm fields *exist* (`get --depth 3` finds `<w:fldChar>`) rather than trusting the visible text.
+5. **Save, then trust structure over cached text.** `officecli save "$FILE"` writes the XML. TOC / PAGE / NUMPAGES / SEQ / PAGEREF fields carry **cached values** that may be stale or empty until a human recalculates (F9 in Word). Confirm fields *exist* (`get --depth 3` finds `fieldChar`) rather than trusting the visible text.
 6. **QA — assume there are problems.** You are done after one fix-and-verify cycle finds zero new issues, not when your last command exited 0. See QA.
 
 ## Quick Start
@@ -134,7 +134,7 @@ Start wide, then narrow. `outline` tells you what's already there; jump into `vi
 
 ```bash
 officecli view "$FILE" outline            # heading tree, section count, table/image counts, watermark, tracked-changes presence — orient here first
-officecli view "$FILE" html               # Read the returned HTML path: first visual check after a batch of edits (hierarchy, empty-para spacing, missing TOC)
+officecli view "$FILE" html -o "${FILE%.docx}.html"               # Read the explicit HTML output file: first visual check after a batch of edits (hierarchy, empty-para spacing, missing TOC)
 officecli view "$FILE" text --start 1 --end 80   # text for content QA; paths shown as [/body/p[N]] so you can jump back with get
 officecli view "$FILE" annotated          # values + style/font/size + warnings per run
 officecli view "$FILE" stats              # paragraph counts, font usage, style distribution
@@ -150,7 +150,7 @@ officecli get "$FILE" /                          # document root: metadata, page
 officecli get "$FILE" "/body/p[1]"                # one paragraph
 officecli get "$FILE" "/body/p[1]/r[1]"           # one run (character-level formatting)
 officecli get "$FILE" "/body/tbl[1]" --depth 3    # table with rows and cells
-officecli get "$FILE" "/footer[1]" --depth 3      # footer — check for fldChar
+officecli get "$FILE" "/footer[1]" --depth 3      # footer — check for fieldChar
 officecli get "$FILE" "/styles/Heading1"          # style definition
 officecli get "$FILE" /numbering --depth 2        # numbering abstractNum + num bindings
 ```
@@ -270,7 +270,7 @@ officecli add "$FILE" / --type footer --prop type=first --prop text=""
 officecli add "$FILE" / --type footer --prop type=default --prop align=center --prop size=9pt --prop text="Page " --prop field=page
 ```
 
-When both exist, the default footer is `/footer[2]`; alone it is `/footer[1]`. **Verify**: `get --depth 3` must show `fldChar` children, not just a run with literal `"Page"` (`view outline` prints "Footer: Page" for both live fields AND static text — don't rely on it). Do NOT `set --prop differentFirstPage=true` — that prop is unsupported (rejected with exit 2, not silently); adding a first-type footer flips the bit. For composite **Page X of Y**, see recipe (b).
+When both exist, the default footer is `/footer[2]`; alone it is `/footer[1]`. **Verify**: `get --depth 3` must show `fieldChar` children, not just a run with literal `"Page"` (`view outline` prints "Footer: Page" for both live fields AND static text — don't rely on it). Do NOT `set --prop differentFirstPage=true` — that prop is unsupported (rejected with exit 2, not silently); adding a first-type footer flips the bit. For composite **Page X of Y**, see recipe (b).
 
 ### Table of Contents
 
@@ -373,7 +373,7 @@ officecli add "$FILE" / --type footer --prop type=default --prop text="Page " --
 officecli add "$FILE" "/footer[1]/p[1]" --type field --prop fieldType=page
 officecli add "$FILE" "/footer[1]/p[1]" --type run --prop text=" of "
 officecli add "$FILE" "/footer[1]/p[1]" --type field --prop fieldType=numpages
-officecli get "$FILE" "/footer[1]/p[1]" --depth 1 | grep -o fldChar | wc -l   # expect ≥ 4; use grep -o ... | wc -l, NOT grep -c (single-line XML returns 1)
+officecli get "$FILE" "/footer[1]/p[1]" --depth 1 | grep -o fieldChar | wc -l   # expect ≥ 4; use grep -o ... | wc -l, NOT grep -c (single-line XML returns 1)
 ```
 
 **(c) Header row with fill and white bold text.** Order matters — populate header cell text FIRST (runs don't exist in empty cells; a `set …/tc[N]/p[1]/r[1]` on an empty cell errors "No r found"), THEN cell fill, THEN run formatting:
@@ -525,7 +525,7 @@ When something "looks broken", attribute it before chasing: **[AGENT-ERROR]** th
 
 Before calling a color/field/chart broken, open the file in the user's target viewer; if it looks correct there it's a viewer quirk.
 
-- **PAGE field may render literal "Page"** (no number) until recalculated — judge by `fldChar` presence, not the digit.
+- **PAGE field may render literal "Page"** (no number) until recalculated — judge by `fieldChar` presence, not the digit.
 - **TOC cached page numbers may read "1 1 1 1"** until F9.
 - **Pie / doughnut fill may collapse to one color** in some viewers (column/bar render fine).
 - **Form-control checkboxes may render double-boxed**; **OMML equation baselines** may shift across viewers (XML identical).

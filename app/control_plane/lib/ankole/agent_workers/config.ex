@@ -55,7 +55,8 @@ defmodule Ankole.AgentWorkers.Config do
   def load(nil), do: {:error, :worker_runtime_not_configured}
 
   def load(opts) when is_list(opts) do
-    with {:ok, image} <- required(opts, :image),
+    with {:ok, _image} <- Keyword.fetch(opts, :image),
+         {:ok, image} <- required(opts, :image),
          {:ok, endpoint} <- required(opts, :runtime_fabric_endpoint),
          {:ok, installation} <- installation(Keyword.get(opts, :installation, "ankole")) do
       {:ok,
@@ -68,6 +69,9 @@ defmodule Ankole.AgentWorkers.Config do
          source_root: Keyword.get(opts, :source_root),
          internal_skills_root: Keyword.get(opts, :internal_skills_root)
        }}
+    else
+      :error -> {:error, :worker_runtime_not_configured}
+      error -> error
     end
   end
 

@@ -260,6 +260,13 @@ syntax diagnostic on failure. Evaluation happens
 before durable observation or Signal insertion and fails closed on an invalid
 stored expression.
 
+Messaging Binding creates, edits, and moves store a supplied `filters` value
+in the same transaction as the Binding and adapter configuration. An omitted
+value keeps the stored filter for the same adapter. A new Binding or a
+replacement with a different adapter starts with an empty filter.
+An explicit empty object clears the filter. Invalid filters reject the entire
+write; a failed move leaves the source and target Bindings unchanged.
+
 For CloudEvents, `signal` is the complete incoming event, and `binding` contains
 the rule's name and adapter. For example:
 

@@ -153,6 +153,68 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     assert receive_until(client, ["{\"value\":3}"]) =~ "HTTP/1.1 200"
   end
 
+  test "excess HTTP1 pipeline bytes close the connection and cancel its pending invocation",
+       ctx do
+    applet =
+      publish(ctx.owner, """
+        export default {
+          'POST /wait':async()=>{
+            await AnkoleRuntime.base.write('#{ctx.table.id}', {creates: [{data: {'#{ctx.field.id}':'started'}}]});
+            await new Promise(resolve=>setTimeout(resolve,30000));
+            return {done:true};
+          },
+          'POST /queued':async()=>{
+            await AnkoleRuntime.base.write('#{ctx.table.id}', {creates: [{data: {'#{ctx.field.id}':'queued'}}]});
+            return {queued:true};
+          }
+        };
+      """)
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {TransportPlug, tenant: Repo.tenant_id!(), uid: ctx.owner},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+    {:ok, client} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+    on_exit(fn -> :gen_tcp.close(client) end)
+
+    :ok =
+      :gen_tcp.send(
+        client,
+        "POST /api/v2/pod/pages/#{applet.id}/routes/wait HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nx-ankole-applet-revision: 1\r\n\r\n{}"
+      )
+
+    eventually(fn -> assert Repo.get!(Ankole.Pod.BaseTable, ctx.table.id).record_count == 1 end)
+    [invocation] = Task.Supervisor.children(Ankole.Pod.AppletTaskSupervisor)
+    monitor = Process.monitor(invocation)
+
+    pipeline_limit = 1_048_576
+    body = Torque.encode!(String.duplicate("x", pipeline_limit))
+
+    queued =
+      "POST /api/v2/pod/pages/#{applet.id}/routes/queued HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: #{byte_size(body)}\r\nx-ankole-applet-revision: 1\r\n\r\n#{body}"
+
+    {below_limit, overflow} = :erlang.split_binary(queued, div(pipeline_limit, 2))
+    :ok = :gen_tcp.send(client, below_limit)
+    assert {:error, :timeout} = :gen_tcp.recv(client, 0, 100)
+    assert Process.alive?(invocation)
+
+    :ok = :gen_tcp.send(client, overflow)
+    assert {:error, reason} = :gen_tcp.recv(client, 0, 5000)
+    assert reason in [:closed, :econnreset]
+    assert_receive {:DOWN, ^monitor, :process, ^invocation, :normal}, 5000
+
+    assert {:ok, %{records: [record]}} =
+             Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+
+    assert record["data"][ctx.field.id] == "started"
+  end
+
   defp receive_until(socket, expected, received \\ "") do
     if Enum.all?(expected, &String.contains?(received, &1)) do
       received
@@ -314,7 +376,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     eventually(fn ->
       [[waiting]] =
         Repo.query!(
-          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%base_tables%' AND query LIKE '%FOR UPDATE%'"
+          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%base_tables%' AND query LIKE '%FOR NO KEY UPDATE%'"
         ).rows
 
       assert waiting >= 2

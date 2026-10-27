@@ -5,7 +5,12 @@ test('same-table hooks refresh once per live event and do not read after revocat
   await expect(page.locator('[data-current]')).toHaveText('1')
   await expect(page.locator('[data-aggregate]')).toHaveText('1')
   const reads = page.locator('[data-base-reads]')
-  await expect.poll(async () => JSON.parse(await reads.innerText())).toEqual({ records: 1, aggregate: 1 })
+  await expect
+    .poll(async () => {
+      const report = await reads.innerText()
+      return report ? JSON.parse(report) : undefined
+    })
+    .toEqual({ records: 1, aggregate: 1 })
   const before = JSON.parse(await reads.innerText())
   await page.getByRole('button', { name: 'Other client writes', exact: true }).click()
   await expect(page.locator('[data-current]')).toHaveText('42')

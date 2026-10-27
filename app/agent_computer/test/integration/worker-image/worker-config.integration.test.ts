@@ -1,5 +1,7 @@
 import { expect, it } from 'bun:test'
 import { loadWorkerConfig } from '../../../src/worker/config'
+import { agentProcessArgv } from '../../../src/core/execution/process-group'
+import { mkdirAgent } from '../../../src/common/agent-user'
 
 it('loads the image configuration and removes the auth key before child processes start', () => {
   const env = {
@@ -49,3 +51,33 @@ it.skipIf(process.arch !== 'x64')('provides OSSFS2 for Function Compute custom i
   expect(result.stdout.toString()).toContain('2.0.10')
   expect(Bun.spawnSync(['fusermount3', '--version']).exitCode).toBe(0)
 })
+
+it('the per-Agent Python bootstrap inherits the image packages without a download', async () => {
+  const { mkdtemp, rm, writeFile, readFile } = await import('node:fs/promises')
+  const root = await mkdtemp('/tmp/ankole-python-image-')
+  await mkdirAgent(root, 0o700)
+  const environment = `${root}/python`
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = Bun.spawnSync(
+        agentProcessArgv(['bash', '/repo/app/library/skills/jupyter-live-kernel/scripts/ensure_python_env.sh']),
+        { env: { ...process.env, ANKOLE_AGENT_PYTHON_ENV: environment, UV_OFFLINE: '1' } }
+      )
+      expect(result.stderr.toString()).not.toContain('missing packages')
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      const probe = Bun.spawnSync(
+        agentProcessArgv([
+          `${environment}/bin/python`,
+          '-c',
+          'import sys, jupyterlab, ipykernel, websocket, jupyter_client, jupyter_server, nbformat; print(sys.prefix)'
+        ])
+      )
+      expect(probe.exitCode, probe.stderr.toString()).toBe(0)
+      expect(probe.stdout.toString().trim()).toBe(environment)
+      if (attempt === 0) await writeFile(`${environment}/keep.txt`, 'Keep Agent data')
+    }
+    expect(await readFile(`${environment}/keep.txt`, 'utf8')).toBe('Keep Agent data')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)

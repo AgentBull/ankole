@@ -31,7 +31,7 @@ Prefer:
 
 ## Runtime
 
-Ankole Agent Computer images provide system Python, JupyterLab, ipykernel, and the hamelnb helper dependencies. A per-agent Python environment is optional and only for custom packages or version isolation.
+Ankole Agent Computer images provide system Python, JupyterLab, ipykernel, and the hamelnb helper dependencies. A per-agent Python environment is optional and holds custom packages for the image Python version.
 
 ```bash
 SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
@@ -52,7 +52,7 @@ bash "$BOOTSTRAP"
 uv pip install --python "$AGENT_PYTHON" <package>
 ```
 
-The bootstrap uses `uv venv --system-site-packages`, so the env sees the image baseline and stores only package deltas.
+The bootstrap uses the image Python interpreter and adds the image package directory through a `.pth` file. The env stores only package deltas. If a saved env uses a different Python version, set `ANKOLE_AGENT_PYTHON_ENV` to a new directory; the bootstrap preserves the old directory.
 
 ## File Analysis And Artifact Delivery
 

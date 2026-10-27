@@ -402,7 +402,9 @@ function ReferencePicker({
       align="start"
       className="max-h-[var(--available-height)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
       initialFocus={search}>
-      <PopoverTitle>{field.type === 'user' ? t('pod.content.people') : t('pod.content.related_records')}</PopoverTitle>
+      <PopoverTitle>
+        {t(field.type === 'user' ? 'pod.content.choose_people' : 'pod.content.choose_related_records')}
+      </PopoverTitle>
       <Input
         ref={search}
         aria-label={t('pod.content.search_options')}

@@ -12,9 +12,222 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.SessionWorkspace
   alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Workflow
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run, as: WorkflowRun
+
+  for input <- [:dispatch, :message, :deadline] do
+    @tag workflow_input: input
+    test "a native task delegates a Job after its #{input} input and receives its result",
+         %{workflow_input: input} do
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+      %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+      Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+
+      assert {:ok, _grant} =
+               Ankole.AuthZ.create_permission_grant(%{
+                 principal_uid: human.uid,
+                 resource_pattern: "agent:#{agent.uid}:tool:create_background_job",
+                 action: "invoke"
+               })
+
+      assert {:ok, primary} = ModelProfiles.get_model_profile(agent.uid, "primary")
+
+      assert {:ok, _coding} =
+               ModelProfiles.put_model_profile(
+                 agent.uid,
+                 "coding",
+                 Map.take(primary, ~w(provider_id model provider_options))
+               )
+
+      conversation_id = Ecto.UUID.generate()
+
+      assert {:ok, detail} =
+               Ankole.ConversationsFixtures.create(human.uid, %{
+                 conversation_id: conversation_id,
+                 message_id: Ecto.UUID.generate(),
+                 agent_uid: agent.uid,
+                 text: "Delegate the review."
+               })
+
+      source = Repo.get_by!(Signal, message_id: hd(detail.messages).id)
+
+      assert {:ok, %{run: workflow}} =
+               Workflow.create_with_dispatch(%{
+                 "source_signal_id" => source.id,
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => source.session_id,
+                 "reply_route" => %{"conversation_id" => conversation_id},
+                 "source_tool_call_id" => "native-workflow-job",
+                 "title" => "Delegate the review",
+                 "script" => "return await agent('Review the case');",
+                 "args" => %{},
+                 "concurrency" => 1,
+                 "max_agent_calls" => 1
+               })
+
+      stub_workflow_drivers(workflow)
+
+      assert {:ok, %{new_calls: [task]}} =
+               Workflow.Replay.commit_replay_pending(
+                 workflow.id,
+                 [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Review the case"}}],
+                 0
+               )
+
+      dispatch = Repo.get_by!(Signal, source_event_id: "workflow:call:#{task.id}:dispatch")
+      assert dispatch.conversation_id == conversation_id
+      assert {:ok, admitted} = admit(dispatch)
+
+      admitted =
+        if input == :dispatch do
+          admitted
+        else
+          assert {:ok, %{call: sleeping}} =
+                   Repo.transact(fn ->
+                     Workflow.TaskLifecycle.sleep_task_in_tx(
+                       task.id,
+                       agent.uid,
+                       dispatch.session_id,
+                       %{wake_after_ms: 60_000, note: "Wait for input", attention: false}
+                     )
+                   end)
+
+          assert {:ok, _} = Run.finalize(admitted, :sleeping)
+
+          event =
+            if input == :message do
+              assert {:ok, %{event: event}} =
+                       Workflow.send_task_message(
+                         workflow.id,
+                         task.call_seq,
+                         agent.uid,
+                         "Delegate the review now.",
+                         "owner-message"
+                       )
+
+              event
+            else
+              Repo.get_by!(Signal,
+                source_event_id: "workflow:call:#{task.id}:wake:#{sleeping.wake_count}"
+              )
+            end
+
+          assert {:ok, resumed} = admit(event, event.available_at)
+          resumed
+        end
+
+      assert admitted.event.conversation_id == conversation_id
+
+      assert Ankole.Principals.WorkAccess.fields(admitted.event) ==
+               Ankole.Principals.WorkAccess.fields(source)
+
+      assert is_nil(admitted.event.reply_binding_name)
+      assert admitted.kind == :workflow_task
+      assert admitted.session_id == Workflow.task_session_id(task.id)
+      refute admitted.conversation.conversation_key == source.session_id
+
+      assert {:error, :reply_route_unavailable} =
+               Ankole.Conversations.Target.for_reply(admitted.event)
+
+      assert {:ok, {_state, run}} = Model.prepare(admitted)
+
+      {run, call} =
+        workflow_response(run, "create_background_job", %{
+          "title" => "Delegated native review",
+          "task" => "Review the case and report its result."
+        })
+
+      assert {:ok, definition, args} = Tools.prepare(run, call)
+      result = Tools.execute(run, call, definition, args)
+      refute result.is_error
+      job = Repo.get_by!(Job, agent_uid: agent.uid, source_signal_id: run.signal_id)
+      assert job.owner_session_id == run.session_id
+      assert job.reply_route == %{"conversation_id" => conversation_id}
+
+      assert Ankole.Principals.WorkAccess.fields(job) ==
+               Ankole.Principals.WorkAccess.fields(source)
+
+      run = %{run | results: %{call["call_id"] => result}}
+
+      assert {:ok, _} =
+               Repo.transact(fn ->
+                 Workflow.TaskLifecycle.sleep_task_in_tx(
+                   task.id,
+                   agent.uid,
+                   run.session_id,
+                   %{wake_after_ms: 60_000, note: "Wait for the Job", attention: false}
+                 )
+               end)
+
+      assert {:ok, _} = Run.finalize(run, :sleeping)
+
+      assert {:ok, %{job: completed, wakeup_event: wakeup}} =
+               BackgroundAgentJobs.request_complete(job.id, %{
+                 "agent_uid" => agent.uid,
+                 "completed_by" => to_string(Ankole.ActorRef.from_principal(human)),
+                 "result_summary" => "Reviewed"
+               })
+
+      assert completed.status == :succeeded
+      assert wakeup.type == "background_agent_job.completed"
+      assert wakeup.session_id == run.session_id
+      refute wakeup.session_id == source.session_id
+      assert wakeup.conversation_id == conversation_id
+
+      assert Ankole.Principals.WorkAccess.fields(wakeup) ==
+               Ankole.Principals.WorkAccess.fields(source)
+
+      assert {:ok, resumed} = admit(wakeup)
+      assert resumed.conversation.id == run.conversation.id
+      assert resumed.spec.request_context["call_id"] == task.id
+    end
+  end
+
+  test "provider task inputs keep their binding without a direct Conversation route" do
+    %{principal: agent} = agent_fixture()
+    source = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+    assert is_binary(source.conversation_id)
+    route = Ankole.Conversations.Route.snapshot(%{signal_id: source.id})
+
+    %{run: workflow, calls: [task], events: [dispatch]} =
+      workflow_fixture(agent.uid, reply_route: route)
+
+    assert {:ok, admitted} = admit(dispatch)
+
+    assert {:ok, %{call: sleeping}} =
+             Repo.transact(fn ->
+               Workflow.TaskLifecycle.sleep_task_in_tx(task.id, agent.uid, dispatch.session_id, %{
+                 wake_after_ms: 60_000,
+                 note: "Wait for input",
+                 attention: false
+               })
+             end)
+
+    assert {:ok, _} = Run.finalize(admitted, :sleeping)
+
+    assert {:ok, %{event: message}} =
+             Workflow.send_task_message(
+               workflow.id,
+               task.call_seq,
+               agent.uid,
+               "Continue the review.",
+               "provider-owner-message"
+             )
+
+    wake =
+      Repo.get_by!(Signal,
+        source_event_id: "workflow:call:#{task.id}:wake:#{sleeping.wake_count}"
+      )
+
+    for event <- [dispatch, message, wake] do
+      assert event.reply_binding_name == source.reply_binding_name
+      assert is_nil(event.conversation_id)
+      assert {:error, :reply_route_unavailable} = Ankole.Conversations.Target.for_reply(event)
+    end
+  end
 
   test "tasks use their profile precedence and independent conversation without a Worker" do
     %{principal: agent} = agent_fixture()
@@ -675,7 +888,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
           authorization_kind: "service",
           agent_uid: agent_uid,
           owner_session_id: "workflow-owner-#{suffix}",
-          reply_route: %{"binding_name" => "bot"},
+          reply_route: Keyword.get(opts, :reply_route, %{"binding_name" => "bot"}),
           source_tool_call_id: "workflow-tool-#{suffix}",
           title: "Workflow #{suffix}",
           script: "return await agent('Run the task.');",

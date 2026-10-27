@@ -468,12 +468,7 @@ export function SignalBindingEditorPage() {
   }
 
   const targetAgentUID = model.agentUID.value || defaultAgentUID
-  const activeFields = (activeAdapter?.fields ?? []).flatMap(field => {
-    if (activeAdapter?.adapter_id !== 'cloudevents' || field.path !== 'target_id') return [field]
-    const targetKind = model.config.value.target_kind
-    if (targetKind === 'subject' || targetKind === 'event') return []
-    return [{ ...field, required: targetKind === 'conversation' || targetKind === 'session' }]
-  })
+  const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = editing && !model.dirty.value
   const writeError = createBinding.error ?? updateBinding.error
   const writeFieldError = configFieldServerError(writeError, activeFields, locale)

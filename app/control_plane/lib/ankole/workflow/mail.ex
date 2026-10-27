@@ -85,7 +85,7 @@ defmodule Ankole.Workflow.Mail do
       authorization: Ankole.Principals.WorkAccess.fields(run),
       reply_route: %{
         binding_name: binding_name,
-        conversation_id: nil,
+        conversation_id: if(is_nil(binding_name), do: Map.get(reply_route, "conversation_id")),
         provider_thread_id: nil,
         provider_message_id: nil
       },
@@ -164,7 +164,7 @@ defmodule Ankole.Workflow.Mail do
       authorization: Ankole.Principals.WorkAccess.fields(run),
       reply_route: %{
         binding_name: binding_name,
-        conversation_id: nil,
+        conversation_id: if(is_nil(binding_name), do: Map.get(reply_route, "conversation_id")),
         provider_thread_id: nil,
         provider_message_id: nil
       },
@@ -250,7 +250,7 @@ defmodule Ankole.Workflow.Mail do
       authorization: Ankole.Principals.WorkAccess.fields(run),
       reply_route: %{
         binding_name: binding_name,
-        conversation_id: nil,
+        conversation_id: if(is_nil(binding_name), do: Map.get(reply_route, "conversation_id")),
         provider_thread_id: nil,
         provider_message_id: nil
       },

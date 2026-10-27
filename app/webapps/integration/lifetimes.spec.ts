@@ -296,6 +296,7 @@ test('SSE confirmation keeps POST pending and a late failure does not revive the
   await streamEvent(page)
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('')
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled()
   await expect(page.getByText('Already committed', { exact: true })).toBeVisible()
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'lost acknowledgement' } })
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
@@ -328,6 +329,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   expect(second.messageID).not.toBe(first.messageID)
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'lost first acknowledgement' } })
   await expect(composer).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled()
   await expect(composer).toHaveValue(second.text)
   await expect(page.getByRole('button', { name: 'Retry sending', exact: true })).not.toBeVisible()
   await server.writes[1]!.fulfill({ status: 503, json: { error: 'lost second acknowledgement' } })
@@ -454,8 +456,9 @@ test('current activity survives reconnect snapshots, clears at completion, and n
       { operation_id: 'search', label: 'Searching source material' }
     ]
   })
-  await expect(page.getByText('Reading the report', { exact: true })).toBeVisible()
-  await expect(page.getByText('Searching source material', { exact: true })).toBeVisible()
+  const tools = page.getByRole('list', { name: 'Tool steps', exact: true })
+  await expect(tools.getByText('Reading the report', { exact: true })).toBeVisible()
+  await expect(tools.getByText('Searching source material', { exact: true })).toBeVisible()
   await emit({ ...snapshot, revision: 3, state: 'settled', phase: null })
   await emit({ ...snapshot, revision: 99 })
   await expect(page.getByText('Waiting for computer capacity', { exact: true })).not.toBeVisible()

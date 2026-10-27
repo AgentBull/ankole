@@ -72,7 +72,7 @@ Before reaching for a command, know what a good xlsx looks like. These are the d
 
 ### Visual delivery floor (applies to EVERY workbook)
 
-Before you declare done, run `officecli view "$FILE" html` and Read the returned HTML path to confirm all of these:
+Before you declare done, run `officecli view "$FILE" html -o "${FILE%.xlsx}.html"` and Read the explicit HTML output file to confirm all of these:
 
 - **No `###` in any cell.** `###` means a column is too narrow for its widest value. Every column the user reads needs an explicit `width`. `###` in a delivered file is unfinished work, never "a small visual nit".
 - **No truncated titles.** Sheet titles, section headers, long labels must fit. Widen the column or apply `wrapText=true` on the cell.
@@ -232,11 +232,12 @@ officecli view "$FILE" text --start 1 --end 50 --cols A,B,C
 
 Other `view` modes worth knowing: `annotated` (cell values + types/formulas + warnings), `stats` (numeric summaries), `issues` (broken formulas, empty sheets, missing refs).
 
-**Round-trip dump.** `officecli dump "$FILE" [path]` serializes the workbook — or one worksheet (`/Sheet1`, `/sheet[N]`) — into a replayable batch JSON; `officecli batch new.xlsx --input dump.json` replays it. Use it to learn from an existing workbook's structure or clone/adapt a template instead of reading raw OOXML. Coverage per `dump --help`; subtree dumps don't carry workbook-level resources (settings, named ranges) — the replay target must already define them.
+**Round-trip dump.** `officecli dump "$FILE" [path]` serializes the workbook — or one worksheet (`/Sheet1`, `/sheet[N]`) — into a replayable batch JSON; create the target with `officecli create new.xlsx`, then replay it with `officecli batch new.xlsx --input dump.json`. Use it to learn from an existing workbook's structure or clone/adapt a template instead of reading raw OOXML. Coverage per `dump --help`; subtree dumps don't carry workbook-level resources (settings, named ranges) — the replay target must already define them.
 
 ```bash
 officecli dump "$FILE" -o blueprint.json            # whole workbook
 officecli dump "$FILE" /Sheet1 -o sheet.json        # one worksheet
+officecli create new.xlsx
 officecli batch new.xlsx --input blueprint.json
 ```
 
@@ -324,7 +325,7 @@ Chart types live under `officecli help xlsx chart` — the enum is long (20+). P
 
 **Move / resize a chart after create:** `set chart[N] --prop anchor="F5:N25"` (also `--prop x= --prop y= --prop width= --prop height=`). **Series are still immutable** — to add/change a series, `officecli remove` the chart and `officecli add` with the full series list. Note `remove chart[1]` shifts `chart[2] → chart[1]` and re-add **appends at the end** — to preserve chart order, remove all and rebuild in order.
 
-**Anchor sizing.** No auto-fit. A column chart with 5-6 categories + 2 series needs roughly `A5:L22` (12 cols × 18 rows) to show all labels uncut. Narrower and X-axis labels clip; wider and the chart can split across pages on print/export. If in doubt, start narrow, preview via `view html` (Read the returned HTML path), widen in increments. Page layout (below) is the other half of the fix.
+**Anchor sizing.** No auto-fit. A column chart with 5-6 categories + 2 series needs roughly `A5:L22` (12 cols × 18 rows) to show all labels uncut. Narrower and X-axis labels clip; wider and the chart can split across pages on print/export. If in doubt, start narrow, preview via `view html` (Read the explicit HTML output file), widen in increments. Page layout (below) is the other half of the fix.
 
 **Chart `dataRange` — always prefix with the sheet.** Even when the chart lives on the same sheet, write `dataRange="Summary!A17:C22"`, not `A17:C22`. The sheet-less form works inconsistently; the prefixed form is 100% reliable.
 
@@ -417,7 +418,7 @@ Your first workbook is almost never correct. Treat QA as a bug hunt, not a confi
    officecli query "$FILE" 'cell:contains("#N/A")'
    ```
 4. `officecli validate "$FILE"` — safe with a resident open; `validate` flushes pending edits to disk itself.
-5. **Visual pass — walk every sheet via the HTML preview.** Run `officecli view "$FILE" html` and Read the returned HTML path. Each sheet renders with charts inline. Scan for `###`, truncated titles, placeholder tokens (`$fy$24`, `{var}`, `<TODO>`), sliced charts, white-slice pie charts, empty chart anchors — **STOP and fix before declaring done**. "validate pass" is not delivery; "the preview looks like a real workbook" is delivery. For human preview, run `officecli watch "$FILE"` (user opens the live preview at their own discretion) or have them open the `.xlsx` directly in Excel / WPS / Numbers.
+5. **Visual pass — walk every sheet via the HTML preview.** Run `officecli view "$FILE" html -o "${FILE%.xlsx}.html"` and Read the explicit HTML output file. Each sheet renders with charts inline. Scan for `###`, truncated titles, placeholder tokens (`$fy$24`, `{var}`, `<TODO>`), sliced charts, white-slice pie charts, empty chart anchors — **STOP and fix before declaring done**. "validate pass" is not delivery; "the preview looks like a real workbook" is delivery. For human preview, run `officecli watch "$FILE"` (user opens the live preview at their own discretion) or have them open the `.xlsx` directly in Excel / WPS / Numbers.
 6. **Print layout fix (wide tables / multi-chart sheets).** When a sheet holds a chart or a wide table and the user will print it, match the fit mode to the sheet height:
    ```bash
    # Short summary or chart sheet: fit to one page.
@@ -428,7 +429,7 @@ Your first workbook is almost never correct. Treat QA as a bug hunt, not a confi
    Charts and wide tables then avoid horizontal splits, while tall tables keep readable row heights across natural page breaks. Apply this to every sheet that holds a chart or a table with more than eight columns.
 7. If anything failed, fix, then **rerun the full cycle**. One fix commonly creates another problem.
 
-`officecli view issues` + `view html` are the structural QA pair: `issues` catches broken formulas and empty sheets; `view html` (Read the returned HTML path) catches `###`, truncation, and token leakage. Chart fill colors / theme tints can vary across viewers — spot-check in the user's target viewer when color fidelity matters.
+`officecli view issues` + `view html` are the structural QA pair: `issues` catches broken formulas and empty sheets; `view html` (Read the explicit HTML output file) catches `###`, truncation, and token leakage. Chart fill colors / theme tints can vary across viewers — spot-check in the user's target viewer when color fidelity matters.
 
 ### Formula verification checklist
 
@@ -492,7 +493,7 @@ CLI behavior and known gaps.
 
 ### Renderer caveats (cross-viewer color fidelity)
 
-`officecli view html` is the right tool for structural QA (overflow, truncation, placeholder leakage, layout) — Read the returned HTML path. Some chart rendering details vary across the viewer the end user opens the file in. Observed divergences:
+`officecli view html` is the right tool for structural QA (overflow, truncation, placeholder leakage, layout) — Read the explicit HTML output file. Some chart rendering details vary across the viewer the end user opens the file in. Observed divergences:
 
 - **Pie / doughnut fill colors may collapse to a single theme tint** in some viewers (slices look "all white" or "all one color"). The file may be fine in the user's target viewer.
 - **Line chart / column chart series colors may drift** from the workbook theme in some viewers.

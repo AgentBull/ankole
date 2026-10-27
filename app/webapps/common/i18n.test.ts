@@ -45,3 +45,39 @@ test('locale loads share one promise and an unknown locale uses the English cata
   await first
   expect(loadLocale('unknown-locale')).toBe(loadLocale('en-US'))
 })
+
+test('Console and Pod control labels exist in every catalog', async () => {
+  for (const { locale, catalog } of catalogs) {
+    await loadLocale(locale)
+    for (const key of [
+      'console.conversations.kind.conversation',
+      'console.conversations.kind.cron',
+      'console.conversations.channel_kind.native',
+      'console.agent_library_capabilities.set_agent_override_for',
+      'common.copy',
+      'console.agent_files.source_channel',
+      'console.agent_files.source_entry',
+      'pod.content.choose_people',
+      'pod.content.choose_related_records'
+    ]) {
+      expect(get(catalog, key), `${locale}: ${key}`).toBeString()
+      expect(i18n.t(key, { lng: locale, id: 'source' })).not.toBe(key)
+    }
+  }
+})
+
+test('a locale change updates the document language', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const previousLanguage = i18n.language
+  const document = { documentElement: { lang: 'en-US' } }
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: document })
+  try {
+    await loadLocale('ja-JP')
+    await i18n.changeLanguage('ja-JP')
+    expect(document.documentElement.lang).toBe('ja-JP')
+  } finally {
+    await i18n.changeLanguage(previousLanguage)
+    if (previous) Object.defineProperty(globalThis, 'document', previous)
+    else Reflect.deleteProperty(globalThis, 'document')
+  }
+})

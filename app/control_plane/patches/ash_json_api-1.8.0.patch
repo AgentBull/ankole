@@ -1,34 +1,54 @@
 --- a/lib/ash_json_api/json_schema/open_api.ex
 +++ b/lib/ash_json_api/json_schema/open_api.ex
-@@ -426,11 +426,11 @@
+@@ -426,11 +426,14 @@
        {schema, acc}
      end
  
 -    defp required_attributes(resource) do
 +    defp required_attributes(resource, hide_pkeys? \\ true) do
++      fields = AshJsonApi.Resource.Info.default_fields(resource)
++
        resource
        |> Ash.Resource.Info.public_attributes()
        |> filter_shown_fields(resource)
 -      |> Enum.reject(&(&1.allow_nil? || AshJsonApi.Resource.only_primary_key?(resource, &1.name)))
++      |> Enum.filter(&(hide_pkeys? || is_nil(fields) || &1.name in fields))
 +      |> Enum.reject(&(&1.allow_nil? || (hide_pkeys? && AshJsonApi.Resource.only_primary_key?(resource, &1.name))))
        |> Enum.map(fn attr ->
          AshJsonApi.Resource.Info.field_to_json_key(resource, attr.name)
        end)
-@@ -867,6 +867,13 @@
-        }, acc}
+@@ -444,6 +447,8 @@
+             hide_pkeys? :: boolean()
+           ) :: {%{atom => Schema.t()}, acc}
+     defp resource_attributes(resource, fields, format, acc, hide_pkeys? \\ true) do
++      returned_fields = AshJsonApi.Resource.Info.default_fields(resource)
++
+       resource
+       |> Ash.Resource.Info.public_attributes()
+       |> Enum.concat(Ash.Resource.Info.public_calculations(resource))
+@@ -452,6 +457,7 @@
+         |> AshJsonApi.JsonSchema.set_aggregate_constraints(resource)
+       )
+       |> filter_shown_fields(resource)
++      |> Enum.filter(&(hide_pkeys? || is_nil(returned_fields) || &1.name in returned_fields))
+       |> Enum.map(fn
+         %Ash.Resource.Aggregate{} = agg ->
+           field =
+@@ -861,6 +867,13 @@
      end
  
-+    defp resource_attribute_type(%{type: Ash.Type.UtcDatetimeUsec}, _resource, acc, _format) do
+     defp resource_attribute_type(%{type: Ash.Type.UtcDatetime}, _resource, acc, _format) do
 +      {%Schema{
 +         type: :string,
 +         format: "date-time"
 +       }, acc}
 +    end
 +
-     defp resource_attribute_type(%{type: Ash.Type.NaiveDatetime}, _resource, acc, _format) do
++    defp resource_attribute_type(%{type: Ash.Type.UtcDatetimeUsec}, _resource, acc, _format) do
        {%Schema{
           type: :string,
-@@ -969,6 +976,11 @@
+          format: "date-time"
+@@ -969,6 +982,11 @@
            format
          )
  
@@ -40,7 +60,7 @@
        {%Schema{
           type: :array,
           items: items_schema
-@@ -1013,7 +1025,7 @@
+@@ -1013,7 +1031,7 @@
                      type: :object,
                      additionalProperties: false,
                      properties: properties,
@@ -49,7 +69,7 @@
                    }
                    |> add_null_for_non_required()
  
-@@ -1048,7 +1060,7 @@
+@@ -1048,7 +1066,7 @@
                    type: :object,
                    additionalProperties: false,
                    properties: properties,
@@ -58,7 +78,7 @@
                  }
                  |> add_null_for_non_required()
  
-@@ -1074,7 +1086,7 @@
+@@ -1074,7 +1092,7 @@
              type: :object,
              additionalProperties: false,
              properties: properties,
@@ -67,8 +87,8 @@
            }
            |> add_null_for_non_required()
            |> then(&{&1, acc})
-@@ -1818,7 +1830,9 @@
-                    name: to_string(argument_or_attribute.name),
+@@ -1843,7 +1861,9 @@
+                    name: matching_route_param || to_string(argument_or_attribute.name),
                     in: location,
                     description: argument_or_attribute.description,
 -                   required: location == :path || !argument_or_attribute.allow_nil?,
@@ -78,7 +98,7 @@
                     style: style,
                     schema: schema
                   }
-@@ -2611,14 +2625,6 @@
+@@ -2658,14 +2678,6 @@
      end
  
      @spec response_body(Route.t(), resource :: module, acc :: acc()) :: {Response.t(), acc()}
@@ -93,7 +113,7 @@
      defp response_body(route, resource, acc) do
        {schema, acc} = response_schema(route, resource, acc)
  
-@@ -2697,9 +2703,6 @@
+@@ -2744,9 +2756,6 @@
            }
  
            {schema, acc}
@@ -131,18 +151,20 @@
          type: :string,
 --- a/lib/ash_json_api/json_schema/json_schema.ex
 +++ b/lib/ash_json_api/json_schema/json_schema.ex
-@@ -768,7 +768,7 @@
-       end),
+@@ -780,7 +780,7 @@
        action.arguments
        |> Enum.filter(& &1.public?)
--      |> Enum.reject(& &1.allow_nil?)
-+      |> Enum.reject(&(&1.allow_nil? || not is_nil(&1.default)))
-       |> Enum.map(&AshJsonApi.Resource.Info.argument_to_json_key(resource, action.name, &1.name))
-     }
-   end
+       |> Enum.reject(fn argument ->
+-        argument.allow_nil? ||
++        argument.allow_nil? || not is_nil(argument.default) ||
+           Enum.any?(
+             route_params,
+             &AshJsonApi.Resource.Info.path_param_matches_argument?(
 --- a/lib/ash_json_api/controllers/router.ex
 +++ b/lib/ash_json_api/controllers/router.ex
-@@ -153,4 +153,10 @@
+@@ -151,6 +151,12 @@
+             |> AshJsonApi.Controllers.NoRouteFound.call([])
+ 
            {:ok, domain, resource, route, params} ->
 +            params =
 +              Map.new(params, fn
@@ -153,6 +175,39 @@
              conn
              |> Map.update!(:path_params, fn path_params ->
                path_params
+@@ -182,16 +188,22 @@
+                   raise "Invalid before_dispatch option: #{inspect(other)}"
+               end
+             end)
+-            |> route.controller.call(
+-              domain: domain,
+-              resource: resource,
+-              all_domains: domains,
+-              prefix: prefix,
+-              action_type: route.action_type,
+-              route: route,
+-              relationship: route.relationship,
+-              action: route_action!(resource, route)
+-            )
++            |> then(fn conn ->
++              if conn.halted do
++                conn
++              else
++                route.controller.call(conn,
++                  domain: domain,
++                  resource: resource,
++                  all_domains: domains,
++                  prefix: prefix,
++                  action_type: route.action_type,
++                  route: route,
++                  relationship: route.relationship,
++                  action: route_action!(resource, route)
++                )
++              end
++            end)
+         end
+     end
+   end
 --- a/lib/ash_json_api/request.ex
 +++ b/lib/ash_json_api/request.ex
 @@ -88,14 +88,7 @@
@@ -171,38 +226,3 @@
        query_params: conn.query_params,
        req_headers: conn.req_headers,
        actor: get_actor(conn),
---- a/lib/ash_json_api/controllers/router.ex
-+++ b/lib/ash_json_api/controllers/router.ex
-@@ -188,16 +188,22 @@
-                   raise "Invalid before_dispatch option: #{inspect(other)}"
-               end
-             end)
--            |> route.controller.call(
--              domain: domain,
--              resource: resource,
--              all_domains: domains,
--              prefix: prefix,
--              action_type: route.action_type,
--              route: route,
--              relationship: route.relationship,
--              action: Ash.Resource.Info.action(resource, route.action)
--            )
-+            |> then(fn conn ->
-+              if conn.halted do
-+                conn
-+              else
-+                route.controller.call(conn,
-+                  domain: domain,
-+                  resource: resource,
-+                  all_domains: domains,
-+                  prefix: prefix,
-+                  action_type: route.action_type,
-+                  route: route,
-+                  relationship: route.relationship,
-+                  action: Ash.Resource.Info.action(resource, route.action)
-+                )
-+              end
-+            end)
-         end
-     end
-   end

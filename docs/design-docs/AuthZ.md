@@ -47,6 +47,11 @@ and Kernel. Target selectors resolve in the data tenant. A site request without
 a data tenant resolves in the privileged tenant. Site decisions then use the
 privileged tenant. An interactive Human and an Agent must both pass their checks.
 
+A group selector resolves a UUID or a name to the stored canonical name.
+Stored directory, IM, and Signal source groups can use colon-separated
+namespaces. The resolver checks that such a group exists before it expands
+the resource target. The normal grant rules authorize the resulting target.
+
 `Pod.Access.Graph` owns the read-only anchor graph and permission projection.
 `Ankole.AuthZ.Checks.PodAnchorFilter` evaluates that graph in a repeatable-read transaction
 and adds one Page query filter for permitted containers and self pages. Its

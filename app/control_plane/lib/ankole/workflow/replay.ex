@@ -255,12 +255,12 @@ defmodule Ankole.Workflow.Replay do
 
   defp pending_failure({:workflow_agent_limit_exceeded, %{used: used, max: maximum}}) do
     {"workflow_agent_limit_exceeded",
-     "Workflow replay requested #{used} Agent calls, above the run limit of #{maximum}. Reduce the fanout or split the "}
+     "Workflow replay requested #{used} Agent calls, above the run limit of #{maximum}. Reduce the fanout or split the work into more runs."}
   end
 
   defp pending_failure(:workflow_memo_budget_exceeded) do
     {"workflow_memo_budget_exceeded",
-     "Workflow memo data exceeded 6 MiB. Use fewer tasks, return summaries, or split the "}
+     "Workflow memo data exceeded 6 MiB. Use fewer tasks, return summaries, or split the work into more runs."}
   end
 
   defp pending_failure(reason) do

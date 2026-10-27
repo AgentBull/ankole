@@ -165,6 +165,7 @@ defmodule Ankole.Pod.Pages do
          :ok <- destination(actor, parent, owner, false),
          :ok <- no_cycle(page, parent),
          {:ok, _} <- Access.authorize_move(actor, page, parent, owner),
+         :ok <- destination(actor, parent, owner),
          undo = previous_location(page),
          {:ok, position} <- move_position(page, parent, owner, attrs),
          {:ok, moved} <-

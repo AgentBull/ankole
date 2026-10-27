@@ -247,7 +247,8 @@ Agent before it folds pending observations from the same room and rejects
 expired or changed scenes. The triage builds an `Observation` from the public
 room, Agent documents, and current work candidates. It does not create an
 AIGateway conversation or a Session workspace. Second, the light model receives
-one stateless request outside a database transaction. Third,
+one stateless request outside a database transaction. The light profile owns
+the model's sampling settings. Third,
 `AmbientCuration.record_judgment/3` repeats admission under the tenant and Agent
 locks, then locks the target Job and participating Sessions. After those locks,
 it checks the scene against the current time and stores the canonical decision.

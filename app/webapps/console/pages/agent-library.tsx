@@ -62,7 +62,7 @@ import type {
   AgentPluginCapabilityItem,
   ControlPlanePluginItem
 } from '../state/agent-library-capabilities'
-import { BackLink, PageHeader, PageStack, RefreshButton } from '../console-page'
+import { BackLink, DocumentTitle, PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { localizedText } from '../../common/config-fields'
 import { formatConsoleDate } from '../console-primitives'
@@ -228,6 +228,7 @@ export function AgentPluginDetailPage() {
 
   return (
     <PageStack>
+      <DocumentTitle title={plugin ? humanizeAgentPluginID(plugin.id) : pluginID} />
       <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="grid gap-3">
           <BackLink

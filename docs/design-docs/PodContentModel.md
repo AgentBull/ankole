@@ -173,7 +173,9 @@ pages and no page grants.
 - Active Human members receive the space's default role. Guests receive
   explicit shares and have no default space role.
 - A Private root belongs to its Human member. Guests cannot enter Private
-  space. Console grants do not authorize Private access.
+  space. Create and move operations establish the owner's grant for a Private
+  root. A move checks its permissions before it establishes that grant.
+  Console grants do not authorize Private access.
 - Agents need explicit space admission or a Page share. Human-derived Agent
   work also requires the Human's current Page permission, including Workflow,
   scheduled, and Background Agent Job work. Service autonomous work uses the
@@ -625,6 +627,10 @@ separately from the storage mode. The browser refreshes schema before merging
 a record delta and invalidates its snapshot on promotion or `resync`. Limits reject excess input
 or results explicitly.
 
+The statement timeout applies to record and aggregate queries in both storage
+modes. A physical query uses the smaller of the tenant limit and the remaining
+operation deadline on its shard connection.
+
 ## Files and Conversation origins
 
 `Ankole.Files` owns one site-wide blob store and `drive_files` references.
@@ -737,7 +743,9 @@ assets and file-page uploads require `page_edit`.
 `applet pull` requires an empty or absent destination. It downloads source and
 root project files to a temporary directory, checks each digest, and moves the
 complete project to its destination. A project with `package.json` runs
-`bun install --ignore-scripts`.
+`bun install --ignore-scripts` as the Agent user. The temporary project and its
+created parent directories belong to that user before publication at the
+destination.
 
 The SDK uses the current Human's Pod APIs and a shared QueryClient. One
 connection per table coordinates schema and snapshot events and refreshes record
@@ -810,6 +818,13 @@ one switch to another replica. Executed code and capability writes are never
 replayed. `Ankole.Pod.Applets.Invocation` owns the call and all capability tasks.
 Caller exit, cancellation, timeout, and connection loss settle that owner once
 and stop its pending tasks.
+
+While an Applet response is pending, the HTTP/1 connection buffers at most
+1,048,576 bytes of pipelined request data. The total includes the initial
+transport buffer and all data received before the response. An overflow closes
+the connection and cancels the invocation. Already committed capability writes
+remain. Pipelined requests within this limit keep their bytes and order.
+An HTTP/2 stream reset cancels the invocation through its transport reset message.
 
 `pod.applet.limits` sets the wall-time and heap bounds. The function service
 also enforces per-worker CPU limits. Applets can use Node crypto, a private

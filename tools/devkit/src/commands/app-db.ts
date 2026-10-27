@@ -13,8 +13,7 @@ const commonDBFlags = [
   {
     name: 'name',
     type: 'string',
-    description:
-      'Database name. Defaults to the database in app/control_plane/.env.local or app/control_plane/.env.development.'
+    description: 'Database name. Defaults to DATABASE_URL in the development environment.'
   },
   {
     name: 'start-services',

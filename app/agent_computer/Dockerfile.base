@@ -83,13 +83,22 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   && rustc --version \
   && cargo --version
 
-# pdf-inspector publishes no prebuilt binaries, so its `detect-pdf` and
-# `pdf2md` CLIs build from crates.io here. `--root /usr/local` keeps them on
-# the PATH of the Worker's commands instead of /root/.cargo/bin. The CLIs have no
-# `--version`, so the check classifies a generated PDF.
-RUN cargo install pdf-inspector --version "${PDF_INSPECTOR_VERSION}" --locked --root /usr/local \
-    --bin detect-pdf --bin pdf2md \
-  && rm -rf /root/.cargo/registry /root/.cargo/git \
+# Build the same published release with the table-header geometry patch.
+# The patch digest is part of the base recipe used by local image selection.
+ADD --checksum=sha256:ef5970f05a55de82c8d6d6fd5f8ff162b50fc7828cc1fd0abd965abad6fcbc5b \
+  https://static.crates.io/crates/pdf-inspector/pdf-inspector-${PDF_INSPECTOR_VERSION}.crate /tmp/pdf-inspector.crate
+COPY app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch /tmp/pdf-inspector-tables.patch
+
+RUN test "${PDF_INSPECTOR_VERSION}" = 1.25.2 \
+  && echo "2c8f5b593492945f5ea080580ee67cf31cfd1fa322edadba0bf03d9225139da0  /tmp/pdf-inspector-tables.patch" | sha256sum -c - \
+  && mkdir /tmp/pdf-inspector-source \
+  && tar -xzf /tmp/pdf-inspector.crate --strip-components=1 -C /tmp/pdf-inspector-source \
+  && cd /tmp/pdf-inspector-source \
+  && git apply /tmp/pdf-inspector-tables.patch \
+  && cargo install --path . --locked --root /usr/local --bin detect-pdf --bin pdf2md \
+  && cd /repo \
+  && rm -rf /tmp/pdf-inspector-source /tmp/pdf-inspector.crate /tmp/pdf-inspector-tables.patch \
+    /root/.cargo/registry /root/.cargo/git \
   && gs -o /tmp/pdf-inspector-check.pdf -sDEVICE=pdfwrite -c showpage \
   && detect-pdf /tmp/pdf-inspector-check.pdf --json | jq -e '.pdf_type' >/dev/null \
   && test -x /usr/local/bin/pdf2md \

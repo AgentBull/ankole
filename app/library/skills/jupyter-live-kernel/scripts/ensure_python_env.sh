@@ -2,12 +2,23 @@
 set -euo pipefail
 
 ENV_DIR="${ANKOLE_AGENT_PYTHON_ENV:-${HOME}/.ankole/python}"
-PYTHON_VERSION="${ANKOLE_AGENT_PYTHON_VERSION:-3.12}"
+IMAGE_PYTHON="$(python -c 'import sys; print(sys.executable)')"
 
 if [ ! -x "$ENV_DIR/bin/python" ]; then
   mkdir -p "$(dirname "$ENV_DIR")"
-  uv venv --system-site-packages --python "$PYTHON_VERSION" "$ENV_DIR"
+  uv venv --system-site-packages --python "$IMAGE_PYTHON" "$ENV_DIR"
 fi
+
+"$IMAGE_PYTHON" - "$ENV_DIR" <<'PY'
+from pathlib import Path
+import sys
+import sysconfig
+
+packages = Path(sysconfig.get_path("purelib", vars={"base": sys.argv[1], "platbase": sys.argv[1]}))
+if not packages.is_dir():
+    sys.exit("Agent Python env must use the image Python version. Set ANKOLE_AGENT_PYTHON_ENV to a new directory.")
+packages.joinpath("ankole-image.pth").write_text(sysconfig.get_path("purelib") + "\n")
+PY
 
 "$ENV_DIR/bin/python" - <<'PY'
 import importlib.util

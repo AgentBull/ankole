@@ -434,7 +434,7 @@ defmodule Ankole.Workflow.TaskLifecycle do
     error = %{
       "code" => "workflow_memo_budget_exceeded",
       "summary" =>
-        "Workflow memo data exceeded 6 MiB. Use fewer tasks, return summaries, or split the "
+        "Workflow memo data exceeded 6 MiB. Use fewer tasks, return summaries, or split the work into more runs."
     }
 
     with {:ok, call} <- Ankole.Ash.update(call, :fail, %{result: nil, error: error}),

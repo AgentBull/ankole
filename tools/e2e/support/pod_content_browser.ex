@@ -4,7 +4,7 @@ defmodule Ankole.E2E.PodContentBrowser do
   import ExUnit.Assertions
   import ExUnit.Callbacks
   import Plug.Conn
-  import Phoenix.ConnTest, only: [dispatch: 5, html_response: 2, redirected_to: 1]
+  import Phoenix.ConnTest, only: [dispatch: 5, html_response: 2]
   import AnkoleWeb.PodAPI, only: [api_post: 3, api_response: 2]
   alias Ankole.Repo
   alias AnkoleWeb.Session, as: WebSession
@@ -143,27 +143,9 @@ defmodule Ankole.E2E.PodContentBrowser do
                "cacertfile" => smtp.ca_path
              })
 
-    conn =
+    shell =
       Phoenix.ConnTest.build_conn()
       |> dispatch(AnkoleWeb.Endpoint, :get, origin <> "/sessions/new", nil)
-
-    reference = WebSession.browser_reference(conn)
-
-    on_exit(
-      Repo.bind_tenant(fn ->
-        assert {:ok, _} = Ankole.BrowserSessions.logout(reference)
-        assert {:ok, browser} = Ankole.BrowserSessions.get(reference)
-        Repo.delete!(browser)
-      end)
-    )
-
-    login = redirected_to(conn)
-    flow = login |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("flow")
-
-    shell =
-      conn
-      |> AnkoleWeb.ConnCase.recycle()
-      |> dispatch(AnkoleWeb.Endpoint, :get, URI.merge(origin, login) |> URI.to_string(), nil)
 
     [_, csrf] =
       Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, html_response(shell, 200))
@@ -174,9 +156,19 @@ defmodule Ankole.E2E.PodContentBrowser do
       |> put_private(:plug_skip_csrf_protection, false)
       |> put_req_header("origin", origin)
       |> put_req_header("x-csrf-token", csrf)
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{flow: flow, email: email})
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{email: email})
 
     challenge = api_response(sent, 201)["challengeID"]
+    reference = WebSession.browser_reference(sent)
+
+    on_exit(
+      Repo.bind_tenant(fn ->
+        assert {:ok, _} = Ankole.BrowserSessions.logout(reference)
+        assert {:ok, browser} = Ankole.BrowserSessions.get(reference)
+        Repo.delete!(browser)
+      end)
+    )
+
     assert_receive {:smtp_message, _, [^email], message}, 5_000
     [_, code] = Regex.run(~r/code is (\d{6})/, Ankole.Authn.SMTPFixture.text(message))
 
@@ -187,7 +179,6 @@ defmodule Ankole.E2E.PodContentBrowser do
       |> put_req_header("origin", origin)
       |> put_req_header("x-csrf-token", csrf)
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })

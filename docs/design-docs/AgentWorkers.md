@@ -129,11 +129,14 @@ The image exposes its installed Chromium headless shell as
 `/usr/local/bin/chromium`. OfficeCLI uses PATH to find this browser. Its
 Chrome-family lookup does not read `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE` or
 `PLAYWRIGHT_BROWSERS_PATH`.
-The image builds OfficeCLI from its fixed stable source with a screenshot
-patch. Screenshot failures return a nonzero exit code in resident mode.
+The image builds OfficeCLI from its fixed stable source with patches.
+Screenshot failures return a nonzero exit code in resident mode.
 Only a new, non-empty capture can replace the output PNG. A failed capture
 retains the existing PNG, its permissions, and its symbolic link.
-Remove this patch when a stable OfficeCLI release provides these guarantees.
+Standard PPTX charts store their series data in an embedded workbook. Chart
+creation writes cell references and matching caches. Edits to an existing
+series update its workbook cells and caches together.
+Remove each patch when a stable OfficeCLI release provides its guarantees.
 
 A provider cannot be deleted while a Worker row refers to it. Without an
 explicit provider or a default, Agent creation fails with
@@ -561,6 +564,14 @@ its data cannot survive loss of that host. The provider schema allows instance
 size, network, runtime, and extra environment. It does not allow capability
 or security-option overrides. Development source mounts come from the node's
 development configuration.
+
+`bun dev` supplies the local image, Docker socket, provider seed, and node
+addresses. FOSS and SaaS Workers connect to `host.docker.internal` at the
+control-plane port. SaaS development accepts the configured
+`runtime_fabric_internal_origin` as a site origin so Worker sockets and
+AIGateway calls use the Docker bridge. Deployed SaaS uses its canonical site
+origin. A setup command can start the control plane without a Worker image;
+Worker operations require the runtime configuration that `bun dev` supplies.
 
 Kubernetes owns the Pod, contract Secret, persistent PVCs, and optional cache
 PVCs. Provider YAML selects either `storage.claimTemplate` or

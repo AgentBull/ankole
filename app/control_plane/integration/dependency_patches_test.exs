@@ -142,8 +142,8 @@ defmodule Ankole.DependencyPatchesTest do
       def project do
         [app: :patch_host, version: "0.1.0", deps_path: "deps",
          aliases: if(System.get_env("PATCH_STAGE") == "legacy", do: [], else: Ankole.Mix.DependencyPatches.aliases()),
-         deps: [{:ash, "== 3.36.1"}, {:ash_postgres, "== 2.15.1"},
-                {:ash_json_api, "== 1.7.1"}, {:attesto, "== 2.6.1"},
+         deps: [{:ash, "== 3.37.2"}, {:ash_postgres, "== 2.15.1"},
+                {:ash_json_api, "== 1.8.0"}, {:attesto, "== 2.6.1"},
                 {:patch_consumer, path: "consumer"}]]
       end
     end

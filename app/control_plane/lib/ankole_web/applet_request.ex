@@ -1,13 +1,22 @@
 defmodule AnkoleWeb.AppletRequest do
-  @moduledoc "Connects HTTP cancellation to an Applet invocation without changing response semantics."
+  @moduledoc "Bounds waiting HTTP/1 input and cancels Applet invocations on disconnect."
   alias Ankole.Pod.Applets.Invocation
 
+  @max_pipeline_bytes 1_048_576
+
   def await(conn, task) do
-    socket = http1_socket(conn)
+    transport = http1_transport(conn)
+    socket = if transport, do: transport.socket
 
     try do
+      remaining =
+        if transport,
+          do: @max_pipeline_bytes - IO.iodata_length(transport.buffer),
+          else: @max_pipeline_bytes
+
+      check_pipeline_budget!(socket, remaining)
       if socket, do: arm(socket)
-      {result, received} = receive_result(task, socket, [])
+      {result, received} = receive_result(task, socket, {[], remaining})
       conn = restore(conn, socket, received)
       {conn, result}
     after
@@ -39,23 +48,24 @@ defmodule AnkoleWeb.AppletRequest do
 
       {data, ^raw, bytes} when data in [:tcp, :ssl] ->
         # Preserve pipelined request bytes for Bandit's next request.
+        received = retain(socket, bytes, received)
         arm(socket)
-        receive_result(task, socket, [bytes | received])
+        receive_result(task, socket, received)
     end
   end
 
-  defp http1_socket(%{
-         adapter: {Bandit.Adapter, %{transport: %Bandit.HTTP1.Socket{socket: socket}}}
+  defp http1_transport(%{
+         adapter: {Bandit.Adapter, %{transport: %Bandit.HTTP1.Socket{} = transport}}
        }),
-       do: socket
+       do: transport
 
-  defp http1_socket(_), do: nil
+  defp http1_transport(_), do: nil
 
   defp restore(conn, nil, _received), do: conn
 
   defp restore(%{adapter: {module, adapter}} = conn, socket, received) do
     ThousandIsland.Socket.setopts(socket, active: false)
-    received = drain(socket.socket, received)
+    received = drain(socket, received)
 
     transport = %{
       adapter.transport
@@ -65,15 +75,35 @@ defmodule AnkoleWeb.AppletRequest do
     %{conn | adapter: {module, %{adapter | transport: transport}}}
   end
 
-  defp drain(raw, received) do
+  defp drain(socket, {received, _remaining} = buffered) do
+    raw = socket.socket
+
     receive do
-      {data, ^raw, bytes} when data in [:tcp, :ssl] -> drain(raw, [bytes | received])
-      {closed, ^raw} when closed in [:tcp_closed, :ssl_closed] -> disconnected()
-      {error, ^raw, _reason} when error in [:tcp_error, :ssl_error] -> disconnected()
+      {data, ^raw, bytes} when data in [:tcp, :ssl] ->
+        drain(socket, retain(socket, bytes, buffered))
+
+      {closed, ^raw} when closed in [:tcp_closed, :ssl_closed] ->
+        disconnected()
+
+      {error, ^raw, _reason} when error in [:tcp_error, :ssl_error] ->
+        disconnected()
     after
       0 -> received
     end
   end
+
+  defp retain(socket, bytes, {received, remaining}) do
+    remaining = remaining - byte_size(bytes)
+    check_pipeline_budget!(socket, remaining)
+    {[bytes | received], remaining}
+  end
+
+  defp check_pipeline_budget!(socket, remaining) when remaining < 0 do
+    ThousandIsland.Socket.close(socket)
+    disconnected()
+  end
+
+  defp check_pipeline_budget!(_socket, _remaining), do: :ok
 
   defp disconnected, do: raise(Bandit.TransportError, error: :closed)
 

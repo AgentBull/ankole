@@ -72,7 +72,7 @@ defmodule AnkoleWeb.PodURL do
   defp browser_path([]), do: {:ok, "/"}
 
   defp browser_path(["content", scope])
-       when scope in ~w(space private shared recent favorites trash search),
+       when scope in ~w(all space private shared recent favorites trash search),
        do: {:ok, "/content/" <> scope}
 
   defp browser_path(["content", _scope]), do: {:ok, "/content/space"}

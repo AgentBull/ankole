@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startPodCLIBridge } from '../src/cli/pod/pod-cli-bridge'
@@ -11,6 +11,8 @@ import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/ru
 import type { RPCRequester } from '../src/lanes/rpc_lane'
 import type { RPCRequestInit } from '../src/lanes/rpc_contract'
 import { FakeDrive } from './support/fake-drive'
+import { AGENT_UID, isRootWorker } from '../src/common/agent-user'
+import { agentProcessArgv } from '../src/core/execution/process-group'
 
 const respond = (result: unknown) => create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result }) })
 
@@ -202,8 +204,10 @@ worker.onmessage=event=>{console.log(event.data);worker.terminate()};`
 
   it('pulls immutable source and configuration, skips package lifecycle scripts, and rejects changed bytes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-pull-'))
+    const outside = await mkdtemp(join(tmpdir(), 'pod-pull-outside-'))
     const files = new FakeDrive(root)
     files.put('pages/page/src/main.tsx', 'export const provider = {}')
+    files.put('pages/page/src/components/ui/Button.tsx', 'export const Button = () => null')
     files.put('pages/page/applet.env.json', '{"WEBHOOK":"https://example.com/hook"}')
     files.put(
       'pages/page/package.json',
@@ -233,7 +237,21 @@ worker.onmessage=event=>{console.log(event.data);worker.terminate()};`
       expect(pulled.revision).toBe(4)
       expect(await readFile(join(root, 'app/src/main.tsx'), 'utf8')).toBe('export const provider = {}')
       expect(await readFile(join(root, 'app/applet.env.json'), 'utf8')).toContain('WEBHOOK')
+      if (isRootWorker()) {
+        expect((await stat(join(root, 'app'))).uid).toBe(AGENT_UID)
+        const read = Bun.spawnSync(agentProcessArgv(['/bin/cat', join(root, 'app/src/main.tsx')]))
+        expect(read.exitCode, read.stderr.toString()).toBe(0)
+        expect(read.stdout.toString()).toBe('export const provider = {}')
+        const create = Bun.spawnSync(
+          agentProcessArgv(['/usr/bin/touch', join(root, 'app/src/components/NewComponent.tsx')])
+        )
+        expect(create.exitCode, create.stderr.toString()).toBe(0)
+      }
       expect(await Bun.file(join(root, 'app/executed')).exists()).toBe(false)
+      const outsideUID = (await stat(outside)).uid
+      await expect(pull(join(outside, 'app'))).rejects.toThrow('inside the Agent Home')
+      expect((await stat(outside)).uid).toBe(outsideUID)
+      expect(await readdir(outside)).toEqual([])
       await expect(pull('app')).rejects.toThrow('must be empty')
       await mkdir(join(root, 'empty'))
       await pull('empty')
@@ -245,6 +263,7 @@ worker.onmessage=event=>{console.log(event.data);worker.terminate()};`
     } finally {
       bridge.close()
       await rm(root, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
     }
   })
 })

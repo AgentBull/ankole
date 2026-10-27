@@ -36,7 +36,9 @@ The SaaS source has these required inputs:
   paths. Private sources use the public
   webapp dependencies through a generated `node_modules` link. Entry reads do
   not create the link. Mix, Vite, type checks, and Bun test preparation create
-  it and accept concurrent preparation of the same target. `lint`, type checks,
+  a relative link and accept concurrent preparation of the same target.
+  Preparation replaces stale symbolic links and rejects a separate dependency
+  directory. `lint`, type checks,
   and tests include both source sets.
 - `internals/locales` supplies TOML catalogs. Build preparation merges them with
   public catalogs into generated JSON. Duplicate message keys fail the build.
@@ -258,7 +260,23 @@ bun dev
 
 Keep this terminal open. The devkit starts or verifies PostgreSQL and Function Runtime, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
 
+The devkit formats Phoenix logs and keeps service builds attached to the terminal.
+
 The first run may spend substantial time building the Function Runtime and Agent Computer images. Wait while there is active build output.
+
+For the SaaS edition with its private source checkout, use the same command
+with the edition selected:
+
+```bash
+ANKOLE_EDITION=saas bun dev
+```
+
+The SaaS root is `http://ankole.localhost:4000`, sign-in is on
+`http://accounts.ankole.localhost:4000`, and site administration is on
+`http://console.ankole.localhost:4000/site-admin-console`. Both editions use the
+standard Worker image. The devkit reads `.env.dev`, `.env.dev.local`, and
+`.env.local` from `app/control_plane`, in that order; OS variables take
+precedence.
 
 In another terminal, verify the visible boundaries:
 
@@ -284,6 +302,11 @@ bun run services:stop
 ## 5. Complete first-time product setup
 
 This section includes the exact Feishu permissions, events, callbacks, and field values needed by the current local path. Follow the order because later screens depend on resources created earlier.
+
+Local Email OTP and invitations use the in-memory Swoosh mailbox. Read delivered
+messages at `/dev/mailbox` on the current site or tenant host. Restarting the
+control plane clears these messages. Deployed sites use their configured SMTP
+transport.
 
 ### Activate the installation
 
@@ -639,6 +662,11 @@ The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7.
 
 For one Elixir test file, set the working directory to `app/control_plane` and run `mix test test/path/to/file_test.exs`. This is the normal case where a direct `mix` command is appropriate.
 
+Protocol tests that assert a provider TCP disconnect need a direct connection
+to their loopback fixture. Add `127.0.0.1`, `localhost`, and `::1` to `NO_PROXY`
+for the test process, and keep its other exclusions. A proxy owns a separate
+connection to the fixture.
+
 Run provider client unit tests without PostgreSQL from the repository root:
 
 ```bash
@@ -660,8 +688,8 @@ The nesting limit is 4 and the cyclomatic complexity limit is 20.
 `bun run analyze:unused` checks production files, exports, types, and
 dependencies; tests do not retain dead production code.
 
-The build applies the pinned Ash 3.36.1, AshPostgres 2.15.1, AshJsonApi
-1.7.1, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
+The build applies the pinned Ash 3.37.2, AshPostgres 2.15.1, AshJsonApi
+1.8.0, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
 Docker build installs it. The control-plane Mix project owns the patch loader.
 Each build tree checks its own stamp for the patch and loader contents
 before it loads dependencies. When the stamp changes, Mix rebuilds the patched
@@ -927,7 +955,7 @@ Each Console and Site JSON:API route has these properties:
   `json_api.authorize?(true)` on protected domains.
 - List inputs are declared on their read actions. Index and relationship routes
   disable derived filters and sorts; generic actions expose their typed arguments
-  directly. AshJsonApi 1.7.1 ignores the resource option `derive_sort?`, so each
+  directly. AshJsonApi 1.8.0 ignores the resource option `derive_sort?`, so each
   `index` and `related` route also sets `derive_sort?: false`.
 
 `test/ankole_web/json_api/router_test.exs` and `native_authorization_routes_test.exs` check these
@@ -957,7 +985,9 @@ Run the exporter with `ANKOLE_EDITION=saas` to include the installed SaaS domain
 The generated clients live beside the consuming applications in `api/generated`
 (and Console's `api/v2/generated` / `api/v2-site/generated`). Do not edit them.
 Use `fromDocument` to read resource documents as flat Console records; use
-constrained generic-action results directly. Browser, Pod, and SaaS actions send
+constrained generic-action results directly. A bare resource result uses its
+declared `default_fields` in both serialization and its generated schema.
+Browser, Pod, and SaaS actions send
 arguments under `data`. Standard resource writes send `data.type`, `data.id`
 where applicable, and `data.attributes`.
 

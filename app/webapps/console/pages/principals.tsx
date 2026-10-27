@@ -35,7 +35,7 @@ import {
 import type { Principal } from '../api/v2/generated/types.gen'
 import { type Flat, fromDocument } from '../api/json-api'
 import { AddMembershipPicker } from '../add-membership-picker'
-import { BackLink, PageStack } from '../console-page'
+import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
@@ -173,6 +173,7 @@ export function PrincipalDetailPage() {
 
   return (
     <PageStack className="mx-auto max-w-4xl">
+      <DocumentTitle title={loadedPrincipal ? principalLabel(loadedPrincipal) : uid} />
       <div className="grid gap-3">
         <BackLink to="/access/principals" />
         <div className="flex flex-wrap items-center gap-4 border-b border-border pb-5">

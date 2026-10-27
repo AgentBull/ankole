@@ -138,7 +138,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     calculate(:channel_kind, :atom, {Channel, field: :channel_kind},
       public?: true,
       constraints: [
-        one_of: [:im_dm, :im_group, :webhook_endpoint, :issue, :alert_stream, :unknown]
+        one_of: [:native, :im_dm, :im_group, :webhook_endpoint, :issue, :alert_stream, :unknown]
       ]
     )
 

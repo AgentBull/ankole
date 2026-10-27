@@ -6,6 +6,8 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     domain: Ankole.AIAgent,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
+  require Ash.Query
+
   authz do
     scope(:site_console)
     resolve_param(:agent_uid, :principal_key)
@@ -128,6 +130,13 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     read :console_list do
       argument(:agent_uid, :string, allow_nil?: false)
       filter(expr(agent_uid == ^arg(:agent_uid)))
+
+      prepare(fn query, _context ->
+        if Ankole.Brain.Config.skill_learning_enabled?(),
+          do: query,
+          else: Ash.Query.filter(query, false)
+      end)
+
       prepare(build(sort: [skill_name: :asc, inserted_at: :desc]))
     end
 

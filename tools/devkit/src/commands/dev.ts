@@ -4,6 +4,7 @@ import path from 'node:path'
 import { defineCommand } from '@crustjs/core'
 
 import { createLocalAppDatabase, runAppMigrations } from './app-db'
+import { runPrettyLogs } from './logs'
 import { resolveLocalWorkerImage } from '../local-worker-image'
 import {
   appRootPath,
@@ -122,6 +123,7 @@ function startControlPlane(env: NodeJS.ProcessEnv): ChildProcess {
   return spawnAttached('control-plane', mix.command, mix.args, {
     cwd: appRootPath,
     env,
+    stdio: ['inherit', 'pipe', 'inherit'],
     detached: process.platform !== 'win32'
   })
 }
@@ -210,7 +212,7 @@ async function runDev(flags: {
 
   try {
     controlPlane = startControlPlane(controlPlaneEnv)
-    const exit = await waitForExit(controlPlane)
+    const [exit] = await Promise.all([waitForExit(controlPlane), runPrettyLogs(controlPlane.stdout!)])
     if (stopRequested) return
 
     const code = exit.code ?? 1

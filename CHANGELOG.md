@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.29 (2026-10-27)
+
+- Start the setup activation-code command in a cold process.
+- Honor model profile sampling settings during ambient triage and preserve optional arguments in hosted Brain calls.
+- Apply tenant query timeouts to physical Base reads and aggregates. Establish owner access when a page first moves into Private.
+- Let Console operators inspect system groups by name or ID. Hide saved Skill lessons while learning is disabled, and describe JSON API results with the fields they return.
+- Keep pulled Applet projects writable by the Agent, including nested folders, and install their packages as that user. Let custom Python environments use the image's Python packages.
+- Reject Worker requests that exceed the transport frame budget before transmission.
+- Create standard PPTX charts with editable workbooks. Correct spreadsheet pivot results, chart references and axes, and PDF table headers.
+- Keep Pod and Console actions working on HTTP origins. Clear stale Chat activity during disconnection, wait for requested browser snapshot elements, and correct missing language labels, page titles, and navigation state.
+
+- Bound HTTP/1 data queued during an Applet invocation to 1 MiB. Overflow closes the connection and cancels the invocation while preserving committed writes.
+- Save Messaging Binding filters on creation, edits, and moves. Omitted filters keep their saved value for the same adapter and reset when the adapter changes. Invalid filters reject the complete write.
+- Let an Agent read the current native conversation readers' private Brain content. Other participants continue to restrict disclosure.
+- Preserve native Conversation routes when Workflow tasks delegate Background Jobs, so Job results wake the owning task.
+
 ## Version 2.0.0-alpha.28 (2026-10-27)
 
 - Serve `/sessions/new` directly without expiring `flow` query URLs or upfront

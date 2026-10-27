@@ -22,6 +22,10 @@ const nativeLocaleLabels: Record<string, string> = {
 const supportedLngs = Object.keys(catalogLoaders)
 const loadedLocales = new Map<string, Promise<void>>()
 
+i18n.on('languageChanged', locale => {
+  if (typeof document !== 'undefined') document.documentElement.lang = locale
+})
+
 /**
  * Loads one catalog and makes it available to `t`. The first call also
  * initializes i18next synchronously with that catalog, so rendering after the

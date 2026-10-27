@@ -67,8 +67,8 @@ export class SnapshotStore {
     const root = locator ?? page
     let snapshot: string
     try {
-      // JSON snapshots do not wait for a selector. Use the same deadline as text snapshots.
-      if (options.interactive && locator) {
+      // Snapshot calls can reject a missing selector before their timeout.
+      if (locator) {
         await locator.waitFor({ state: 'attached', timeout: Math.max(1, deadline - Date.now()) })
       }
       const captureOptions = {
