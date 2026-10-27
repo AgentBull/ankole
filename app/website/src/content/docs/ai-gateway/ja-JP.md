@@ -123,7 +123,7 @@ bind された provider が提供しない capability は、`422 unsupported_cap
 
 同じ主体と token が隣接する能力を駆動します。`POST /web_search` は長さ制限のある `query` を受け取り、provider が提供する結果を返します。`POST /web_fetch` は 1 つから 5 つの公開 HTTPS URL を受け取り、page content を返します。これらの呼び出しは `web_search.default` と `web_fetch.default` を使用でき、AIGateway が現在の Agent profile を解決します。
 
-`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のサイト単位の設定 `brain.embedding_model` とテナント単位の設定 `brain.rerank_model` を使います。また、Pod Applet の `ctx.ai` 呼び出しも、`pod.applet.ai_agent_uid` に設定された有効な Agent のもとで AIGateway を経由し、その Agent の言語モデル profile を解決してステートレスに実行されます。検索の動作については [Brain](../brain/) を参照してください。
+`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のサイト単位の設定 `brain.embedding_model` とテナント単位の設定 `brain.rerank_model` を使います。Pod Applet の `ctx.ai` 呼び出しは、その Applet を作成した有効な Agent として AIGateway を経由し、ステートレスに実行されます。言語モデル profile、利用枠、使用量はその Agent に帰属します。検索の動作については [Brain](../brain/) を参照してください。
 
 file はファーストクラスです。`POST /files` がアップロードし、`GET /files` が一覧表示し、`GET /files/:id` と `GET /files/:id/content` が metadata と bytes を読み取り、`DELETE /files/:id` が 1 つを削除します。これらはすべて主体に限定されます。
 

@@ -12,6 +12,13 @@ defmodule Ankole.Signals.BindingConfigTest do
   alias Ankole.Signals.Bindings
   alias Ankole.Conversations.Delivery.Intent
 
+  defmodule FailingSaveHook do
+    def handle_binding_saved(_binding, %{"channelSecret" => "raise"}),
+      do: raise("adapter save unavailable")
+
+    def handle_binding_saved(_binding, _config), do: {:error, :adapter_save_unavailable}
+  end
+
   setup do
     %{principal: agent} = agent_fixture()
     binding = binding_fixture(agent.uid, "config-owner", :ignore, adapter: "line")
@@ -96,5 +103,98 @@ defmodule Ankole.Signals.BindingConfigTest do
     assert {:error,
             {:reply_delivery, :operator_action_required, %{"code" => "binding_config_not_found"}}} =
              EmailDelivery.deliver(intent)
+  end
+
+  @tag :unit
+  test "a failed adapter hook preserves the save and wakes blocked delivery", %{binding: binding} do
+    original = Ankole.Plugins.Registry.snapshot_for_test()
+    spec = original.active["line-adapter"]
+
+    spec = %{
+      spec
+      | adapter_declarations:
+          Enum.map(spec.adapter_declarations, fn
+            %{contract_id: "signals.adapter"} = declaration ->
+              Map.put(declaration, :binding_saved_module, FailingSaveHook)
+
+            declaration ->
+              declaration
+          end)
+    }
+
+    Ankole.Plugins.Registry.update_for_test(fn state ->
+      %{
+        state
+        | active: Map.put(state.active, spec.id, spec),
+          discovered: Map.put(state.discovered, spec.id, spec)
+      }
+    end)
+
+    on_exit(fn -> Ankole.Plugins.Registry.update_for_test(fn _ -> original end) end)
+
+    config = %{
+      "channelId" => "1650000001",
+      "channelSecret" => "secret",
+      "channelAccessToken" => "token"
+    }
+
+    log =
+      ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
+        assert {:ok, %{binding: saved}} =
+                 Bindings.put_binding(binding.agent_uid, "line", binding.name, %{
+                   "config" => config
+                 })
+
+        assert {:ok, ^config} = Bindings.stored_binding_config(saved)
+
+        conversation =
+          Ankole.ExternalConversationsFixtures.external_conversation_fixture("line:hook-test")
+
+        assert {:ok, intent} =
+                 commit_delivery(%{
+                   agent_uid: saved.agent_uid,
+                   binding_name: saved.name,
+                   outbound_key: "blocked-hook",
+                   delivery_class: :durable_ai_reply,
+                   operation: :post,
+                   conversation_id: conversation.id,
+                   fallback_visible_text: "Reply"
+                 })
+
+        assert {:ok, blocked} =
+                 Repo.transact(fn ->
+                   Ankole.Conversations.Delivery.Recovery.mark_intent_failed(
+                     intent,
+                     {:reply_delivery, :operator_action_required,
+                      %{"code" => "credentials_expired"}},
+                     DateTime.utc_now(:microsecond)
+                   )
+                 end)
+
+        assert blocked.recovery_status == :blocked
+        assert is_nil(blocked.next_attempt_at)
+
+        assert {:ok, %{binding: updated}} =
+                 Bindings.update_binding(saved.agent_uid, saved.agent_uid, saved.name, %{
+                   "config" => %{"channelSecret" => "raise"}
+                 })
+
+        assert {:ok, %{"channelSecret" => "raise"}} = Bindings.stored_binding_config(updated)
+
+        woken =
+          Repo.get_by!(Intent,
+            agent_uid: intent.agent_uid,
+            binding_name: intent.binding_name,
+            outbound_key: intent.outbound_key
+          )
+
+        assert %DateTime{} = woken.next_attempt_at
+        assert is_nil(woken.recovery_status)
+      end)
+
+    assert log =~ "signals.binding_publication_failed"
+    assert log =~ "adapter_save_unavailable"
+    assert log =~ "Elixir.RuntimeError"
+    assert log =~ "FailingSaveHook.handle_binding_saved/2"
   end
 end

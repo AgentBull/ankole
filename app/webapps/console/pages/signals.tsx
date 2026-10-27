@@ -28,7 +28,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
 import {
   ConfigField,
@@ -79,22 +79,33 @@ export function SignalsListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const scope = useAgentScope()
+  const adapters = useQuery({
+    ...listSignalAdaptersOptions(),
+    select: data => data.signal_adapters as SignalAdapterItem[]
+  })
+  const adapterByID = new Map((adapters.data ?? []).map(item => [item.adapter_id, item]))
+  const agentByUID = new Map(scope.agents.map(agent => [agent.uid, agent]))
   const signals = useQuery({
     ...listSignalBindingsOptions({ query: { agent: scope.agentUID || undefined } }),
     refetchInterval: LIST_REFRESH_MS
   })
   const rows = (signals.data?.signal_bindings ?? [])
     .filter(binding => showDisabled || binding.enabled)
-    .filter(binding =>
-      matchesResourceSearch(
+    .filter(binding => {
+      const adapterLabel = localizedText(adapterByID.get(binding.adapter)?.display_name, i18n.language)
+      const agent = agentByUID.get(binding.agent_uid)
+      return matchesResourceSearch(
         searchQuery,
         binding.name,
         binding.agent_uid,
+        agent?.display_name,
+        agent?.handle,
         binding.adapter,
+        adapterLabel,
         binding.unaddressed_group_message_policy,
         binding.enabled
       )
-    )
+    })
   const stoppedDeliveries = signals.data?.delivery_failures ?? []
   const hasAgents = activeAgents(scope.agents).length > 0
   const disableBinding = useMutation({
@@ -202,7 +213,9 @@ export function SignalsListPage() {
             </Link>
           </TableCell>
           <AgentCell uid={binding.agent_uid} />
-          <TableCell>{binding.adapter}</TableCell>
+          <TableCell>
+            {localizedText(adapterByID.get(binding.adapter)?.display_name, i18n.language) ?? binding.adapter}
+          </TableCell>
           {/* The stored value is a policy identifier, not a phrase an operator reads. */}
           <TableCell>{t(`console.signals.policy_${binding.unaddressed_group_message_policy}`)}</TableCell>
           <TableCell>
@@ -344,13 +357,14 @@ export function SignalBindingEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(SignalBindingEditorModel)
+  const params = useParams({ strict: false }) as { agent?: string; adapter?: string; name?: string }
   const [searchParams] = useSearchParams()
   const locale = i18n.language
 
-  const sourceAgentUID = searchParams.get('agent') ?? ''
+  const sourceAgentUID = params.agent ?? searchParams.get('agent') ?? ''
   const returnAgentUID = searchParams.get('return_agent') ?? ''
-  const lockedAdapter = searchParams.get('adapter') ?? undefined
-  const lockedName = searchParams.get('name') ?? undefined
+  const lockedAdapter = params.adapter ?? searchParams.get('adapter') ?? undefined
+  const lockedName = params.name ?? searchParams.get('name') ?? undefined
   const editing = Boolean(lockedName)
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
@@ -592,19 +606,9 @@ export function SignalBindingEditorPage() {
 }
 
 function editTo(agentUID: string, adapter: string, name: string, returnAgentUID: string): string {
-  const query = signalBindingEditParams(agentUID, adapter, name, returnAgentUID)
-  return `new?${query.toString()}`
-}
-
-function signalBindingEditParams(
-  agentUID: string,
-  adapter: string,
-  name: string,
-  returnAgentUID: string
-): URLSearchParams {
-  const query = new URLSearchParams({ agent: agentUID, adapter, name })
-  if (returnAgentUID) query.set('return_agent', returnAgentUID)
-  return query
+  const path = `/signals/${encodeURIComponent(agentUID)}/${encodeURIComponent(adapter)}/${encodeURIComponent(name)}`
+  if (!returnAgentUID) return path
+  return `${path}?${new URLSearchParams({ return_agent: returnAgentUID }).toString()}`
 }
 
 function signalBindingReturnPath(agentUID: string): string {

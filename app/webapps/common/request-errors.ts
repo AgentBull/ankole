@@ -97,6 +97,7 @@ const authnErrors: Record<string, string> = Object.fromEntries(
     'last_active_human_admin',
     'directory_managed_member',
     'site_credential_already_bound',
+    'identity_provider_exists',
     'credential_change_disabled',
     'login_policy_rejected',
     'invitation_unavailable',

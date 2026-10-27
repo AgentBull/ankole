@@ -4,7 +4,7 @@ defmodule Ankole.ConsoleReadiness do
 
   The snapshot keeps readiness rules in the control plane, so each console
   client shows the same result without reconstructing provider, Agent, profile,
-  Worker, and signal state.
+  and Worker state.
   """
 
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
@@ -35,7 +35,7 @@ defmodule Ankole.ConsoleReadiness do
   alias Ankole.AgentWorkers
 
   @required_profiles ~w(primary light heavy)
-  @total_core_steps 5
+  @total_core_steps 4
 
   @doc """
   Returns the current deployment instance readiness snapshot.
@@ -54,20 +54,12 @@ defmodule Ankole.ConsoleReadiness do
     # the default provider accepts requests.
     worker_provider_ready = AgentWorkers.provider_status() == :ok
     agent_uid = agent_uid(target)
-    # An Agent with no bound channel receives nothing, so a Signal Binding is
-    # part of a working deployment instance rather than an optional extra. The
-    # question is whether the deployment instance can receive at all, not
-    # whether the Agent that exemplifies the model-profile step is the bound
-    # one. Those can be different Agents in a deployment instance that runs a
-    # background-only Agent.
-    signal_route_complete = signal_route_complete?(active_agents)
 
     core_steps = [
       ready_providers != [],
       agent_complete,
       profiles_complete,
-      worker_provider_ready,
-      signal_route_complete
+      worker_provider_ready
     ]
 
     completed_core_steps = Enum.count(core_steps, & &1)
@@ -93,9 +85,6 @@ defmodule Ankole.ConsoleReadiness do
       worker: %{
         complete: worker_provider_ready,
         ready_count: ready_worker_count
-      },
-      signal_route: %{
-        complete: signal_route_complete
       }
     }
   end
@@ -142,16 +131,6 @@ defmodule Ankole.ConsoleReadiness do
   end
 
   defp missing_profiles(_agent, _ready_provider_ids), do: @required_profiles
-
-  defp signal_route_complete?(active_agents) do
-    active_agent_uids = MapSet.new(active_agents, & &1.principal.uid)
-    {:ok, bindings} = Ankole.Signals.Bindings.list_bindings()
-
-    Enum.any?(bindings, fn binding ->
-      binding.enabled and is_nil(binding.unavailable_reason) and
-        MapSet.member?(active_agent_uids, binding.agent_uid)
-    end)
-  end
 
   defp agent_uid(%{principal: principal}), do: principal.uid
   defp agent_uid(_agent), do: nil

@@ -4,7 +4,6 @@ import { Button, buttonVariants, Skeleton, cn } from '@ankole/uikit'
 import {
   RiAlertLine,
   RiArrowRightLine,
-  RiBroadcastLine,
   RiChat3Line,
   RiCloseCircleLine,
   RiGitBranchLine,
@@ -42,8 +41,7 @@ const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: 
   provider: RiSparkling2Line,
   agent: RiRobot2Line,
   profiles: RiListCheck3,
-  worker: RiServerLine,
-  signal: RiBroadcastLine
+  worker: RiServerLine
 }
 
 export function HomePage() {
@@ -223,21 +221,27 @@ export function HomePage() {
             <PanelEmpty>{t('console.background_agent_jobs.empty_title')}</PanelEmpty>
           ) : (
             <ul className="grid">
-              {jobRows.slice(0, 5).map(job => (
-                <li key={job.id}>
-                  <Link
-                    {...linkTarget(`/background-agent-jobs?job=${job.id}`)}
-                    className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
-                      <JobStatus status={job.status} />
-                    </div>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {job.agent_uid} · {formatConsoleDate(job.inserted_at)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
+              {jobRows.slice(0, 5).map(job => {
+                const jobAgent = agentRows.find(agent => agent.uid === job.agent_uid)
+                return (
+                  <li key={job.id}>
+                    <Link
+                      {...linkTarget(`/background-agent-jobs?job=${job.id}`)}
+                      className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
+                        <JobStatus status={job.status} />
+                      </div>
+                      <span className="truncate text-xs text-muted-foreground">
+                        <span className={jobAgent ? undefined : 'font-mono'} title={job.agent_uid}>
+                          {jobAgent ? jobAgent.display_name : job.agent_uid}
+                        </span>{' '}
+                        · {formatConsoleDate(job.inserted_at)}
+                      </span>
+                    </Link>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </Panel>
@@ -255,6 +259,7 @@ export function HomePage() {
             <ul className="grid">
               {(conversations.data?.conversations ?? []).map(conversation => {
                 const displayName = conversationDisplayName(conversation)
+                const subjectAgent = agentRows.find(agent => agent.uid === conversation.subject_uid)
 
                 return (
                   <li key={conversation.id}>
@@ -269,8 +274,11 @@ export function HomePage() {
                           {t('console.home.message_count', { count: conversation.message_count })}
                         </span>
                       </div>
-                      <span className="truncate font-mono text-xs text-muted-foreground">
-                        {conversation.subject_uid} · {formatConsoleDate(conversation.updated_at)}
+                      <span className="truncate text-xs text-muted-foreground">
+                        <span className={subjectAgent ? undefined : 'font-mono'} title={conversation.subject_uid}>
+                          {subjectAgent ? subjectAgent.display_name : conversation.subject_uid}
+                        </span>{' '}
+                        · {formatConsoleDate(conversation.updated_at)}
                       </span>
                     </Link>
                   </li>

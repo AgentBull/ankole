@@ -111,6 +111,7 @@ observer to a member. Each Human owns their pin, mute, and monotonic
 
 Group members can set or clear the room's standing orders through
 `set_channel_standing_orders`. The room stores the complete policy and its setter.
+Member-set policy applies within the room and the Agent's permissions.
 An Agent with `may_intervene: true` receives these orders in both addressed and
 listening turns. The tool reports whether the policy is active for that Agent.
 Native direct rooms do not expose the tool.
@@ -699,6 +700,10 @@ judgments to retain an anchor. `Sessions.Key` is a pure value-format dependency;
 it performs no Session execution.
 
 ## Read Shared History and Learn It
+
+A native room detail read uses one read-only, repeatable snapshot. It reads a
+bounded history window and the messages that contain links, attachments, or
+visible saved Pages. The latest Human input is a separate bounded lookup.
 
 Every Agent in an external room has its own Session, model Responses, visible
 branch read watermark, and ambient judgment history. All read the same public

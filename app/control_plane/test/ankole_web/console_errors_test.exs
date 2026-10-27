@@ -158,8 +158,8 @@ defmodule AnkoleWeb.ConsoleErrorsTest do
         )
       )
 
-    assert %{"error" => %{"code" => "invalid_value", "details" => []}} =
-             BusinessController |> dispatch({:error, framework}) |> json_response(422)
+    assert %{"error" => %{"code" => "internal_error", "details" => []}} =
+             BusinessController |> dispatch({:error, framework}) |> json_response(500)
   end
 
   test "an unlisted reason keeps the controller code without exposing the reason" do
@@ -176,7 +176,7 @@ defmodule AnkoleWeb.ConsoleErrorsTest do
             "probe failed"
           )
 
-        assert json_response(conn, 422) == %{
+        assert json_response(conn, 500) == %{
                  "error" => %{
                    "code" => "invalid_probe",
                    "message" => "probe failed",
@@ -252,8 +252,8 @@ defmodule AnkoleWeb.ConsoleErrorsTest do
 
     log =
       ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
-        body = BusinessController |> dispatch({:error, unknown}) |> json_response(422)
-        assert body["error"]["code"] == "invalid_value"
+        body = BusinessController |> dispatch({:error, unknown}) |> json_response(500)
+        assert body["error"]["code"] == "internal_error"
         refute Ankole.JSON.encode!(body) =~ secret
         refute Ankole.Sessions.Tools.error(unknown).output =~ secret
       end)

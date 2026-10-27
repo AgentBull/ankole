@@ -377,16 +377,17 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
       |> SessionCookies.call([])
       |> fetch_session()
 
-    {:ok, conn, flow} = WebSession.begin_login(conn, :pod, %{})
-    {:ok, _} = BrowserSessions.bind_provider(WebSession.browser_reference(conn), flow.id, "local")
+    conn = WebSession.ensure_browser(conn)
 
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, flow.id, %{
+    {:ok, %{browser: browser, authentication: auth}} =
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), :pod, %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
         "provider_id" => "local",
         "external_id" => principal.uid
       })
+
+    conn = WebSession.put_authentication(conn, browser, auth)
 
     {conn, WebSession.authentication_reference(conn)}
   end

@@ -14,7 +14,7 @@ defmodule Ankole.Sessions.Tools do
 
   def prepare(run, call) do
     with %{} = tool <- ToolCatalog.find(run, call),
-         {:ok, args, _repair} <- arguments(call, tool),
+         {:ok, args} <- arguments(call, tool),
          {:ok, args} <- validate(tool, args),
          :ok <- authorize_call(run, tool.name, args) do
       {:ok, tool, args}
@@ -258,7 +258,7 @@ defmodule Ankole.Sessions.Tools do
   end
 
   defp arguments(call, %Tool{schema: %{"type" => "custom"}}),
-    do: {:ok, call["input"] || "", :none}
+    do: {:ok, call["input"] || ""}
 
   defp arguments(call, _tool), do: ToolArguments.parse(call["arguments"] || "{}")
 

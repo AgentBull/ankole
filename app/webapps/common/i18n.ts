@@ -55,6 +55,11 @@ export function loadLocale(locale: string): Promise<void> {
           resources: { [supported]: { translation: catalog } },
           supportedLngs
         })
+      i18n.on('languageChanged', lng => {
+        if (typeof document !== 'undefined' && document.documentElement && lng) {
+          document.documentElement.lang = lng
+        }
+      })
     })
     loadedLocales.set(supported, loading)
   }

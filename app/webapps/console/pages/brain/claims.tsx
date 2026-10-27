@@ -15,6 +15,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
+  RadioGroup,
+  RadioGroupItem,
   Select,
   SelectContent,
   SelectItem,
@@ -39,9 +41,12 @@ import {
 import type { ListBrainClaimsResponse } from '../../api/v2/generated/types.gen'
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
+import { useSearchParams } from '../../../common/router'
+import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'
 import { BrainSubNav, brainObjectPath } from './brain-nav'
+import { BrainHolderLabel } from './brain-scope'
 
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
 
@@ -61,13 +66,14 @@ type ClaimState = {
 
 export function BrainClaimsPage() {
   const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
   // Search and the slug filter query the server, so both commit on the shared
   // debounce instead of issuing one request per keystroke.
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => searchParams.get('search') ?? '')
   const [queryDraft, setQueryDraft] = useResourceSearchDraft(query, setQuery)
   const [claimType, setClaimType] = useState<'all' | 'fact' | 'take'>('all')
   const [currentOnly, setCurrentOnly] = useState(true)
-  const [objectSlug, setObjectSlug] = useState('')
+  const [objectSlug, setObjectSlug] = useState(() => searchParams.get('object_slug') ?? '')
   const [slugDraft, setSlugDraft] = useResourceSearchDraft(objectSlug, setObjectSlug)
 
   const claims = useInfiniteQuery({
@@ -175,7 +181,9 @@ export function BrainClaimsPage() {
                   {claim.kind ? ` · ${claim.kind}` : ''}
                 </Badge>
               </TableCell>
-              <TableCell className="font-mono text-xs">{claim.holder ?? '—'}</TableCell>
+              <TableCell>
+                <BrainHolderLabel holder={claim.holder} />
+              </TableCell>
               <TableCell className="font-mono text-xs">
                 {claim.object_slug ? (
                   <Link className="link" to={brainObjectPath(claim.object_slug)}>
@@ -268,35 +276,45 @@ function SupersedeClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose:
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const guard = useDialogDiscardGuard({
+    dirty: claim !== undefined && text !== claim.claim,
+    onOpenChange: open => !open && onClose(),
+    pending: supersede.isPending
+  })
 
   return (
-    <Dialog open={Boolean(claim)} onOpenChange={open => !supersede.isPending && !open && onClose()}>
-      <DialogContent closeLabel={t('common.close')} showCloseButton={!supersede.isPending}>
-        <DialogHeader>
-          <DialogTitle>{t('console.brain.supersede_title')}</DialogTitle>
-          <DialogDescription>{t('console.brain.supersede_description')}</DialogDescription>
-        </DialogHeader>
-        <Textarea
-          aria-label={t('console.brain.supersede_text')}
-          className="min-h-28 text-sm"
-          value={text}
-          onChange={event => setText(event.target.value)}
-        />
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />} disabled={supersede.isPending}>
-            {t('common.cancel')}
-          </DialogClose>
-          <Button
-            disabled={supersede.isPending || !text.trim() || text.trim() === claim?.claim}
-            onClick={() =>
-              supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { claim: text.trim() } } })
-            }>
-            {supersede.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-            {t('console.brain.supersede')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={Boolean(claim)} onOpenChange={guard.requestOpenChange}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!supersede.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.supersede_title')}</DialogTitle>
+            <DialogDescription>{t('console.brain.supersede_description')}</DialogDescription>
+          </DialogHeader>
+          <LabeledField label={t('console.brain.supersede_text')} required>
+            <Textarea
+              className="min-h-28 text-sm"
+              required
+              value={text}
+              onChange={event => setText(event.target.value)}
+            />
+          </LabeledField>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={supersede.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={supersede.isPending || !text.trim() || text.trim() === claim?.claim}
+              onClick={() =>
+                supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { claim: text.trim() } } })
+              }>
+              {supersede.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.brain.supersede')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
+    </>
   )
 }
 
@@ -318,36 +336,41 @@ function ForgetClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const guard = useDialogDiscardGuard({
+    dirty: Boolean(claim && reason.trim()),
+    onOpenChange: open => !open && onClose(),
+    pending: forget.isPending
+  })
 
   return (
-    <Dialog open={Boolean(claim)} onOpenChange={open => !forget.isPending && !open && onClose()}>
-      <DialogContent closeLabel={t('common.close')} showCloseButton={!forget.isPending}>
-        <DialogHeader>
-          <DialogTitle>{t('console.brain.forget_claim_title')}</DialogTitle>
-          <DialogDescription>{t('console.brain.forget_claim_description')}</DialogDescription>
-        </DialogHeader>
-        <Input
-          aria-label={t('console.brain.forget_reason')}
-          placeholder={t('console.brain.forget_reason')}
-          value={reason}
-          onChange={event => setReason(event.target.value)}
-        />
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />} disabled={forget.isPending}>
-            {t('common.cancel')}
-          </DialogClose>
-          <Button
-            disabled={forget.isPending || !reason.trim()}
-            variant="destructive"
-            onClick={() =>
-              forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { reason: reason.trim() } } })
-            }>
-            {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-            {t('console.brain.forget')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={Boolean(claim)} onOpenChange={guard.requestOpenChange}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!forget.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.forget_claim_title')}</DialogTitle>
+            <DialogDescription>{t('console.brain.forget_claim_description')}</DialogDescription>
+          </DialogHeader>
+          <LabeledField label={t('console.brain.forget_reason')} required>
+            <Input required value={reason} onChange={event => setReason(event.target.value)} />
+          </LabeledField>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={forget.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={forget.isPending || !reason.trim()}
+              variant="destructive"
+              onClick={() =>
+                forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { reason: reason.trim() } } })
+              }>
+              {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.brain.forget')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
+    </>
   )
 }
 
@@ -374,88 +397,96 @@ function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const guard = useDialogDiscardGuard({
+    dirty: Boolean(claim) && (quality !== 'correct' || !outcome || Boolean(provenance.trim())),
+    onOpenChange: open => !open && onClose(),
+    pending: resolve.isPending
+  })
 
   return (
-    <Dialog open={Boolean(claim)} onOpenChange={open => !resolve.isPending && !open && onClose()}>
-      <DialogContent closeLabel={t('common.close')} showCloseButton={!resolve.isPending}>
-        <DialogHeader>
-          <DialogTitle>{t('console.brain.resolve_title')}</DialogTitle>
-          <DialogDescription>{t('console.brain.resolve_description')}</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          {claim?.graded_quality ? (
-            <p className="border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {t('console.brain.graded_reference', {
-                quality: claim.graded_quality,
-                confidence: claim.graded_confidence ?? '—'
-              })}
-            </p>
-          ) : null}
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
-            {t('console.brain.resolve_quality')}
-            <Select
-              value={quality}
-              onValueChange={value => {
-                if (typeof value === 'string' && (RESOLUTION_QUALITIES as readonly string[]).includes(value)) {
-                  setQuality(value as ResolutionQuality)
-                }
-              }}>
-              <SelectTrigger aria-label={t('console.brain.resolve_quality')} className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RESOLUTION_QUALITIES.map(option => (
-                  <SelectItem key={option} value={option}>
-                    {t(`console.brain.resolve_quality_${option}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          {outcomeRequired ? (
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.resolve_outcome')}
-              <Select value={outcome ? 'true' : 'false'} onValueChange={value => value && setOutcome(value === 'true')}>
-                <SelectTrigger aria-label={t('console.brain.resolve_outcome')} className="w-full">
-                  <SelectValue>
-                    {value => (value === 'true' ? t('common.boolean_true') : t('common.boolean_false'))}
-                  </SelectValue>
+    <>
+      <Dialog open={Boolean(claim)} onOpenChange={guard.requestOpenChange}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!resolve.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.resolve_title')}</DialogTitle>
+            <DialogDescription>{t('console.brain.resolve_description')}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            {claim?.graded_quality ? (
+              <p className="border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {t('console.brain.graded_reference', {
+                  quality: claim.graded_quality,
+                  confidence: claim.graded_confidence ?? '—'
+                })}
+              </p>
+            ) : null}
+            <LabeledField label={t('console.brain.resolve_quality')}>
+              <Select
+                value={quality}
+                onValueChange={value => {
+                  if (typeof value === 'string' && (RESOLUTION_QUALITIES as readonly string[]).includes(value)) {
+                    setQuality(value as ResolutionQuality)
+                  }
+                }}>
+                <SelectTrigger aria-label={t('console.brain.resolve_quality')} className="w-full">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="true">{t('common.boolean_true')}</SelectItem>
-                  <SelectItem value="false">{t('common.boolean_false')}</SelectItem>
+                  {RESOLUTION_QUALITIES.map(option => (
+                    <SelectItem key={option} value={option}>
+                      {t(`console.brain.resolve_quality_${option}`)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-            </label>
-          ) : null}
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
-            {t('console.brain.resolve_provenance')}
-            <Input value={provenance} onChange={event => setProvenance(event.target.value)} />
-          </label>
-        </div>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />} disabled={resolve.isPending}>
-            {t('common.cancel')}
-          </DialogClose>
-          <Button
-            disabled={resolve.isPending}
-            onClick={() =>
-              resolve.mutate({
-                path: { claim_id: claim?.id ?? '' },
-                body: {
-                  data: {
-                    resolved_quality: quality,
-                    resolved_outcome: outcomeRequired ? outcome : null,
-                    resolution_provenance: provenance.trim() || null
+            </LabeledField>
+            {outcomeRequired ? (
+              <LabeledField label={t('console.brain.resolve_outcome')}>
+                <RadioGroup
+                  aria-label={t('console.brain.resolve_outcome')}
+                  className="flex items-center gap-6 pt-1"
+                  value={outcome ? 'true' : 'false'}
+                  onValueChange={value => setOutcome(value === 'true')}>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                    <RadioGroupItem value="true" />
+                    {t('common.boolean_true')}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                    <RadioGroupItem value="false" />
+                    {t('common.boolean_false')}
+                  </label>
+                </RadioGroup>
+              </LabeledField>
+            ) : null}
+            <LabeledField label={t('console.brain.resolve_provenance')}>
+              <Input value={provenance} onChange={event => setProvenance(event.target.value)} />
+            </LabeledField>
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={resolve.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={resolve.isPending}
+              onClick={() =>
+                resolve.mutate({
+                  path: { claim_id: claim?.id ?? '' },
+                  body: {
+                    data: {
+                      resolved_quality: quality,
+                      resolved_outcome: outcomeRequired ? outcome : null,
+                      resolution_provenance: provenance.trim() || null
+                    }
                   }
-                }
-              })
-            }>
-            {resolve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-            {t('console.brain.resolve')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+                })
+              }>
+              {resolve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.brain.resolve')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
+    </>
   )
 }

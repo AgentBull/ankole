@@ -6,6 +6,8 @@ import * as T from '../core/types'
 import { Embed, embed as embedBlock, embedAttributes } from '../blocks/embed'
 import { element } from '../document/tree'
 import { markValue } from './attributes'
+import { deleteBlock } from './block-actions'
+import { dispatchStep } from './block-insert'
 import { ImageTitle } from './schema'
 
 export type EmbedAttributes = { ref?: string; table?: string; view?: string }
@@ -13,7 +15,8 @@ export type EditorHost = {
   mountEmbed?(
     attributes: EmbedAttributes,
     container: HTMLElement,
-    update: (attributes: EmbedAttributes) => void
+    update: (attributes: EmbedAttributes) => void,
+    remove: () => void
   ): void | (() => void)
   resolveAsset?(address: string): string
   openPage?(id: string): void
@@ -23,6 +26,23 @@ export type EditorHost = {
 
 const hosts = new WeakMap<Wordgard, EditorHost>()
 export const editorHost = (editor: Wordgard) => hosts.get(editor)
+
+/** Open a safe link address through the host or the browser. */
+export function openLinkHref(editor: Wordgard, href: string): boolean {
+  const host = editorHost(editor)
+  if (href.startsWith('ankole:page/')) {
+    if (!host?.openPage) return false
+    host.openPage(href.slice('ankole:page/'.length))
+    return true
+  }
+  if (!/^(https?:\/\/|mailto:|tel:|\/|#)/i.test(href) || typeof window === 'undefined') return false
+  if (href.startsWith('#')) {
+    window.location.hash = href
+    return true
+  }
+  window.open(href, '_blank', 'noopener,noreferrer')
+  return true
+}
 
 /** The host owns embedded resources. The editor owns their reference and DOM lifecycle. */
 export function hostExtension(host: EditorHost): GardState.Extension {
@@ -36,9 +56,9 @@ export function hostExtension(host: EditorHost): GardState.Extension {
       return container
     },
     connect: (attributes, dom) => {
-      const dispose = host.mountEmbed?.(attributes, dom as HTMLElement, next => {
-        const editor = editors.get(dom as Element)!
-        if (editor.state.readOnly) return
+      const update = (next: EmbedAttributes) => {
+        const editor = editors.get(dom as Element)
+        if (!editor || editor.state.readOnly) return
         const position = editor.posAtDOM(dom)
         const node = editor.state.doc.resolve(position).nodeAfter
         if (node?.type !== Embed.type) return
@@ -60,7 +80,23 @@ export function hostExtension(host: EditorHost): GardState.Extension {
           },
           userEvent: 'embed.configure'
         })
-      })
+      }
+      const remove = () => {
+        const editor = editors.get(dom as Element)
+        if (!editor || editor.state.readOnly) return
+        const position = editor.posAtDOM(dom)
+        const found = editor.state.doc.resolveNode(position)
+        if (found?.node.type !== Embed.type) return
+        if (!found.parent?.parent) deleteBlock(editor, position)
+        else {
+          dispatchStep(editor, {
+            changes: { from: position, to: position + found.node.length },
+            userEvent: 'block.delete'
+          })
+        }
+        editor.focus()
+      }
+      const dispose = host.mountEmbed?.(attributes, dom as HTMLElement, update, remove)
       if (dispose) cleanup.set(dom as Element, dispose)
     },
     disconnect: (_attributes, dom) => {
@@ -80,11 +116,20 @@ export function hostExtension(host: EditorHost): GardState.Extension {
           })
         )
       : [],
-    Wordgard.domEventHandler('click', event => {
-      const link = (event.target as Element | null)?.closest('a[href^="ankole:page/"]')
-      if (!link || !host.openPage) return false
+    Wordgard.domEventHandler('click', (event, editor) => {
+      if (event.button !== 0) return false
+      const link = (event.target as Element | null)?.closest('a[href]')
+      if (!link) return false
+      const href = link.getAttribute('href') ?? ''
+      if (href.startsWith('ankole:page/')) {
+        if (!host.openPage) return false
+        event.preventDefault()
+        host.openPage(href.slice('ankole:page/'.length))
+        return true
+      }
+      if (!editor.state.readOnly && !event.metaKey && !event.ctrlKey) return false
+      if (!openLinkHref(editor, href)) return false
       event.preventDefault()
-      host.openPage(link.getAttribute('href')!.slice('ankole:page/'.length))
       return true
     })
   ]

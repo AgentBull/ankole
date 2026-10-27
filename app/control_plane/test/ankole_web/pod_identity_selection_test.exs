@@ -90,8 +90,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
 
   test "the Pod shell exposes the Principal selected by its authentication proof", ctx do
     for {reference, principal} <- [{ctx.a_ref, ctx.a}, {ctx.b_ref, ctx.b}] do
-      {chooser, flow} = chooser(ctx.signed, ctx.tenant)
-      selected = select(chooser, ctx.tenant, flow, reference)
+      chooser = chooser(ctx.signed, ctx.tenant)
+      selected = select(chooser, ctx.tenant, reference)
       assert api_response(selected, 200)["returnTo"] == "/content/space"
 
       response =
@@ -110,14 +110,15 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
   end
 
   test "the existing Pod chooser switches a proven account and keeps an open tab pinned", ctx do
-    {shell, flow} = chooser(ctx.signed, ctx.tenant)
+    shell = chooser(ctx.signed, ctx.tenant)
 
     choices =
       shell
       |> recycle()
       |> put_req_header("accept", "application/json")
       |> get(
-        PodURL.origin(shell, ctx.tenant) <> "/api/v2/browser/identity-providers?flow=#{flow}"
+        PodURL.origin(shell, ctx.tenant) <>
+          "/api/v2/browser/identity-providers?switch=1&return_to=%2Fcontent%2Fspace"
       )
 
     assert %{"identities" => identities} = json_response(choices, 200)
@@ -125,10 +126,9 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert Enum.sort(Enum.map(identities, & &1["principalUID"])) ==
              Enum.sort([ctx.a.uid, ctx.b.uid])
 
-    selected = select(shell, ctx.tenant, flow, ctx.a_ref)
+    selected = select(shell, ctx.tenant, ctx.a_ref)
     assert %{"returnTo" => "/content/space"} = api_response(selected, 200)
     assert BrowserSessions.current_reference(WebSession.browser_reference(selected)) == ctx.a_ref
-    assert {:error, :login_expired} = WebSession.login_transaction(selected, flow)
 
     pinned =
       selected
@@ -247,17 +247,17 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
   end
 
   test "a chooser cannot use another tenant's proof or a revoked account", ctx do
-    {shell, flow} = chooser(ctx.signed, ctx.tenant)
+    shell = chooser(ctx.signed, ctx.tenant)
     foreign = Ankole.DataCase.create_tenant()
-    {foreign_shell, foreign_flow} = chooser(ctx.signed, foreign)
-    denied = select(foreign_shell, foreign, foreign_flow, ctx.a_ref)
+    foreign_shell = chooser(ctx.signed, foreign)
+    denied = select(foreign_shell, foreign, ctx.a_ref)
     assert denied.status == 401
 
-    assert select(shell, foreign, flow, ctx.a_ref).status == 401
+    assert select(shell, foreign, ctx.a_ref).status == 401
 
     Repo.put_tenant_id(ctx.a.tenant_id)
     assert {:ok, _} = BrowserSessions.revoke(WebSession.browser_reference(ctx.signed), ctx.a_ref)
-    assert select(shell, ctx.tenant, flow, ctx.a_ref).status == 401
+    assert select(shell, ctx.tenant, ctx.a_ref).status == 401
   end
 
   test "legacy HTTPS proof cookies migrate every verified account without changing the selection",
@@ -311,46 +311,36 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
   end
 
   defp login(conn, principal) do
-    {:ok, conn, flow} = WebSession.begin_login(conn, :pod, %{})
-    assert flow.mode == :add
-    {:ok, _} = BrowserSessions.bind_provider(WebSession.browser_reference(conn), flow.id, "local")
+    conn = WebSession.ensure_browser(conn)
 
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, flow.id, %{
-        "principal_uid" => principal.uid,
-        "access_version" => principal.access_version,
-        "provider_id" => "local",
-        "external_id" => principal.uid
-      })
+    {:ok, %{browser: browser, authentication: authentication}} =
+      BrowserSessions.authenticate(
+        WebSession.browser_reference(conn),
+        :pod,
+        %{
+          "principal_uid" => principal.uid,
+          "access_version" => principal.access_version,
+          "provider_id" => "local",
+          "external_id" => principal.uid
+        },
+        mode: :add
+      )
 
+    conn = WebSession.put_authentication(conn, browser, authentication)
     {conn, WebSession.authentication_reference(conn)}
   end
 
   defp chooser(conn, tenant) do
-    {start, location} = begin_choice(conn, tenant)
-    flow = URI.decode_query(URI.parse(location).query)["flow"]
-
     shell =
-      start
-      |> recycle()
+      conn
       |> put_req_header("accept", "text/html")
-      |> get(PodURL.origin(conn, tenant) <> location)
+      |> get(PodURL.origin(conn, tenant) <> "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace")
 
     assert html_response(shell, 200) =~ "csrf-token"
-    {shell, flow}
+    shell
   end
 
-  defp begin_choice(conn, tenant) do
-    start =
-      get(
-        conn,
-        PodURL.origin(conn, tenant) <> "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace"
-      )
-
-    {start, redirected_to(start)}
-  end
-
-  defp select(shell, tenant, flow, ref) do
+  defp select(shell, tenant, ref) do
     [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, shell.resp_body)
     origin = PodURL.origin(shell, tenant)
 
@@ -361,7 +351,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     |> put_req_header("x-csrf-token", csrf)
     |> put_req_header("origin", origin)
     |> api_post(origin <> "/api/v2/browser/sessions/identity-selection", %{
-      flow: flow,
+      returnTo: "/content/space",
       authenticationRef: BrowserSessions.encode_reference(ref)
     })
   end

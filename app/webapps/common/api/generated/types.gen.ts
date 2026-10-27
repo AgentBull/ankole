@@ -177,7 +177,13 @@ export type LoginProvidersData = {
   body?: never
   path?: never
   query?: {
-    flow?: string
+    invitation?: string
+    invitation_token?: string
+    oauth_request?: string
+    prompt?: string
+    purpose?: string
+    reauth?: string
+    switch?: string
   }
   url: '/api/v2/browser/identity-providers'
 }
@@ -299,35 +305,6 @@ export type AcceptInvitationResponses = {
 }
 
 export type AcceptInvitationResponse = AcceptInvitationResponses[keyof AcceptInvitationResponses]
-
-export type BeginInvitationLoginData = {
-  body?: never
-  path: {
-    token: string
-  }
-  query?: never
-  url: '/api/v2/browser/invitations/{token}/sessions'
-}
-
-export type BeginInvitationLoginErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type BeginInvitationLoginError = BeginInvitationLoginErrors[keyof BeginInvitationLoginErrors]
-
-export type BeginInvitationLoginResponses = {
-  /**
-   * Success
-   */
-  201: {
-    flow: string
-  }
-}
-
-export type BeginInvitationLoginResponse = BeginInvitationLoginResponses[keyof BeginInvitationLoginResponses]
 
 export type LogoutConfirmationData = {
   body?: never
@@ -499,7 +476,13 @@ export type RequestEmailOtpData = {
   body: {
     data: {
       email: string
-      flow: string
+      invitation?: string | null
+      invitationToken?: string | null
+      oauthRequest?: string | null
+      prompt?: string | null
+      purpose?: string | null
+      reauth?: string | null
+      returnTo?: string | null
     }
   }
   path?: never
@@ -536,7 +519,6 @@ export type VerifyEmailOtpData = {
     data: {
       challengeID: string
       code: string
-      flow: string
     }
   }
   path?: never
@@ -572,7 +554,10 @@ export type SelectLoginIdentityData = {
   body: {
     data: {
       authenticationRef: string
-      flow: string
+      oauthRequest?: string | null
+      prompt?: string | null
+      reauth?: string | null
+      returnTo?: string | null
     }
   }
   path?: never
@@ -728,7 +713,6 @@ export type RequestSetupEmailOtpResponses = {
    */
   201: {
     challengeID: string
-    flow: string
   }
 }
 
@@ -742,7 +726,6 @@ export type VerifySetupEmailOtpData = {
     data: {
       challengeID: string
       code: string
-      flow: string
     }
   }
   path?: never

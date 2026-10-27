@@ -123,7 +123,7 @@ AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider bindi
 
 같은 subject와 token이 인접한 capability를 구동합니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 provider가 제공하는 결과를 반환합니다. `POST /web_fetch`는 1개에서 5개의 공용 HTTPS URL을 받아 페이지 콘텐츠를 반환합니다. 이 호출은 `web_search.default`와 `web_fetch.default`를 사용할 수 있으며, AIGateway가 현재 Agent profile을 해석합니다.
 
-`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 사이트 단위 설정인 `brain.embedding_model`과 테넌트 단위 설정인 `brain.rerank_model`을 사용합니다. 또한 Pod Applet의 `ctx.ai` 호출도 `pod.applet.ai_agent_uid`에 구성된 활성 Agent 아래에서 AIGateway를 통해 stateless 방식으로 라우팅되어 해당 Agent의 언어 모델 profile을 해석합니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
+`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 사이트 단위 설정인 `brain.embedding_model`과 테넌트 단위 설정인 `brain.rerank_model`을 사용합니다. Pod Applet의 `ctx.ai` 호출은 해당 Applet을 만든 활성 Agent로 AIGateway를 통해 stateless 방식으로 실행됩니다. 언어 모델 profile, 할당량, 사용량은 해당 Agent에 귀속됩니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
 
 파일은 first-class입니다. `POST /files`가 업로드하고, `GET /files`가 나열하며, `GET /files/:id`와 `GET /files/:id/content`가 메타데이터와 바이트를 읽고, `DELETE /files/:id`가 하나를 삭제합니다. 모두 subject 범위로 제한됩니다.
 

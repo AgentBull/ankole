@@ -1,4 +1,4 @@
-import { state, requestWithSharingVersion as request } from './fixtures'
+import { state, publishApplet, requestWithSharingVersion as request } from './fixtures'
 import { listRoute, conversationRoute, pageIDFromURL, pageRoute as route } from './routes'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page, type Route } from '@playwright/test'
@@ -21,10 +21,12 @@ async function choose(page: Page, name: string, option: string, parent?: string)
   if (name === '目标位置' || name === '选择页面') {
     const dialog = page.getByRole('dialog', { name: name === '目标位置' ? '移动页面' : '引用页面', exact: true })
     const search = dialog.getByRole('combobox', { name, exact: true })
+    await search.click()
     await expect(search).toBeFocused()
     await search.fill(option)
-    // A result's accessible name includes its visible parent context.
-    await dialog.getByRole('option', { name: parent ? `${option} ${parent}` : option, exact: true }).click()
+    const choices = dialog.getByRole('option').filter({ has: page.getByText(option, { exact: true }) })
+    const choice = parent ? choices.filter({ hasText: parent }) : choices
+    await choice.click()
     if (name === '目标位置') await expect(dialog.locator('.pod-selected-destination')).toContainText(option)
     else await expect(dialog).toHaveCount(0)
     return
@@ -77,8 +79,10 @@ test('people and Agent-authored content follow the real Pod persistence, permiss
 
     await documentAction(owner, '新建页面')
     await owner.getByRole('menuitem', { name: '文档', exact: true }).click()
-    await expect(owner.locator('.editor-content .embed')).toContainText('无标题')
-    await expect(owner.locator('.pod-document [role="status"]')).toHaveText('已自动保存')
+    await expect(owner).not.toHaveURL(state.base_url + route(state.report_id))
+    await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue('')
+    const parent = await request<{ content: { content: string } }>(owner, `/pages/${state.report_id}`)
+    expect(parent.content.content).toContain(pageIDFromURL(owner.url()))
 
     await owner.goto(state.base_url + route(state.base_id))
     await member.goto(state.base_url + route(state.base_id))
@@ -93,17 +97,22 @@ test('people and Agent-authored content follow the real Pod persistence, permiss
 
     await viewer.goto(state.base_url + route(state.applet_id))
     await expect(viewer.frameLocator('iframe').getByRole('heading', { name: 'Tracker v1', exact: true })).toBeVisible()
-    await expect(viewer.frameLocator('iframe').getByRole('button', { name: 'Add sample', exact: true })).toBeDisabled()
+    const rejected = viewer.waitForResponse(
+      response =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/v2/pod/tables/${state.table_id}/records`
+    )
+    await viewer.frameLocator('iframe').getByRole('button', { name: 'Add sample', exact: true }).click()
+    expect((await rejected).status()).toBe(403)
+    await expect(viewer.frameLocator('iframe').getByRole('alert')).toHaveText('Write rejected')
+    await expect(viewer.frameLocator('iframe').locator('.applet-record-count')).toHaveText('2 records')
     await owner.goto(state.base_url + route(state.applet_id))
     await expect(owner.frameLocator('iframe').getByRole('heading', { name: 'Tracker v1', exact: true })).toBeVisible()
     await owner.frameLocator('iframe').getByRole('button', { name: 'Add sample', exact: true }).click()
     await expect(owner.frameLocator('iframe').locator('.applet-record-count')).toHaveText('3 records')
     await expect(viewer.frameLocator('iframe').locator('.applet-record-count')).toHaveText('3 records')
     const applet = await request<{ page: { revision: number } }>(owner, `/pages/${state.applet_id}`)
-    await request(owner, `/pages/${state.applet_id}/publish`, 'POST', {
-      base_revision: applet.page.revision,
-      files: state.publish_v2_files
-    })
+    await publishApplet(state.applet_id, applet.page.revision, state.publish_v2_files)
     await expect(owner.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
     await expect(viewer.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
     await expect(
@@ -182,7 +191,6 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
       })
       await owner.goto(state.base_url + route(page.id))
       await owner.getByLabel('选择上传文件', { exact: true }).setInputFiles(file)
-      await owner.getByRole('button', { name: '上传文件', exact: true }).click()
       await expect(owner.getByRole('link', { name: '下载原文件', exact: true })).toBeVisible()
       if (file.name.endsWith('.xlsx')) {
         await expect(
@@ -226,7 +234,7 @@ test('private work moves, shares, searches, favorites and restores through the r
   try {
     await owner.goto(state.base_url + route(state.report_id))
     await owner
-      .getByRole('region', { name: 'Private', exact: true })
+      .locator('.pod-nav-section[aria-label="私人页面"] > .pod-nav-section-heading')
       .getByRole('button', { name: '新建页面', exact: true })
       .click()
     await owner.getByRole('menuitem', { name: '文档', exact: true }).click()
@@ -247,9 +255,16 @@ test('private work moves, shares, searches, favorites and restores through the r
     await expect(owner.getByRole('main').getByRole('link', { name: title })).toBeVisible()
     await owner.getByRole('main').getByRole('link', { name: title }).click()
     await owner.getByRole('button', { name: '分享', exact: true }).click()
-    await choose(owner, '选择成员、组或 Agent', 'Browser member')
+    await owner.getByRole('combobox', { name: '选择成员、组或 Agent', exact: true }).fill('Browser member')
+    await owner.getByRole('option', { name: 'Browser member', exact: true }).click()
+    const shared = owner.waitForResponse(
+      response =>
+        response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/sharing`
+    )
     await owner.getByRole('dialog').getByRole('button', { name: '添加', exact: true }).click()
-    await owner.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    expect((await shared).status()).toBe(200)
+    await expect(owner.getByRole('dialog').getByRole('checkbox')).toBeEnabled()
+    await owner.keyboard.press('Escape')
     await member.goto(state.base_url + route(id))
     await expect(content(member)).toHaveText('Private research result')
     await expect(content(member)).toHaveAttribute('contenteditable', 'false')
@@ -268,6 +283,8 @@ test('private work moves, shares, searches, favorites and restores through the r
     await expect(owner.getByRole('main').getByRole('link', { name: title })).toBeVisible()
     await owner.getByRole('main').getByRole('link', { name: title }).click()
     await pageAction(owner, '移到回收站')
+    await expect(owner).toHaveURL(state.base_url + route(state.report_id))
+    await owner.getByRole('navigation', { name: '页面导航' }).getByRole('link', { name: '回收站', exact: true }).click()
     const row = owner.getByRole('main').getByRole('listitem').filter({ hasText: title })
     await row.getByRole('button', { name: '恢复', exact: true }).click()
     await expect(row).toHaveCount(0)
@@ -311,7 +328,7 @@ test('Private creation and moves wait for identity after delayed and failed read
   try {
     await owner.goto(`${state.base_url}${listRoute('private')}`)
     const treeCreate = owner
-      .getByRole('region', { name: 'Private', exact: true })
+      .locator('.pod-nav-section[aria-label="私人页面"] > .pod-nav-section-heading')
       .getByRole('button', { name: '新建页面', exact: true })
     const listCreate = owner.getByRole('main').getByRole('button', { name: '新建页面', exact: true })
     await expect(treeCreate).toBeDisabled()
@@ -346,7 +363,7 @@ test('Private creation and moves wait for identity after delayed and failed read
     mode = 'hold'
     await owner.goto(state.base_url + route(shared.id))
     await pageAction(owner, '移动')
-    await choose(owner, '目标位置', 'Private')
+    await expect(owner.getByRole('dialog').getByRole('option', { name: '私人页面', exact: true })).toHaveCount(0)
     const submitMove = owner.getByRole('dialog').getByRole('button', { name: '移动', exact: true })
     await expect(submitMove).toBeDisabled()
     await expect.poll(() => held.length).toBeGreaterThan(0)
@@ -361,6 +378,7 @@ test('Private creation and moves wait for identity after delayed and failed read
 
     mode = 'pass'
     await owner.getByRole('dialog').getByRole('button', { name: '重试', exact: true }).click()
+    await choose(owner, '目标位置', '私人页面')
     await expect(submitMove).toBeEnabled()
     await submitMove.click()
     await expect(owner.getByRole('dialog')).toHaveCount(0)
@@ -438,10 +456,7 @@ test('a large business table uses global groups and per-group paging across its 
     await expectDensity('.pod-base-grid [data-grid-record]', 'Name')
     const createView = async (type: string) => {
       await owner.getByRole('button', { name: '+ 视图', exact: true }).click()
-      await owner.getByRole('textbox', { name: '视图名称', exact: true }).fill(type)
-      await choose(owner, '视图类型', type)
-      await owner.getByRole('button', { name: '创建视图', exact: true }).click()
-      await expect(owner.getByRole('dialog')).toHaveCount(0)
+      await owner.getByRole('menuitem', { name: type, exact: true }).click()
     }
     await createView('看板')
     await choose(owner, '选择分组字段', 'Status')
@@ -555,36 +570,38 @@ test('chat findings and attachments become durable pages after the native source
       `/conversations/${state.conversation_id}`
     )
     expect(conversation.messages.some(message => message.id === state.message_id)).toBe(true)
-    const reportReference = owner
-      .getByRole('region', { name: '对话消息', exact: true })
-      .getByRole('link', { name: 'Browser report', exact: true })
-    await expect(reportReference).toBeVisible()
-    await reportReference
-      .locator('xpath=ancestor::div[1]')
-      .getByRole('button', { name: '保存为页面', exact: true })
-      .click()
+    const message = owner.locator(`[data-chat-message-id="${state.message_id}"]`)
+    await expect(message.getByRole('link', { name: 'Open the report', exact: true })).toHaveAttribute(
+      'href',
+      route(state.report_id)
+    )
+    await message.hover()
+    await message.getByRole('button', { name: '保存为页面', exact: true }).click()
     await owner.getByRole('textbox', { name: '页面标题', exact: true }).fill('Saved chat findings')
     await owner.getByRole('button', { name: '保存', exact: true }).click()
+    await message.getByRole('link', { name: 'Saved chat findings', exact: true }).click()
     await expect(content(owner)).toContainText('Browser chat findings.')
     const notesID = pageIDFromURL(owner.url())
     await owner.getByRole('link', { name: /^来源对话：/ }).click()
     await owner.getByRole('button', { name: visibleName(`保存文件：${state.chat_attachment_name}`) }).click()
     await owner.getByRole('textbox', { name: '页面标题', exact: true }).fill('Saved source evidence')
     await owner.getByRole('button', { name: '保存', exact: true }).click()
+    await message.getByRole('link', { name: 'Saved source evidence', exact: true }).first().click()
     const downloadEvent = owner.waitForEvent('download')
     await owner.getByRole('link', { name: '下载原文件', exact: true }).click()
     const download = await downloadEvent
     expect(readFileSync((await download.path())!, 'utf8')).toBe('Original browser research evidence.')
     const fileID = pageIDFromURL(owner.url())
     await owner.getByRole('link', { name: /^来源对话：/ }).click()
-    await owner.getByRole('button', { name: visibleName(`删除对话 ${conversation.conversation.title}`) }).click()
+    await owner.locator('.pod-room-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await owner.getByRole('menuitem', { name: '删除会话', exact: true }).click()
     const [deleted] = await Promise.all([
       owner.waitForResponse(
         response =>
           new URL(response.url()).pathname === `/api/v2/pod/conversations/${state.conversation_id}` &&
           response.request().method() === 'DELETE'
       ),
-      owner.getByRole('button', { name: '确认删除对话', exact: true }).click()
+      owner.getByRole('dialog').getByRole('button', { name: '删除会话', exact: true }).click()
     ])
     expect(deleted.status()).toBe(200)
     await expect
@@ -606,7 +623,7 @@ test('chat findings and attachments become durable pages after the native source
     await expect(owner.getByText('来源对话已删除', { exact: true })).toBeVisible()
     await owner.getByRole('tab', { name: '主页', exact: true }).click()
     await expect(
-      owner.getByRole('region', { name: 'Private', exact: true }).getByRole('link', { name: 'Saved chat findings' })
+      owner.getByRole('region', { name: '私人页面', exact: true }).getByRole('link', { name: 'Saved chat findings' })
     ).toBeVisible()
   } finally {
     await context.close()

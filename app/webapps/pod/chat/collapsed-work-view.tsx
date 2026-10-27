@@ -1,17 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ExecutionSummary } from './types'
-import { ToolRunView } from './tool-run-view'
+import { ToolRunView, stepTitle } from './tool-run-view'
 
 export function CollapsedWorkView({
   execution,
   active = false,
   startedAt,
+  phaseLabel,
   attention = false
 }: {
   execution: ExecutionSummary
   active?: boolean
   startedAt?: string
+  phaseLabel?: string
   attention?: boolean
 }) {
   const { t } = useTranslation()
@@ -24,33 +26,56 @@ export function CollapsedWorkView({
   const steps = execution.steps ?? []
   const thinking = execution.thinking_summary
   const duration = active && startedAt ? Math.max(0, now - Date.parse(startedAt)) : execution.duration_ms
-  const current = steps.findLast(
+  const runningSteps = steps.filter(
     step =>
       !['completed', 'complete', 'success', 'succeeded', 'settled', 'stopped', 'cancelled', 'failed', 'error'].includes(
         step.status
       )
   )
+  const current = runningSteps.at(-1)
   const failed =
     steps.some(step => ['error', 'failed'].includes(step.status)) ||
     ['error', 'failed', 'stopped', 'cancelled'].includes(execution.status ?? '')
   const thinkingDisclosure = active && !current
-  const [expanded, setExpanded] = useState((active && !thinkingDisclosure) || attention || failed)
+  const urgent = attention || failed
+  const [expanded, setExpanded] = useState((active && !thinkingDisclosure) || urgent)
+  const userToggled = useRef(false)
+  const prevUrgent = useRef(urgent)
   useEffect(() => {
-    if ((active && !thinkingDisclosure) || attention || failed) setExpanded(true)
+    if (urgent && !prevUrgent.current) userToggled.current = false
+    prevUrgent.current = urgent
+    if (userToggled.current) return
+    if ((active && !thinkingDisclosure) || urgent) setExpanded(true)
     else if (thinkingDisclosure) setExpanded(false)
-  }, [active, thinkingDisclosure, attention, failed])
-  if (!steps.length && !thinking && !active) return null
+  }, [active, thinkingDisclosure, urgent])
+  if (!steps.length && !thinking) {
+    if (!active) return null
+    return (
+      <div className="pod-chat-work pod-chat-work-status" role="status">
+        <span className="pod-chat-working-dot" aria-hidden />
+        <span>{phaseLabel || t('pod.chat_timeline.thinking')}</span>
+        {duration != null && <time>{(duration / 1000).toFixed(1)}s</time>}
+      </div>
+    )
+  }
   const pagesRead = steps.filter(step => /page.*read|read.*page/.test(step.tool)).length
   return (
     <details
       className={`pod-chat-work${thinkingDisclosure ? ' pod-chat-thinking' : ''}`}
       open={expanded}
-      onToggle={event => setExpanded(event.currentTarget.open)}>
+      onToggle={event => {
+        if (event.currentTarget.open !== expanded) {
+          userToggled.current = true
+          setExpanded(event.currentTarget.open)
+        }
+      }}>
       <summary>
         {active && <span className="pod-chat-working-dot" aria-hidden />}
         <span>
           {active
-            ? current?.title || t('pod.chat_timeline.thinking')
+            ? runningSteps.length > 1
+              ? phaseLabel || t('pod.chat_timeline.tool_count', { count: steps.length })
+              : (current && stepTitle(current)) || phaseLabel || t('pod.chat_timeline.thinking')
             : t('pod.chat_timeline.worked_for', {
                 seconds: ((duration ?? 0) / 1000).toFixed(1),
                 count: steps.length

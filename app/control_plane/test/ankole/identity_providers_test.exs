@@ -34,6 +34,44 @@ defmodule Ankole.IdentityProvidersTest do
     assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == []
   end
 
+  test "an enabled tenant identity provider prevents disabling its Plugin" do
+    other = Ankole.DataCase.create_tenant()
+
+    Ankole.Repo.with_tenant(other.id, fn ->
+      assert {:ok, _} =
+               IdentityProviders.save_provider(
+                 "lark-dependent",
+                 "lark",
+                 %{
+                   "appID" => "cli_dependent",
+                   "appSecret" => "secret"
+                 },
+                 true
+               )
+    end)
+
+    assert {:error,
+            {:identity_provider_plugin_in_use, "lark-adapter", "lark-dependent", tenant_id}} =
+             PluginConfig.put_configured_enabled("lark-adapter", false)
+
+    assert tenant_id == other.id
+    assert {:ok, enabled} = PluginConfig.enabled_ids()
+    assert "lark-adapter" in enabled
+
+    Ankole.Repo.with_tenant(other.id, fn ->
+      assert {:ok, _} =
+               IdentityProviders.save_provider(
+                 "lark-dependent",
+                 "lark",
+                 %{"appID" => "cli_dependent"},
+                 false
+               )
+    end)
+
+    assert {:ok, enabled} = PluginConfig.put_configured_enabled("lark-adapter", false)
+    refute "lark-adapter" in enabled
+  end
+
   test "adapter catalog fails closed when the enable list cannot be decoded" do
     :ok = AppConfigure.delete_global(PluginConfig.enabled_ids_definition())
     now = DateTime.utc_now(:second)

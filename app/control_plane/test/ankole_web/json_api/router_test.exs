@@ -6,6 +6,31 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
 
   @routers [SiteRouter, ConsoleRouter]
 
+  test "request context preserves application values named uid", %{tenant: tenant} do
+    Ankole.Repo.put_tenant_id(tenant.id)
+    conn = build_conn() |> init_test_session(%{})
+
+    body = %{
+      "data" => %{
+        "uid" => "Case Sensitive",
+        "attributes" => %{"agent_uid" => " Keep Whitespace "}
+      }
+    }
+
+    query = %{"uid" => "MixedCase"}
+    conn = %{conn | path_params: %{}, body_params: body, query_params: query}
+
+    result =
+      AnkoleWeb.JSONAPI.Context.before_dispatch(
+        conn,
+        %{resource: AnkoleWeb.MeOperations, params: %{}},
+        :tenant
+      )
+
+    assert result.body_params == body
+    assert result.query_params == query
+  end
+
   test "each router serves its OpenAPI document behind the Console session" do
     conn = console_conn(build_conn())
 

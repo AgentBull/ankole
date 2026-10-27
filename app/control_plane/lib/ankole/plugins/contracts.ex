@@ -78,7 +78,8 @@ defmodule Ankole.Plugins.Contracts do
         validate: &Ankole.Signals.WebhookHandlers.validate_declaration/1
       },
       "principals.identity_provider" => %{
-        validate: &Ankole.IdentityProviders.validate_adapter_declaration/1
+        validate: &Ankole.IdentityProviders.validate_adapter_declaration/1,
+        veto_disable: &Ankole.IdentityProviders.Config.veto_plugin_disable_in_tx/2
       },
       "ai_gateway.provider" => %{
         validate: &Ankole.AIGateway.Providers.validate_adapter_declaration/1,

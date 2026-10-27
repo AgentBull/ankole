@@ -186,6 +186,11 @@ defmodule Ankole.Pod.Pages.Browser do
             constraints: [items: struct_constraints(Ankole.Pod.Page)],
             allow_nil?: false
           ],
+          ancestors: [
+            type: {:array, :struct},
+            constraints: [items: struct_constraints(Ankole.Pod.Page)],
+            allow_nil?: false
+          ],
           principal_uid: [type: PrincipalKey, allow_nil?: false],
           can_create_private: [type: :boolean, allow_nil?: false],
           can_create_space: [type: :boolean, allow_nil?: false]
@@ -238,7 +243,7 @@ defmodule Ankole.Pod.Pages.Browser do
       constraints(fields: [page: @page])
 
       argument(:type, :atom,
-        constraints: [one_of: [:doc, :base, :applet, :file]],
+        constraints: [one_of: [:doc, :base, :file]],
         default: :doc
       )
 
@@ -248,9 +253,18 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:private_owner_uid, PrincipalKey)
       argument(:position, :string, constraints: [trim?: false])
       argument(:saved_from_message_id, UUIDv7)
+      argument(:xml, :string, constraints: [trim?: false])
+      argument(:attachment_path, :string, constraints: [trim?: false])
 
       run(fn input, context ->
-        Pages.create(context.actor, input.arguments) |> APIError.result(&%{page: &1})
+        result =
+          if input.arguments[:attachment_path] do
+            Ankole.Pod.Files.create_from_message(context.actor, input.arguments)
+          else
+            Pages.create(context.actor, input.arguments)
+          end
+
+        APIError.result(result, &%{page: &1})
       end)
     end
 

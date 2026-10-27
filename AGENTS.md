@@ -1,6 +1,6 @@
 # Ankole Agent Guidelines
 
-Setup, the repository map, and the check commands are in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-right-checks). `app/webapps/` and `app/agent_computer/` have their own `AGENTS.md`.
+Setup, the repository map, and the check commands are in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-right-checks). `app/webapps/`, `app/agent_computer/`, and `tools/formal/` have their own `AGENTS.md`.
 
 ## Authorization
 

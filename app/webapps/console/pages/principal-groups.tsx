@@ -53,6 +53,7 @@ import {
   principalGroupDisplayName,
   principalGroupErrorMessage
 } from '../state/principal-group-text'
+import { principalLabel } from '../state/principal-label'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
 import {
@@ -281,6 +282,13 @@ export function PrincipalGroupEditorPage() {
       onSubmit={submit}>
       <fieldset className="contents" disabled={createGroup.isPending}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <LabeledField label={t('console.principal_groups.display_name')} required>
+            <Input
+              required
+              value={model.displayName.value}
+              onChange={event => model.setDisplayName(event.target.value, mode === 'new')}
+            />
+          </LabeledField>
           <LabeledField
             label={t('console.principal_groups.name')}
             description={mode === 'new' ? t('console.principal_groups.name_hint') : undefined}
@@ -292,16 +300,9 @@ export function PrincipalGroupEditorPage() {
                 required
                 placeholder="research-ops"
                 value={model.name.value}
-                onChange={event => (model.name.value = event.target.value)}
+                onChange={event => model.setName(event.target.value)}
               />
             )}
-          </LabeledField>
-          <LabeledField label={t('console.principal_groups.display_name')} required>
-            <Input
-              required
-              value={model.displayName.value}
-              onChange={event => (model.displayName.value = event.target.value)}
-            />
           </LabeledField>
         </div>
         <LabeledField label={t('console.principal_groups.description_label')}>
@@ -450,17 +451,28 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
   })
   const memberList = members.data ?? []
 
+  const resolveMemberLabel = (uid: string) => {
+    const candidate = principals.data?.find(principal => principal.id === uid)
+    if (candidate) return principalLabel(candidate)
+    const existing = memberList.find(member => member.uid === uid)
+    return existing?.display_name ?? uid
+  }
+
   const addMember = useMutation({
     ...addPrincipalGroupMemberMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.principal_groups.member_added', { id: variables.path.principal_uid }))
+      toast.success(
+        t('console.principal_groups.member_added', { id: resolveMemberLabel(variables.path.principal_uid) })
+      )
     },
     onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
   const removeMember = useMutation({
     ...removePrincipalGroupMemberMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.principal_groups.member_removed', { id: variables.path.principal_uid }))
+      toast.success(
+        t('console.principal_groups.member_removed', { id: resolveMemberLabel(variables.path.principal_uid) })
+      )
     },
     onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
@@ -486,7 +498,8 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
               emptyText={t('console.principal_groups.add_member_empty')}
               candidates={(principals.data ?? []).map(principal => ({
                 id: principal.id,
-                label: principal.display_name
+                label: principalLabel(principal),
+                description: principal.email ?? principal.handle
               }))}
               excludedIDs={new Set(memberList.map(member => member.uid))}
               error={principals.error}
@@ -543,7 +556,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
                               confirm={{
                                 title: t('console.principal_groups.remove_member_title'),
                                 description: t('console.principal_groups.remove_member_description', {
-                                  id: member.uid
+                                  id: member.display_name ?? member.uid
                                 }),
                                 confirmLabel: t('console.principal_groups.remove_member')
                               }}

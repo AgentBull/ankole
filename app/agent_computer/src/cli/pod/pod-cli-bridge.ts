@@ -11,6 +11,8 @@ import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc_lane'
 
 const readOperations = [
   'pages.list',
+  'pages.children',
+  'pages.search',
   'pages.read',
   'pages.sharing',
   'files.manifest',

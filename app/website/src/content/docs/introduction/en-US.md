@@ -51,7 +51,7 @@ Company knowledge and signals establish context. Bounded authority lets the Agen
 
 ## Current status
 
-Ankole runs in production as a complete enterprise Agent Harness. A company can host the control plane, Pod workspaces, Function Runtime (`ankole-function-runtime`), Agent Computer Workers, kernel, Company Brain, and operator console on its own infrastructure.
+Ankole runs in production as a complete enterprise Agent Harness. A company can host the control plane, Pod workspaces, Function Runtime (`ankole-function-runtime`), Agent Computer Workers, kernel, Company Brain, and operator console on its own infrastructure. Formal verification checks critical code and core state machines, and end-to-end suites verify message routing, crash recovery, concurrency, and upgrades.
 
 Ankole has no public API compatibility contract. Releases can include breaking changes.
 

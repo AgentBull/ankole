@@ -17,8 +17,10 @@ import {
   RiExpandUpDownLine,
   RiExternalLinkLine,
   RiLogoutBoxRLine,
+  RiLogoutCircleRLine,
   RiMoonLine,
-  RiSunLine
+  RiSunLine,
+  RiUser3Line
 } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
@@ -29,6 +31,7 @@ import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 type BrowserAccount = BrowserSessionResponse['accounts'][number] | BrowserSessionResponse['pendingAccounts'][number]
 import { authenticationRef, podID } from '../common/browser-context'
 import { endPodSession } from '../common/browser-session'
+import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { requestErrorMessage } from '../common/request-errors'
 
 const initial = (name: string) => [...name.trim()][0]?.toUpperCase() ?? '?'
@@ -113,7 +116,10 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
                     </small>
                     <small className="truncate">
                       {t('auth.sign_in_with', {
-                        provider: account.providerID === 'email_otp' ? t('auth.email_login') : account.providerID
+                        provider:
+                          account.providerID === 'email_otp'
+                            ? t('auth.email_login')
+                            : humanizeTechnicalLabel(account.providerID)
                       })}
                     </small>
                   </span>
@@ -132,7 +138,10 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             {account.requiresSSO && <small>{t('auth.sso_required')}</small>}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuItem onClick={() => void navigate({ to: '/me' })}>{t('pod.account.title')}</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void navigate({ to: '/me' })}>
+          <RiUser3Line aria-hidden />
+          {t('pod.account.title')}
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => window.location.assign(`/sessions/new?switch=1&return_to=${returnTo}`)}>
           <RiAddLine aria-hidden />
           {t('pod.sidebar.add_account')}
@@ -164,6 +173,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           {data?.displayName ? t('pod.sidebar.sign_out_name', { name: data.displayName }) : t('pod.sidebar.sign_out')}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
+          <RiLogoutCircleRLine aria-hidden />
           {t('auth.sign_out_all')}
         </DropdownMenuItem>
       </DropdownMenuContent>

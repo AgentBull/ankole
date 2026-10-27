@@ -1,9 +1,11 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
+import { deriveSlugWithTransliteration, preloadTransliteration, slugFromDisplayName } from './agent-editor-model'
 
 export type TenantDraft = { slug: string; displayName: string; brainPacks: string[] }
 
 export const TenantEditorModel = createModel(() => {
   let generation = Symbol()
+  let slugManuallyEdited = false
   const sourceKey = signal<string>()
   const slug = signal('')
   const displayName = signal('')
@@ -14,6 +16,7 @@ export const TenantEditorModel = createModel(() => {
   return {
     resetSource() {
       generation = Symbol()
+      slugManuallyEdited = false
       sourceKey.value = undefined
     },
     sourceKey,
@@ -23,8 +26,10 @@ export const TenantEditorModel = createModel(() => {
     draft,
     dirty,
     initialize(key: string, source: TenantDraft) {
+      if (key === 'new') void preloadTransliteration()
       if (sourceKey.value === key) return
       generation = Symbol()
+      slugManuallyEdited = false
       batch(() => {
         sourceKey.value = key
         slug.value = source.slug
@@ -32,6 +37,20 @@ export const TenantEditorModel = createModel(() => {
         brainPacks.value = source.brainPacks
         initial.value = source
       })
+    },
+    setDisplayName(value: string, deriveSlug: boolean) {
+      batch(() => {
+        displayName.value = value
+        if (deriveSlug && !slugManuallyEdited) {
+          slug.value = deriveSlugWithTransliteration(value, 63, () => {
+            if (!slugManuallyEdited) slug.value = slugFromDisplayName(displayName.value, 63)
+          })
+        }
+      })
+    },
+    setSlug(value: string) {
+      slugManuallyEdited = true
+      slug.value = value
     },
     captureSave() {
       const requestedGeneration = generation

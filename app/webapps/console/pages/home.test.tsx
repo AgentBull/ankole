@@ -40,13 +40,12 @@ function providerClient(complete: boolean) {
   })
   const readiness: ConsoleReadinessResponse = {
     ready: complete,
-    completed_core_steps: complete ? 5 : 4,
-    total_core_steps: 5,
+    completed_core_steps: complete ? 4 : 3,
+    total_core_steps: 4,
     provider: { complete, provider_id: complete ? 'llm' : null },
     agent: { complete: true, uid: null, display_name: null },
     model_profiles: { complete: true, agent_uid: null, missing_profiles: [] },
-    worker: { complete: true, ready_count: 1 },
-    signal_route: { complete: true }
+    worker: { complete: true, ready_count: 1 }
   }
   client.setQueryData(getConsoleReadinessQueryKey(), readiness)
   return client

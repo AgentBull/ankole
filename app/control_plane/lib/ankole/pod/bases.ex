@@ -44,6 +44,8 @@ defmodule Ankole.Pod.Bases do
     Ankole.Pod.Copy.table(actor, id, attrs, authority)
   end
 
+  defdelegate rename_table(actor, id, name, authority \\ nil), to: Ankole.Pod.Bases.Schema
+
   def list_tables(%Ankole.AuthZ.Actor{} = actor, page_id) do
     Repo.transact_top_level(fn ->
       with {:ok, %{type: :base}} <- Pages.authorize(actor, page_id, "page_view") do

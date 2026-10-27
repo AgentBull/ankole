@@ -22,7 +22,7 @@ function DropdownMenuTrigger({ className, ...props }: MenuPrimitive.Trigger.Prop
 }
 
 const menuContentClassName =
-  'ceramic ceramic-primary z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0'
+  'ceramic ceramic-primary z-50 max-h-(--available-height) w-auto min-w-[max(var(--anchor-width),10rem)] origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0'
 
 function DropdownMenuContent({
   align = 'start',

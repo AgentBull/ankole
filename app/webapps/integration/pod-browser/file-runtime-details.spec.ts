@@ -1,4 +1,4 @@
-import { state, requestWithSharingVersion as request } from './fixtures'
+import { state, publishApplet, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -13,7 +13,8 @@ async function expectAppletStyles(page: Page) {
   const actions = shell.locator('.applet-actions')
   await expect(actions).toHaveCSS('display', 'flex')
   await expect(actions).toHaveCSS('gap', '12px')
-  await expect(actions.getByRole('button')).toHaveCount(5)
+  await expect(actions.getByRole('button', { name: /^Local counter / })).toBeVisible()
+  await expect(actions.getByRole('button', { name: 'Add sample', exact: true })).toBeVisible()
   await expect
     .poll(() =>
       actions.evaluate(element => {
@@ -132,39 +133,35 @@ test('file uploads retain a failed selection, freeze pending work, resolve real 
     })
     const input = page.locator('input[type="file"]')
     await input.setInputFiles(image('sample.png'))
-    await page.getByRole('button', { name: '上传文件', exact: true }).click()
     await expect(page.getByText('Upload temporarily unavailable', { exact: true })).toBeVisible()
-    expect(await input.evaluate((element: HTMLInputElement) => element.files?.[0]?.name)).toBe('sample.png')
-    await page.getByRole('button', { name: '上传文件', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'sample.png' })).toBeVisible()
+    await page.getByRole('alert').getByRole('button', { name: '重试', exact: true }).click()
     await firstStarted.promise
     await expect(input).toBeDisabled()
     await expect(page.getByRole('button', { name: '正在上传…', exact: true })).toBeDisabled()
-    await input.locator('xpath=ancestor::form').dispatchEvent('submit')
+    await input.dispatchEvent('change')
     expect(uploads).toBe(2)
     firstGate.resolve()
     await expect(page.getByRole('img', { name: 'sample.png', exact: true })).toBeVisible()
     await expect(input).toHaveValue('')
     expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(1)
     await input.setInputFiles(image('sample.png'))
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
     await expect(input).toHaveValue('')
-    expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(2)
+    await expect.poll(async () => (await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(2)
 
     const other = await context.newPage()
     await other.goto(location(saved.id))
     await expect(other.getByRole('img', { name: 'sample.png', exact: true })).toBeVisible()
     await input.setInputFiles(image('pending.png'))
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
     await conflictStarted.promise
     await other.getByLabel('选择替换文件', { exact: true }).setInputFiles(image('remote.png'))
-    await other.getByRole('button', { name: '替换文件', exact: true }).click()
     await expect(other.getByRole('img', { name: 'remote.png', exact: true })).toBeVisible()
     conflictGate.resolve()
     await expect(page.getByRole('alert')).toBeVisible()
     await expect(input).toBeEnabled()
-    expect(await input.evaluate((element: HTMLInputElement) => element.files?.[0]?.name)).toBe('pending.png')
+    await expect(page.getByRole('status').filter({ hasText: 'pending.png' })).toBeVisible()
     await expect(page.getByRole('img', { name: 'remote.png', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
+    await page.getByRole('alert').getByRole('button', { name: '重试', exact: true }).click()
     await expect(page.getByRole('img', { name: 'pending.png', exact: true })).toBeVisible()
     await expect(input).toHaveValue('')
     expect((await request<Manifest>(page, `/pages/${saved.id}/files`)).revision).toBe(4)
@@ -250,10 +247,7 @@ test('Applet loading and live connections recover independently, then real acces
     await expect.poll(() => joined.includes('content'), { timeout: 10_000 }).toBe(true)
     await expect(warning).toHaveCount(0)
     const manifest = await request<Manifest>(page, `/pages/${id}/files`)
-    await request(page, `/pages/${id}/publish`, 'POST', {
-      base_revision: manifest.revision,
-      files: state.publish_v2_files
-    })
+    await publishApplet(id, manifest.revision, state.publish_v2_files)
     await expect(page.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
     await expect(
       page.frameLocator('iframe').getByRole('button', { name: 'Local counter 0', exact: true })
@@ -263,7 +257,10 @@ test('Applet loading and live connections recover independently, then real acces
     await expect(viewer.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toBeVisible()
     await request(page, `/pages/${id}/sharing`, 'PUT', {
       inherit_permissions: false,
-      grants: [{ principal_uid: state.owner.uid, role: 'manage' }]
+      grants: [
+        { principal_uid: state.owner.uid, role: 'manage' },
+        { principal_uid: state.agent_uid, role: 'edit' }
+      ]
     })
     await expect(viewer.getByRole('alert')).toContainText('没有权限')
     await expect(viewer.frameLocator('iframe').getByRole('heading', { name: 'Tracker v2', exact: true })).toHaveCount(0)
@@ -295,10 +292,7 @@ test('a caught React.lazy chunk failure refreshes its stale publication without 
     if (!previous) throw new Error('The published applet must have a frame URL')
     await frame.getByRole('button', { name: 'Local counter 0', exact: true }).click()
     await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()
-    const publication = await request<{ revision: number }>(control, `/pages/${id}/publish`, 'POST', {
-      base_revision: detail.page.revision,
-      files: state.publish_v2_files
-    })
+    const publication = await publishApplet(id, detail.page.revision, state.publish_v2_files)
     await expect(page.locator('iframe')).toHaveAttribute('src', previous)
     const staleChunk = page.waitForResponse(
       response => {

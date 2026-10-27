@@ -10,6 +10,7 @@ import {
   resetAgentTokenQuotaMutation,
   getAgentTokenQuotaOptions
 } from '../api/v2/generated/@tanstack/react-query.gen'
+import { agentOptions } from '../api/agents'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, LabeledField, SaveButton, StatusIndicator } from '../console-form'
@@ -49,6 +50,8 @@ export function TokenQuotaEditor({
   const limitTokensInput = useRef<HTMLInputElement>(null)
 
   const quota = useQuery(getAgentTokenQuotaOptions({ path: { agent_uid: agentUID } }))
+  const agent = useQuery({ ...agentOptions(agentUID), enabled: Boolean(agentUID) })
+  const agentLabel = agent.data?.display_name ?? agentUID
   const storedQuota = quota.data?.token_quota ?? null
   const usage = quota.data?.usage ?? null
   // A failed read still opens the fields, on an empty draft, so the section
@@ -253,7 +256,7 @@ export function TokenQuotaEditor({
                   variant="outline"
                   confirm={{
                     title: t('console.agents.token_quota_reset_confirm_title'),
-                    description: t('console.agents.token_quota_reset_confirm_description', { id: agentUID }),
+                    description: t('console.agents.token_quota_reset_confirm_description', { id: agentLabel }),
                     confirmLabel: t('console.agents.token_quota_reset')
                   }}
                   onConfirm={() => reset.mutate({ path: { agent_uid: agentUID } })}
@@ -264,7 +267,7 @@ export function TokenQuotaEditor({
                   size="sm"
                   confirm={{
                     title: t('console.agents.token_quota_clear_confirm_title'),
-                    description: t('console.agents.token_quota_clear_confirm_description', { id: agentUID }),
+                    description: t('console.agents.token_quota_clear_confirm_description', { id: agentLabel }),
                     confirmLabel: t('console.agents.token_quota_clear')
                   }}
                   onConfirm={() => clear.mutate({ path: { agent_uid: agentUID } })}

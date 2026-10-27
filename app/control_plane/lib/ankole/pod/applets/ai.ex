@@ -1,22 +1,18 @@
 defmodule Ankole.Pod.Applets.AI do
-  @moduledoc "Stateless Applet text generation through the configured Agent's AIGateway profiles."
+  @moduledoc "Stateless Applet text generation through the creator Agent's AIGateway profiles."
 
   alias Ankole.{AIGateway, Principals}
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.ResponseItems
-  alias Ankole.Pod.Config
 
-  def generate_text(options) do
-    with {:ok, uid} <- configured_agent(),
+  def generate_text(%Ankole.Pod.Page{} = page, options) do
+    with {:ok, uid} <- creator_agent(page),
          :ok <- profile(options["model"]),
          :ok <- prompt(options),
          {:ok, _effort} <- ReasoningEffort.normalize(options["effort"]),
          {:ok, %{body: body}} <-
-           AIGateway.create_response(uid, request(options),
-             subject_type: "agent",
-             check_token_quota: false
-           ),
+           AIGateway.create_response(uid, request(options), subject_type: "agent"),
          {:ok, reason} <- finish_reason(body) do
       usage = body["usage"] || %{}
 
@@ -36,9 +32,8 @@ defmodule Ankole.Pod.Applets.AI do
     end
   end
 
-  defp configured_agent do
-    with {:ok, uid} when is_binary(uid) <- Config.applet_ai_agent_uid(),
-         {:ok, %{principal: %{status: :active}}} <- Principals.get_agent(uid),
+  defp creator_agent(%{created_by: %{uid: uid}}) do
+    with {:ok, %{principal: %{status: :active}}} <- Principals.get_agent(uid),
          do: {:ok, uid},
          else: (_ -> {:error, :ai_not_configured})
   end
@@ -98,6 +93,7 @@ defmodule Ankole.Pod.Applets.AI do
     do: Atom.to_string(reason)
 
   defp code({:reasoning_effort, _}), do: "invalid_effort"
+  defp code({:agent_token_quota_exceeded, _}), do: "agent_token_quota_exceeded"
 
   defp code(%Ankole.AIGateway.ProviderFailure{
          provider_status: status,
@@ -120,6 +116,8 @@ defmodule Ankole.Pod.Applets.AI do
     do: "invalid_model"
 
   defp code(_), do: "ai_unavailable"
+
+  defp status({:agent_token_quota_exceeded, _}), do: 429
 
   defp status(reason),
     do:

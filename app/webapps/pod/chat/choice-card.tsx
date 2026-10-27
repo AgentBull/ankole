@@ -81,22 +81,25 @@ export function ChoiceCard({
       </div>
       <p className="pod-chat-choice-question">{prompt.question}</p>
       <div className="pod-chat-choices">
-        {choices.map((choice, index) => (
-          <Button
-            key={choice.id}
-            variant="outline"
-            className="pod-chat-choice"
-            disabled={!enabled}
-            aria-keyshortcuts={enabled && keyboardActive ? String(index + 1) : undefined}
-            aria-pressed={interaction.choice_id === choice.id}
-            onClick={() => answer({ choiceID: choice.id })}>
-            <span>
-              <strong>{choice.label}</strong>
-              {choice.description && <small>{choice.description}</small>}
-            </span>
-            <kbd>{index + 1}</kbd>
-          </Button>
-        ))}
+        {choices.map((choice, index) => {
+          const shortcut = enabled && keyboardActive && index < 4 ? String(index + 1) : undefined
+          return (
+            <Button
+              key={choice.id}
+              variant="outline"
+              className="pod-chat-choice"
+              disabled={!enabled}
+              aria-keyshortcuts={shortcut}
+              aria-pressed={interaction.choice_id === choice.id}
+              onClick={() => answer({ choiceID: choice.id })}>
+              <span>
+                <strong>{choice.label}</strong>
+                {choice.description && <small>{choice.description}</small>}
+              </span>
+              {shortcut && <kbd>{shortcut}</kbd>}
+            </Button>
+          )
+        })}
       </div>
       {interaction.state === 'pending' && prompt.allow_free_text && (
         <form
@@ -121,7 +124,7 @@ export function ChoiceCard({
         <p className="pod-chat-choice-outcome">
           <RiCheckLine aria-hidden />
           <span className="pod-chat-event-avatar" aria-hidden>
-            {(interaction.answered_by_name || t('pod.chat_timeline.teammate')).slice(0, 1)}
+            {Array.from(interaction.answered_by_name || t('pod.chat_timeline.teammate'))[0]}
           </span>
           <span>
             {t('pod.chat_timeline.answered_by', {
@@ -147,6 +150,11 @@ export function ChoiceCard({
       )}
       {interaction.state === 'superseded' && (
         <p className="pod-chat-choice-outcome">{t('pod.chat_timeline.superseded')}</p>
+      )}
+      {interaction.state === 'pending' && decidedElsewhere && (
+        <p role="status" className="pod-chat-choice-outcome">
+          {t('pod.chat.errors.interaction_not_pending')}
+        </p>
       )}
       {pending && (
         <p role="status" className="pod-chat-choice-outcome">

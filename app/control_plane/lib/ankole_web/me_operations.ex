@@ -12,6 +12,7 @@ defmodule AnkoleWeb.MeOperations do
   authz do
     scope(:self)
     allow(:show, check: :guardrail)
+    allow(:update_profile, check: :guardrail)
     allow(:begin_reauthentication, check: :guardrail)
     allow(:request_email, check: :guardrail)
     allow(:verify_email, check: :guardrail)
@@ -29,18 +30,20 @@ defmodule AnkoleWeb.MeOperations do
       transaction?(false)
 
       run(fn input, context ->
-        with {:ok, _conn, transaction} <-
-               AnkoleWeb.Session.begin_login(
+        with {:ok, ticket} <-
+               AnkoleWeb.Session.seal_reauthentication(
                  input.context.conn,
-                 :pod,
-                 %{
-                   "return_to" => "/me",
-                   "reauthenticate" => true,
-                   "reauthentication_principal_uid" => Actor.uid(context.actor)
-                 },
-                 authentication_ref: input.context.authentication_ref
+                 Actor.uid(context.actor),
+                 input.context.authentication_ref,
+                 Actor.tenant_id(context.actor)
                ),
-             do: {:ok, %{loginURL: "/sessions/new?flow=" <> transaction.id}},
+             do:
+               {:ok,
+                %{
+                  loginURL:
+                    "/sessions/new?" <>
+                      URI.encode_query(%{"reauth" => ticket, "return_to" => "/me"})
+                }},
              else: (error -> result(error))
       end)
     end
@@ -80,6 +83,26 @@ defmodule AnkoleWeb.MeOperations do
       end)
     end
 
+    action :update_profile, :map do
+      constraints(fields: [displayName: [type: :string, allow_nil?: false]])
+
+      argument(:displayName, :string,
+        allow_nil?: false,
+        constraints: [min_length: 1, max_length: 160]
+      )
+
+      transaction?(false)
+
+      run(fn input, context ->
+        with {:ok, principal} <-
+               Ankole.Principals.update_human(Actor.uid(context.actor), %{
+                 display_name: input.arguments.displayName
+               }),
+             do: {:ok, %{displayName: principal.display_name}},
+             else: (error -> result(error))
+      end)
+    end
+
     action :request_email, :map do
       constraints(fields: [challengeID: [type: UUIDv7, allow_nil?: false]])
       argument(:email, :string, allow_nil?: false)
@@ -91,7 +114,11 @@ defmodule AnkoleWeb.MeOperations do
                  actor: context.actor,
                  browser: input.context.browser_reference,
                  email: input.arguments.email,
-                 ip: input.context.client_ip
+                 ip: input.context.client_ip,
+                 locale:
+                   Ankole.I18n.negotiate_locale(
+                     Plug.Conn.get_req_header(input.context.conn, "accept-language")
+                   )
                }),
              do: {:ok, %{challengeID: challenge.challenge_id}},
              else: (error -> result(error))

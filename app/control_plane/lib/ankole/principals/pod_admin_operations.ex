@@ -32,6 +32,11 @@ defmodule Ankole.Principals.PodAdminOperations do
       action: "update"
     )
 
+    allow(:create_provider,
+      resource: "tenant_console:identity_provider:{provider_id}",
+      action: "update"
+    )
+
     allow(:sync_directory,
       resource: "tenant_console:identity_provider:{provider_id}",
       action: "sync"
@@ -126,7 +131,7 @@ defmodule Ankole.Principals.PodAdminOperations do
     action :create_member, :map do
       constraints(fields: [uid: [type: PrincipalKey, allow_nil?: false]])
       argument(:displayName, :string, allow_nil?: false)
-      argument(:email, :string)
+      argument(:email, :string, allow_nil?: false, constraints: [min_length: 1])
 
       argument(:membership, :atom,
         allow_nil?: false,
@@ -373,27 +378,30 @@ defmodule Ankole.Principals.PodAdminOperations do
       end)
     end
 
-    action :save_provider, :map do
-      constraints(fields: [ok: [type: :boolean, allow_nil?: false]])
-      argument(:provider_id, :string, allow_nil?: false)
-      argument(:adapter_id, :string, allow_nil?: false)
-      argument(:config, JSONMap, allow_nil?: false, sensitive?: true)
-      argument(:enabled, :boolean, allow_nil?: false)
-      transaction?(false)
+    for operation <- [:create_provider, :save_provider] do
+      action operation, :map do
+        constraints(fields: [ok: [type: :boolean, allow_nil?: false]])
+        argument(:provider_id, :string, allow_nil?: false)
+        argument(:adapter_id, :string, allow_nil?: false)
+        argument(:config, JSONMap, allow_nil?: false, sensitive?: true)
+        argument(:enabled, :boolean, allow_nil?: false)
+        transaction?(false)
 
-      run(fn input, _ ->
-        args = input.arguments
+        run(fn input, _ ->
+          args = input.arguments
 
-        changed(
-          Ankole.IdentityProviders.save_provider(
-            args.provider_id,
-            args.adapter_id,
-            args.config,
-            args.enabled,
-            source: "pod_admin"
+          changed(
+            Ankole.IdentityProviders.save_provider(
+              args.provider_id,
+              args.adapter_id,
+              args.config,
+              args.enabled,
+              source: "pod_admin",
+              mode: if(input.action.name == :create_provider, do: :create, else: :update)
+            )
           )
-        )
-      end)
+        end)
+      end
     end
 
     action :sync_directory, :map do

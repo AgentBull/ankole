@@ -1,18 +1,19 @@
-# Brain 正文语法与 Object 编辑
+# Brain Body Syntax and Object Editing
 
-Brain Object 正文使用 CommonMark、块级 `audience` 标签和 `[[slug]]` 内部链接。
-native kernel 的 `brain_markdoc` 模块拥有规范语法：comrak 解析 Markdown
-结构，`brain_markdoc` 在这些结构边界上识别标签。控制面通过一个 NIF 调用它，
-校验作用域并裁剪读取结果。Console 的本地分段只用于预览，不能决定写入或披露。
+Brain Object bodies use CommonMark, block-level `audience` tags, and `[[slug]]`
+links. The native `brain_markdoc` module owns the grammar. comrak parses Markdown
+structure; `brain_markdoc` uses those boundaries to identify audience tags.
+The control plane calls this parser through a NIF, validates scopes, and filters
+read results. The Console uses local parsing for previews.
 
-## 正文契约
+## Body contract
 
-数据库 `brain_objects.body` 只保存正文。`slug`、`type`、`subtype`、`title`、
-`meta` 和 `effective_date` 由结构化字段拥有，正文没有 frontmatter 概念。
+`brain_objects.body` stores body text. Structured fields own `slug`, `type`,
+`subtype`, `title`, `meta`, and `effective_date`.
 
-### `audience` 标签
+### Audience tags
 
-唯一的标签是块级 `audience`：
+The supported tag is block-level `audience`:
 
 ```markdoc
 {% audience scope="principal:alice" %}
@@ -20,19 +21,22 @@ Only Alice can read this.
 {% /audience %}
 ```
 
-- 开标签是 `{% audience scope="..." %}`，闭标签是 `{% /audience %}`。
-  标签行必须顶格并独占一行，行尾允许空白，前后不要求空行。
-- 标签必须配对，不能嵌套。标签外的文本属于 `world`。每个 segment 只有
-  一个作用域，对应分块后的 `brain_chunks.audience_scope`。
-- fenced code、indented code 和 inline code 中的标签文本是代码，不是标签。
-- scope 形状是 `world`、`group:<name>` 或 `principal:<uid>`，由
-  `Ankole.Brain.Scope` 校验。scope 是否存在、写入者是否有权使用它，由控制面
-  在数据库事务内校验。`world` 只覆盖当前租户，详见 [BrainV3](BrainV3.md)。
-- 未被识别为标签行、也不在代码范围内的 `{% audience` 或
-  `{% /audience` 候选文本返回 `misplaced_audience_tag`。这包括行中间、
-  heading、blockquote、list 和 HTML block 中的标签。写入拒绝歧义输入。
+- The opening tag is `{% audience scope="..." %}`. The closing tag is
+  `{% /audience %}`. Each tag starts at column one and occupies its own line.
+  Trailing whitespace is allowed. Adjacent blank lines are optional.
+- Tags form pairs and cannot nest. Text outside tags has the `world` scope.
+  Each segment has one scope, stored as `brain_chunks.audience_scope` after
+  chunking.
+- Tag text inside fenced code, indented code, or inline code is literal code.
+- Scope values are `world`, `group:<name>`, or `principal:<uid>`.
+  `Ankole.Brain.Scope` validates their shape. The control plane checks scope
+  existence and the writer's access in the write transaction. `world` covers
+  the current tenant. See [BrainV3](BrainV3.md).
+- An `{% audience` or `{% /audience` candidate outside a tag line or code range
+  produces `misplaced_audience_tag`. This includes candidates inside a heading,
+  blockquote, list, HTML block, or ordinary text line.
 
-以下闭标签在 fenced code block 内，不能结束保密块：
+In this input, the closing tag is code:
 
 ````markdoc
 {% audience scope="principal:alice" %}
@@ -43,28 +47,30 @@ private
 tail that must stay private
 ````
 
-规范解析器返回 `unclosed_audience_tag`，写入被拒绝。读取无法解析的正文时，
-`GetPage` 返回空正文，不能把尾部文本当作 `world` 内容披露。
+The parser returns `unclosed_audience_tag`, and the write fails. `GetPage`
+returns an empty body when stored body syntax is invalid.
 
-### `[[slug]]` 内部链接
+### Internal links
 
-`[[companies/minghu-ai]]` 是内部页面链接；`[[目标|标题]]` 取 `|` 前的部分
-为目标。comrak 的 `wikilinks_title_after_pipe` 扩展识别链接，Dreaming
-将它物化为 link 边。代码块和 inline code 中的 `[[...]]` 不产生链接。
+`[[companies/minghu-ai]]` links to an internal page. In `[[target|title]]`, the
+text before `|` identifies the target. comrak's `wikilinks_title_after_pipe`
+extension identifies links. Dreaming stores them as link edges. Wikilink text
+inside code is literal code.
 
-## 规范解析器
+## Canonical parser
 
-实现位于 `app/kernel/src/brain_markdoc/mod.rs`，语法测试位于同目录的
-`tests.rs`。Cargo feature `brain_markdoc = ["dep:comrak"]` 使用关闭默认
-features 的 comrak，包含在 `nif` 中。
+The implementation and syntax tests are in
+`app/kernel/src/brain_markdoc/mod.rs` and its adjacent `tests.rs`.
+The Cargo feature `brain_markdoc = ["dep:comrak"]` uses comrak with its default
+features disabled and is included in `nif`.
 
-### NIF 契约
+### NIF contract
 
-`brain_markdoc_analyze_nif` 接收 UTF-8 正文，返回 JSON 字符串。公开包装函数
-`Ankole.Kernel.brain_markdoc_analyze/1` 用 `Torque.decode!` 解码为 map。
-NIF 在 DirtyCpu 调度器运行，不启动独立进程。
+`brain_markdoc_analyze_nif` accepts UTF-8 body text and returns JSON.
+`Ankole.Kernel.brain_markdoc_analyze/1` decodes it with `Torque.decode!`.
+The NIF runs on a DirtyCpu scheduler in the current process.
 
-成功结果：
+A successful result has this shape:
 
 ```json
 {"segments": [{"scope": "world", "text": "..."},
@@ -72,118 +78,136 @@ NIF 在 DirtyCpu 调度器运行，不启动独立进程。
  "wikilinks": ["companies/minghu-ai"]}
 ```
 
-语法错误也是正常返回的数据：
+Syntax errors are returned as data:
 
 ```json
 {"error": {"code": "unclosed_audience_tag", "line": 12}}
 ```
 
-错误码是 `nested_audience_tag`、`unopened_audience_tag`、
-`unclosed_audience_tag` 和 `misplaced_audience_tag`；`line` 从 1 开始。
-原生边界不能分析或编码输入时，NIF 调用失败，不把失败当作有效正文。
+The error codes are `nested_audience_tag`, `unopened_audience_tag`,
+`unclosed_audience_tag`, and `misplaced_audience_tag`. Line numbers start at one.
+A native analysis or encoding failure fails the NIF call.
 
-### 分析过程
+### Analysis
 
-1. comrak 解析全文并开启 wikilink 扩展。解析器收集 `CodeBlock`、`Code`
-   和 `HtmlBlock` 的 sourcepos，以及 `WikiLink` 的目标。
-2. 逐行识别顶格且独占一行的标签。位于代码或 HTML block 内的行不成为标签行。
-3. 逐一检查 audience 候选文本；未落在标签行或代码范围内的候选返回
-   `misplaced_audience_tag`。
-4. 按文档顺序配对标签。segment 使用标签之间的原始字节切片，保留空白；
-   标签外的文本形成 `world` segment。
-5. 链接目标按文档顺序 trim、剔除空值并去重。
+1. comrak parses the complete body with wikilinks enabled. The parser collects
+   source positions for `CodeBlock`, `Code`, and `HtmlBlock`, and targets for
+   `WikiLink`.
+2. The parser identifies column-one tag lines outside code and HTML blocks.
+3. It checks every audience candidate. A candidate outside a tag line or code
+   range produces `misplaced_audience_tag`.
+4. It pairs tags in document order. Segments preserve the original bytes and
+   whitespace between tags. Text outside a pair forms a `world` segment.
+5. It trims link targets, removes empty values, and removes duplicates in
+   document order.
 
-comrak 提供结构范围和 wikilink 事实，`brain_markdoc` 提供 audience 语法。
-AST、segment 和诊断不持久化，也不缓存；读取直接调用解析器。
+comrak supplies structural ranges and link facts. `brain_markdoc` supplies the
+audience grammar. Reads call the parser directly; syntax trees, segments, and
+diagnostics are temporary results.
 
-### 控制面接口
+### Control-plane interface
 
-`Ankole.Brain.Markdoc` 调用规范解析器，并提供以下接口：
+`Ankole.Brain.Markdoc` calls the canonical parser:
 
-| 接口 | 行为 |
+| Interface | Behavior |
 | --- | --- |
-| `segments/1` | 校验 scope，将语法错误映射为 atom，剔除纯空白 segment |
-| `scopes/1` | 返回正文使用的不同作用域 |
-| `prune/2` | 按 `keep?` 保留原始 segment，为保留的 scoped segment 重加标签，保持作用域 |
-| `wrap/2` | 为非 `world` 正文加一对规范标签；`world` 正文原样返回 |
-| `wikilinks/1` | 返回内部链接目标；无效正文返回空列表 |
-| `diagnostic/1` | 返回供编辑器使用的原生语法错误码和行号 |
+| `segments/1` | Validates scopes, maps syntax errors to atoms, and omits whitespace-only segments |
+| `scopes/1` | Returns the distinct scopes in the body |
+| `prune/2` | Keeps segments selected by `keep?` and restores tags around scoped text |
+| `wrap/2` | Adds canonical tags around scoped text; returns `world` text directly |
+| `wikilinks/1` | Returns internal link targets, or an empty list for invalid bodies |
+| `diagnostic/1` | Returns native syntax error codes and line numbers for the editor |
 
-Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露边界裁剪正文，
-无效正文投影为空。SourceLearning 和 Synthesis 等派生正文写入器通过 `wrap/2`
-保留来源作用域。
+Objects validates write scopes and chunks each segment. GetPage filters the
+body by read and disclosure access. SourceLearning, Synthesis, and other derived
+body writers use `wrap/2` to preserve source scopes.
 
-## Console 创建与编辑
+## Console creation and editing
 
-### 正文所有权
+### Body ownership
 
-`managed_by_source_id` 表示正文由一个 Brain Source 拥有。SourceLearning
-使用受 Source 身份约束的内部 upsert 路径；普通 Object 更新拒绝 managed
-正文。服务端返回 `editable` 和 `edit_block_reason`，Console 据此选择操作。
+`managed_by_source_id` identifies a Brain Source that owns the body.
+SourceLearning uses an internal upsert bound to that Source identity. Ordinary
+Object updates reject changes to managed bodies. The server returns `editable`
+and `edit_block_reason` for the Console's controls.
 
-| 状态 | 正文操作 | 引导 |
+| State | Body actions | Owner |
 | --- | --- | --- |
-| 租户自有且未删除 | 创建、编辑、保存 | `Ankole.Brain.create_object/2` 或 `Ankole.Brain.update_object/3` |
-| 已删除 | 只读 | 先恢复，再编辑 |
-| SourceLearning media 投影 | 只读 | 打开 Source 重新学习或归档 |
-| `agent-skills` 投影 | 只读 | 打开 Agent Library |
+| Tenant-owned, active | Create, edit, save | `Ankole.Brain.create_object/2`, `Ankole.Brain.update_object/3` |
+| Deleted | Read, then restore before editing | Object restoration |
+| SourceLearning media projection | Read; relearn or archive through the Source | SourceLearning |
+| `agent-skills` projection | Read; edit through Agent Library | Agent Library |
 
 ### Console API
 
-Object 的 `slug` 可以包含 `/`，Console 通过查询参数或请求体传递。详情读取和写入均走 `/api/v2/brain`，使用 `application/vnd.api+json`。通用操作（generic action）在 `data` 下接收参数，并返回各操作声明的类型化结果。
+Slugs can contain `/`, so the Console sends them in query parameters or request
+bodies. The API uses `/api/v2/brain` and `application/vnd.api+json`. Generic
+actions receive arguments under `data` and return their declared typed results.
 
-| 方法与路径 | 用途 | 关键输入或输出 |
+| Method and path | Purpose | Main inputs or outputs |
 | --- | --- | --- |
-| `GET /api/v2/brain/objects/show?slug=...` | 读取详情与保存基线 | raw `body`、`content_hash`、`editable`、`edit_block_reason` |
-| `POST /api/v2/brain/objects` | 创建租户自有 Object（`:console_create`） | slug、type、subtype、title、body、meta、effective_date |
-| `PATCH /api/v2/brain/objects` | 更新租户自有 Object（`:console_update`） | slug、可变字段、`expected_content_hash` |
-| `GET /api/v2/brain/object-versions?slug=...` | 版本历史 | author、body、meta、tags、snapshot_at |
+| `GET /api/v2/brain/objects/show?slug=...` | Read detail and save baseline | Raw `body`, `content_hash`, `editable`, `edit_block_reason` |
+| `POST /api/v2/brain/objects` | Create a tenant-owned Object with `:console_create` | slug, type, subtype, title, body, meta, effective_date |
+| `PATCH /api/v2/brain/objects` | Update a tenant-owned Object with `:console_update` | slug, mutable fields, `expected_content_hash` |
+| `GET /api/v2/brain/object-versions?slug=...` | Read version history | author, body, meta, tags, snapshot_at |
 
-写入返回 Object 摘要。保存成功后编辑器会重新读取详情，以获取最新 `content_hash` 和规范化后的标签；若重读失败，编辑器保留草稿并展示错误，仅在重读成功时更新保存基线。
+Writes return an Object summary. After a successful save, the editor reloads
+detail to obtain the current `content_hash` and normalized tags. If that read
+fails, it keeps the draft and shows the error. A successful read updates the
+save baseline.
 
-创建和更新在 `site_console:brain` 的 `update` 权限下接受可选的 `tags` 数组。更新时省略该字段会保留当前标签；显式传入空数组会清空所有标签。编辑器为每个标签提供独立输入框，支持包含换行的标签。标签计入并发保存基线（compare-and-swap），更新前的标签集合随带作者归属的版本快照一同保存。版本回滚仅恢复 `body` 和 `meta`。
+Create and update require `site_console:brain` `update` permission. They accept
+an optional `tags` array. Omitting `tags` preserves the current set; an empty
+array clears it. Each tag has its own editor input and can contain newlines.
+Tags participate in the compare-and-swap baseline and the author-attributed
+version snapshot. Version rollback restores `body` and `meta`.
 
-创建和更新要求 `site_console:brain` 的 `update` 权限；raw body 只在 `site_console:brain` 的 `read` 管理边界返回。
-领域拒绝返回 422，错误码是领域理由（语法错误为 `unclosed_audience_tag` 等），
-编辑器用本地预览给出语法错误的行号；content hash 冲突（`content_hash_conflict`）、
-已删除（`object_deleted`）和 slug 已占用（`slug_taken`）返回 409。
+Raw body reads require `site_console:brain` `read` permission. Domain rejections
+return 422 with the domain error code. The local preview supplies syntax error
+line numbers. `content_hash_conflict`, `object_deleted`, and `slug_taken` return
+409.
 
-### 编辑器行为
+### Editor behavior
 
-Console 使用 `/brain/objects/new` 和 `/brain/objects/:slug/edit` 全页路由。
-源码输入使用 textarea。`previewBrainObjectBody` 复用 CommonMark 解析库识别
-fenced、indented 和跨行 inline code 的源码范围，再按范围外的标签行生成
-预览 segment，`MarkdownBody` 渲染正文并显示 scope badge；
-`[[slug]]` 在预览中显示为字面文本。
+The Console uses full-page routes `/brain/objects/new` and
+`/brain/objects/:slug/edit`. A textarea edits source text.
+`previewBrainObjectBody` uses CommonMark source ranges for fenced, indented, and
+multiline inline code, then identifies tag lines outside those ranges.
+`MarkdownBody` renders the segments with scope badges. Wikilinks appear as
+literal text in the preview.
 
-本地预览检查错位、嵌套、未打开和未闭合的 `audience` 标签语法。正文无效时显示诊断信息和行号，不显示 scope badge。原生解析器测试与 Console 测试共用 `app/kernel/test/fixtures/brain_markdoc.json` 语料库。有效 segment 保留原始文本与换行符，仅含空白的 segment 在预览中隐藏。保存时服务端重新解析正文，并对语法、作用域有效性和写入权限保持最终裁决权；服务端诊断显示在 Problems 区域。
+The preview reports misplaced, nested, unopened, and unclosed audience tags
+with line numbers. Invalid bodies show diagnostics without scope badges.
+Native and Console tests share `app/kernel/test/fixtures/brain_markdoc.json`.
+Valid segments preserve original text and newlines; the preview hides
+whitespace-only segments. On save, the server parses the body and checks syntax,
+scope validity, and write access. Server diagnostics appear in Problems.
 
-保存携带加载时的 `expected_content_hash`。`content_hash_conflict` 时保留本地草稿；操作员可加载
-最新版本对比并更新保存基线，不自动覆盖正文。离开有未保存修改的页面时提示。
-并发基线覆盖同次保存替换的 title、body、meta、tags、subtype 和 effective_date；检索、
-embedding 等派生状态不改变它。已删除页的普通保存和版本回滚在持有 Object 锁时拒绝，返回
-`object_deleted`；必须先显式恢复。历史版本只回滚 body 和 meta。
+Saves carry the loaded `expected_content_hash`. A conflict preserves the local
+draft. The operator can load the current version, compare it, and update the
+baseline. Leaving an unsaved draft prompts for confirmation. The baseline covers
+title, body, meta, tags, subtype, and effective_date. Derived retrieval and
+embedding state does not change it. Ordinary saves and rollbacks check the
+Object lock and reject deleted Objects with `object_deleted`; restore them
+before editing.
 
-保存及对比结果只属于发起操作的本次编辑页。离开后请求可完成服务端写入和
-全局查询刷新，但迟到结果不改变之后打开的草稿、错误状态或导航。
-创建可填写 slug、type、subtype、title、effective_date 和 meta；编辑时 slug
-和 type 只读。
+Save and comparison results belong to the editor instance that started them.
+A request can finish its server write and global query refresh after navigation,
+but its result does not change a later draft, error, or destination. Creation
+accepts slug, type, subtype, title, effective_date, and meta. Editing keeps slug
+and type read-only. Administrators can repair invalid stored syntax through the
+raw-body editor.
 
-存储中存在无效正文时，管理员可通过 raw body 编辑修复。普通读取返回空正文，
-写入拒绝无效语法，不通过兼容解析器绕过边界。
+## Implementation boundaries
 
-## 实现边界
+The syntax consists of the audience tags and wikilinks above. The in-process
+NIF owns parsing and access enforcement remains in the control plane. The
+editor saves source as entered and previews it with the shared test corpus.
+`GetPage.rendered` joins the segments that pass disclosure checks. Per-Principal
+disclosure uses that Principal's actual read path; recall administration is a
+separate function.
 
-- 只支持上述 audience 标签和 wikilinks，不实现完整 Markdoc 的变量、函数、
-  条件、partial、annotation、inline tag 或嵌套标签。
-- 规范解析由进程内 NIF 提供。Console 预览不能替代服务端解析或权限校验。
-- 正文按输入保存，不提供 formatter。编辑器没有 WYSIWYG、CodeMirror 或语法高亮。
-- Object 编辑器不提供按 Principal 预览正文的端点。真实披露通过目标 Principal
-  的读取路径验证；检索预览属于独立的 recall 管理功能。
-- `GetPage.rendered` 保持裁剪后的拼接投影。无效正文不通过迁移或运行时 fallback
-  获得宽松解释。
+## References
 
-## 参考
-
-- comrak：<https://docs.rs/comrak>。
-- Markdoc 标签语法形状：<https://markdoc.dev/docs/tags>。
+- [comrak](https://docs.rs/comrak)
+- [Markdoc tag syntax](https://markdoc.dev/docs/tags)

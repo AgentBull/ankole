@@ -89,7 +89,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.BotFrameworkAuth do
   end
 
   defp verify_service_url(claims, activity) do
-    claimed = MapHelpers.optional_text(claims, "serviceUrl")
+    claimed = MapHelpers.optional_text(claims, "serviceurl")
     activity_service_url = MapHelpers.optional_text(activity, "serviceUrl")
 
     cond do

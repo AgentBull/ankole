@@ -130,8 +130,22 @@ defmodule Ankole.Principals.SiteCredentials do
              end
            end),
          {:ok, _} <- bind_in_tx(uid, proof),
+         :ok <- replace_profile_email(uid, owned, proof),
          do: :ok
   end
+
+  defp replace_profile_email(uid, owned, %{provider_id: "email_otp", verified_email: email}) do
+    human = HumanUser |> Ash.Query.filter(principal_uid == ^uid) |> Ankole.Ash.read_one!()
+    previous = Enum.map(owned, & &1.verified_email)
+
+    if is_nil(human.email) or human.email in previous do
+      with {:ok, _} <- Ankole.Ash.update(human, :profile_in_tx, %{email: email}), do: :ok
+    else
+      :ok
+    end
+  end
+
+  defp replace_profile_email(_uid, _owned, _proof), do: :ok
 
   def release_in_tx(principal) do
     :ok = Ankole.Repo.require_transaction()

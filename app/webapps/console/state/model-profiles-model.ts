@@ -1,6 +1,6 @@
 import type { PutAgentModelProfileData, ListAgentModelProfilesResponse } from '../api/v2/generated/types.gen'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 // Embedding and rerank are not Agent profile slots: Brain owns those models
 // instance-wide through the brain.* settings.
@@ -64,10 +64,12 @@ export const ModelProfilesModel = createModel(() => {
     ProfileName,
     ProfileSignals
   >
+  const dirty = computed(() => PROFILE_NAMES.some(name => profiles[name].dirty.value))
 
   return {
     sourceKey,
     profiles,
+    dirty,
     initialize(nextSourceKey: string, drafts: Partial<Record<ProfileName, ProfileDraftInput>>) {
       batch(() => {
         const sameSource = sourceKey.value === nextSourceKey
@@ -93,6 +95,20 @@ export const ModelProfilesModel = createModel(() => {
       submission: ModelProfileSubmission
     ): ModelProfilePersistenceResult {
       return markProfileSaved(profiles[name], input, submission)
+    },
+    reset(name: ProfileName) {
+      const profile = profiles[name]
+      const restored: ProfileDraft = {
+        ...profile.source.value,
+        providerOptions: { ...profile.source.value.providerOptions },
+        error: undefined
+      }
+
+      batch(() => {
+        writeProfileDraft(profile, restored)
+        profile.revision.value += 1
+        profile.dirty.value = false
+      })
     },
     clear(name: ProfileName) {
       const profile = profiles[name]

@@ -12,8 +12,11 @@ defmodule Ankole.AgentWorkers.Decision do
 
   @spec next(map()) :: atom() | tuple()
   def next(%{worker: worker, objects: objects} = facts) do
-    {current, stray} = Enum.split_with(objects, &ProviderKind.current_instance?(worker, &1))
-    current = List.first(current)
+    {current, stray} =
+      case Enum.split_with(objects, &ProviderKind.current_instance?(worker, &1)) do
+        {[first | extra], stray} -> {first, extra ++ stray}
+        {[], stray} -> {nil, stray}
+      end
 
     cond do
       stray != [] -> {:delete_object, hd(stray)}

@@ -8,13 +8,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
-  Textarea,
-  type CronEditorLabels
+  Switch
 } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import {
   listAiGatewayModelsOptions,
@@ -22,7 +19,8 @@ import {
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
 import type { AppConfigurationItem } from '../api/configuration-types'
-import { LabeledField } from '../console-form'
+import { cronEditorLabels, LabeledField } from '../console-form'
+import { JSONObjectField } from '../json-object-field'
 import { modelOptionsForBrainModel, providersWithCapability } from './model-profile-options'
 import {
   BRAIN_CHUNKING_FIELDS,
@@ -45,35 +43,6 @@ import { settingDescription } from '../state/setting-groups'
 import { SettingGroupField } from './setting-group-field'
 import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { aiGatewayProviders } from '../state/provider-settings'
-
-function cronEditorLabels(t: TFunction): CronEditorLabels {
-  return {
-    mode: t('common.cron_mode'),
-    modes: {
-      every_minutes: t('common.cron_mode_every_minutes'),
-      hourly: t('common.cron_mode_hourly'),
-      daily: t('common.cron_mode_daily'),
-      weekly: t('common.cron_mode_weekly'),
-      monthly: t('common.cron_mode_monthly'),
-      custom: t('common.cron_mode_custom')
-    },
-    interval: t('common.cron_interval'),
-    minute: t('common.cron_minute'),
-    time: t('common.cron_time'),
-    weekday: t('common.cron_weekday'),
-    weekdays: [
-      t('common.cron_weekday_sun'),
-      t('common.cron_weekday_mon'),
-      t('common.cron_weekday_tue'),
-      t('common.cron_weekday_wed'),
-      t('common.cron_weekday_thu'),
-      t('common.cron_weekday_fri'),
-      t('common.cron_weekday_sat')
-    ],
-    dayOfMonth: t('common.cron_day_of_month'),
-    expression: t('common.cron_expression')
-  }
-}
 
 export function BrainSettingsEditor({
   drafts,
@@ -406,15 +375,12 @@ function BrainModelFieldGroup({
               </LabeledField>
             ) : null}
             <div className="sm:col-span-2">
-              <LabeledField label={t('console.settings.brain_model_provider_options')}>
-                <Textarea
-                  className="min-h-20 font-mono text-xs"
-                  placeholder="{}"
-                  spellCheck={false}
-                  value={draft.providerOptions}
-                  onChange={event => onChange({ ...draft, providerOptions: event.target.value })}
-                />
-              </LabeledField>
+              <JSONObjectField
+                label={t('console.settings.brain_model_provider_options')}
+                name="provider_options"
+                value={draft.providerOptions}
+                onChange={providerOptions => onChange({ ...draft, providerOptions })}
+              />
             </div>
           </div>
         ) : null}

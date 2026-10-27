@@ -30,6 +30,8 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       anchors = %{
+        "state" => "provider_pending",
+        "reason" => "provider_reconciliation",
         "card_id" => "card-1",
         "message_id" => "message-1",
         "streaming_state" => "open",

@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { deliveryTargetDrafts, ScheduleEditorModel, type ScheduleEditorDraft } from './schedule-editor-model'
+import {
+  composeEveryMs,
+  decomposeEveryMs,
+  deliveryTargetDrafts,
+  ScheduleEditorModel,
+  type ScheduleEditorDraft
+} from './schedule-editor-model'
 
 const draft: ScheduleEditorDraft = {
   ownerSessionId: 'lark:chat:market',
@@ -237,6 +243,30 @@ describe('ScheduleEditorModel', () => {
     const body = model.toCreateBody()
     expect(body?.schedule).toEqual({ kind: 'every', every_ms: 60_000, anchor_at: '2026-08-12T00:00:00Z' })
     expect(body?.timezone).toBeNull()
+
+    model[Symbol.dispose]()
+  })
+
+  test('converts human interval units, local anchor instants, and per-submit idempotency keys', () => {
+    expect(decomposeEveryMs('86400000')).toEqual({ value: '1', unit: 'days' })
+    expect(decomposeEveryMs('7200000')).toEqual({ value: '2', unit: 'hours' })
+    expect(decomposeEveryMs('900000')).toEqual({ value: '15', unit: 'minutes' })
+    expect(decomposeEveryMs('30000')).toEqual({ value: '30', unit: 'seconds' })
+    expect(composeEveryMs('2', 'hours')).toBe('7200000')
+
+    const model = new ScheduleEditorModel()
+    model.initialize('new', { ...draft, scheduleKind: 'every', cronExpression: '', everyMs: '', idempotencyKey: '' })
+    model.setIntervalUnit('hours')
+    model.setIntervalValue('2')
+    model.setAnchorLocal('2026-08-12T09:30')
+
+    const body = model.toCreateBody('generated-uuid-1')
+    expect(body?.idempotency_key).toBe('generated-uuid-1')
+    expect(body?.schedule).toEqual({
+      kind: 'every',
+      every_ms: 7_200_000,
+      anchor_at: new Date('2026-08-12T09:30').toISOString()
+    })
 
     model[Symbol.dispose]()
   })

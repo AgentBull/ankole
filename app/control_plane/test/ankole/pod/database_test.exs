@@ -1164,6 +1164,97 @@ defmodule Ankole.Pod.BasesTest do
     )
   end
 
+  test "created_by and updated_by filters and group queries match bare principal UIDs and ActorRef strings",
+       ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.uid)
+    other = human_fixture().principal
+    {:ok, created_by} = field(ctx, "Creator", "created_by")
+    {:ok, updated_by} = field(ctx, "Updater", "updated_by")
+
+    {:ok, %{records: [record]}} =
+      Bases.write_records(actor, ctx.table.id, %{
+        creates: [%{data: %{ctx.primary.id => "Attributed"}}]
+      })
+
+    actor_ref = to_string(Ankole.ActorRef.from_actor(actor))
+
+    for {target_field, value} <- [
+          {created_by, ctx.uid},
+          {created_by, "  " <> String.upcase(ctx.uid) <> "  "},
+          {created_by, actor_ref},
+          {updated_by, ctx.uid},
+          {updated_by, actor_ref}
+        ] do
+      assert {:ok, %{records: [found]}} =
+               Bases.query(actor, ctx.table.id, %{
+                 filter: %{
+                   conditions: [%{field_id: target_field.id, operator: "is", value: value}]
+                 }
+               })
+
+      assert found["id"] == record.id
+    end
+
+    assert {:ok, %{records: []}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{
+                 conditions: [%{field_id: created_by.id, operator: "is", value: other.uid}]
+               }
+             })
+
+    assert {:ok, %{records: [grouped]}} =
+             Bases.query(actor, ctx.table.id, %{
+               group: %{field_id: created_by.id, value: ctx.uid}
+             })
+
+    assert grouped["id"] == record.id
+  end
+
+  test "deleting a field scrubs view visible_fields, group_field_id, and cover_field_id while keeping filter references",
+       ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.uid)
+
+    {:ok, status} =
+      field(ctx, "Status", "select", %{"options" => [%{"id" => "open", "name" => "Open"}]})
+
+    {:ok, cover} = field(ctx, "Cover", "attachment")
+    {:ok, keep} = field(ctx, "Keep", "text")
+
+    {:ok, board} =
+      Bases.create_view(actor, ctx.table.id, %{
+        name: "Board",
+        type: "kanban",
+        config: %{
+          "visible_fields" => [ctx.primary.id, status.id, keep.id],
+          "group_field_id" => status.id,
+          "cover_field_id" => cover.id,
+          "filter" => %{
+            "conjunction" => "and",
+            "conditions" => [%{"field_id" => status.id, "operator" => "is", "value" => "open"}]
+          }
+        }
+      })
+
+    assert {:ok, _} = Bases.delete_field(actor, status.id, status.version)
+    assert {:ok, _} = Bases.delete_field(actor, cover.id, cover.version)
+
+    assert {:ok, %{views: views}} = Bases.get_table(actor, ctx.table.id)
+    updated = Enum.find(views, &(&1.id == board.id))
+
+    assert updated.config["visible_fields"] == [ctx.primary.id, keep.id]
+    refute Map.has_key?(updated.config, "group_field_id")
+    refute Map.has_key?(updated.config, "cover_field_id")
+    assert [%{"field_id" => filter_field_id}] = updated.config["filter"]["conditions"]
+    assert filter_field_id == status.id
+
+    assert {:ok, _} =
+             Bases.update_view(actor, updated.id, %{
+               version: updated.version,
+               name: "Board Renamed",
+               config: updated.config
+             })
+  end
+
   defp field(ctx, name, type, config \\ %{}),
     do:
       Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{

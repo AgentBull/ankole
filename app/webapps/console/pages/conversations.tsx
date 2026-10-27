@@ -29,6 +29,8 @@ import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../../common/markdown-body'
 import { StatusIndicator } from '../console-form'
 import {
+  AgentCell,
+  AgentLink,
   CursorPagination,
   ResourceListPage,
   ResourceSearch,
@@ -233,7 +235,7 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="font-mono text-xs">{conversation.subject_uid}</TableCell>
+      <AgentCell uid={conversation.subject_uid} />
       <TableCell className="text-right text-sm tabular-nums">
         <span className={conversation.message_count === 0 ? 'text-muted-foreground' : undefined}>
           {conversation.message_count}
@@ -313,7 +315,7 @@ function ConversationHeader({ conversation }: { conversation: AIGatewayConversat
             <span aria-hidden>·</span>
           </>
         ) : null}
-        <span className="break-all">{conversation.subject_uid}</span>
+        <AgentLink className="break-all" uid={conversation.subject_uid} />
         <span aria-hidden>·</span>
         <span className="break-all font-mono text-xs">{conversation.id}</span>
       </p>
@@ -388,9 +390,9 @@ export function ConversationDetailPage() {
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>
             <h3 className="text-base font-semibold">{t('console.conversations.details')}</h3>
             <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
-              <DetailField label={t('console.conversations.subject')} value={detail.subject_uid} mono />
+              <DetailField label={t('console.conversations.subject')} value={<AgentLink uid={detail.subject_uid} />} />
               <DetailField label={t('console.conversations.key')} value={detail.conversation_key} mono />
-              <DetailField label="ID" value={detail.id} mono />
+              <DetailField label={t('common.id', { defaultValue: 'ID' })} value={detail.id} mono />
               <DetailField label={t('console.conversations.messages')} value={detail.message_count} />
               <DetailField label={t('console.conversations.created')} value={formatConsoleDate(detail.inserted_at)} />
               <DetailField label={t('console.conversations.ended_at')} value={formatConsoleDate(detail.ended_at)} />

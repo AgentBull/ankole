@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.Files.Browser do
-  @moduledoc "Page file manifests and atomic publication through the browser API."
+  @moduledoc "Page file manifests and conversation attachment copies for browsers."
   use Ankole.Ash.OperationResource,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
@@ -9,7 +9,6 @@ defmodule Ankole.Pod.Files.Browser do
   authz do
     scope(:pod)
     allow(:manifest, check: :guardrail)
-    allow(:publish, check: :guardrail)
     allow(:copy, check: :guardrail)
   end
 
@@ -50,28 +49,6 @@ defmodule Ankole.Pod.Files.Browser do
 
       run(fn input, context ->
         APIError.result(Files.manifest(context.actor, input.arguments.id))
-      end)
-    end
-
-    action :publish, :map do
-      constraints(fields: @manifest)
-      argument(:id, UUIDv7, allow_nil?: false)
-      argument(:base_revision, :integer, allow_nil?: false, constraints: [min: 0])
-
-      argument(:files, {:array, :map},
-        allow_nil?: false,
-        constraints: [items: [fields: Keyword.delete(@entry_fields, :size)]]
-      )
-
-      run(fn input, context ->
-        APIError.result(
-          Files.publish(
-            context.actor,
-            input.arguments.id,
-            input.arguments.base_revision,
-            input.arguments.files
-          )
-        )
       end)
     end
 

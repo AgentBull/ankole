@@ -45,10 +45,12 @@ export function conversationFindRanges(root: HTMLElement, query: string): Range[
 export function SessionFindBar({
   root,
   history,
+  inputRef,
   onClose
 }: {
   root: RefObject<HTMLElement | null>
   history: ReturnType<typeof useChatHistory>
+  inputRef?: RefObject<HTMLInputElement | null>
   onClose(): void
 }) {
   const { t } = useTranslation()
@@ -100,10 +102,6 @@ export function SessionFindBar({
     searchRef.current('new')
   }, [query])
   useEffect(() => {
-    if (!query.trim() || !history.hasOlder || history.isPending || history.error) return
-    history.mutate(null)
-  }, [query, history.hasOlder, history.loadedCount, history.isPending, history.error, history.mutate])
-  useEffect(() => {
     const element = root.current
     if (!element) return
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -132,6 +130,7 @@ export function SessionFindBar({
   return (
     <div className="pod-chat-find" role="search">
       <Input
+        ref={inputRef}
         autoFocus
         value={query}
         aria-label={t('pod.chat_room.find')}
@@ -154,11 +153,11 @@ export function SessionFindBar({
         {query.trim() && history.hasOlder ? '+' : ''}
       </span>
       {!!query.trim() && history.hasOlder && (
-        <span role="status" className="text-xs text-fg-tertiary">
-          {t(history.error ? 'pod.chat_room.find_incomplete' : 'pod.chat_room.find_loading_history', {
+        <Button size="sm" variant="ghost" disabled={history.isPending} onClick={() => history.mutate(null)}>
+          {t(history.isPending ? 'pod.chat_room.find_loading_history' : 'pod.chat_room.find_load_older', {
             count: history.loadedCount
           })}
-        </span>
+        </Button>
       )}
       <ContentError error={history.error} retry={() => history.mutate(null)} />
       <Button

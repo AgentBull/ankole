@@ -202,19 +202,16 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
   end
 
   defp login(conn, principal) do
-    {:ok, conn, flow} =
-      conn |> Plug.Test.init_test_session(%{}) |> WebSession.begin_login(:pod, %{})
+    conn = conn |> Plug.Test.init_test_session(%{}) |> WebSession.ensure_browser()
 
-    {:ok, _} = BrowserSessions.bind_provider(WebSession.browser_reference(conn), flow.id, "local")
-
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, flow.id, %{
+    {:ok, %{browser: browser, authentication: auth}} =
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), :pod, %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
         "provider_id" => "local",
         "external_id" => principal.uid
       })
 
-    with_console_csrf(conn)
+    conn |> WebSession.put_authentication(browser, auth) |> with_console_csrf()
   end
 end

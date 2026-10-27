@@ -246,6 +246,11 @@ export function createConsoleRouter(queryClient: QueryClient) {
       createRoute({ getParentRoute: () => bodyRoute, path: 'signals/new', component: SignalBindingEditorPage }),
       createRoute({
         getParentRoute: () => bodyRoute,
+        path: 'signals/$agent/$adapter/$name',
+        component: SignalBindingEditorPage
+      }),
+      createRoute({
+        getParentRoute: () => bodyRoute,
         path: 'schedules',
         component: SchedulesListPage,
         loader: loaders.schedules
@@ -257,6 +262,11 @@ export function createConsoleRouter(queryClient: QueryClient) {
         loader: loaders.scheduleCheckbacks
       }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'schedules/new', component: ScheduleCronEditorPage }),
+      createRoute({
+        getParentRoute: () => bodyRoute,
+        path: 'schedules/$agent/$cronID',
+        component: ScheduleCronEditorPage
+      }),
       createRoute({
         getParentRoute: () => bodyRoute,
         path: 'webhooks',

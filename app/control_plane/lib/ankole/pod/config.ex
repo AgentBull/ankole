@@ -31,15 +31,6 @@ defmodule Ankole.Pod.Config do
           "Applet invocation limits: timeout_ms and heap_mb. Includes capability wait time and external memory."
       ),
       Definition.new!(
-        key: "pod.applet.ai_agent_uid",
-        scope: :tenant,
-        encrypted: false,
-        schema: Schema.new(&optional_uid/1),
-        default_value: nil,
-        description:
-          "Active Agent whose model profiles and usage own Applet AI calls. Empty disables Applet AI."
-      ),
-      Definition.new!(
         key: "pod.base.limits",
         scope: :tenant,
         encrypted: false,
@@ -90,15 +81,6 @@ defmodule Ankole.Pod.Config do
     with {:ok, limits} <- AppConfigure.get_by_key("pod.applet.limits"),
          do: {:ok, [timeout_ms: limits["timeout_ms"], heap_mb: limits["heap_mb"]]}
   end
-
-  def applet_ai_agent_uid, do: AppConfigure.get_by_key("pod.applet.ai_agent_uid")
-
-  defp optional_uid(nil), do: {:ok, nil}
-
-  defp optional_uid(uid) when is_binary(uid) and byte_size(uid) > 0,
-    do: Ankole.PrincipalKey.normalize(uid)
-
-  defp optional_uid(_), do: {:error, :invalid_principal_uid}
 
   defp validate_applet_limits(limits) when is_map(limits) do
     if Enum.sort(Map.keys(limits)) == Enum.sort(Map.keys(@applet_defaults)) and

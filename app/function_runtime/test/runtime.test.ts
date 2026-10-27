@@ -78,6 +78,39 @@ async function invoke(
 }
 
 describe('real edge-runtime protocol', () => {
+  test('capacity saturation rejects new work without failing liveness', async () => {
+    const sha = await publish('export default {"GET /":()=>1}')
+    const runs: string[] = []
+    const capacity = Number(process.env.ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY || 32)
+    try {
+      for (let index = 0; index < capacity; index++) {
+        const runId = crypto.randomUUID()
+        const path = `/v1/applet/invoke?tenant_id=health&page_id=health&revision=1&sha256=${sha}&run_id=${runId}&timeout_ms=30000`
+        expect((await fetch(base + path, { headers })).status).toBe(204)
+        runs.push(runId)
+      }
+      expect((await post('/v1/applet/inspect', { source: 'export default {"GET /":()=>1}' })).status).toBe(503)
+      expect((await fetch(`${base}/_internal/health`)).status).toBe(200)
+    } finally {
+      for (const runId of runs) {
+        await fetch(`${base}/v1/applet/invocations/${runId}`, { method: 'DELETE', headers })
+      }
+    }
+    expect((await post('/v1/applet/inspect', { source: 'export default {"GET /":()=>1}' })).status).toBe(200)
+  })
+
+  test('separate Applet workers have separate temporary files', async () => {
+    const sha = await publish(
+      'import {readFile,writeFile} from "node:fs/promises"; export default {"POST /":async r=>{if(r.body){await writeFile("/tmp/isolation-test",r.body);return "saved"}try{return await readFile("/tmp/isolation-test","utf8")}catch(error){return error.code}}}'
+    )
+    const prefix = crypto.randomUUID()
+    expect(
+      (await invoke(sha, { method: 'POST', path: '/', body: 'private' } as any, { page: `${prefix}-a` })).body
+    ).toBe('saved')
+    expect((await invoke(sha, { method: 'POST', path: '/' }, { page: `${prefix}-b` })).body).toBe('ENOENT')
+    expect((await invoke(sha, { method: 'POST', path: '/' }, { page: `${prefix}-a` })).body).toBe('private')
+  })
+
   test('a canceled CPU-bound Applet leaves unrelated cold inspections available', async () => {
     const sha = await publish(
       'export default {"POST /":async r=>{if(r.body==="loop"){await AnkoleRuntime.base.query("ready",{});while(true){}}return 1}}'
@@ -366,6 +399,32 @@ describe('real edge-runtime protocol', () => {
     expect(next).not.toBe(sha)
     expect((await invoke(next, undefined, { page, revision: 2 })).body.env).toBe('second')
   })
+  test('file capabilities transfer binary bytes without text conversion', async () => {
+    const bytes = Uint8Array.from({ length: 256 }, (_, value) => value)
+    const encoded = Buffer.from(bytes).toString('base64')
+    const sha = await publish(
+      'export default {"POST /":async()=>{const bytes=Uint8Array.from({length:256},(_,value)=>value);await AnkoleRuntime.file.write("page",{bytes});const file=await AnkoleRuntime.file.read("path");return Array.from(file.bytes)}}'
+    )
+    const operations: string[] = []
+    const result = await invoke(
+      sha,
+      { method: 'POST', path: '/' },
+      {
+        call: async frame => {
+          operations.push(frame.operation)
+          if (frame.operation === 'file.write') {
+            expect(frame.args).toEqual(['page', { bytes: { __ankole_bytes: encoded } }])
+            return { path: 'path' }
+          }
+          expect(frame.args).toEqual(['path'])
+          return { bytes: { __ankole_bytes: encoded } }
+        }
+      }
+    )
+    expect(operations).toEqual(['file.write', 'file.read'])
+    expect(result.body).toEqual(Array.from(bytes))
+  })
+
   test('warm concurrent calls keep capability replies and logs within their invocation', async () => {
     const sha = await publish(
       'export default {"POST /":async()=>{const value=await AnkoleRuntime.base.query("t");console.log(value);return value}}'

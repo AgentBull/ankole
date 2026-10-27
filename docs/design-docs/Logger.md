@@ -201,7 +201,10 @@ Keep each message short and stable. Do not require an operator to parse IDs from
 
 Use `error` for exception values. Use a stable structured reason for domain failures.
 
-When no structured reason exists, use an inspected `reason` value. Do not convert a stable domain reason to free text.
+`Ankole.Logging.failure_fields/1` records an atom reason or the leading atom of
+a domain error tuple. Exceptions include their type and a stacktrace with
+argument counts. Unknown Console failures log at error severity and return
+HTTP 500. Expected request errors retain their declared status.
 
 ## Test the Logging Contract
 
@@ -216,8 +219,7 @@ MIX_ENV=test mix compile --warnings-as-errors
 MIX_ENV=test mix test test/ankole/logging/json_formatter_test.exs
 ```
 
-The Agent Computer suite runs in the Linux Worker image through Devkit and
-includes the logging test. That test verifies severity mapping, labels,
+The Agent Computer unit suite runs on the host and includes the logging test. That test verifies severity mapping, labels,
 reserved fields, errors, and JSON output. The Devkit log-display test runs on
 the host.
 

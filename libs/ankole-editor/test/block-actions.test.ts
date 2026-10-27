@@ -8,11 +8,14 @@ import { Callout } from '../src/blocks/callout'
 import {
   applyBlockType,
   blockChange,
+  canTurnInto,
   duplicateBlocks,
   duplication,
   insertAfterBlock,
   movement,
   removal,
+  turnBlock,
+  turnBlockInto,
   type CoreBlockType
 } from '../src/editor/block-actions'
 import { blockInsertion, compose } from '../src/editor/block-insert'
@@ -267,4 +270,54 @@ test('block actions are separate undo steps after typing', () => {
   expect(markdown(editor.state)).toBe('# ab\n\n# ab')
   expect(markdown(undoOnce(editor.state))).toBe('# ab')
   expect(markdown(undoOnce(undoOnce(editor.state)))).toBe('ab')
+})
+
+test('canTurnInto allows lists, quotes and callouts while keeping dividers, embeds and tables disabled', () => {
+  const state = headlessState(
+    [
+      'Paragraph',
+      '## Heading',
+      '- bullet',
+      '1. ordered',
+      '> quote',
+      '<callout>\n  note\n</callout>',
+      '---',
+      '<embed ref="tasks" />',
+      '| a |\n| - |\n| 1 |'
+    ].join('\n\n')
+  )
+  const flags: boolean[] = []
+  let pos = 0
+  for (const node of state.doc.content) {
+    flags.push(canTurnInto(state, pos))
+    pos += node.length
+  }
+  expect(flags).toEqual([true, true, true, true, true, true, false, false, false])
+  expect(turnBlock(headlessState('> one'), 0, 'quote')).toBeNull()
+  expect(turnBlock(headlessState('<callout>\n  one\n</callout>'), 0, 'callout')).toBeNull()
+  expect(turnBlock(headlessState('---'), 0, 'paragraph')).toBeNull()
+})
+
+test.each([
+  ['- one\n- two', 0, 'paragraph', 'one\n\ntwo'],
+  ['- one\n- two', 0, 'h2', '## one\n\n## two'],
+  ['- one\n- two', 0, 'number', '1. one\n2. two'],
+  ['- one\n- two', 0, 'quote', '> one\n>\n> two'],
+  ['- one\n- two', 0, 'callout', '<callout>\n  one\n\n  two\n</callout>'],
+  ['1. one\n2. two', 0, 'check', '- [ ] one\n- [ ] two'],
+  ['1. one\n2. two', 0, 'quote', '> one\n>\n> two'],
+  ['> one\n>\n> two', 0, 'paragraph', 'one\n\ntwo'],
+  ['> ## Title\n>\n> Body', 0, 'paragraph', 'Title\n\nBody'],
+  ['> one\n>\n> two', 0, 'bullet', '- one\n- two'],
+  ['> one\n>\n> two', 0, 'h3', '### one\n\n### two'],
+  ['> one\n>\n> two', 0, 'callout', '<callout>\n  one\n\n  two\n</callout>'],
+  ['<callout tone="warning">\n  one\n\n  two\n</callout>', 0, 'quote', '> one\n>\n> two'],
+  ['<callout tone="info">\n  one\n\n  two\n</callout>', 0, 'number', '1. one\n2. two'],
+  ['<callout>\n  one\n</callout>', 0, 'code', '```\none\n```']
+] as const)('turnBlock on %p into %p', (source, pos, type, expected) => {
+  const editor = editorFor(openAt(source, 0))
+  expect(turnBlockInto(editor, pos, type)).toBe(true)
+  expect(markdown(editor.state)).toBe(expected)
+  expect(undoDepth(editor.state)).toBe(1)
+  expect(markdown(undoOnce(editor.state))).toBe(source)
 })

@@ -6,24 +6,25 @@ defmodule Ankole.Authn.AddOns.SiteCredentialBinding do
   @behaviour Ankole.Authn.AddOn
   @impl true
   def call(:request, params, _opts),
-    do: request(params.actor, params.browser, params.email, params.ip)
+    do: request(params.actor, params.browser, params.email, params.ip, locale: params[:locale])
 
   def call(:verify, params, _opts),
     do: verify(params.actor, params.browser, params.id, params.code, params.ip)
 
   def call(:unbind, params, _opts), do: unbind(params.actor, params.id)
 
-  def request(actor, browser, email, ip) do
+  def request(actor, browser, email, ip, opts \\ []) do
     with :ok <- permitted(actor),
          :ok <- recent(actor) do
       Ankole.Authn.Info.run(
         Principals.SiteCredential,
         :email_otp,
         :request,
-        %{browser: browser, flow: nil, email: email, source: ip},
+        %{browser: browser, email: email, source: ip},
         purpose: "bind_credential",
         tenant_id: Actor.tenant_id(actor),
         principal_uid: Actor.uid(actor),
+        locale: Keyword.get(opts, :locale),
         ceremony_context: %{
           "principal_uid" => Actor.uid(actor),
           "tenant_id" => Actor.tenant_id(actor)
@@ -39,7 +40,7 @@ defmodule Ankole.Authn.AddOns.SiteCredentialBinding do
         Principals.SiteCredential,
         :email_otp,
         :verify,
-        %{browser: browser, flow: nil, challenge_id: id, code: code, source: ip},
+        %{browser: browser, challenge_id: id, code: code, source: ip},
         complete: fn challenge ->
           with true <-
                  challenge.purpose == "bind_credential" and
@@ -82,7 +83,7 @@ defmodule Ankole.Authn.AddOns.SiteCredentialBinding do
   end
 
   def recent(%Actor{authn: %{"authenticated_at" => time}}) when is_integer(time) do
-    if (System.system_time(:second) - time) in 0..900,
+    if System.system_time(:second) <= time + 900,
       do: :ok,
       else: {:error, :reauthentication_required}
   end

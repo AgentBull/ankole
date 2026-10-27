@@ -73,6 +73,28 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
            end)
   end
 
+  test "contradiction candidates keep audience scopes separate", %{human: human} do
+    assert {:ok, %{claim: private}} =
+             Ankole.Brain.write_fact(
+               %{
+                 object_slug: "companies/acme",
+                 claim: "Confidential acquisition target",
+                 kind: "fact",
+                 holder: "world",
+                 audience_scope: "principal:#{human.uid}",
+                 notability: "medium",
+                 confidence: 0.75,
+                 valid_from: DateTime.utc_now(:microsecond),
+                 provenance: "private conversation"
+               },
+               human.uid
+             )
+
+    refute Enum.any?(Dreaming.contradiction_candidates(), fn {left, right} ->
+             left.id == private.id or right.id == private.id
+           end)
+  end
+
   test "only an open contradiction accepts an operator decision", %{a: a, b: b} do
     assert :ok = Dreaming.record_contradiction_verdict(a.id, b.id, "contradiction", 0.9, %{})
     contradiction = Repo.get_by!(Contradiction, a_claim_id: a.id, b_claim_id: b.id)

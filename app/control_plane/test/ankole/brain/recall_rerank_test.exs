@@ -5,7 +5,7 @@ defmodule Ankole.Brain.RecallRerankTest do
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
 
-  test "recall sends the configured rerank options through the provider adapter" do
+  test "recall sends provider options and applies recency after rerank" do
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     assert {:ok, _} = SchemaPacks.install_packs([])
@@ -15,7 +15,18 @@ defmodule Ankole.Brain.RecallRerankTest do
     base_url =
       start_upstream_server(fn request ->
         send(parent, {:rerank_request, request})
-        {:json, 200, %{"results" => [%{"index" => 0, "relevance_score" => 0.9}]}}
+
+        results =
+          request.body["documents"]
+          |> Enum.with_index()
+          |> Enum.map(fn {text, index} ->
+            %{
+              "index" => index,
+              "relevance_score" => if(String.contains?(text, "archived"), do: 1.0, else: 0.9)
+            }
+          end)
+
+        {:json, 200, %{"results" => results}}
       end)
 
     assert {:ok, _} =
@@ -46,8 +57,26 @@ defmodule Ankole.Brain.RecallRerankTest do
                :system
              )
 
+    assert {:ok, _} =
+             Ankole.Brain.create_object(
+               %{
+                 slug: "notes/rerank-old-report",
+                 type: "note",
+                 title: "Quasar report",
+                 body: "Quasar observations belong in this archived report.",
+                 effective_date: Date.add(Date.utc_today(), -90)
+               },
+               :system
+             )
+
     assert {:ok, result} = Recall.recall(agent.uid, %{query: "Quasar"})
-    assert Enum.any?(result.chunks, &(&1.object_slug == "notes/rerank-report"))
+    slugs = Enum.map(result.chunks, & &1.object_slug)
+    assert "notes/rerank-report" in slugs
+    assert "notes/rerank-old-report" in slugs
+
+    assert Enum.find_index(slugs, &(&1 == "notes/rerank-report")) <
+             Enum.find_index(slugs, &(&1 == "notes/rerank-old-report"))
+
     assert_receive {:rerank_request, %{path: "rerank", body: body}}
     assert body["return_documents"] == false
     assert body["query"] == "Quasar"

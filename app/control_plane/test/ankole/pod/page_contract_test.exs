@@ -17,6 +17,43 @@ defmodule Ankole.Pod.PageContractTest do
     %{owner: owner, agent: agent}
   end
 
+  test "purge batches select leaves before limiting a large subtree", ctx do
+    {:ok, root} = Pages.create(actor_fixture(ctx.owner.uid), %{type: "file"})
+    now = DateTime.utc_now(:microsecond)
+
+    parents =
+      for n <- 1..1001 do
+        %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          tenant_id: ctx.owner.tenant_id,
+          type: :file,
+          title: "Parent #{n}",
+          position: Integer.to_string(n),
+          parent_id: root.id,
+          acl_anchor_id: root.id,
+          created_by: root.created_by,
+          created_at: now,
+          updated_at: now
+        }
+      end
+
+    children =
+      Enum.map(parents, fn parent ->
+        %{parent | id: Ankole.Ecto.UUIDv7.autogenerate(), parent_id: parent.id, title: "Leaf"}
+      end)
+
+    Repo.insert_all(Page, parents)
+    Repo.insert_all(Page, children)
+    ids = Enum.map(parents ++ children, & &1.id)
+
+    assert {:ok, 1000} =
+             Repo.transact_top_level(fn ->
+               Ankole.Pod.Jobs.PurgePage.remove_pages_in_tx(ids)
+             end)
+
+    assert Repo.aggregate(from(p in Page, where: p.id in ^ids), :count) == 1002
+  end
+
   test "a new blank page is editable and retransmission applies each OT batch once", ctx do
     {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     assert page.title == ""

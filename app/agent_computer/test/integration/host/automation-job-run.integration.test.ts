@@ -37,7 +37,6 @@ await emitEvent({ observed: ctx.event.data.value, job_id: ctx.job.id })
 
     const result = await runAutomationJob(request(fixture, { value: 42 }), {
       config: fixture.config,
-      sdkPath: fixture.sdkPath,
       rpc: rpcStub(fixture, emitted)
     })
 

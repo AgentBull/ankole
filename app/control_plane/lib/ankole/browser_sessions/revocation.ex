@@ -4,7 +4,8 @@ defmodule Ankole.BrowserSessions.Revocation do
   """
   require Ash.Query
 
-  alias Ankole.BrowserSessions.{Authentication, Identity, LoginTransaction, Session}
+  alias Ankole.BrowserSessions.{Authentication, Identity, OidcState, Session}
+  alias Ankole.OIDC.AuthorizationRequests
   alias Ankole.Repo
 
   def revoke(browser_ref, authentication_ref) do
@@ -20,13 +21,16 @@ defmodule Ankole.BrowserSessions.Revocation do
          true <- authentication.browser_id == browser.id,
          :ok <- revoke_records([authentication], browser.revision + 1),
          :ok <-
-           LoginTransaction
+           AuthorizationRequests.cancel_for_browser_in_tx(browser.id,
+             authentication_id: authentication.id
+           ),
+         :ok <-
+           OidcState
            |> Ash.Query.filter(
-             browser_id == ^browser.id and status in [:pending, :authenticated] and
-               (expected_authentication_id == ^authentication.id or
-                  authentication_id == ^authentication.id)
+             browser_id == ^browser.id and is_nil(consumed_at) and
+               expected_authentication_id == ^authentication.id
            )
-           |> cancel_logins() do
+           |> expire_oidc_states() do
       attrs = [revision: browser.revision + 1]
 
       attrs =
@@ -53,10 +57,11 @@ defmodule Ankole.BrowserSessions.Revocation do
          true <- is_nil(expected_revision) or browser.revision == expected_revision,
          :ok <- revoke_records(live_authentications(browser.id), browser.revision + 1),
          :ok <- Ankole.OIDC.Sessions.end_browser_in_tx(browser.id),
+         :ok <- AuthorizationRequests.cancel_for_browser_in_tx(browser.id),
          :ok <-
-           LoginTransaction
-           |> Ash.Query.filter(browser_id == ^browser.id and status in [:pending, :authenticated])
-           |> cancel_logins() do
+           OidcState
+           |> Ash.Query.filter(browser_id == ^browser.id and is_nil(consumed_at))
+           |> expire_oidc_states() do
       Ankole.Ash.update(browser, :logout_in_tx, %{
         revision: browser.revision + 1,
         logout_revision: browser.revision + 1
@@ -68,7 +73,10 @@ defmodule Ankole.BrowserSessions.Revocation do
   end
 
   def cleanup_expired(now) do
-    transactions = LoginTransaction |> Ash.Query.filter(expires_at <= ^now) |> expire_records()
+    oidc_states =
+      OidcState
+      |> Ash.Query.filter(expires_at <= ^now or not is_nil(consumed_at))
+      |> expire_records()
 
     browsers =
       Session
@@ -78,7 +86,7 @@ defmodule Ankole.BrowserSessions.Revocation do
       )
       |> expire_records()
 
-    %{login_transactions: transactions, browser_sessions: browsers}
+    %{oidc_states: oidc_states, browser_sessions: browsers}
   end
 
   @doc false
@@ -112,8 +120,12 @@ defmodule Ankole.BrowserSessions.Revocation do
       )
 
   @doc false
-  def cancel_logins(query) do
-    with {:ok, _cancelled} <- Ankole.Ash.update_where(query, :cancel_in_tx), do: :ok
+  def expire_oidc_states(query) do
+    with {:ok, _expired} <-
+           query
+           |> Ash.Query.select([:id])
+           |> Ankole.Ash.destroy_where(:expire_in_tx),
+         do: :ok
   end
 
   defp expire_records(query) do

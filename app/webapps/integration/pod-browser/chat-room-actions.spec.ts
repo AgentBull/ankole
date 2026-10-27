@@ -31,6 +31,14 @@ test('room actions cancel rename, copy its link, and export the full paged trans
     page.on('request', req => {
       if (req.method() === 'PATCH' && new URL(req.url()).pathname === `/api/v2/pod/conversations/${id}`) writes++
     })
+    await row.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '重命名会话', exact: true }).click()
+    const sidebarRename = row.getByRole('textbox', { name: '重命名会话', exact: true })
+    await expect(sidebarRename).toBeFocused()
+    await sidebarRename.fill('Cancelled sidebar title')
+    await sidebarRename.press('Escape')
+    await expect(row).toContainText(original)
+    expect(writes).toBe(0)
     await header.locator('.pod-chat-header-title').click()
     const title = header.getByRole('textbox', { name: '重命名会话', exact: true })
     await title.fill('Cancelled title')

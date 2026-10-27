@@ -143,10 +143,21 @@ test('field editing cancels cleanly and requires confirmation before converting 
   const fixture = await businessTable(browser)
   const { owner, memo, revenue, schema, read } = fixture
   try {
-    await owner.getByRole('button', { name: 'Revenue', exact: true }).click()
+    const revenueTrigger = owner.getByRole('button', { name: 'Revenue', exact: true })
+    await revenueTrigger.click()
+    const fieldEditor = owner.getByRole('dialog', { name: '编辑字段', exact: true })
+    await expect(fieldEditor).toBeVisible()
+    const triggerBox = (await revenueTrigger.boundingBox())!
+    const editorBox = (await fieldEditor.boundingBox())!
+    expect(
+      Math.min(
+        Math.abs(editorBox.y - triggerBox.y - triggerBox.height),
+        Math.abs(triggerBox.y - editorBox.y - editorBox.height)
+      )
+    ).toBeLessThanOrEqual(16)
     await owner.getByRole('textbox', { name: '字段名称', exact: true }).fill('Discarded name')
     await owner.getByRole('button', { name: '取消', exact: true }).click()
-    await owner.getByRole('button', { name: 'Revenue', exact: true }).click()
+    await revenueTrigger.click()
     await expect(owner.getByRole('textbox', { name: '字段名称', exact: true })).toHaveValue('Revenue')
     await owner.getByRole('button', { name: '取消', exact: true }).click()
 
@@ -226,6 +237,7 @@ test('a numeric filter preserves fractional typing and Escape restores its previ
   try {
     await owner.getByRole('button', { name: '筛选与排序', exact: true }).click()
     await owner.getByRole('button', { name: '添加筛选条件', exact: true }).click()
+    await expect(owner.getByRole('combobox', { name: '筛选组合', exact: true })).toHaveCount(0)
     await choose(owner, '筛选字段', 'Revenue')
     const value = owner.getByRole('dialog').getByRole('spinbutton', { name: 'Revenue', exact: true })
     await value.pressSequentially('1.05')
@@ -257,6 +269,7 @@ test('filters keep field-compatible values, cancel drafts, and persist their OR 
     })
     await owner.getByRole('button', { name: '筛选与排序', exact: true }).click()
     await owner.getByRole('button', { name: '添加筛选条件', exact: true }).click()
+    await expect(owner.getByRole('combobox', { name: '筛选组合', exact: true })).toHaveCount(0)
     await choose(owner, '筛选字段', 'Revenue')
     const comparison = owner.getByRole('combobox', { name: '筛选条件', exact: true })
     await comparison.click()
@@ -310,13 +323,19 @@ test('deleted filter and calculation fields remain explicit repair choices inste
   try {
     await owner.getByRole('button', { name: '分组统计', exact: true }).click()
     await choose(owner, '统计方式', '求和')
-    await expect(owner.getByRole('alert').filter({ hasText: '请选择有效的统计和分组字段。' })).toBeVisible()
+    await expect(owner.getByRole('alert')).toHaveCount(0)
+    await expect(owner.getByRole('combobox', { name: '统计字段', exact: true })).toContainText('选择统计字段')
     await choose(owner, '统计字段', 'Revenue')
     const summary = owner.getByRole('combobox', { name: '统计方式', exact: true }).locator('xpath=ancestor::div[2]')
+    await expect(summary.getByRole('cell', { name: '10', exact: true })).toBeVisible()
+    await owner.getByRole('button', { name: '分组统计', exact: true }).click()
+    await expect(owner.getByRole('combobox', { name: '统计方式', exact: true })).toHaveCount(0)
+    await owner.getByRole('button', { name: '分组统计', exact: true }).click()
     await expect(summary.getByRole('cell', { name: '10', exact: true })).toBeVisible()
 
     await owner.getByRole('button', { name: '筛选与排序', exact: true }).click()
     await owner.getByRole('button', { name: '添加筛选条件', exact: true }).click()
+    await expect(owner.getByRole('combobox', { name: '筛选组合', exact: true })).toHaveCount(0)
     await choose(owner, '筛选字段', 'Revenue')
     await choose(owner, '筛选条件', '不为空')
     await request(member, `/fields/${revenue.id}`, 'DELETE', {

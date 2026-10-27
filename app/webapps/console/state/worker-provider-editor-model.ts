@@ -2,6 +2,7 @@ import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { WorkerProviderKind } from '../api/configuration-types'
 import { type Flat, fromDocument } from '../api/json-api'
 import type { WorkerProvider as WorkerProviderResource } from '../api/v2-site/generated/types.gen'
+import { deriveSlugWithTransliteration, preloadTransliteration, slugFromDisplayName } from './agent-editor-model'
 
 /**
  * A Worker provider of the site API. The API sends the calculated fields as
@@ -49,6 +50,7 @@ export function newWorkerProviderDraft(kind: WorkerProviderKind): WorkerProvider
 
 export const WorkerProviderEditorModel = createModel(() => {
   let generation = Symbol()
+  let providerIDManuallyEdited = false
   const sourceKey = signal<string>()
   const providerID = signal('')
   const displayName = signal('')
@@ -75,6 +77,7 @@ export const WorkerProviderEditorModel = createModel(() => {
   return {
     resetSource() {
       generation = Symbol()
+      providerIDManuallyEdited = false
       sourceKey.value = undefined
     },
     sourceKey,
@@ -86,8 +89,10 @@ export const WorkerProviderEditorModel = createModel(() => {
     credentials,
     dirty,
     initialize(key: string, source: WorkerProviderDraft) {
+      if (key === 'new') void preloadTransliteration()
       if (sourceKey.value === key) return
       generation = Symbol()
+      providerIDManuallyEdited = false
       batch(() => {
         sourceKey.value = key
         providerID.value = source.providerID
@@ -98,6 +103,20 @@ export const WorkerProviderEditorModel = createModel(() => {
         credentials.value = {}
         initialDraft.value = source
       })
+    },
+    setDisplayName(value: string, deriveProviderID: boolean) {
+      batch(() => {
+        displayName.value = value
+        if (deriveProviderID && !providerIDManuallyEdited) {
+          providerID.value = deriveSlugWithTransliteration(value, 63, () => {
+            if (!providerIDManuallyEdited) providerID.value = slugFromDisplayName(displayName.value, 63)
+          })
+        }
+      })
+    },
+    setProviderID(value: string) {
+      providerIDManuallyEdited = true
+      providerID.value = value
     },
     selectKind(definition: WorkerProviderKind) {
       generation = Symbol()

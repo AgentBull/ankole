@@ -208,7 +208,8 @@ authorization of the current request.
 actions persist configuration replacement, disabling, and removal in the
 caller's transaction. Its typed JSON fields reject runtime values before SQL;
 BindingFilters owns CEL validation and Target owns route parsing. Adapter save
-hooks run after commit.
+hooks run after commit. A hook failure is logged and does not change the successful
+save response. Delivery and preview wakeups run independently of the hook.
 `signal_bindings` stores the Agent, name, adapter, configuration reference,
 filter, target, policies, and enabled state. The globally unique Agent UID and
 binding name identify the row; every query also enforces its tenant scope.
@@ -254,7 +255,8 @@ existing durable Outbox admission rules.
 ### Filters
 
 `filters` is empty or contains exactly one `cel` expression. An empty filter
-accepts all input. Binding writes validate CEL syntax. Evaluation happens
+accepts all input. Binding writes validate CEL syntax and return the compiler's
+syntax diagnostic on failure. Evaluation happens
 before durable observation or Signal insertion and fails closed on an invalid
 stored expression.
 
@@ -541,7 +543,7 @@ and directory-sync identity providers share the binding-assignment lock during
 saves, including disabled configuration. The same tenant can share an
 application when the adapter permits it. Another tenant receives a conflict;
 an unverifiable credential fails without a write. Login-only identity
-providers are excluded because their callback uses the login transaction's
+providers are excluded because their callback uses the outbound OIDC state's
 tenant and opens no message connection or directory synchronization.
 
 Slack resolves stable `app_id` through `auth.test` and `bots.info`. Socket Mode
@@ -572,6 +574,14 @@ Input capabilities are `entry_receive`, `entry_removed`, `reaction_add`,
 `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`, `add_reaction`,
 `remove_reaction`, `divider`, `card`, and `outbound_reconciliation`. These
 capability names describe provider operations, not stored domain entities.
+
+A provider comment space uses the Conversation observation and Delivery
+contracts. Record changes use the record ID as the CloudEvent subject and enter
+through `Signals.accept_in_tx/1`. Each event source supplies stable event IDs
+for deduplication and targets an Agent and Session. Catalog categories are
+display metadata. They do not change routing or authorization. Comment authors
+use Principal mapping and WorkAccess snapshots; an unknown author cannot use
+the integration owner's authority.
 
 A Plugin with HTTP provider callbacks declares `signals.webhook_handler`.
 The host routes POST and GET to
@@ -624,22 +634,3 @@ backwards on concurrent redelivery.
 - Provider confirmation commits an Agent Message through Conversations;
   an unconfirmed send does not invent a public Message.
 - Runtime and model history remain separate from shared public history.
-
-## Future Host and Event Source Contracts
-
-The contract review for Jira and Salesforce requires no new conversation or
-queue owner.
-
-| Platform fact | Owning contract | Identity and result |
-| --- | --- | --- |
-| Jira issue comment | Conversation host `observe` and `deliver` | The issue comment space supplies one opaque provider conversation ID; each comment supplies its provider message ID. `external_kind: issue`, `reply_mode: entry`, and an explicit addressed Signal type use the observation contract. A confirmed comment send or edit uses Delivery and the same external reference. |
-| Salesforce record change | Event source and `Signals.accept_in_tx/1` | The record ID is the CloudEvent subject; the change is JSON data. Source and event ID deduplicate the stimulus. A subscription names its Agent and ordinary Session. The event creates no Conversation or Message. |
-| Salesforce comment space, if later supported | Conversation host `observe` and `deliver` | The platform's actual comment space is the Conversation; observed comments and confirmed replies follow the host contract. A record change must not fabricate a comment. |
-
-A future host declares its provider configuration, identity mapping, and
-Delivery adapter in the plugin catalog. Its catalog category is display
-metadata; adding that category does not change Conversation identity, Signal
-acceptance, execution ownership, or authorization. A comment author uses the
-Principal mapping and WorkAccess snapshot. An unknown author cannot
-borrow the integration owner's authority. Several Agents observing the same
-comment space share its public Messages and keep their own Sessions.

@@ -38,7 +38,7 @@ function Conformance() {
       </button>
       {auth ? (
         <AuthSlotsContext value={{ emailOtpChallenge: { pluginId, when: 'fixture.visible', Component: Challenge } }}>
-          <EmailOtpForm flow="fixture-flow" />
+          <EmailOtpForm />
         </AuthSlotsContext>
       ) : (
         <PodSlotsContext

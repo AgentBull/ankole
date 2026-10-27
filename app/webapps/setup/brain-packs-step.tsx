@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { setupBrainPacks, updateSetupBrainPacks } from '../common/api/generated/sdk.gen'
 import type { SetupBrainPacksResponse as SetupBrainPacks } from '../common/api/generated/types.gen'
 import { ErrorBlock } from '../common/error-block'
+import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { SetupPanel } from './layout'
 import { BrainPacksStepModel } from './state/brain-packs-step-model'
 
@@ -66,10 +67,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
               />
               <span className="grid min-w-0 flex-1 gap-2">
                 <span className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
-                  <span className="break-words">{pack.name}</span>
-                  {pack.version ? (
-                    <span className="font-mono text-xs text-muted-foreground">{pack.version}</span>
-                  ) : null}
+                  <span className="break-words">{humanizeTechnicalLabel(pack.name)}</span>
                   {pack.required ? (
                     <span className="text-xs font-normal text-muted-foreground">{t('setup.pack_always_included')}</span>
                   ) : null}

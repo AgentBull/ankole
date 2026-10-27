@@ -469,6 +469,8 @@ defmodule Ankole.Pod.AppletsTest do
   end
 
   test "invocations enforce tenant limits and a failed call does not poison later calls", ctx do
+    {:ok, normal_limits} = Ankole.AppConfigure.get_by_key("pod.applet.limits")
+
     assert {:ok, _} =
              Ankole.AppConfigure.put_tenant_by_key("pod.applet.limits", %{
                "timeout_ms" => 80,
@@ -487,6 +489,15 @@ defmodule Ankole.Pod.AppletsTest do
 
     assert {:ok, %{"status" => 504, "body" => %{"error" => %{"code" => "handler_timeout"}}}} =
              call(ctx.owner, page.id, "GET", "/loop")
+
+    assert Task.Supervisor.children(Ankole.FunctionRuntime.Tasks) == []
+
+    # The recovery call uses the production deadline with the same worker pool key.
+    assert {:ok, _} =
+             Ankole.AppConfigure.put_tenant_by_key("pod.applet.limits", %{
+               "timeout_ms" => normal_limits["timeout_ms"],
+               "heap_mb" => 16
+             })
 
     assert {:ok, %{"status" => 200, "body" => true}} = call(ctx.owner, page.id, "GET", "/ok")
 

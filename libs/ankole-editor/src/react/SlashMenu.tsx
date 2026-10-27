@@ -139,18 +139,30 @@ export function SlashMenu() {
       if (!element || !editor.state.field(slashField, false)) return
       const caret = editor.coordsAtPos(from, 1)
       const { width, height } = element.getBoundingClientRect()
+      const viewport = window.visualViewport
+      const minX = (viewport?.offsetLeft ?? 0) + 8
+      const maxX = minX + (viewport?.width ?? window.innerWidth) - 16
+      const minY = (viewport?.offsetTop ?? 0) + 8
+      const maxY = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - 8
       const below = caret.bottom + 4
       setPosition({
-        left: Math.max(8, Math.min(caret.left, window.innerWidth - width - 8)),
-        top: below + height > window.innerHeight - 8 && caret.top - height - 4 > 8 ? caret.top - height - 4 : below
+        left: Math.max(minX, Math.min(caret.left, maxX - width)),
+        top:
+          below + height > maxY && caret.top - height - 4 >= minY
+            ? caret.top - height - 4
+            : Math.min(below, maxY - height)
       })
     }
     place()
     window.addEventListener('scroll', place, true)
     window.addEventListener('resize', place)
+    window.visualViewport?.addEventListener('resize', place)
+    window.visualViewport?.addEventListener('scroll', place)
     return () => {
       window.removeEventListener('scroll', place, true)
       window.removeEventListener('resize', place)
+      window.visualViewport?.removeEventListener('resize', place)
+      window.visualViewport?.removeEventListener('scroll', place)
     }
   }, [editor, from, count])
 

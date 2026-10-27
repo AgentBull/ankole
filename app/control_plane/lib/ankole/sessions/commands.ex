@@ -555,10 +555,12 @@ defmodule Ankole.Sessions.Commands do
   end
 
   @doc false
-  def retry_source_in_tx(key, command_event, id) do
-    with %Signal{} = source <- lock_retry_source(key, id),
+  def retry_source_in_tx(key, command_event, id, opts \\ []) do
+    lock? = Keyword.get(opts, :lock, true)
+
+    with %Signal{} = source <- retry_source(key, id, lock?),
          :ok <- validate_retry_source(command_event, source),
-         true <- ModelHistory.exact_turn_retryable_in_tx(key, source.id) do
+         true <- ModelHistory.exact_turn_retryable_in_tx(key, source.id, lock: lock?) do
       {:ok, source}
     else
       _unavailable -> {:ok, :target_unavailable}
@@ -672,8 +674,15 @@ defmodule Ankole.Sessions.Commands do
   defp prepare_retry_response_graph(%Signal{id: signal_id}, _now),
     do: {:ok, Deletion.intents(signal_id, [])}
 
-  defp lock_retry_source(session_key, target_signal_id),
+  defp retry_source(session_key, target_signal_id, true),
     do: Ankole.Signals.lock_session_signal_in_tx(session_key, target_signal_id)
+
+  defp retry_source(%{agent_uid: uid, session_id: session}, id, false) do
+    Ankole.Signals.list_signals!(
+      query: [filter: [id: id, agent_uid: uid, session_id: session], limit: 1]
+    )
+    |> List.first()
+  end
 
   defp validate_retry_source(command_event, source) do
     candidate_types = Preview.channel_reply_event_types()

@@ -1,14 +1,13 @@
-import { buttonVariants, cn, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
+import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { createMemberMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import { requestErrorCode, requestErrorDetailList } from '../../common/request-errors'
 import { LabeledField, ResourceEditorPage } from '../console-form'
-import { BackLink, PageStack } from '../console-page'
 import { PrincipalEditorModel, type PrincipalDraftError } from '../state/principal-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 
@@ -25,10 +24,16 @@ export function principalDraftErrorText(error: PrincipalDraftError, t: Translate
 
 /** Localizes the write-endpoint failures this page can trigger: a taken email is a field error. */
 export function principalRequestError(error: unknown, t: Translate): unknown {
+  const code = requestErrorCode(error)
   const emailTaken =
-    requestErrorCode(error) === 'validation_failed' &&
+    code === 'email_taken' ||
     requestErrorDetailList(error).some(
-      detail => detail.path === 'email' && typeof detail.message === 'string' && detail.message.includes('taken')
+      detail =>
+        detail.code === 'email_taken' ||
+        (detail.path === 'email' &&
+          (detail.code === 'taken' ||
+            detail.kind === 'taken' ||
+            (typeof detail.message === 'string' && detail.message.includes('taken'))))
     )
   return emailTaken ? t('console.principals.email_taken') : (error ?? undefined)
 }
@@ -37,6 +42,7 @@ export function principalRequestError(error: unknown, t: Translate): unknown {
 export function PrincipalCreatePage() {
   useSignals()
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const model = useModel(PrincipalEditorModel)
   const principalDraft = useMemo(() => ({ displayName: '', email: '' }), [])
   const draftStatus = useEditorDraft(model, {
@@ -45,29 +51,16 @@ export function PrincipalCreatePage() {
   })
 
   const create = useMutation({
-    ...createMemberMutation()
+    ...createMemberMutation(),
+    onSuccess: created => {
+      toast.success(t('console.principals.created'))
+      return navigate({ to: `/access/principals/${encodeURIComponent(created.uid)}` })
+    }
   })
-
-  if (create.data) {
-    const created = create.data
-    return (
-      <PageStack className="mx-auto w-full max-w-3xl">
-        <div className="grid gap-3">
-          <BackLink to="/access/principals" />
-          <h2 className="text-2xl font-semibold">{t('console.principals.created')}</h2>
-        </div>
-        <Link
-          className={cn(buttonVariants({ size: 'sm' }))}
-          to={`/access/principals/${encodeURIComponent(created.uid)}`}>
-          {t('console.principals.view_user')}
-        </Link>
-      </PageStack>
-    )
-  }
 
   const submit = () => {
     model.clearValidation()
-    const draftError = model.draftError()
+    const draftError = model.draftError(true)
     if (draftError) {
       model.validationError.value = draftError
       return
@@ -80,7 +73,7 @@ export function PrincipalCreatePage() {
       title={t('console.principals.create_title')}
       description={t('console.principals.create_description')}
       backTo="/access/principals"
-      dirty={model.dirty.value}
+      dirty={!create.isSuccess && model.dirty.value}
       validationError={
         model.validationError.value ? principalDraftErrorText(model.validationError.value, t) : undefined
       }
@@ -92,15 +85,23 @@ export function PrincipalCreatePage() {
       <LabeledField label={t('console.principals.display_name')} required>
         <Input
           required
+          disabled={create.isPending}
           value={model.displayName.value}
           onChange={event => (model.displayName.value = event.target.value)}
         />
       </LabeledField>
-      <LabeledField label={t('console.principals.email')}>
-        <Input type="email" value={model.email.value} onChange={event => (model.email.value = event.target.value)} />
+      <LabeledField label={t('console.principals.email')} required>
+        <Input
+          required
+          disabled={create.isPending}
+          type="email"
+          value={model.email.value}
+          onChange={event => (model.email.value = event.target.value)}
+        />
       </LabeledField>
       <LabeledField label={t('console.principals.membership')} description={t('console.principals.membership_hint')}>
         <Select
+          disabled={create.isPending}
           value={model.membership.value}
           onValueChange={value => {
             if (value) model.membership.value = value

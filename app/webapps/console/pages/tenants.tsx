@@ -1,19 +1,6 @@
 import { flushSync } from 'react-dom'
 import { principalLabel } from '../state/principal-label'
-import {
-  Badge,
-  Button,
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Switch,
-  TableCell,
-  TableRow,
-  toast
-} from '@ankole/uikit'
+import { Badge, Button, Input, Switch, TableCell, TableRow, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiBuildingLine } from '@remixicon/react'
@@ -44,7 +31,8 @@ import {
   ResourceEditorPage,
   StatusIndicator
 } from '../console-form'
-import { ResourceListPage } from '../console-list-page'
+import { ResourceListPage, RowViewAction } from '../console-list-page'
+import { SinglePrincipalPicker } from '../principal-picker'
 import { TenantEditorModel } from '../state/tenant-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 import { ErrorBlock } from '../../common/error-block'
@@ -95,6 +83,10 @@ export function TenantsListPage() {
               {t(`console.tenants.${tenantState(tenant)}`)}
             </StatusIndicator>
           </TableCell>
+          <RowViewAction
+            label={t('common.view_details_for', { name: tenant.display_name })}
+            to={`/tenants/${tenant.id}`}
+          />
         </TableRow>
       ))}
     </ResourceListPage>
@@ -235,12 +227,15 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
       }>
       <fieldset className="contents" disabled={create.isPending}>
         <LabeledField label={t('console.tenants.name')} required>
-          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
+          <Input
+            value={model.displayName.value}
+            onChange={event => model.setDisplayName(event.target.value, !tenantID)}
+          />
         </LabeledField>
         <LabeledField label={t('console.tenants.slug')} required description={t('console.tenants.slug_hint')}>
           <Input
             value={model.slug.value}
-            onChange={event => (model.slug.value = event.target.value)}
+            onChange={event => model.setSlug(event.target.value)}
             pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
             autoComplete="off"
             spellCheck={false}
@@ -254,7 +249,10 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">{t('console.tenants.packs_hint')}</p>
             {brainPacks.data?.map(pack => (
-              <LabeledField key={pack} label={pack}>
+              <label
+                key={pack}
+                className="flex min-h-11 cursor-pointer items-center justify-between gap-3 border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground">
+                <span className="font-mono text-xs">{pack}</span>
                 <Switch
                   checked={model.brainPacks.value.includes(pack)}
                   onCheckedChange={checked => {
@@ -263,7 +261,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
                       : model.brainPacks.value.filter(value => value !== pack)
                   }}
                 />
-              </LabeledField>
+              </label>
             ))}
           </div>
         )}
@@ -301,18 +299,19 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
       <p className="text-sm text-muted-foreground">{t('console.tenants.transfer_description')}</p>
       <ErrorBlock error={principals.error ?? transfer.error} />
       <LabeledField label={t('console.tenants.new_site_admin')}>
-        <Select value={principalUID} onValueChange={value => setPrincipalUID(value ?? '')}>
-          <SelectTrigger>
-            <SelectValue placeholder={t('console.tenants.choose_human')} />
-          </SelectTrigger>
-          <SelectContent>
-            {humans.map(principal => (
-              <SelectItem key={principal.id} value={principal.id}>
-                {principalLabel(principal)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SinglePrincipalPicker
+          ariaLabel={t('console.tenants.new_site_admin')}
+          candidates={humans.map(principal => ({
+            id: principal.id,
+            label: principalLabel(principal),
+            description: principal.email ?? principal.handle
+          }))}
+          error={principals.error}
+          isLoading={principals.isLoading}
+          placeholder={t('console.tenants.choose_human')}
+          value={principalUID}
+          onChange={setPrincipalUID}
+        />
       </LabeledField>
       {!principals.isLoading && !humans.length ? (
         <p className="text-sm text-muted-foreground">{t('console.tenants.no_humans')}</p>

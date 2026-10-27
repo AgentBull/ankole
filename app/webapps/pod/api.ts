@@ -49,6 +49,8 @@ export const podKeys = {
   get conversations() {
     return [...contextKey(), 'conversations'] as const
   },
+  conversationSearch: (query = '') =>
+    [...podKeys.conversations, ...(query.trim() ? ['search', query.trim()] : [])] as const,
   pageConversations: (pageID: string) => [...podKeys.conversations, 'page', pageID] as const,
   detail: (id: string) => [...contextKey(), 'conversation', id] as const
 }
@@ -56,9 +58,13 @@ export const agentsQuery = {
   queryKey: podKeys.agents,
   queryFn: () => podAgents()
 }
-export const conversationsQuery = {
-  queryKey: podKeys.conversations,
-  queryFn: () => podConversations()
+export const conversationSearchQuery = (query = '') => {
+  const trimmed = query.trim()
+  return {
+    queryKey: podKeys.conversationSearch(trimmed),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      podConversations({ ...(trimmed ? { query: { query: trimmed } } : {}), signal })
+  }
 }
 export const pageConversationsQuery = (pageID: string) => ({
   queryKey: podKeys.pageConversations(pageID),

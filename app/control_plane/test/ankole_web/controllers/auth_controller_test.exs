@@ -49,22 +49,23 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn
       |> forwarded_https_conn()
       |> init_test_session(%{})
-      |> start_console_login(%{"return_to" => "/site-admin-console/agents"})
-      |> then(fn conn ->
-        get(conn, "/sessions/oidc/lark-main/authorization", %{"flow" => conn.private.login_flow})
-      end)
+      |> get("/sessions/oidc/lark-main/authorization", %{
+        "purpose" => "console",
+        "return_to" => "/site-admin-console/agents"
+      })
 
     authorization_url = redirected_to(conn, 302)
     query = authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    {:ok, oidc_state} = WebSession.login_transaction(conn, conn.private[:login_flow])
+    oidc_state = Ankole.Repo.one!(Ankole.BrowserSessions.OidcState)
 
     assert URI.parse(authorization_url).host == "open.feishu.cn"
-    assert query["state"] == oidc_state.upstream_state
+    assert query["state"] == oidc_state.state
 
     assert query["redirect_uri"] ==
              "https://#{conn.host}/sessions/oidc/lark-main/callback"
 
-    assert oidc_state.request["return_to"] == "/site-admin-console/agents"
+    assert oidc_state.purpose == :console
+    assert oidc_state.return_to == "/site-admin-console/agents"
   end
 
   test "OIDC callback without matching state fails closed", %{conn: conn} do
@@ -83,16 +84,15 @@ defmodule AnkoleWeb.AuthControllerTest do
     conn =
       conn
       |> init_test_session(%{})
-      |> start_console_login()
+      |> WebSession.ensure_browser()
       |> then(fn conn ->
         {:ok, _} =
-          Ankole.BrowserSessions.bind_provider(
-            WebSession.browser_reference(conn),
-            conn.private.login_flow,
-            "lark-main",
-            "state-1",
-            "http://localhost/sessions/oidc/lark-main/callback"
-          )
+          Ankole.BrowserSessions.begin_oidc_state(WebSession.browser_reference(conn), %{
+            state: "state-1",
+            provider_id: "lark-main",
+            purpose: :console,
+            redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
+          })
 
         conn
       end)
@@ -108,18 +108,17 @@ defmodule AnkoleWeb.AuthControllerTest do
     conn =
       conn
       |> init_test_session(%{})
-      |> start_console_login()
+      |> WebSession.ensure_browser()
       |> then(fn conn ->
-        {:ok, transaction} =
-          Ankole.BrowserSessions.bind_provider(
-            WebSession.browser_reference(conn),
-            conn.private.login_flow,
-            "lark-main",
-            "state-1",
-            "http://localhost/sessions/oidc/lark-main/callback"
-          )
+        {:ok, oidc_state} =
+          Ankole.BrowserSessions.begin_oidc_state(WebSession.browser_reference(conn), %{
+            state: "state-1",
+            provider_id: "lark-main",
+            purpose: :console,
+            redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
+          })
 
-        transaction
+        oidc_state
         |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(), -1))
         |> Ankole.Repo.update!()
 
@@ -156,8 +155,89 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert WebSession.admin_session(conn) == nil
   end
 
-  defp start_console_login(conn, request \\ %{}) do
-    {:ok, conn, transaction} = WebSession.begin_login(conn, :console, request)
-    Plug.Conn.put_private(conn, :login_flow, transaction.id)
+  test "requesting email OTP and starting SSO do not lock out switching between sign-in methods",
+       %{conn: conn, tenant: tenant} do
+    Ankole.Authn.RateLimiter.reset_for_test()
+    previous_mailer = Application.get_env(:ankole, Ankole.Authn.Mailer)
+    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.Test)
+
+    on_exit(fn ->
+      if previous_mailer,
+        do: Application.put_env(:ankole, Ankole.Authn.Mailer, previous_mailer),
+        else: Application.delete_env(:ankole, Ankole.Authn.Mailer)
+    end)
+
+    assert {:ok, true} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+
+    assert {:ok, _} =
+             Ankole.Authn.Config.put_mail(%{
+               "server" => "smtp.example.com",
+               "from" => "login@example.com"
+             })
+
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-main",
+               "lark",
+               %{"appID" => "cli_switch", "appSecret" => "secret"},
+               true
+             )
+
+    {:ok, %{principal: member}} =
+      Ankole.Principals.create_human(%{
+        email: "switch-methods@example.com",
+        display_name: "Method Switcher"
+      })
+
+    conn =
+      conn
+      |> pod_conn(tenant)
+      |> init_test_session(%{})
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
+        email: "switch-methods@example.com",
+        returnTo: "/content/space"
+      })
+
+    %{"challengeID" => challenge_id} = api_response(conn, 200)
+    assert_receive {:email, %Swoosh.Email{text_body: body}}
+    [_, code] = Regex.run(~r/code is (\d{6})/, body)
+
+    sso_first =
+      conn
+      |> recycle()
+      |> delete_req_header("accept")
+      |> pod_conn(tenant)
+      |> get("/sessions/oidc/lark-main/authorization", %{"return_to" => "/content/space"})
+
+    first_state =
+      sso_first |> redirected_to(302) |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    sso_retry =
+      sso_first
+      |> recycle()
+      |> delete_req_header("accept")
+      |> pod_conn(tenant)
+      |> get("/sessions/oidc/lark-main/authorization", %{"return_to" => "/content/space"})
+
+    retry_state =
+      sso_retry |> redirected_to(302) |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    assert is_binary(first_state["state"])
+    assert is_binary(retry_state["state"])
+    assert first_state["state"] != retry_state["state"]
+
+    verified =
+      sso_retry
+      |> recycle()
+      |> pod_conn(tenant)
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: challenge_id,
+        code: code
+      })
+
+    assert %{"status" => "ok", "returnTo" => return_to} = api_response(verified, 200)
+    assert String.ends_with?(return_to, "/content/space")
+    assert WebSession.pod_session(verified)["principal_uid"] == member.uid
   end
 end

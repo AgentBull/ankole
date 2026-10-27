@@ -1,4 +1,4 @@
-import { state, requestResponse as request } from './fixtures'
+import { state, createApplet, publishApplet, requestResponse as request } from './fixtures'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { pageRoute } from './routes'
 
@@ -135,12 +135,8 @@ test('shared sample reservations use the real backend, retain failed work, and n
     const previous = await request(owner, `/pages/${state.backend_applet_id}`)
     expect(previous.status).toBe(200)
     const oldRevision = previous.body.page.revision
-    const publication = await request(owner, `/pages/${state.backend_applet_id}/publish`, 'POST', {
-      base_revision: oldRevision,
-      files: state.backend_publish_v2_files
-    })
-    expect(publication.status).toBe(201)
-    expect(publication.body.routes).toEqual(['GET /stock', 'POST /reserve'])
+    const publication = await publishApplet(state.backend_applet_id, oldRevision, state.backend_publish_v2_files)
+    expect(publication.routes).toEqual(['GET /stock', 'POST /reserve'])
     const oldRequest = await request(
       owner,
       `/pages/${state.backend_applet_id}/routes/stock`,
@@ -225,22 +221,12 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
   let id: string | undefined
   try {
     await control.goto(`${state.base_url}/content/private`)
-    const created = await request(control, '/pages', 'POST', {
-      type: 'applet',
-      parent_id: state.backend_report_id,
-      title: 'Revision recovery check'
-    })
-    expect(created.status).toBe(201)
-    id = created.body.page.id
-    const publish = () =>
-      request(control, `/pages/${id}/publish`, 'POST', {
-        base_revision: revision,
-        files: state.backend_publish_v2_files
-      })
-    let revision = 0
+    const created = await createApplet({ parent_id: state.backend_report_id, title: 'Revision recovery check' })
+    id = created.id
+    let revision = created.revision
+    const publish = () => publishApplet(id!, revision, state.backend_publish_v2_files)
     const initial = await publish()
-    expect(initial.status).toBe(201)
-    revision = initial.body.revision
+    revision = initial.revision
     const stockRevisions: string[] = []
     const reserveRevisions: string[] = []
     page.on('request', outgoing => {
@@ -323,8 +309,7 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
         await title.press('Enter')
         await oldReady.promise
         const published = await publish()
-        expect(published.status).toBe(201)
-        revision = published.body.revision
+        revision = published.revision
         expect(revision).toBe(before + 1)
         const staleResponse = page.waitForResponse(
           response =>

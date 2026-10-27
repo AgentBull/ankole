@@ -94,7 +94,7 @@ export async function renderedFallbackFetch(
       if (signal?.aborted) throw error
       results[index] = {
         url,
-        error: renderedFallbackErrorMessage(error),
+        error: errorMessage(error),
         metadata: {
           source: RenderedFallbackSource
         }
@@ -133,7 +133,7 @@ export async function renderedFallbackFetch(
 function renderedFetchError(url: string, error: unknown): JSONObject {
   return {
     url,
-    error: renderedFallbackErrorMessage(error),
+    error: errorMessage(error),
     metadata: { source: RenderedFallbackSource }
   }
 }
@@ -210,20 +210,6 @@ function activityExcerpt(value: string, maxCharacters: number): string {
   return characters.length <= maxCharacters
     ? normalized
     : `${characters.slice(0, Math.max(0, maxCharacters - 1)).join('')}…`
-}
-
-function renderedFallbackErrorMessage(error: unknown): string {
-  const message = errorMessage(error)
-  if (/ankole-browser|browser daemon|playwright|chromium|\bCDP\b|browser session/i.test(message)) {
-    return 'rendered fallback is temporarily unavailable'
-  }
-  return message
-    .replace(/local browser/gi, 'rendered fallback')
-    .replace(/blocked browser navigation/gi, 'blocked rendered fetch')
-    .replace(/browser navigation/gi, 'rendered fetch')
-    .replace(/browser session/gi, 'rendered-fetch session')
-    .replace(/browser returned/gi, 'rendered fallback returned')
-    .replace(/browser_[a-z0-9_]+/gi, 'rendered-fetch operation')
 }
 
 function isHTTPSURL(value: string): boolean {

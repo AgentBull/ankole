@@ -51,6 +51,7 @@ import { AgentLibraryEditor } from './agent-library-editor'
 import { AgentLibraryEditorModel } from '../state/agent-library-editor-model'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
+import { ModelProfilesModel } from '../state/model-profiles-model'
 import { TokenQuotaEditor } from './token-quota-editor'
 import { TokenQuotaEditorModel } from '../state/token-quota-editor-model'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
@@ -70,7 +71,15 @@ export function AgentsListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (agents.data ?? []).filter(agent =>
-    matchesResourceSearch(searchQuery, agent.handle, agent.uid, agent.display_name, agent.role, agent.status)
+    matchesResourceSearch(
+      searchQuery,
+      agent.handle,
+      agent.uid,
+      agent.display_name,
+      agent.role,
+      agent.status,
+      t(`console.status.${agent.status}`)
+    )
   )
   // The DELETE response reports status "disabled" for both steps, so the
   // toast keys on the row's status at click time: a disabled row's delete is
@@ -206,7 +215,10 @@ function AgentEditor({ uid }: { uid?: string }) {
   const navigate = useNavigate()
   const model = useModel(AgentEditorModel)
   const libraryModel = useModel(AgentLibraryEditorModel)
+  const modelProfilesModel = useModel(ModelProfilesModel)
   const quotaModel = useModel(TokenQuotaEditorModel)
+  const [customProfilesDirty, setCustomProfilesDirty] = useState(false)
+  const [workerEnvDirty, setWorkerEnvDirty] = useState(false)
   const displayNameInput = useRef<HTMLInputElement>(null)
   const handleInput = useRef<HTMLInputElement>(null)
   const roleInput = useRef<HTMLInputElement>(null)
@@ -330,7 +342,13 @@ function AgentEditor({ uid }: { uid?: string }) {
       description={t('console.agents.editor_description')}
       backTo="/agents"
       dirty={model.dirty.value}
-      supplementaryDirty={libraryModel.dirty.value || quotaModel.dirty.value}
+      supplementaryDirty={
+        libraryModel.dirty.value ||
+        quotaModel.dirty.value ||
+        modelProfilesModel.dirty.value ||
+        customProfilesDirty ||
+        workerEnvDirty
+      }
       error={
         createAgent.error ??
         updateAgent.error ??
@@ -355,6 +373,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               agent={selectedAgent}
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
+              model={modelProfilesModel}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
               providerHosted={modelProfiles.data?.provider_hosted ?? { web_search: true, image_generate: true }}
               providers={providers.data ?? []}
@@ -369,9 +388,10 @@ function AgentEditor({ uid }: { uid?: string }) {
               providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
+              onDirtyChange={setCustomProfilesDirty}
             />
             <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} model={quotaModel} />
-            <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
+            <WorkerEnvAgentSection agentUID={selectedAgent.uid} onDirtyChange={setWorkerEnvDirty} />
             <AgentFilesLink agentUID={selectedAgent.uid} />
           </div>
         ) : null

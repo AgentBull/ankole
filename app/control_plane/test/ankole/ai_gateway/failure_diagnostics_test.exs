@@ -560,7 +560,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              "provider_stream_error"
   end
 
-  test "logs a provider rate-limit code as warning without logging its message" do
+  test "logs the provider explanation with its rate-limit code" do
     log =
       capture_log(
         [
@@ -587,7 +587,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     assert log =~ "failure_kind=provider_response"
     assert log =~ "error_code=rate_limit_exceeded"
     assert log =~ "retryable=true"
-    refute log =~ "untrusted provider prose"
+    assert log =~ "untrusted provider prose"
   end
 
   describe "project/2" do

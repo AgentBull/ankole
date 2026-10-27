@@ -34,7 +34,7 @@ const deploymentHref = `${localePath(lang, 'docs/quickstart')}#deployment`
 			subtitle={t(lang, 'quickstart.subtitle')}
 		/>
 		<div class="min-w-0">
-			<QuickStartTabs client:visible labels={labels} deploymentHref={deploymentHref} />
+			<QuickStartTabs client:visible ariaLabel={t(lang, 'section.quickstart')} labels={labels} deploymentHref={deploymentHref} />
 		</div>
 	</div>
 </Section>

@@ -1,0 +1,62 @@
+diff --git a/Lean/Lynx/Modules/Erlang/lists.lean b/Lean/Lynx/Modules/Erlang/lists.lean
+index 5936e05..aa0c5c3 100644
+--- a/Lean/Lynx/Modules/Erlang/lists.lean
++++ b/Lean/Lynx/Modules/Erlang/lists.lean
+@@ -21,4 +21,11 @@ improper tail or a non-list raises `badarg`. -/
+     if Term.exactCompare element head = .eq then .ok Term.true else «member/2» element tail
+   | _, _ => .error (.error (.atom "badarg"))
+ 
++/-- The empty-list case used by default keyword options. Other searches are
++not modeled and cannot complete a proof. -/
++@[expose] def «keyfind/3» (_key index list : Term) : Except Exception Term :=
++  match index, list with
++  | .integer n, .nil => if 0 < n then .ok Term.false else .error (.error (.atom "badarg"))
++  | _, _ => .error .exhausted
++
+ end Erlang.lists
+diff --git a/Lean/Lynx/Modules/Erlang/maps.lean b/Lean/Lynx/Modules/Erlang/maps.lean
+index 210f9d0..a2fb4d8 100644
+--- a/Lean/Lynx/Modules/Erlang/maps.lean
++++ b/Lean/Lynx/Modules/Erlang/maps.lean
+@@ -36,6 +36,20 @@ open Lynx
+   | .map entries => .ok (Term.list ((Term.mapEntries entries).map fun entry => .tuple #[entry.1, entry.2]))
+   | input => .error (.error (.tuple #[.atom "badmap", input]))
+ 
++/-- An opaque iterator over the visible map bindings. The enumeration order is
++that of `to_list/1`; callers must not depend on the VM's unspecified map order. -/
++@[expose] def «iterator/1» : Term → Except Exception Term
++  | .map entries => .ok (.cons (.integer 0) (.map entries))
++  | _ => .error (.error (.atom "badarg"))
++
++@[expose] def «next/1» : Term → Except Exception Term
++  | .cons (.integer 0) (.map entries) =>
++    .ok ((Term.mapEntries entries).foldr
++      (fun (key, value) tail => .tuple #[key, value, tail]) (.atom "none"))
++  | .tuple ⟨[key, value, tail]⟩ => .ok (.tuple #[key, value, tail])
++  | .atom "none" => .ok (.atom "none")
++  | _ => .error .exhausted
++
+ /-- Fold over the visible bindings in the order `to_list/1` returns them.
+ Unordered iterators from `iterator/1` fold like their map. Ordered and partially
+ traversed iterators are not modeled, so folding them does not return. -/
+diff --git a/Lean/modules.json b/Lean/modules.json
+index 610f859..4195bf5 100644
+--- a/Lean/modules.json
++++ b/Lean/modules.json
+@@ -1,6 +1,6 @@
+ {"math": {"floor/1": {"pure": true}, "ceil/1": {"pure": true}},
+  "maps":
+- {"update/3": {"pure": true},
++ {"iterator/1": {"pure": true}, "next/1": {"pure": true}, "update/3": {"pure": true},
+   "to_list/1": {"pure": true},
+   "put/3": {"pure": true},
+   "new/0": {"pure": true},
+@@ -8,7 +8,7 @@
+   "get/2": {"pure": true},
+   "from_list/1": {"pure": true},
+   "fold/3": {"pure": false}},
+- "lists": {"reverse/2": {"pure": true}, "member/2": {"pure": true}},
++ "lists": {"keyfind/3": {"pure": true}, "reverse/2": {"pure": true}, "member/2": {"pure": true}},
+  "erts_internal":
+  {"mc_refill/1": {"pure": true}, "mc_iterator/1": {"pure": true}},
+  "erlang":

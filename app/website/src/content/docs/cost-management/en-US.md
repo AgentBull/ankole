@@ -21,10 +21,10 @@ Eight built-in Agent profiles control separate paid paths. Five select language 
 | `web_search`, `web_fetch` | Web tools | See Lever 3 |
 | `image_generate` | Image generation | High cost per call; bind only when needed |
 
-Two tenant-scoped [AppConfigure](../app-configuration/) keys attribute subsystem model calls to designated Agents:
+Subsystem model calls use an Agent's model profiles, quota, and usage attribution:
 
 - **`brain.maintainer_agent_uid`**: Selects the active Brain maintainer Agent for the tenant. All Brain model calls run as this Agent and attribute usage to it (`light` extracts conversations and Sources, `heavy` runs Dreaming and Skill lesson review, and `web_fetch` reads URL Sources). Brain also reads the site embedding model and tenant rerank model from `AppConfigure`. Disabling the maintainer Agent stops Brain model calls and URL Source fetching until the Agent is enabled or replaced. **Brain → Health** reports the selected Agent and profile status; see [Brain](../brain/).
-- **`pod.applet.ai_agent_uid`**: Selects the active Agent for Pod Applet `ctx.ai` model calls in the tenant and attributes those calls and token usage to that Agent.
+- **Pod Applet `ctx.ai`**: Uses the active Agent that created the Applet. That Agent supplies the model profiles and quota and receives the token usage attribution.
 
 Two profile adjustments save the most spend:
 

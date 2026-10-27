@@ -60,11 +60,11 @@ export function ConfigFields({
       ) : null}
       {advancedFields.length > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
-          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border/70 bg-card/60 px-4 py-3 text-left text-sm font-medium text-foreground">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border/70 bg-card/60 px-4 py-3 text-left text-sm font-medium text-foreground">
             <span>{advancedLabel}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               {showAdvancedCount ? advancedFields.length : null}
-              <RiArrowDownSLine className="size-4" aria-hidden />
+              <RiArrowDownSLine className="size-4 transition-transform group-aria-expanded:rotate-180" aria-hidden />
             </span>
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -245,7 +245,7 @@ export function ConfigField({
         spellCheck={secret ? false : undefined}
         type={secret ? 'password' : field.type === 'integer' ? 'number' : 'text'}
         value={value == null ? '' : String(value)}
-        onChange={event => onChange(field.type === 'integer' ? Number(event.target.value) : event.target.value)}
+        onChange={event => onChange(parseConfigFieldInput(field, event.target.value))}
         onBlur={() => setShowValidationError(Boolean(validationError))}
         onInvalid={() => setShowValidationError(Boolean(validationError))}
       />
@@ -253,6 +253,11 @@ export function ConfigField({
       {showValidationError && validationError ? <FieldError id={errorID}>{validationError}</FieldError> : null}
     </Field>
   )
+}
+
+export function parseConfigFieldInput(field: ConfigFieldDefinition, rawValue: string): string | number | undefined {
+  if (field.type === 'integer') return rawValue === '' ? undefined : Number(rawValue)
+  return rawValue
 }
 
 export function configFieldValidationMessage(

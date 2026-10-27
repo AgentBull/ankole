@@ -126,16 +126,16 @@ defmodule AnkoleWeb.ConsoleErrors do
         conn,
         log_event,
         reason,
-        code \\ "invalid_value",
+        code \\ "internal_error",
         message \\ "the request failed for an unexpected reason; check the server log"
       ) do
-    Ankole.Logging.warning(
+    Ankole.Logging.error(
       log_event,
       "console API request failed for an unhandled reason",
       Ankole.Logging.failure_fields(:error, reason, [])
     )
 
-    render(conn, 422, code, message)
+    render(conn, 500, code, message)
   end
 
   @doc """

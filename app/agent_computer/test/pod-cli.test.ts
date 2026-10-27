@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startPodCLIBridge } from '../src/cli/pod/pod-cli-bridge'
@@ -96,6 +96,26 @@ describe('Pod Agent CLI', () => {
     }
   )
 
+  it('builds Worker URL imports through a symlinked workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pod-applet-symlink-'))
+    try {
+      const app = join(root, 'app')
+      const link = join(root, 'workspace')
+      await initializeApplet(app)
+      await symlink(app, link)
+      await writeFile(join(app, 'src/calculate.worker.ts'), 'self.onmessage = () => postMessage(42)')
+      await writeFile(
+        join(app, 'src/main.tsx'),
+        'import workerURL from "./calculate.worker.ts?url"; export const provider = {workerURL}'
+      )
+      await buildApplet(link)
+      expect(await readFile(join(app, 'dist/main.js'), 'utf8')).toContain('calculate.worker')
+      expect(await readFile(join(app, 'dist/calculate.worker.js'), 'utf8')).toContain('postMessage(42)')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('rebuilds without stale files and keeps both imported and conventional CSS', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-applet-'))
     try {
@@ -115,7 +135,7 @@ describe('Pod Agent CLI', () => {
     }
   })
 
-  it('embeds imported media in JavaScript and nested CSS', async () => {
+  it('publishes JavaScript media imports as files and resolves nested CSS assets', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-applet-assets-'))
     try {
       const app = join(root, 'app')
@@ -136,11 +156,13 @@ describe('Pod Agent CLI', () => {
       await buildApplet(app)
       const js = await readFile(join(app, 'dist/main.js'), 'utf8')
       const css = await readFile(join(app, 'dist/main.css'), 'utf8')
-      const image = `data:image/png;base64,${bytes.toString('base64')}`
-      expect(js).toContain(image)
-      expect(css).toContain(image)
+      const assets = await readdir(join(app, 'dist/assets'))
+      const image = assets.find(name => name.endsWith('.png'))!
+      expect(js).toContain(`./assets/${image}`)
+      expect(css).toContain(`data:image/png;base64,${bytes.toString('base64')}`)
       expect(css).toContain('data:font/woff2;base64,AP8RgA==')
-      expect((await readdir(join(app, 'dist'))).sort()).toEqual(['index.html', 'main.css', 'main.js'])
+      expect(js).not.toContain('data:')
+      expect(await readFile(join(app, 'dist/assets', image))).toEqual(bytes)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

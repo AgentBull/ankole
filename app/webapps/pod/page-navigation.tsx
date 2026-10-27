@@ -1,6 +1,8 @@
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import {
   Button,
+  cn,
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
@@ -37,6 +39,7 @@ import { authenticationRef, podID, podLocation, podRouteID } from '../common/bro
 import { useSearchParams } from '../common/router'
 import { requestErrorMessage } from '../common/request-errors'
 import { NavigationModel, type NavigationScope } from './state/navigation'
+import { pageAncestors } from './state/page-location'
 import { canMovePage, dropAvailability, dropRequest, rootRequest } from './state/page-move'
 import {
   contentKeys,
@@ -63,7 +66,9 @@ export const scopeLabels: Record<PageScope, string> = {
   get space() {
     return t('pod.content.space')
   },
-  private: 'Private',
+  get private() {
+    return t('pod.content.private')
+  },
   get shared() {
     return t('pod.content.shared_with_me')
   },
@@ -165,11 +170,26 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCreate: boolean }) {
+export function PageChildrenMenu({
+  pageID,
+  canCreate,
+  scope,
+  privateOwner
+}: {
+  pageID: string
+  canCreate: boolean
+  scope?: 'space' | 'private'
+  privateOwner?: string
+}) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
-  const children = useInfiniteQuery({ ...pageChildrenQuery('space', pageID), enabled: open })
+  const effectiveScope = scope ?? (privateOwner ? 'private' : 'space')
+  const children = useInfiniteQuery({
+    ...pageChildrenQuery(effectiveScope, pageID),
+    enabled: open || !canCreate
+  })
   const pages = children.data?.pages.flatMap(batch => batch.pages) ?? []
+  if (!canCreate && children.isSuccess && !children.hasNextPage && pages.length === 0) return null
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
@@ -185,19 +205,21 @@ export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCre
           {children.isPending ? (
             <p role="status">{t('pod.content.loading')}</p>
           ) : (
-            <ul className="grid gap-1">
-              {pages.map(page => (
-                <li key={page.id}>
-                  <Link
-                    className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-foreground no-underline hover:bg-accent"
-                    to={podLocation(`/pages/${page.id}`).pathname}
-                    onClick={() => setOpen(false)}>
-                    <PageIcon page={page} />
-                    <span className="truncate">{page.title || t('pod.content.untitled')}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            pages.length > 0 && (
+              <ul className="grid gap-1">
+                {pages.map(page => (
+                  <li key={page.id}>
+                    <Link
+                      className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-foreground no-underline hover:bg-accent"
+                      to={podLocation(`/pages/${page.id}`).pathname}
+                      onClick={() => setOpen(false)}>
+                      <PageIcon page={page} />
+                      <span className="truncate">{page.title || t('pod.content.untitled')}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )
           )}
           {!children.isPending && !children.error && !pages.length && (
             <p className="py-2 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
@@ -214,6 +236,8 @@ export function PageChildrenMenu({ pageID, canCreate }: { pageID: string; canCre
           {canCreate && (
             <CreatePageButton
               parentID={pageID}
+              scope={effectiveScope}
+              privateOwner={privateOwner}
               label={t('pod.sidebar.new_subpage')}
               onCreated={page => {
                 setOpen(false)
@@ -319,33 +343,43 @@ function PageTreeNode({ page, scope, siblings }: { page: Page; scope: Navigation
   const open = expanded.has(page.id)
   const children = useInfiniteQuery({ ...pageChildrenQuery(scope, page.id), enabled: open })
   const nested = children.data?.pages.flatMap(batch => batch.pages) ?? []
+  const knownEmpty = children.isSuccess && nested.length === 0 && !children.hasNextPage
   return (
     <li className="min-w-0">
-      <PageTreeRow page={page} siblings={siblings} open={open} active={podRouteID(routePageID) === page.id} />
-      {open && (
-        <ul className="pod-tree-children">
-          {children.isPending && <li role="status">{t('pod.content.loading')}</li>}
-          {!!children.error && (
-            <li>
-              <ContentError error={children.error} retry={() => void children.refetch()} />
-            </li>
-          )}
-          {nested.map(child => (
-            <PageTreeNode key={child.id} page={child} scope={scope} siblings={nested} />
-          ))}
-          {children.hasNextPage && (
-            <li>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={children.isFetching}
-                onClick={() => void children.fetchNextPage()}>
-                {t('pod.content.load_more_pages')}
-              </Button>
-            </li>
-          )}
-        </ul>
-      )}
+      <PageTreeRow
+        page={page}
+        siblings={siblings}
+        open={open}
+        knownEmpty={knownEmpty}
+        active={podRouteID(routePageID) === page.id}
+      />
+      {open &&
+        (knownEmpty ? (
+          <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
+        ) : (
+          <ul className="pod-tree-children">
+            {children.isPending && <li role="status">{t('pod.content.loading')}</li>}
+            {!!children.error && (
+              <li>
+                <ContentError error={children.error} retry={() => void children.refetch()} />
+              </li>
+            )}
+            {nested.map(child => (
+              <PageTreeNode key={child.id} page={child} scope={scope} siblings={nested} />
+            ))}
+            {children.hasNextPage && (
+              <li>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={children.isFetching}
+                  onClick={() => void children.fetchNextPage()}>
+                  {t('pod.content.load_more_pages')}
+                </Button>
+              </li>
+            )}
+          </ul>
+        ))}
     </li>
   )
 }
@@ -354,11 +388,13 @@ function PageTreeRow({
   page,
   siblings,
   open,
+  knownEmpty,
   active
 }: {
   page: Page
   siblings: Page[]
   open: boolean
+  knownEmpty: boolean
   active: boolean
 }) {
   const { favorites, actions, togglePage, onNavigate } = usePageTree()
@@ -424,7 +460,7 @@ function PageTreeRow({
             aria-label={label}
             aria-expanded={open}
             onClick={() => togglePage(page.id)}>
-            <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
+            <RiArrowRightSLine aria-hidden className={cn(open && 'rotate-90', knownEmpty && 'opacity-30')} />
           </button>
           {renaming ? (
             <PageRenameField page={page} onDone={() => setRenaming(false)} />
@@ -458,7 +494,14 @@ function PageTreeRow({
                   {menu}
                 </DropdownMenuContent>
               </DropdownMenu>
-              {canEdit && <CreatePageButton parentID={page.id} compact />}
+              {canEdit && (
+                <CreatePageButton
+                  parentID={page.id}
+                  scope={page.private_owner_uid ? 'private' : 'space'}
+                  privateOwner={page.private_owner_uid ?? undefined}
+                  compact
+                />
+              )}
             </span>
           )}
           <TreeDropIndicator indication={drag.indication} />
@@ -524,6 +567,31 @@ function PageRenameField({ page, onDone }: { page: Page; onDone(): void }) {
   )
 }
 
+function formatPageTimestamp(iso: string | null | undefined, locale?: string): string {
+  if (!iso) return ''
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return ''
+  const now = Date.now()
+  const diffSeconds = Math.round((time - now) / 1000)
+  const absSeconds = Math.abs(diffSeconds)
+  try {
+    const rtf = new Intl.RelativeTimeFormat(locale || undefined, { numeric: 'auto' })
+    if (absSeconds < 60) return rtf.format(0, 'minute')
+    if (absSeconds < 3600) return rtf.format(Math.round(diffSeconds / 60), 'minute')
+    if (absSeconds < 86400) return rtf.format(Math.round(diffSeconds / 3600), 'hour')
+    if (absSeconds < 7 * 86400) return rtf.format(Math.round(diffSeconds / 86400), 'day')
+    const date = new Date(time)
+    const sameYear = date.getFullYear() === new Date(now).getFullYear()
+    return new Intl.DateTimeFormat(locale || undefined, {
+      ...(sameYear ? {} : { year: 'numeric' }),
+      month: 'short',
+      day: 'numeric'
+    }).format(date)
+  } catch {
+    return new Date(time).toLocaleDateString()
+  }
+}
+
 export function ContentListRoute() {
   const { scope = 'space' } = useParams({ strict: false })
   const effectiveScope: PageScope =
@@ -532,6 +600,36 @@ export function ContentListRoute() {
   const trash = effectiveScope === 'trash'
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
+  const [inputQuery, setInputQuery] = useState(query)
+  const lastPushedQuery = useRef(query)
+  useEffect(() => {
+    if (query !== lastPushedQuery.current) {
+      lastPushedQuery.current = query
+      setInputQuery(query)
+    }
+  }, [query])
+  useEffect(() => {
+    lastPushedQuery.current = query
+    setInputQuery(query)
+    // Reset local input when navigating between list scopes.
+  }, [scope])
+  useEffect(() => {
+    if (!(search || trash) || inputQuery === query) return
+    const timer = window.setTimeout(() => {
+      lastPushedQuery.current = inputQuery
+      setSearchParams(
+        current => {
+          if (inputQuery) current.set('q', inputQuery)
+          else current.delete('q')
+          return current
+        },
+        { replace: true, preventScrollReset: true }
+      )
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [inputQuery, query, search, setSearchParams, trash])
+  const { i18n } = useTranslation()
+  const debouncing = (search || trash) && inputQuery !== query
   const rootScope = !search && (effectiveScope === 'space' || effectiveScope === 'private')
   const listing = useQuery({ ...pagesQuery(effectiveScope, trash ? query : ''), enabled: !rootScope && !search })
   const searched = useQuery({ ...pageSearchQuery(query), enabled: search })
@@ -564,6 +662,9 @@ export function ContentListRoute() {
     }
   })
   const rows: Page[] | undefined = pages.data?.pages
+  const pagesByID = new Map(
+    [...cachedPages(client), ...(rows ?? []), ...(searched.data?.ancestors ?? [])].map(page => [page.id, page])
+  )
   return (
     <section
       className="pod-content-list h-full overflow-auto px-6 py-6 md:px-10"
@@ -612,64 +713,95 @@ export function ContentListRoute() {
           placeholder={
             trash ? t('pod.content.search_titles_in_trash') : t('pod.content.search_titles_and_document_content')
           }
-          value={query}
-          onChange={event => {
-            const value = event.target.value
-            setSearchParams(
-              current => {
-                if (value) current.set('q', value)
-                else current.delete('q')
-                return current
-              },
-              { replace: true, preventScrollReset: true, flushSync: true }
-            )
-          }}
+          value={inputQuery}
+          onChange={event => setInputQuery(event.target.value)}
         />
       )}
       <ContentError error={pages.error || restore.error} retry={() => void pages.refetch()} />
-      {pages.isPending ? (
+      {pages.isPending || (debouncing && !rows?.length) ? (
         <p role="status">{t('pod.content.loading')}</p>
       ) : (
         <ul className="space-y-1">
-          {rows?.map(page => (
-            <li key={page.id} className={trash ? 'flex min-h-8 items-center justify-between gap-3 py-0.5' : undefined}>
-              {trash ? (
-                <span className="flex min-w-0 flex-1 items-center gap-3 px-3">
-                  <PageIcon page={page} />
-                  <span id={`pod-trash-title-${page.id}`} className="min-w-0 flex-1 truncate">
-                    {page.title || t('pod.content.untitled')}
+          {rows?.map(page => {
+            const parent = !rootScope
+              ? pageAncestors(page, pagesByID)
+                  .map(ancestor => ancestor.title || t('pod.content.untitled'))
+                  .join(' / ')
+              : ''
+            const showPrivateBadge = !rootScope && Boolean(page.private_owner_uid)
+            const timestamp = !rootScope
+              ? formatPageTimestamp(trash ? (page.deleted_at ?? page.updated_at) : page.updated_at, i18n.language)
+              : ''
+            const description = [
+              typeLabels[page.type],
+              showPrivateBadge ? t('pod.content.private') : '',
+              parent,
+              timestamp
+            ]
+              .filter(Boolean)
+              .join(' · ')
+            return (
+              <li
+                key={page.id}
+                className={trash ? 'flex min-h-8 items-center justify-between gap-3 py-0.5' : undefined}>
+                {trash ? (
+                  <span className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1">
+                    <PageIcon page={page} />
+                    <span className="min-w-0 flex-1">
+                      <span id={`pod-trash-title-${page.id}`} className="block truncate">
+                        {page.title || t('pod.content.untitled')}
+                      </span>
+                      {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+                    </span>
+                    {showPrivateBadge && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
+                        <RiLockLine aria-hidden className="size-3" />
+                        {t('pod.content.private')}
+                      </span>
+                    )}
+                    {timestamp && <span className="shrink-0 text-xs text-fg-tertiary">{timestamp}</span>}
+                    <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
                   </span>
-                  <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
-                </span>
-              ) : (
-                <Link
-                  data-pod-list-item
-                  className="pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-[13px] leading-5 text-foreground no-underline hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-                  aria-label={page.title || t('pod.content.untitled')}
-                  aria-description={typeLabels[page.type]}
-                  to={podLocation(`/pages/${page.id}`).pathname}>
-                  <PageIcon page={page} />
-                  <span className="min-w-0 flex-1 truncate">{page.title || t('pod.content.untitled')}</span>
-                  <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
-                </Link>
-              )}
-              {effectiveScope === 'trash' ? (
-                <Button
-                  data-pod-list-item
-                  aria-describedby={`pod-trash-title-${page.id}`}
-                  size="sm"
-                  variant="outline"
-                  disabled={!!page.purge_started_at || restore.isPending}
-                  onClick={() => restore.mutate(page.id)}>
-                  {page.purge_started_at
-                    ? t('pod.content.purging')
-                    : restore.isPending && restore.variables === page.id
-                      ? t('pod.content.restoring')
-                      : t('pod.content.restore')}
-                </Button>
-              ) : null}
-            </li>
-          ))}
+                ) : (
+                  <Link
+                    data-pod-list-item
+                    className="pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-[13px] leading-5 text-foreground no-underline hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                    aria-label={page.title || t('pod.content.untitled')}
+                    aria-description={description}
+                    to={podLocation(`/pages/${page.id}`).pathname}>
+                    <PageIcon page={page} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{page.title || t('pod.content.untitled')}</span>
+                      {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+                    </span>
+                    {showPrivateBadge && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
+                        <RiLockLine aria-hidden className="size-3" />
+                        {t('pod.content.private')}
+                      </span>
+                    )}
+                    {timestamp && <span className="shrink-0 text-xs text-fg-tertiary">{timestamp}</span>}
+                    <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
+                  </Link>
+                )}
+                {effectiveScope === 'trash' ? (
+                  <Button
+                    data-pod-list-item
+                    aria-describedby={`pod-trash-title-${page.id}`}
+                    size="sm"
+                    variant="outline"
+                    disabled={!!page.purge_started_at || restore.isPending}
+                    onClick={() => restore.mutate(page.id)}>
+                    {page.purge_started_at
+                      ? t('pod.content.purging')
+                      : restore.isPending && restore.variables === page.id
+                        ? t('pod.content.restoring')
+                        : t('pod.content.restore')}
+                  </Button>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
       )}
       {rootScope && roots.hasNextPage && (
@@ -681,7 +813,7 @@ export function ContentListRoute() {
           {t('pod.content.load_more_pages')}
         </Button>
       )}
-      {!pages.isPending && !pages.error && !rows?.length && (
+      {!pages.isPending && !debouncing && !pages.error && !rows?.length && (
         <p className="py-10 text-sm text-fg-tertiary">
           {query
             ? trash

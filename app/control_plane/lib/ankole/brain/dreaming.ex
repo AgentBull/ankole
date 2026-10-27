@@ -365,9 +365,9 @@ defmodule Ankole.Brain.Dreaming do
       |> MapSet.new(&{&1.a_claim_id, &1.b_claim_id})
 
     claims
-    |> Enum.group_by(& &1.object_slug)
+    |> Enum.group_by(&{&1.object_slug, &1.holder, &1.audience_scope})
     |> Enum.flat_map(fn {_slug, claims} ->
-      for a <- claims, b <- claims, a.id < b.id, a.holder == b.holder, do: {a, b}
+      for a <- claims, b <- claims, a.id < b.id, do: {a, b}
     end)
     |> Enum.reject(fn {a, b} ->
       MapSet.member?(existing, {a.id, b.id}) or MapSet.member?(existing, {b.id, a.id})

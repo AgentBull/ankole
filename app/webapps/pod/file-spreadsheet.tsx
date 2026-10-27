@@ -1,7 +1,7 @@
 import { t } from 'i18next'
 import { Button } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { read, utils } from 'xlsx'
 import { ContentError } from './content-primitives'
 
@@ -17,16 +17,25 @@ export default function SpreadsheetPreview({ url }: { url: string }) {
     retry: false
   })
   const selected = workbook.data?.SheetNames.includes(sheet) ? sheet : workbook.data?.SheetNames[0]
-  const html = selected ? utils.sheet_to_html(workbook.data!.Sheets[selected]!, { editable: false }) : ''
+  const html = useMemo(
+    () =>
+      selected && workbook.data?.Sheets[selected]
+        ? utils.sheet_to_html(workbook.data.Sheets[selected], { editable: false })
+        : '',
+    [workbook.data, selected]
+  )
   return (
     <div className="space-y-3">
       <ContentError error={workbook.error} />
       {workbook.isPending && <p role="status">{t('pod.content.reading_spreadsheet')}</p>}
-      <nav aria-label={t('pod.content.worksheet')} className="flex flex-wrap gap-1">
+      <nav
+        aria-label={t('pod.content.worksheet')}
+        className="flex flex-nowrap items-center gap-1 overflow-x-auto py-0.5">
         {workbook.data?.SheetNames.map(name => (
           <Button
             key={name}
             size="sm"
+            className="shrink-0"
             variant={name === selected ? 'outline' : 'ghost'}
             aria-pressed={name === selected}
             onClick={() => setSheet(name)}>

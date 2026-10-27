@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { agentsQuery, type ConversationDetail } from '../api'
 import { podChatTeammates } from '../api/generated/sdk.gen'
 import { pageSearchQuery } from '../content-api'
+import { pageAncestors } from '../state/page-location'
 import { ContentError } from '../content-primitives'
+import { PageIcon } from '../page-icon'
 import { teammatesKey } from './room-api'
 import { ChatAvatar } from './chat-avatar'
 import { ComposerCompletionList, type CompletionHandle, type CompletionOption } from './composer-completion'
@@ -39,6 +41,9 @@ export function MentionPicker({
     enabled: !pagesOnly
   })
   const pages = useQuery(pageSearchQuery(query))
+  const pagesByID = new Map(
+    [...(pages.data?.pages ?? []), ...(pages.data?.ancestors ?? [])].map(page => [page.id, page])
+  )
   const inRoom = new Set(detail?.conversation.participants.map(person => person.uid))
   const matches = (name: string) => name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
   const options: CompletionOption[] = [
@@ -67,18 +72,35 @@ export function MentionPicker({
           content: (
             <>
               <ChatAvatar name={person.displayName} src={person.avatarURL} />
-              <span>{person.displayName}</span>
+              <span className="truncate">{person.displayName}</span>
+              {detail && !inRoom.has(person.uid) && (
+                <small className="ml-auto shrink-0 text-fg-tertiary">{t('pod.chat_room.invite_mention')}</small>
+              )}
             </>
           ),
           choose: () => onChoose({ type: 'human', uid: person.uid, displayName: person.displayName })
         }))
       : []),
-    ...(pages.data?.pages ?? []).map(page => ({
-      id: page.id,
-      group: t('pod.chat_room.pages_artifacts'),
-      content: <span>{page.title || t('pod.content.untitled')}</span>,
-      choose: () => onChoose({ type: 'page', uid: page.id, displayName: page.title || t('pod.content.untitled') })
-    }))
+    ...(pages.data?.pages ?? []).map(page => {
+      const parent = pageAncestors(page, pagesByID)
+        .map(page => page.title || t('pod.content.untitled'))
+        .join(' / ')
+      return {
+        id: page.id,
+        group: t('pod.chat_room.pages_artifacts'),
+        content: (
+          <>
+            <PageIcon page={page} className="size-4 shrink-0 text-fg-tertiary" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{page.title || t('pod.content.untitled')}</span>
+              {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+            </span>
+          </>
+        ),
+        choose: () =>
+          onChoose({ type: 'page' as const, uid: page.id, displayName: page.title || t('pod.content.untitled') })
+      }
+    })
   ]
   return (
     <ComposerCompletionList

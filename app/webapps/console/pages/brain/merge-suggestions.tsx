@@ -21,6 +21,7 @@ import { RiGitMergeLine, RiLoaderLine } from '@remixicon/react'
 import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from '@tanstack/react-router'
 import {
   approveBrainMergeSuggestionMutation,
   listBrainMergeSuggestionsInfiniteOptions,
@@ -29,9 +30,10 @@ import {
 import type { ListBrainMergeSuggestionsResponse } from '../../api/v2/generated/types.gen'
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
+import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
-import { BrainSubNav } from './brain-nav'
+import { BrainSubNav, brainObjectPath } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
 
@@ -44,7 +46,9 @@ function PageCell({ page }: { page?: BrainMergePageSummary | null }) {
   if (!page) return <span className="text-xs">—</span>
   return (
     <div className="grid gap-0.5">
-      <span className="text-xs">{page.title ?? page.slug}</span>
+      <Link className="link text-xs" to={brainObjectPath(page.slug)}>
+        {page.title ?? page.slug}
+      </Link>
       <span className="font-mono text-[11px] text-muted-foreground">{page.slug}</span>
     </div>
   )
@@ -81,6 +85,12 @@ export function BrainMergeSuggestionsPage() {
       setRejectTarget(undefined)
     },
     onError: error => toast.error(requestErrorMessage(error))
+  })
+
+  const approveGuard = useDialogDiscardGuard({
+    dirty: approveTarget !== undefined && canonicalSlug !== (approveTarget.a_page?.slug ?? ''),
+    onOpenChange: open => !open && setApproveTarget(undefined),
+    pending: approve.isPending
   })
 
   return (
@@ -168,18 +178,15 @@ export function BrainMergeSuggestionsPage() {
         ))}
       </ResourceListPage>
 
-      <Dialog
-        open={Boolean(approveTarget)}
-        onOpenChange={open => !approve.isPending && !open && setApproveTarget(undefined)}>
+      <Dialog open={Boolean(approveTarget)} onOpenChange={approveGuard.requestOpenChange}>
         <DialogContent closeLabel={t('common.close')} showCloseButton={!approve.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.merge_approve_title')}</DialogTitle>
             <DialogDescription>{t('console.brain.merge_approve_description')}</DialogDescription>
           </DialogHeader>
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
-            {t('console.brain.merge_canonical')}
+          <LabeledField label={t('console.brain.merge_canonical')}>
             <Select value={canonicalSlug} onValueChange={value => typeof value === 'string' && setCanonicalSlug(value)}>
-              <SelectTrigger aria-label={t('console.brain.merge_canonical')}>
+              <SelectTrigger aria-label={t('console.brain.merge_canonical')} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -192,7 +199,7 @@ export function BrainMergeSuggestionsPage() {
                   ))}
               </SelectContent>
             </Select>
-          </label>
+          </LabeledField>
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />} disabled={approve.isPending}>
               {t('common.cancel')}
@@ -212,6 +219,11 @@ export function BrainMergeSuggestionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <DiscardConfirmDialog
+        open={approveGuard.confirming}
+        onDiscard={approveGuard.confirmDiscard}
+        onKeep={approveGuard.keepEditing}
+      />
 
       <Dialog
         open={Boolean(rejectTarget)}

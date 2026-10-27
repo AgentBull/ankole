@@ -4,7 +4,7 @@ import { Button, Input, Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   deleteAgentModelProfileMutation,
@@ -36,7 +36,8 @@ export function CustomModelProfilesEditor({
   profiles,
   providers,
   providerKinds,
-  modelCatalog
+  modelCatalog,
+  onDirtyChange
 }: {
   agentUID: string
   error: unknown
@@ -45,12 +46,22 @@ export function CustomModelProfilesEditor({
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
   const [adding, setAdding] = useState(false)
+  const [newProfileDirty, setNewProfileDirty] = useState(false)
+  const [storedDirty, setStoredDirty] = useState<Record<string, boolean>>({})
   const customProfiles = Object.entries(profiles)
     .filter(([name, value]) => isCustomProfileName(name) && recordValue(value))
     .sort(([left], [right]) => left.localeCompare(right))
+  const anyDirty =
+    (adding && newProfileDirty) || customProfiles.some(([profileName]) => Boolean(storedDirty[profileName]))
+
+  useEffect(() => {
+    onDirtyChange?.(anyDirty)
+    return () => onDirtyChange?.(false)
+  }, [anyDirty, onDirtyChange])
 
   return (
     <section className="grid gap-4">
@@ -59,7 +70,14 @@ export function CustomModelProfilesEditor({
           <h3 className="text-lg font-semibold tracking-normal">{t('console.models.custom_title')}</h3>
           <p className="text-sm leading-6 text-muted-foreground">{t('console.models.custom_description')}</p>
         </div>
-        <Button disabled={adding} size="sm" type="button" onClick={() => setAdding(true)}>
+        <Button
+          disabled={adding}
+          size="sm"
+          type="button"
+          onClick={() => {
+            setNewProfileDirty(false)
+            setAdding(true)
+          }}>
           {t('console.models.add_custom_profile')}
         </Button>
       </div>
@@ -72,8 +90,11 @@ export function CustomModelProfilesEditor({
           providers={providers}
           providerKinds={providerKinds}
           modelCatalog={modelCatalog}
-
-          onClose={() => setAdding(false)}
+          onDirtyChange={setNewProfileDirty}
+          onClose={() => {
+            setNewProfileDirty(false)
+            setAdding(false)
+          }}
         />
       ) : null}
       {customProfiles.map(([name, value]) => (
@@ -85,6 +106,9 @@ export function CustomModelProfilesEditor({
           providers={providers}
           providerKinds={providerKinds}
           modelCatalog={modelCatalog}
+          onDirtyChange={dirty =>
+            setStoredDirty(current => (Boolean(current[name]) === dirty ? current : { ...current, [name]: dirty }))
+          }
         />
       ))}
       {!loading && !adding && customProfiles.length === 0 ? (
@@ -94,12 +118,24 @@ export function CustomModelProfilesEditor({
   )
 }
 
+function hasNewCustomProfileEdits(name: string, draft: ProfileDraft): boolean {
+  return Boolean(
+    name.trim() ||
+    draft.description.trim() ||
+    draft.providerID ||
+    draft.model.trim() ||
+    draft.contextLength.trim() ||
+    Object.keys(draft.providerOptions).length > 0
+  )
+}
+
 function NewCustomModelProfileEditor({
   agentUID,
   existingNames,
   providers,
   providerKinds,
   modelCatalog,
+  onDirtyChange,
   onClose
 }: {
   agentUID: string
@@ -107,11 +143,18 @@ function NewCustomModelProfileEditor({
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
+  onDirtyChange: (dirty: boolean) => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [draft, setDraft] = useState<ProfileDraft>(emptyProfileDraft)
+  const dirty = hasNewCustomProfileEdits(name, draft)
+
+  useEffect(() => {
+    onDirtyChange(dirty)
+    return () => onDirtyChange(false)
+  }, [dirty, onDirtyChange])
   // Blocks a repeat submit synchronously; `save.isPending` flips only after
   // the render that follows the first mutate.
   const pendingSubmission = useRef(false)
@@ -197,7 +240,8 @@ function StoredCustomModelProfileEditor({
   profile,
   providers,
   providerKinds,
-  modelCatalog
+  modelCatalog,
+  onDirtyChange
 }: {
   agentUID: string
   name: string
@@ -205,6 +249,7 @@ function StoredCustomModelProfileEditor({
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
+  onDirtyChange: (dirty: boolean) => void
 }) {
   useSignals()
   const { t } = useTranslation()
@@ -215,6 +260,12 @@ function StoredCustomModelProfileEditor({
     sourceKey: `agent:${agentUID}:${name}`,
     source: profileDraft
   })
+  const isDirty = model.profile.dirty.value
+
+  useEffect(() => {
+    onDirtyChange(isDirty)
+    return () => onDirtyChange(false)
+  }, [isDirty, onDirtyChange])
 
   const save = useMutation({
     ...putAgentModelProfileMutation(),

@@ -13,6 +13,9 @@ export function WorkerProviderSelect({
   providers,
   value,
   onChange,
+  id,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
   ...props
 }: {
   providers: WorkerProvider[]
@@ -31,7 +34,12 @@ export function WorkerProviderSelect({
       onValueChange={next => {
         if (next) onChange(next)
       }}>
-      <SelectTrigger aria-label={t('console.worker_providers.provider')} className="w-full">
+      <SelectTrigger
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
+        aria-label={t('console.worker_providers.provider')}
+        className="w-full"
+        id={id}>
         <SelectValue placeholder={t('console.worker_providers.select')} />
       </SelectTrigger>
       <SelectContent>

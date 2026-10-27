@@ -51,7 +51,7 @@ Harness は多様な仕事に対応します。1 つの Agent が意思決定全
 
 ## 現在のステータス
 
-Ankole は、本番環境で稼働する完全な企業向け Agent Harness です。企業が管理する基盤に、Control Plane、Pod ワークスペース、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、Kernel、Company Brain、運用コンソールを配置できます。
+Ankole は、本番環境で稼働する完全な企業向け Agent Harness です。企業が管理する基盤に、Control Plane、Pod ワークスペース、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、Kernel、Company Brain、運用コンソールを配置できます。重要なコードと主要なステートマシンには形式検証を適用し、エンドツーエンドテストでメッセージ経路、障害復旧、並行処理、アップグレードを検証しています。
 
 Ankole にはパブリック API の互換性契約はありません。リリースには互換性のない変更が含まれる場合があります。
 

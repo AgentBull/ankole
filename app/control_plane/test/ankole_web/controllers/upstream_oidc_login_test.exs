@@ -59,7 +59,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       conn: conn,
       client: client
     } do
-      {conn, flow, upstream} = begin_upstream(conn, client, @params)
+      {conn, oauth_request, upstream} = begin_upstream(conn, client, @params)
       assert upstream["nonce"] == upstream["state"]
       assert upstream["nonce"] != "rp-nonce"
 
@@ -75,11 +75,13 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       auth_time = System.system_time(:second)
       stub_upstream(upstream["nonce"], %{"auth_time" => auth_time})
       conn = callback(conn, upstream)
-      assert redirected_to(conn) == "/oauth/authorize/resume?flow=" <> flow
+      assert redirected_to(conn) == "/oauth/authorize/resume?oauth_request=" <> oauth_request
       assert WebSession.oauth_session(conn)["auth_time"] == auth_time
       assert WebSession.admin_session(conn) == nil
 
-      conn = conn |> recycle() |> get("/oauth/authorize/resume", %{"flow" => flow})
+      conn =
+        conn |> recycle() |> get("/oauth/authorize/resume", %{"oauth_request" => oauth_request})
+
       issued = conn |> redirected_to() |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
       assert issued["state"] == "rp-state"
       assert is_binary(issued["code"])
@@ -120,7 +122,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       conn: conn,
       client: client
     } do
-      {conn, flow, upstream} = begin_upstream(conn, client, %{"prompt" => "login"})
+      {conn, oauth_request, upstream} = begin_upstream(conn, client, %{"prompt" => "login"})
       count = Repo.aggregate(Ankole.Principals.Principal, :count)
       now = System.system_time(:second)
 
@@ -146,7 +148,12 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
 
       assert WebSession.oauth_session(conn) == nil
       assert Repo.aggregate(Ankole.Principals.Principal, :count) == count
-      assert {:ok, %{status: :pending}} = WebSession.login_transaction(conn, flow)
+
+      assert {:ok, %{status: :pending}} =
+               Ankole.OIDC.AuthorizationRequests.get(
+                 WebSession.browser_reference(conn),
+                 oauth_request
+               )
     end
   end
 
@@ -154,14 +161,14 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
     conn: conn,
     client: client
   } do
-    {conn, flow, upstream} = begin_upstream(conn, client, %{})
+    {conn, oauth_request, upstream} = begin_upstream(conn, client, %{})
     refute Map.has_key?(upstream, "prompt")
     refute Map.has_key?(upstream, "max_age")
     refute Map.has_key?(upstream, "claims")
     stub_upstream(upstream["nonce"], %{})
 
     conn = callback(conn, upstream)
-    assert redirected_to(conn) == "/oauth/authorize/resume?flow=" <> flow
+    assert redirected_to(conn) == "/oauth/authorize/resume?oauth_request=" <> oauth_request
     assert %{"auth_time" => nil} = WebSession.oauth_session(conn)
     assert WebSession.admin_session(conn) == nil
   end
@@ -259,17 +266,21 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
         )
       )
 
-    flow =
+    oauth_request =
       conn
       |> redirected_to()
       |> URI.parse()
       |> Map.fetch!(:query)
       |> URI.decode_query()
-      |> Map.fetch!("flow")
+      |> Map.fetch!("oauth_request")
 
-    conn = conn |> recycle() |> get("/sessions/oidc/entra/authorization", %{"flow" => flow})
+    conn =
+      conn
+      |> recycle()
+      |> get("/sessions/oidc/entra/authorization", %{"oauth_request" => oauth_request})
+
     upstream = conn |> redirected_to() |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    {conn, flow, upstream}
+    {conn, oauth_request, upstream}
   end
 
   defp callback(conn, upstream) do

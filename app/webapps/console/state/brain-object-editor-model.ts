@@ -3,6 +3,7 @@ import type { Nodes } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import type { ShowBrainObjectResponse } from '../api/v2/generated/types.gen'
 import type { CreateBrainObjectData, UpdateBrainObjectData } from '../api/v2/generated/types.gen'
+import { deriveSlugWithTransliteration, preloadTransliteration, slugFromDisplayName } from './agent-editor-model'
 
 export type BrainObjectPage = NonNullable<ShowBrainObjectResponse['object']>
 
@@ -140,6 +141,7 @@ export function previewBrainObjectBody(body: string): BrainObjectPreview {
 }
 
 export const BrainObjectEditorModel = createModel(() => {
+  let slugManuallyEdited = false
   const sourceKey = signal<string>()
   const slug = signal('')
   const type = signal('note')
@@ -173,6 +175,7 @@ export const BrainObjectEditorModel = createModel(() => {
   }
 
   function replace(snapshot: BrainObjectEditorSnapshot) {
+    slugManuallyEdited = false
     slug.value = snapshot.slug
     type.value = snapshot.type
     subtype.value = snapshot.subtype
@@ -211,11 +214,30 @@ export const BrainObjectEditorModel = createModel(() => {
       tags.value = tags.value.filter((_, current) => current !== index)
     },
     initialize(nextSourceKey: string, snapshot: BrainObjectEditorSnapshot) {
+      if (nextSourceKey === 'new') void preloadTransliteration()
       if (sourceKey.value === nextSourceKey) return
       batch(() => {
         sourceKey.value = nextSourceKey
         replace(snapshot)
       })
+    },
+    setTitle(value: string, deriveSlug: boolean) {
+      batch(() => {
+        title.value = value
+        if (deriveSlug && !slugManuallyEdited) {
+          slug.value = deriveSlugWithTransliteration(value, 96, () => {
+            if (!slugManuallyEdited) slug.value = slugFromDisplayName(title.value, 96)
+          })
+        }
+        if (validationError.value === 'title_required' || validationError.value === 'slug_required') {
+          validationError.value = undefined
+        }
+      })
+    },
+    setSlug(value: string) {
+      slugManuallyEdited = true
+      slug.value = value
+      if (validationError.value === 'slug_required') validationError.value = undefined
     },
     reset() {
       batch(() => {

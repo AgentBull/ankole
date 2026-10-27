@@ -225,7 +225,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              ]
            } = json_response(rejected, 400)
 
-    assert detail =~ "cel must be a valid filter"
+    assert detail =~ "cel: invalid signal filter:"
+    assert detail =~ "Syntax error:"
+    assert detail =~ "signal.channel."
     refute Repo.get_by(Binding, agent_uid: agent.uid, name: "filters")
     refute Repo.get_by(SiteConfig, scope: "global", key: config_key)
 
@@ -258,7 +260,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              ]
            } = json_response(rejected, 400)
 
-    assert detail =~ "cel must be a valid filter"
+    assert detail =~ "cel: invalid signal filter:"
+    assert detail =~ "Syntax error:"
+    assert detail =~ "signal.channel."
     stored = Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters")
     assert stored.filters == filters
     assert stored.enabled == original.enabled
@@ -301,7 +305,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              ]
            } = json_response(rejected, 400)
 
-    assert detail =~ "cel must be a valid filter"
+    assert detail =~ "cel: invalid signal filter:"
+    assert detail =~ "Syntax error:"
+    assert detail =~ "signal.channel."
     assert {:ok, stored} = Bindings.get_binding(source.uid, "filters")
     assert stored.filters == filters
     assert {:ok, ^original_config} = Bindings.binding_config(stored, LarkConfig)

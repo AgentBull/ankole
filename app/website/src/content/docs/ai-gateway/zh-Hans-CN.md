@@ -123,7 +123,7 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 
 
 同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个有长度上限的 `query`，返回 Provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。这两类调用可以使用 `web_search.default` 和 `web_fetch.default`，由 AIGateway 解析当前 Agent 档案。
 
-`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model` 和租户级的 `brain.rerank_model`。Pod Applet 的 `ctx.ai` 调用同样通过 AIGateway 无状态路由，使用 `pod.applet.ai_agent_uid` 所配置启用 Agent 的语言模型档案。[Brain](../brain/) 说明完整检索行为。
+`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model` 和租户级的 `brain.rerank_model`。Pod Applet 的 `ctx.ai` 调用通过 AIGateway 无状态路由，使用创建该 Applet 的 Agent 的语言模型档案和额度，并将用量归属该 Agent；该 Agent 必须处于启用状态。[Brain](../brain/) 说明完整检索行为。
 
 文件是一等公民：`POST /files` 上传，`GET /files` 列出，`GET /files/:id` 和 `GET /files/:id/content` 读取元数据和字节，`DELETE /files/:id` 删除。它们都按主体限定范围。
 

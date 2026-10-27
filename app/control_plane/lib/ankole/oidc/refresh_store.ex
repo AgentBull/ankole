@@ -215,7 +215,10 @@ defmodule Ankole.OIDC.RefreshStore do
       principal_uid: entry.data.subject,
       session_id: entry.data.claims["session_id"],
       scope: Enum.join(entry.data.scope, " "),
-      context: entry.data,
+      context:
+        entry.data
+        |> Map.drop([:subject, :client_id, :scope])
+        |> Map.update!(:claims, &Map.delete(&1, "session_id")),
       expires_at: timestamp(entry.expires_at)
     })
   end
@@ -225,7 +228,15 @@ defmodule Ankole.OIDC.RefreshStore do
       token_hash: row.digest,
       family_id: row.family_id,
       generation: row.generation,
-      data: context(row.context),
+      data:
+        row.context
+        |> context()
+        |> Map.merge(%{
+          subject: row.principal_uid,
+          client_id: row.client_id,
+          scope: String.split(row.scope, " ", trim: true)
+        })
+        |> Map.update!(:claims, &Map.put(&1, "session_id", row.session_id)),
       expires_at: DateTime.to_unix(row.expires_at),
       consumed: not is_nil(row.consumed_at),
       consumed_at: unix(row.consumed_at),

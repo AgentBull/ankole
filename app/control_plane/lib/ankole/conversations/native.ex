@@ -155,7 +155,7 @@ defmodule Ankole.Conversations.Native do
   def list_rooms(actor, opts \\ []), do: NativeRoom.list(actor, opts)
 
   def get(%Ankole.AuthZ.Actor{} = actor, id, opts \\ []) do
-    Repo.transact_top_level(fn ->
+    Repo.transact_repeatable_read_only(fn ->
       detail_in_tx(actor, id, opts)
     end)
   end
@@ -168,13 +168,6 @@ defmodule Ankole.Conversations.Native do
     with true <- is_nil(before) or (is_integer(before) and before > 0),
          true <- is_nil(loaded_first) or (is_integer(loaded_first) and loaded_first > 0),
          {:ok, id} <- Queries.cast_id(id) do
-      agents = room_agents(id)
-
-      :ok =
-        Ankole.Sessions.Queue.lock_sessions_in_tx(
-          Enum.map(agents, &{&1.uid, Ankole.Sessions.Key.conversation(id)})
-        )
-
       case visible_conversation(actor, id) do
         %Conversation{} = conversation ->
           {:ok, detail(conversation, Keyword.put(opts, :actor, actor))}
@@ -1025,35 +1018,30 @@ defmodule Ankole.Conversations.Native do
       )
       |> Map.new(&{&1.uid, &1.display_name})
 
-    artifacts =
-      Ankole.Conversations.list_messages!(
-        query: [
-          filter: [
-            conversation_id: conversation.id,
-            seq: [less_than_or_equal: conversation.sequence_high_water],
-            withdrawn: false
-          ],
-          select: [
-            :id,
-            :conversation_id,
-            :links,
-            :attachments,
-            :author_type,
-            :author_uid,
-            :kind,
-            :seq
-          ],
-          sort: [seq: :asc]
-        ]
-      )
-
-    {:ok, pages} = Ankole.Pod.Pages.saved_from_messages(actor, Enum.map(artifacts, & &1.id))
+    {:ok, pages} = Ankole.Pod.Pages.saved_from_conversation(actor, conversation.id)
     saved = Enum.group_by(pages, & &1.saved_from_message_id, &%{id: &1.id, title: &1.title})
+    saved_message_ids = Map.keys(saved)
+
+    artifacts =
+      Message
+      |> Ash.Query.filter(
+        conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
+          not withdrawn and (links != [] or attachments != [] or id in ^saved_message_ids)
+      )
+      |> Ash.Query.select([:id, :conversation_id, :links, :attachments, :seq])
+      |> Ash.Query.sort(seq: :asc)
+      |> Ankole.Ash.read!()
 
     latest_input =
-      artifacts
-      |> Enum.reverse()
-      |> Enum.find(&(&1.author_type == :human and &1.kind == :message))
+      Message
+      |> Ash.Query.filter(
+        conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
+          not withdrawn and author_type == :human and kind == :message
+      )
+      |> Ash.Query.select([:id, :conversation_id, :author_uid])
+      |> Ash.Query.sort(seq: :desc)
+      |> Ash.Query.limit(1)
+      |> Ankole.Ash.read_one!()
 
     detail = %{
       actor: actor,
@@ -1171,7 +1159,7 @@ defmodule Ankole.Conversations.Native do
         }
 
         with {:ok, %Signal{} = input} <-
-               Ankole.Sessions.Commands.retry_source_in_tx(key, nil, signal_id),
+               Ankole.Sessions.Commands.retry_source_in_tx(key, nil, signal_id, lock: false),
              true <- NativeQueue.retryable_reply?(message, input) do
           message.id
         else

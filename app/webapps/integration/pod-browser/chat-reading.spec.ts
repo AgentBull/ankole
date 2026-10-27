@@ -157,9 +157,7 @@ test('a labeled network growth fixture preserves reading, then follows after Jum
   }
 })
 
-test('conversation find loads real older pages, stops on close, and finds the first retained message', async ({
-  browser
-}) => {
+test('conversation find loads older pages on demand and finds the first retained message', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 1000 } })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -199,6 +197,8 @@ test('conversation find loads real older pages, stops on close, and finds the fi
     await expect(page.locator('.pod-chat-find [aria-live]')).toHaveText('0/0')
     expect(pageRequests).toBe(0)
     await find.fill('History item 0001')
+    expect(pageRequests).toBe(0)
+    await page.locator('.pod-chat-find').getByRole('button', { name: '加载更早消息', exact: true }).click()
     await requested
     await expect(page.locator('.pod-chat-find [aria-live]')).toContainText('+')
     await find.press('Escape')
@@ -211,6 +211,8 @@ test('conversation find loads real older pages, stops on close, and finds the fi
 
     await page.keyboard.press('Control+f')
     await find.fill('History item 0001')
+    expect(pageRequests).toBe(1)
+    await page.locator('.pod-chat-find').getByRole('button', { name: '加载更早消息', exact: true }).click()
     await expect(page.locator('.pod-chat-find [aria-live]')).toHaveText('1/1')
     await expect(page.locator('.pod-chat-human-message')).toHaveCount(1006)
     expect(pageRequests).toBe(2)

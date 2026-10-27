@@ -1,11 +1,12 @@
-import { t } from 'i18next'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@ankole/uikit'
 import { RiFolderLine, RiLockLine } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { pageSearchQuery, type Page, type PageSearchOptions } from './content-api'
 import { ContentError } from './content-primitives'
 import { PageIcon } from './page-icon'
+import { pageAncestors } from './state/page-location'
 
 type Location = { id: string; title: string; private?: boolean }
 
@@ -17,7 +18,8 @@ export function PagePicker({
   selected,
   onSelect,
   label,
-  disabled = false
+  disabled = false,
+  autoFocus = true
 }: {
   excludeSubtreeOf?: Page['id']
   requiredAction?: PageSearchOptions['required_action']
@@ -26,7 +28,9 @@ export function PagePicker({
   onSelect(id: string, page?: Page): void
   label: string
   disabled?: boolean
+  autoFocus?: boolean
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const remote = useQuery(
@@ -35,17 +39,11 @@ export function PagePicker({
   const searching = query !== deferredQuery || remote.isFetching
   const pages = query === deferredQuery ? (remote.data?.pages ?? []) : []
   const visibleRoots = roots.filter(root => root.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  const byID = new Map(pages.map(page => [page.id, page]))
+  const byID = new Map([...pages, ...(remote.data?.ancestors ?? [])].map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
-    const visited = new Set([page.id])
-    const titles: string[] = []
-    let parent = page.parent_id ? byID.get(page.parent_id) : undefined
-    while (parent && !visited.has(parent.id)) {
-      visited.add(parent.id)
-      titles.unshift(parent.title || t('pod.content.untitled'))
-      parent = parent.parent_id ? byID.get(parent.parent_id) : undefined
-    }
-    return titles.join(' / ')
+    const ancestors = pageAncestors(page, byID).map(parent => parent.title || t('pod.content.untitled'))
+    const scope = page.private_owner_uid ? t('pod.sidebar.private') : t('pod.sidebar.space')
+    return ancestors.length > 0 ? `${scope} / ${ancestors.join(' / ')}` : scope
   }
   return (
     <Command className="pod-page-picker" label={label} loop shouldFilter={false}>
@@ -55,7 +53,7 @@ export function PagePicker({
         value={query}
         onValueChange={setQuery}
         disabled={disabled}
-        autoFocus
+        autoFocus={autoFocus}
       />
       <CommandList label={label}>
         <CommandEmpty>{searching ? t('pod.content.loading') : t('pod.content.no_matches')}</CommandEmpty>

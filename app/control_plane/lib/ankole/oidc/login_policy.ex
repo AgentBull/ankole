@@ -95,7 +95,7 @@ defmodule Ankole.OIDC.LoginPolicy do
          do: authorize_source(client, provider_id)
   end
 
-  def authorize_login(%{purpose: purpose}, provider_id) when purpose in [:console, :pod] do
+  def authorize_login(purpose, provider_id) when purpose in [:console, :pod] do
     with {:ok, providers} <- login_providers(),
          true <- Enum.any?(providers, &(&1["provider_id"] == provider_id)) do
       :ok
@@ -105,7 +105,7 @@ defmodule Ankole.OIDC.LoginPolicy do
     end
   end
 
-  def authorize_login(%{purpose: :oauth, request: request}, provider_id) do
+  def authorize_login(%{request: request}, provider_id) when is_map(request) do
     with {:ok, client} <- OIDC.get_active_client(request["client_id"]),
          {:ok, providers} <- providers(client, request),
          true <- Enum.any?(providers, &(&1["provider_id"] == provider_id)) do
@@ -116,14 +116,15 @@ defmodule Ankole.OIDC.LoginPolicy do
     end
   end
 
+  def authorize_login(%{purpose: purpose}, provider_id) when purpose in [:console, :pod],
+    do: authorize_login(purpose, provider_id)
+
   def requires_login?(params), do: "login" in prompt_values(params) or params["max_age"] == 0
 
   def reauthentication_required?(params),
     do: params["reauthenticate"] == true or requires_login?(params)
 
-  def upstream_options(transaction) do
-    request = transaction.request
-
+  def upstream_options(state, request, started_at) when is_map(request) do
     prompt =
       cond do
         requires_login?(request) -> "login"
@@ -132,12 +133,11 @@ defmodule Ankole.OIDC.LoginPolicy do
       end
 
     [
-      nonce: transaction.upstream_state,
+      nonce: state,
       prompt: prompt,
       max_age: if(requires_login?(request), do: 0, else: request["max_age"]),
       auth_time_required: requires_auth_time?(request),
-      auth_time_not_before:
-        if(requires_login?(request), do: DateTime.to_unix(transaction.updated_at))
+      auth_time_not_before: if(requires_login?(request), do: DateTime.to_unix(started_at))
     ]
   end
 

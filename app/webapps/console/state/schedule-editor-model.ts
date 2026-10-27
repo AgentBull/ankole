@@ -1,4 +1,44 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
+import { dateTimeLocalValue, instantFromDateTimeLocal } from './token-quota-editor-model'
+
+export type ScheduleIntervalUnit = 'seconds' | 'minutes' | 'hours' | 'days'
+
+const INTERVAL_UNIT_MS: Record<ScheduleIntervalUnit, number> = {
+  seconds: 1_000,
+  minutes: 60_000,
+  hours: 3_600_000,
+  days: 86_400_000
+}
+
+export function decomposeEveryMs(everyMs: string): { value: string; unit: ScheduleIntervalUnit } {
+  const trimmed = everyMs.trim()
+  if (!trimmed) return { value: '', unit: 'minutes' }
+  const ms = Number(trimmed)
+  if (!Number.isFinite(ms) || ms <= 0) return { value: trimmed, unit: 'seconds' }
+  if (ms % INTERVAL_UNIT_MS.days === 0) return { value: String(ms / INTERVAL_UNIT_MS.days), unit: 'days' }
+  if (ms % INTERVAL_UNIT_MS.hours === 0) return { value: String(ms / INTERVAL_UNIT_MS.hours), unit: 'hours' }
+  if (ms % INTERVAL_UNIT_MS.minutes === 0) return { value: String(ms / INTERVAL_UNIT_MS.minutes), unit: 'minutes' }
+  if (ms % INTERVAL_UNIT_MS.seconds === 0) return { value: String(ms / INTERVAL_UNIT_MS.seconds), unit: 'seconds' }
+  return { value: String(ms / INTERVAL_UNIT_MS.seconds), unit: 'seconds' }
+}
+
+export function composeEveryMs(value: string, unit: ScheduleIntervalUnit): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const num = Number(trimmed)
+  if (!Number.isFinite(num) || num <= 0) return trimmed
+  return String(Math.round(num * INTERVAL_UNIT_MS[unit]))
+}
+
+export type ScheduleFieldErrors = {
+  ownerSessionId?: string
+  name?: string
+  task?: string
+  cronExpression?: string
+  interval?: string
+  anchorAt?: string
+  deliveryConversationIds?: Record<number, string>
+}
 
 /**
  * The `/api/v2` cron schedule types give `schedule`, `delivery`, and `payload`
@@ -113,7 +153,10 @@ export const ScheduleEditorModel = createModel(() => {
   const scheduleKind = signal<ScheduleKind | ''>('cron')
   const cronExpression = signal('')
   const everyMs = signal('')
+  const intervalValue = signal('')
+  const intervalUnit = signal<ScheduleIntervalUnit>('minutes')
   const anchorAt = signal('')
+  const anchorInput = signal('')
   const timezone = signal('')
   const deliveryTargets = signal<DeliveryTargetDraft[]>([])
   const task = signal('')
@@ -122,8 +165,10 @@ export const ScheduleEditorModel = createModel(() => {
   const idempotencyKey = signal('')
   const initialDraft = signal<ScheduleEditorDraft>()
   const validationError = signal<string>()
+  const fieldErrors = signal<ScheduleFieldErrors>({})
 
   const apply = (draft: ScheduleEditorDraft) => {
+    const decomposed = decomposeEveryMs(draft.everyMs)
     batch(() => {
       ownerSessionId.value = draft.ownerSessionId
       bindingName.value = draft.bindingName
@@ -132,7 +177,10 @@ export const ScheduleEditorModel = createModel(() => {
       scheduleKind.value = draft.scheduleKind
       cronExpression.value = draft.cronExpression
       everyMs.value = draft.everyMs
+      intervalValue.value = decomposed.value
+      intervalUnit.value = decomposed.unit
       anchorAt.value = draft.anchorAt
+      anchorInput.value = draft.anchorAt ? dateTimeLocalValue(draft.anchorAt) : ''
       timezone.value = draft.timezone
       deliveryTargets.value =
         draft.deliveryTargets.length > 0 ? draft.deliveryTargets.map(target => ({ ...target })) : [emptyTarget()]
@@ -141,6 +189,7 @@ export const ScheduleEditorModel = createModel(() => {
       hasAutomationJob.value = draft.hasAutomationJob
       idempotencyKey.value = draft.idempotencyKey
       validationError.value = undefined
+      fieldErrors.value = {}
     })
   }
 
@@ -243,7 +292,10 @@ export const ScheduleEditorModel = createModel(() => {
     scheduleKind,
     cronExpression,
     everyMs,
+    intervalValue,
+    intervalUnit,
     anchorAt,
+    anchorInput,
     timezone,
     deliveryTargets,
     task,
@@ -251,6 +303,7 @@ export const ScheduleEditorModel = createModel(() => {
     hasAutomationJob,
     idempotencyKey,
     validationError,
+    fieldErrors,
     dirty,
     initialize(nextSourceKey: string, draft: ScheduleEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
@@ -260,6 +313,25 @@ export const ScheduleEditorModel = createModel(() => {
     },
     clearValidation() {
       validationError.value = undefined
+      fieldErrors.value = {}
+    },
+    setIntervalValue(nextValue: string) {
+      batch(() => {
+        intervalValue.value = nextValue
+        everyMs.value = composeEveryMs(nextValue, intervalUnit.value)
+      })
+    },
+    setIntervalUnit(nextUnit: ScheduleIntervalUnit) {
+      batch(() => {
+        intervalUnit.value = nextUnit
+        everyMs.value = composeEveryMs(intervalValue.value, nextUnit)
+      })
+    },
+    setAnchorLocal(localValue: string) {
+      batch(() => {
+        anchorInput.value = localValue
+        anchorAt.value = localValue.trim() ? (instantFromDateTimeLocal(localValue) ?? '') : ''
+      })
     },
     setBindingName(value: string) {
       bindingName.value = value
@@ -291,14 +363,14 @@ export const ScheduleEditorModel = createModel(() => {
         name.value.trim() && taskSatisfied() && buildSchedule() && buildDelivery() && buildPayload() !== null
       )
     },
-    toCreateBody(): CronScheduleWriteBody | null {
+    toCreateBody(idempotencyKeyOverride?: string): CronScheduleWriteBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const nextPayload = buildPayload()
       const ownerSession = ownerSessionId.value.trim()
       const binding = bindingName.value.trim()
       const trimmedName = name.value.trim()
-      const idempotency = idempotencyKey.value.trim()
+      const idempotency = (idempotencyKeyOverride ?? idempotencyKey.value).trim()
       if (
         !ownerSession ||
         !trimmedName ||

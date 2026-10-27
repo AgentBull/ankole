@@ -19,6 +19,20 @@ export function fieldValue(record: BaseRecord, field: BaseField): Value {
   return value === '' || (Array.isArray(value) && !value.length) ? null : value
 }
 
+export function principalUID(value: Value | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const raw =
+    typeof value === 'object' && !Array.isArray(value) && 'uid' in value
+      ? String(value.uid ?? '')
+      : typeof value === 'string'
+        ? value.includes(':principal/')
+          ? value.slice(value.indexOf(':principal/') + ':principal/'.length)
+          : value
+        : ''
+  const normalized = raw.trim().toLowerCase()
+  return normalized || null
+}
+
 /** PostgreSQL C collation compares Unicode scalar values in UTF-8 order. */
 function compareValues(a: Value, b: Value): number {
   if (a === b) return 0
@@ -79,11 +93,16 @@ function compareJSONB(a: unknown, b: unknown): number {
   return compareValues(a as Value, b as Value)
 }
 
-function matches(value: Value, condition: Condition): boolean {
+function matches(value: Value, condition: Condition, field?: BaseField): boolean {
   if (condition.operator === 'is_empty') return value === null
   if (condition.operator === 'is_not_empty') return value !== null
   // SQL comparisons with NULL never select a row.
   if (value === null || condition.value === null || condition.value === undefined) return false
+  if (condition.operator === 'is' && field && (field.type === 'created_by' || field.type === 'updated_by')) {
+    const left = principalUID(value),
+      right = principalUID(condition.value)
+    return left !== null && left === right
+  }
   switch (condition.operator) {
     case 'is':
       return isEqual(value, condition.value)
@@ -130,7 +149,7 @@ function filterRecords(records: BaseRecord[], fields: BaseField[], filter?: Filt
     const test = (condition: Condition) => {
       const field = byID.get(condition.field_id)
       if (!field) throw new Error(t('pod.content.the_filter_field_was_deleted_update_your_filters'))
-      return matches(fieldValue(record, field), condition)
+      return matches(fieldValue(record, field), condition, field)
     }
     return filter.conjunction === 'and' ? filter.conditions.every(test) : filter.conditions.some(test)
   })
@@ -150,11 +169,13 @@ export function queryLocalRecords(records: BaseRecord[], fields: BaseField[], qu
           : (JSON.parse(query.group.value_json) as Value)
         : (query.group.value ?? null)
     const actual = fieldValue(record, field)
-    return expected === null
-      ? actual === null
-      : Array.isArray(actual)
-        ? actual.some(item => isEqual(item, expected))
-        : isEqual(actual, expected)
+    if (expected === null) return actual === null
+    if (field.type === 'created_by' || field.type === 'updated_by') {
+      const actualUID = principalUID(actual),
+        expectedUID = principalUID(expected)
+      return actualUID !== null && actualUID === expectedUID
+    }
+    return Array.isArray(actual) ? actual.some(item => isEqual(item, expected)) : isEqual(actual, expected)
   })
   return [...selected].sort((a, b) => {
     for (const sort of query.sort ?? []) {

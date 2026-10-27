@@ -61,6 +61,12 @@ defmodule Ankole.ControlPlanePlugins.Console.Actions do
   defp describe(:control_plane_plugin_not_found),
     do: Ankole.Errors.Invalid.NotFound.exception(resource: Ankole.ControlPlanePlugins.Console)
 
+  defp describe({:identity_provider_plugin_in_use, plugin_id, provider_id, tenant_id}),
+    do:
+      {:conflict,
+       "Disable identity provider #{provider_id} in tenant #{tenant_id} before disabling Plugin #{plugin_id}",
+       []}
+
   defp describe(reason) do
     case Ankole.AgentWorkers.Providers.Errors.describe(reason) do
       {:conflict, _message, _details} = conflict -> conflict

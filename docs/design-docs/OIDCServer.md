@@ -17,12 +17,15 @@ returns the installed record on conflict without changing its key or timestamps.
 The SigningKey process validates the stored key before publishing its
 runtime projection. Ecto migrations own the native tables, keys, and constraints.
 
-OIDC sessions, logout confirmations, and logout deliveries use the same Domain.
-Session authorization is one upsert on the Client and the authentication
-revision. It writes only a later expiry, so it keeps the original
-authentication binding and never shortens a Session. Session actions keep the
-first revocation and logout markers. Logout delivery actions own the pending,
-delivering, delivered, and failed transitions. A
+OIDC authorization requests (`AuthorizationRequest`), sessions, logout
+confirmations, and logout deliveries use the same Domain. When `/oauth/authorize`
+requires interactive sign-in or account selection, it creates a 10-minute
+tenant-scoped `AuthorizationRequest` and redirects the browser to
+`/sessions/new?oauth_request=<id>`. Session authorization is one upsert on the
+Client and the authentication revision. It writes only a later expiry, so it
+keeps the original authentication binding and never shortens a Session. Session
+actions keep the first revocation and logout markers. Logout delivery actions
+own the pending, delivering, delivered, and failed transitions. A
 delivered record cannot restart or consume another attempt. Native constraints
 also enforce positive access and authentication versions and nonnegative
 browser revisions and delivery attempt counts. Historical sessions can keep a
@@ -88,18 +91,18 @@ authentication time. Other unimplemented claim requests do not reject login.
 reuse, account selection, and the need for fresh authentication. It intersects
 the Client's configured login sources with the tenant's
 `Ankole.Principals.PodLoginPolicy` (for example filtering site `email_otp` when
-`allow_email_otp` is false). Browser
-transactions store this normalized policy input. Ankole does not create a second
-identity system for OIDC: Human Principals and their access versions remain the
-identity and revocation authority.
+`allow_email_otp` is false). `AuthorizationRequest` stores this normalized
+protocol request input. Ankole does not create a second identity system for
+OIDC: Human Principals and their access versions remain the identity and
+revocation authority.
 
 ### Upstream identity-provider authentication
 
 `Ankole.IdentityProviders.OIDC` uses `AttestoClient.IDToken` to verify upstream
 ID Tokens before an adapter can create or update a Human. Google Workspace,
 Microsoft Entra ID, and Slack require a signed ID Token. The verifier checks the
-configured issuer, client audience, signature, expiry, and nonce. The browser
-transaction's random upstream state also serves as its nonce. UserInfo must
+configured issuer, client audience, signature, expiry, and nonce. The outbound
+`OidcState` record's random state token also serves as its nonce. UserInfo must
 have the signed subject. Entra's signed tenant and object IDs must match the
 configured directory and the Graph user.
 
@@ -122,9 +125,9 @@ consent does not prove fresh authentication.
 ## Authorization and token issuance
 
 `Ankole.OIDC.Grants.authorize/2` runs in `Repo.transact_top_level/2`: it creates
-or extends the OIDC session and calls `Attesto.AuthorizationCode.issue/3`. The
-`issue` callback of `BrowserSessions.consume_authorization/4` already runs in a
-transaction, so it calls `Grants.authorize_in_tx/2`. The code expires in 60
+or extends the OIDC session and calls `Attesto.AuthorizationCode.issue/3`.
+`/oauth/authorize/resume` consumes the bound `AuthorizationRequest` once and
+calls `Grants.authorize_in_tx/2` in the same transaction. The code expires in 60
 seconds. PostgreSQL stores its SHA-256 digest and PKCE challenge, never the
 plaintext code.
 
@@ -172,8 +175,10 @@ family is inserted in the code exchange transaction, so `insert/1` raises
 `TransactionRequired` outside a transaction.
 The code store callbacks are single statements. The family row owns the
 absolute 30-day deadline and a sticky revocation marker. Each token has a
-digest, family ID, generation, canonical protocol context, expiry, and
-consumption state. A unique constraint on `(family_id, generation)` permits only
+digest, family ID, generation, expiry, and consumption state. Relational columns
+own its subject, Client, Session, and scope. The context map holds the other
+protocol fields. The store assembles the Attesto context from both when it reads
+a token. A unique constraint on `(family_id, generation)` permits only
 one child at each generation.
 
 Issuance, rotation, and family revocation lock the tenant, subject Principal,

@@ -38,7 +38,7 @@ export function BaseCell({
   if (!editable || !writableField(field)) {
     return (
       <span className="whitespace-pre-wrap">
-        <FieldValue field={field} value={value} />
+        <FieldValue field={field} value={value} pageID={pageID} />
       </span>
     )
   }

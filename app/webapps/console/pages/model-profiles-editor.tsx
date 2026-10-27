@@ -41,6 +41,7 @@ type ModelProfilesEditorProps = {
   agent: AgentItem
   error: unknown
   loading: boolean
+  model?: InstanceType<typeof ModelProfilesModel>
   profiles: JSONObject
   providerHosted: ProviderHostedCapabilities
   providers: AIGatewayProviderItem[]
@@ -61,6 +62,7 @@ function AgentModelProfilesEditor({
   agent,
   error,
   loading,
+  model: externalModel,
   profiles,
   providerHosted,
   providers,
@@ -70,7 +72,8 @@ function AgentModelProfilesEditor({
   useSignals()
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const model = useModel(ModelProfilesModel)
+  const internalModel = useModel(ModelProfilesModel)
+  const model = externalModel ?? internalModel
   const modelProfileDrafts = useMemo(
     () =>
       loading
@@ -245,20 +248,23 @@ function ProfileEditor({
                 confirmLabel: t('console.models.clear')
               }
         }
-        deleteDisabled={!configured}
-        deleteLabel={t('console.models.clear')}
+        deleteDisabled={required ? !signals.dirty.value : !configured}
+        deleteLabel={required ? t('common.reset', { defaultValue: 'Reset' }) : t('console.models.clear')}
         providers={providers}
         providerKinds={providerKinds}
         modelCatalog={modelCatalog}
         onUpdate={patch => model.update(profile, patch)}
         onSave={submit}
-        onDelete={() =>
+        onDelete={
           required
-            ? model.clear(profile)
-            : persist.mutate(
-                { action: 'cleared', submission: model.submission(profile) },
-                { onSuccess: finishPersistence }
-              )
+            ? signals.dirty.value
+              ? () => model.reset(profile)
+              : undefined
+            : () =>
+                persist.mutate(
+                  { action: 'cleared', submission: model.submission(profile) },
+                  { onSuccess: finishPersistence }
+                )
         }
       />
     </div>

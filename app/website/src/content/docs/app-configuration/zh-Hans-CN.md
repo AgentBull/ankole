@@ -74,7 +74,6 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 |---|---|---|
 | `pod.allow_external_guests` | 租户 | 是否允许受邀外部访客访问共享的 Pod 页面；默认 `true` |
 | `pod.applet.limits` | 租户 | Applet（小应用）调用限制（默认 `timeout_ms: 60000`、`heap_mb: 128`） |
-| `pod.applet.ai_agent_uid` | 租户 | 承载 Applet（小应用）`ctx.ai` 调用模型档案与用量的启用状态 Agent；留空时停用 Applet AI |
 | `pod.base.limits` | 租户 | Base 查询与记录限制（默认 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
 | `pod.trash_retention_days` | 租户 | 已删除页面自动彻底清理前的保留正整数天数（默认 `30`），或设为 `"unlimited"` 以无限期保留、不自动清理 |
 | `pod.ot_replay_window` | 租户 | 为 OT 重放保留的最近文档变更批次数；默认 `1000` |

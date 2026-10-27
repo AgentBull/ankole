@@ -1,9 +1,10 @@
 import { t } from 'i18next'
-import { Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogTitle, Input, Textarea } from '@ankole/uikit'
+import { Button, Checkbox, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger, Textarea } from '@ankole/uikit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
+import { RiEqualizerLine } from '@remixicon/react'
 import { FieldEditorModel } from './state/field-editor'
 import { requestErrorCode } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -18,13 +19,17 @@ export function FieldEditorButton({
   pageID,
   tables,
   field,
-  canManage
+  canManage,
+  iconOnly = false,
+  onCreated
 }: {
   tableID: string
   pageID: string
   tables: BaseTable[]
   field?: BaseField
   canManage: boolean
+  iconOnly?: boolean
+  onCreated?(fieldID: string): void
 }) {
   useSignals()
   const model = useModel(FieldEditorModel)
@@ -52,6 +57,12 @@ export function FieldEditorButton({
   const client = useQueryClient()
   const saving = useRef(false)
   const cancel = useRef<HTMLButtonElement>(null)
+  const invalidate = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: [...contentKeys.all, 'table'] }),
+      client.invalidateQueries({ queryKey: [...contentKeys.all, 'reference-labels'] }),
+      client.invalidateQueries({ queryKey: contentKeys.page(pageID) })
+    ])
   const write = useMutation({
     mutationFn: () => {
       const config = model.config.value
@@ -63,11 +74,12 @@ export function FieldEditorButton({
           )
         : baseHTTP.createField(tableID, { name: name.trim(), type, config })
     },
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+    onSuccess: async result => {
+      await invalidate()
+      if (!field && result.field?.id) onCreated?.(result.field.id)
       setOpen(false)
     },
-    onError: () => client.invalidateQueries({ queryKey: contentKeys.all }),
+    onError: () => invalidate(),
     onSettled: () => {
       saving.current = false
     }
@@ -75,10 +87,10 @@ export function FieldEditorButton({
   const remove = useMutation({
     mutationFn: () => baseHTTP.removeField(field!.id, baseVersion),
     onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+      await invalidate()
       setOpen(false)
     },
-    onError: () => client.invalidateQueries({ queryKey: contentKeys.all }),
+    onError: () => invalidate(),
     onSettled: () => {
       saving.current = false
     }
@@ -104,28 +116,29 @@ export function FieldEditorButton({
       write.mutate()
     }
   }
+  if (!canManage) return <span className="px-2 text-sm font-medium">{field?.name}</span>
+  const iconLabel = iconOnly && field ? `${t('pod.content.edit_field')} ${field.name}` : undefined
   return (
-    <Dialog
+    <Popover
       open={open}
       onOpenChange={next => {
         if (saving.current) return
         if (next) load()
         setOpen(next)
       }}>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={!canManage}
-        onClick={() => {
-          load()
-          setOpen(true)
-        }}>
-        {field ? field.name : t('pod.content.field')}
-      </Button>
-      <DialogContent
-        className="pod-dialog pod-dialog-wide"
-        closeLabel={t('common.close')}
-        showCloseButton={!pending}
+      <PopoverTrigger
+        render={<Button size={iconOnly ? 'icon-xs' : 'sm'} variant="ghost" aria-label={iconLabel} title={iconLabel} />}>
+        {iconOnly ? (
+          <RiEqualizerLine aria-hidden="true" />
+        ) : (
+          <span className="truncate">{field ? field.name : t('pod.content.field')}</span>
+        )}
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        collisionPadding={16}
+        className="max-h-[min(32rem,calc(100dvh-2rem),calc(var(--available-height)-0.25rem))] w-[min(22rem,calc(100vw-2rem))] gap-3 overflow-hidden p-4"
         aria-busy={pending}
         render={
           <form
@@ -135,8 +148,10 @@ export function FieldEditorButton({
             }}
           />
         }>
-        <DialogTitle>{field ? t('pod.content.edit_field') : t('pod.content.add_field')}</DialogTitle>
-        <div className="pod-dialog-body grid gap-4">
+        <PopoverTitle render={<h2 />} className="shrink-0">
+          {field ? t('pod.content.edit_field') : t('pod.content.add_field')}
+        </PopoverTitle>
+        <div className="pod-dialog-body min-h-0 flex-1 grid gap-4 overflow-y-auto pr-1">
           <fieldset disabled={pending} className="grid gap-4">
             <TextField label={t('pod.content.field_name')} value={name} onChange={setName} />
             <Choice
@@ -242,7 +257,7 @@ export function FieldEditorButton({
             </div>
           )}
         </div>
-        <DialogFooter>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border pt-3">
           <Button
             ref={cancel}
             type="button"
@@ -257,7 +272,7 @@ export function FieldEditorButton({
           {field && !field.is_primary && (
             <Button
               type="button"
-              variant="ghost"
+              variant={confirmation === 'delete' ? 'destructive' : 'ghost'}
               disabled={pending}
               onClick={() => {
                 if (saving.current) return
@@ -271,7 +286,7 @@ export function FieldEditorButton({
             </Button>
           )}
           <Button
-            variant="outline"
+            variant="default"
             type={confirmation ? 'button' : 'submit'}
             disabled={!name.trim() || pending || confirmation === 'delete' || (type === 'link' && !target)}
             onClick={confirmation ? save : undefined}>
@@ -281,8 +296,8 @@ export function FieldEditorButton({
                 ? t('pod.content.confirm_field_change')
                 : t('pod.content.save_field')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

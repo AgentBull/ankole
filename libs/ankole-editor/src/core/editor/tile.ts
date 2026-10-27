@@ -614,8 +614,7 @@ export class DocTile extends CompositeTile {
           if (startCovered) builder.update(0, true)
         }
       } else if (ins == -1) {
-        builder.keep(len, !startCovered, i == changes.length)
-        startCovered = false
+        startCovered = builder.keep(len, !startCovered, i == changes.length)
       } else if (ins == -2) {
         builder.update(len, !startCovered)
         startCovered = true
@@ -1094,11 +1093,10 @@ class ContentUpdate {
         const span = tile.isSpanning && this.enterSpanning(tile.elt)
         if (span) {
           this.new = span
-        } else {
-          this.reused.set(tile, Reused.DOM)
-          const inner = EltTile.of(tile.elt, tile.tag, tile.flags, tile.boundary * 2, tile.dom)
-          this.new.addChild(inner)
-          this.new = inner
+        } else if (!tile.isNodeInner) {
+          const copy = this.copyEltStructure(tile)
+          this.new.addChild(copy)
+          this.new = copy.contentTile!
         }
       },
       leave: tile => {
@@ -1118,7 +1116,9 @@ class ContentUpdate {
         }
       },
       skip: (tile, from, to) => {
-        if (!(tile instanceof TextTile)) {
+        if (tile.isNodeInner) {
+          // Node inner structure is handled when the node is entered.
+        } else if (!(tile instanceof TextTile)) {
           if (!from && to == tile.length) {
             this.reused.set(tile, Reused.Full)
             this.new.addChild(tile)
@@ -1152,6 +1152,24 @@ class ContentUpdate {
   }
 
   keep(len: number, includeStart: boolean, includeEnd: boolean) {
+    // The update changed the atomicity of the node we're starting in.
+    if (!!this.partialNode != (this.old.tile.isAtom && !this.old.tile.isText)) {
+      const dist = Math.min(
+        len,
+        this.partialNode
+          ? this.state.doc.nodeAt(this.posB - this.partialNode.length)!.length - this.partialNode.length
+          : this.old.tile.length - this.old.index
+      )
+      this.replace(dist, dist, includeStart)
+      if (dist == len) return true
+      includeStart = false
+      len -= dist
+    }
+    this.keepCheckEnd(len, includeStart, includeEnd)
+    return includeEnd
+  }
+
+  keepCheckEnd(len: number, includeStart: boolean, includeEnd: boolean) {
     const cut: number[] = [],
       end = this.posB + len
     // Compare this.old and this.new to find node tiles whose tag
@@ -1461,6 +1479,19 @@ class ContentUpdate {
       if (shape.type.connect) this.toConnect.push(tile)
       return tile
     }
+  }
+
+  copyEltStructure(tile: EltTile): EltTile {
+    this.reused.set(tile, Reused.DOM)
+    const copy = EltTile.of(tile.elt, tile.tag, tile.flags, tile.boundary * 2, tile.dom)
+    if (tile.isNodeOuter) {
+      for (const child of tile.children) {
+        if (child.isNodeInner) {
+          copy.addChild(child.flags & TileFlag.HasContent ? this.copyEltStructure(child as EltTile) : child)
+        }
+      }
+    }
+    return copy
   }
 
   ensureHackNode() {

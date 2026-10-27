@@ -10,8 +10,9 @@ import {
   RiToolsLine
 } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
-import type { ExecutionStep } from './types'
 import { isRecord } from '@agentbull/active-support'
+import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
+import type { ExecutionStep } from './types'
 
 function ToolIcon({ tool }: { tool: string }) {
   const Icon = /bash|terminal|command|shell/.test(tool)
@@ -26,10 +27,6 @@ function ToolIcon({ tool }: { tool: string }) {
   return <Icon aria-hidden />
 }
 
-function detail(value: unknown) {
-  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-}
-
 function decoded(value: unknown): unknown {
   if (typeof value !== 'string') return value
   try {
@@ -37,6 +34,25 @@ function decoded(value: unknown): unknown {
   } catch {
     return value
   }
+}
+
+export function formatToolDetail(value: unknown): string | undefined {
+  if (value == null) return undefined
+  const parsed = decoded(value)
+  if (parsed == null) return undefined
+  if (typeof parsed === 'string') return parsed.trim() ? parsed : undefined
+  if (Array.isArray(parsed)) return parsed.length ? JSON.stringify(parsed, null, 2) : undefined
+  if (isRecord(parsed)) return Object.keys(parsed).length ? JSON.stringify(parsed, null, 2) : undefined
+  return JSON.stringify(parsed, null, 2)
+}
+
+export function humanizeToolName(tool: string): string {
+  const cleaned = tool.replace(/^mcp__[^_]+__/, '').replace(/[.:/]+/g, '_')
+  return humanizeTechnicalLabel(cleaned) || tool
+}
+
+export function stepTitle(step: Pick<ExecutionStep, 'title' | 'tool'>): string {
+  return step.title && step.title !== step.tool ? step.title : humanizeToolName(step.tool)
 }
 
 export function commandDetails(step: ExecutionStep) {
@@ -63,7 +79,7 @@ export function commandDetails(step: ExecutionStep) {
         : text ||
           (value && ['stdout', 'stderr', 'exitCode', 'exit_code'].some(key => key in value)
             ? undefined
-            : detail(step.output))
+            : formatToolDetail(step.output))
   return {
     command: input.command,
     workdir: typeof input.workdir === 'string' ? input.workdir : undefined,
@@ -77,18 +93,34 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
   const { t } = useTranslation()
   if (!steps.length) return null
   if (compact && steps.length > 1) {
-    const latest = steps[steps.length - 1]!
-    return (
-      <details
-        className="pod-chat-tool-group"
-        open={steps.some(step => ['failed', 'error', 'stopped'].includes(step.status)) || undefined}>
-        <summary>
-          <ToolIcon tool={latest.tool} />
-          <span className="pod-chat-tool-title">{t('pod.chat_timeline.tool_count', { count: steps.length })}</span>
-        </summary>
-        <ToolRunView steps={steps} />
-      </details>
-    )
+    const runningCount = steps.filter(
+      step =>
+        ![
+          'completed',
+          'complete',
+          'success',
+          'succeeded',
+          'settled',
+          'stopped',
+          'cancelled',
+          'failed',
+          'error'
+        ].includes(step.status)
+    ).length
+    if (runningCount <= 1) {
+      const latest = steps[steps.length - 1]!
+      return (
+        <details
+          className="pod-chat-tool-group"
+          open={steps.some(step => ['failed', 'error', 'stopped'].includes(step.status)) || undefined}>
+          <summary>
+            <ToolIcon tool={latest.tool} />
+            <span className="pod-chat-tool-title">{t('pod.chat_timeline.tool_count', { count: steps.length })}</span>
+          </summary>
+          <ToolRunView steps={steps} />
+        </details>
+      )
+    }
   }
   return (
     <ol className="pod-chat-tool-run" aria-label={t('pod.chat_timeline.tools')}>
@@ -97,8 +129,8 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
         const stopped = ['stopped', 'cancelled'].includes(step.status)
         const complete = ['completed', 'complete', 'success', 'succeeded', 'settled'].includes(step.status)
         const terminal = commandDetails(step)
-        const input = step.input == null ? undefined : detail(step.input)
-        const output = step.output == null ? undefined : detail(step.output)
+        const input = formatToolDetail(step.input)
+        const output = formatToolDetail(step.output)
         const Row = terminal || input || output ? 'details' : 'div'
         const Label = Row === 'details' ? 'summary' : 'div'
         return (
@@ -108,7 +140,7 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
               data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}>
               <Label className="pod-chat-tool-line">
                 <ToolIcon tool={step.tool} />
-                <span className="pod-chat-tool-title">{step.title || step.tool}</span>
+                <span className="pod-chat-tool-title">{stepTitle(step)}</span>
                 {step.duration_ms != null && <time>{(step.duration_ms / 1000).toFixed(1)}s</time>}
                 <span
                   className="pod-chat-tool-state"

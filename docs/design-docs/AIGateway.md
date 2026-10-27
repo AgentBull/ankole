@@ -616,13 +616,13 @@ points where it records credential usage.
 configuration, the notice, and the Console contract.
 
 Applet backend `AnkoleRuntime.ai.generateText` is an in-process caller. It uses
-the enabled Agent in tenant setting `pod.applet.ai_agent_uid` as `subject_uid`
+the Agent recorded in the Applet Page's `created_by` as `subject_uid`
 and resolves the requested LLM profile through that Agent. It does not accept
 a raw provider/model identifier. Missing `light` follows the primary-profile
 fallback. The adapter validates reasoning effort against the selected model.
 It returns text, stop/length finish reason, and input/output token counts.
-The internal call disables quota admission while retaining Agent usage
-attribution. This option is not accepted from an HTTP request or handler input.
+The call checks the creator Agent's token quota and records usage under that
+Agent. An exhausted quota returns `agent_token_quota_exceeded` with HTTP 429.
 The Applet invocation owns cancellation and its total time budget. Provider
 failures become `ai_unavailable`; credentials never enter the Applet isolate.
 Native non-streaming requests, like streams, monitor their BEAM owner. When
@@ -1765,7 +1765,8 @@ Failed spans use `FailureDiagnostics` for `error.type` and the safe
 status, retryability, retry time, stage, and provider error code or type.
 A missing inner code does not replace an outer failure such as
 `credential_pool_exhausted` with `nil`. Trace error attributes do not contain
-raw provider error messages or response bodies.
+raw provider error messages or response bodies. Failure logs include the
+bounded public provider message supplied by the same error projection.
 
 An enabled trace contains the public request, the prepared request for each
 provider round, normalized provider output, model and Provider labels, token

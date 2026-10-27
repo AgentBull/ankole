@@ -40,12 +40,12 @@ defmodule Ankole.Sessions.WorkerAcquisition do
 
   def next({:opening, _, row}, :ready, _now) when is_map(row), do: {{:ready, row}, [:ready]}
 
-  def next({:opening, since, _}, {:waiting, reason}, _now) do
+  def next({:opening, since, row}, {:waiting, reason}, _now) when is_map(row) do
     phase = if reason == :CAPACITY, do: :capacity, else: :replacing
     {{:waiting, phase, since}, [{:phase, phase}]}
   end
 
-  def next(state, {:unavailable, reason}, _now) when state != :idle,
+  def next({:opening, _, row}, {:unavailable, reason}, _now) when is_map(row),
     do: {{:unavailable, reason}, [{:unavailable, reason}]}
 
   def next({:opening, since, _} = state, :expired, now) do

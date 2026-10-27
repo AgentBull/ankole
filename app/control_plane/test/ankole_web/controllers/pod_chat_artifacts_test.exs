@@ -82,7 +82,27 @@ defmodule AnkoleWeb.PodChatArtifactsTest do
       set: [sequence_high_water: room.sequence_high_water + 501]
     )
 
+    queries = "chat-read-#{id}"
+    owner = self()
+
+    :telemetry.attach(
+      queries,
+      [:ankole, :repo, :query],
+      fn _, _, meta, pid ->
+        if self() == pid and String.contains?(meta.query, "FOR UPDATE"),
+          do: send(pid, {:exclusive_read_lock, meta.query})
+      end,
+      owner
+    )
+
+    on_exit(fn -> :telemetry.detach(queries) end)
+
     latest = api_get(conn, "/api/v2/pod/conversations/#{id}") |> api_response(200)
+    refute_receive {:exclusive_read_lock, _}
+    :telemetry.detach(queries)
+    assert {:ok, detail} = Conversations.get(actor, id)
+    assert Enum.map(detail.artifacts, & &1.id) == [first_id]
+    assert detail.latest_input.id == List.last(rows).id
     assert length(latest["messages"]) == 500
     refute Enum.any?(latest["messages"], &(&1["id"] == first_id))
     assert is_integer(latest["olderMessagesBeforeSeq"])

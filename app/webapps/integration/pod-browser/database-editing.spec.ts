@@ -317,6 +317,16 @@ test('record deletion requires confirmation, retains failures, and prevents clos
     await expect(page.getByRole('textbox', { name: saved.primary.name, exact: true })).toHaveValue(
       'Keep until confirmed'
     )
+    await page.getByRole('button', { name: '字段', exact: true }).click()
+    await expect(page.getByRole('checkbox', { name: saved.primary.name, exact: true })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: '记录详情', exact: true }).click()
+    const details = page.getByRole('dialog', { name: '记录详情', exact: true })
+    await expect(details.getByRole('textbox', { name: saved.primary.name, exact: true })).toHaveValue(
+      'Keep until confirmed'
+    )
+    await details.getByRole('button', { name: '关闭', exact: true }).last().click()
+    await expect(details).toHaveCount(0)
     let fail = true
     const gate = Promise.withResolvers<void>(),
       started = Promise.withResolvers<void>()
@@ -411,6 +421,261 @@ test('view settings preview locally, save explicitly, and keep the draft on a re
     await page.getByRole('button', { name: '放弃视图更改', exact: true }).click()
     await expect(page.getByRole('combobox', { name: '选择分组字段', exact: true })).toContainText('State')
   } finally {
+    await context.close()
+  }
+})
+
+test('a single relation uses one selection and closes while multiple relations keep their choices open', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let pageID: string | undefined
+  try {
+    const saved = await base(page, 'Relation choices')
+    pageID = saved.pageID
+    const { table: target } = await request<{ table: { id: string } }>(page, `/bases/${pageID}/tables`, 'POST', {
+      name: 'Projects'
+    })
+    const targetSchema = await request<TableSchema>(page, `/tables/${target.id}`)
+    const title = targetSchema.fields.find(field => field.is_primary)!
+    const { records: projects } = await request<RecordsResult>(page, `/tables/${target.id}/records`, 'POST', {
+      creates: [{ data: { [title.id]: 'Alpha' } }, { data: { [title.id]: 'Beta' } }]
+    })
+    const alpha = projects.find(record => record.data[title.id] === 'Alpha')!
+    const beta = projects.find(record => record.data[title.id] === 'Beta')!
+    const single = (
+      await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+        name: 'Project',
+        type: 'link',
+        config: { table_id: target.id, multiple: false }
+      })
+    ).field
+    const multiple = (
+      await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+        name: 'Projects',
+        type: 'link',
+        config: { table_id: target.id, multiple: true }
+      })
+    ).field
+    const { records } = await request<RecordsResult>(page, `/tables/${saved.tableID}/records`, 'POST', {
+      creates: [{ data: { [saved.primary.id]: 'Work item' } }]
+    })
+    const recordID = records[0]!.id
+    const values = async () =>
+      (await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', { ids: [recordID] })).records[0]!
+        .data
+    await page.goto(location(pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
+    const row = page.locator(`[data-grid-record="${recordID}"]`)
+    await row.getByRole('button', { name: /^Project:/ }).click()
+    await expect(page.getByRole('radiogroup', { name: 'Project', exact: true })).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('single-relation-picker.png') })
+    await page
+      .getByRole('radiogroup', { name: 'Project', exact: true })
+      .getByRole('radio', { name: 'Alpha', exact: true })
+      .click()
+    await expect(page.getByRole('radiogroup')).toHaveCount(0)
+    await expect.poll(async () => (await values())[single.id]).toEqual([alpha.id])
+    await row.getByRole('button', { name: /^Project:/ }).click()
+    await page.getByRole('radio', { name: 'Beta', exact: true }).click()
+    await expect.poll(async () => (await values())[single.id]).toEqual([beta.id])
+    await row.getByRole('button', { name: /^Project:/ }).click()
+    await page.getByRole('button', { name: '清除', exact: true }).click()
+    await expect.poll(async () => (await values())[single.id]).toBeUndefined()
+    await expect(row.getByRole('button', { name: /^Project:/ })).toContainText('选择')
+    await row.getByRole('button', { name: /^Projects:/ }).click()
+    await page.getByRole('checkbox', { name: 'Alpha', exact: true }).check()
+    await expect(page.getByRole('checkbox', { name: 'Beta', exact: true })).toBeVisible()
+    await expect.poll(async () => (await values())[multiple.id]).toEqual([alpha.id])
+    await page.getByRole('checkbox', { name: 'Beta', exact: true }).check()
+    await expect.poll(async () => (await values())[multiple.id]).toEqual([alpha.id, beta.id])
+    await page.getByRole('button', { name: '完成', exact: true }).click()
+    await expect(page.getByRole('checkbox', { name: 'Alpha', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: '筛选与排序', exact: true }).click()
+    await page.getByRole('button', { name: '添加筛选条件', exact: true }).click()
+    await choose(page, '筛选字段', 'Projects')
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /^Projects:/ })
+      .click()
+    await page
+      .getByRole('radiogroup', { name: 'Projects', exact: true })
+      .getByRole('radio', { name: 'Beta', exact: true })
+      .click()
+    await expect(page.getByRole('radiogroup')).toHaveCount(0)
+    await page.getByRole('button', { name: '应用', exact: true }).click()
+    await page.getByRole('button', { name: '为所有人保存视图', exact: true }).click()
+    await expect
+      .poll(async () => (await request<TableSchema>(page, `/tables/${saved.tableID}`)).views[0]!.config.filter)
+      .toMatchObject({
+        conditions: [{ field_id: multiple.id, operator: 'contains', value: beta.id }]
+      })
+  } finally {
+    if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
+    await context.close()
+  }
+})
+
+for (const type of ['kanban', 'gallery'] as const) {
+  test(`${type} cards show the fields selected for the view without a four-field cutoff`, async ({ browser }) => {
+    const context = await browser.newContext()
+    await context.addCookies(state.owner.cookies)
+    const page = await context.newPage()
+    let pageID: string | undefined
+    try {
+      const saved = await base(page, 'Card field choices')
+      pageID = saved.pageID
+      const fields: BaseField[] = []
+      for (let index = 1; index <= 6; index++) {
+        fields.push(
+          (
+            await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+              name: `Detail ${index}`,
+              type: 'text'
+            })
+          ).field
+        )
+      }
+      const stage = (
+        await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+          name: 'Stage',
+          type: 'select',
+          config: { options: [{ id: 'open', name: 'Open' }] }
+        })
+      ).field
+      await request(page, `/tables/${saved.tableID}/records`, 'POST', {
+        creates: [
+          {
+            data: {
+              [saved.primary.id]: 'Visible record',
+              [stage.id]: 'open',
+              ...Object.fromEntries(fields.map((field, index) => [field.id, `Value ${index + 1}`]))
+            }
+          }
+        ]
+      })
+      await request(page, `/tables/${saved.tableID}/views`, 'POST', {
+        name: 'Chosen cards',
+        type,
+        config: { group_field_id: stage.id, visible_fields: [fields[5]!.id] }
+      })
+      await page.goto(location(pageID))
+      await page.getByRole('button', { name: 'Responses', exact: true }).click()
+      await page.getByRole('button', { name: 'Chosen cards', exact: true }).click()
+      const card = page.locator('.pod-base-workspace article')
+      await expect(card).toHaveCount(1)
+      await expect(card).toContainText('Value 6')
+      await expect(card).not.toContainText('Value 1')
+      await page.getByRole('button', { name: '字段', exact: true }).click()
+      await expect(page.getByRole('checkbox', { name: saved.primary.name, exact: true })).toBeChecked()
+      await expect(page.getByRole('checkbox', { name: saved.primary.name, exact: true })).toBeDisabled()
+      await page.getByRole('checkbox', { name: 'Detail 1', exact: true }).check()
+      await page.getByRole('checkbox', { name: 'Detail 6', exact: true }).uncheck()
+      await page.keyboard.press('Escape')
+      await expect(card).toContainText('Value 1')
+      await expect(card).not.toContainText('Value 6')
+      await card.getByRole('button', { name: 'Visible record', exact: true }).click()
+      const details = page.getByRole('dialog', { name: '记录详情', exact: true })
+      await expect(details.getByRole('textbox', { name: 'Detail 6', exact: true })).toHaveValue('Value 6')
+      await details.getByRole('button', { name: '关闭', exact: true }).last().click()
+    } finally {
+      if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
+      await context.close()
+    }
+  })
+}
+
+test('a new board immediately groups by an existing single-choice field', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let pageID: string | undefined
+  try {
+    const saved = await base(page, 'Ready board')
+    pageID = saved.pageID
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+      name: 'Stage',
+      type: 'select',
+      config: { options: [{ id: 'open', name: 'Open' }] }
+    })
+    await request(page, `/tables/${saved.tableID}/records`, 'POST', {
+      creates: [{ data: { [saved.primary.id]: 'Ready item', [field.id]: 'open' } }]
+    })
+    await page.goto(location(pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
+    await page.getByRole('button', { name: '+ 视图', exact: true }).click()
+    await page.getByRole('menuitem', { name: '看板', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: '选择分组字段', exact: true })).toContainText('Stage')
+    await expect(page.getByRole('heading', { name: 'Open 1', exact: true })).toBeVisible()
+    await expect(page.locator('.pod-base-workspace article')).toContainText('Ready item')
+    const schema = await request<TableSchema>(page, `/tables/${saved.tableID}`)
+    expect(schema.views.find(view => view.type === 'kanban')?.config.group_field_id).toBe(field.id)
+  } finally {
+    if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
+    await context.close()
+  }
+})
+
+test('board filtering starts at the first page of its matching records', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let pageID: string | undefined
+  try {
+    const saved = await base(page, 'Board query navigation')
+    pageID = saved.pageID
+    const { field } = await request<{ field: BaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+      name: 'Stage',
+      type: 'select',
+      config: {
+        options: [
+          { id: 'open', name: 'Open' },
+          { id: 'closed', name: 'Closed' }
+        ]
+      }
+    })
+    for (let start = 0; start < 2001; start += 200) {
+      await request(page, `/tables/${saved.tableID}/records`, 'POST', {
+        creates: Array.from({ length: Math.min(200, 2001 - start) }, (_, offset) => {
+          const index = start + offset
+          return {
+            data: {
+              [saved.primary.id]: `${index < 20 ? 'Match' : 'Other'} ${String(index).padStart(4, '0')}`,
+              [field.id]: index < 121 ? 'open' : 'closed'
+            }
+          }
+        })
+      })
+    }
+    const schema = await request<{ mode: string }>(page, `/tables/${saved.tableID}`)
+    expect(schema.mode).toBe('remote')
+    await request(page, `/tables/${saved.tableID}/views`, 'POST', {
+      name: 'Paged board',
+      type: 'kanban',
+      config: { group_field_id: field.id, sort: [{ field_id: saved.primary.id, direction: 'asc' }] }
+    })
+    await page.goto(location(pageID))
+    await page.getByRole('button', { name: 'Responses', exact: true }).click()
+    await page.getByRole('button', { name: 'Paged board', exact: true }).click()
+    const column = page
+      .locator('.pod-base-workspace section')
+      .filter({ has: page.getByRole('heading', { name: /^Open / }) })
+    await expect(column.getByRole('button', { name: '下一页', exact: true })).toBeEnabled()
+    await column.getByRole('button', { name: '下一页', exact: true }).click()
+    await expect(column.getByRole('button', { name: '上一页', exact: true })).toBeEnabled()
+    await expect(column.locator('article')).toHaveCount(21)
+    await page.getByRole('button', { name: /^筛选与排序/ }).click()
+    await page.getByRole('button', { name: '添加筛选条件', exact: true }).click()
+    await choose(page, '筛选条件', '包含文字')
+    await page.getByRole('dialog').getByRole('textbox', { name: saved.primary.name, exact: true }).fill('Match')
+    await page.getByRole('button', { name: '应用', exact: true }).click()
+    await expect(column.locator('article')).toHaveCount(20)
+    await expect(column).toContainText('Match 0000')
+    await expect(column.getByRole('button', { name: '上一页', exact: true })).toHaveCount(0)
+  } finally {
+    if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
     await context.close()
   }
 })

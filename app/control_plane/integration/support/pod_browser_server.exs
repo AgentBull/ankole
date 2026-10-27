@@ -258,13 +258,6 @@ end
     creates: [%{data: %{amount.id => 10, status.id => "new"}}]
   })
 
-{:ok, applet} =
-  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
-    type: "applet",
-    title: "Browser tracker",
-    parent_id: report.id
-  })
-
 {:ok, _} =
   Ankole.Pod.PagesFixtures.set_sharing(owner.uid, report.id, %{
     inherit_permissions: false,
@@ -276,6 +269,13 @@ end
     ]
   })
 
+{:ok, applet} =
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), %{
+    type: "applet",
+    title: "Browser tracker",
+    parent_id: report.id
+  })
+
 cookies = fn principal, surface ->
   session_opts =
     Plug.Session.init(AnkoleWeb.SessionCookies.session_options())
@@ -285,12 +285,13 @@ cookies = fn principal, surface ->
     |> Map.put(:secret_key_base, AnkoleWeb.Endpoint.config(:secret_key_base))
     |> Plug.Session.call(session_opts)
     |> Plug.Conn.fetch_session()
-
-  {:ok, conn, transaction} = WebSession.begin_login(conn, surface, %{})
+    |> WebSession.ensure_browser()
 
   email = Ankole.Principals.get_principal_record!(principal.uid, load: [:email]).email
   browser = WebSession.browser_reference(conn)
-  {:ok, sent} = Ankole.Authn.Domain.request_otp(browser, transaction.id, email, "fixture-seed")
+
+  {:ok, sent} =
+    Ankole.Authn.Domain.request_otp(browser, email, "fixture-seed", login_purpose: surface)
 
   code =
     receive do
@@ -302,7 +303,6 @@ cookies = fn principal, surface ->
   {:ok, completed} =
     Ankole.Authn.Domain.verify_otp(
       browser,
-      transaction.id,
       sent.challenge_id,
       code,
       "fixture-seed"
@@ -437,7 +437,7 @@ inventory_name = Enum.find(Bases.fields(inventory.id), & &1.is_primary)
   })
 
 {:ok, backend_applet} =
-  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), %{
     type: "applet",
     title: "Sample reservations",
     parent_id: backend_report.id
@@ -466,9 +466,6 @@ backend_manifests =
 
 backend_files =
   Map.new(backend_manifests, fn {version, entries} ->
-    # The browser owner publishes v2; its new digests must belong to that caller.
-    publisher_uid = if version == "v2", do: owner.uid, else: agent.uid
-
     files =
       Enum.map(entries, fn entry ->
         {:ok, stored} = Ankole.Files.store({:file, entry["local_path"]})
@@ -477,7 +474,7 @@ backend_files =
 
     {:ok, _} =
       Ankole.Files.commit(
-        publisher_uid,
+        agent.uid,
         Enum.map(
           files,
           &Map.merge(&1, %{path: "_pod/backend/#{version}/" <> &1.path, source: "agent"})
@@ -680,7 +677,62 @@ recovery_input = Repo.get_by!(Ankole.Signals.Signal, message_id: recovery_messag
     end
   end)
 
+defmodule Ankole.PodBrowserAgentActions do
+  @moduledoc false
+  import Plug.Conn
+
+  def init(opts), do: opts
+
+  # Browser stories drive an Agent's real publication owner to prepare revisions.
+  # This listener exists only in the dedicated integration fixture process.
+  def call(conn, opts) do
+    conn = Plug.Parsers.call(conn, Plug.Parsers.init(parsers: [:json], json_decoder: Torque))
+
+    result =
+      Ankole.Repo.with_tenant(opts[:tenant_id], fn ->
+        actor = Ankole.PrincipalsFixtures.actor_fixture(opts[:agent_uid])
+
+        case {conn.method, conn.path_info} do
+          {"POST", ["create"]} ->
+            Ankole.Pod.Pages.create(actor, Map.put(conn.body_params, "type", "applet"))
+
+          {"POST", ["publish"]} ->
+            body = conn.body_params
+            Ankole.Pod.Files.publish(actor, body["page_id"], body["base_revision"], body["files"])
+
+          _ ->
+            {:error, :not_found}
+        end
+      end)
+
+    case result do
+      {:ok, result} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Torque.encode!(Ankole.Pod.Serialization.json_value(result)))
+
+      {:error, reason} ->
+        error = Ankole.Pod.Serialization.error(reason)
+
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(Ankole.Pod.Serialization.status(error.code), Torque.encode!(%{error: error}))
+    end
+  end
+end
+
+{:ok, agent_actions} =
+  Bandit.start_link(
+    plug: {Ankole.PodBrowserAgentActions, tenant_id: tenant.id, agent_uid: agent.uid},
+    scheme: :http,
+    ip: {127, 0, 0, 1},
+    port: 0
+  )
+
+{:ok, {_ip, agent_actions_port}} = ThousandIsland.listener_info(agent_actions)
+
 state = %{
+  agent_actions_url: "http://127.0.0.1:#{agent_actions_port}",
   base_url: origin,
   mailbox_path: mailbox_path,
   console_url: console_origin <> AnkoleWeb.SiteAdminConsole.path(),

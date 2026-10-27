@@ -1,15 +1,21 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { podLocation } from '../common/browser-context'
 import { conversationEventsURL, podKeys, type ConversationDetail, type PodActivity } from './api'
 import type { ChatModel } from './state/chat'
 import { hasUnsentChatWork } from './state/chat-drafts'
 import { refreshConversationQueries } from './query-cache'
 
-export function useConversationEvents(id: string | undefined, model: InstanceType<typeof ChatModel>) {
+export function useConversationEvents(
+  id: string | undefined,
+  model: InstanceType<typeof ChatModel>,
+  onExitConversation?: () => void
+) {
   const client = useQueryClient(),
     navigate = useNavigate()
+  const exitRef = useRef(onExitConversation)
+  exitRef.current = onExitConversation
   useEffect(() => {
     if (!id) return
     const events = new EventSource(conversationEventsURL(id))
@@ -74,7 +80,10 @@ export function useConversationEvents(id: string | undefined, model: InstanceTyp
         .cancelQueries({ queryKey: podKeys.detail(id) })
         .then(() => client.removeQueries({ queryKey: podKeys.detail(id) }))
       void client.invalidateQueries({ queryKey: podKeys.conversations })
-      if (!hasUnsentChatWork(model)) void navigate({ to: podLocation('/').pathname })
+      if (!hasUnsentChatWork(model)) {
+        if (exitRef.current) exitRef.current()
+        else void navigate({ to: podLocation('/').pathname })
+      }
     })
     return () => events.close()
   }, [client, id, model, navigate])

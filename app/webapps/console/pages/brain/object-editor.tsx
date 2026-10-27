@@ -25,6 +25,7 @@ import type { BrainObjectPage } from '../../state/brain-object-editor-model'
 import { requestErrorCode, requestErrorDetails } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
+import { JSONObjectField } from '../../json-object-field'
 import { BackLink, PageStack } from '../../console-page'
 import { MarkdownBody } from '../../../common/markdown-body'
 import {
@@ -172,29 +173,51 @@ function BrainObjectEditor({ slug }: { slug: string }) {
     : t('console.brain.object_editor_description')
   const fields = (
     <>
+      <LabeledField
+        label={t('console.brain.object_title')}
+        required
+        error={model.validationError.value === 'title_required' ? draftErrorText('title_required', t) : undefined}
+        invalidError={draftErrorText('title_required', t)}>
+        <Input
+          disabled={pending}
+          pattern=".*\S.*"
+          value={model.title.value}
+          onChange={event => model.setTitle(event.target.value, mode === 'new')}
+        />
+      </LabeledField>
+
       <div className="grid gap-5 sm:grid-cols-2">
         <LabeledField
           label={t('console.brain.slug')}
           description={mode === 'new' ? t('console.brain.slug_hint') : undefined}
-          required={mode === 'new'}>
+          required={mode === 'new'}
+          error={model.validationError.value === 'slug_required' ? draftErrorText('slug_required', t) : undefined}
+          invalidError={draftErrorText('slug_required', t)}>
           {mode === 'new' ? (
             <Input
               className="font-mono text-xs"
               disabled={pending}
+              pattern=".*\S.*"
               spellCheck={false}
               value={model.slug.value}
-              onChange={event => (model.slug.value = event.target.value)}
+              onChange={event => model.setSlug(event.target.value)}
             />
           ) : (
             <ReadOnlyValue mono>{model.slug.value}</ReadOnlyValue>
           )}
         </LabeledField>
-        <LabeledField label={t('console.brain.type')} required={mode === 'new'}>
+        <LabeledField
+          label={t('console.brain.type')}
+          required={mode === 'new'}
+          error={model.validationError.value === 'type_required' ? draftErrorText('type_required', t) : undefined}>
           {mode === 'new' ? (
             <Select
               disabled={pending}
               value={model.type.value || null}
-              onValueChange={value => (model.type.value = String(value))}>
+              onValueChange={value => {
+                model.type.value = String(value)
+                if (model.validationError.value === 'type_required') model.validationError.value = undefined
+              }}>
               <SelectTrigger className="w-full font-mono text-xs">
                 <SelectValue placeholder={t('console.brain.type_placeholder')} />
               </SelectTrigger>
@@ -228,14 +251,6 @@ function BrainObjectEditor({ slug }: { slug: string }) {
           />
         </LabeledField>
       </div>
-
-      <LabeledField label={t('console.brain.object_title')} required>
-        <Input
-          disabled={pending}
-          value={model.title.value}
-          onChange={event => (model.title.value = event.target.value)}
-        />
-      </LabeledField>
 
       <LabeledField label={t('console.brain.tags')} description={t('console.brain.tags_hint')}>
         <div className="grid gap-2">
@@ -272,18 +287,22 @@ function BrainObjectEditor({ slug }: { slug: string }) {
         </div>
       </LabeledField>
 
-      <LabeledField
-        label={t('console.brain.meta')}
-        description={t('console.brain.meta_hint')}
-        error={model.validationError.value === 'meta_invalid' ? draftErrorText('meta_invalid', t) : undefined}>
-        <Textarea
-          className="min-h-28 resize-y font-mono text-xs leading-5"
-          disabled={pending}
-          spellCheck={false}
+      {readOnly ? (
+        <LabeledField label={t('console.brain.meta')} description={t('console.brain.meta_hint')}>
+          <ReadOnlyValue mono>{model.metaText.value}</ReadOnlyValue>
+        </LabeledField>
+      ) : (
+        <JSONObjectField
+          error={model.validationError.value === 'meta_invalid' ? draftErrorText('meta_invalid', t) : undefined}
+          label={t('console.brain.meta')}
+          name="meta"
           value={model.metaText.value}
-          onChange={event => (model.metaText.value = event.target.value)}
+          onChange={value => {
+            model.metaText.value = value
+            if (model.validationError.value === 'meta_invalid') model.validationError.value = undefined
+          }}
         />
-      </LabeledField>
+      )}
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-2">
         <LabeledField label={t('console.brain.body_source')} description={t('console.brain.body_source_hint')}>

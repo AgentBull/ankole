@@ -181,7 +181,7 @@ defmodule Ankole.Pod.Bases.Links do
       {own, _} = roles(field)
 
       BaseRepo.query!(
-        "ALTER TABLE #{BaseRepo.edge(field.config["edge_table"])} DROP CONSTRAINT IF EXISTS #{own}_single",
+        "ALTER TABLE #{BaseRepo.edge(field.config["edge_table"])} DROP CONSTRAINT IF EXISTS #{single_constraint(field)}, DROP CONSTRAINT IF EXISTS #{own}_single",
         []
       )
     end
@@ -203,7 +203,7 @@ defmodule Ankole.Pod.Bases.Links do
           if limit == 1,
             do:
               BaseRepo.query!(
-                "ALTER TABLE #{BaseRepo.edge(field.config["edge_table"])} ADD CONSTRAINT #{own}_single UNIQUE(#{own}_id)",
+                "ALTER TABLE #{BaseRepo.edge(field.config["edge_table"])} ADD CONSTRAINT #{single_constraint(field)} UNIQUE(#{own}_id)",
                 []
               )
 
@@ -216,4 +216,6 @@ defmodule Ankole.Pod.Bases.Links do
       end
     end)
   end
+
+  defp single_constraint(field), do: "single_#{BaseRepo.hex(field.id)}"
 end

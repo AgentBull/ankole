@@ -4,84 +4,205 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
   alias Ankole.Authn.{Challenge, Config, Mailer, RateLimiter, SecretDigest}
   alias Ankole.{BrowserSessions, Repo}
 
-  def request(browser, flow, target, source, opts \\ []) do
+  def request(browser, target, source, opts \\ []) do
     with {:ok, target} <- email(target),
          {:ok, reserved} <-
-           Repo.transact_top_level(fn -> reserve(browser, flow, target, source, opts) end),
-         :ok <- Keyword.get(opts, :sender, Mailer).send(:email, target, reserved.code, opts),
+           Repo.transact_top_level(fn -> reserve(browser, target, source, opts) end),
+         :ok <- deliver(target, reserved, opts),
          {:ok, challenge} <- activate(reserved) do
       {:ok, %{challenge_id: challenge.id, expires_at: challenge.expires_at}}
     end
   end
 
-  defp reserve(browser, flow, target, source, opts) do
+  defp reserve(browser, target, source, opts) do
     with {:ok, session} <- BrowserSessions.lock_browser_in_tx(browser),
-         {:ok, transaction} <- login_transaction(browser, flow),
-         :ok <- allow_transaction(transaction, opts),
+         {:ok, context} <- challenge_context(browser, opts),
+         :ok <- site_resend_cooldown(context, target),
          :ok <- RateLimiter.take(limits("send", target, source)) do
       id = Ash.UUIDv7.generate()
       code = SecretDigest.code()
       digest = SecretDigest.digest(id, code)
-      purpose = Keyword.get(opts, :purpose, "login")
       now = DateTime.utc_now()
 
-      with {:ok, _} <- invalidate_previous(session.id, flow, purpose),
-           {:ok, challenge} <-
+      with {:ok, challenge} <-
              Ankole.Ash.create(Challenge, :reserve_in_tx, %{
                id: id,
                strategy: "email_otp",
-               purpose: purpose,
-               login_transaction_id: flow,
+               purpose: context.purpose,
                browser_session_id: session.id,
-               tenant_id:
-                 if(transaction, do: transaction.tenant_id, else: Keyword.get(opts, :tenant_id)),
-               principal_uid: Keyword.get(opts, :principal_uid),
+               tenant_id: context.tenant_id,
+               principal_uid: context.principal_uid,
                target: target,
                secret_digest: digest,
                challenge_started_at: now,
-               ceremony_context: Keyword.get(opts, :ceremony_context, %{})
+               ceremony_context: context.ceremony_context
              }) do
         {:ok, %{challenge: challenge, code: code, digest: digest}}
       end
     end
   end
 
-  defp login_transaction(_browser, nil), do: {:ok, nil}
-
-  defp login_transaction(browser, flow) do
-    with {:ok, transaction} <- BrowserSessions.login(browser, flow),
-         {:ok, _} <- BrowserSessions.bind_provider_in_tx(browser, flow, "email_otp"),
-         do: {:ok, transaction}
-  end
-
-  defp allow_transaction(transaction, opts) do
-    cond do
-      Keyword.get(opts, :purpose) == "setup" ->
+  defp deliver(target, reserved, opts) do
+    case Keyword.get(opts, :sender, Mailer).send(:email, target, reserved.code, opts) do
+      :ok ->
         :ok
 
-      is_nil(transaction) ->
-        if Keyword.get(opts, :purpose) in ["bind_credential", "step_up"],
-          do: :ok,
-          else: {:error, :login_expired}
-
-      transaction.purpose == :site ->
-        :ok
-
-      true ->
-        Repo.with_tenant(transaction.tenant_id, fn ->
-          Ankole.OIDC.LoginPolicy.authorize_login(transaction, "email_otp")
-        end)
+      {:error, _} = error ->
+        # A delivery failure must not make the recipient wait for a code that was never sent.
+        _ = Ankole.Ash.destroy(reserved.challenge, :expire_in_tx)
+        error
     end
   end
 
-  defp invalidate_previous(browser_id, flow, purpose) do
+  defp site_resend_cooldown(%{purpose: "login", login_purpose: :site}, target) do
+    seconds = Application.get_env(:ankole, :site_otp_resend_cooldown_seconds, 0)
+
+    if seconds > 0 do
+      Ankole.AdvisoryLock.lock!(Repo, "site-email-otp:" <> target)
+      now = DateTime.utc_now()
+      cutoff = DateTime.add(now, -seconds)
+
+      latest =
+        Challenge
+        |> Ash.Query.filter(
+          target == ^target and purpose == "login" and is_nil(tenant_id) and
+            challenge_started_at > ^cutoff
+        )
+        |> Ash.Query.sort(challenge_started_at: :desc)
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read_one!()
+
+      if latest do
+        elapsed = DateTime.diff(now, latest.challenge_started_at, :microsecond)
+        {:error, {:rate_limited, max(1, div(seconds * 1_000_000 - elapsed + 999_999, 1_000_000))}}
+      else
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp site_resend_cooldown(_, _), do: :ok
+
+  defp challenge_context(browser, opts) do
+    case Keyword.get(opts, :purpose, "login") do
+      purpose when purpose in ["setup", "bind_credential", "step_up"] ->
+        {:ok,
+         %{
+           purpose: purpose,
+           login_purpose: nil,
+           tenant_id: Keyword.get(opts, :tenant_id),
+           principal_uid: Keyword.get(opts, :principal_uid),
+           ceremony_context: Keyword.get(opts, :ceremony_context, %{})
+         }}
+
+      purpose when purpose in [:site, :pod, :console, :oauth] ->
+        login_challenge_context(browser, Keyword.put_new(opts, :login_purpose, purpose))
+
+      "login" ->
+        login_challenge_context(browser, opts)
+
+      _ ->
+        {:error, :login_expired}
+    end
+  end
+
+  defp login_challenge_context(browser, opts) do
+    login_purpose = Keyword.get_lazy(opts, :login_purpose, fn -> default_login_purpose(opts) end)
+
+    with {:ok, tenant_id, defaults} <- authorize_login_purpose(browser, login_purpose, opts) do
+      merged = Keyword.merge(defaults, opts)
+      mode = Keyword.get(merged, :mode) || default_mode(login_purpose)
+
+      ceremony_context =
+        %{
+          "login_purpose" => Atom.to_string(login_purpose),
+          "mode" => Atom.to_string(mode),
+          "started_revision" => Keyword.get(merged, :started_revision),
+          "return_to" => Keyword.get(merged, :return_to) || "/",
+          "oauth_request_id" => Keyword.get(merged, :oauth_request_id),
+          "invitation_id" => Keyword.get(merged, :invitation_id),
+          "expected_authentication_id" => Keyword.get(merged, :expected_authentication_id),
+          "reauthentication_principal_uid" => Keyword.get(merged, :reauthentication_principal_uid)
+        }
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.merge(Keyword.get(opts, :ceremony_context, %{}))
+
+      {:ok,
+       %{
+         purpose: "login",
+         login_purpose: login_purpose,
+         tenant_id: tenant_id,
+         principal_uid: Keyword.get(opts, :principal_uid),
+         ceremony_context: ceremony_context
+       }}
+    end
+  end
+
+  defp default_login_purpose(opts) do
+    cond do
+      Keyword.has_key?(opts, :oauth_request_id) and not is_nil(opts[:oauth_request_id]) -> :oauth
+      is_binary(Keyword.get(opts, :tenant_id)) -> :pod
+      true -> :site
+    end
+  end
+
+  defp default_mode(:pod), do: :add
+  defp default_mode(:site), do: :add
+  defp default_mode(_), do: :replace
+
+  defp authorize_login_purpose(_browser, :site, _opts), do: {:ok, nil, []}
+
+  defp authorize_login_purpose(_browser, purpose, opts) when purpose in [:pod, :console] do
+    tenant_id = Keyword.get_lazy(opts, :tenant_id, &Repo.tenant_id!/0)
+
+    with :ok <-
+           Repo.with_tenant(tenant_id, fn ->
+             Ankole.OIDC.LoginPolicy.authorize_login(purpose, "email_otp")
+           end),
+         do: {:ok, tenant_id, []}
+  end
+
+  defp authorize_login_purpose(browser, :oauth, opts) do
+    with {:ok, %{status: :pending} = request} <-
+           Ankole.OIDC.AuthorizationRequests.get(browser, Keyword.get(opts, :oauth_request_id)),
+         :ok <-
+           Repo.with_tenant(request.tenant_id, fn ->
+             Ankole.OIDC.LoginPolicy.authorize_login(request, "email_otp")
+           end) do
+      {:ok, request.tenant_id,
+       [
+         started_revision: request.started_revision,
+         expected_authentication_id: request.expected_authentication_id
+       ]}
+    else
+      {:ok, _} -> {:error, :login_expired}
+      error -> error
+    end
+  end
+
+  defp authorize_login_purpose(_browser, _purpose, _opts), do: {:error, :login_expired}
+
+  defp invalidate_previous(challenge) do
+    browser_id = challenge.browser_session_id
+    purpose = challenge.purpose
+    current_id = challenge.id
+    tenant_id = challenge.tenant_id
+    target = challenge.target
+
     query =
       Challenge
       |> Ash.Query.filter(
-        browser_session_id == ^browser_id and purpose == ^purpose and is_nil(verified_at)
+        browser_session_id == ^browser_id and purpose == ^purpose and target == ^target and
+          is_nil(verified_at) and id != ^current_id
       )
 
-    query = if flow, do: Ash.Query.filter(query, login_transaction_id == ^flow), else: query
+    query =
+      if is_nil(tenant_id),
+        do: Ash.Query.filter(query, is_nil(tenant_id)),
+        else: Ash.Query.filter(query, tenant_id == ^tenant_id)
+
     Ankole.Ash.update_where(query, :invalidate_in_tx, %{})
   end
 
@@ -89,41 +210,111 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
     {:ok, ttl} = Config.get("code_ttl_seconds")
     expiry = DateTime.add(challenge.challenge_started_at, ttl)
 
-    Challenge
-    |> Ash.Query.filter(id == ^challenge.id)
-    |> Ankole.Ash.update_atomic(:activate_in_tx, %{expected_digest: digest, expires_at: expiry})
-  end
-
-  def verify(browser, flow, id, code, source) do
-    verify_with(browser, flow, id, code, source, fn challenge ->
-      with {:ok, transaction} <- BrowserSessions.login(browser, flow),
-           :ok <- accept_invitation(transaction, challenge) do
-        BrowserSessions.complete_site_login_in_tx(browser, flow, "email_otp", %{
-          challenge_id: challenge.id,
-          browser_id: browser["id"],
-          flow: flow
-        })
+    Repo.transact_top_level(fn ->
+      with {:ok, _} <- BrowserSessions.lock_browser_in_tx(%{"id" => challenge.browser_session_id}),
+           {:ok, _} <- invalidate_previous(challenge),
+           {:ok, activated} <-
+             Challenge
+             |> Ash.Query.filter(id == ^challenge.id)
+             |> Ankole.Ash.update_atomic(:activate_in_tx, %{
+               expected_digest: digest,
+               expires_at: expiry
+             }) do
+        {:ok, activated}
       end
     end)
   end
 
-  defp accept_invitation(%{request: %{"invitation_id" => id}} = transaction, challenge) do
-    Repo.with_tenant(transaction.tenant_id, fn ->
-      case Ankole.Principals.accept_site_invitation_in_tx(id, proof(challenge)) do
-        {:ok, _} -> :ok
-        error -> error
-      end
-    end)
+  def verify(browser, id, code, source, opts \\ []) do
+    verify_with(
+      browser,
+      id,
+      code,
+      source,
+      fn challenge -> complete_login_challenge(browser, challenge) end,
+      opts
+    )
   end
 
-  defp accept_invitation(_transaction, _challenge), do: :ok
+  defp complete_login_challenge(browser, %{purpose: "login"} = challenge) do
+    context = challenge.ceremony_context
 
-  def verify_with(browser, flow, id, code, source, complete) do
+    with {:ok, login_purpose} <- parse_login_purpose(context["login_purpose"]),
+         {:ok, mode} <- parse_mode(context["mode"], login_purpose) do
+      started_revision =
+        if context["oauth_request_id"] || context["expected_authentication_id"],
+          do: context["started_revision"]
+
+      login_opts =
+        [
+          mode: mode,
+          started_revision: started_revision,
+          oauth_request_id: context["oauth_request_id"],
+          expected_authentication_id: context["expected_authentication_id"],
+          reauthentication_principal_uid: context["reauthentication_principal_uid"]
+        ]
+        |> Keyword.reject(fn {_key, value} -> is_nil(value) end)
+
+      with_challenge_tenant(challenge.tenant_id, fn ->
+        with :ok <- accept_invitation(challenge),
+             {:ok, completed} <-
+               BrowserSessions.authenticate_site_in_tx(
+                 browser,
+                 login_purpose,
+                 "email_otp",
+                 %{challenge_id: challenge.id, browser_id: browser["id"]},
+                 login_opts
+               ) do
+          {:ok,
+           Map.merge(completed, %{
+             purpose: login_purpose,
+             tenant_id: challenge.tenant_id,
+             ceremony_context: challenge.ceremony_context
+           })}
+        end
+      end)
+    end
+  end
+
+  defp complete_login_challenge(_browser, _challenge), do: {:error, :invalid_code}
+
+  defp parse_login_purpose("site"), do: {:ok, :site}
+  defp parse_login_purpose("pod"), do: {:ok, :pod}
+  defp parse_login_purpose("console"), do: {:ok, :console}
+  defp parse_login_purpose("oauth"), do: {:ok, :oauth}
+  defp parse_login_purpose(_), do: {:error, :invalid_code}
+
+  defp parse_mode("add", _purpose), do: {:ok, :add}
+  defp parse_mode("replace", _purpose), do: {:ok, :replace}
+  defp parse_mode(nil, purpose), do: {:ok, default_mode(purpose)}
+  defp parse_mode(_, _), do: {:error, :invalid_code}
+
+  defp with_challenge_tenant(nil, fun), do: Repo.without_tenant(fun)
+  defp with_challenge_tenant(tenant_id, fun), do: Repo.with_tenant(tenant_id, fun)
+
+  defp accept_invitation(
+         %{
+           tenant_id: tenant_id,
+           ceremony_context: %{"invitation_id" => id}
+         } = challenge
+       )
+       when is_binary(tenant_id) and is_binary(id) do
+    case Ankole.Principals.accept_site_invitation_in_tx(id, proof(challenge)) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  defp accept_invitation(_challenge), do: :ok
+
+  def verify_with(browser, id, code, source, complete, opts \\ []) do
+    host_tenant_id = Keyword.get(opts, :host_tenant_id)
+
     with {:ok, id} <- Ecto.UUID.cast(id),
          {:ok, _} <- BrowserSessions.get(browser) do
       Repo.transact_top_level(fn ->
         with {:ok, _} <- BrowserSessions.lock_browser_in_tx(browser) do
-          case lock_challenge(id, browser["id"], flow) do
+          case lock_challenge(id, browser["id"], host_tenant_id) do
             nil -> {:ok, {:error, :invalid_code}}
             challenge -> verify_locked(challenge, code, source)
           end
@@ -147,13 +338,13 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
     end
   end
 
-  defp lock_challenge(id, browser_id, flow) do
+  defp lock_challenge(id, browser_id, host_tenant_id) do
     query = Challenge |> Ash.Query.filter(id == ^id and browser_session_id == ^browser_id)
 
     query =
-      if flow,
-        do: Ash.Query.filter(query, login_transaction_id == ^flow),
-        else: Ash.Query.filter(query, is_nil(login_transaction_id))
+      if is_binary(host_tenant_id),
+        do: Ash.Query.filter(query, tenant_id == ^host_tenant_id),
+        else: query
 
     query |> Ash.Query.lock(:for_update) |> Ankole.Ash.read_one!()
   end
@@ -200,11 +391,11 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
       not is_nil(challenge.expires_at) and DateTime.compare(challenge.expires_at, now) == :gt
   end
 
-  def verified_proof(%{challenge_id: id, browser_id: browser_id, flow: flow}) do
+  def verified_proof(%{challenge_id: id, browser_id: browser_id}) do
     case Challenge
          |> Ash.Query.filter(
            id == ^id and browser_session_id == ^browser_id and
-             login_transaction_id == ^flow and strategy == "email_otp" and not is_nil(verified_at)
+             strategy == "email_otp" and not is_nil(verified_at)
          )
          |> Ankole.Ash.read_one!() do
       %Challenge{} = challenge -> {:ok, proof(challenge)}

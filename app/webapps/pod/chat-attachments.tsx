@@ -1,7 +1,7 @@
 import { Button } from '@ankole/uikit'
 import { RiAttachment2, RiCloseLine, RiRefreshLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useRef, type ClipboardEventHandler, type DragEventHandler } from 'react'
+import { useRef, type ClipboardEventHandler, type DragEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationAttachment } from './api'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -105,7 +105,8 @@ export function ChatAttachmentDrafts({
 
 export function chatAttachmentHandlers(
   model: ChatAttachments,
-  disabled = false
+  disabled = false,
+  onBlocked?: () => void
 ): {
   onDragOver: DragEventHandler
   onDrop: DragEventHandler
@@ -118,12 +119,19 @@ export function chatAttachmentHandlers(
     onDrop(event) {
       if (!event.dataTransfer.files.length) return
       event.preventDefault()
-      if (disabled) return
+      if (disabled) {
+        onBlocked?.()
+        return
+      }
       model.add(event.dataTransfer.files)
     },
     onPaste(event) {
-      if (disabled || !event.clipboardData.files.length) return
+      if (!event.clipboardData.files.length) return
       event.preventDefault()
+      if (disabled) {
+        onBlocked?.()
+        return
+      }
       model.add(event.clipboardData.files)
     }
   }
@@ -132,11 +140,13 @@ export function chatAttachmentHandlers(
 export function MessageAttachments({
   conversationID,
   messageID,
-  attachments
+  attachments,
+  renderAction
 }: {
   conversationID: string
   messageID: string
   attachments: ConversationAttachment[]
+  renderAction?: (attachment: ConversationAttachment) => ReactNode
 }) {
   const { t } = useTranslation()
   if (!attachments.length) return null
@@ -163,6 +173,7 @@ export function MessageAttachments({
               aria-label={t('pod.chat_attachments.download', { name: attachment.name })}>
               {attachment.name}
             </a>
+            {renderAction?.(attachment)}
           </li>
         )
       })}

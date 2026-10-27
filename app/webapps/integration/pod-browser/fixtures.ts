@@ -5,6 +5,7 @@ export type Login = { uid: string; email: string }
 type Identity = Login & { cookies: Parameters<BrowserContext['addCookies']>[0] }
 
 type State = {
+  agent_actions_url: string
   base_url: string
   mailbox_path: string
   console_url: string
@@ -50,6 +51,23 @@ type State = {
 const statePath = process.env.POD_BROWSER_STATE_PATH
 if (!statePath) throw new Error('Start the dedicated real Pod browser fixture and set POD_BROWSER_STATE_PATH')
 export const state = JSON.parse(readFileSync(statePath, 'utf8')) as State
+
+async function agentAction<T>(action: 'create' | 'publish', body: unknown): Promise<T> {
+  const response = await fetch(`${state.agent_actions_url}/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  const result = await response.json()
+  if (!response.ok) throw new Error(`Agent fixture ${action} failed: ${response.status} ${JSON.stringify(result)}`)
+  return result as T
+}
+
+export const createApplet = (attributes: { parent_id: string; title: string }) =>
+  agentAction<{ id: string; revision: number }>('create', attributes)
+
+export const publishApplet = (page_id: string, base_revision: number, files: unknown[]) =>
+  agentAction<{ revision: number; routes: string[] }>('publish', { page_id, base_revision, files })
 
 export async function selectChatAgent(page: Page, scope: Page | Locator = page) {
   const { agents } = await request<{ agents: { uid: string; displayName: string }[] }>(page, '/agents')

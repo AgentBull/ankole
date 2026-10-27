@@ -72,6 +72,9 @@ import type {
   CreateIdentityMappingData,
   CreateIdentityMappingErrors,
   CreateIdentityMappingResponses,
+  CreateIdentityProviderData,
+  CreateIdentityProviderErrors,
+  CreateIdentityProviderResponses,
   CreateMemberData,
   CreateMemberErrors,
   CreateMemberResponses,
@@ -642,6 +645,22 @@ export const createPermissionGrant = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<CreatePermissionGrantResponses, CreatePermissionGrantErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/permission-grants',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * create_identity_provider operation on identity_provider_operation resource
+ */
+export const createIdentityProvider = <ThrowOnError extends boolean = false>(
+  options: Options<CreateIdentityProviderData, ThrowOnError>
+): RequestResult<CreateIdentityProviderResponses, CreateIdentityProviderErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateIdentityProviderResponses, CreateIdentityProviderErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers/{provider_id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

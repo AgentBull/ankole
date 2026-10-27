@@ -9,7 +9,6 @@ export function renderCodexJobAgents(input: {
   jobRoot: string
   soul: string
   mission: string
-  jobGuidance?: string
   skillsPrompt?: string
   driveDirectory?: string
   podInstructions?: string
@@ -22,7 +21,6 @@ export function renderCodexJobAgents(input: {
       jobRoot: input.jobRoot,
       soul: input.soul,
       mission: input.mission,
-      jobGuidance: input.jobGuidance,
       skillsPrompt: input.skillsPrompt,
       driveDirectory: input.driveDirectory,
       podInstructions: input.podInstructions,
@@ -31,14 +29,6 @@ export function renderCodexJobAgents(input: {
       now: input.now ?? new Date()
     })
   }
-}
-
-/** Reads the shared Job guidance template shipped with the app library. */
-export function readCodexJobGuidance(builtinSkillsRoot: string): string | undefined {
-  const path = join(builtinSkillsRoot, 'templates', 'AGENT_JOB.md')
-  if (!existsSync(path)) return undefined
-  const content = readFileSync(path, 'utf8').trim()
-  return content || undefined
 }
 
 /**
@@ -98,7 +88,6 @@ function renderTaskAgents(input: {
   jobRoot: string
   soul: string
   mission: string
-  jobGuidance?: string
   skillsPrompt?: string
   driveDirectory?: string
   podInstructions?: string
@@ -135,7 +124,6 @@ function renderTaskAgents(input: {
     section('Background', input.background),
     section('Notes', input.notes),
     section('Execution Context', executionContext),
-    section('Job Guidance', input.jobGuidance),
     input.skillsPrompt?.trim()
   ]
     .filter(Boolean)

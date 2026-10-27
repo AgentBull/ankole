@@ -4,6 +4,7 @@ import {
   RiBold,
   RiCloseLine,
   RiCodeLine,
+  RiExternalLinkLine,
   RiItalic,
   RiLink,
   RiMarkPenLine,
@@ -19,6 +20,7 @@ import browser from '../core/editor/browser'
 import { GardSelection, type GardState } from '../core/state'
 import * as T from '../core/types'
 import { toggleFormat, type FormatName } from '../editor/commands'
+import { openLinkHref } from '../editor/host'
 import { linkAt, removeLink, setLink, type LinkInfo } from '../editor/links'
 import { formats } from '../editor/schema'
 import { editorPhrases } from '../editor/phrases'
@@ -106,7 +108,7 @@ function selectionRect(editor: Wordgard, { from, to }: Range) {
 
 const composingKey = (event: KeyboardEvent) => event.isComposing || event.keyCode === 229
 
-type Info = { rect: DOMRect; active: boolean[]; highlight: boolean; link: boolean }
+type Info = { rect: DOMRect; active: boolean[]; highlight: boolean; link: boolean; caretLink: LinkInfo | null }
 /** The open link form, with the link that it edits, if any. */
 type LinkForm = { link: LinkInfo | null }
 
@@ -136,7 +138,16 @@ export function SelectionToolbar() {
     setLinkForm({ link })
     setUrl(link?.href ?? '')
     setError(false)
-    setInfo(info => info ?? { rect: selectionRect(editor, target), active: [], highlight: false, link: !!link })
+    setInfo(
+      info =>
+        info ?? {
+          rect: selectionRect(editor, target),
+          active: [],
+          highlight: false,
+          link: !!link,
+          caretLink: range ? null : link
+        }
+    )
     return true
   }
 
@@ -160,24 +171,37 @@ export function SelectionToolbar() {
         if (form.current && focused) return
         const { state } = editor
         const range = formattable(state)
-        if (!range || !focused || pointer || composing || editor.composing || dismissed.current?.eq(state.selection)) {
+        const caretLink = !range && state.selection.empty && !state.readOnly ? linkAt(state) : null
+        const target = range ?? caretLink
+        if (!target || !focused || pointer || composing || editor.composing || dismissed.current?.eq(state.selection)) {
           setInfo(null)
           setLinkForm(null)
           return
         }
         dismissed.current = null
-        const rect = selectionRect(editor, range)
+        const rect = selectionRect(editor, target)
         const area = visibleArea(editor)
         if ((!rect.width && !rect.height) || rect.bottom < area.top || rect.top > area.bottom) {
           setInfo(null)
           return
         }
-        setInfo({
-          rect,
-          active: buttons.map(({ format }) => hasFormat(state.doc, range.from, range.to, formats[format])),
-          highlight: hasFormat(state.doc, range.from, range.to, formats.mark),
-          link: !!linkAt(state)
-        })
+        if (range) {
+          setInfo({
+            rect,
+            active: buttons.map(({ format }) => hasFormat(state.doc, range.from, range.to, formats[format])),
+            highlight: hasFormat(state.doc, range.from, range.to, formats.mark),
+            link: !!linkAt(state),
+            caretLink: null
+          })
+        } else {
+          setInfo({
+            rect,
+            active: [],
+            highlight: false,
+            link: true,
+            caretLink
+          })
+        }
       })
     }
     refresh.current = update
@@ -204,7 +228,7 @@ export function SelectionToolbar() {
       // ⌘K on Apple platforms, where Ctrl+K deletes to the end of the line; Ctrl+K elsewhere.
       const mod = browser.mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       if (event.key === 'Escape') {
-        if (formattable(editor.state)) {
+        if (formattable(editor.state) || (editor.state.selection.empty && linkAt(editor.state))) {
           dismissed.current = editor.state.selection
           update()
         }
@@ -286,7 +310,7 @@ export function SelectionToolbar() {
       className="selection-toolbar ankole-editor-overlay ceramic"
       style={position}
       role={linkForm ? 'dialog' : 'toolbar'}
-      aria-label={label(linkForm ? 'edit_link' : 'selection_format')}
+      aria-label={label(linkForm ? 'edit_link' : info.caretLink ? 'link' : 'selection_format')}
       onKeyDown={event => {
         if (composingKey(event.nativeEvent)) return
         if (event.key === 'Escape') {
@@ -354,6 +378,40 @@ export function SelectionToolbar() {
             </Button>
           )}
         </form>
+      ) : info.caretLink ? (
+        <div className="link-bar">
+          <span className="link-bar-url" title={info.caretLink.href}>
+            {info.caretLink.href}
+          </span>
+          <span className="toolbar-divider" />
+          <Button
+            variant="ghost"
+            size="xs"
+            title={info.caretLink.href}
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => openLinkHref(editor, info.caretLink!.href)}>
+            <RiExternalLinkLine />
+            {label('open_link')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => void openLink()}>
+            {label('edit_link')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => {
+              Command.dispatch(editor, removeLink)
+              setInfo(null)
+              editor.focus()
+            }}>
+            {label('remove_link')}
+          </Button>
+        </div>
       ) : (
         <>
           {buttons.map(({ format, label, Icon }, index) => (
@@ -374,7 +432,7 @@ export function SelectionToolbar() {
             variant="ghost"
             size="icon-xs"
             aria-label={label('link')}
-            title={`${label('link')} ⌘/Ctrl+K`}
+            title={label('link')}
             aria-pressed={info.link}
             onMouseDown={event => event.preventDefault()}
             onClick={openLink}>

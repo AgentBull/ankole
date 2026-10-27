@@ -166,72 +166,82 @@ function QueuedRow({
           +{input.attachments.length}
         </span>
       )}
-      <div className="pod-chat-queue-actions">
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label={t('pod.chat_room.steer_now')}
-          title={t('pod.chat_room.steer_now')}
-          disabled={disabled || !own}
-          onClick={() =>
-            change({
-              action: 'steer',
-              agentUID: queue.agentUID,
-              messageID: input.messageID,
-              expectedVersion: queue.queueVersion
-            })
-          }>
-          {pending === 'steer' ? (
-            <RiLoader4Line className="animate-spin" aria-hidden />
-          ) : (
-            <RiCornerUpRightLine aria-hidden />
+      {(own || queue.inputs.length > 1) && (
+        <div className="pod-chat-queue-actions">
+          {own && (
+            <>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={t('pod.chat_room.steer_now')}
+                title={t('pod.chat_room.steer_now')}
+                disabled={disabled}
+                onClick={() =>
+                  change({
+                    action: 'steer',
+                    agentUID: queue.agentUID,
+                    messageID: input.messageID,
+                    expectedVersion: queue.queueVersion
+                  })
+                }>
+                {pending === 'steer' ? (
+                  <RiLoader4Line className="animate-spin" aria-hidden />
+                ) : (
+                  <RiCornerUpRightLine aria-hidden />
+                )}
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={t('pod.chat.edit_pending')}
+                title={t('pod.chat.edit_pending')}
+                disabled={disabled || editing}
+                onClick={() => edit(input, queue.agentUID)}>
+                <RiEditLine aria-hidden />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={t('pod.chat_room.take_back')}
+                title={t('pod.chat_room.take_back')}
+                disabled={disabled || editing}
+                onClick={() => takeBack(input, queue.agentUID)}>
+                {pending === 'retract' ? (
+                  <RiLoader4Line className="animate-spin" aria-hidden />
+                ) : (
+                  <RiCloseLine aria-hidden />
+                )}
+              </Button>
+            </>
           )}
-        </Button>
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label={t('pod.chat.edit_pending')}
-          title={t('pod.chat.edit_pending')}
-          disabled={disabled || !own || editing}
-          onClick={() => edit(input, queue.agentUID)}>
-          <RiEditLine aria-hidden />
-        </Button>
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label={t('pod.chat_room.take_back')}
-          title={t('pod.chat_room.take_back')}
-          disabled={disabled || !own || editing}
-          onClick={() => takeBack(input, queue.agentUID)}>
-          {pending === 'retract' ? <RiLoader4Line className="animate-spin" aria-hidden /> : <RiCloseLine aria-hidden />}
-        </Button>
-        {queue.inputs.length > 1 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={t('pod.chat_room.queue_actions')}
-                  title={t('pod.chat_room.queue_actions')}
-                  disabled={disabled}
-                />
-              }>
-              <RiMoreLine aria-hidden />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem disabled={index === 0} onClick={() => reorder(index - 1)}>
-                <RiArrowUpLine aria-hidden />
-                {t('pod.chat_room.move_up')}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={index === queue.inputs.length - 1} onClick={() => reorder(index + 1)}>
-                <RiArrowDownLine aria-hidden />
-                {t('pod.chat_room.move_down')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+          {queue.inputs.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={t('pod.chat_room.queue_actions')}
+                    title={t('pod.chat_room.queue_actions')}
+                    disabled={disabled}
+                  />
+                }>
+                <RiMoreLine aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={index === 0} onClick={() => reorder(index - 1)}>
+                  <RiArrowUpLine aria-hidden />
+                  {t('pod.chat_room.move_up')}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={index === queue.inputs.length - 1} onClick={() => reorder(index + 1)}>
+                  <RiArrowDownLine aria-hidden />
+                  {t('pod.chat_room.move_down')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      )}
     </li>
   )
 }

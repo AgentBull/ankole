@@ -75,8 +75,15 @@ import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-sc
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
 import { MarkdownBody } from '../../common/markdown-body'
-import { DiscardConfirmDialog, StatusIndicator, useDialogDiscardGuard } from '../console-form'
-import { CursorPagination, ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
+import { DiscardConfirmDialog, LabeledField, StatusIndicator, useDialogDiscardGuard } from '../console-form'
+import {
+  AgentLink,
+  AgentName,
+  CursorPagination,
+  ResourceSearch,
+  ResultCount,
+  useResourceSearchDraft
+} from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import {
   cursorPageNumber,
@@ -331,7 +338,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
             <SheetDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {selected ? (
                 <>
-                  <span className="break-all font-mono text-xs">{selected.agent_uid}</span>
+                  <AgentLink className="break-all text-xs" uid={selected.agent_uid} />
                   <span aria-hidden>·</span>
                   <span className="font-mono text-xs">#{selected.id}</span>
                   <span aria-hidden>·</span>
@@ -379,12 +386,15 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
             <DialogTitle>{t('console.background_agent_jobs.complete_title')}</DialogTitle>
             <DialogDescription>{t('console.background_agent_jobs.complete_confirm')}</DialogDescription>
           </DialogHeader>
-          <Textarea
-            value={completeSummary}
-            rows={4}
-            placeholder={t('console.background_agent_jobs.complete_summary_placeholder')}
-            onChange={event => setCompleteSummary(event.target.value)}
-          />
+          <LabeledField label={t('console.background_agent_jobs.result')} required>
+            <Textarea
+              aria-label={t('console.background_agent_jobs.result')}
+              value={completeSummary}
+              rows={4}
+              placeholder={t('console.background_agent_jobs.complete_summary_placeholder')}
+              onChange={event => setCompleteSummary(event.target.value)}
+            />
+          </LabeledField>
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />}>{t('common.cancel')}</DialogClose>
             <Button
@@ -590,7 +600,7 @@ function BackgroundAgentJobCard({
           {distinguishesStatus(task.status) ? <StatusBadge status={task.status} /> : null}
         </div>
         <div className="grid gap-1 text-xs text-muted-foreground">
-          <span className="truncate font-mono">{task.agent_uid}</span>
+          <AgentName className="truncate" uid={task.agent_uid} />
           <span className="flex items-center gap-1.5">
             <RiTimeLine className="size-3.5" />
             {formatDuration(task.duration_seconds ?? 0)} ·{' '}
@@ -636,7 +646,7 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
       aria-label={t('console.background_agent_jobs.overview')}
       className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
       <Fact label={t('console.background_agent_jobs.status')} value={<StatusBadge status={job.status} />} />
-      <Fact label={t('console.background_agent_jobs.agent')} value={job.agent_uid} mono />
+      <Fact label={t('console.background_agent_jobs.agent')} value={<AgentLink uid={job.agent_uid} />} />
       <Fact label={t('console.background_agent_jobs.model_profile')} value={job.model_profile} mono />
       <Fact
         label={t('console.background_agent_jobs.workspace_template')}

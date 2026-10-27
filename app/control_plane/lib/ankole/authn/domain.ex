@@ -6,15 +6,15 @@ defmodule Ankole.Authn.Domain do
     resource(Ankole.Authn.Challenge)
   end
 
-  defdelegate request_otp(browser, flow, target, source, opts \\ []),
+  defdelegate request_otp(browser, target, source, opts \\ []),
     to: Ankole.Authn.Strategies.Otp.Actions,
     as: :request
 
-  defdelegate verify_otp(browser, flow, id, code, source),
+  defdelegate verify_otp(browser, id, code, source, opts \\ []),
     to: Ankole.Authn.Strategies.Otp.Actions,
     as: :verify
 
-  defdelegate verify_otp_with(browser, flow, id, code, source, complete),
+  defdelegate verify_otp_with(browser, id, code, source, complete, opts \\ []),
     to: Ankole.Authn.Strategies.Otp.Actions,
     as: :verify_with
 

@@ -45,12 +45,20 @@ defmodule Ankole.OIDCFixtures do
 
     ref = BrowserSessions.reference(browser)
 
-    {:ok, flow} =
-      BrowserSessions.begin_login(ref, :oauth, %{"client_id" => client_id, "scope" => scope},
-        mode: :add
-      )
+    {:ok, request} =
+      OIDC.AuthorizationRequests.begin(ref, client_id, %{
+        "client_id" => client_id,
+        "scope" => scope
+      })
 
-    {:ok, sent} = Ankole.Authn.Domain.request_otp(ref, flow.id, email, "oidc-fixture")
+    {:ok, sent} =
+      Ankole.Authn.Domain.request_otp(ref, email, "oidc-fixture",
+        purpose: :oauth,
+        mode: :add,
+        oauth_request_id: request.id,
+        request: request.request,
+        return_to: "/oauth/authorize/resume?oauth_request=" <> request.id
+      )
 
     code =
       receive do
@@ -62,7 +70,7 @@ defmodule Ankole.OIDCFixtures do
       end
 
     {:ok, %{authentication: authentication}} =
-      Ankole.Authn.Domain.verify_otp(ref, flow.id, sent.challenge_id, code, "oidc-fixture")
+      Ankole.Authn.Domain.verify_otp(ref, sent.challenge_id, code, "oidc-fixture")
 
     proof = BrowserSessions.authentication(BrowserSessions.reference(authentication), :oauth)
     OIDC.Sessions.ensure(client_id, proof, scope)

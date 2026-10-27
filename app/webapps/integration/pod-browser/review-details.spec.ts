@@ -200,15 +200,28 @@ test('link labels are batched by target table and follow target edits', async ({
     })
     await page.goto(location(savedID))
     await page.getByRole('button', { name: 'Source', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Related： Target 000', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Related: Target 000', exact: true })).toBeVisible()
     expect(targetQueries).toBeLessThanOrEqual(4)
     await request(page, `/tables/${target.id}/records`, 'POST', {
       updates: [
         { id: targetZero.id, data: { [targetName.id]: 'Renamed target' }, expected_versions: targetZero.versions }
       ]
     })
-    await expect(page.getByRole('button', { name: 'Related： Renamed target', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Related: Renamed target', exact: true })).toBeVisible()
     expect(targetQueries).toBeLessThanOrEqual(6)
+    await page.getByRole('button', { name: 'Related: Renamed target', exact: true }).click()
+    const picker = page
+      .getByRole('dialog')
+      .filter({ has: page.getByRole('textbox', { name: '搜索候选项', exact: true }) })
+    await expect(picker.getByRole('checkbox')).toHaveCount(100)
+    const firstPage = await picker.locator('li').allTextContents()
+    await picker.getByRole('button', { name: '下一页', exact: true }).click()
+    await expect(picker.getByRole('button', { name: '上一页', exact: true })).toBeEnabled()
+    await expect(picker.getByRole('button', { name: '下一页', exact: true })).toBeDisabled()
+    const secondPage = await picker.locator('li').allTextContents()
+    expect(secondPage).toHaveLength(100)
+    expect(secondPage.some(name => firstPage.includes(name))).toBe(false)
+    await page.keyboard.press('Escape')
   } finally {
     if (savedID) await request(page, `/pages/${savedID}`, 'DELETE').catch(() => {})
     await context.close()
@@ -232,14 +245,25 @@ test('sharing conflicts retain the draft until an explicit latest-version retry'
     const dialog = page.getByRole('dialog', { name: '分享页面', exact: true })
     const inherit = dialog.getByRole('checkbox')
     await expect(inherit).toBeChecked()
+    const started = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>()
+    await page.route(`**/api/v2/pod/pages/${savedID}/sharing`, async route => {
+      if (route.request().method() !== 'PUT' || route.request().postDataJSON().data.inherit_permissions) {
+        return route.continue()
+      }
+      started.resolve()
+      await release.promise
+      await route.continue()
+    })
     await inherit.uncheck()
+    await started.promise
     const baseline = await request<{ sharing_version: string; grants: unknown[] }>(page, `/pages/${savedID}/sharing`)
     await request(page, `/pages/${savedID}/sharing`, 'PUT', {
       inherit_permissions: true,
       grants: [{ principal_uid: state.member.uid, role: 'view' }],
       sharing_version: baseline.sharing_version
     })
-    await dialog.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    release.resolve()
     await expect(dialog.getByRole('alert')).toContainText('分享设置已由其他人修改')
     await expect(inherit).not.toBeChecked()
     const unchanged = await request<{ inherit_permissions: boolean; grants: unknown[] }>(
@@ -251,8 +275,16 @@ test('sharing conflicts retain the draft until an explicit latest-version retry'
     await dialog.getByRole('button', { name: '保留我的设置并读取最新版本', exact: true }).click()
     await expect(dialog.getByRole('status')).toContainText('已读取最新版本')
     await expect(inherit).not.toBeChecked()
+    const savedSharing = page.waitForResponse(
+      response =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname === `/api/v2/pod/pages/${savedID}/sharing`
+    )
     await dialog.getByRole('button', { name: '保存分享设置', exact: true }).click()
-    await expect(dialog).toHaveCount(0)
+    expect((await savedSharing).status()).toBe(200)
+    await expect(inherit).toBeEnabled()
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await page.keyboard.press('Escape')
     const confirmed = await request<{
       inherit_permissions: boolean
       grants: { principal_uid: string | null; role: string }[]

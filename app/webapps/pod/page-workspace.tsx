@@ -13,7 +13,7 @@ import {
   type EmbedAttributes,
   type PageChanges
 } from '@ankole/block-editor/editor'
-import { parseXml } from '@ankole/block-editor/document'
+import { parseXml, printMarkdown } from '@ankole/block-editor/document'
 import {
   Button,
   Dialog,
@@ -31,6 +31,7 @@ import {
 } from '@ankole/uikit'
 import {
   RiAddLine,
+  RiCloseLine,
   RiImageLine,
   RiLink,
   RiExternalLinkLine,
@@ -56,8 +57,10 @@ import { contentKeys, fileURL, pageAPI, pageQuery, pagesQuery, type Page, type P
 import { contentError } from './content-errors'
 import { ContentError } from './content-primitives'
 import { PageChildrenMenu } from './page-navigation'
-import { CreatePageSubmenu } from './page-create-menu'
+import { usePageTrash } from './page-actions'
+import { CreatePageSubmenu, usePageCreation } from './page-create-menu'
 import { FilePage, uploadPageFile } from './page-files'
+import { createFilePage } from './native-transfers'
 import { useCopyPageLink, PageSharingButton } from './page-sharing'
 import { PageDraftModel } from './state/page-draft'
 import { MovePageDialog } from './page-move-dialog'
@@ -91,7 +94,7 @@ export function PageRoute() {
       visited.current = pageID
       void pageAPI
         .state(pageID, { visited: true })
-        .then(() => client.invalidateQueries({ queryKey: contentKeys.lists }))
+        .then(() => client.invalidateQueries({ queryKey: contentKeys.list('recent') }))
         .catch(() => {})
     }
   }, [pageID, !!page.data, client])
@@ -132,7 +135,6 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
   const actionsTrigger = useRef<HTMLButtonElement>(null)
   const copyLink = useCopyPageLink(page.id)
   const client = useQueryClient()
-  const navigate = useNavigate()
   const [search, setSearch] = useSearchParams()
   const selection = search.get('chat')
   const chat = selection === 'new' || selection === 'latest' ? selection : podRouteID(selection ?? undefined)
@@ -193,32 +195,20 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
   const title = model.title.value
   const autosaveTitle = useEffectEvent(() => saveTitle())
   useEffect(() => {
-    if (page.type !== 'doc' || !edit || titleComposing) return
+    if (!edit || titleComposing) return
     const timer = window.setTimeout(autosaveTitle, 500)
     return () => window.clearTimeout(timer)
-  }, [title, edit, page.type, titleComposing])
+  }, [title, edit, titleComposing])
   const finishTitle = async () => {
     if (accessDenied || (!edit && model.titleDirty.value)) {
       throw new Error(t('pod.content.could_not_confirm_your_editing_permission_reload_the_page_and'))
     }
     if (model.titleDirty.value) await rename.mutateAsync(model.title.value.trim())
   }
-  const remove = useMutation({
-    mutationFn: async () => {
-      await finishTitle()
-      if (model.xml.value !== model.savedXML.value) {
-        throw new Error(t('pod.content.the_document_has_unsaved_changes_wait_for_it_to_save'))
-      }
-      return pageAPI.remove(page.id)
-    },
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
-      void navigate({ to: podLocation('/content/trash').pathname })
-    }
-  })
+  const remove = usePageTrash(model.discard)
   const favorite = useMutation({
     mutationFn: () => pageAPI.state(page.id, { favorite: !favorited }),
-    onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.lists })
+    onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.list('favorites') })
   })
   return (
     <section className="pod-page flex h-full min-h-0 flex-col overflow-hidden" data-page-type={page.type}>
@@ -236,7 +226,14 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
           </span>
         </nav>
         <div className="flex shrink-0 items-center gap-0.5">
-          {!accessDenied && <PageChildrenMenu pageID={page.id} canCreate={edit} />}
+          {!accessDenied && (
+            <PageChildrenMenu
+              pageID={page.id}
+              canCreate={edit}
+              scope={page.private_owner_uid ? 'private' : 'space'}
+              privateOwner={page.private_owner_uid ?? undefined}
+            />
+          )}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -260,7 +257,18 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
               <RiChat3Line aria-hidden className="size-4" />
             </Button>
           )}
-          {canManage && <PageSharingButton pageID={page.id} />}
+          {canManage ? (
+            <PageSharingButton pageID={page.id} />
+          ) : (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t('pod.content.copy_link')}
+              title={t('pod.content.copy_link')}
+              onClick={() => void copyLink()}>
+              <RiLink aria-hidden className="size-4" />
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -288,7 +296,10 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
               {canManage && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(page)}>
                     <RiDeleteBinLine aria-hidden />
                     {t('pod.content.move_to_trash')}
                   </DropdownMenuItem>
@@ -340,7 +351,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                     aria-label={t('pod.content.page_title')}
                     rows={1}
                     value={model.title.value}
-                    autoFocus={page.type === 'doc' && !page.title && !chat}
+                    autoFocus={(page.type === 'doc' || page.type === 'base') && !page.title && !chat}
                     disabled={remove.isPending || accessDenied}
                     placeholder={t('pod.content.untitled')}
                     onChange={event => (model.title.value = event.target.value.replace(/\n/g, ' '))}
@@ -370,27 +381,12 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
             <ContentError error={loadError} retry={accessDenied ? undefined : reload} />
             {accessDenied && <LocalPageChatDrafts pageID={page.id} />}
             {accessDenied && model.dirty.value && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  downloadFile(
-                    JSON.stringify({ title: model.title.value, xml: model.xml.value }, null, 2),
-                    'page-draft.json',
-                    'application/json'
-                  )
-                }>
+              <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value, model.title.value)}>
                 {t('pod.content.export_draft')}
               </Button>
             )}
             {edit && (
-              <p
-                role="status"
-                className={
-                  page.type !== 'doc' && (rename.isPending || model.titleDirty.value)
-                    ? 'pod-page-save-state'
-                    : 'sr-only'
-                }>
+              <p role="status" className="sr-only">
                 {rename.isPending
                   ? t('pod.content.saving_title')
                   : model.titleDirty.value
@@ -429,7 +425,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
       <Dialog open={blocker.status === 'blocked'} onOpenChange={open => !open && blocker.reset?.()}>
         <DialogContent className="pod-dialog" closeLabel={t('common.close')}>
           <DialogTitle>{t('pod.content.unsaved_changes')}</DialogTitle>
-          <p className="text-sm">{t('pod.content.wait_for_saving_to_finish_or_retry_you_can_download')}</p>
+          <p className="text-sm">{t('pod.content.unsaved_changes_leave_warning')}</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => blocker.reset?.()}>
               {t('pod.content.continue_editing')}
@@ -437,18 +433,13 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
             <Button
               variant="outline"
               onClick={() => {
-                downloadFile(
-                  JSON.stringify(
-                    { title: model.title.value, xml: model.xml.value, recoveryDrafts: model.recoveryDrafts.value },
-                    null,
-                    2
-                  ),
-                  'page-draft.json',
-                  'application/json'
-                )
+                downloadDraft(model.xml.value, model.title.value, model.recoveryDrafts.value)
                 blocker.proceed?.()
               }}>
               {t('pod.content.download_draft_and_leave')}
+            </Button>
+            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+              {t('pod.content.discard_changes_and_leave')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -515,7 +506,14 @@ function DocumentPage({
 }) {
   useSignals()
   const { i18n } = useTranslation()
-  const labels = useMemo(() => editorLabels(i18n.language), [i18n.language])
+  const labels = useMemo(
+    () => ({
+      ...editorLabels(i18n.language),
+      block: t('pod.editor.block', { lng: i18n.language, defaultValue: 'Block' }),
+      open_link: t('pod.editor.open_link', { lng: i18n.language, defaultValue: 'Open link' })
+    }),
+    [i18n.language]
+  )
   const [generation, setGeneration] = useState(0)
   const [initialXML, setInitialXML] = useState(detail.content?.content ?? '<page/>')
   const initialDocument = useMemo(() => parseXml(initialXML), [initialXML])
@@ -530,17 +528,36 @@ function DocumentPage({
   const retryConnection = useRef<() => void>(() => {})
   const [pending, setPending] = useState(false)
   const [referencing, setReferencing] = useState(false)
+  const [fileDragOver, setFileDragOver] = useState(false)
   const addTrigger = useRef<HTMLButtonElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
+  const openCreatedDocument = useRef<string | undefined>(undefined)
+  const canEdit = detail.actions.includes('page_edit')
+  const createChildPage = usePageCreation({
+    parentID: detail.page.id,
+    scope: detail.page.private_owner_uid ? 'private' : 'space',
+    privateOwner: detail.page.private_owner_uid ?? undefined,
+    onCreated: created => {
+      if (editor.current && !editor.current.state.readOnly) {
+        if (created.type === 'doc') openCreatedDocument.current = created.id
+        insertEmbed(editor.current, { ref: created.id })
+      }
+    }
+  })
   const host = useMemo<EditorHost>(
     () => ({
-      mountEmbed: (attributes, container, update) => {
+      mountEmbed: (attributes, container, update, remove) => {
         const root = createRoot(container)
         root.render(
           <QueryClientProvider client={client}>
             <ContentScope value={content}>
               <PageEmbed
                 attributes={attributes}
+                currentPageID={detail.page.id}
+                canEdit={canEdit}
+                model={model}
+                selectPage={id => update({ ref: id })}
+                remove={remove}
                 configure={(config, table) =>
                   update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
                 }
@@ -567,7 +584,7 @@ function DocumentPage({
         }
       }
     }),
-    [client, navigate, detail.page.id, content]
+    [client, navigate, detail.page.id, content, canEdit, model]
   )
   const reload = async () => {
     const xml = await model.reload(async () => {
@@ -592,9 +609,66 @@ function DocumentPage({
       setAssetError(error)
     }
   }
+  const insertTransferredFiles = async (files: File[], coords?: { x: number; y: number }) => {
+    const instance = editor.current
+    if (!instance || instance.state.readOnly || !files.length) return
+    if (coords) {
+      const hit = instance.posAtCoords(coords)
+      instance.dispatch({ selection: EditorSelection.near(instance.state, hit.pos, hit.side) })
+      instance.focus()
+    }
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        await uploadImage(file)
+      } else {
+        try {
+          setAssetError(undefined)
+          const { page: created } = await createFilePage(file, { parent_id: detail.page.id })
+          await client.invalidateQueries({ queryKey: contentKeys.all })
+          if (editor.current && !editor.current.state.readOnly) {
+            insertEmbed(editor.current, { ref: created.id })
+          }
+        } catch (error) {
+          setAssetError(error)
+        }
+      }
+    }
+  }
+  const isExternalFileDrag = (dataTransfer: DataTransfer | null) =>
+    !!dataTransfer && !dataTransfer.types.includes('application/x-ankole-block') && dataTransfer.types.includes('Files')
   return (
-    <section className="pod-document">
-      {detail.actions.includes('page_edit') && (
+    <section
+      className={fileDragOver ? 'pod-document rounded-control ring-2 ring-ring/40' : 'pod-document'}
+      onPasteCapture={event => {
+        if (!canEdit || model.conflict.value) return
+        if ((event.target as Element | null)?.closest('.embed')) return
+        const files = Array.from(event.clipboardData?.files ?? [])
+        if (!files.length || event.clipboardData?.getData('text/plain').trim()) return
+        event.preventDefault()
+        event.stopPropagation()
+        void insertTransferredFiles(files)
+      }}
+      onDragOverCapture={event => {
+        if (!canEdit || model.conflict.value || (event.target as Element | null)?.closest('.embed')) return
+        if (!isExternalFileDrag(event.dataTransfer)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+        if (!fileDragOver) setFileDragOver(true)
+      }}
+      onDragLeave={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDragOver(false)
+      }}
+      onDropCapture={event => {
+        setFileDragOver(false)
+        if (!canEdit || model.conflict.value || (event.target as Element | null)?.closest('.embed')) return
+        if (!isExternalFileDrag(event.dataTransfer)) return
+        const files = Array.from(event.dataTransfer.files)
+        if (!files.length) return
+        event.preventDefault()
+        event.stopPropagation()
+        void insertTransferredFiles(files, { x: event.clientX, y: event.clientY })
+      }}>
+      {canEdit && (
         <div className="pod-document-tools">
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -610,13 +684,7 @@ function DocumentPage({
               <RiAddLine aria-hidden className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <CreatePageSubmenu
-                parentID={detail.page.id}
-                label={t('pod.content.new_page')}
-                onCreated={page => {
-                  if (editor.current) insertEmbed(editor.current, { ref: page.id })
-                }}
-              />
+              <CreatePageSubmenu parentID={detail.page.id} label={t('pod.content.new_page')} create={createChildPage} />
               <DropdownMenuItem onClick={() => setReferencing(true)}>
                 <RiLink aria-hidden /> {t('pod.content.reference_an_existing_page')}
               </DropdownMenuItem>
@@ -650,6 +718,7 @@ function DocumentPage({
       )}
       {referencing && (
         <ReferencePageDialog
+          excludePageID={detail.page.id}
           returnFocus={addTrigger}
           onClose={() => setReferencing(false)}
           onSelect={page => {
@@ -661,7 +730,7 @@ function DocumentPage({
         <div className="rounded border border-warning p-4 text-sm" role="alert">
           <p>{t('pod.content.the_document_has_changed_your_draft_has_been_kept_export')}</p>
           <div className="mt-3 flex gap-3">
-            <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value)}>
+            <Button variant="outline" size="sm" onClick={() => downloadDraft(model.xml.value, model.title.value)}>
               {t('pod.content.export_draft')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => void reload().catch(setAssetError)}>
@@ -675,7 +744,7 @@ function DocumentPage({
           <p>{t('pod.content.another_write_replaced_the_document_so_the_current_content_was')}</p>
           {model.recoveryDrafts.value.map((draft, index) => (
             <div key={draft} className="mt-2 flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => downloadDraft(draft)}>
+              <Button size="sm" variant="outline" onClick={() => downloadDraft(draft, model.title.value)}>
                 {t('pod.content.export_kept_draft')} {index + 1}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => model.discardRecoveryDraft(draft)}>
@@ -776,6 +845,11 @@ function DocumentPage({
                 model.saved(state.xml, state.revision)
                 setPending(state.pending)
                 setCollaborationError(state.error)
+                if (!state.pending && !state.error && openCreatedDocument.current) {
+                  const id = openCreatedDocument.current
+                  openCreatedDocument.current = undefined
+                  void navigate({ to: podLocation(`/pages/${id}`).pathname })
+                }
               },
               reset: draft => {
                 if (draft) model.keepRecoveryDraft(draft)
@@ -819,16 +893,61 @@ function DocumentPage({
 
 function PageEmbed({
   attributes,
+  currentPageID,
+  canEdit,
+  model,
+  selectPage,
+  remove,
   configure,
   openPage
 }: {
   attributes: EmbedAttributes
+  currentPageID: string
+  canEdit: boolean
+  model: InstanceType<typeof PageDraftModel>
+  selectPage(id: string): void
+  remove(): void
   configure(config: Record<string, unknown>, table?: string): void
   openPage(id: string): void
 }) {
+  useSignals()
   const { pageHref } = useContent()
+  const editable = canEdit && !model.conflict.value
   const query = useQuery({ ...pageQuery(attributes.ref ?? ''), enabled: !!attributes.ref })
-  if (!attributes.ref || query.error) {
+  if (!attributes.ref) {
+    if (!editable) {
+      return <p className="p-4 text-sm text-fg-tertiary">{t('pod.content.cannot_display')}</p>
+    }
+    return (
+      <div className="rounded-control border border-border bg-background p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-sm font-medium">{t('pod.content.reference_an_existing_page')}</span>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label={t('pod.content.remove')}
+            title={t('pod.content.remove')}
+            onClick={remove}>
+            <RiCloseLine aria-hidden className="size-4" />
+          </Button>
+        </div>
+        <Suspense
+          fallback={
+            <p role="status" className="p-2 text-sm">
+              {t('pod.content.loading')}
+            </p>
+          }>
+          <PagePickerExcludingSelf
+            excludePageID={currentPageID}
+            label={t('pod.content.choose_a_page')}
+            autoFocus={false}
+            onSelect={id => selectPage(id)}
+          />
+        </Suspense>
+      </div>
+    )
+  }
+  if (query.error) {
     return <p className="p-4 text-sm text-fg-tertiary">{t('pod.content.cannot_display')}</p>
   }
   if (!query.data) {
@@ -887,11 +1006,41 @@ function PageEmbed({
   )
 }
 
+function PagePickerExcludingSelf({
+  excludePageID,
+  label,
+  autoFocus,
+  onSelect
+}: {
+  excludePageID: string
+  label: string
+  autoFocus?: boolean
+  onSelect(id: string, page?: Page): void
+}) {
+  const escaped =
+    typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(excludePageID.toLowerCase()) : excludePageID.toLowerCase()
+  return (
+    <div data-exclude-self={excludePageID}>
+      <style>{`[data-exclude-self] [cmdk-item][data-value="${escaped}"] { display: none; }`}</style>
+      <PagePicker
+        label={label}
+        autoFocus={autoFocus}
+        onSelect={(id, page) => {
+          if (id === excludePageID) return
+          onSelect(id, page)
+        }}
+      />
+    </div>
+  )
+}
+
 function ReferencePageDialog({
+  excludePageID,
   onSelect,
   onClose,
   returnFocus
 }: {
+  excludePageID: string
   onSelect(page: Page): void
   onClose(): void
   returnFocus: RefObject<HTMLElement | null>
@@ -901,7 +1050,8 @@ function ReferencePageDialog({
       <DialogContent className="pod-dialog pod-picker-dialog" closeLabel={t('common.close')} finalFocus={returnFocus}>
         <DialogTitle>{t('pod.content.reference_page')}</DialogTitle>
         <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
-          <PagePicker
+          <PagePickerExcludingSelf
+            excludePageID={excludePageID}
             label={t('pod.content.choose_a_page')}
             onSelect={(_id, page) => {
               if (page) {
@@ -916,8 +1066,30 @@ function ReferencePageDialog({
   )
 }
 
-function downloadDraft(xml: string) {
-  downloadFile(xml, 'document-draft.xml', 'application/xml')
+function xmlToMarkdown(xml: string): string {
+  try {
+    return printMarkdown(parseXml(xml)).trim()
+  } catch {
+    return xml.trim()
+  }
+}
+
+function downloadDraft(xml: string, title?: string, recoveryDrafts?: readonly string[]) {
+  const parts: string[] = []
+  const heading = title?.trim()
+  if (heading) parts.push(`# ${heading}`)
+  const body = xmlToMarkdown(xml)
+  if (body) parts.push(body)
+  recoveryDrafts?.forEach((draft, index) => {
+    const kept = xmlToMarkdown(draft)
+    if (kept) parts.push(`---\n\n## ${t('pod.content.export_kept_draft')} ${index + 1}\n\n${kept}`)
+  })
+  const slug = heading
+    ?.replace(/[\\/:*?"<>|\p{Cc}]+/gu, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+  downloadFile(`${parts.join('\n\n')}\n`, `${slug || 'document-draft'}.md`, 'text/markdown;charset=utf-8')
 }
 
 function downloadFile(content: string, filename: string, type: string) {

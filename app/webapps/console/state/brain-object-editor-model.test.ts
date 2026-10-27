@@ -133,6 +133,19 @@ describe('BrainObjectEditorModel', () => {
     expect(model.updateBody().expected_content_hash).toBe('hash-2')
     model[Symbol.dispose]()
   })
+
+  test('auto-derives slug from title until slug is manually edited', () => {
+    const model = new BrainObjectEditorModel()
+    model.initialize('new', emptyBrainObjectSnapshot())
+
+    model.setTitle('Quarterly Review 2026', true)
+    expect(model.slug.value).toBe('quarterly-review-2026')
+
+    model.setSlug('notes/q1-review')
+    model.setTitle('Updated Review Title', true)
+    expect(model.slug.value).toBe('notes/q1-review')
+    model[Symbol.dispose]()
+  })
 })
 
 test('parseBrainObjectMeta accepts only JSON objects', () => {

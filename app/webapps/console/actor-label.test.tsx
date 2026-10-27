@@ -49,4 +49,19 @@ describe('ActorLabel', () => {
     expect(html).toContain(`title="${actor.tenant_id} / ${actor.uid}"`)
     expect(html).not.toContain('Original team /')
   })
+
+  test('resolves principalLabel even when site tenant directory is unavailable', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(
+      getPrincipalQueryKey({
+        path: { uid: 'legacy@example.com' },
+        headers: { 'x-ankole-tenant': authorTenant }
+      }),
+      { data: { id: 'legacy@example.com', type: 'principal', attributes: { display_name: 'Alice' } } }
+    )
+    const html = render(queryClient)
+    expect(html).toContain('>Alice</span>')
+    expect(html).toContain(`title="${actor.tenant_id} / ${actor.uid}"`)
+    queryClient.clear()
+  })
 })

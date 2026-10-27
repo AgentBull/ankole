@@ -11,9 +11,9 @@ import { finishSignalBindingSave, SignalBindingEditorPage, SignalsListPage } fro
 describe('Signal Routing editor navigation', () => {
   test('does not turn the binding owner into a list filter', async () => {
     const listHTML = await renderSignalsList('/signals', undefined)
-    const editorHTML = await renderSignalEditor('/signals/new?agent=agent-a&adapter=lark&name=lark-main')
+    const editorHTML = await renderSignalEditor('/signals/agent-a/lark/lark-main')
 
-    expect(listHTML).toContain('href="/signals/new?agent=agent-a&amp;adapter=lark&amp;name=lark-main"')
+    expect(listHTML).toContain('href="/signals/agent-a/lark/lark-main"')
     expect(listHTML).not.toContain('return_agent')
     expect(editorHTML).toContain('href="/signals"')
     expect(editorHTML).not.toContain('href="/signals?agent=agent-a"')
@@ -21,11 +21,9 @@ describe('Signal Routing editor navigation', () => {
 
   test('preserves an explicit list filter separately from the binding owner', async () => {
     const listHTML = await renderSignalsList('/signals?agent=agent-b', 'agent-b', 'agent-b')
-    const editorHTML = await renderSignalEditor(
-      '/signals/new?agent=agent-b&adapter=lark&name=lark-main&return_agent=agent-b'
-    )
+    const editorHTML = await renderSignalEditor('/signals/agent-b/lark/lark-main?return_agent=agent-b')
 
-    expect(listHTML).toContain('return_agent=agent-b')
+    expect(listHTML).toContain('href="/signals/agent-b/lark/lark-main?return_agent=agent-b"')
     expect(editorHTML).toContain('href="/signals?agent=agent-b"')
   })
 
@@ -112,7 +110,7 @@ function renderSignalsList(initialEntry: string, agentUID: string | undefined, b
 }
 
 function renderSignalEditor(initialEntry: string) {
-  return renderRoute(freshQueryClient(), initialEntry, 'signals/new', <SignalBindingEditorPage />)
+  return renderRoute(freshQueryClient(), initialEntry, 'signals/$agent/$adapter/$name', <SignalBindingEditorPage />)
 }
 
 async function renderRoute(queryClient: QueryClient, initialEntry: string, path: string, element: React.ReactNode) {

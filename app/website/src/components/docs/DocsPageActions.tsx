@@ -55,21 +55,24 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
   }
 
   const openItems = [
-    { icon: RiMarkdownLine, label: labels.viewMarkdown, href: markdownPath },
+    { icon: RiMarkdownLine, label: labels.viewMarkdown, href: markdownPath, external: false },
     {
       icon: RiOpenaiLine,
       label: labels.openChatgpt,
-      href: `https://chatgpt.com/?${new URLSearchParams({ hints: 'search', prompt })}`
+      href: `https://chatgpt.com/?${new URLSearchParams({ hints: 'search', prompt })}`,
+      external: true
     },
     {
       icon: RiClaudeLine,
       label: labels.openClaude,
-      href: `https://claude.ai/new?${new URLSearchParams({ q: prompt })}`
+      href: `https://claude.ai/new?${new URLSearchParams({ q: prompt })}`,
+      external: true
     },
     {
       icon: RiCodeSSlashLine,
       label: labels.openCursor,
-      href: `https://cursor.com/link/prompt?${new URLSearchParams({ text: prompt })}`
+      href: `https://cursor.com/link/prompt?${new URLSearchParams({ text: prompt })}`,
+      external: true
     }
   ]
 
@@ -81,6 +84,7 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
       <button
         type="button"
         onClick={copyPage}
+        aria-label={copyLabel}
         className="inline-flex h-8 cursor-pointer items-center gap-1.5 px-3 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-background-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
         <CopyIcon aria-hidden="true" className="size-3.5" />
         <span aria-live="polite">{copyLabel}</span>
@@ -96,8 +100,14 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
           {openItems.map(item => (
             <DropdownMenuItem
               key={item.label}
-              onClick={() => window.open(item.href, '_blank', 'noopener,noreferrer')}
-              className="flex cursor-pointer items-center gap-2.5 px-4 py-2">
+              render={
+                item.external ? (
+                  <a href={item.href} target="_blank" rel="noopener noreferrer" />
+                ) : (
+                  <a href={item.href} />
+                )
+              }
+              className="flex cursor-pointer items-center gap-2.5 px-4 py-2 no-underline">
               <item.icon aria-hidden="true" className="size-4" />
               <span>{item.label}</span>
             </DropdownMenuItem>

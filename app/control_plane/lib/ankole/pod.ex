@@ -57,6 +57,10 @@ defmodule Ankole.Pod do
         route(:delete, "/invitations/:id", :revoke_invitation, name: "revokePodInvitation")
         route(:get, "/identity-providers", :providers, name: "podAdminIdentityProviders")
 
+        route(:post, "/identity-providers/:provider_id", :create_provider,
+          name: "createPodIdentityProvider"
+        )
+
         route(:put, "/identity-providers/:provider_id", :save_provider,
           name: "savePodIdentityProvider"
         )
@@ -128,7 +132,6 @@ defmodule Ankole.Pod do
 
       base_route "/", Ankole.Pod.Files.Browser do
         route(:get, "/pages/:id/files", :manifest, name: "podFiles")
-        route(:post, "/pages/:id/publish", :publish, name: "podPublish")
         route(:post, "/pages/:id/copy-file", :copy, name: "podFileCopy")
       end
 
@@ -137,6 +140,7 @@ defmodule Ankole.Pod do
         route(:post, "/bases/:page_id/tables", :create_table, name: "podBaseTableCreate")
         route(:delete, "/tables/:id", :delete_table, name: "podBaseTableDelete")
         route(:get, "/tables/:id", :show, name: "podBaseSchema")
+        route(:patch, "/tables/:id", :rename_table, name: "podBaseTableRename")
         route(:post, "/tables/:id/query", :query, name: "podBaseQuery")
         route(:post, "/tables/:id/aggregate", :aggregate, name: "podBaseAggregate")
         route(:post, "/tables/:id/records", :write, name: "podBaseWrite")

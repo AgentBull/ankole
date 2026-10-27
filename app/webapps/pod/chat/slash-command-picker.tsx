@@ -6,6 +6,7 @@ export type SlashCommand = 'new' | 'invite' | 'rename' | 'page' | 'model' | 'sto
 export function SlashCommandPicker({
   existing,
   working,
+  hasAgents = true,
   query,
   id,
   input,
@@ -15,6 +16,7 @@ export function SlashCommandPicker({
 }: {
   existing: boolean
   working: boolean
+  hasAgents?: boolean
   query: string
   id: string
   input: RefObject<HTMLTextAreaElement | null>
@@ -24,7 +26,12 @@ export function SlashCommandPicker({
 }) {
   const { t } = useTranslation()
   const options = (['new', 'invite', 'rename', 'page', 'model', 'stop'] as const)
-    .filter(command => (existing || !['invite', 'rename', 'stop'].includes(command)) && (working || command !== 'stop'))
+    .filter(
+      command =>
+        (existing || !['invite', 'rename', 'stop'].includes(command)) &&
+        (working || command !== 'stop') &&
+        (hasAgents || command !== 'model')
+    )
     .filter(
       command =>
         command.includes(query.toLocaleLowerCase()) ||

@@ -5,10 +5,13 @@ import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { enqueueBrainDreamMutation, getBrainHealthOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { GetBrainHealthResponse } from '../../api/v2/generated/types.gen'
+import { aiGatewayConversationsOptions } from '../../api/ai-gateway-conversations'
 import { ErrorBlock } from '../../../common/error-block'
 import { requestErrorMessage } from '../../../common/request-errors'
+import { AgentLink } from '../../console-list-page'
 import { PageHeader, PageStack } from '../../console-page'
 import { formatDuration, formatJSON } from '../../console-primitives'
+import { conversationDisplayName } from '../../conversation-presentation'
 import { IDLE_REFRESH_MS } from '../../refresh-intervals'
 import { BrainSubNav } from './brain-nav'
 
@@ -22,6 +25,11 @@ export function BrainHealthPage() {
     refetchInterval: IDLE_REFRESH_MS
   })
   const snapshot = health.data?.health
+  const missingChannelIDs = snapshot?.channels_without_member_group ?? []
+  const conversations = useQuery({
+    ...aiGatewayConversationsOptions({ limit: 100 }),
+    enabled: missingChannelIDs.length > 0
+  })
   const dream = useMutation({
     ...enqueueBrainDreamMutation(),
     onSuccess: ({ result }) => toast.success(t(`console.brain.dream_${result.status}`)),
@@ -63,12 +71,7 @@ export function BrainHealthPage() {
             <InvalidConfigKeys config={snapshot.config} />
             <HealthItem label={t('console.settings.brain_maintainer_agent_uid')}>
               {snapshot.maintainer_agent_uid ? (
-                <Link
-                  className="link font-mono text-xs"
-                  to={`/agents/${encodeURIComponent(snapshot.maintainer_agent_uid)}`}
-                  hash="model-profiles">
-                  {snapshot.maintainer_agent_uid}
-                </Link>
+                <AgentLink className="text-sm" hash="model-profiles" uid={snapshot.maintainer_agent_uid} />
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
@@ -136,11 +139,25 @@ export function BrainHealthPage() {
                   })}
                 </p>
                 <ul className="grid gap-1">
-                  {snapshot.channels_without_member_group.map(channelID => (
-                    <li key={channelID} className="font-mono text-xs text-muted-foreground">
-                      {channelID}
-                    </li>
-                  ))}
+                  {snapshot.channels_without_member_group.map(channelID => {
+                    const matched = (conversations.data?.conversations ?? []).find(
+                      item => item.id === channelID || item.conversation_key.includes(channelID)
+                    )
+                    return (
+                      <li key={channelID} className="text-xs text-muted-foreground">
+                        {matched ? (
+                          <Link
+                            className="link"
+                            title={channelID}
+                            to={`/conversations/${encodeURIComponent(matched.id)}`}>
+                            {conversationDisplayName(matched)}
+                          </Link>
+                        ) : (
+                          <span className="font-mono">{channelID}</span>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             )}
@@ -173,8 +190,13 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
         <span className="inline-flex flex-wrap items-baseline gap-2">
           <span>{totalActive}</span>
           {perAgent.length > 0 ? (
-            <span className="font-mono text-xs text-muted-foreground">
-              {perAgent.map(([agentUID, count]) => `${agentUID}: ${count}`).join(' · ')}
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              {perAgent.map(([agentUID, count], index) => (
+                <span key={agentUID} className="inline-flex items-baseline gap-1">
+                  {index > 0 ? <span aria-hidden>·</span> : null}
+                  <AgentLink className="text-xs" uid={agentUID} />: <span>{String(count)}</span>
+                </span>
+              ))}
             </span>
           ) : null}
         </span>

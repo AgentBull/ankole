@@ -175,7 +175,10 @@ defmodule Ankole.Brain.Calibration do
 
         slug ->
           Claim
-          |> Ash.Query.filter(current_external_fact? and object_slug == ^slug)
+          |> Ash.Query.filter(
+            current_external_fact? and object_slug == ^slug and
+              (audience_scope == "world" or audience_scope == ^take.audience_scope)
+          )
           |> Ash.Query.sort(valid_from: :desc, id: :desc)
           |> Ash.Query.limit(10)
           |> Ankole.Ash.read!()

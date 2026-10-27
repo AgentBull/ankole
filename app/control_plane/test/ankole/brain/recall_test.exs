@@ -125,7 +125,7 @@ defmodule Ankole.Brain.RecallTest do
     assert b < a
   end
 
-  test "persisted tags affect recall without a salience cache", context do
+  test "a personal emotion tag does not change knowledge ranking", context do
     for slug <- ["notes/tag-a", "notes/tag-b"] do
       assert {:ok, _} =
                Ankole.Brain.create_object(
@@ -139,6 +139,9 @@ defmodule Ankole.Brain.RecallTest do
                )
     end
 
+    assert {:ok, before_tag} = Recall.recall(context.member.uid, %{query: "Beryllium tag probe"})
+    before_slugs = Enum.map(before_tag.chunks, & &1.object_slug)
+
     assert {:ok, _} =
              Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
                id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -148,8 +151,7 @@ defmodule Ankole.Brain.RecallTest do
              })
 
     assert {:ok, result} = Recall.recall(context.member.uid, %{query: "Beryllium tag probe"})
-    chunks = Enum.filter(result.chunks, &(&1.object_slug in ["notes/tag-a", "notes/tag-b"]))
-    assert [%{object_slug: "notes/tag-b"}, %{object_slug: "notes/tag-a"}] = chunks
+    assert Enum.map(result.chunks, & &1.object_slug) == before_slugs
   end
 
   test "knowledge boundary prefilters group-scoped hits", context do

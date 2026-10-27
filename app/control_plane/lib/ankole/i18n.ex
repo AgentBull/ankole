@@ -86,6 +86,37 @@ defmodule Ankole.I18n do
   @spec available_locales() :: [String.t()]
   def available_locales, do: Resolver.loaded_list()
 
+  @doc """
+  Matches an `Accept-Language` header or locale tag to a loaded catalog locale.
+  """
+  @spec negotiate_locale(String.t() | [String.t()] | nil) :: String.t() | nil
+  def negotiate_locale(nil), do: nil
+
+  def negotiate_locale(values) when is_list(values) do
+    values
+    |> Enum.join(",")
+    |> negotiate_locale()
+  end
+
+  def negotiate_locale(header) when is_binary(header) do
+    available = available_locales()
+    by_exact = Map.new(available, &{String.downcase(&1), &1})
+
+    by_language =
+      Enum.reduce(available, %{}, fn locale, acc ->
+        Map.put_new(acc, primary_subtag(locale), locale)
+      end)
+
+    header
+    |> parse_language_ranges()
+    |> Enum.find_value(fn tag ->
+      downcased = String.downcase(tag)
+      Map.get(by_exact, downcased) || Map.get(by_language, primary_subtag(downcased))
+    end)
+  end
+
+  def negotiate_locale(_), do: nil
+
   # Applies an optional dotted-key scope to an I18n key.
   #
   @spec apply_scope(String.t(), keyword()) :: String.t()
@@ -162,5 +193,53 @@ defmodule Ankole.I18n do
 
         message
     end
+  end
+
+  defp parse_language_ranges(header) do
+    header
+    |> String.split(",", trim: true)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {entry, index} ->
+      case parse_language_range(entry) do
+        {tag, weight} when tag != "" and tag != "*" and weight > 0.0 -> [{tag, weight, index}]
+        _ -> []
+      end
+    end)
+    |> Enum.sort_by(fn {_tag, weight, index} -> {-weight, index} end)
+    |> Enum.map(fn {tag, _weight, _index} -> tag end)
+  end
+
+  defp parse_language_range(entry) do
+    [raw_tag | params] = String.split(entry, ";", trim: true)
+    tag = raw_tag |> String.trim() |> String.replace("_", "-")
+    {tag, parse_q_weight(params)}
+  end
+
+  defp parse_q_weight(params) do
+    q_param =
+      Enum.find_value(params, fn param ->
+        case String.split(param, "=", parts: 2) do
+          [key, value] ->
+            if String.downcase(String.trim(key)) == "q", do: String.trim(value)
+
+          _ ->
+            nil
+        end
+      end)
+
+    case q_param do
+      nil ->
+        1.0
+
+      raw ->
+        case Float.parse(raw) do
+          {weight, ""} when weight >= 0.0 and weight <= 1.0 -> weight
+          _ -> 0.0
+        end
+    end
+  end
+
+  defp primary_subtag(tag) do
+    tag |> String.split("-", parts: 2) |> hd() |> String.downcase()
   end
 end

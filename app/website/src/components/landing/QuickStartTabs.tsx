@@ -1,6 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
 import { RiArrowRightLine, RiCheckLine, RiFileCopyLine } from '@remixicon/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const SOURCE_COMMANDS = `git clone https://github.com/AgentBull/ankole.git
 cd ankole
@@ -28,6 +28,9 @@ interface CopyButtonProps {
 
 function CopyButton({ text, label, copiedLabel }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
+  const resetTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
 
   const copy = async () => {
     try {
@@ -44,17 +47,24 @@ function CopyButton({ text, label, copiedLabel }: CopyButtonProps) {
       document.body.removeChild(textarea)
     }
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 2000)
+    window.clearTimeout(resetTimer.current)
+    resetTimer.current = window.setTimeout(() => setCopied(false), 2000)
   }
+
+  const currentLabel = copied ? copiedLabel : label
 
   return (
     <button
       type="button"
       onClick={copy}
-      aria-label={label}
+      aria-label={currentLabel}
       className="inline-flex h-7 cursor-pointer items-center gap-1.5 border border-gray-70 px-2 font-mono text-xs text-gray-30 transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-gray-80 hover:text-white">
-      {copied ? <RiCheckLine className="size-3.5" /> : <RiFileCopyLine className="size-3.5" />}
-      {copied ? copiedLabel : label}
+      {copied ? (
+        <RiCheckLine aria-hidden="true" className="size-3.5" />
+      ) : (
+        <RiFileCopyLine aria-hidden="true" className="size-3.5" />
+      )}
+      <span aria-live="polite">{currentLabel}</span>
     </button>
   )
 }
@@ -97,6 +107,7 @@ function CodeBlock({ code, copyLabel, copiedLabel }: CodeBlockProps) {
 }
 
 interface QuickStartTabsProps {
+  ariaLabel?: string
   labels: {
     source: string
     docker: string
@@ -111,7 +122,7 @@ interface QuickStartTabsProps {
   deploymentHref: string
 }
 
-export default function QuickStartTabs({ labels, deploymentHref }: QuickStartTabsProps) {
+export default function QuickStartTabs({ ariaLabel = 'Quick start', labels, deploymentHref }: QuickStartTabsProps) {
   return (
     <div data-reveal="rise">
       <Tabs defaultValue="docker">
@@ -122,7 +133,7 @@ export default function QuickStartTabs({ labels, deploymentHref }: QuickStartTab
          * left cannot be scrolled back to — on a phone that clipped the first character
          * of the first tab for good.
          */}
-        <TabsList className="max-w-full justify-start overflow-x-auto">
+        <TabsList aria-label={ariaLabel} className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="docker">{labels.docker}</TabsTrigger>
           <TabsTrigger value="kubernetes">{labels.kubernetes}</TabsTrigger>
           <TabsTrigger value="source">{labels.source}</TabsTrigger>

@@ -1,15 +1,74 @@
 # Changelog
 
-## Version 2.0.2-alpha.27 (2026-10-27)
-
-- Reset omitted Binding filters when the adapter changes. Edits and moves within the same adapter keep their saved filters.
-
-## Version 2.0.1-alpha.27 (2026-10-27)
+## Version 2.0.1-alpha.28 (2026-10-27)
 
 - Bound HTTP/1 data queued during an Applet invocation to 1 MiB. Overflow closes the connection and cancels the invocation while preserving committed writes.
-- Save Messaging Binding filters on creation, edits, and moves. Omitted filters keep their saved value, and invalid filters reject the complete write.
+- Save Messaging Binding filters on creation, edits, and moves. Omitted filters keep their saved value for the same adapter and reset when the adapter changes. Invalid filters reject the complete write.
 - Let an Agent read the current native conversation readers' private Brain content. Other participants continue to restrict disclosure.
 - Preserve native Conversation routes when Workflow tasks delegate Background Jobs, so Job results wake the owning task.
+
+## Version 2.0.0-alpha.28 (2026-10-27)
+
+- Serve `/sessions/new` directly without expiring `flow` query URLs or upfront
+  login-transaction writes. Keep outbound enterprise SSO state in
+  `browser_oidc_states`, keep email OTP ceremony state in `authn_challenges`,
+  and isolate relying-party OIDC authorization requests in `Ankole.OIDC`.
+- Use the SaaS `accounts` host for sign-in and registration. The root host opens
+  the most recently used tenant account when signed in.
+- Combine SaaS sign-in and registration through email verification. Use a
+  separate space selection step for enterprise SSO, and remove invitation-code
+  forms from the sign-in and account pages.
+- Keep an existing email verification code usable when a replacement email
+  fails to send; activate the replacement before invalidating the old code.
+- Keep verification codes for different email accounts independent. Allow a
+  valid unused ordinary code to start a new sign-in after logout.
+- Accept valid Bot Framework tokens with the standard `serviceurl` claim for
+  Teams and Azure Web Chat message ingress.
+- Send localized HTML and plain-text verification code and workspace invitation
+  emails in the recipient's preferred language.
+- Create Applets through Agent conversations. Use the creator Agent's model
+  profiles and token quota for Applet AI calls.
+- Create file Pages with their selected file in one transaction. Save chat
+  content and attachments together with their destination Page.
+- Save sharing changes directly, show authorized search breadcrumbs, and expose
+  child listing and search through the Pod CLI. Add table and view rename controls.
+- Copy only the selected Base table. Convert links to ordered title text,
+  validate copied formulas, and remove view filters tied to source record IDs.
+- Preserve numeric precision during Base field conversion and let trash purge
+  continue past parents whose children still need removal.
+- Reject incomplete tool-call JSON. Keep function-runtime health independent of
+  invocation capacity and preserve resource URLs in Applet Worker bundles.
+- Keep Human email and sign-in credentials consistent. Store OIDC refresh
+  identity once, and preserve adapter recovery context keys.
+- Keep Brain contradiction and grading evidence within their audience scope.
+  Preserve retrieval boosts through reranking and overlap unspaced CJK text.
+- Report unexpected Console failures as HTTP 500 and retain useful domain,
+  provider, CEL, SMTP, and Worker failure diagnostics.
+- Let people discard failed Page drafts directly. Use the same delete and Undo
+  flow from the Page header and sidebar, and show paths beside Page search results.
+- Apply field visibility to kanban and gallery cards. Start new kanban views with
+  an available category, use single-choice controls for single-value references,
+  and prompt for unfinished calculation input without reporting it as an error.
+- Upload Agent files from the file or folder picker, rename them in place, and
+  download them from their names. Move files by destination folder.
+- Open member details after creation. Resend Setup verification codes directly,
+  keep callback customization optional, and normalize group names consistently.
+- Separate identity-provider creation from editing. Reject duplicate creation
+  instead of overwriting an existing sign-in configuration.
+- Open Console preparation guidance on request. Check runtime prerequisites
+  without requiring an external messaging channel.
+- Give each single-value Base relation its own database constraint name, so
+  multiple tables can use single-value relations in one tenant. Remove a deleted
+  field's cardinality constraint while preserving the surviving reverse relation.
+- Ignore late workspace status replies when a Session is not opening a Worker.
+  Remove duplicate current-generation Worker instances and keep unlabelled
+  platform instances out of absent Workers.
+- Simplify Pod, Console, Auth, and Setup interactions: rename Pages, Chats,
+  Base tables, and Base views in place; confirm destructive deletes and sign-in
+  method removals; derive slugs from names; replace raw UIDs, slugs, crontab
+  text, millisecond counters, CEL expressions, and JSON payloads with searchable
+  selectors, visual schedule editors, and readable labels; clean deleted Base
+  fields from saved views; and filter Base author fields by member.
 
 ## Version 2.0.0-alpha.27 (2026-10-26)
 

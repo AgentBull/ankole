@@ -88,7 +88,7 @@ test.each([
   globalThis.fetch = (async (_request: Request) =>
     new Response(body, { status: 503, statusText: 'Unavailable' })) as typeof fetch
   await expect(
-    verifyEmailOtp({ body: { data: { code: '123456', challengeID: 'challenge-id', flow: 'login-flow' } } })
+    verifyEmailOtp({ body: { data: { code: '123456', challengeID: 'challenge-id' } } })
   ).rejects.toMatchObject({
     name: 'InternalAPIError',
     status: 503,
@@ -113,4 +113,24 @@ test('a JSON:API error document renders the text of its first error', async () =
   expect(error).toBeInstanceOf(InternalAPIError)
   expect(error.message).toBe('the resource was not found')
   expect(error.payload).toEqual(payload)
+})
+
+test('requests forward documentElement.lang as accept-language without overriding an explicit header', async () => {
+  const requests: Request[] = []
+  globalThis.fetch = (async (request: Request) => {
+    requests.push(request)
+    return Response.json({ ok: true })
+  }) as typeof fetch
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      documentElement: { lang: 'zh-Hans-CN' },
+      querySelector: () => (token ? { content: token } : null)
+    }
+  })
+
+  await podAgents()
+  await podAgents({ headers: { 'accept-language': 'ja-JP' } })
+
+  expect(requests.map(request => request.headers.get('accept-language'))).toEqual(['zh-Hans-CN', 'ja-JP'])
 })

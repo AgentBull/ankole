@@ -371,7 +371,10 @@ and passes the full Actor and selected data tenant to the Ash action.
 The Human access view at `/api/v2/principals/:uid/access` includes restrictions,
 permission review, history, affected work, and cleanup results. Access changes
 require a reason and an operation ID. Restoration requires verified identity,
-the current permission fingerprint, and cleared restrictions. The work review
+the current permission fingerprint, and cleared restrictions. The review includes
+Userset grants whose source permissions are reachable by the restored member.
+It includes potential conditional and computed-group permissions. Unrelated
+private Page grants do not affect the review fingerprint. The work review
 routes at `/api/v2/work-access-reviews` record explicit Human or service
 authority without replaying stopped work.
 

@@ -74,7 +74,6 @@ Skill, 명령줄 도구, 또는 MCP 서비스가 API 키 같은 사용자 지정
 |---|---|---|
 | `pod.allow_external_guests` | 테넌트 | 초대된 외부 게스트가 공유된 Pod 페이지에 접근하도록 허용; 기본값 `true` |
 | `pod.applet.limits` | 테넌트 | Applet 호출 한도(기본값 `timeout_ms: 60000`, `heap_mb: 128`) |
-| `pod.applet.ai_agent_uid` | 테넌트 | Applet `ctx.ai` 호출의 모델 profile과 사용량을 소유하는 활성 Agent; 비어 있으면 Applet AI 비활성화 |
 | `pod.base.limits` | 테넌트 | Base 쿼리 및 레코드 한도(기본값 `query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
 | `pod.trash_retention_days` | 테넌트 | 삭제된 페이지를 자동 영구 정리하기 전까지 보관하는 양의 정수 일수(기본값 `30`), 또는 자동 정리 없이 보관하는 `"unlimited"` |
 | `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수; 기본값 `1000` |

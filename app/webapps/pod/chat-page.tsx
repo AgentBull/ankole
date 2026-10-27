@@ -25,7 +25,7 @@ import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
 import { TurnTimeline } from './chat/turn-timeline'
 import { ChatHomeView, ChatHomeToolbar } from './chat/chat-home-view'
-import { RoomHeader } from './chat/room-header'
+import { RoomHeader, type PageChatHeaderControls } from './chat/room-header'
 import { SharePopover } from './chat/share-popover'
 import { ChatSummaryPanel } from './chat/chat-summary-panel'
 import { SessionFindBar } from './chat/session-find-bar'
@@ -45,14 +45,20 @@ export function ChatPage({
   conversationID: requestedConversationID,
   pageID,
   accessScope,
+  pageHeader,
+  pageChat,
   onConversationStarted,
-  onNewConversation
+  onNewConversation,
+  onExitConversation
 }: {
   conversationID?: string
   pageID?: string
   accessScope?: 'participants' | 'anchor_page'
+  pageHeader?: ReactNode
+  pageChat?: PageChatHeaderControls
   onConversationStarted?: (id: string) => void
   onNewConversation?: () => void
+  onExitConversation?: () => void
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
@@ -68,17 +74,26 @@ export function ChatPage({
   const root = useRef<HTMLElement>(null)
   const composerInput = useRef<HTMLTextAreaElement>(null)
   const summaryTrigger = useRef<HTMLButtonElement>(null)
+  const findInput = useRef<HTMLInputElement>(null)
   const findReturnFocus = useRef<HTMLElement | null>(null)
-  const toggleFinding = useCallback(() => {
+  const closeFinding = useCallback(() => {
+    setFinding(false)
+    const target = findReturnFocus.current?.isConnected ? findReturnFocus.current : root.current
+    target?.focus({ preventScroll: true })
+  }, [])
+  const openFinding = useCallback(() => {
     if (finding) {
-      setFinding(false)
-      const target = findReturnFocus.current?.isConnected ? findReturnFocus.current : root.current
-      target?.focus({ preventScroll: true })
+      findInput.current?.focus()
+      findInput.current?.select()
     } else {
       findReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       setFinding(true)
     }
   }, [finding])
+  const toggleFinding = useCallback(() => {
+    if (finding) closeFinding()
+    else openFinding()
+  }, [finding, closeFinding, openFinding])
   const actions = useRoomActions(conversationID ?? '')
   const agents = useQuery(agentsQuery)
   const query = conversationQuery(conversationID ?? '')
@@ -119,10 +134,13 @@ export function ChatPage({
   const remove = useMutation({
     mutationFn: () => deleteConversation({ path: { id: conversationID! }, query: { forceStop: true } }),
     onSuccess: () => {
+      setDeleting(false)
       model.markGone()
       client.removeQueries({ queryKey: podKeys.detail(conversationID!) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
-      void navigate({ to: podLocation('/').pathname })
+      if (pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(pageID) })
+      if (onExitConversation) onExitConversation()
+      else void navigate({ to: podLocation('/').pathname })
     }
   })
   useEffect(() => {
@@ -132,7 +150,7 @@ export function ChatPage({
     }
   }, [requestedConversationID, conversationID, onConversationStarted, navigate])
   const gone = model.gone.value || conversationNotFound(detail.error)
-  useConversationEvents(gone ? undefined : conversationID, model)
+  useConversationEvents(gone ? undefined : conversationID, model, onExitConversation)
   useEffect(() => {
     if (data) {
       model.reconcile(data.messages)
@@ -178,13 +196,13 @@ export function ChatPage({
         ['f', 'i'].includes(event.key.toLowerCase())
       ) {
         event.preventDefault()
-        if (event.key.toLowerCase() === 'f') toggleFinding()
+        if (event.key.toLowerCase() === 'f') openFinding()
         else setSummary(value => !value)
       }
     }
     element.addEventListener('keydown', handle)
     return () => element.removeEventListener('keydown', handle)
-  }, [conversationID, roomReady, toggleFinding])
+  }, [conversationID, roomReady, openFinding])
   const composer = (
     <Composer
       model={model}
@@ -214,7 +232,7 @@ export function ChatPage({
       <section
         ref={root}
         className={cn('pod-chat pod-chat-empty', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-        {!pageID && <ChatHomeToolbar />}
+        {pageHeader ?? (!pageID && <ChatHomeToolbar />)}
         <ChatHomeView
           composer={composer}
           pageID={pageID}
@@ -240,16 +258,16 @@ export function ChatPage({
   }
   if (gone) {
     return (
-      <>
-        {!pageID && <ChatHomeToolbar />}
-        <ConversationGone model={model} />
-      </>
+      <section className={cn('pod-chat flex-col', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
+        {pageHeader ?? (!pageID && <ChatHomeToolbar />)}
+        <ConversationGone model={model} onNewConversation={onExitConversation ?? onNewConversation} />
+      </section>
     )
   }
   if (!data) {
     return (
-      <section className="pod-chat flex-col">
-        {!pageID && <ChatHomeToolbar />}
+      <section className={cn('pod-chat flex-col', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
+        {pageHeader ?? (!pageID && <ChatHomeToolbar />)}
         <div className="pod-chat-loading">
           {detail.isError ? (
             <RequestFailure error={detail.error} retry={() => void detail.refetch()} />
@@ -262,9 +280,12 @@ export function ChatPage({
   }
   if (pageID && data.conversation.pageID !== pageID) {
     return (
-      <p role="alert" className="p-4 text-sm">
-        {t('pod.page_chat.wrong_page')}
-      </p>
+      <section className="pod-chat pod-chat-embedded flex-col">
+        {pageHeader}
+        <p role="alert" className="p-4 text-sm">
+          {t('pod.page_chat.wrong_page')}
+        </p>
+      </section>
     )
   }
   const messages = mergeMessages(
@@ -300,16 +321,18 @@ export function ChatPage({
       <RoomHeader
         detail={data}
         embedded={!!pageID}
+        pageChat={pageChat}
         onInvite={() => setSharing(true)}
         onFind={toggleFinding}
         onSummary={() => setSummary(value => !value)}
         summaryOpen={summary}
         summaryTrigger={summaryTrigger}
         onDelete={() => setDeleting(true)}
+        onExitConversation={onExitConversation}
         editing={renaming}
         onEditingChange={setRenaming}
       />
-      {finding && <SessionFindBar root={root} history={history} onClose={toggleFinding} />}
+      {finding && <SessionFindBar root={root} history={history} inputRef={findInput} onClose={closeFinding} />}
       <div className="pod-chat-room-body">
         <div className="pod-chat-room-main">
           <TurnTimeline
@@ -484,7 +507,13 @@ function EditRecovery({
   )
 }
 
-function ConversationGone({ model }: { model: InstanceType<typeof ChatModel> }) {
+function ConversationGone({
+  model,
+  onNewConversation
+}: {
+  model: InstanceType<typeof ChatModel>
+  onNewConversation?: () => void
+}) {
   useSignals()
   const { t } = useTranslation()
   const drafts = [
@@ -499,9 +528,15 @@ function ConversationGone({ model }: { model: InstanceType<typeof ChatModel> }) 
       </p>
       <LocalChatDrafts drafts={drafts} />
       <ChatAttachmentDrafts model={model.attachments} recovery />
-      <Button render={<Link to={podLocation('/').pathname} />} nativeButton={false} variant="outline">
-        {t('pod.chat.new_conversation')}
-      </Button>
+      {onNewConversation ? (
+        <Button variant="outline" onClick={onNewConversation}>
+          {t('pod.chat.new_conversation')}
+        </Button>
+      ) : (
+        <Button render={<Link to={podLocation('/').pathname} />} nativeButton={false} variant="outline">
+          {t('pod.chat.new_conversation')}
+        </Button>
+      )}
     </section>
   )
 }

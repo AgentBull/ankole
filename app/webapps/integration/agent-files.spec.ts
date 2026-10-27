@@ -66,24 +66,27 @@ test('an operator uploads, renames, downloads, and deletes an Agent file', async
   )
   await page.goto('/files/agent-one')
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
-  await page.getByLabel('Upload', { exact: true }).setInputFiles({
+  const chosen = page.waitForEvent('filechooser')
+  await page.getByRole('menuitem', { name: 'Upload files', exact: true }).click()
+  await (
+    await chosen
+  ).setFiles({
     name: 'original.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('fixture bytes from the operator')
   })
-  await page.getByRole('dialog').locator('button[type=submit]').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   const original = page.getByRole('row').filter({ hasText: 'original.txt' })
   await expect(original).toBeVisible()
   await original.getByRole('button', { name: 'More actions', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Move or rename', exact: true }).click()
-  await page.getByRole('dialog').getByRole('textbox').fill('renamed.txt')
-  await page.getByRole('dialog').getByRole('button', { name: 'Move or rename', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('renamed.txt')
+  await page.getByRole('textbox', { name: 'Name', exact: true }).press('Enter')
   await expect(original).toHaveCount(0)
   const renamed = page.getByRole('row').filter({ hasText: 'renamed.txt' })
   await expect(renamed).toBeVisible()
-  await renamed.getByRole('button', { name: 'More actions', exact: true }).click()
   const downloaded = page.waitForEvent('download')
-  await page.getByRole('menuitem', { name: 'Download', exact: true }).click()
+  await renamed.getByRole('button', { name: 'renamed.txt', exact: true }).click()
   const download = await downloaded
   expect(download.suggestedFilename()).toBe('renamed.txt')
   const stream = await download.createReadStream()

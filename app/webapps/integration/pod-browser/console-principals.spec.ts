@@ -35,6 +35,16 @@ for (const membership of ['guest', 'member'] as const) {
       const createdResponse = page.waitForResponse(
         response => new URL(response.url()).pathname === '/api/v2/principals' && response.request().method() === 'POST'
       )
+      const detailResponse = page.waitForResponse(
+        response =>
+          /^\/api\/v2\/principals\/[^/]+$/.test(new URL(response.url()).pathname) &&
+          response.request().method() === 'GET'
+      )
+      const accessResponse = page.waitForResponse(
+        response =>
+          /^\/api\/v2\/principals\/[^/]+\/access$/.test(new URL(response.url()).pathname) &&
+          response.request().method() === 'GET'
+      )
       await page.getByRole('button', { name: '创建用户', exact: true }).click()
       const createdHTTP = await createdResponse
       expect(createdHTTP.status()).toBe(201)
@@ -43,14 +53,8 @@ for (const membership of ['guest', 'member'] as const) {
       expect(created).toEqual({ uid: expect.any(String), email })
       const uid = created.uid
       const detailPath = `/api/v2/principals/${uid}`
-      const detailResponse = page.waitForResponse(
-        response => new URL(response.url()).pathname === detailPath && response.request().method() === 'GET'
-      )
-      const accessResponse = page.waitForResponse(
-        response => new URL(response.url()).pathname === `${detailPath}/access` && response.request().method() === 'GET'
-      )
-      await page.getByRole('link', { name: '查看用户详情', exact: true }).click()
       const detailHTTP = await detailResponse
+      expect(new URL(detailHTTP.url()).pathname).toBe(detailPath)
       expect(detailHTTP.status()).toBe(200)
       const detail = (await detailHTTP.json()) as GetPrincipalResponse
       expect(detail.data?.attributes).toMatchObject({
@@ -61,6 +65,7 @@ for (const membership of ['guest', 'member'] as const) {
         status: 'active'
       })
       const accessHTTP = await accessResponse
+      expect(new URL(accessHTTP.url()).pathname).toBe(`${detailPath}/access`)
       expect(accessHTTP.status()).toBe(200)
       const access = (await accessHTTP.json()) as GetHumanAccessResponse
       expect(access.uid).toBe(uid)

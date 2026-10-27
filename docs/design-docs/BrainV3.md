@@ -225,18 +225,21 @@ route takes its candidate limit:
 
 The Rust kernel's reciprocal-rank fusion combines the routes and returns real
 additive scores: an id both routes found carries the sum of both
-contributions. The fused score then multiplies through the ranking factors:
+contributions. An optional cross-encoder reranks fused chunk candidates when
+`brain.rerank_model` is configured; a timeout keeps the fused scores. Ranking
+then applies these factors:
 
 - Facts: effective confidence under time decay,
   `confidence * exp(-age / halflife)`, with per-kind halflives from
   `brain.forgetting`. Takes use their weight.
 - Chunks: a graph adjacency boost for pages linked to at least two hits,
   recency from the page's effective date, and salience from the page's active
-  Takes (count, average weight, and the share held by people or Agents),
-  with the high-emotion tag boost. These factors are calculated at
-  recall time.
-- An optional cross-encoder rerank over the fused chunk candidates when
-  `brain.rerank_model` is configured; a timeout keeps the fusion order.
+  Takes (count, average weight, and the share held by people or Agents).
+  These factors are calculated at recall time and apply to reranked scores.
+
+Assembly skips an item that exceeds the remaining token budget and continues
+with smaller candidates. Chunk overlap uses grapheme boundaries for Chinese,
+Japanese, and Korean text without whitespace.
 
 `context_pack` assembles the ambient injection for a turn: cards for the
 resolved entities and channel, current facts first, under a fixed 4,000-token
@@ -445,8 +448,8 @@ one failing phase is recorded without blocking the rest:
 5. `calibration_profile` — writes each holder's Brier scorecard into the
    fenced calibration section of the holder page (`Ankole.Brain.Calibration`
    owns the Brier formula; the expert directory reads the same function).
-6. `contradictions` — judges newest claim pairs once per pair; confident
-   contradictions open triage rows, everything else lands dismissed. An
+6. `contradictions` — judges newest claim pairs within the same page, holder,
+   and audience scope once per pair; confident contradictions open triage rows, everything else lands dismissed. An
    operator decision (`resolved` or `dismissed`) applies only to an open row,
    under a row lock.
 7. `schema_suggest` — counts vocabulary terms in tags and subtypes. At 20
@@ -485,7 +488,8 @@ halflives.
 These model calls are stateless and have no tools or conversation history.
 Grading, contradiction checks, and pattern detection receive available claim
 dates, context, attribution, and provenance. Grading also receives the Take's
-period and provenance. On-demand synthesis receives claim IDs, pages, holders,
+period and provenance. Its evidence is public or has the Take's audience scope.
+On-demand synthesis receives claim IDs, pages, holders,
 and provenance, with Fact validity dates and Take periods kept separate.
 Brain model calls set a phase-specific `brain.*` caller in AIGateway traces,
 so operators can inspect each prompt and result in Langfuse.

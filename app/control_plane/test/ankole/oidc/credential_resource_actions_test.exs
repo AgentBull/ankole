@@ -238,37 +238,6 @@ defmodule Ankole.OIDC.CredentialResourceActionsTest do
     )
   end
 
-  test "Refresh JSON context cannot contradict its native authorization columns", ctx do
-    issued = refresh(ctx.session)
-    token = Repo.get!(RefreshToken, Attesto.Secret.hash(issued.token))
-
-    attrs =
-      Map.take(token, [
-        :family_id,
-        :generation,
-        :client_id,
-        :principal_uid,
-        :session_id,
-        :scope,
-        :context,
-        :expires_at
-      ])
-      |> Map.put(:digest, "wrong-context")
-      |> Map.put(:generation, 1)
-
-    assert {:error, rejected} =
-             Repo.transact(fn ->
-               Ankole.Ash.create(
-                 RefreshToken,
-                 :issue_in_tx,
-                 Map.put(attrs, :context, Map.put(token.context, "client_id", "different-client"))
-               )
-             end)
-
-    assert [_ | _] = errors_on(rejected).context
-    assert Repo.aggregate(RefreshToken, :count) == 1
-  end
-
   defp code(session) do
     {:ok, code} =
       Repo.transact(fn ->

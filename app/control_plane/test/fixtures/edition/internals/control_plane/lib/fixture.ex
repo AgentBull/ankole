@@ -56,8 +56,8 @@ defmodule Ankole.EditionFixture.Router do
          %{method: "POST", request_path: "/api/v2/browser/sessions/email-otp/challenges"} = conn,
          _
        ) do
-    flow = get_in(conn.body_params, ["data", "flow"])
-    conn = conn |> fetch_session() |> AnkoleWeb.BrowserAuth.login_context(flow)
+    params = if is_map(conn.body_params["data"]), do: conn.body_params["data"], else: %{}
+    conn = conn |> fetch_session() |> AnkoleWeb.BrowserAuth.login_context(params)
 
     if Ankole.Plugins.active?("fixture-challenge") and
          Ankole.Features.boolean_value("fixture.auth-challenge") and

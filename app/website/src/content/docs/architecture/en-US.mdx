@@ -33,6 +33,8 @@ A process can restart, but accepted messages, Job state, memory, and audit recor
 
 OTP supervision trees give Agents, connections, and Jobs separate failure domains. If one execution branch hangs or crashes, the control plane can recover that branch without failing the complete deployment instance.
 
+Formal verification checks critical control-plane code and core state machines. This verifies key state transitions and boundary invariants across retries, restarts, and concurrent inputs.
+
 ### A Worker is the Agent's work computer
 
 The control plane runs the main Agent loop. It starts the Agent Computer Worker when environment tools or Codex need the Agent's computer. The Worker executes tools, Skills, browsers, terminals, file operations, automation scripts, and Codex Jobs. The control plane commits durable results.

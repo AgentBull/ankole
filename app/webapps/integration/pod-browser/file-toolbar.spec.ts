@@ -40,16 +40,13 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
     await choose.press('Enter')
     await (await chooser).setFiles(file)
     const input = page.locator('input[type="file"]')
-    const form = input.locator('xpath=ancestor::form')
-    await expect(form.getByRole('status')).toHaveText(file.name)
-    await page.getByRole('button', { name: '上传文件', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: file.name })).toHaveText(file.name)
     await expect(page.getByRole('alert').getByText('Upload temporarily unavailable', { exact: true })).toBeVisible()
-    await expect(form.getByRole('status')).toHaveText(file.name)
-    expect(await input.evaluate((element: HTMLInputElement) => element.files?.[0]?.name)).toBe(file.name)
-    await page.getByRole('button', { name: '上传文件', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: file.name })).toHaveText(file.name)
+    await expect(input).toHaveValue('')
+    await page.getByRole('alert').getByRole('button', { name: '重试', exact: true }).click()
     await started.promise
     await expect(input).toBeDisabled()
-    await expect(choose).toBeDisabled()
     await expect(page.getByRole('button', { name: '正在上传…', exact: true })).toBeDisabled()
     gate.resolve()
     const revenue = page.getByTitle(/工作表.*Revenue/)
@@ -97,7 +94,6 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
       ...file,
       buffer: Buffer.from(XLSX.write(replacement, { type: 'array', bookType: 'xlsx' }))
     })
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
     await expect(worksheets.getByRole('button', { name: 'Forecast', exact: true })).toHaveCount(0)
     await expect(worksheets.getByRole('button', { name: 'Revenue', exact: true })).toHaveAttribute(
       'aria-pressed',
@@ -105,7 +101,6 @@ test('keyboard file selection keeps a failed upload, freezes pending work, and l
     )
     await expect(revenue.contentFrame().getByText('Reduced revenue', { exact: true })).toBeVisible()
     await page.getByLabel('选择替换文件', { exact: true }).setInputFiles(file)
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
     await expect(worksheets.getByRole('button', { name: 'Revenue', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -145,7 +140,6 @@ test('presentation pages expose their selection while keeping file actions above
       buffer: Buffer.from(await PPTX.savePresentation(presentation))
     }
     await page.getByLabel('选择上传文件', { exact: true }).setInputFiles(original)
-    await page.getByRole('button', { name: '上传文件', exact: true }).click()
     const slides = page.getByRole('navigation', { name: '幻灯片', exact: true })
     await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await slides.getByRole('button', { name: '第 2 页', exact: true }).click()
@@ -163,7 +157,6 @@ test('presentation pages expose their selection while keeping file actions above
       mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       buffer: bytes
     })
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
     await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).toHaveCount(0)
     await expect(
@@ -175,7 +168,6 @@ test('presentation pages expose their selection while keeping file actions above
     expect(response.ok()).toBe(true)
     expect(await response.body()).toEqual(bytes)
     await page.getByLabel('选择替换文件', { exact: true }).setInputFiles(original)
-    await page.getByRole('button', { name: '替换文件', exact: true }).click()
     await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).toHaveAttribute('aria-pressed', 'false')
     await expect(

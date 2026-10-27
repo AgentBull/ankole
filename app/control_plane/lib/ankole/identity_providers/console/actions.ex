@@ -35,14 +35,15 @@ defmodule Ankole.IdentityProviders.Console.Actions do
          do: {:ok, %{identity_providers: providers}}
   end
 
-  defp action(:save_provider, args, _context) do
+  defp action(operation, args, _context) when operation in [:create_provider, :save_provider] do
     with {:ok, _} <-
            IdentityProviders.save_provider(
              args.provider_id,
              args.adapter_id,
              args.config,
              args.enabled != false,
-             source: "console"
+             source: "console",
+             mode: if(operation == :create_provider, do: :create, else: :update)
            ),
          {:ok, provider} <- IdentityProviders.fetch_configured_provider(args.provider_id) do
       {:ok, %{identity_provider: provider}}
@@ -96,6 +97,9 @@ defmodule Ankole.IdentityProviders.Console.Actions do
 
   defp describe(:platform_app_bound_to_another_tenant),
     do: {:conflict, "This platform application belongs to another tenant.", []}
+
+  defp describe(:identity_provider_exists),
+    do: {:conflict, "An identity provider with this ID already exists. Choose another ID.", []}
 
   defp describe({:platform_application_identity_unavailable, reference}),
     do:

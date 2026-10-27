@@ -34,7 +34,6 @@ defmodule Ankole.Authn.Transformer do
   defp phases(%Ankole.Authn.Strategies.Otp{}) do
     common = [
       {:browser, :map, false},
-      {:flow, Ankole.Ash.Types.UUIDv7, true},
       {:source, :string, false}
     ]
 

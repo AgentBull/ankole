@@ -13,6 +13,7 @@ defmodule Ankole.OIDC do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AuthZ
   alias Ankole.OIDC.AuthorizationCode
+  alias Ankole.OIDC.AuthorizationRequest
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.ClientGroup
   alias Ankole.OIDC.Validations.ClientPolicy
@@ -55,6 +56,7 @@ defmodule Ankole.OIDC do
     resource(Ankole.OIDC.ClientGroup)
     resource(Ankole.OIDC.SigningKeyRecord)
     resource(Ankole.OIDC.AuthorizationCode)
+    resource(Ankole.OIDC.AuthorizationRequest)
     resource(Ankole.OIDC.RefreshToken)
     resource(Ankole.OIDC.RefreshTokenFamily)
     resource(Ankole.OIDC.Session)
@@ -424,6 +426,9 @@ defmodule Ankole.OIDC do
       )
       |> expire_records(:remove_in_tx)
 
+    authorization_requests =
+      AuthorizationRequest |> Ash.Query.filter(expires_at <= ^now) |> expire_records()
+
     logout_requests =
       LogoutRequest |> Ash.Query.filter(expires_at <= ^now) |> expire_records()
 
@@ -447,6 +452,7 @@ defmodule Ankole.OIDC do
 
     %{
       authorization_codes: authorization_codes,
+      authorization_requests: authorization_requests,
       refresh_tokens: refresh_tokens,
       logout_requests: logout_requests,
       oidc_sessions: oidc_sessions

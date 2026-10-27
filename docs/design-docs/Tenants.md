@@ -14,7 +14,10 @@ workspace domains (`Pod`, `Files`, `Conversations`, `AgentWorkers`,
 operations for that tenant while organization profile, member, invitation, and
 personal account settings remain available. Site administration assignment and
 AuthZ roles belong to their domain owners, and slug validation enforces format
-rules plus any build-configured reserved-slug constraint.
+rules plus the build's reserved-slug list. A build can set
+`tenant_slug_blacklist` to a local TOML file with a `slugs` array. Compilation
+embeds the list in the Tenant resource and tracks the file as an external
+resource. Tenant creation and slug changes use the same resource validation.
 
 ## Base storage placement
 

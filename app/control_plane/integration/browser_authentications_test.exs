@@ -36,8 +36,8 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
 
   test "independent callbacks wait on the browser row, then both commit", context do
     %{browser: browser, first: a, second: b} = context
-    [flow_a, flow_b] = for _ <- 1..2, do: flow(browser)
-    {first, second} = race(browser, flow_a, a, flow_b, b)
+    [state_a, state_b] = for _ <- 1..2, do: oidc_state(browser)
+    {first, second} = race(browser, state_a, a, state_b, b)
     assert {:ok, a_login} = first
     assert {:ok, b_login} = second
 
@@ -49,8 +49,8 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
 
   test "two callbacks for one subject cannot replace each other's committed proof", context do
     %{browser: browser, first: human} = context
-    [first_flow, second_flow] = for _ <- 1..2, do: flow(browser)
-    {first, second} = race(browser, first_flow, human, second_flow, human)
+    [first_state, second_state] = for _ <- 1..2, do: oidc_state(browser)
+    {first, second} = race(browser, first_state, human, second_state, human)
     assert {:ok, login} = first
     assert {:error, :login_expired} = second
     assert BrowserSessions.authentication(BrowserSessions.reference(login.authentication), :pod)
@@ -59,13 +59,13 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
   test "logout confirmation cannot include authentication added while it waits for the lock",
        context do
     %{browser: browser, first: a, second: b} = context
-    {:ok, a_login} = BrowserSessions.complete_login(browser, flow(browser).id, auth(a))
+    {:ok, a_login} = complete_oidc(browser, oidc_state(browser).id, auth(a))
     {:ok, request} = Ankole.OIDC.RPLogout.prepare(browser, %{})
-    new_login = flow(browser)
+    new_login = oidc_state(browser)
 
     {first, second} =
       race(
-        fn wait -> BrowserSessions.complete_login(browser, new_login.id, auth(b), wait) end,
+        fn wait -> complete_oidc(browser, new_login.id, auth(b), wait) end,
         fn -> Ankole.OIDC.RPLogout.confirm(browser, request.id) end
       )
 
@@ -75,12 +75,12 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
     assert BrowserSessions.authentication(BrowserSessions.reference(b_login.authentication), :pod)
   end
 
-  defp race(browser, first_flow, first_human, second_flow, second_human) do
+  defp race(browser, first_state, first_human, second_state, second_human) do
     race(
       fn wait ->
-        BrowserSessions.complete_login(browser, first_flow.id, auth(first_human), wait)
+        complete_oidc(browser, first_state.id, auth(first_human), wait)
       end,
-      fn -> BrowserSessions.complete_login(browser, second_flow.id, auth(second_human)) end
+      fn -> complete_oidc(browser, second_state.id, auth(second_human)) end
     )
   end
 
@@ -127,10 +127,26 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
     end
   end
 
-  defp flow(browser) do
-    {:ok, transaction} = BrowserSessions.begin_login(browser, :pod, %{}, mode: :add)
-    {:ok, transaction} = BrowserSessions.bind_provider(browser, transaction.id, "local")
-    transaction
+  defp oidc_state(browser) do
+    {:ok, oidc_state} =
+      BrowserSessions.begin_oidc_state(browser, %{
+        state: Ecto.UUID.generate(),
+        provider_id: "local",
+        purpose: :pod,
+        mode: :add,
+        redirect_uri: "http://localhost/sessions/oidc/local/callback"
+      })
+
+    oidc_state
+  end
+
+  defp complete_oidc(browser, id, auth, wait \\ fn -> :ok end) do
+    Repo.transact_top_level(fn ->
+      with {:ok, completed} <- BrowserSessions.consume_oidc_state_in_tx(browser, id, auth),
+           :ok <- wait.() do
+        {:ok, completed}
+      end
+    end)
   end
 
   defp auth(human),

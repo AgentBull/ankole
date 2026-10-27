@@ -707,20 +707,13 @@ directory. The workspace is
 temporary. The Job must not read or write another conversation's workspace or
 drive directory. A Job without a source channel uses the shared drive.
 
-The rendered Job context includes the ordinary Skill index and can end with a
-`Job Guidance` section. A Skill with `brain-recall-only: true` stays out of the
-index and is discoverable through Brain. The guidance body is the shared
-template `app/library/templates/AGENT_JOB.md`, read from the builtin library
-root in the Worker image. An empty template omits the section. The shipped
-template is empty. The Codex project config sets the native subagent wait
-minimum to one minute and the default to ten minutes. A child thread runs a
-Job subtask that takes minutes, so a `wait_agent` call without `timeout_ms`
-must cover that work; a shorter default returned early and the lead started to
-redo the child's work. It does not set the
-maximum, so Codex keeps its default. This reduces repeated model turns after
-empty waits, as tracked in [openai/codex#35259](https://github.com/openai/codex/issues/35259).
-A resumed thread keeps its project `AGENTS.md`; the template applies
-when a Job initializes its Workspace.
+The rendered Job context includes the ordinary Skill index. A Skill with
+`brain-recall-only: true` stays out of the index and is discoverable through
+Brain. The Codex project config sets the native subagent wait minimum to one
+minute and the default to ten minutes. The maximum uses the Codex default.
+These durations cover Job subtasks that take minutes and limit repeated model
+turns during a wait; see [openai/codex#35259](https://github.com/openai/codex/issues/35259).
+A resumed thread keeps its project `AGENTS.md`.
 The runner also gives Codex these drive rules as developer instructions. After
 it resumes a native thread, it adds the current instructions to the thread with
 `thread/inject_items`. This keeps the rules in the model context without
@@ -1270,7 +1263,12 @@ are under `/api/v2/agents/:agent_uid/background-activities`: `background-jobs`,
 `workflow`, and `automation-runs`. The aggregation action calls each owning
 domain query in the active tenant. Job health uses
 `GET /api/v2/background-agent-jobs/health`. Console readiness uses
-`GET /api/v2/console-readiness` and reports the existing runtime prerequisites.
+`GET /api/v2/console-readiness` and reports four runtime setup facts: a usable
+LLM provider, an active Agent with a display name and role, the Agent's required
+model profiles, and an available default Worker provider. The Console header
+and home page use this snapshot to link to configuration. Pod chat and
+Automation jobs receive work through their own domain contracts; operators
+configure external message channels in Signals when they use those channels.
 These transport reads keep the domain's admission and observation rules.
 The area does not total parent
 Workflow rows, child calls and delegated Jobs as execution slots, and it does not

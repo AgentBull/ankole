@@ -6,8 +6,9 @@ import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { type AgentWorkerItem, agentWorkerListOptions } from '../api/agent-workers'
+import { agentListOptions } from '../api/agents'
 import { StatusIndicator, type StatusTone } from '../console-form'
-import { ResourceListPage, ResourceSearch } from '../console-list-page'
+import { AgentCell, ResourceListPage, ResourceSearch } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
@@ -27,12 +28,23 @@ export function WorkersListPage() {
         ? WAITING_REFRESH_MS
         : SETTLED_WORKERS_REFRESH_MS
   })
+  const agents = useQuery(agentListOptions())
+  const agentByUID = new Map((agents.data ?? []).map(agent => [agent.uid, agent]))
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (workers.data ?? []).filter(worker =>
-    matchesResourceSearch(searchQuery, worker.agent_uid, worker.provider_id ?? '', worker.state, reason(worker))
-  )
+  const rows = (workers.data ?? []).filter(worker => {
+    const agent = agentByUID.get(worker.agent_uid)
+    return matchesResourceSearch(
+      searchQuery,
+      worker.agent_uid,
+      agent?.display_name ?? '',
+      agent?.handle ?? '',
+      worker.provider_id ?? '',
+      worker.state,
+      reason(worker)
+    )
+  })
 
   return (
     <ResourceListPage
@@ -65,7 +77,7 @@ export function WorkersListPage() {
       }>
       {rows.map(worker => (
         <TableRow key={worker.agent_uid}>
-          <TableCell className="font-mono text-xs">{worker.agent_uid}</TableCell>
+          <AgentCell uid={worker.agent_uid} />
           <TableCell className="font-mono text-xs">
             {worker.provider_id ? (
               <Link className="link" to={`/worker-providers/${encodeURIComponent(worker.provider_id)}`}>

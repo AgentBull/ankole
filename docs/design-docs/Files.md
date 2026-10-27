@@ -336,8 +336,11 @@ this run's Skill files. See
 ## Console
 
 The Agent files page is the drive browser: list a folder, download, upload,
-move or rename, and delete. Every operation calls `Ankole.Files` directly and
-works while the Agent has no running Worker. A listing shows at most 1000
+move, rename, and delete. Selecting files or a folder starts an upload into
+the current folder. A file name opens its download. Rename edits the name
+in place and keeps the parent folder. Move changes the parent folder and keeps the name. Failed moves keep the entered destination for a retry.
+Every operation calls `Ankole.Files` directly and works while the Agent has
+no running Worker. A listing shows at most 1000
 folders and 1000 files of one folder; when a folder has more, the response
 says `truncated` and the page says that the list is partial. The page can
 upload a chosen folder: each file keeps its path inside that folder, so a

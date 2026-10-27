@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { completionAt } from '../chat/composer-completion'
+import { completionAt, insertCompletionTrigger } from '../chat/composer-completion'
 import { hasDraftMention } from './chat'
 import { removePageMention } from '../chat/composer'
 
@@ -59,4 +59,41 @@ test('an open mention search accepts spaces in colleague names and Page titles w
   })
   expect(completionAt('Use @Chat workspace ', 20)).toBeUndefined()
   expect(completionAt('Use @Chat\nworkspace', 19, 19, active)).toBeUndefined()
+})
+
+test('toolbar trigger insertion separates word tokens so chosen mentions remain valid', () => {
+  const afterWord = insertCompletionTrigger('Hello', 5, 5, 'mention')
+  expect(afterWord).toEqual({
+    value: 'Hello @',
+    completion: { kind: 'mention', start: 6, end: 7, query: '' },
+    cursor: 7
+  })
+  expect(completionAt(afterWord.value, afterWord.cursor, afterWord.cursor, afterWord.completion)).toEqual(
+    afterWord.completion
+  )
+  expect(hasDraftMention(`${afterWord.value.slice(0, afterWord.completion.start)}@Alice `, 'Alice')).toBe(true)
+
+  const afterCJK = insertCompletionTrigger('请查看', 3, 3, 'page')
+  expect(afterCJK).toEqual({
+    value: '请查看 @',
+    completion: { kind: 'page', start: 4, end: 5, query: '' },
+    cursor: 5
+  })
+  expect(hasDraftMention(`${afterCJK.value.slice(0, afterCJK.completion.start)}@季度计划 `, '季度计划')).toBe(true)
+
+  expect(insertCompletionTrigger('请查看：', 4, 4, 'mention')).toEqual({
+    value: '请查看：@',
+    completion: { kind: 'mention', start: 4, end: 5, query: '' },
+    cursor: 5
+  })
+  expect(insertCompletionTrigger('Draft', 5, 5, 'slash')).toEqual({
+    value: 'Draft /',
+    completion: { kind: 'slash', start: 6, end: 7, query: '' },
+    cursor: 7
+  })
+  expect(insertCompletionTrigger('Line 1\n', 7, 7, 'slash')).toEqual({
+    value: 'Line 1\n/',
+    completion: { kind: 'slash', start: 7, end: 8, query: '' },
+    cursor: 8
+  })
 })

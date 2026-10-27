@@ -2,11 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  migrateLegacyCodexJobSkillRoots,
-  readCodexJobGuidance,
-  renderCodexJobAgents
-} from '../src/core/codex-runner/job/runtime-files'
+import { migrateLegacyCodexJobSkillRoots, renderCodexJobAgents } from '../src/core/codex-runner/job/runtime-files'
 
 describe('@ankole/agent-computer Codex Job runtime files', () => {
   it('renders the real Job workspace in AGENTS.md', () => {
@@ -53,16 +49,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     expect(unusableTimezone).toContain('2026-08-05 21:27 (UTC)')
   })
 
-  it('includes the provided Job guidance', () => {
-    const content = renderCodexJobAgents({
-      jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION',
-      jobGuidance: 'Guidance body.'
-    }).content
-    expect(content).toContain('Guidance body.')
-  })
-
   it('keeps control-plane Page and delivery instructions in the real Job context', () => {
     const instructions = 'Current Page ID: page-123. Save the research report as an editable Pod Page.'
     const content = renderCodexJobAgents({
@@ -72,20 +58,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
       podInstructions: instructions
     }).content
     expect(content).toContain(instructions)
-  })
-
-  it('reads the bundled AGENT_JOB.md template through the builtin library root', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-job-guidance-'))
-    try {
-      expect(readCodexJobGuidance(root)).toBeUndefined()
-      mkdirSync(join(root, 'templates'), { recursive: true })
-      writeFileSync(join(root, 'templates', 'AGENT_JOB.md'), '\n')
-      expect(readCodexJobGuidance(root)).toBeUndefined()
-      writeFileSync(join(root, 'templates', 'AGENT_JOB.md'), 'Wait guidance.\n')
-      expect(readCodexJobGuidance(root)).toBe('Wait guidance.')
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
   })
 
   it('renders the Ankole Skill catalog in trusted Job guidance', () => {

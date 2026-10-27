@@ -10,6 +10,7 @@ defmodule Ankole.Pod.Bases.Browser do
     scope(:pod)
     allow(:tables, check: :guardrail)
     allow(:create_table, check: :guardrail)
+    allow(:rename_table, check: :guardrail)
     allow(:delete_table, check: :guardrail)
     allow(:show, check: :guardrail)
     allow(:query, check: :guardrail)
@@ -126,6 +127,17 @@ defmodule Ankole.Pod.Bases.Browser do
 
       run(fn input, context ->
         Bases.delete_table(context.actor, input.arguments.id)
+        |> APIError.result(&%{table: &1})
+      end)
+    end
+
+    action :rename_table, :map do
+      constraints(fields: [table: @table])
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false)
+
+      run(fn input, context ->
+        Bases.rename_table(context.actor, input.arguments.id, input.arguments.name)
         |> APIError.result(&%{table: &1})
       end)
     end

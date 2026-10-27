@@ -11,7 +11,7 @@ defmodule Ankole.Authn.Challenge do
       check_constraint(:attempt_count, "authn_challenges_attempts")
       check_constraint(:verified_at, "authn_challenges_consumed")
       check_constraint(:target, "authn_challenges_target")
-      check_constraint(:login_transaction_id, "authn_challenges_anchor")
+      check_constraint(:browser_session_id, "authn_challenges_anchor")
       check_constraint(:factor_stage, "authn_challenges_factor_stage")
     end
   end
@@ -32,7 +32,6 @@ defmodule Ankole.Authn.Challenge do
       constraints: [one_of: [:primary, :secondary, :step_up]]
     )
 
-    attribute(:login_transaction_id, Ankole.Ash.Types.UUIDv7)
     attribute(:browser_session_id, Ankole.Ash.Types.UUIDv7)
     attribute(:tenant_id, Ankole.Ash.Types.UUIDv7)
     attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey)
@@ -56,7 +55,6 @@ defmodule Ankole.Authn.Challenge do
         :strategy,
         :purpose,
         :factor_stage,
-        :login_transaction_id,
         :browser_session_id,
         :tenant_id,
         :principal_uid,

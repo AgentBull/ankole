@@ -214,7 +214,7 @@ defmodule Ankole.Principals.Principal do
         ]
       )
 
-      argument(:email, :string)
+      argument(:email, :string, allow_nil?: false, constraints: [min_length: 1])
 
       argument(:membership, :atom,
         default: :member,

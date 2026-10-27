@@ -23,45 +23,8 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  def begin_login(conn, purpose, request, opts \\ []) do
-    conn = ensure_browser(conn)
-
-    with {:ok, transaction} <-
-           BrowserSessions.begin_login(
-             browser_reference(conn),
-             purpose,
-             request,
-             Keyword.put_new(
-               opts,
-               :mode,
-               Map.get(
-                 conn.assigns,
-                 :browser_login_mode,
-                 if(purpose == :pod, do: :add, else: :replace)
-               )
-             )
-           ),
-         do: {:ok, conn, transaction}
-  end
-
-  def login_transaction(conn, id) do
-    with {:ok, transaction} <- BrowserSessions.login(browser_reference(conn), id) do
-      case conn.assigns[:host_context] do
-        {:pod, tenant_id} when transaction.tenant_id != tenant_id -> {:error, :login_expired}
-        _ -> {:ok, transaction}
-      end
-    end
-  end
-
   def put_privileged_tenant do
     with {:ok, tenant} <- Ankole.Tenants.privileged(), do: Ankole.Repo.put_tenant_id(tenant.id)
-  end
-
-  def complete_login(conn, id, auth, before_commit \\ fn -> :ok end) do
-    with {:ok, %{browser: browser, transaction: transaction, authentication: authentication}} <-
-           BrowserSessions.complete_login(browser_reference(conn), id, auth, before_commit) do
-      {:ok, put_authentication(conn, browser, authentication), transaction}
-    end
   end
 
   @doc "Writes a verified authentication after login."
@@ -85,18 +48,16 @@ defmodule AnkoleWeb.Session do
   @doc "Opens the Console context after setup verifies its first administrator."
   def put_admin_session(conn, attrs) do
     attrs = stringify_keys(attrs)
+    conn = ensure_browser(conn)
 
     with {:ok, version} <- HumanAccess.current_version(attrs["principal_uid"]),
-         {:ok, conn, transaction} <- begin_login(conn, :console, %{}),
-         {:ok, _} <-
-           BrowserSessions.bind_provider(
+         {:ok, %{browser: browser, authentication: authentication}} <-
+           BrowserSessions.authenticate(
              browser_reference(conn),
-             transaction.id,
-             attrs["provider_id"]
-           ),
-         {:ok, conn, _} <-
-           complete_login(conn, transaction.id, Map.put(attrs, "access_version", version)) do
-      conn
+             :console,
+             Map.put(attrs, "access_version", version)
+           ) do
+      put_authentication(conn, browser, authentication)
     else
       {:error, reason} -> raise "Cannot establish setup authentication: #{inspect(reason)}"
     end
@@ -258,14 +219,93 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  def transaction_reference(conn, transaction) do
-    ref = %{
-      "id" => transaction.authentication_id,
-      "revision" => transaction.authentication_revision
-    }
-
+  def authorization_reference(conn, %{
+        authentication_id: id,
+        authentication_revision: revision
+      })
+      when is_binary(id) and is_integer(revision) do
+    ref = %{"id" => id, "revision" => revision}
     if authentication_proven?(conn, ref), do: ref
   end
+
+  def authorization_reference(_conn, _request), do: nil
+
+  def seal_reauthentication(conn, uid, authentication_ref, tenant_id)
+      when is_binary(uid) and is_map(authentication_ref) and is_binary(tenant_id) do
+    with {:ok, browser} <- BrowserSessions.get(browser_reference(conn)),
+         true <- authentication_proven?(conn, authentication_ref),
+         payload =
+           Ankole.JSON.encode!(%{
+             "uid" => uid,
+             "authentication_id" => authentication_ref["id"],
+             "started_revision" => browser.revision,
+             "exp" => System.system_time(:second) + @state_ttl
+           }),
+         {:ok, ticket} <-
+           Ankole.SecretKeyBase.seal(payload, "browser.reauth", [browser.id, tenant_id]) do
+      {:ok, ticket}
+    else
+      false -> {:error, :invalid_authentication}
+      error -> error
+    end
+  end
+
+  def unseal_reauthentication(conn, ticket, tenant_id)
+      when is_binary(ticket) and ticket != "" and is_binary(tenant_id) do
+    with {:ok, browser} <- BrowserSessions.get(browser_reference(conn)),
+         {:ok, json} <-
+           Ankole.SecretKeyBase.unseal(ticket, "browser.reauth", [browser.id, tenant_id]),
+         {:ok,
+          %{
+            "uid" => uid,
+            "authentication_id" => authentication_id,
+            "started_revision" => started_revision,
+            "exp" => exp
+          }} <- Ankole.JSON.decode(json),
+         true <-
+           is_binary(uid) and is_binary(authentication_id) and is_integer(started_revision) and
+             started_revision >= browser.logout_revision and exp > System.system_time(:second) do
+      {:ok,
+       %{
+         uid: uid,
+         authentication_id: authentication_id,
+         started_revision: started_revision
+       }}
+    else
+      _ -> {:error, :login_expired}
+    end
+  end
+
+  def unseal_reauthentication(_, _, _), do: {:error, :login_expired}
+
+  def seal_membership_invitation(conn, invitation_id, tenant_id)
+      when is_binary(invitation_id) and is_binary(tenant_id) do
+    with {:ok, browser} <- BrowserSessions.get(browser_reference(conn)),
+         payload =
+           Ankole.JSON.encode!(%{
+             "invitation_id" => invitation_id,
+             "exp" => System.system_time(:second) + @state_ttl
+           }),
+         {:ok, ticket} <-
+           Ankole.SecretKeyBase.seal(payload, "browser.invitation", [browser.id, tenant_id]) do
+      {:ok, ticket}
+    end
+  end
+
+  def unseal_membership_invitation(conn, ticket, tenant_id)
+      when is_binary(ticket) and ticket != "" and is_binary(tenant_id) do
+    with {:ok, browser} <- BrowserSessions.get(browser_reference(conn)),
+         {:ok, json} <-
+           Ankole.SecretKeyBase.unseal(ticket, "browser.invitation", [browser.id, tenant_id]),
+         {:ok, %{"invitation_id" => invitation_id, "exp" => exp}} <- Ankole.JSON.decode(json),
+         true <- is_binary(invitation_id) and exp > System.system_time(:second) do
+      {:ok, invitation_id}
+    else
+      _ -> {:error, :login_expired}
+    end
+  end
+
+  def unseal_membership_invitation(_, _, _), do: {:error, :login_expired}
 
   def current_authentication(conn) do
     with ref when is_map(ref) <- authentication_reference(conn),
@@ -324,23 +364,62 @@ defmodule AnkoleWeb.Session do
   end
 
   def csrf_state(conn) do
-    # Setup owns its activation session and keeps that form's browser CSRF
-    # state while its internal login transaction verifies the first operator.
-    flow =
-      if String.starts_with?(conn.request_path, "/api/v2/browser/setup/"),
-        do: nil,
-        else: param(conn, "flow")
+    cond do
+      ceremony_shell_route?(conn) ->
+        nil
 
-    case if(is_binary(flow), do: BrowserSessions.transaction_csrf(browser_reference(conn), flow)) do
-      state when is_binary(state) ->
-        state
+      ceremony_api_route?(conn) ->
+        if conn.method in ["GET", "HEAD", "OPTIONS"] or session_csrf_matches?(conn),
+          do: nil,
+          else: authentication_csrf_state(conn)
 
-      _ ->
-        case BrowserSessions.get_authentication(authentication_reference(conn)) do
-          {:ok, authentication} -> authentication.csrf_token
-          _ -> nil
-        end
+      true ->
+        authentication_csrf_state(conn)
     end
+  end
+
+  defp authentication_csrf_state(conn) do
+    case BrowserSessions.get_authentication(authentication_reference(conn)) do
+      {:ok, authentication} -> authentication.csrf_token
+      _ -> nil
+    end
+  end
+
+  defp session_csrf_matches?(conn) do
+    state = get_session(conn, "_csrf_token")
+    header = List.first(get_req_header(conn, "x-csrf-token"))
+    body = if is_non_struct_map(conn.body_params), do: conn.body_params["_csrf_token"]
+
+    is_binary(state) and
+      (Plug.CSRFProtection.valid_state_and_csrf_token?(state, header) or
+         Plug.CSRFProtection.valid_state_and_csrf_token?(state, body))
+  end
+
+  defp ceremony_shell_route?(conn) do
+    conn.request_path in [
+      "/sessions/new",
+      "/sessions/logged-out",
+      "/sessions/logout-error",
+      "/oauth/logout",
+      "/setup"
+    ] or
+      String.starts_with?(conn.request_path, [
+        "/setup/",
+        "/join/",
+        "/sessions/oidc/"
+      ])
+  end
+
+  defp ceremony_api_route?(conn) do
+    conn.request_path in [
+      "/oauth/logout/confirm",
+      "/api/v2/browser/pod-logins"
+    ] or
+      String.starts_with?(conn.request_path, [
+        "/api/v2/browser/setup/",
+        "/api/v2/browser/invitations/",
+        "/api/v2/browser/sessions/"
+      ])
   end
 
   def param(conn, key) do

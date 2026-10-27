@@ -93,10 +93,12 @@ defmodule Ankole.Pod.Pages.Queries do
 
     with {:ok, query} <- exclude_subtree(query, Ankole.Attrs.get(opts, :exclude_subtree_of)),
          {:ok, pages} <- read_pages(query, actor),
+         {:ok, ancestors} <- ancestors(actor, pages),
          do:
            {:ok,
             %{
               pages: pages,
+              ancestors: ancestors,
               principal_uid: Ankole.AuthZ.Actor.uid(actor),
               can_create_private: can_create_private?(actor),
               can_create_space: Pages.can_create_space?(actor)
@@ -104,6 +106,30 @@ defmodule Ankole.Pod.Pages.Queries do
   end
 
   defp search_pages(_actor, _query, _opts), do: {:error, :invalid_request}
+
+  defp ancestors(actor, pages) do
+    ids = Enum.map(pages, & &1.id)
+
+    ancestors =
+      Repo.query!(
+        """
+        WITH RECURSIVE ancestors AS (
+          SELECT parent.id, parent.parent_id FROM pages child
+          JOIN pages parent ON parent.id = child.parent_id AND parent.tenant_id = child.tenant_id
+          WHERE child.tenant_id = $1::text::uuid AND child.id = ANY($2::text[]::uuid[])
+          UNION
+          SELECT parent.id, parent.parent_id FROM pages parent
+          JOIN ancestors child ON parent.id = child.parent_id
+          WHERE parent.tenant_id = $1::text::uuid
+        )
+        SELECT id::text FROM ancestors
+        """,
+        [Repo.tenant_id!(), ids]
+      ).rows
+      |> Enum.map(&hd/1)
+
+    Page |> Ash.Query.filter(id in ^ancestors) |> read_pages(actor)
+  end
 
   defp exclude_subtree(query, nil), do: {:ok, query}
 
@@ -207,7 +233,7 @@ defmodule Ankole.Pod.Pages.Queries do
     case scope do
       "space" -> {:ok, Ash.Query.filter(Page, is_nil(parent_id) and is_nil(private_owner_uid))}
       "private" -> {:ok, Ash.Query.filter(Page, is_nil(parent_id) and private_owner_uid == ^uid)}
-      _ -> {:ok, Ash.Query.filter(Page, is_nil(parent_id) or id == acl_anchor_id)}
+      _ -> {:ok, Ash.Query.new(Page)}
     end
   end
 

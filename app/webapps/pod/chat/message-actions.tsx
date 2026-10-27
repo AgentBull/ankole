@@ -27,15 +27,15 @@ export function MessageActions({
   return (
     <div
       className="pod-chat-message-actions"
-      data-visible={alwaysVisible || undefined}
+      data-visible={alwaysVisible || !!onRetry || undefined}
       role="group"
       aria-label={t('pod.chat_timeline.message_actions')}>
       {!!text && (
         <Button
           variant="ghost"
           size="icon-xs"
-          title={t(copied ? 'pod.chat_timeline.copied' : 'pod.chat.copy_message')}
-          aria-label={t('pod.chat.copy_message')}
+          title={t(copied ? 'pod.chat.message_copied' : 'pod.chat.copy_message')}
+          aria-label={t(copied ? 'pod.chat.message_copied' : 'pod.chat.copy_message')}
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(text)

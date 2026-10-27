@@ -20,7 +20,8 @@ defmodule AnkoleWeb.SpaControllerTest do
   test "GET / redirects to setup until setup completes", %{conn: conn} do
     conn = get(conn, ~p"/")
 
-    assert redirected_to(conn) == ~p"/setup"
+    expected = if @host_policy, do: AnkoleWeb.PodURL.site_origin(conn) <> "/setup", else: "/setup"
+    assert redirected_to(conn) == expected
   end
 
   test "GET / opens the edition's home after setup completes", %{
@@ -32,7 +33,9 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn = get(conn, ~p"/")
 
     if @host_policy do
-      assert redirected_to(conn) == "/account"
+      site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
+      host = String.replace_prefix(site.host, "console.", "accounts.")
+      assert redirected_to(conn) == URI.to_string(%{site | host: host, path: "/"})
     else
       assert redirected_to(conn) == AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
     end
@@ -52,17 +55,20 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/"
   end
 
-  test "GET /sessions/new starts the tenant's browser login after completion", %{
-    conn: conn,
-    tenant: tenant
-  } do
+  test "GET /sessions/new serves the tenant's sign-in shell directly without writing ceremony rows",
+       %{
+         conn: conn,
+         tenant: tenant
+       } do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+    browser_count = Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count)
 
     conn = conn |> pod_conn(tenant) |> get(~p"/sessions/new")
-    assert_pod_login(conn, tenant, "/")
-
-    conn = conn |> recycle() |> get(redirected_to(conn))
     assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
+    assert get_resp_header(conn, "location") == []
+    assert Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count) == browser_count
+    assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
+    assert Ankole.Repo.aggregate(Ankole.OIDC.AuthorizationRequest, :count) == 0
   end
 
   test "GET /site-admin-console redirects anonymous users to auth after completion", %{conn: conn} do
@@ -70,15 +76,16 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     conn = get(conn, ~p"/site-admin-console/settings")
 
-    flow =
-      redirected_to(conn)
-      |> URI.parse()
-      |> Map.fetch!(:query)
-      |> URI.decode_query()
-      |> Map.fetch!("flow")
+    uri = URI.parse(redirected_to(conn))
+    assert uri.path == "/sessions/new"
 
-    assert {:ok, %{purpose: :console, request: %{"return_to" => "/site-admin-console/settings"}}} =
-             AnkoleWeb.Session.login_transaction(conn, flow)
+    assert URI.decode_query(uri.query) == %{
+             "purpose" => "console",
+             "return_to" => "/site-admin-console/settings"
+           }
+
+    assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
+    assert Ankole.Repo.aggregate(Ankole.OIDC.AuthorizationRequest, :count) == 0
   end
 
   test "the canonical Page redirects anonymous users to auth with its short path intact", %{
@@ -158,13 +165,10 @@ defmodule AnkoleWeb.SpaControllerTest do
 
   defp assert_pod_login(conn, tenant, return_to) do
     uri = URI.parse(redirected_to(conn))
+    assert conn.host == URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
     assert uri.host in [nil, conn.host]
     assert uri.path == "/sessions/new"
-    flow = URI.decode_query(uri.query) |> Map.fetch!("flow")
-
-    assert {:ok, %{purpose: :pod, tenant_id: id, request: %{"return_to" => ^return_to}}} =
-             AnkoleWeb.Session.login_transaction(conn, flow)
-
-    assert id == tenant.id
+    assert URI.decode_query(uri.query) == %{"return_to" => return_to}
+    assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
   end
 end

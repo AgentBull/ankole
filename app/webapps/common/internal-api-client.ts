@@ -28,6 +28,8 @@ export const createClientConfig: CreateClientConfig = config => ({
   fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
     request.headers.set('x-csrf-token', csrfToken())
+    const lang = typeof document !== 'undefined' ? document.documentElement?.lang?.trim() : undefined
+    if (lang && !request.headers.has('accept-language')) request.headers.set('accept-language', lang)
     for (const [name, value] of Object.entries(identityHeaders())) request.headers.set(name, value)
     const response = await globalThis.fetch(request)
     if (!response.ok) {

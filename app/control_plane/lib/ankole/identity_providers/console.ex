@@ -17,6 +17,11 @@ defmodule Ankole.IdentityProviders.Console do
       action: "update"
     )
 
+    allow(:create_provider,
+      resource: "site_console:identity_provider:{provider_id}",
+      action: "update"
+    )
+
     allow(:run_sync, resource: "site_console:identity_provider:{provider_id}", action: "sync")
     allow(:directory, resource: "site_console:identity_provider:{provider_id}", action: "read")
 
@@ -128,23 +133,25 @@ defmodule Ankole.IdentityProviders.Console do
       run(__MODULE__.Actions)
     end
 
-    action :save_provider, :map do
-      constraints(
-        fields: [
-          identity_provider: [
-            type: :map,
-            allow_nil?: false,
-            constraints: [fields: @provider_fields]
+    for operation <- [:create_provider, :save_provider] do
+      action operation, :map do
+        constraints(
+          fields: [
+            identity_provider: [
+              type: :map,
+              allow_nil?: false,
+              constraints: [fields: @provider_fields]
+            ]
           ]
-        ]
-      )
+        )
 
-      argument(:provider_id, :string, allow_nil?: false)
-      argument(:adapter_id, :string, allow_nil?: false)
-      argument(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, sensitive?: true)
-      argument(:enabled, :boolean, default: true)
-      transaction?(false)
-      run(__MODULE__.Actions)
+        argument(:provider_id, :string, allow_nil?: false)
+        argument(:adapter_id, :string, allow_nil?: false)
+        argument(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, sensitive?: true)
+        argument(:enabled, :boolean, default: true)
+        transaction?(false)
+        run(__MODULE__.Actions)
+      end
     end
 
     action :run_sync, :map do

@@ -33,6 +33,8 @@ process は再起動できますが、受け付け済みの message、Job state�
 
 OTP の supervision tree は、Agent、connection、Job それぞれに独立した failure domain を与えます。1 つの実行 branch がハングまたは crash しても、control plane は deployment instance 全体を失敗させることなく、その branch だけを復旧できます。
 
+重要な control plane のコードと主要なステートマシンには形式検証を適用しており、再試行、再起動、並行入力のもとでも主要な状態遷移と境界の不変条件を保ちます。
+
 ### Worker は Agent の仕事用コンピュータです
 
 主 Agent loop は control plane で動作します。環境ツールまたは Codex が必要な時点で Agent Computer Worker を起動します。Worker はツール、Skills、browser、terminal、file 操作、automation script、Codex Job を実行し、control plane が永続結果をコミットします。

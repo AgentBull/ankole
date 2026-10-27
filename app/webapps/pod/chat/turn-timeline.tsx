@@ -16,6 +16,7 @@ import { ChoiceCard, type ClarifyAnswer } from './choice-card'
 import { CollapsedWorkView } from './collapsed-work-view'
 import { LinkedExecutionCard } from './linked-execution-card'
 import { MessageActions } from './message-actions'
+import { humanizeToolName } from './tool-run-view'
 import { TurnRail } from './turn-rail'
 import { ChatAvatar } from './chat-avatar'
 import type { ExecutionStep, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
@@ -302,13 +303,13 @@ function CommittedMessage({
     return (
       <div className="pod-chat-timeline-event">
         <span className="pod-chat-event-avatar" aria-hidden>
-          {name.slice(0, 1)}
+          {Array.from(name)[0]}
         </span>
         <p title={label}>{label}</p>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
           {new Date(message.createdAt).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
         </time>
-        {onRetry && <MessageActions text="" onRetry={onRetry} />}
+        {onRetry && <MessageActions text="" onRetry={onRetry} alwaysVisible />}
       </div>
     )
   }
@@ -374,7 +375,7 @@ function CommittedMessage({
         onEdit={onEdit}
         editDisabledReason={editDisabledReason}
         onRetry={onRetry}
-        alwaysVisible={showActions}>
+        alwaysVisible={showActions || !!onRetry}>
         {message.text.trim() && (
           <SaveMessageButton message={message} conversationID={conversationID} onSaved={setSaved} />
         )}
@@ -529,10 +530,15 @@ export function activitySteps(activity: PodActivity, label: (item: PodActivityIt
 
 function useActivityLabel() {
   const { t } = useTranslation()
-  return (item: PodActivityItem) =>
-    item.label_key?.startsWith('conversations.delivery.reply.activity.')
-      ? t(item.label_key, { ...item.label_bindings, defaultValue: t('pod.chat.replying') })
-      : item.label || t('pod.chat.replying')
+  return (item: PodActivityItem, isTool = false) => {
+    const fallback =
+      isTool && !/^(?:call_|toolu_|[0-9a-f]{8}-)/i.test(item.operation_id)
+        ? humanizeToolName(item.operation_id)
+        : t('pod.chat.replying')
+    return item.label_key?.startsWith('conversations.delivery.reply.activity.')
+      ? t(item.label_key, { ...item.label_bindings, defaultValue: item.label || fallback })
+      : item.label || fallback
+  }
 }
 
 function ActivityView({ activity }: { activity: PodActivity }) {
@@ -540,9 +546,9 @@ function ActivityView({ activity }: { activity: PodActivity }) {
   return (
     <CollapsedWorkView
       active
+      phaseLabel={activity.phase ? label(activity.phase) : undefined}
       execution={{
-        steps: activitySteps(activity, label),
-        thinking_summary: activity.phase ? label(activity.phase) : undefined
+        steps: activitySteps(activity, item => label(item, true))
       }}
     />
   )
@@ -561,15 +567,17 @@ function LiveMessage({
 }) {
   const { t } = useTranslation()
   const label = useActivityLabel()
+  const activeActivity = stream.activity?.state === 'active' ? stream.activity : undefined
   return (
     <article className="pod-chat-timeline-message pod-chat-agent-message" data-live-agent={stream.agentUID}>
       <MessageIdentity name={stream.agentName || t('pod.chat_timeline.agent')} avatarURL={avatarURL} />
       <CollapsedWorkView
         active
         startedAt={stream.startedAt}
+        phaseLabel={!stream.thinkingSummary && activeActivity?.phase ? label(activeActivity.phase) : undefined}
         execution={{
           thinking_summary: stream.thinkingSummary,
-          steps: stream.activity ? activitySteps(stream.activity, label) : []
+          steps: activeActivity ? activitySteps(activeActivity, item => label(item, true)) : []
         }}
       />
       {stream.text && <ChatMarkdown text={stream.text} />}

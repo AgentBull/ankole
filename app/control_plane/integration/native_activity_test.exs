@@ -1012,23 +1012,22 @@ defmodule AnkoleWeb.NativeActivityTest do
       |> assign(:test_tenant, tenant)
       |> pod_conn(tenant)
       |> Plug.Test.init_test_session(%{})
+      |> AnkoleWeb.Session.ensure_browser()
 
-    {:ok, conn, transaction} = AnkoleWeb.Session.begin_login(conn, :pod, %{})
-
-    {:ok, _} =
-      Ankole.BrowserSessions.bind_provider(
+    {:ok, completed} =
+      Ankole.BrowserSessions.authenticate(
         AnkoleWeb.Session.browser_reference(conn),
-        transaction.id,
-        "lark-main"
+        :pod,
+        %{
+          "principal_uid" => principal.uid,
+          "access_version" => principal.access_version,
+          "provider_id" => "lark-main",
+          "external_id" => principal.uid
+        },
+        mode: :add
       )
 
-    {:ok, conn, _} =
-      AnkoleWeb.Session.complete_login(conn, transaction.id, %{
-        "principal_uid" => principal.uid,
-        "access_version" => principal.access_version,
-        "provider_id" => "lark-main",
-        "external_id" => principal.uid
-      })
+    conn = AnkoleWeb.Session.put_authentication(conn, completed.browser, completed.authentication)
 
     conn |> with_console_csrf() |> get(~p"/api/v2/browser/session") |> recycle_api()
   end

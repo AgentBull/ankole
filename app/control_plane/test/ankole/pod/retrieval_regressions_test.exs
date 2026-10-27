@@ -57,7 +57,7 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
         })
 
       expected = %{
-        "all" => [space.id, private.id, shared.id],
+        "all" => [space.id, child.id, private.id, shared.id],
         "space" => [space.id],
         "private" => [private.id],
         "shared" => [shared.id],

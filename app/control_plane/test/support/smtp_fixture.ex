@@ -42,9 +42,13 @@ defmodule Ankole.Authn.SMTPFixture do
   end
 
   def text(message), do: message |> Ankole.Plugins.EmailAdapter.Mime.parse() |> text_part()
+  def html(message), do: message |> Ankole.Plugins.EmailAdapter.Mime.parse() |> html_part()
   defp text_part(%{type: "text", subtype: "plain", body: body}), do: body
   defp text_part(%{parts: parts}) when is_list(parts), do: Enum.find_value(parts, &text_part/1)
   defp text_part(_), do: nil
+  defp html_part(%{type: "text", subtype: "html", body: body}), do: body
+  defp html_part(%{parts: parts}) when is_list(parts), do: Enum.find_value(parts, &html_part/1)
+  defp html_part(_), do: nil
 
   @impl true
   def init(_, _, _, options),

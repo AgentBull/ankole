@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.Plugs.BrowserCSRF do
-  @moduledoc "Checks CSRF against the selected authentication or login transaction."
+  @moduledoc "Checks CSRF against the selected authentication or the ceremony session."
   @behaviour Plug
   import Plug.Conn
   alias AnkoleWeb.Session, as: WebSession
@@ -24,6 +24,9 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
         end)
 
       nil ->
+        if protected?(conn) and not same_origin?(conn),
+          do: raise(Plug.CSRFProtection.InvalidCSRFTokenError)
+
         Plug.CSRFProtection.call(conn, fallback)
     end
   end

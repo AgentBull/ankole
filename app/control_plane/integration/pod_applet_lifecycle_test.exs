@@ -559,11 +559,27 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         model: "gpt-5.5"
       })
 
-    {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.applet.ai_agent_uid", agent)
+    {:ok, parent} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        private_owner_uid: ctx.owner
+      })
 
-    applet =
-      publish(
-        ctx.owner,
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, parent.id, %{
+        grants: [%{principal_uid: agent, role: "edit"}]
+      })
+
+    {:ok, applet} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(agent), %{
+        type: "applet",
+        parent_id: parent.id
+      })
+
+    {:ok, _} =
+      publish_existing(
+        agent,
+        applet,
+        0,
         "export default {'POST /ai':()=>AnkoleRuntime.ai.generateText({model:'primary',prompt:'Wait'})}"
       )
 
