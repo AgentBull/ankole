@@ -639,6 +639,11 @@ The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7.
 
 For one Elixir test file, set the working directory to `app/control_plane` and run `mix test test/path/to/file_test.exs`. This is the normal case where a direct `mix` command is appropriate.
 
+Protocol tests that assert a provider TCP disconnect need a direct connection
+to their loopback fixture. Add `127.0.0.1`, `localhost`, and `::1` to `NO_PROXY`
+for the test process, and keep its other exclusions. A proxy owns a separate
+connection to the fixture.
+
 Run provider client unit tests without PostgreSQL from the repository root:
 
 ```bash

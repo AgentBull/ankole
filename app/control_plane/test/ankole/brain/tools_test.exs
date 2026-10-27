@@ -631,7 +631,9 @@ defmodule Ankole.Brain.ToolsTest do
 
     test "strict group chat holds back what a present member does not satisfy", context do
       event = insert_signal!(context.agent.uid, context.asker.uid, context.group_channel.id)
-      refute recalled?(context, turn_context!(context.agent.uid, event))
+      brain_context = turn_context!(context.agent.uid, event)
+      assert context.agent.uid in brain_context.disclosure.present_uids
+      refute recalled?(context, brain_context)
     end
 
     test "relaxed group chat checks only the asker", context do
@@ -647,6 +649,141 @@ defmodule Ankole.Brain.ToolsTest do
     test "a private chat behaves the same under the strict default", context do
       event = insert_signal!(context.agent.uid, context.asker.uid, context.dm_channel.id)
       assert recalled?(context, turn_context!(context.agent.uid, event))
+    end
+
+    test "strict native DM serves the Human reader's private facts and page body", context do
+      context = native_disclosure_context!(context)
+      brain_context = turn_context!(context.agent.uid, context.native_event)
+
+      assert context.native_channel.room_mode == :dm
+      assert brain_context.querier_uid == context.agent.uid
+
+      assert brain_context.disclosure == %{
+               mode: :strict,
+               asker_uid: context.asker.uid,
+               present_uids: [context.asker.uid]
+             }
+
+      assert recalled?(context, brain_context)
+      assert private_body_visible?(context, brain_context)
+    end
+
+    test "strict native rooms check each Human and current membership", context do
+      context = native_disclosure_context!(context)
+      actor = actor_fixture(context.asker.uid)
+
+      assert {:ok, room} =
+               Ankole.Conversations.manage_participants(actor, context.native_channel.id, %{
+                 add_uids: [context.bystander.uid]
+               })
+
+      assert room.conversation.room_mode == :group
+      brain_context = turn_context!(context.agent.uid, context.native_event)
+
+      assert Enum.sort(brain_context.disclosure.present_uids) ==
+               Enum.sort([context.asker.uid, context.bystander.uid])
+
+      refute recalled?(context, brain_context)
+      refute private_body_visible?(context, brain_context)
+
+      assert {:ok, _room} =
+               Ankole.Conversations.manage_participants(actor, context.native_channel.id, %{
+                 remove_uids: [context.bystander.uid]
+               })
+
+      current_context = turn_context!(context.agent.uid, context.native_event)
+      assert recalled?(context, current_context)
+      assert private_body_visible?(context, current_context)
+    end
+
+    test "strict native rooms retain every other Agent as a recipient", context do
+      context = native_disclosure_context!(context)
+      %{principal: other_agent} = agent_fixture(%{owner_principal_uid: context.asker.uid})
+      Ankole.ConversationsFixtures.grant_chat(context.asker.uid, other_agent.uid)
+
+      assert {:ok, room} =
+               Ankole.Conversations.manage_participants(
+                 actor_fixture(context.asker.uid),
+                 context.native_channel.id,
+                 %{add_uids: [other_agent.uid]}
+               )
+
+      assert room.conversation.room_mode == :group
+      brain_context = turn_context!(context.agent.uid, context.native_event)
+
+      assert Enum.sort(brain_context.disclosure.present_uids) ==
+               Enum.sort([context.asker.uid, other_agent.uid])
+
+      refute recalled?(context, brain_context)
+      refute private_body_visible?(context, brain_context)
+    end
+
+    test "scheduled native DM without an asker serves its Human reader", context do
+      context = native_disclosure_context!(context)
+
+      event =
+        scheduled_signal!(context.agent.uid, context.native_channel.id, %{
+          "targets" => [%{"conversation_id" => context.native_channel.id}]
+        })
+
+      brain_context = turn_context!(context.agent.uid, event)
+
+      assert brain_context.disclosure == %{
+               mode: :strict,
+               asker_uid: nil,
+               present_uids: [context.asker.uid]
+             }
+
+      assert recalled?(context, brain_context)
+      assert private_body_visible?(context, brain_context)
+    end
+
+    test "scheduled native rooms without an asker check every recipient", context do
+      context = native_disclosure_context!(context)
+
+      assert {:ok, _room} =
+               Ankole.Conversations.manage_participants(
+                 actor_fixture(context.asker.uid),
+                 context.native_channel.id,
+                 %{add_uids: [context.bystander.uid]}
+               )
+
+      event =
+        scheduled_signal!(context.agent.uid, context.native_channel.id, %{
+          "targets" => [%{"conversation_id" => context.native_channel.id}]
+        })
+
+      brain_context = turn_context!(context.agent.uid, event)
+      assert brain_context.disclosure.asker_uid == nil
+
+      assert Enum.sort(brain_context.disclosure.present_uids) ==
+               Enum.sort([context.asker.uid, context.bystander.uid])
+
+      refute recalled?(context, brain_context)
+      refute private_body_visible?(context, brain_context)
+    end
+
+    test "a scheduled native reply with an unknown target fails closed", context do
+      context = native_disclosure_context!(context)
+
+      event =
+        scheduled_signal!(context.agent.uid, context.native_channel.id, %{
+          "targets" => [
+            %{"conversation_id" => context.native_channel.id},
+            %{"conversation_id" => Ankole.Kernel.gen_uuid_v7()}
+          ]
+        })
+
+      brain_context = turn_context!(context.agent.uid, event)
+
+      assert brain_context.disclosure == %{
+               mode: :strict,
+               asker_uid: nil,
+               present_uids: []
+             }
+
+      refute recalled?(context, brain_context)
+      refute private_body_visible?(context, brain_context)
     end
 
     # A cron fire and a check-back wakeup carry no sender and still deliver
@@ -703,33 +840,7 @@ defmodule Ankole.Brain.ToolsTest do
         ]
       }
 
-      event =
-        insert_signal!(context.agent.uid, nil, context.dm_channel.id, %{
-          type: "cron.fire",
-          data: %{"wake_payload" => %{"delivery" => delivery}}
-        })
-
-      now = DateTime.utc_now(:microsecond)
-
-      assert {:ok, _proof} =
-               Repo.transact(fn ->
-                 with {:ok, proof} <-
-                        Ankole.Ash.create(
-                          Ankole.Schedule.Schemas.ScheduledEvent,
-                          :create_event,
-                          %{
-                            kind: "cron_fire",
-                            agent_uid: event.agent_uid,
-                            session_id: event.session_id,
-                            due_at: now,
-                            requested_at: now,
-                            timezone: "UTC",
-                            idempotency_key: "disclosure:#{event.id}"
-                          }
-                        ) do
-                   Ankole.Ash.update(proof, :fire, %{signal_id: event.id, fired_at: now})
-                 end
-               end)
+      event = scheduled_signal!(context.agent.uid, context.dm_channel.id, delivery)
 
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
@@ -745,6 +856,73 @@ defmodule Ankole.Brain.ToolsTest do
                Tools.execute("recall", %{"query" => "wire format secret"}, brain_context)
 
       context.private_fact.id in Enum.map(result["claims"], & &1["id"])
+    end
+
+    defp private_body_visible?(context, brain_context) do
+      assert {:ok, %{"page" => page}} =
+               Tools.execute(
+                 "get_page",
+                 %{"reference" => context.private_page.slug},
+                 brain_context
+               )
+
+      page["rendered"] =~ "Native private wire format body."
+    end
+
+    defp native_disclosure_context!(context) do
+      Ankole.ConversationsFixtures.grant_chat(context.asker.uid, context.agent.uid)
+      message_id = Ankole.Kernel.gen_uuid_v7()
+
+      assert {:ok, detail} =
+               Ankole.Conversations.create(actor_fixture(context.asker.uid), %{
+                 conversation_id: Ankole.Kernel.gen_uuid_v7(),
+                 message_id: message_id,
+                 agent_uid: context.agent.uid,
+                 text: "Recall the wire format secret"
+               })
+
+      [event] =
+        Ankole.Signals.list_signals!(
+          query: [filter: [agent_uid: context.agent.uid, message_id: message_id]]
+        )
+
+      assert {:ok, private_page} =
+               Ankole.Brain.create_object(
+                 %{
+                   slug: "analysis/native-private",
+                   type: "analysis",
+                   title: "Native Private",
+                   body: """
+                   {% audience scope="principal:#{context.asker.uid}" %}
+                   Native private wire format body.
+                   {% /audience %}
+                   """
+                 },
+                 context.asker.uid
+               )
+
+      assert {:ok, %{claim: private_fact}} =
+               Ankole.Brain.write_fact(
+                 %{
+                   object_slug: context.object.slug,
+                   claim: "Wire format secret recorded by the asking Human",
+                   kind: "fact",
+                   holder: "world",
+                   audience_scope: "principal:" <> context.asker.uid,
+                   notability: "medium",
+                   confidence: 0.9,
+                   valid_from: DateTime.utc_now(:microsecond),
+                   provenance: "test"
+                 },
+                 context.asker.uid
+               )
+
+      Map.merge(context, %{
+        native_channel: detail.conversation,
+        native_event: event,
+        private_page: private_page,
+        private_fact: private_fact
+      })
     end
   end
 
@@ -899,6 +1077,38 @@ defmodule Ankole.Brain.ToolsTest do
   defp turn_context!(agent_uid, event) do
     {:ok, context} = RequestContext.build(agent_uid, %{"signal_id" => event.id})
     context
+  end
+
+  defp scheduled_signal!(agent_uid, conversation_id, delivery) do
+    event =
+      insert_signal!(agent_uid, nil, conversation_id, %{
+        type: "cron.fire",
+        data: %{"wake_payload" => %{"delivery" => delivery}}
+      })
+
+    now = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _proof} =
+             Repo.transact(fn ->
+               with {:ok, proof} <-
+                      Ankole.Ash.create(
+                        Ankole.Schedule.Schemas.ScheduledEvent,
+                        :create_event,
+                        %{
+                          kind: "cron_fire",
+                          agent_uid: event.agent_uid,
+                          session_id: event.session_id,
+                          due_at: now,
+                          requested_at: now,
+                          timezone: "UTC",
+                          idempotency_key: "disclosure:#{event.id}"
+                        }
+                      ) do
+                 Ankole.Ash.update(proof, :fire, %{signal_id: event.id, fired_at: now})
+               end
+             end)
+
+    event
   end
 
   defp insert_channel!(kind, principal_group_id) do

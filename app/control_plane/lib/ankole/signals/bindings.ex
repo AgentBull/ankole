@@ -122,6 +122,7 @@ defmodule Ankole.Signals.Bindings do
                  config: normalized_config,
                  application: application,
                  config_key: config_key,
+                 filters: Map.fetch(Ankole.Attrs.normalize_external_attrs(attrs), "filters"),
                  policy: policy,
                  unmatched_sender_policy: unmatched_sender_policy
                })
@@ -204,6 +205,7 @@ defmodule Ankole.Signals.Bindings do
                  config: normalized_config,
                  application: application,
                  config_key: config_key,
+                 filters: Map.fetch(Ankole.Attrs.normalize_external_attrs(attrs), "filters"),
                  policy: policy,
                  unmatched_sender_policy: unmatched_sender_policy
                })
@@ -555,17 +557,21 @@ defmodule Ankole.Signals.Bindings do
              binding_name,
              assignment.config
            ),
+         previous <- lock_binding(agent_uid, binding_name),
          {:ok, binding} <-
-           enable_in_tx(%{
-             agent_uid: agent_uid,
-             name: binding_name,
-             adapter: definition.id,
-             config_ref: "app-config://#{assignment.config_key}",
-             filters: %{},
-             unaddressed_group_message_policy: assignment.policy,
-             unmatched_sender_policy: assignment.unmatched_sender_policy,
-             enabled: true
-           }),
+           enable_in_tx(
+             %{
+               agent_uid: agent_uid,
+               name: binding_name,
+               adapter: definition.id,
+               config_ref: "app-config://#{assignment.config_key}",
+               filters: binding_filters(assignment.filters, previous),
+               unaddressed_group_message_policy: assignment.policy,
+               unmatched_sender_policy: assignment.unmatched_sender_policy,
+               enabled: true
+             },
+             previous
+           ),
          {:ok, committed_config} <-
            AppConfigure.put_global_by_key_in_tx(assignment.config_key, assignment.config),
          :ok <-
@@ -615,7 +621,7 @@ defmodule Ankole.Signals.Bindings do
                name: binding_name,
                adapter: definition.id,
                config_ref: "app-config://#{assignment.config_key}",
-               filters: source_binding.filters,
+               filters: binding_filters(assignment.filters, source_binding),
                unaddressed_group_message_policy:
                  assignment.policy || source_binding.unaddressed_group_message_policy,
                unmatched_sender_policy:
@@ -632,6 +638,10 @@ defmodule Ankole.Signals.Bindings do
       {:ok, {binding, committed_config, assignment.config}}
     end
   end
+
+  defp binding_filters(:error, nil), do: %{}
+  defp binding_filters(:error, binding), do: binding.filters
+  defp binding_filters({:ok, filters}, _binding), do: filters
 
   @doc false
   def enable_in_tx(attrs),

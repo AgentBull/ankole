@@ -786,6 +786,13 @@ replayed. `Ankole.Pod.Applets.Invocation` owns the call and all capability tasks
 Caller exit, cancellation, timeout, and connection loss settle that owner once
 and stop its pending tasks.
 
+While an Applet response is pending, the HTTP/1 connection buffers at most
+1,048,576 bytes of pipelined request data. The total includes the initial
+transport buffer and all data received before the response. An overflow closes
+the connection and cancels the invocation. Already committed capability writes
+remain. Pipelined requests within this limit keep their bytes and order.
+An HTTP/2 stream reset cancels the invocation through its transport reset message.
+
 `pod.applet.limits` sets the wall-time and heap bounds. The function service
 also enforces per-worker CPU limits. Applets can use Node crypto, in-memory
 `/tmp` files, environment values, and public network fetch. The function service

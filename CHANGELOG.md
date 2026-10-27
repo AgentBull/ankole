@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.1-alpha.27 (2026-10-27)
+
+- Bound HTTP/1 data queued during an Applet invocation to 1 MiB. Overflow closes the connection and cancels the invocation while preserving committed writes.
+- Save Messaging Binding filters on creation, edits, and moves. Omitted filters keep their saved value, and invalid filters reject the complete write.
+- Let an Agent read the current native conversation readers' private Brain content. Other participants continue to restrict disclosure.
+- Preserve native Conversation routes when Workflow tasks delegate Background Jobs, so Job results wake the owning task.
+
 ## Version 2.0.0-alpha.27 (2026-10-26)
 
 - Translate Applets as 小应用 in Simplified Chinese interfaces and starter templates.

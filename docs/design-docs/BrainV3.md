@@ -96,6 +96,12 @@ Two boundaries apply on every read, in order:
    requires every present member to satisfy it. Group-memory disclosure mode
    is an Agent setting.
 
+For a native conversation, strict disclosure checks every participant except
+the Agent that produces the current answer. Other Agents remain recipients.
+A scheduled reply without an asker uses the same recipient set. An empty or
+unresolved set denies disclosure. IM conversations use their provider recipient
+rules.
+
 Writer eligibility mirrors the read rule: a writer can write a scope it can
 itself reach; the system writer can write every scope.
 

@@ -104,6 +104,172 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
   end
 
+  test "messaging filter writes persist replacements, preserve omissions, and allow clearing", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+    create_url = ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/filters"
+    edit_url = ~p"/api/v2/agents/#{agent.uid}/signal-bindings/filters"
+    config = lark_config("filters")
+    initial = %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
+
+    conn =
+      conn
+      |> console_conn()
+      |> api_put(create_url, %{"config" => config, "filters" => initial})
+
+    assert %{"signal_binding" => %{"filters" => ^initial}} = json_response(conn, 200)
+    assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == initial
+
+    for filters <- [%{"cel" => "false"}, %{}] do
+      updated =
+        conn
+        |> recycle_api()
+        |> api_put(create_url, %{"config" => config, "filters" => filters})
+
+      assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(updated, 200)
+      assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
+
+      omitted = updated |> recycle_api() |> api_put(create_url, %{"config" => config})
+      assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(omitted, 200)
+      assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
+    end
+
+    for filters <- [%{"cel" => "true"}, %{}] do
+      updated =
+        conn
+        |> recycle_api()
+        |> api_patch(edit_url, %{
+          "target_agent_uid" => agent.uid,
+          "config" => %{},
+          "filters" => filters
+        })
+
+      assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(updated, 200)
+      assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
+
+      omitted =
+        updated
+        |> recycle_api()
+        |> api_patch(edit_url, %{"target_agent_uid" => agent.uid, "config" => %{}})
+
+      assert %{"signal_binding" => %{"filters" => ^filters}} = json_response(omitted, 200)
+      assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters").filters == filters
+    end
+  end
+
+  test "invalid CEL cannot create or replace a messaging binding or its configuration", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+    url = ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/filters"
+    config = lark_config("invalid-filters")
+    config_key = LarkConfig.binding_config_key(agent.uid, "filters")
+    invalid = %{"cel" => "signal.channel."}
+
+    rejected =
+      conn
+      |> console_conn()
+      |> api_put(url, %{"config" => config, "filters" => invalid})
+
+    assert %{
+             "errors" => [
+               %{
+                 "code" => "invalid_attribute",
+                 "source" => %{"pointer" => "/data/attributes/filters"},
+                 "detail" => detail
+               }
+             ]
+           } = json_response(rejected, 400)
+
+    assert detail =~ "cel must be a valid filter"
+    refute Repo.get_by(Binding, agent_uid: agent.uid, name: "filters")
+    refute Repo.get_by(SiteConfig, scope: "global", key: config_key)
+
+    filters = %{"cel" => "true"}
+
+    created =
+      rejected
+      |> recycle_api()
+      |> api_put(url, %{"config" => config, "filters" => filters})
+
+    assert response(created, 200)
+    original = Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters")
+    assert {:ok, original_config} = Bindings.binding_config(original, LarkConfig)
+
+    rejected =
+      created
+      |> recycle_api()
+      |> api_put(url, %{
+        "config" => Map.put(config, "userName", "Rejected replacement"),
+        "filters" => invalid
+      })
+
+    assert %{
+             "errors" => [
+               %{
+                 "code" => "invalid_attribute",
+                 "source" => %{"pointer" => "/data/attributes/filters"},
+                 "detail" => detail
+               }
+             ]
+           } = json_response(rejected, 400)
+
+    assert detail =~ "cel must be a valid filter"
+    stored = Repo.get_by!(Binding, agent_uid: agent.uid, name: "filters")
+    assert stored.filters == filters
+    assert stored.enabled == original.enabled
+    assert {:ok, ^original_config} = Bindings.binding_config(stored, LarkConfig)
+  end
+
+  test "invalid CEL rolls back a messaging binding move", %{conn: conn} do
+    %{principal: source} = agent_fixture()
+    %{principal: target} = agent_fixture()
+    filters = %{"cel" => "true"}
+
+    created =
+      conn
+      |> console_conn()
+      |> api_put(~p"/api/v2/agents/#{source.uid}/signal-bindings/lark/filters", %{
+        "config" => lark_config("invalid-filter-move"),
+        "filters" => filters
+      })
+
+    assert response(created, 200)
+    original = Repo.get_by!(Binding, agent_uid: source.uid, name: "filters")
+    assert {:ok, original_config} = Bindings.binding_config(original, LarkConfig)
+
+    rejected =
+      created
+      |> recycle_api()
+      |> api_patch(~p"/api/v2/agents/#{source.uid}/signal-bindings/filters", %{
+        "target_agent_uid" => target.uid,
+        "config" => %{"userName" => "Rejected move"},
+        "filters" => %{"cel" => "signal.channel."}
+      })
+
+    assert %{
+             "errors" => [
+               %{
+                 "code" => "invalid_attribute",
+                 "source" => %{"pointer" => "/data/attributes/filters"},
+                 "detail" => detail
+               }
+             ]
+           } = json_response(rejected, 400)
+
+    assert detail =~ "cel must be a valid filter"
+    assert {:ok, stored} = Bindings.get_binding(source.uid, "filters")
+    assert stored.filters == filters
+    assert {:ok, ^original_config} = Bindings.binding_config(stored, LarkConfig)
+    refute Repo.get_by(Binding, agent_uid: target.uid, name: "filters")
+
+    refute Repo.get_by(SiteConfig,
+             scope: "global",
+             key: LarkConfig.binding_config_key(target.uid, "filters")
+           )
+  end
+
   test "a missing required connection field names the field in the error", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
@@ -453,17 +619,15 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("move"))
+      |> api_put(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => lark_config("move"),
+        "filters" => %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
+      })
 
     assert response(conn, 200)
 
     assert {:ok, source_binding} =
              Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
-
-    assert {:ok, _binding} =
-             Ankole.SignalsFixtures.raw_binding_fixture(source_binding, %{
-               filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
-             })
 
     conn =
       conn
