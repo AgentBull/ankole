@@ -138,6 +138,10 @@ test('live work uses the room activity phases before the final reply is committe
   expect(waiting).toContain('Waiting for computer capacity')
   expect(waiting).not.toContain('<details')
 
+  const completed = render(<CollapsedWorkView phaseLabel="Waiting for computer capacity" execution={execution} />)
+  expect(completed).toContain('Worked for 4.2s · 2 tools')
+  expect(completed).not.toContain('Waiting for computer capacity')
+
   const parallel = render(
     <CollapsedWorkView
       active
@@ -158,6 +162,7 @@ test('active work highlights the current action without forcing its accumulated 
   const html = render(
     <CollapsedWorkView
       active
+      phaseLabel="Waiting for computer capacity"
       execution={{
         ...execution,
         steps: [
@@ -168,6 +173,7 @@ test('active work highlights the current action without forcing its accumulated 
     />
   )
   expect(html).toContain('Updating the report')
+  expect(html).not.toContain('Waiting for computer capacity')
   expect(html).toContain('<details class="pod-chat-thinking">')
   expect(html).toContain('<details class="pod-chat-tool-group">')
   expect(html).toContain('3 tool calls')

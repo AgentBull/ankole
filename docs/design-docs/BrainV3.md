@@ -274,6 +274,9 @@ is the querier; a Turn's conversation supplies the disclosure recipients and
 the default write scope. A workflow task gets the read-only subset `recall`
 and `get_page` of the hosted tool.
 
+Function declarations use `strict: false`. A call omits optional arguments
+that its selected operation does not need.
+
 A codex Job does not receive the hosted tool, because in Codex code mode the
 model can call only the tools that Codex itself declared. When `brain.enabled`
 is true, the turn start carries the `Ankole.Sessions.Tools.Brain` declarations

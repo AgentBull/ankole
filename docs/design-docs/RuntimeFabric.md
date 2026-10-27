@@ -200,6 +200,11 @@ frame contains at most 16 MiB. A channel process closes its connection when its
 mailbox exceeds 10,000 messages; the worker reconnects, and PostgreSQL
 AIGateway Response tape, receipts, and Job facts drive recovery.
 
+The Worker reserves 1,025 bytes for the Phoenix binary header when it checks
+an outgoing envelope. A request that exceeds this frame budget fails locally
+with `frame_too_large` before it consumes a stream sequence or sends bytes.
+The caller can split the request. A large document uses the WorkerFiles relay.
+
 A telemetry drop does not change turn correctness. Telemetry that must not be
 lost needs a durable spool; RuntimeFabric does not provide one.
 

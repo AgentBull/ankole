@@ -769,6 +769,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:rich_owner_update, third_owner_id, third_presentation}
     assert third_owner_id == next_steer_event.id
     assert third_presentation["answer"] == "第三张卡片续接"
+    stop_preview_and_wait(signal.id)
   end
 
   test "steer switches ownership without creating an empty paused card" do

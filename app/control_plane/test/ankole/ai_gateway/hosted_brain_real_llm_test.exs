@@ -10,7 +10,6 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
 
   use Ankole.AIGatewayCase
 
-  import Ecto.Query
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
 
@@ -46,7 +45,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
         model: @model
       })
 
-    {:ok, %{claim: _seed}} =
+    {:ok, %{claim: seed}} =
       Ankole.Brain.write_fact(
         %{
           object_slug: "agents/" <> agent.uid,
@@ -62,7 +61,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
         agent.uid
       )
 
-    %{agent: agent, owner: owner}
+    %{agent: agent, owner: owner, claim: seed}
   end
 
   test "an Agent recalls memory through the hosted tool inside one Response", %{agent: agent} do
@@ -114,7 +113,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
 
     claim = Repo.get!(Claim, remember_output["output"]["claim_id"])
     assert claim.claim =~ "launch review"
-    assert claim.author_uid == agent.uid
+    assert claim.author == %Ankole.ActorRef{tenant_id: Repo.tenant_id!(), uid: agent.uid}
     assert claim.audience_scope == "world"
     assert claim.confidence === 1.0
     assert final_text(outcome) =~ "REMEMBER_OK"
@@ -156,7 +155,29 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
     claim = Repo.get!(Claim, claim_id)
     assert claim.audience_scope == "principal:" <> owner.uid
 
-    assert Repo.exists?(from c in Claim, where: c.id == ^claim_id and c.author_uid == ^owner.uid)
+    assert claim.author == %Ankole.ActorRef{tenant_id: Repo.tenant_id!(), uid: owner.uid}
+  end
+
+  test "forget expires the selected claim and keeps its page", %{agent: agent, claim: claim} do
+    {_events, outcome} =
+      stream!(
+        agent.uid,
+        brain_request("primary", """
+        Call forget exactly once to expire the claim with claim_id #{claim.id}.
+        Omit slug and keep the page. Then reply FORGET_OK.
+        """)
+      )
+
+    assert outcome.terminal_error == nil
+
+    assert [%{"operation" => "forget", "arguments" => arguments}] =
+             items_of(outcome, "brain_call")
+
+    assert arguments["claim_id"] == claim.id
+    assert Ankole.Attrs.optional_text(arguments["slug"]) == nil
+    assert [%{"status" => "completed"}] = items_of(outcome, "brain_output")
+    assert %DateTime{} = Repo.reload!(claim).expired_at
+    assert Repo.get_by!(Ankole.Brain.Schemas.Object, slug: claim.object_slug).deleted_at == nil
   end
 
   defp brain_request(model, text) do

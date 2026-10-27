@@ -502,7 +502,7 @@ export class BrowserSession {
         ? resolve(value)
         : resolve(this.material.artifact_root, value.replace(/^browser\/?/, ''))
       : resolve(this.material.artifact_root, `screenshots/${new Date().toISOString().replace(/[:.]/g, '-')}.png`)
-    assertInside(this.material.artifact_root, path)
+    assertInside(this.material.artifact_root, path, 'browser artifact root')
     return path
   }
 
@@ -513,7 +513,7 @@ export class BrowserSession {
   private workspacePath(value: string): string {
     const workspaceRoot = resolve(dirname(this.material.artifact_root))
     const path = isAbsolute(value) ? resolve(value) : resolve(workspaceRoot, value)
-    assertInside(workspaceRoot, path)
+    assertInside(workspaceRoot, path, 'Agent workspace')
     return path
   }
 
@@ -599,9 +599,9 @@ function unsupportedCommand(command: never): never {
   throw new BrowserDataError('invalid_command', `unsupported browser command: ${name}`)
 }
 
-function assertInside(root: string, path: string): void {
+function assertInside(root: string, path: string, boundary: string): void {
   const child = relative(resolve(root), resolve(path))
   if (child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(child)) {
-    throw new BrowserDataError('invalid_command', 'artifact path must stay inside browser artifact root')
+    throw new BrowserDataError('invalid_command', `file path must stay inside ${boundary}`)
   }
 }

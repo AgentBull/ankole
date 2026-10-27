@@ -60,6 +60,7 @@ defmodule Ankole.Brain.ToolsTest do
 
     for spec <- specs do
       assert spec["type"] == "function"
+      assert spec["strict"] == false
       assert is_binary(spec["description"]) and spec["description"] != ""
       assert spec["parameters"]["type"] == "object"
       assert spec["parameters"]["additionalProperties"] == false

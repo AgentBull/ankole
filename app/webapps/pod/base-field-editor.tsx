@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { t } from 'i18next'
 import { Button, Checkbox, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger, Textarea } from '@ankole/uikit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -202,7 +203,7 @@ export function FieldEditorButton({
                   variant="outline"
                   disabled={pending}
                   size="sm"
-                  onClick={() => setOptions([...options, { id: crypto.randomUUID(), name: '' }])}>
+                  onClick={() => setOptions([...options, { id: uuidV4(), name: '' }])}>
                   {t('pod.content.add_option')}
                 </Button>
               </div>

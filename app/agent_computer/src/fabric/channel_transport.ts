@@ -126,6 +126,8 @@ const streamEnum: Record<RuntimeFabricStream, Stream> = {
   telemetry: Stream.TELEMETRY
 }
 const resumeClockGapMs = 30_000
+// Phoenix adds five header bytes and four metadata fields of at most 255 bytes each.
+const maxEnvelopeBytes = 16 * 1024 * 1024 - (5 + 4 * 255)
 const telemetryExportMethod = 'observability.spans.export'
 
 export const runtimeFabricWorkerTopic = 'worker'
@@ -381,6 +383,11 @@ class ChannelTransport implements RuntimeFabricHost {
     // The sequence number is assigned when the push happens; its varint adds
     // at most a few bytes, so the window accounts the unsequenced size.
     const size = this.seal(envelope, stream, 0).byteLength + 12
+    if (size > maxEnvelopeBytes) {
+      throw new RuntimeFabricTransportError('rejected', 'RuntimeFabric request exceeds the frame budget', {
+        reason: 'frame_too_large'
+      })
+    }
     const window = this.windows[stream]
 
     if (stream === 'telemetry') {

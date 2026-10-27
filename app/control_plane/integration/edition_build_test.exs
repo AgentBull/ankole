@@ -3,6 +3,52 @@ defmodule Ankole.EditionBuildTest do
   @moduletag timeout: 1_800_000
   @root Path.expand("../../..", __DIR__)
 
+  test "SaaS preparation repairs a stale dependency link without replacing a directory" do
+    checkout =
+      Path.join(System.tmp_dir!(), "ankole-edition-link-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(checkout) end)
+
+    for directory <-
+          ~w(app/webapps/scripts app/webapps/node_modules app/locales internals/webapps internals/locales) do
+      File.mkdir_p!(Path.join(checkout, directory))
+    end
+
+    webapps = Path.join(checkout, "app/webapps")
+
+    File.cp!(
+      Path.join(@root, "app/webapps/scripts/edition.ts"),
+      Path.join(webapps, "scripts/edition.ts")
+    )
+
+    File.write!(Path.join(webapps, "entries.json"), ~s({"pod":"pod.tsx"}))
+    File.write!(Path.join(webapps, "pod.tsx"), "export {};\n")
+    File.write!(Path.join(checkout, "app/locales/en-US.toml"), "[common]\nready = \"Ready\"\n")
+    File.write!(Path.join(checkout, "internals/webapps/entries.json"), ~s({"entries":{}}))
+    dependencies = Path.join(checkout, "internals/webapps/node_modules")
+    File.ln_s!("/missing/checkout/app/webapps/node_modules", dependencies)
+    env = [{"ANKOLE_EDITION", "saas"}]
+    command = ["-e", "import { prepareEdition } from './scripts/edition.ts'; prepareEdition()"]
+
+    for _ <- 1..2 do
+      assert {_, 0} = System.cmd("bun", command, cd: webapps, env: env, stderr_to_stdout: true)
+
+      assert File.stat!(dependencies).inode ==
+               File.stat!(Path.join(webapps, "node_modules")).inode
+    end
+
+    File.rm!(dependencies)
+    check_webapp_preparation!(checkout, webapps, env)
+    File.rm!(dependencies)
+    File.mkdir!(dependencies)
+    sentinel = Path.join(dependencies, "keep.txt")
+    File.write!(sentinel, "Keep this directory")
+    {message, status} = System.cmd("bun", command, cd: webapps, env: env, stderr_to_stdout: true)
+    assert status != 0
+    assert message =~ "SaaS webapps must use app/webapps/node_modules"
+    assert File.read!(sentinel) == "Keep this directory"
+  end
+
   test "FOSS and SaaS source builds deliver separate releases without source-tree runtime dependencies" do
     parent_native = kernel_native_artifacts()
     assert Map.has_key?(parent_native, "ankole_kernel.so")

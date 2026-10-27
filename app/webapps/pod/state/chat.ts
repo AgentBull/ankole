@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type {
   ConversationMessage,
@@ -225,7 +226,7 @@ export const ChatModel = createModel(() => {
           originalMentions: context.mentions,
           hasAttachments,
           agentUID,
-          ...(kind === 'last' ? { commandID: crypto.randomUUID() } : {})
+          ...(kind === 'last' ? { commandID: uuidV4() } : {})
         }
         draft.value = text
         answeringInteractionID.value = undefined
@@ -284,7 +285,7 @@ export const ChatModel = createModel(() => {
           originalText: saved.text,
           originalLinks: saved.links,
           originalMentions: saved.mentions,
-          ...(useSaved && current.kind === 'last' ? { commandID: crypto.randomUUID() } : {})
+          ...(useSaved && current.kind === 'last' ? { commandID: uuidV4() } : {})
         }
         if (useSaved) {
           draft.value = saved.text
@@ -459,6 +460,7 @@ export const ChatModel = createModel(() => {
       return activityObservation
     },
     observeActivity(incoming: PodActivity, readObservation?: number) {
+      if (connecting.value && incoming.state === 'active') return
       const uid = incoming.agentUID
       if (gone.value || (readObservation !== undefined && readObservation < (observedAt[uid] ?? 0))) return
       const current = latestActivities.get(uid)

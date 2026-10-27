@@ -12,11 +12,15 @@ WORKDIR /src
 ADD --checksum=sha256:ef610ee83e81a13f39edaa1b7fa6eaa2697d90c2c1ed8e2c30f994a86bb7c1d7 \
   https://github.com/iOfficeAI/OfficeCLI/archive/2900a4a20f49d6a94384d6ea7fb8cc0120999825.tar.gz /tmp/officecli.tar.gz
 COPY app/agent_computer/scripts/officecli-v1.0.158-screenshot.patch /tmp/officecli-screenshot.patch
+COPY app/agent_computer/scripts/officecli-v1.0.158-data.patch /tmp/officecli-data.patch
+COPY app/agent_computer/scripts/officecli-v1.0.158-editable-charts.patch /tmp/officecli-editable-charts.patch
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
   set -eux; \
   tar -xzf /tmp/officecli.tar.gz --strip-components=1; \
   git apply /tmp/officecli-screenshot.patch; \
+  git apply /tmp/officecli-data.patch; \
+  git apply /tmp/officecli-editable-charts.patch; \
   case "${TARGETARCH}" in \
     amd64) officecli_rid=linux-x64 ;; \
     arm64) officecli_rid=linux-arm64 ;; \

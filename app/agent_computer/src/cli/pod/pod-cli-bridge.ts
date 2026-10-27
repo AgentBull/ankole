@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:f
 import { z } from 'zod'
 import { parseMarkdown, parseXml, printMarkdown, printXml } from '@ankole/block-editor/document'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
+import { chownAgentPath, mkdirAgent } from '../../common/agent-user'
+import { agentProcessArgv } from '../../core/execution/process-group'
 import { parseCLIRequest, startSocketLineBridge } from '../../core/socket-line-bridge'
 import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import { sha256File, type Drive } from '../../drive/drive'
@@ -102,9 +104,10 @@ export function startPodCLIBridge(opts: {
           } catch (error) {
             if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error
           }
-          await mkdir(dirname(directory), { recursive: true })
+          await mkdirAgent(dirname(directory))
           const temporary = await mkdtemp(join(dirname(directory), '.ankole-pull-'))
           try {
+            await chownAgentPath(temporary)
             const manifest = await request('files.manifest', { id: params.id })
             const files = (manifest.files as { path: string; sha256: string }[]).filter(
               file =>
@@ -115,7 +118,7 @@ export function startPodCLIBridge(opts: {
             for (const file of files) {
               const local = resolve(temporary, file.path)
               if (!local.startsWith(`${temporary}/`)) throw new Error('Invalid applet file path')
-              await mkdir(dirname(local), { recursive: true })
+              await mkdirAgent(dirname(local))
               await opts.drive.get(`pages/${params.id}/${file.path}`, local, {
                 pod: true,
                 frame: opts.frame,
@@ -124,7 +127,7 @@ export function startPodCLIBridge(opts: {
               if ((await sha256File(local)) !== file.sha256) throw new Error('Applet publication changed; pull again')
             }
             if (await Bun.file(join(temporary, 'package.json')).exists()) {
-              const install = Bun.spawn(['bun', 'install', '--ignore-scripts'], {
+              const install = Bun.spawn(agentProcessArgv(['bun', 'install', '--ignore-scripts']), {
                 cwd: temporary,
                 stdout: 'ignore',
                 stderr: 'pipe'

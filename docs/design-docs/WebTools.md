@@ -115,9 +115,10 @@ The browser waits until the main document commits. It does not wait for
 One failed URL does not remove successful results. The result order matches the request order.
 
 If the rendered fetch fails, Agent Computer logs the backend kind, failure
-stage, error code, retryable state, and failed URL index. It does not log the
-URL, browser endpoint, connection headers, credentials, or browser error details.
-The model receives a neutral rendered-fallback error.
+stage, error code, retryable state, failed URL index, URL scheme and host, and
+the first error line. The log limits that line to 500 characters and redacts
+endpoint URLs and common credential-header values. The tool result includes
+the browser's error message so the Agent can diagnose the failed request.
 
 After the call, Agent Computer closes the browser route and removes its files.
 It can restart the daemon once if cleanup fails.
@@ -146,8 +147,9 @@ snapshot before it applies the output budget. Static page text cannot use that
 budget before the controls. Each command captures one snapshot and retains its
 Playwright refs. Commands resolve `@eN` refs from the latest snapshot. A ref in
 an iframe uses the form `@f1e3`. A missing ref or a detached element returns
-`stale_ref`. Snapshot capture uses the remaining command deadline. An unmatched
-selector returns a retryable `timeout` instead of an unbounded Playwright wait.
+`stale_ref`. Text and interactive snapshots wait for an explicit selector to
+attach within the remaining command deadline. An unmatched selector returns a
+retryable `timeout`.
 
 Codex cannot select backend credentials or change which Job owns the browser
 session. The route record contains only opaque resume data and hashes.
@@ -236,4 +238,4 @@ Tests verify:
 - HTTPS and SSRF checks
 - route cleanup and daemon recovery
 - redacted backend failure logs
-- neutral model-visible errors
+- browser diagnostic messages in model-visible errors

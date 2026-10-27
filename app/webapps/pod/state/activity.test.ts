@@ -28,6 +28,27 @@ describe('current Pod activity', () => {
     expect(model.activities.value.agent?.phase?.label_key).toEndWith('computer_busy')
   })
 
+  test('disconnected activity reads wait for the connection to open before restoring the same snapshot', () => {
+    const model = new ChatModel()
+    model.observeActivity(activity())
+    model.disconnected()
+    model.observeActivity(activity(), model.activityRead())
+    expect(model.activities.value.agent).toBeUndefined()
+    expect(model.liveStreams.value.agent).toBeUndefined()
+    model.connected()
+    model.observeActivity(activity(), model.activityRead())
+    expect(model.activities.value.agent?.phase?.label_key).toEndWith('computer_busy')
+  })
+
+  test('disconnected activity reads still accept unavailable and settled observations', () => {
+    for (const state of ['unavailable', 'settled'] as const) {
+      const model = new ChatModel()
+      model.disconnected()
+      model.observeActivity(activity({ state, phase: null }), model.activityRead())
+      expect(model.activities.value.agent?.state).toBe(state)
+    }
+  })
+
   test('older epoch or revision cannot replace newer work; a settled epoch cannot reopen', () => {
     const model = new ChatModel()
     model.observeActivity(activity({ epoch: 3, revision: 7 }))

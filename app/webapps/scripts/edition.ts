@@ -8,6 +8,9 @@ import {
   rmSync,
   writeFileSync,
   symlinkSync,
+  lstatSync,
+  readlinkSync,
+  renameSync,
   realpathSync
 } from 'node:fs'
 
@@ -42,10 +45,16 @@ export function prepareEdition(): void {
   if (edition === 'saas') {
     const sharedDependencies = path.join(repositoryRoot, 'app/webapps/node_modules')
     const privateDependencies = path.join(repositoryRoot, 'internals/webapps/node_modules')
-    try {
-      symlinkSync(sharedDependencies, privateDependencies, 'dir')
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+    const target = path.relative(path.dirname(privateDependencies), sharedDependencies)
+    const current = lstatSync(privateDependencies, { throwIfNoEntry: false })
+    if (!current || (current.isSymbolicLink() && readlinkSync(privateDependencies) !== target)) {
+      const temporary = `${privateDependencies}.${crypto.randomUUID()}`
+      try {
+        symlinkSync(target, temporary, 'dir')
+        renameSync(temporary, privateDependencies)
+      } finally {
+        rmSync(temporary, { force: true })
+      }
     }
     if (realpathSync(privateDependencies) !== realpathSync(sharedDependencies)) {
       throw new Error('SaaS webapps must use app/webapps/node_modules')

@@ -115,6 +115,7 @@ defmodule Ankole.Brain.Tools do
     |> Enum.map(fn name ->
       %{
         "type" => "function",
+        "strict" => false,
         "name" => name,
         "description" => description(name),
         "parameters" => parameters(name)

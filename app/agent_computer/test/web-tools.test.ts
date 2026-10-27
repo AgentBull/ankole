@@ -108,6 +108,10 @@ describe('Job web tools adapter', () => {
       }
     })
     expect(timedOut).toMatchObject({ results: [{ error: 'Playwright navigation timed out after 30000 ms' }] })
+    const pageFailure = await renderedFallbackFetch(['https://example.com'], {
+      fetchBatch: async () => ({ results: [{ error: 'playwright browser session unavailable' }] })
+    })
+    expect(pageFailure).toMatchObject({ results: [{ error: 'playwright browser session unavailable' }] })
     const abort = new AbortController()
     abort.abort()
     await expect(

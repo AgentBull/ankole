@@ -42,6 +42,85 @@ defmodule Ankole.Pod.BasesContractTest do
     %{uid: human.uid, human: human, page: page, table: table}
   end
 
+  test "physical record and aggregate queries enforce the tenant statement timeout", ctx do
+    actor = actor_fixture(ctx.uid)
+
+    assert {:ok, _} =
+             Bases.create_field(actor, ctx.table.id, %{
+               name: "Related",
+               type: "link",
+               config: %{"table_id" => ctx.table.id}
+             })
+
+    assert {:ok, %{table: %{storage_mode: :physical}}} = Bases.get_table(actor, ctx.table.id)
+    aggregate = %{metrics: [%{operation: "count", alias: "count"}]}
+    assert {:ok, _} = Bases.query(actor, ctx.table.id, %{})
+    assert {:ok, _} = Bases.aggregate(actor, ctx.table.id, aggregate)
+
+    assert {:ok, _} =
+             Ankole.AppConfigure.put_tenant_by_key(
+               "pod.base.limits",
+               Map.put(@limits, "statement_timeout_ms", 50)
+             )
+
+    parent = self()
+    shard = Ankole.Pod.BaseRepo.shard!()
+    table = Ankole.Pod.BaseRepo.table(ctx.table.id)
+
+    holder =
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Ankole.Pod.BaseRepo.with_shard(shard, fn ->
+            Ankole.Pod.BaseRepo.transact(fn ->
+              Ankole.Pod.BaseRepo.query!("LOCK TABLE #{table} IN ACCESS EXCLUSIVE MODE", [])
+              send(parent, :physical_table_locked)
+
+              receive do
+                :release -> {:ok, :released}
+              end
+            end)
+          end)
+        end)
+      )
+
+    assert_receive :physical_table_locked, 5_000
+
+    try do
+      for operation <- [:query, :aggregate] do
+        task =
+          Task.async(
+            Repo.bind_tenant(fn ->
+              case operation do
+                :query -> Bases.query(actor, ctx.table.id, %{})
+                :aggregate -> Bases.aggregate(actor, ctx.table.id, aggregate)
+              end
+            end)
+          )
+
+        try do
+          result = Task.yield(task, 2_000)
+
+          case operation do
+            :query ->
+              assert {:ok, {:error, {:invalid_query, message}}} = result
+              assert message =~ "statement timeout"
+
+            :aggregate ->
+              assert {:ok, {:error, :invalid_query}} = result
+          end
+        after
+          Task.shutdown(task, :brutal_kill)
+        end
+      end
+    after
+      send(holder.pid, :release)
+      assert {:ok, :released} = Task.await(holder, 5_000)
+    end
+
+    assert {:ok, _} = Bases.query(actor, ctx.table.id, %{})
+    assert {:ok, _} = Bases.aggregate(actor, ctx.table.id, aggregate)
+  end
+
   test "independent writers merge different fields and one stale same-field writer is rejected",
        ctx do
     {:ok, amount} =

@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { editorLabels } from './state/editor-labels'
@@ -827,7 +828,7 @@ function DocumentPage({
             }
             retryConnection.current = sync
             const collaboration = new PageCollaboration(instance, model.revision.value, {
-              clientID: crypto.randomUUID(),
+              clientID: uuidV4(),
               send: async request => {
                 try {
                   const connection = await connect()

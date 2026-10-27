@@ -19,6 +19,29 @@ defmodule Ankole.Pod.PagesTest do
     %{owner: owner, reader: reader, agent: agent}
   end
 
+  test "moving the first Space page into Private establishes its owner's access", ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    assert {:ok, []} = Pages.list(actor, %{scope: "private"})
+    assert {:ok, page} = Pages.create(actor, %{title: "First private page"})
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+               grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+             })
+
+    assert {:error, :forbidden} =
+             Pages.move(actor, page.id, %{private_owner_uid: ctx.reader.uid})
+
+    assert {:ok, %{page: moved}} =
+             Pages.move(actor, page.id, %{private_owner_uid: ctx.owner.uid})
+
+    assert moved.private_owner_uid == ctx.owner.uid
+    assert {:ok, [visible]} = Pages.list(actor, %{scope: "private"})
+    assert visible.id == page.id
+    assert {:ok, _} = Pages.authorize(actor, page.id, "page_manage")
+    assert {:ok, _} = Pages.authorize(actor_fixture(ctx.reader.uid), page.id, "page_view")
+  end
+
   test "an ancestor path uses one query and still rejects a cycle", ctx do
     {:ok, root} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Root"})

@@ -88,7 +88,8 @@ defmodule Ankole.AuthZ.Checks.GrantCheck do
 
   def resolve(type, value) when is_binary(value) do
     with {:ok, value} <- normalize(type, value),
-         true <- value != "" and not String.contains?(value, [":", "*"]) do
+         true <- value != "" and not String.contains?(value, "*"),
+         true <- not String.contains?(value, ":") or synced_group?(type, value) do
       {:ok, value}
     else
       _ -> {:error, :forbidden}
@@ -96,6 +97,15 @@ defmodule Ankole.AuthZ.Checks.GrantCheck do
   end
 
   def resolve(_, _), do: {:error, :forbidden}
+
+  defp synced_group?(:group, value) do
+    case Ankole.AuthZ.get_principal_group(value) do
+      {:ok, %{domain: domain}} when domain in [:directory, :im_group, :signal_source] -> true
+      _ -> false
+    end
+  end
+
+  defp synced_group?(_, _), do: false
 
   defp normalize(:principal_key, value), do: {:ok, Ankole.PrincipalKey.canonicalize(value)}
   defp normalize(:uuid, value), do: value |> String.trim() |> Ecto.UUID.cast()

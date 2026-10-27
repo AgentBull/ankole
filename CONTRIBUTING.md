@@ -36,7 +36,9 @@ The SaaS source has these required inputs:
   paths. Private sources use the public
   webapp dependencies through a generated `node_modules` link. Entry reads do
   not create the link. Mix, Vite, type checks, and Bun test preparation create
-  it and accept concurrent preparation of the same target. `lint`, type checks,
+  a relative link and accept concurrent preparation of the same target.
+  Preparation replaces stale symbolic links and rejects a separate dependency
+  directory. `lint`, type checks,
   and tests include both source sets.
 - `internals/locales` supplies TOML catalogs. Build preparation merges them with
   public catalogs into generated JSON. Duplicate message keys fail the build.
@@ -665,8 +667,8 @@ The nesting limit is 4 and the cyclomatic complexity limit is 20.
 `bun run analyze:unused` checks production files, exports, types, and
 dependencies; tests do not retain dead production code.
 
-The build applies the pinned Ash 3.36.1, AshPostgres 2.15.1, AshJsonApi
-1.7.1, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
+The build applies the pinned Ash 3.37.2, AshPostgres 2.15.1, AshJsonApi
+1.8.0, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
 Docker build installs it. The control-plane Mix project owns the patch loader.
 Each build tree checks its own stamp for the patch and loader contents
 before it loads dependencies. When the stamp changes, Mix rebuilds the patched
@@ -932,7 +934,7 @@ Each Console and Site JSON:API route has these properties:
   `json_api.authorize?(true)` on protected domains.
 - List inputs are declared on their read actions. Index and relationship routes
   disable derived filters and sorts; generic actions expose their typed arguments
-  directly. AshJsonApi 1.7.1 ignores the resource option `derive_sort?`, so each
+  directly. AshJsonApi 1.8.0 ignores the resource option `derive_sort?`, so each
   `index` and `related` route also sets `derive_sort?: false`.
 
 `test/ankole_web/json_api/router_test.exs` and `native_authorization_routes_test.exs` check these
@@ -962,7 +964,9 @@ Run the exporter with `ANKOLE_EDITION=saas` to include the installed SaaS domain
 The generated clients live beside the consuming applications in `api/generated`
 (and Console's `api/v2/generated` / `api/v2-site/generated`). Do not edit them.
 Use `fromDocument` to read resource documents as flat Console records; use
-constrained generic-action results directly. Browser, Pod, and SaaS actions send
+constrained generic-action results directly. A bare resource result uses its
+declared `default_fields` in both serialization and its generated schema.
+Browser, Pod, and SaaS actions send
 arguments under `data`. Standard resource writes send `data.type`, `data.id`
 where applicable, and `data.attributes`.
 

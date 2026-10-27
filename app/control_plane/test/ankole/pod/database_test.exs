@@ -1247,11 +1247,22 @@ defmodule Ankole.Pod.BasesTest do
     assert [%{"field_id" => filter_field_id}] = updated.config["filter"]["conditions"]
     assert filter_field_id == status.id
 
-    assert {:ok, _} =
+    assert {:ok, saved} =
              Bases.update_view(actor, updated.id, %{
                version: updated.version,
                name: "Board Renamed",
                config: updated.config
+             })
+
+    assert {:ok, renamed} =
+             Bases.update_view(actor, saved.id, %{version: saved.version, name: "Board"})
+
+    assert renamed.config == saved.config
+
+    assert {:error, :invalid_view} =
+             Bases.update_view(actor, renamed.id, %{
+               version: renamed.version,
+               config: %{"visible_fields" => [status.id]}
              })
   end
 

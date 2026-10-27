@@ -50,6 +50,17 @@ defmodule AnkoleWeb.JSONAPI.AgentSkillLessonsTest do
     assert %{"data" => [%{"id" => ^lesson_id, "type" => "agent_skill_lesson"}]} =
              conn |> send_v2(:get, path) |> json_response(200)
 
+    assert {:ok, false} =
+             Ankole.AppConfigure.put_tenant_by_key("brain.skill_learning_enabled", false)
+
+    assert %{"data" => []} = conn |> send_v2(:get, path) |> json_response(200)
+
+    assert {:ok, true} =
+             Ankole.AppConfigure.put_tenant_by_key("brain.skill_learning_enabled", true)
+
+    assert %{"data" => [%{"id" => ^lesson_id}]} =
+             conn |> send_v2(:get, path) |> json_response(200)
+
     assert %{"id" => ^lesson_id, "retire_reason" => "human_revoked"} =
              conn |> send_v2(:post, "#{path}/#{lesson_id}/retire") |> json_response(201)
 

@@ -374,6 +374,7 @@ defmodule Ankole.Pod.Bases do
                  do: fun.(current, limits, definitions, context)
           end,
           read_only: true,
+          statement_timeout_ms: limits["statement_timeout_ms"],
           timezone: timezone
         )
       else

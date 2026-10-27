@@ -15,6 +15,10 @@ defmodule AnkoleWeb.PodURLTest do
     :ok
   end
 
+  test "the all-content scope remains a canonical browser path", ctx do
+    assert {:ok, "/content/all?q=report"} = PodURL.path(get(ctx.conn, "/content/all?q=report"))
+  end
+
   test "legacy and full UUID links redirect once to the slug host and short browser IDs", ctx do
     page = Kernel.gen_uuid_v7()
     chat = Kernel.gen_uuid_v7()
@@ -34,7 +38,7 @@ defmodule AnkoleWeb.PodURLTest do
 
     html = html_response(rendered, 200)
     assert html =~ ~s(name="ankole-pod" content="#{ctx.tenant.id}")
-    assert html =~ pod_entry_source()
+    assert html =~ entry_source(pod_entry())
     assert get_resp_header(rendered, "cache-control") == ["private, no-store"]
 
     full = rendered |> recycle() |> get("/conversations/#{chat}")
@@ -74,7 +78,7 @@ defmodule AnkoleWeb.PodURLTest do
 
     shell = conn |> recycle() |> Map.put(:host, conn.host) |> get(login)
     html = html_response(shell, 200)
-    assert html =~ "entrypoints/auth.tsx"
+    assert html =~ entry_source("auth")
 
     assert Enum.any?(
              get_resp_header(shell, "set-cookie"),
@@ -138,7 +142,7 @@ defmodule AnkoleWeb.PodURLTest do
     assert uid == member.uid
     assert tenant_id == ctx.tenant.id
     rendered = verified |> recycle() |> delete_req_header("accept") |> get(return_to)
-    assert html_response(rendered, 200) =~ pod_entry_source()
+    assert html_response(rendered, 200) =~ entry_source(pod_entry())
   end
 
   test "unknown tenants and noncanonical short UUID aliases fail closed", ctx do
@@ -182,7 +186,7 @@ defmodule AnkoleWeb.PodURLTest do
       assert redirected_to(response) == target
 
       assert response |> recycle() |> get(target) |> html_response(200) =~
-               pod_entry_source()
+               entry_source(pod_entry())
     end
   end
 
@@ -240,7 +244,7 @@ defmodule AnkoleWeb.PodURLTest do
       |> Map.put(:host, foreign.slug <> ".ankole.localhost")
       |> get("/sessions/new?oauth_request=" <> request.id)
 
-    assert html_response(denied, 401) =~ "entrypoints/auth.tsx"
+    assert html_response(denied, 401) =~ entry_source("auth")
   end
 
   if @host_policy do
@@ -281,7 +285,7 @@ defmodule AnkoleWeb.PodURLTest do
       destination = redirected_to(redirected)
       assert URI.parse(destination).host == ctx.tenant.slug <> ".ankole.localhost"
       login = get(build_conn(), destination)
-      assert html_response(login, 200) =~ "entrypoints/auth.tsx"
+      assert html_response(login, 200) =~ entry_source("auth")
       assert login.resp_cookies["_ankole_key"].domain == "ankole.localhost"
 
       stale =
@@ -297,8 +301,8 @@ defmodule AnkoleWeb.PodURLTest do
 
   defp pod_entry, do: if(@host_policy, do: "saas-pod", else: "pod")
 
-  defp pod_entry_source do
-    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(pod_entry())
+  defp entry_source(entry) do
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)
     "http://assets.test/#{String.trim_leading(source, "/")}"
   end
 end

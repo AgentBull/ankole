@@ -75,6 +75,15 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
     assert Enum.all?(domains, &is_nil(AshJsonApi.Domain.Info.prefix(&1)))
   end
 
+  test "a raw resource result uses the serializer's default fields in its schema" do
+    spec = ConsoleRouter.spec() |> OpenApiSpex.OpenApi.to_map()
+    schema = spec["components"]["schemas"]["external_identity-type"]
+    fields = ~w(principal_uid provider external_id)
+
+    assert Map.keys(schema["properties"]) |> Enum.sort() == Enum.sort(fields)
+    assert Enum.sort(schema["required"]) == Enum.sort(fields)
+  end
+
   test "each route has a unique OpenAPI operation name" do
     for router <- @routers do
       names = router |> routes() |> Enum.map(fn {_resource, route} -> route.name end)

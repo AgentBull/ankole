@@ -1,0 +1,2069 @@
+diff --git a/schemas/help/xlsx/pivottable.json b/schemas/help/xlsx/pivottable.json
+index ef93869..1eb683a 100644
+--- a/schemas/help/xlsx/pivottable.json
++++ b/schemas/help/xlsx/pivottable.json
+@@ -132,7 +132,7 @@
+     },
+     "labelFilter": {
+       "type": "string",
+-      "description": "row-level pre-cache label filter as 'field:type:value' (e.g. 'Region:beginsWith:N'). Type one of equals, notEquals, beginsWith, endsWith, contains, notContains, greaterThan, greaterThanEqual, lessThan, lessThanEqual, between, notBetween. Add-time only — Set ignores this key.",
++      "description": "label filter as 'field:type:value' (e.g. 'Region:beginsWith:N'). Type one of equals, notEquals, beginsWith, endsWith, contains, doesNotContain. Add-time only — Set ignores this key.",
+       "aliases": ["labelfilter"],
+       "add": true, "set": false, "get": false,
+       "examples": ["--prop labelFilter=Region:beginsWith:N"],
+diff --git a/src/officecli/Core/Chart/ChartExBuilder.cs b/src/officecli/Core/Chart/ChartExBuilder.cs
+index 417e91c..15797be 100644
+--- a/src/officecli/Core/Chart/ChartExBuilder.cs
++++ b/src/officecli/Core/Chart/ChartExBuilder.cs
+@@ -95,10 +95,7 @@ internal static partial class ChartExBuilder
+             AutoUpdate = false,
+         });
+ 
+-        // boxWhisker: native Excel structure is one cx:data per group (numDim only,
+-        // no strDim) + one cx:series per group. The category axis positions each
+-        // group automatically by series order. Any strDim causes Excel to stack
+-        // all boxes onto the same X position.
++        // Each box group has literal labels and referenced numeric observations.
+         var dataBlockCount = seriesData.Count;
+         for (int si = 0; si < dataBlockCount; si++)
+         {
+@@ -860,13 +857,9 @@ internal static partial class ChartExBuilder
+         // strDim provides the X-axis label for this group.
+         // Repeat the group name once per data point (required: ptCount must equal numDim ptCount).
+         var strDim = new CX.StringDimension { Type = CX.StringDimensionType.Cat };
+-        // CONSISTENCY(chartex-sidecars): each cx:strDim/cx:numDim MUST start
+-        // with a cx:f formula referencing the embedded xlsx, otherwise
+-        // PowerPoint shows the chart as a blank placeholder. Each boxWhisker
+-        // group lives in its own column (B,C,D,...) of the embedded sheet.
++        // The group labels are literal strings; the value column holds observations.
+         int rowEnd = values.Length + 1;
+         char colLetter = (char)('B' + id);
+-        strDim.AppendChild(new CX.Formula($"Sheet1!${colLetter}$2:${colLetter}${rowEnd}"));
+         var strLvl = new CX.StringLevel { PtCount = (uint)values.Length };
+         for (int i = 0; i < values.Length; i++)
+             strLvl.AppendChild(new CX.ChartStringValue(groupName) { Index = (uint)i });
+@@ -1098,7 +1091,7 @@ internal static partial class ChartExBuilder
+     /// series is appended in BuildExtendedChartSpace via ownerIdx=0
+     /// (Excel auto-computes cumulative from the bar data).
+     /// </summary>
+-    private static (string[]? categories, List<(string name, double[] values)> seriesData)
++    internal static (string[]? categories, List<(string name, double[] values)> seriesData)
+         PreparePareto(string[]? categories, List<(string name, double[] values)> seriesData)
+     {
+         if (seriesData.Count == 0)
+diff --git a/src/officecli/Core/Chart/ChartHelper.Advanced.cs b/src/officecli/Core/Chart/ChartHelper.Advanced.cs
+index 644c370..ee5e332 100644
+--- a/src/officecli/Core/Chart/ChartHelper.Advanced.cs
++++ b/src/officecli/Core/Chart/ChartHelper.Advanced.cs
+@@ -356,8 +356,8 @@ internal static partial class ChartHelper
+ 
+     /// <summary>
+     /// Build a waterfall chart using stacked bar technique:
+-    /// - Invisible "base" series for the running total
+-    /// - Visible "increase" series (positive changes) and "decrease" series (negative changes)
++    /// - Invisible "base" series for the endpoint nearest zero
++    /// - Increase and decrease series, split at zero when necessary
+     /// - Last bar shows the total
+     ///
+     /// Input: categories and a single series of change values.
+@@ -381,34 +381,35 @@ internal static partial class ChartHelper
+         var baseVals = new double[n];
+         var incVals = new double[n];
+         var decVals = new double[n];
++        var incNegativeVals = new double[n];
++        var decNegativeVals = new double[n];
++        var hasTotal = properties.GetValueOrDefault("waterfallTotal", "true")
++            .Equals("true", StringComparison.OrdinalIgnoreCase);
+ 
+         double running = 0;
+         for (int i = 0; i < n; i++)
+         {
+             var v = values[i];
+-            if (i == n - 1 && properties.GetValueOrDefault("waterfallTotal", "true")
+-                .Equals("true", StringComparison.OrdinalIgnoreCase))
++            bool isTotal = i == n - 1 && hasTotal;
++            var start = isTotal ? 0 : running;
++            var end = isTotal ? running : running + v;
++            var low = Math.Min(start, end);
++            var high = Math.Max(start, end);
++            // Excel stacks positive and negative values separately. Split at zero.
++            baseVals[i] = low >= 0 ? low : high <= 0 ? high : 0;
++            var positive = Math.Max(0, high) - Math.Max(0, low);
++            var negative = Math.Min(0, low) - Math.Min(0, high);
++            if (isTotal || v >= 0)
+             {
+-                // Last bar = total (starts from 0, shows cumulative running total)
+-                // The user's value for the last point is ignored — the total is computed automatically.
+-                baseVals[i] = 0;
+-                incVals[i] = running;
+-                decVals[i] = 0;
+-            }
+-            else if (v >= 0)
+-            {
+-                baseVals[i] = running;
+-                incVals[i] = v;
+-                decVals[i] = 0;
+-                running += v;
++                incVals[i] = positive;
++                incNegativeVals[i] = negative;
+             }
+             else
+             {
+-                baseVals[i] = running + v; // base drops by |v|
+-                incVals[i] = 0;
+-                decVals[i] = -v;
+-                running += v;
++                decVals[i] = positive;
++                decNegativeVals[i] = negative;
+             }
++            if (!isTotal) running = end;
+         }
+ 
+         categories ??= Enumerable.Range(1, n).Select(i => i.ToString()).ToArray();
+@@ -439,12 +440,19 @@ internal static partial class ChartHelper
+         baseSer.InsertAfter(baseSpPr, baseSer.GetFirstChild<C.SeriesText>());
+         barChart.AppendChild(baseSer);
+ 
+-        // Series 1: increase (positive values)
++        // Series 1: increase above zero
+         barChart.AppendChild(BuildBarSeries(1, "Increase", categories, incVals, increaseColor));
+ 
+-        // Series 2: decrease (negative values)
++        // Series 2: decrease above zero
+         barChart.AppendChild(BuildBarSeries(2, "Decrease", categories, decVals, decreaseColor));
+ 
++        bool hasNegativeSegments = incNegativeVals.Any(v => v != 0) || decNegativeVals.Any(v => v != 0);
++        if (hasNegativeSegments)
++        {
++            barChart.AppendChild(BuildBarSeries(3, "Increase below zero", categories, incNegativeVals, increaseColor));
++            barChart.AppendChild(BuildBarSeries(4, "Decrease below zero", categories, decNegativeVals, decreaseColor));
++        }
++
+         barChart.AppendChild(new C.GapWidth { Val = 80 });
+         barChart.AppendChild(new C.Overlap { Val = 100 });
+         barChart.AppendChild(new C.AxisId { Val = catAxisId });
+@@ -456,36 +464,20 @@ internal static partial class ChartHelper
+ 
+         chart.AppendChild(plotArea);
+ 
+-        // Hide base series from legend
+-        var legend = new C.Legend(
+-            new C.LegendPosition { Val = C.LegendPositionValues.Bottom },
+-            new C.Overlay { Val = false }
+-        );
+-        // Delete legend entry for base series (index 0)
+-        // CT_Legend schema order: legendPos, legendEntry+, layout, overlay — insert after legendPos
+-        var leBase = new C.LegendEntry();
+-        leBase.AppendChild(new C.Index { Val = 0 });
+-        leBase.AppendChild(new C.Delete { Val = true });
+-        var legendPosEl = legend.GetFirstChild<C.LegendPosition>();
+-        if (legendPosEl != null)
+-            legendPosEl.InsertAfterSelf(leBase);
+-        else
+-            legend.PrependChild(leBase);
+-        chart.AppendChild(legend);
+-
+         chart.AppendChild(new C.PlotVisibleOnly { Val = true });
+         chart.AppendChild(new C.DisplayBlanksAs { Val = C.DisplayBlanksAsValues.Gap });
+ 
+         chartSpace.AppendChild(chart);
+ 
+         // Color the total bar differently (last data point of increase series)
+-        if (properties.GetValueOrDefault("waterfallTotal", "true")
+-            .Equals("true", StringComparison.OrdinalIgnoreCase) && n > 0)
++        if (hasTotal && n > 0)
+         {
+             var allSer = plotArea.Descendants<OpenXmlCompositeElement>()
+                 .Where(e => e.LocalName == "ser").ToList();
+             if (allSer.Count >= 2)
+                 ApplyDataPointColor(allSer[1], n - 1, totalColor);
++            if (hasNegativeSegments)
++                ApplyDataPointColor(allSer[3], n - 1, totalColor);
+         }
+ 
+         return chartSpace;
+@@ -535,7 +527,9 @@ internal static partial class ChartHelper
+ 
+         // Find axis IDs
+         uint catAxisId = plotArea.GetFirstChild<C.CategoryAxis>()?.GetFirstChild<C.AxisId>()?.Val?.Value ?? 1;
+-        uint valAxisId = plotArea.GetFirstChild<C.ValueAxis>()?.GetFirstChild<C.AxisId>()?.Val?.Value ?? 2;
++        uint valAxisId = plotArea.Elements<C.ValueAxis>()
++            .FirstOrDefault(axis => axis.GetFirstChild<C.AxisId>()?.Val?.Value != catAxisId)
++            ?.GetFirstChild<C.AxisId>()?.Val?.Value ?? 2;
+ 
+         // Remove existing chart type elements (but keep axes, layout, etc.)
+         foreach (var ct in plotArea.ChildElements
+diff --git a/src/officecli/Core/Chart/ChartHelper.Builder.cs b/src/officecli/Core/Chart/ChartHelper.Builder.cs
+index e4302d4..b30eb23 100644
+--- a/src/officecli/Core/Chart/ChartHelper.Builder.cs
++++ b/src/officecli/Core/Chart/ChartHelper.Builder.cs
+@@ -315,17 +315,24 @@ internal static partial class ChartHelper
+                 var totColor = properties.GetValueOrDefault("totalColor");
+                 var wfChartSpace = BuildWaterfallChart(title, wfCategories, wfValues,
+                     incColor, decColor, totColor, properties);
+-                // BuildWaterfallChart builds its own chart with a default
+-                // legend and never consumed the `legend` prop, so legend= was
+-                // reported unsupported on a waterfall Add (every other type
+-                // accepts it). Drop the default legend and re-apply from the
+-                // prop (position, or none) — remove-first avoids a duplicate
+-                // <c:legend> that would make Excel refuse the file.
+                 var wfChart = wfChartSpace.GetFirstChild<C.Chart>();
+                 if (wfChart != null)
+                 {
+-                    wfChart.RemoveAllChildren<C.Legend>();
+                     ApplyLegendFromProps(wfChart, properties);
++                    var wfLegend = wfChart.GetFirstChild<C.Legend>();
++                    if (wfLegend != null)
++                    {
++                        // Hide the base and the duplicate entries for segments below zero.
++                        var hiddenIndices = wfChart.Descendants<C.BarChartSeries>().Count() == 5
++                            ? new uint[] { 0, 3, 4 } : new uint[] { 0 };
++                        foreach (var hiddenIndex in hiddenIndices)
++                        {
++                            var entry = new C.LegendEntry(new C.Index { Val = hiddenIndex }, new C.Delete { Val = true });
++                            var legendPosition = wfLegend.GetFirstChild<C.LegendPosition>();
++                            if (legendPosition != null) legendPosition.InsertAfterSelf(entry);
++                            else wfLegend.PrependChild(entry);
++                        }
++                    }
+                 }
+                 return wfChartSpace;
+             }
+@@ -389,7 +396,7 @@ internal static partial class ChartHelper
+ 
+         if (needsAxes)
+         {
+-            if (kind == "scatter")
++            if (kind is "scatter" or "bubble")
+             {
+                 plotArea.AppendChild(BuildValueAxis(catAxisId, valAxisId, C.AxisPositionValues.Bottom));
+                 plotArea.AppendChild(BuildValueAxis(valAxisId, catAxisId, C.AxisPositionValues.Left));
+@@ -1424,14 +1431,16 @@ internal static partial class ChartHelper
+                 BuildSeriesText(seriesData[i].name)
+             );
+ 
+-            // Hide individual series lines — stock chart visuals come from
+-            // hiLowLines + upDownBars, not from the series lines themselves
++            // Stock charts use high-low lines, close markers, or up-down bars.
+             var spPr = new C.ChartShapeProperties();
+             spPr.AppendChild(new Drawing.Outline(new Drawing.NoFill()));
+             series.AppendChild(spPr);
+ 
+-            // No markers on stock series
+-            series.AppendChild(new C.Marker(new C.Symbol { Val = C.MarkerStyleValues.None }));
++            // HLC has no up-down bars, so the last series needs a close marker.
++            var markerStyle = seriesData.Count == 3 && i == 2
++                ? C.MarkerStyleValues.Dash
++                : C.MarkerStyleValues.None;
++            series.AppendChild(new C.Marker(new C.Symbol { Val = markerStyle }));
+ 
+             if (categories != null) series.AppendChild(BuildCategoryData(categories));
+             series.AppendChild(BuildValues(seriesData[i].values));
+diff --git a/src/officecli/Core/Chart/ChartHelper.Reader.cs b/src/officecli/Core/Chart/ChartHelper.Reader.cs
+index e12ba2b..47e375b 100644
+--- a/src/officecli/Core/Chart/ChartHelper.Reader.cs
++++ b/src/officecli/Core/Chart/ChartHelper.Reader.cs
+@@ -112,6 +112,7 @@ internal static partial class ChartHelper
+                 // Total bar = last DataPoint override on Increase series.
+                 var dpts = wfSeries[1].Elements<C.DataPoint>().ToList();
+                 var lastDpt = dpts.LastOrDefault();
++                node.Format["waterfallTotal"] = lastDpt != null;
+                 var totFill = lastDpt?.GetFirstChild<C.ChartShapeProperties>()
+                     ?.GetFirstChild<Drawing.SolidFill>();
+                 var totClr = totFill != null ? ReadColorFromFill(totFill) : null;
+@@ -1776,7 +1777,7 @@ internal static partial class ChartHelper
+             var prefix = dir == C.BarDirectionValues.Bar ? "bar" : "column";
+             if (grp == "stacked")
+             {
+-                // Detect waterfall chart: stacked bar with 3 series where first is "Base" with NoFill
++                // Detect the waterfall base and its visible segments.
+                 if (IsWaterfallPattern(bar))
+                     return "waterfall";
+                 return $"{prefix}_stacked";
+@@ -1930,13 +1931,13 @@ internal static partial class ChartHelper
+     }
+ 
+     /// <summary>
+-    /// Detect waterfall chart pattern: a stacked bar chart with exactly 3 series
++    /// Detect waterfall chart pattern: a stacked bar chart with 3 or 5 series
+     /// where the first series is named "Base" and has NoFill (invisible base).
+     /// </summary>
+     private static bool IsWaterfallPattern(C.BarChart bar)
+     {
+         var series = bar.Elements<C.BarChartSeries>().ToList();
+-        if (series.Count != 3) return false;
++        if (series.Count is not (3 or 5)) return false;
+ 
+         // First series should be "Base" with NoFill
+         var firstSerName = series[0].GetFirstChild<C.SeriesText>()
+diff --git a/src/officecli/Core/Chart/ChartHelper.cs b/src/officecli/Core/Chart/ChartHelper.cs
+index 05ff656..2904b29 100644
+--- a/src/officecli/Core/Chart/ChartHelper.cs
++++ b/src/officecli/Core/Chart/ChartHelper.cs
+@@ -114,7 +114,7 @@ internal static partial class ChartHelper
+         // Mandatory sheet prefix (Sheet1! or 'Sheet with spaces'!), single
+         // cell A1 or $A$1, optionally followed by :A1 range of size 1.
+         return System.Text.RegularExpressions.Regex.IsMatch(trimmed,
+-            @"^(?:'[^']+'!|[A-Za-z_][\w\.]*!)\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?$");
++            @"^(?:'(?:[^']|'')+'!|[A-Za-z_][\w\.]*!)\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?$");
+     }
+ 
+     /// <summary>
+@@ -129,7 +129,7 @@ internal static partial class ChartHelper
+         var trimmed = value.Trim();
+         string sheetPart = "";
+         string cellPart = trimmed;
+-        var bangIdx = trimmed.IndexOf('!');
++        var bangIdx = trimmed.LastIndexOf('!');
+         if (bangIdx >= 0)
+         {
+             sheetPart = trimmed[..(bangIdx + 1)];
+@@ -170,7 +170,7 @@ internal static partial class ChartHelper
+         string sheetPart = "";
+         string rangePart = trimmed;
+ 
+-        var bangIdx = trimmed.IndexOf('!');
++        var bangIdx = trimmed.LastIndexOf('!');
+         if (bangIdx >= 0)
+         {
+             sheetPart = trimmed[..(bangIdx + 1)];
+diff --git a/src/officecli/Core/Chart/ChartSvgRenderer.cs b/src/officecli/Core/Chart/ChartSvgRenderer.cs
+index b57231a..ae9ddb0 100644
+--- a/src/officecli/Core/Chart/ChartSvgRenderer.cs
++++ b/src/officecli/Core/Chart/ChartSvgRenderer.cs
+@@ -348,11 +348,11 @@ internal partial class ChartSvgRenderer
+         // when the data has them, so negative bars get plot space and a zero
+         // baseline can be drawn. dataMin is 0 for all-positive data (axis stays
+         // anchored at the bottom/left exactly as before). Not applied to
+-        // percent-stacked (fixed 0..100) or waterfall (cumulative running total).
++        // percent-stacked (fixed 0..100).
+         // For stacked charts dataMin = the most-negative per-category stack sum.
+         double dataMin = (!percentStacked && !stacked && !isWaterfall)
+             ? Math.Min(0, allValues.Min())
+-            : (stacked && !percentStacked && !isWaterfall ? stackedNegMin : 0);
++            : (stacked && !percentStacked ? stackedNegMin : 0);
+ 
+         double niceMax, niceMin = 0, tickStep;
+         int nTicks;
+@@ -801,14 +801,11 @@ internal partial class ChartSvgRenderer
+ 
+             // Track waterfall connector positions for drawing connecting lines
+             var wfPrevTopY = double.NaN;
++            double wfRunning = 0;
+ 
+             for (int c = 0; c < catCount; c++)
+             {
+-                // Waterfall keeps a single signed running total; regular stacked
+-                // tracks positive and negative cursors separately so mixed-sign
+-                // segments stack outward from the zero baseline (positives up,
+-                // negatives down) and never produce an inverted/clipped rect.
+-                double stackY = 0;       // waterfall cumulative
++                // Excel stacks positive and negative segments separately.
+                 double posCursor = 0;    // stacked: accumulated positive value
+                 double negCursor = 0;    // stacked: accumulated negative value (<= 0)
+                 var catSum = percentStacked ? series.Sum(s => c < s.values.Length ? s.values[c] : 0) : 1;
+@@ -816,24 +813,11 @@ internal partial class ChartSvgRenderer
+                 {
+                     var rawVal = c < series[s].values.Length ? series[s].values[c] : 0;
+                     var val = percentStacked && catSum > 0 ? (rawVal / catSum) * 100 : rawVal;
+-                    var barH = (val / niceMax) * ph;
+                     if (stacked)
+                     {
+                         var bx = ox + c * groupW + gap;
+                         if (isWaterfall)
+                         {
+-                            // (waterfall: niceMin==0, span==niceMax — unchanged)
+-                            var by = oy + ph - (stackY / niceMax) * ph - barH;
+-                            if (s > 0)
+-                            {
+-                                if (barH > 0.5)
+-                                    sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{BarFill(s, c)}\" opacity=\"{FillOpacity(s)}\"/>");
+-                                if (showDataLabels && !LabelDeleted(s, c) && barH > DataLabelFontPx + 2)
+-                                {
+-                                    var vlabel = LabelText(s, c, rawVal, rawVal);
+-                                    sb.AppendLine($"        <text class=\"chart-data-label\" x=\"{bx + barW / 2:0.#}\" y=\"{by + barH / 2:0.#}\" fill=\"{DataLabelFill}\" font-size=\"{DataLabelFontPx}\"{DataLabelStyleAttr} text-anchor=\"middle\" dominant-baseline=\"middle\">{vlabel}</text>");
+-                                }
+-                            }
+                             // Waterfall connector line — a short HORIZONTAL
+                             // segment at the previous bar's cumulative top,
+                             // spanning the right edge of bar N to the left edge
+@@ -845,9 +829,7 @@ internal partial class ChartSvgRenderer
+                                 var prevBx = ox + (c - 1) * groupW + gap + barW;
+                                 sb.AppendLine($"        <line x1=\"{prevBx:0.#}\" y1=\"{wfPrevTopY:0.#}\" x2=\"{bx:0.#}\" y2=\"{wfPrevTopY:0.#}\" stroke=\"{GridColor}\" stroke-width=\"1\" stroke-dasharray=\"3,2\"/>");
+                             }
+-                            stackY += val;
+                         }
+-                        else
+                         {
+                             // Map value-axis coordinates through span/zeroFrac so the
+                             // domain can include negatives. Positive segment grows up
+@@ -868,9 +850,9 @@ internal partial class ChartSvgRenderer
+                                 by = isReversed ? ValToY(negCursor + val) : ValToY(negCursor);
+                                 negCursor += val;
+                             }
+-                            if (segH > 0.5)
++                            if (segH > 0.5 && (!isWaterfall || s > 0))
+                                 sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{segH:0.#}\" fill=\"{BarFill(s, c)}\" opacity=\"{FillOpacity(s)}\"/>");
+-                            if (showDataLabels && !LabelDeleted(s, c) && segH > DataLabelFontPx + 2)
++                            if (showDataLabels && !LabelDeleted(s, c) && segH > DataLabelFontPx + 2 && (!isWaterfall || s > 0))
+                             {
+                                 var vlabel = LabelText(s, c, rawVal, val);
+                                 sb.AppendLine($"        <text class=\"chart-data-label\" x=\"{bx + barW / 2:0.#}\" y=\"{by + segH / 2:0.#}\" fill=\"{DataLabelFill}\" font-size=\"{DataLabelFontPx}\"{DataLabelStyleAttr} text-anchor=\"middle\" dominant-baseline=\"middle\">{vlabel}</text>");
+@@ -927,7 +909,11 @@ internal partial class ChartSvgRenderer
+                 }
+                 // Track waterfall top position for connector line
+                 if (isWaterfall)
+-                    wfPrevTopY = oy + ph - (stackY / niceMax) * ph;
++                {
++                    double ValueAt(int index) => index < serCount && c < series[index].values.Length ? series[index].values[c] : 0;
++                    wfRunning += ValueAt(1) - ValueAt(2) - ValueAt(3) + ValueAt(4);
++                    wfPrevTopY = ValToY(wfRunning);
++                }
+             }
+             // Error bars on vertical (column) bar charts
+             if (errorBars != null && !stacked)
+diff --git a/src/officecli/Core/PivotTableHelper.Cache.cs b/src/officecli/Core/PivotTableHelper.Cache.cs
+index dfb7c65..58b38b0 100644
+--- a/src/officecli/Core/PivotTableHelper.Cache.cs
++++ b/src/officecli/Core/PivotTableHelper.Cache.cs
+@@ -1147,12 +1147,12 @@ internal static partial class PivotTableHelper
+         // 1. Explicit Sheet!Range
+         if (spec.Contains('!'))
+         {
+-            var parts = spec.Split('!', 2);
+-            var sheet = parts[0].Trim();
++            var bangIdx = spec.LastIndexOf('!');
++            var sheet = spec[..bangIdx].Trim();
+             if (sheet.Length >= 2 && ((sheet[0] == '\'' && sheet[^1] == '\'')
+                                     || (sheet[0] == '"' && sheet[^1] == '"')))
+-                sheet = sheet.Substring(1, sheet.Length - 2);
+-            var rangePart = parts[1].Trim();
++                sheet = sheet[0] == '\'' ? sheet[1..^1].Replace("''", "'") : sheet[1..^1];
++            var rangePart = spec[(bangIdx + 1)..].Trim();
+ 
+             // A "Sheet1!SalesData"-style sheet-qualified defined name —
+             // rangePart is a single identifier, not an A1 reference.
+@@ -1320,12 +1320,12 @@ internal static partial class PivotTableHelper
+ 
+         // Body should look like "Sheet1!$A$1:$C$5" or "'Sheet 1'!A1:C5".
+         if (!body.Contains('!')) return null;
+-        var parts = body.Split('!', 2);
+-        var sheet = parts[0].Trim();
++        var bangIdx = body.LastIndexOf('!');
++        var sheet = body[..bangIdx].Trim();
+         if (sheet.Length >= 2 && ((sheet[0] == '\'' && sheet[^1] == '\'')
+                                 || (sheet[0] == '"' && sheet[^1] == '"')))
+-            sheet = sheet.Substring(1, sheet.Length - 2);
+-        var rangePart = parts[1].Trim();
++            sheet = sheet[0] == '\'' ? sheet[1..^1].Replace("''", "'") : sheet[1..^1];
++        var rangePart = body[(bangIdx + 1)..].Trim();
+         if (!LooksLikeRangeRef(rangePart)) return null;
+         return (sheet, rangePart.Replace("$", "").ToUpperInvariant());
+     }
+diff --git a/src/officecli/Core/PivotTableHelper.Definition.cs b/src/officecli/Core/PivotTableHelper.Definition.cs
+index 6a2b976..a5a54da 100644
+--- a/src/officecli/Core/PivotTableHelper.Definition.cs
++++ b/src/officecli/Core/PivotTableHelper.Definition.cs
+@@ -467,6 +467,8 @@ internal static partial class PivotTableHelper
+                 };
+                 var sda = ParseShowDataAs(showAs);
+                 if (sda.HasValue) dataField.ShowDataAs = sda.Value;
++                if (sda == ShowDataAsValues.RunTotal)
++                    dataField.BaseField = ResolveRunningTotalBaseField(rowFieldIndices, colFieldIndices);
+                 // Inherit the source column's numFmtId so Excel displays
+                 // pivot values using the same format as the source (currency,
+                 // percent, etc.). DataField.NumberFormatId is the primary
+@@ -1342,7 +1344,7 @@ internal static partial class PivotTableHelper
+             Field = (uint)filterFieldIdx,
+             Type = filterType,
+             EvaluationOrder = -1,
+-            Id = 1U,
++            Id = filters.Elements<PivotFilter>().Select(f => f.Id?.Value ?? 0U).DefaultIfEmpty(0U).Max() + 1U,
+             StringValue1 = needle
+         };
+         var autoFilter = new AutoFilter { Reference = "A1" };
+@@ -1421,7 +1423,7 @@ internal static partial class PivotTableHelper
+             Field = (uint)outerFieldIdx,
+             Type = PivotFilterValues.Count,
+             EvaluationOrder = -1,
+-            Id = 1U,
++            Id = filters.Elements<PivotFilter>().Select(f => f.Id?.Value ?? 0U).DefaultIfEmpty(0U).Max() + 1U,
+             MeasureField = 0
+         };
+         var autoFilter = new AutoFilter { Reference = "A1" };
+diff --git a/src/officecli/Core/PivotTableHelper.Parse.cs b/src/officecli/Core/PivotTableHelper.Parse.cs
+index 3b11ee3..5645ea1 100644
+--- a/src/officecli/Core/PivotTableHelper.Parse.cs
++++ b/src/officecli/Core/PivotTableHelper.Parse.cs
+@@ -474,7 +474,7 @@ internal static partial class PivotTableHelper
+     private static bool IsKnownAggregateToken(string token) => token switch
+     {
+         "sum" or "count" or "countnums" or "countnum" or "average" or "avg" or
+-        "max" or "min" or "product" or "stddev" or "std" or "stddevp" or "stdp" or
++        "max" or "min" or "product" or "stddev" or "stdev" or "std" or "stddevp" or "stdevp" or "stdp" or
+         "var" or "variance" or "varp" => true,
+         _ => false,
+     };
+@@ -555,27 +555,28 @@ internal static partial class PivotTableHelper
+     }
+ 
+     /// <summary>
+-    /// Aggregate a bag of numeric values using the given subtotal function.
+-    /// Matches the ScDPAggData semantics:
+-    ///   sum / product / min / max / count : trivial
+-    ///   countNums : count of numeric entries (identical to count here because
+-    ///     the caller only places parsed numerics into the bag)
+-    ///   average : arithmetic mean
+-    ///   stdDev  : sample std-dev  (sqrt(Σ(x-μ)²/(n-1))), requires n≥2
+-    ///   stdDevp : population std-dev (sqrt(Σ(x-μ)²/n)), requires n≥1
+-    ///   var     : sample variance (Σ(x-μ)²/(n-1)), requires n≥2
+-    ///   varp    : population variance (Σ(x-μ)²/n), requires n≥1
+-    /// Returns 0 for empty input and for stdDev/var when n&lt;2, matching the
+-    /// existing 0-on-empty convention that the rest of the renderer assumes.
++    /// Count non-empty source values for count; use numeric values for other functions.
++    /// NaN is an aggregate error (#DIV/0!); null marks a missing cell in the renderers.
+     /// </summary>
+-    private static double ReducePivotValues(IEnumerable<double> values, string func)
++    private static double ReducePivotValues(IEnumerable<string> values, string func)
+     {
+-        var arr = values as double[] ?? values.ToArray();
+-        if (arr.Length == 0) return 0;
++        var raw = values as string[] ?? values.ToArray();
++        if (raw.Length == 0) return 0;
++        if (func.Equals("count", StringComparison.OrdinalIgnoreCase))
++            return raw.Count(v => !string.IsNullOrEmpty(v));
++
++        var numbers = new List<double>();
++        foreach (var value in raw)
++            if (NumericText.TryParse(value, out var number))
++                numbers.Add(number);
++        var arr = numbers.ToArray();
++        if (arr.Length == 0)
++            return func.ToLowerInvariant() is "average" or "avg" or "stddev" or "stdev" or "std"
++                or "stddevp" or "stdevp" or "stdp" or "var" or "variance" or "varp"
++                ? double.NaN : 0;
+         switch (func.ToLowerInvariant())
+         {
+             case "sum": return arr.Sum();
+-            case "count": return arr.Length;
+             case "countnums":
+             case "countnum": return arr.Length;
+             case "average":
+@@ -587,14 +588,16 @@ internal static partial class PivotTableHelper
+                 foreach (var v in arr) p *= v;
+                 return p;
+             case "stddev":
++            case "stdev":
+             case "std":
+             {
+-                if (arr.Length < 2) return 0;
++                if (arr.Length < 2) return double.NaN;
+                 var mean = arr.Average();
+                 var sq = arr.Sum(x => (x - mean) * (x - mean));
+                 return Math.Sqrt(sq / (arr.Length - 1));
+             }
+             case "stddevp":
++            case "stdevp":
+             case "stdp":
+             {
+                 var mean = arr.Average();
+@@ -604,7 +607,7 @@ internal static partial class PivotTableHelper
+             case "var":
+             case "variance":
+             {
+-                if (arr.Length < 2) return 0;
++                if (arr.Length < 2) return double.NaN;
+                 var mean = arr.Average();
+                 var sq = arr.Sum(x => (x - mean) * (x - mean));
+                 return sq / (arr.Length - 1);
+@@ -619,6 +622,17 @@ internal static partial class PivotTableHelper
+         }
+     }
+ 
++    private static int ResolveRunningTotalBaseField(
++        List<int> rowFields, List<int> colFields, int? previous = null)
++    {
++        var axes = rowFields.Concat(colFields).ToList();
++        if (previous.HasValue && axes.Contains(previous.Value)) return previous.Value;
++        // Keep source-field order, but do not select a value or filter field.
++        if (axes.Count == 0)
++            throw new ArgumentException("runningTotal requires a row or column field");
++        return axes.Min();
++    }
++
+     /// <summary>
+     /// Apply a showDataAs transform to a 1×1×K pivot matrix for data field d.
+     /// Used by RenderPivotIntoSheet (the 1 row × 1 col × K data inline
+@@ -631,8 +645,7 @@ internal static partial class PivotTableHelper
+     ///   percent_of_total  — divide everything by grandTotals[d]
+     ///   percent_of_row    — divide each (r,c) by rowTotals[r] (the whole row shares the divisor)
+     ///   percent_of_col    — divide each (r,c) by colTotals[c]
+-    ///   running_total     — in-row cumulative sum across cols, left→right;
+-    ///                       rowTotals/grandTotals unchanged (cumulative ends at row total)
++    /// Running totals use the general renderer and the stored base field.
+     /// Unknown modes are silently treated as "normal" so new modes added to
+     /// ParseShowDataAs don't explode old renderers.
+     /// </summary>
+@@ -660,7 +673,7 @@ internal static partial class PivotTableHelper
+                 }
+                 for (int c = 0; c < colCount; c++)
+                     colTotals[c, d] = colTotals[c, d] / gt;
+-                grandTotals[d] = 1.0;
++                grandTotals[d] = double.IsNaN(gt) ? gt : 1.0;
+                 return;
+             }
+ 
+@@ -675,7 +688,7 @@ internal static partial class PivotTableHelper
+                         if (matrix[r, c, d].HasValue)
+                             matrix[r, c, d] = matrix[r, c, d]!.Value / rt;
+                     }
+-                    rowTotals[r, d] = 1.0;
++                    rowTotals[r, d] = double.IsNaN(rt) ? rt : 1.0;
+                 }
+                 // Col totals and grand lose their direct interpretation under
+                 // "percent of row" (they're sums of ratios across heterogeneous
+@@ -690,7 +703,7 @@ internal static partial class PivotTableHelper
+                 {
+                     for (int c = 0; c < colCount; c++)
+                         colTotals[c, d] = colTotals[c, d] / grand;
+-                    grandTotals[d] = 1.0;
++                    grandTotals[d] = double.IsNaN(grand) ? grand : 1.0;
+                 }
+                 return;
+             }
+@@ -706,40 +719,15 @@ internal static partial class PivotTableHelper
+                         if (matrix[r, c, d].HasValue)
+                             matrix[r, c, d] = matrix[r, c, d]!.Value / ct;
+                     }
+-                    colTotals[c, d] = 1.0;
++                    colTotals[c, d] = double.IsNaN(ct) ? ct : 1.0;
+                 }
+                 var grand = grandTotals[d];
+                 if (grand != 0)
+                 {
+                     for (int r = 0; r < rowCount; r++)
+                         rowTotals[r, d] = rowTotals[r, d] / grand;
+-                    grandTotals[d] = 1.0;
+-                }
+-                return;
+-            }
+-
+-            case "running_total" or "runningtotal" or "runtotal":
+-            {
+-                // In-row cumulative sum across cols, left→right. Cells with
+-                // null values count as 0 in the running sum but remain null
+-                // in the output so Excel shows blank instead of the previous
+-                // cumulative value (matches Excel's "(blank)" behavior).
+-                for (int r = 0; r < rowCount; r++)
+-                {
+-                    double running = 0;
+-                    for (int c = 0; c < colCount; c++)
+-                    {
+-                        if (matrix[r, c, d].HasValue)
+-                        {
+-                            running += matrix[r, c, d]!.Value;
+-                            matrix[r, c, d] = running;
+-                        }
+-                    }
++                    grandTotals[d] = double.IsNaN(grand) ? grand : 1.0;
+                 }
+-                // Row / col / grand totals are left as-is: running total's
+-                // final-column value already equals the row total, and col /
+-                // grand totals don't have a natural running interpretation
+-                // across rows in Excel's semantics.
+                 return;
+             }
+ 
+diff --git a/src/officecli/Core/PivotTableHelper.Readback.cs b/src/officecli/Core/PivotTableHelper.Readback.cs
+index 87ef998..974ec55 100644
+--- a/src/officecli/Core/PivotTableHelper.Readback.cs
++++ b/src/officecli/Core/PivotTableHelper.Readback.cs
+@@ -361,9 +361,9 @@ internal static partial class PivotTableHelper
+     /// range spec ("Sheet1!A1:C4" or "A1:C4" — same sheet as the existing
+     /// CacheSource). Replaces CacheFields, updates WorksheetSource.Reference
+     /// (and Sheet if changed), rewrites the PivotTableCacheRecordsPart, and
+-    /// resizes pivotDef.PivotFields to match the new column count. Existing
+-    /// PivotField Axis/DataField assignments are reset because indices may no
+-    /// longer line up — RebuildFieldAreas reapplies them after this returns.
++    /// resizes pivotDef.PivotFields to match the new column count.
++    /// Preserved field references follow their cache field names when columns
++    /// move. RebuildFieldAreas reapplies the assignments after this returns.
+     /// </summary>
+     private static void RefreshPivotCacheFromSource(PivotTablePart pivotPart, string newSourceSpec,
+         Dictionary<string, string>? pendingFieldAreaProps = null)
+@@ -388,9 +388,13 @@ internal static partial class PivotTableHelper
+         string newRef;
+         if (newSourceSpec.Contains('!'))
+         {
+-            var parts = newSourceSpec.Split('!', 2);
+-            newSheetName = parts[0].Trim().Trim('\'', '"').Trim();
+-            newRef = parts[1].Trim();
++            var bangIdx = newSourceSpec.LastIndexOf('!');
++            newSheetName = newSourceSpec[..bangIdx].Trim();
++            if (newSheetName.Length >= 2 && newSheetName[0] == '\'' && newSheetName[^1] == '\'')
++                newSheetName = newSheetName[1..^1].Replace("''", "'");
++            else if (newSheetName.Length >= 2 && newSheetName[0] == '"' && newSheetName[^1] == '"')
++                newSheetName = newSheetName[1..^1];
++            newRef = newSourceSpec[(bangIdx + 1)..].Trim();
+         }
+         else
+         {
+@@ -417,39 +421,40 @@ internal static partial class PivotTableHelper
+         if (columnData.Count == 0 || columnData[0].Length == 0)
+             throw new ArgumentException("Source range has no data rows");
+ 
+-        // R15-2: Before mutating any cache/pivot state, validate that existing
+-        // row/col/value/filter field references still fit inside the new
+-        // (possibly narrower) header list. A silent drop or index clamp here
+-        // would leave the DataFields pointing past the rendered columnData,
+-        // crashing RenderPivotIntoSheet with ArgumentOutOfRangeException.
+-        // Prefer strict error over data loss: user must explicitly restate the
+-        // affected axes in the same Set call if they intended to drop them.
+-        var newFieldCount = headers.Length;
++        // Resolve retained fields before any mutation. An in-range old index
++        // can identify a different field after the source columns move.
++        var oldHeaders = cacheDef.GetFirstChild<CacheFields>()?.Elements<CacheField>()
++            .Select(cf => cf.Name?.Value ?? "").ToArray() ?? Array.Empty<string>();
++        var fieldRemaps = new List<Action>();
+         var existingPivotDef = pivotPart.PivotTableDefinition;
+         if (existingPivotDef != null)
+         {
+-            // Axes that the same Set call is explicitly overwriting are
+-            // excluded from validation — their new values will be parsed
+-            // against the fresh headers by RebuildFieldAreas.
+             bool rowsOverwritten = pendingFieldAreaProps?.ContainsKey("rows") == true;
+             bool colsOverwritten = pendingFieldAreaProps?.ContainsKey("cols") == true;
+             bool valuesOverwritten = pendingFieldAreaProps?.ContainsKey("values") == true;
+             bool filtersOverwritten = pendingFieldAreaProps?.ContainsKey("filters") == true;
+ 
+-            void ValidateIndex(int idx, string axis, string fieldRef)
++            void PreserveField(int idx, string area, Action<int> assign)
+             {
+-                if (idx >= newFieldCount)
++                if (idx < 0 || idx >= oldHeaders.Length || string.IsNullOrWhiteSpace(oldHeaders[idx]))
++                    throw new ArgumentException($"Cannot preserve {area} field at cache index {idx}. Restate {area}= in the same Set call.");
++                var name = oldHeaders[idx];
++                var matches = Enumerable.Range(0, headers.Length)
++                    .Where(i => FieldNameMatches(headers[i], name)).ToArray();
++                if (oldHeaders.Count(h => FieldNameMatches(h, name)) != 1 || matches.Length != 1)
+                     throw new ArgumentException(
+-                        $"{axis} field '{fieldRef}' (index {idx}) is out of range " +
+-                        $"after source narrowing to {newFieldCount} column(s). " +
+-                        $"Restate {axis}= in the same Set call to drop or reassign it.");
++                        $"Cannot preserve {area} field '{name}': the field is missing or ambiguous. " +
++                        $"Restate {area}= in the same Set call to drop or reassign it.");
++                fieldRemaps.Add(() => assign(matches[0]));
+             }
+             if (!valuesOverwritten && existingPivotDef.DataFields != null)
+             {
+                 foreach (var df in existingPivotDef.DataFields.Elements<DataField>())
+                 {
+                     var fi = (int)(df.Field?.Value ?? 0);
+-                    ValidateIndex(fi, "value", df.Name?.Value ?? fi.ToString());
++                    PreserveField(fi, "values", i => df.Field = (uint)i);
++                    if (df.ShowDataAs?.Value == ShowDataAsValues.RunTotal && df.BaseField?.Value is int baseField)
++                        PreserveField(baseField, "values", i => df.BaseField = i);
+                 }
+             }
+             if (!rowsOverwritten && existingPivotDef.RowFields != null)
+@@ -457,7 +462,7 @@ internal static partial class PivotTableHelper
+                 foreach (var f in existingPivotDef.RowFields.Elements<Field>())
+                 {
+                     var fi = f.Index?.Value ?? -1;
+-                    if (fi >= 0) ValidateIndex(fi, "row", fi.ToString());
++                    if (fi >= 0) PreserveField(fi, "rows", i => f.Index = i);
+                 }
+             }
+             if (!colsOverwritten && existingPivotDef.ColumnFields != null)
+@@ -466,7 +471,7 @@ internal static partial class PivotTableHelper
+                 {
+                     var fi = f.Index?.Value ?? -1;
+                     // -2 sentinel is the values pseudo-field; it is not a cache index.
+-                    if (fi >= 0) ValidateIndex(fi, "col", fi.ToString());
++                    if (fi >= 0) PreserveField(fi, "cols", i => f.Index = i);
+                 }
+             }
+             if (!filtersOverwritten && existingPivotDef.PageFields != null)
+@@ -474,11 +479,21 @@ internal static partial class PivotTableHelper
+                 foreach (var f in existingPivotDef.PageFields.Elements<PageField>())
+                 {
+                     var fi = f.Field?.Value ?? -1;
+-                    if (fi >= 0) ValidateIndex(fi, "filter", fi.ToString());
++                    if (fi >= 0) PreserveField(fi, "filters", i => f.Field = i);
+                 }
+             }
+         }
+ 
++        // Check explicit replacements against the new source before cache CoW.
++        if (pendingFieldAreaProps != null)
++        {
++            foreach (var area in new[] { "rows", "cols", "filters" })
++                if (pendingFieldAreaProps.ContainsKey(area))
++                    ParseFieldList(pendingFieldAreaProps, area, headers);
++            if (pendingFieldAreaProps.ContainsKey("values"))
++                ParseValueFields(pendingFieldAreaProps, "values", headers);
++        }
++
+         // Build a fresh cache definition (just to harvest its CacheFields,
+         // fieldNumeric, and fieldValueIndex). We do NOT swap the part — only
+         // its child elements — so the workbook-level <pivotCache> registration
+@@ -487,6 +502,8 @@ internal static partial class PivotTableHelper
+         var (freshDef, fieldNumeric, fieldValueIndex) =
+             BuildCacheDefinition(newSheetName, newRef, headers, columnData, axisFieldIndices: null, dateGroups: null);
+ 
++        foreach (var remap in fieldRemaps) remap();
++
+         // Cache sharing (design): if cachePart currently has more than one
+         // referrer, mutating it in place would silently change the source on
+         // every sibling pivot. Copy-on-write: clone the part for this pivot,
+diff --git a/src/officecli/Core/PivotTableHelper.Render.cs b/src/officecli/Core/PivotTableHelper.Render.cs
+index bb2598a..d4227ac 100644
+--- a/src/officecli/Core/PivotTableHelper.Render.cs
++++ b/src/officecli/Core/PivotTableHelper.Render.cs
+@@ -34,10 +34,10 @@ internal static partial class PivotTableHelper
+         List<int> rowFieldIndices, List<int> colFieldIndices,
+         List<(int idx, string func, string showAs, string name)> valueFields,
+         List<int>? filterFieldIndices = null,
+-        uint?[]? columnStyleIds = null)
++        uint?[]? columnStyleIds = null, DataFields? dataFields = null)
+     {
+         RenderPivotIntoSheetCore(targetSheet, position, headers, columnData,
+-            rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, columnStyleIds);
++            rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, columnStyleIds, dataFields);
+         // Every specialized renderer appends fresh <row>/<c> elements without
+         // probing for pre-existing ones. When the pivot's footprint lands on
+         // rows/cells that already exist (e.g. the anchor overlaps the source
+@@ -103,7 +103,7 @@ internal static partial class PivotTableHelper
+         List<int> rowFieldIndices, List<int> colFieldIndices,
+         List<(int idx, string func, string showAs, string name)> valueFields,
+         List<int>? filterFieldIndices = null,
+-        uint?[]? columnStyleIds = null)
++        uint?[]? columnStyleIds = null, DataFields? dataFields = null)
+     {
+         // Per-data-field style index: pivot value cells for data field d inherit
+         // the source column's StyleIndex (number format). A null entry means the
+@@ -133,10 +133,11 @@ internal static partial class PivotTableHelper
+         // renderer because specialized renderers hardcode compact-mode column
+         // placement (all row labels in one column). The general renderer handles
+         // multi-column row labels for outline/tabular.
+-        if (ActiveLayoutMode != "compact" && valueFields.Count >= 1)
++        if (valueFields.Any(v => ParseShowDataAs(v.showAs) == ShowDataAsValues.RunTotal)
++            || (ActiveLayoutMode != "compact" && valueFields.Count >= 1))
+         {
+             RenderGeneralPivot(targetSheet, position, headers, columnData,
+-                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds);
++                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds, dataFields);
+             return;
+         }
+ 
+@@ -150,7 +151,7 @@ internal static partial class PivotTableHelper
+             && rowFieldIndices.Count >= 2 && valueFields.Count >= 1)
+         {
+             RenderGeneralPivot(targetSheet, position, headers, columnData,
+-                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds);
++                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds, dataFields);
+             return;
+         }
+ 
+@@ -161,7 +162,7 @@ internal static partial class PivotTableHelper
+             && (rowFieldIndices.Count == 0 || (rowFieldIndices.Count == 2 && colFieldIndices.Count == 0)))
+         {
+             RenderGeneralPivot(targetSheet, position, headers, columnData,
+-                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds);
++                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds, dataFields);
+             return;
+         }
+ 
+@@ -181,7 +182,7 @@ internal static partial class PivotTableHelper
+                 return;
+             }
+             RenderGeneralPivot(targetSheet, position, headers, columnData,
+-                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds);
++                rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices, valueStyleIds, dataFields);
+             return;
+         }
+ 
+@@ -250,9 +251,9 @@ internal static partial class PivotTableHelper
+         // Two data fields on the same source column are common (e.g. sum + count
+         // of 金额) and produce two independent buckets keyed by their dataFieldIdx
+         // in valueFields.
+-        var perBucket = new Dictionary<(string r, string c, int d), List<double>>();
+-        var perDataField = new List<List<double>>();
+-        for (int d = 0; d < K; d++) perDataField.Add(new List<double>());
++        var perBucket = new Dictionary<(string r, string c, int d), List<string>>();
++        var perDataField = new List<List<string>>();
++        for (int d = 0; d < K; d++) perDataField.Add(new List<string>());
+ 
+         for (int i = 0; i < rowValues.Length; i++)
+         {
+@@ -265,21 +266,20 @@ internal static partial class PivotTableHelper
+                 var dataIdx = valueFields[d].idx;
+                 var dataValues = columnData[dataIdx];
+                 if (i >= dataValues.Length) continue;
+-                if (!double.TryParse(dataValues[i], System.Globalization.NumberStyles.Float,
+-                    System.Globalization.CultureInfo.InvariantCulture, out var num)) continue;
++                var raw = dataValues[i];
+ 
+                 var key = (rv, cv, d);
+                 if (!perBucket.TryGetValue(key, out var list))
+                 {
+-                    list = new List<double>();
++                    list = new List<string>();
+                     perBucket[key] = list;
+                 }
+-                list.Add(num);
+-                perDataField[d].Add(num);
++                list.Add(raw);
++                perDataField[d].Add(raw);
+             }
+         }
+ 
+-        double Reduce(IEnumerable<double> values, string func) => ReducePivotValues(values, func);
++        double Reduce(IEnumerable<string> values, string func) => ReducePivotValues(values, func);
+ 
+         // Compute the K-deep cell matrix + row/col/grand totals per data field.
+         // matrix[r, c, d] = reduce(values for row r, col c, data field d)
+@@ -293,7 +293,7 @@ internal static partial class PivotTableHelper
+             var func = valueFields[d].func;
+             for (int r = 0; r < uniqueRows.Count; r++)
+             {
+-                var rowAll = new List<double>();
++                var rowAll = new List<string>();
+                 for (int c = 0; c < uniqueCols.Count; c++)
+                 {
+                     if (perBucket.TryGetValue((uniqueRows[r], uniqueCols[c], d), out var bucket) && bucket.Count > 0)
+@@ -306,7 +306,7 @@ internal static partial class PivotTableHelper
+             }
+             for (int c = 0; c < uniqueCols.Count; c++)
+             {
+-                var colAll = new List<double>();
++                var colAll = new List<string>();
+                 for (int r = 0; r < uniqueRows.Count; r++)
+                 {
+                     if (perBucket.TryGetValue((uniqueRows[r], uniqueCols[c], d), out var bucket))
+@@ -450,7 +450,7 @@ internal static partial class PivotTableHelper
+                     int colIdx = anchorColIdx + 1 + c * K + d;
+                     var v = matrix[r, c, d];
+                     if (v.HasValue)
+-                        dataRow.AppendChild(MakeNumericCell(colIdx, rowIdx, v.Value, valueStyleIds[d]));
++                        dataRow.AppendChild(MakeAggregateCell(colIdx, rowIdx, v.Value, valueStyleIds[d]));
+                 }
+             }
+             // Row totals — K cells (one per data field).
+@@ -462,7 +462,7 @@ internal static partial class PivotTableHelper
+             {
+                 int rowTotalStart = anchorColIdx + 1 + uniqueCols.Count * K;
+                 for (int d = 0; d < K; d++)
+-                    dataRow.AppendChild(MakeNumericCell(rowTotalStart + d, rowIdx, rowTotals[r, d], valueStyleIds[d]));
++                    dataRow.AppendChild(MakeAggregateCell(rowTotalStart + d, rowIdx, rowTotals[r, d], valueStyleIds[d]));
+             }
+             sheetData.AppendChild(dataRow);
+         }
+@@ -483,14 +483,14 @@ internal static partial class PivotTableHelper
+                 for (int d = 0; d < K; d++)
+                 {
+                     int colIdx = anchorColIdx + 1 + c * K + d;
+-                    grandRow.AppendChild(MakeNumericCell(colIdx, grandRowIdx, colTotals[c, d], valueStyleIds[d]));
++                    grandRow.AppendChild(MakeAggregateCell(colIdx, grandRowIdx, colTotals[c, d], valueStyleIds[d]));
+                 }
+             }
+             if (ActiveRowGrandTotals && !rowsOnly)
+             {
+                 int grandTotalStart = anchorColIdx + 1 + uniqueCols.Count * K;
+                 for (int d = 0; d < K; d++)
+-                    grandRow.AppendChild(MakeNumericCell(grandTotalStart + d, grandRowIdx, grandTotals[d], valueStyleIds[d]));
++                    grandRow.AppendChild(MakeAggregateCell(grandTotalStart + d, grandRowIdx, grandTotals[d], valueStyleIds[d]));
+             }
+             sheetData.AppendChild(grandRow);
+         }
+@@ -600,9 +600,9 @@ internal static partial class PivotTableHelper
+ 
+         // Aggregate per (outer, inner, col, dataFieldIdx). For K=1 the d
+         // dimension is degenerate but the same data structure works uniformly.
+-        var leafBucket = new Dictionary<(string o, string i, string c, int d), List<double>>();
+-        var perDataField = new List<List<double>>();
+-        for (int d = 0; d < K; d++) perDataField.Add(new List<double>());
++        var leafBucket = new Dictionary<(string o, string i, string c, int d), List<string>>();
++        var perDataField = new List<List<string>>();
++        for (int d = 0; d < K; d++) perDataField.Add(new List<string>());
+ 
+         for (int i = 0; i < outerVals.Length; i++)
+         {
+@@ -616,32 +616,31 @@ internal static partial class PivotTableHelper
+                 var dataIdx = valueFields[d].idx;
+                 var dataValues = columnData[dataIdx];
+                 if (i >= dataValues.Length) continue;
+-                if (!double.TryParse(dataValues[i], System.Globalization.NumberStyles.Float,
+-                    System.Globalization.CultureInfo.InvariantCulture, out var num)) continue;
++                var raw = dataValues[i];
+ 
+                 var key = (ov, iv, cv, d);
+                 if (!leafBucket.TryGetValue(key, out var list))
+                 {
+-                    list = new List<double>();
++                    list = new List<string>();
+                     leafBucket[key] = list;
+                 }
+-                list.Add(num);
+-                perDataField[d].Add(num);
++                list.Add(raw);
++                perDataField[d].Add(raw);
+             }
+         }
+ 
+-        double Reduce(IEnumerable<double> values, string func) => ReducePivotValues(values, func);
++        double Reduce(IEnumerable<string> values, string func) => ReducePivotValues(values, func);
+ 
+         // The closures below compute the cell values per (row pos, col pos, d)
+         // by reducing raw value lists. Each closure takes a data field index d
+         // so each data field aggregates with its own function (sum/count/avg/...).
+-        double LeafCell(string outer, string inner, string col, int d)
++        double? LeafCell(string outer, string inner, string col, int d)
+             => leafBucket.TryGetValue((outer, inner, col, d), out var b) && b.Count > 0
+-                ? Reduce(b, valueFields[d].func) : double.NaN;
++                ? Reduce(b, valueFields[d].func) : null;
+ 
+         double OuterSubtotalForCol(string outer, string col, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (o, inners) in groups)
+                 if (o == outer)
+                     foreach (var inner in inners)
+@@ -652,7 +651,7 @@ internal static partial class PivotTableHelper
+ 
+         double LeafRowTotal(string outer, string inner, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var col in uniqueCols)
+                 if (leafBucket.TryGetValue((outer, inner, col, d), out var b))
+                     all.AddRange(b);
+@@ -661,7 +660,7 @@ internal static partial class PivotTableHelper
+ 
+         double OuterRowTotal(string outer, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (o, inners) in groups)
+                 if (o == outer)
+                     foreach (var inner in inners)
+@@ -673,7 +672,7 @@ internal static partial class PivotTableHelper
+ 
+         double ColTotal(string col, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (outer, inners) in groups)
+                 foreach (var inner in inners)
+                     if (leafBucket.TryGetValue((outer, inner, col, d), out var b))
+@@ -780,13 +779,13 @@ internal static partial class PivotTableHelper
+                     {
+                         var v = OuterSubtotalForCol(outer, uniqueCols[c], d);
+                         if (any || v != 0)
+-                            subRow.AppendChild(MakeNumericCell(LeafColIdx(c, d), currentRow, v, valueStyleIds[d]));
++                            subRow.AppendChild(MakeAggregateCell(LeafColIdx(c, d), currentRow, v, valueStyleIds[d]));
+                     }
+                 }
+                 if (emitRowGrand)
+                 {
+                     for (int d = 0; d < K; d++)
+-                        subRow.AppendChild(MakeNumericCell(GrandTotalColIdx(d), currentRow, OuterRowTotal(outer, d), valueStyleIds[d]));
++                        subRow.AppendChild(MakeAggregateCell(GrandTotalColIdx(d), currentRow, OuterRowTotal(outer, d), valueStyleIds[d]));
+                 }
+                 sheetData.AppendChild(subRow);
+                 currentRow++;
+@@ -811,14 +810,14 @@ internal static partial class PivotTableHelper
+                     for (int d = 0; d < K; d++)
+                     {
+                         var v = LeafCell(outer, inner, uniqueCols[c], d);
+-                        if (!double.IsNaN(v))
+-                            leafRow.AppendChild(MakeNumericCell(LeafColIdx(c, d), currentRow, v, valueStyleIds[d]));
++                        if (v.HasValue)
++                            leafRow.AppendChild(MakeAggregateCell(LeafColIdx(c, d), currentRow, v.Value, valueStyleIds[d]));
+                     }
+                 }
+                 if (emitRowGrand)
+                 {
+                     for (int d = 0; d < K; d++)
+-                        leafRow.AppendChild(MakeNumericCell(GrandTotalColIdx(d), currentRow, LeafRowTotal(outer, inner, d), valueStyleIds[d]));
++                        leafRow.AppendChild(MakeAggregateCell(GrandTotalColIdx(d), currentRow, LeafRowTotal(outer, inner, d), valueStyleIds[d]));
+                 }
+                 sheetData.AppendChild(leafRow);
+                 currentRow++;
+@@ -832,11 +831,11 @@ internal static partial class PivotTableHelper
+             grandRow.AppendChild(MakeStringCell(anchorColIdx, currentRow, totalLabel));
+             for (int c = 0; c < uniqueCols.Count; c++)
+                 for (int d = 0; d < K; d++)
+-                    grandRow.AppendChild(MakeNumericCell(LeafColIdx(c, d), currentRow, ColTotal(uniqueCols[c], d), valueStyleIds[d]));
++                    grandRow.AppendChild(MakeAggregateCell(LeafColIdx(c, d), currentRow, ColTotal(uniqueCols[c], d), valueStyleIds[d]));
+             if (emitRowGrand)
+             {
+                 for (int d = 0; d < K; d++)
+-                    grandRow.AppendChild(MakeNumericCell(GrandTotalColIdx(d), currentRow,
++                    grandRow.AppendChild(MakeAggregateCell(GrandTotalColIdx(d), currentRow,
+                         Reduce(perDataField[d], valueFields[d].func), valueStyleIds[d]));
+             }
+             sheetData.AppendChild(grandRow);
+@@ -923,9 +922,9 @@ internal static partial class PivotTableHelper
+ 
+         // Aggregate per (row, outerCol, innerCol, dataFieldIdx). For K=1 the d
+         // dimension is degenerate but the same data structure works uniformly.
+-        var leafBucket = new Dictionary<(string r, string oc, string ic, int d), List<double>>();
+-        var perDataField = new List<List<double>>();
+-        for (int d = 0; d < K; d++) perDataField.Add(new List<double>());
++        var leafBucket = new Dictionary<(string r, string oc, string ic, int d), List<string>>();
++        var perDataField = new List<List<string>>();
++        for (int d = 0; d < K; d++) perDataField.Add(new List<string>());
+ 
+         for (int i = 0; i < rowVals.Length; i++)
+         {
+@@ -939,30 +938,29 @@ internal static partial class PivotTableHelper
+                 var dataIdx = valueFields[d].idx;
+                 var dataValues = columnData[dataIdx];
+                 if (i >= dataValues.Length) continue;
+-                if (!double.TryParse(dataValues[i], System.Globalization.NumberStyles.Float,
+-                    System.Globalization.CultureInfo.InvariantCulture, out var num)) continue;
++                var raw = dataValues[i];
+ 
+                 var key = (rv, ocv, icv, d);
+                 if (!leafBucket.TryGetValue(key, out var list))
+                 {
+-                    list = new List<double>();
++                    list = new List<string>();
+                     leafBucket[key] = list;
+                 }
+-                list.Add(num);
+-                perDataField[d].Add(num);
++                list.Add(raw);
++                perDataField[d].Add(raw);
+             }
+         }
+ 
+-        double Reduce(IEnumerable<double> values, string func) => ReducePivotValues(values, func);
++        double Reduce(IEnumerable<string> values, string func) => ReducePivotValues(values, func);
+ 
+         // Per-(row, outerCol, innerCol, d) reductions over raw values.
+-        double LeafCell(string row, string outerCol, string innerCol, int d)
++        double? LeafCell(string row, string outerCol, string innerCol, int d)
+             => leafBucket.TryGetValue((row, outerCol, innerCol, d), out var b) && b.Count > 0
+-                ? Reduce(b, valueFields[d].func) : double.NaN;
++                ? Reduce(b, valueFields[d].func) : null;
+ 
+         double OuterColSubtotalForRow(string row, string outerCol, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (oc, inners) in colGroups)
+                 if (oc == outerCol)
+                     foreach (var inner in inners)
+@@ -973,7 +971,7 @@ internal static partial class PivotTableHelper
+ 
+         double RowGrandTotal(string row, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (oc, inners) in colGroups)
+                 foreach (var inner in inners)
+                     if (leafBucket.TryGetValue((row, oc, inner, d), out var b))
+@@ -983,7 +981,7 @@ internal static partial class PivotTableHelper
+ 
+         double LeafColTotal(string outerCol, string innerCol, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var row in uniqueRows)
+                 if (leafBucket.TryGetValue((row, outerCol, innerCol, d), out var b))
+                     all.AddRange(b);
+@@ -992,7 +990,7 @@ internal static partial class PivotTableHelper
+ 
+         double OuterColTotal(string outerCol, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (oc, inners) in colGroups)
+                 if (oc == outerCol)
+                     foreach (var inner in inners)
+@@ -1180,8 +1178,8 @@ internal static partial class PivotTableHelper
+                     for (int d = 0; d < K; d++)
+                     {
+                         var v = LeafCell(uniqueRows[r], outer, inner, d);
+-                        if (!double.IsNaN(v))
+-                            dataRow.AppendChild(MakeNumericCell(leafColPositions[(outer, inner, d)], rowIdx, v, valueStyleIds[d]));
++                        if (v.HasValue)
++                            dataRow.AppendChild(MakeAggregateCell(leafColPositions[(outer, inner, d)], rowIdx, v.Value, valueStyleIds[d]));
+                     }
+                 }
+                 if (emitSubtotals)
+@@ -1192,7 +1190,7 @@ internal static partial class PivotTableHelper
+                     {
+                         var sub = OuterColSubtotalForRow(uniqueRows[r], outer, d);
+                         if (sub != 0 || any)
+-                            dataRow.AppendChild(MakeNumericCell(subtotalColPositions[(outer, d)], rowIdx, sub, valueStyleIds[d]));
++                            dataRow.AppendChild(MakeAggregateCell(subtotalColPositions[(outer, d)], rowIdx, sub, valueStyleIds[d]));
+                     }
+                 }
+             }
+@@ -1200,7 +1198,7 @@ internal static partial class PivotTableHelper
+             if (emitRowGrand)
+             {
+                 for (int d = 0; d < K; d++)
+-                    dataRow.AppendChild(MakeNumericCell(grandTotalColPositions[d], rowIdx, RowGrandTotal(uniqueRows[r], d), valueStyleIds[d]));
++                    dataRow.AppendChild(MakeAggregateCell(grandTotalColPositions[d], rowIdx, RowGrandTotal(uniqueRows[r], d), valueStyleIds[d]));
+             }
+             sheetData.AppendChild(dataRow);
+         }
+@@ -1215,18 +1213,18 @@ internal static partial class PivotTableHelper
+             {
+                 foreach (var inner in inners)
+                     for (int d = 0; d < K; d++)
+-                        grandRow.AppendChild(MakeNumericCell(leafColPositions[(outer, inner, d)], grandRowIdx,
++                        grandRow.AppendChild(MakeAggregateCell(leafColPositions[(outer, inner, d)], grandRowIdx,
+                             LeafColTotal(outer, inner, d), valueStyleIds[d]));
+                 if (emitSubtotals)
+                 {
+                     for (int d = 0; d < K; d++)
+-                        grandRow.AppendChild(MakeNumericCell(subtotalColPositions[(outer, d)], grandRowIdx, OuterColTotal(outer, d), valueStyleIds[d]));
++                        grandRow.AppendChild(MakeAggregateCell(subtotalColPositions[(outer, d)], grandRowIdx, OuterColTotal(outer, d), valueStyleIds[d]));
+                 }
+             }
+             if (emitRowGrand)
+             {
+                 for (int d = 0; d < K; d++)
+-                    grandRow.AppendChild(MakeNumericCell(grandTotalColPositions[d], grandRowIdx,
++                    grandRow.AppendChild(MakeAggregateCell(grandTotalColPositions[d], grandRowIdx,
+                         Reduce(perDataField[d], valueFields[d].func), valueStyleIds[d]));
+             }
+             sheetData.AppendChild(grandRow);
+@@ -1314,9 +1312,9 @@ internal static partial class PivotTableHelper
+ 
+         // Aggregate per (rowOuter, rowInner, colOuter, colInner, dataFieldIdx).
+         // 5-tuple bucket — combines the 4-tuple matrix bucket with K data fields.
+-        var bucket = new Dictionary<(string ro, string ri, string co, string ci, int d), List<double>>();
+-        var perDataField = new List<List<double>>();
+-        for (int d = 0; d < K; d++) perDataField.Add(new List<double>());
++        var bucket = new Dictionary<(string ro, string ri, string co, string ci, int d), List<string>>();
++        var perDataField = new List<List<string>>();
++        for (int d = 0; d < K; d++) perDataField.Add(new List<string>());
+ 
+         for (int i = 0; i < rowOuterVals.Length; i++)
+         {
+@@ -1332,31 +1330,30 @@ internal static partial class PivotTableHelper
+                 var dataIdx = valueFields[d].idx;
+                 var dataValues = columnData[dataIdx];
+                 if (i >= dataValues.Length) continue;
+-                if (!double.TryParse(dataValues[i], System.Globalization.NumberStyles.Float,
+-                    System.Globalization.CultureInfo.InvariantCulture, out var num)) continue;
++                var raw = dataValues[i];
+ 
+                 var key = (ro, ri, co, ci, d);
+                 if (!bucket.TryGetValue(key, out var list))
+                 {
+-                    list = new List<double>();
++                    list = new List<string>();
+                     bucket[key] = list;
+                 }
+-                list.Add(num);
+-                perDataField[d].Add(num);
++                list.Add(raw);
++                perDataField[d].Add(raw);
+             }
+         }
+ 
+-        double Reduce(IEnumerable<double> values, string func) => ReducePivotValues(values, func);
++        double Reduce(IEnumerable<string> values, string func) => ReducePivotValues(values, func);
+ 
+         // The 9 cell-value closures from the K=1 path now each take a data
+         // field index d so the right aggregator is applied per cell.
+-        double LeafCell(string ro, string ri, string co, string ci, int d)
++        double? LeafCell(string ro, string ri, string co, string ci, int d)
+             => bucket.TryGetValue((ro, ri, co, ci, d), out var b) && b.Count > 0
+-                ? Reduce(b, valueFields[d].func) : double.NaN;
++                ? Reduce(b, valueFields[d].func) : null;
+ 
+         double LeafRowColSub(string ro, string ri, string co, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (oc, inners) in colGroups)
+                 if (oc == co)
+                     foreach (var inner in inners)
+@@ -1367,7 +1364,7 @@ internal static partial class PivotTableHelper
+ 
+         double LeafRowGrandTotal(string ro, string ri, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (oc, inners) in colGroups)
+                 foreach (var inner in inners)
+                     if (bucket.TryGetValue((ro, ri, oc, inner, d), out var b))
+@@ -1377,7 +1374,7 @@ internal static partial class PivotTableHelper
+ 
+         double OuterRowLeafCell(string ro, string co, string ci, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (g, inners) in rowGroups)
+                 if (g == ro)
+                     foreach (var inner in inners)
+@@ -1388,7 +1385,7 @@ internal static partial class PivotTableHelper
+ 
+         double OuterRowColSub(string ro, string co, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (g, rinners) in rowGroups)
+                 if (g == ro)
+                     foreach (var rinner in rinners)
+@@ -1402,7 +1399,7 @@ internal static partial class PivotTableHelper
+ 
+         double OuterRowGrandTotal(string ro, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (g, rinners) in rowGroups)
+                 if (g == ro)
+                     foreach (var rinner in rinners)
+@@ -1415,7 +1412,7 @@ internal static partial class PivotTableHelper
+ 
+         double GrandRowLeafCol(string co, string ci, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (g, rinners) in rowGroups)
+                 foreach (var rinner in rinners)
+                     if (bucket.TryGetValue((g, rinner, co, ci, d), out var b))
+@@ -1425,7 +1422,7 @@ internal static partial class PivotTableHelper
+ 
+         double GrandRowColSub(string co, int d)
+         {
+-            var all = new List<double>();
++            var all = new List<string>();
+             foreach (var (g, rinners) in rowGroups)
+                 foreach (var rinner in rinners)
+                     foreach (var (oc, cinners) in colGroups)
+@@ -1606,7 +1603,7 @@ internal static partial class PivotTableHelper
+                         {
+                             var v = OuterRowLeafCell(rowOuter, colOuter, colInner, d);
+                             if (v != 0 || any)
+-                                outerSubRow.AppendChild(MakeNumericCell(leafColPositions[(colOuter, colInner, d)], currentRowIdx, v, valueStyleIds[d]));
++                                outerSubRow.AppendChild(MakeAggregateCell(leafColPositions[(colOuter, colInner, d)], currentRowIdx, v, valueStyleIds[d]));
+                         }
+                     }
+                     bool anyOuter = HasAnyValueInOuterRowOuterCol(rowOuter, colOuter, rowGroups, colGroups, bucket, K);
+@@ -1614,13 +1611,13 @@ internal static partial class PivotTableHelper
+                     {
+                         var sub = OuterRowColSub(rowOuter, colOuter, d);
+                         if (sub != 0 || anyOuter)
+-                            outerSubRow.AppendChild(MakeNumericCell(subtotalColPositions[(colOuter, d)], currentRowIdx, sub, valueStyleIds[d]));
++                            outerSubRow.AppendChild(MakeAggregateCell(subtotalColPositions[(colOuter, d)], currentRowIdx, sub, valueStyleIds[d]));
+                     }
+                 }
+                 if (emitRowGrand)
+                 {
+                     for (int d = 0; d < K; d++)
+-                        outerSubRow.AppendChild(MakeNumericCell(grandTotalColPositions[d], currentRowIdx, OuterRowGrandTotal(rowOuter, d), valueStyleIds[d]));
++                        outerSubRow.AppendChild(MakeAggregateCell(grandTotalColPositions[d], currentRowIdx, OuterRowGrandTotal(rowOuter, d), valueStyleIds[d]));
+                 }
+                 sheetData.AppendChild(outerSubRow);
+                 currentRowIdx++;
+@@ -1645,8 +1642,8 @@ internal static partial class PivotTableHelper
+                         for (int d = 0; d < K; d++)
+                         {
+                             var v = LeafCell(rowOuter, rowInner, colOuter, colInner, d);
+-                            if (!double.IsNaN(v))
+-                                leafRow.AppendChild(MakeNumericCell(leafColPositions[(colOuter, colInner, d)], currentRowIdx, v, valueStyleIds[d]));
++                            if (v.HasValue)
++                                leafRow.AppendChild(MakeAggregateCell(leafColPositions[(colOuter, colInner, d)], currentRowIdx, v.Value, valueStyleIds[d]));
+                         }
+                     }
+                     if (emitSubtotals)
+@@ -1656,14 +1653,14 @@ internal static partial class PivotTableHelper
+                         {
+                             var sub = LeafRowColSub(rowOuter, rowInner, colOuter, d);
+                             if (sub != 0 || any)
+-                                leafRow.AppendChild(MakeNumericCell(subtotalColPositions[(colOuter, d)], currentRowIdx, sub, valueStyleIds[d]));
++                                leafRow.AppendChild(MakeAggregateCell(subtotalColPositions[(colOuter, d)], currentRowIdx, sub, valueStyleIds[d]));
+                         }
+                     }
+                 }
+                 if (emitRowGrand)
+                 {
+                     for (int d = 0; d < K; d++)
+-                        leafRow.AppendChild(MakeNumericCell(grandTotalColPositions[d], currentRowIdx, LeafRowGrandTotal(rowOuter, rowInner, d), valueStyleIds[d]));
++                        leafRow.AppendChild(MakeAggregateCell(grandTotalColPositions[d], currentRowIdx, LeafRowGrandTotal(rowOuter, rowInner, d), valueStyleIds[d]));
+                 }
+                 sheetData.AppendChild(leafRow);
+                 currentRowIdx++;
+@@ -1679,18 +1676,18 @@ internal static partial class PivotTableHelper
+             {
+                 foreach (var colInner in colInners)
+                     for (int d = 0; d < K; d++)
+-                        grandRow.AppendChild(MakeNumericCell(leafColPositions[(colOuter, colInner, d)], currentRowIdx,
++                        grandRow.AppendChild(MakeAggregateCell(leafColPositions[(colOuter, colInner, d)], currentRowIdx,
+                             GrandRowLeafCol(colOuter, colInner, d), valueStyleIds[d]));
+                 if (emitSubtotals)
+                 {
+                     for (int d = 0; d < K; d++)
+-                        grandRow.AppendChild(MakeNumericCell(subtotalColPositions[(colOuter, d)], currentRowIdx, GrandRowColSub(colOuter, d), valueStyleIds[d]));
++                        grandRow.AppendChild(MakeAggregateCell(subtotalColPositions[(colOuter, d)], currentRowIdx, GrandRowColSub(colOuter, d), valueStyleIds[d]));
+                 }
+             }
+             if (emitRowGrand)
+             {
+                 for (int d = 0; d < K; d++)
+-                    grandRow.AppendChild(MakeNumericCell(grandTotalColPositions[d], currentRowIdx,
++                    grandRow.AppendChild(MakeAggregateCell(grandTotalColPositions[d], currentRowIdx,
+                         Reduce(perDataField[d], valueFields[d].func), valueStyleIds[d]));
+             }
+             sheetData.AppendChild(grandRow);
+@@ -1757,7 +1754,7 @@ internal static partial class PivotTableHelper
+         List<int> rowFieldIndices, List<int> colFieldIndices,
+         List<(int idx, string func, string showAs, string name)> valueFields,
+         List<int>? filterFieldIndices,
+-        uint?[] valueStyleIds)
++        uint?[] valueStyleIds, DataFields? dataFields)
+     {
+         int K = Math.Max(1, valueFields.Count);
+         var rowTree = BuildAxisTree(rowFieldIndices, columnData);
+@@ -1805,26 +1802,9 @@ internal static partial class PivotTableHelper
+             }
+         }
+ 
+-        // Numeric value cache per data field. Pre-parse so we don't double_parse
+-        // every cell access. NaN encodes "not a number / skip".
+-        var dataNums = new double[K][];
+-        for (int d = 0; d < K; d++)
+-        {
+-            var dataIdx = valueFields[d].idx;
+-            var values = (dataIdx >= 0 && dataIdx < columnData.Count) ? columnData[dataIdx] : Array.Empty<string>();
+-            dataNums[d] = new double[srcRowCount];
+-            for (int r = 0; r < srcRowCount; r++)
+-            {
+-                if (r >= values.Length || string.IsNullOrEmpty(values[r])
+-                    || !double.TryParse(values[r], System.Globalization.NumberStyles.Float,
+-                        System.Globalization.CultureInfo.InvariantCulture, out var n))
+-                    dataNums[d][r] = double.NaN;
+-                else
+-                    dataNums[d][r] = n;
+-            }
+-        }
++        var dataValues = valueFields.Select(field => columnData[field.idx]).ToArray();
+ 
+-        double Reduce(IEnumerable<double> values, string func) => ReducePivotValues(values, func);
++        double Reduce(IEnumerable<string> values, string func) => ReducePivotValues(values, func);
+ 
+         // Compute the value at (rowNode, colNode, dataFieldIdx).
+         // Subtotal nodes have shorter Path arrays than leaves; the prefix match
+@@ -1833,7 +1813,7 @@ internal static partial class PivotTableHelper
+         {
+             var rPath = rowNode.Path;
+             var cPath = colNode.Path;
+-            var collected = new List<double>();
++            var collected = new List<string>();
+             for (int r = 0; r < srcRowCount; r++)
+             {
+                 bool match = true;
+@@ -1851,29 +1831,12 @@ internal static partial class PivotTableHelper
+                     if (string.IsNullOrEmpty(colFieldVals[r][l])) match = false;
+                 if (!match) continue;
+ 
+-                var v = dataNums[d][r];
+-                if (!double.IsNaN(v)) collected.Add(v);
++                if (r < dataValues[d].Length) collected.Add(dataValues[d][r]);
+             }
+             return Reduce(collected, valueFields[d].func);
+         }
+ 
+-        // showDataAs post-processing for the tree-based renderer. The inline
+-        // 1×1×K path uses ApplyShowDataAs1x1 on a pre-computed matrix;
+-        // RenderGeneralPivot computes cells on demand via ComputeCell, so the
+-        // transformation has to wrap each per-cell value with division by the
+-        // relevant total. Mirrors the same set of modes (Excel's "Show Values
+-        // As" semantics):
+-        //
+-        //   normal             — passthrough
+-        //   percent_of_total   — v / grandTotal[d]
+-        //   percent_of_row     — v / rowTotal(rowNode, d)
+-        //   percent_of_col     — v / colTotal(colNode, d)
+-        //   running_total      — NOT YET (needs col ordering context; raw value
+-        //                        is returned, callers add a TODO marker)
+-        //
+-        // Recomputes totals per call for simplicity. With small pivots the
+-        // O(rowsXcols) per-row scan is fine; bigger pivots could memoize but
+-        // we keep the wrapper simple to match Excel's correctness first.
++        // Use each data field's stored base field for running totals.
+         var grandAxisNode = new AxisNode(string.Empty, 0, Array.Empty<string>());
+         double TransformShowAs(double rawValue, AxisNode rowNode, AxisNode colNode, int d)
+         {
+@@ -1898,31 +1861,32 @@ internal static partial class PivotTableHelper
+                     var ct = ComputeCell(grandAxisNode, colNode, d);
+                     return ct == 0 ? rawValue : rawValue / ct;
+                 }
+-                case "running_total" or "runningtotal":
++                case "running_total" or "runningtotal" or "runtotal":
+                 {
+-                    // Cumulative sum across col positions. ONLY applied when
+-                    // the aggregate is "sum" (the only case where running of
+-                    // per-cell values equals Excel's "aggregate over the
+-                    // cumulative set"). For var/varP/avg/count/etc., Excel
+-                    // re-aggregates against the cumulative leaf set, which
+-                    // we don't have machinery for; raw value is returned and
+-                    // Refresh in Excel computes the correct cumulative.
+-                    var func = (valueFields[d].func ?? "").ToLowerInvariant();
+-                    if (func != "sum" && func != "") return rawValue;
+-                    if (colPositions.Count == 0) return rawValue;
++                    var baseField = dataFields?.Elements<DataField>().ElementAtOrDefault(d)?.BaseField?.Value
++                        ?? ResolveRunningTotalBaseField(rowFieldIndices, colFieldIndices);
++                    bool onRows = rowFieldIndices.Contains(baseField);
++                    int level = (onRows ? rowFieldIndices : colFieldIndices).IndexOf(baseField);
++                    if (level < 0)
++                        throw new ArgumentException("runningTotal baseField must be a row or column field");
++                    var node = onRows ? rowNode : colNode;
++                    if (node.Path.Length <= level) return rawValue;
++
++                    var parent = onRows ? rowTree : colTree;
++                    for (int l = 0; l < level; l++)
++                        parent = parent.Children.First(n => n.Label == node.Path[l]);
+                     double running = 0;
+-                    bool found = false;
+-                    foreach (var (pNode, pIsLeaf, pIsSubtotal) in colPositions)
++                    foreach (var item in parent.Children)
+                     {
+-                        if (pIsSubtotal) continue;
+-                        running += ComputeCell(rowNode, pNode, d);
+-                        if (object.ReferenceEquals(pNode, colNode))
+-                        {
+-                            found = true;
+-                            break;
+-                        }
++                        var path = (string[])node.Path.Clone();
++                        path[level] = item.Label;
++                        var cumulativeNode = new AxisNode(node.Label, node.Depth, path);
++                        running += onRows
++                            ? ComputeCell(cumulativeNode, colNode, d)
++                            : ComputeCell(rowNode, cumulativeNode, d);
++                        if (item.Label == node.Path[level]) break;
+                     }
+-                    return found ? running : rawValue;
++                    return running;
+                 }
+                 default:
+                     return rawValue;
+@@ -1945,7 +1909,7 @@ internal static partial class PivotTableHelper
+                     if (colFieldVals[r][l] != cPath[l]) match = false;
+                 if (!match) continue;
+                 for (int d = 0; d < K; d++)
+-                    if (!double.IsNaN(dataNums[d][r])) return true;
++                    if (r < dataValues[d].Length && !string.IsNullOrEmpty(dataValues[d][r])) return true;
+             }
+             return false;
+         }
+@@ -2334,7 +2298,7 @@ internal static partial class PivotTableHelper
+                             // Skip 0-value cells when there are no underlying values to
+                             // mirror Excel's behavior of leaving sparse intersections blank.
+                             if (any || v != 0)
+-                                row.AppendChild(MakeNumericCell(colIdxByPosition[cp, d], rowIdx, v, valueStyleIds[d]));
++                                row.AppendChild(MakeAggregateCell(colIdxByPosition[cp, d], rowIdx, v, valueStyleIds[d]));
+                         }
+                     }
+                 }
+@@ -2347,7 +2311,7 @@ internal static partial class PivotTableHelper
+                     for (int d = 0; d < K; d++)
+                     {
+                         var v = ComputeCellShowAs(rowNode, emptyColNode, d);
+-                        row.AppendChild(MakeNumericCell(firstDataCol + d, rowIdx, v, valueStyleIds[d]));
++                        row.AppendChild(MakeAggregateCell(firstDataCol + d, rowIdx, v, valueStyleIds[d]));
+                     }
+                 }
+             }
+@@ -2359,7 +2323,7 @@ internal static partial class PivotTableHelper
+             {
+                 var grandRowNode = new AxisNode(string.Empty, 0, Array.Empty<string>());
+                 for (int d = 0; d < K; d++)
+-                    row.AppendChild(MakeNumericCell(grandTotalColStart + d, rowIdx,
++                    row.AppendChild(MakeAggregateCell(grandTotalColStart + d, rowIdx,
+                         ComputeCellShowAs(rowNode, grandRowNode, d), valueStyleIds[d]));
+             }
+             sheetData.AppendChild(row);
+@@ -2412,7 +2376,7 @@ internal static partial class PivotTableHelper
+                     for (int d = 0; d < K; d++)
+                     {
+                         var v = ComputeCellShowAs(grandRowNodeFinal, colNode, d);
+-                        grandRow.AppendChild(MakeNumericCell(colIdxByPosition[cp, d], grandRowIdx, v, valueStyleIds[d]));
++                        grandRow.AppendChild(MakeAggregateCell(colIdxByPosition[cp, d], grandRowIdx, v, valueStyleIds[d]));
+                     }
+                 }
+             }
+@@ -2423,13 +2387,13 @@ internal static partial class PivotTableHelper
+                 for (int d = 0; d < K; d++)
+                 {
+                     var v = ComputeCellShowAs(grandRowNodeFinal, emptyColNode, d);
+-                    grandRow.AppendChild(MakeNumericCell(firstDataCol + d, grandRowIdx, v, valueStyleIds[d]));
++                    grandRow.AppendChild(MakeAggregateCell(firstDataCol + d, grandRowIdx, v, valueStyleIds[d]));
+                 }
+             }
+             if (emitRowGrand && colPositions.Count > 0)
+             {
+                 for (int d = 0; d < K; d++)
+-                    grandRow.AppendChild(MakeNumericCell(grandTotalColStart + d, grandRowIdx,
++                    grandRow.AppendChild(MakeAggregateCell(grandTotalColStart + d, grandRowIdx,
+                         ComputeCellShowAs(grandRowNodeFinal, grandRowNodeFinal, d), valueStyleIds[d]));
+             }
+             sheetData.AppendChild(grandRow);
+@@ -2470,7 +2434,7 @@ internal static partial class PivotTableHelper
+     /// </summary>
+     private static bool HasAnyValueInOuterRowCol(string rowOuter, string colOuter, string colInner,
+         List<(string outer, List<string> inners)> rowGroups,
+-        Dictionary<(string ro, string ri, string co, string ci, int d), List<double>> bucket,
++        Dictionary<(string ro, string ri, string co, string ci, int d), List<string>> bucket,
+         int dataFieldCount)
+     {
+         foreach (var (g, inners) in rowGroups)
+@@ -2491,7 +2455,7 @@ internal static partial class PivotTableHelper
+     private static bool HasAnyValueInOuterRowOuterCol(string rowOuter, string colOuter,
+         List<(string outer, List<string> inners)> rowGroups,
+         List<(string outer, List<string> inners)> colGroups,
+-        Dictionary<(string ro, string ri, string co, string ci, int d), List<double>> bucket,
++        Dictionary<(string ro, string ri, string co, string ci, int d), List<string>> bucket,
+         int dataFieldCount)
+     {
+         foreach (var (g, rinners) in rowGroups)
+@@ -2514,7 +2478,7 @@ internal static partial class PivotTableHelper
+     /// </summary>
+     private static bool HasAnyValueInLeafRowCol(string rowOuter, string rowInner, string colOuter,
+         List<(string outer, List<string> inners)> colGroups,
+-        Dictionary<(string ro, string ri, string co, string ci, int d), List<double>> bucket,
++        Dictionary<(string ro, string ri, string co, string ci, int d), List<string>> bucket,
+         int dataFieldCount)
+     {
+         foreach (var (oc, cinners) in colGroups)
+@@ -2536,7 +2500,7 @@ internal static partial class PivotTableHelper
+     /// </summary>
+     private static bool HasAnyValueInRowOuter(string row, string outerCol,
+         List<(string outer, List<string> inners)> colGroups,
+-        Dictionary<(string r, string oc, string ic, int d), List<double>> leafBucket,
++        Dictionary<(string r, string oc, string ic, int d), List<string>> leafBucket,
+         int dataFieldCount)
+     {
+         foreach (var (oc, inners) in colGroups)
+@@ -2559,7 +2523,7 @@ internal static partial class PivotTableHelper
+     /// </summary>
+     private static bool HasAnyValueInOuterCol(string outer, string col,
+         List<(string outer, List<string> inners)> groups,
+-        Dictionary<(string o, string i, string c, int d), List<double>> leafBucket,
++        Dictionary<(string o, string i, string c, int d), List<string>> leafBucket,
+         int dataFieldCount)
+     {
+         foreach (var (o, inners) in groups)
+@@ -2647,18 +2611,20 @@ internal static partial class PivotTableHelper
+     }
+ 
+     /// <summary>
+-    /// Numeric cell with the value serialized using invariant culture.
++    /// Write an aggregate as a number or an Excel error cell.
+     /// When <paramref name="styleIndex"/> is provided, the cell carries that
+     /// styles.xml cellXfs index — used to inherit the source column's number
+     /// format (currency, percentage, custom format) onto pivot value cells so
+     /// the pivot displays "¥1,234.50" rather than the raw "1234.5".
+     /// </summary>
+-    private static Cell MakeNumericCell(int colIdx, int rowIdx, double value, uint? styleIndex = null)
++    private static Cell MakeAggregateCell(int colIdx, int rowIdx, double value, uint? styleIndex = null)
+     {
+         var cell = new Cell
+         {
+             CellReference = $"{IndexToCol(colIdx)}{rowIdx}",
+-            CellValue = new CellValue(value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
++            DataType = double.IsNaN(value) ? CellValues.Error : CellValues.Number,
++            CellValue = new CellValue(double.IsNaN(value) ? "#DIV/0!"
++                : value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+         };
+         if (styleIndex.HasValue)
+             cell.StyleIndex = styleIndex.Value;
+diff --git a/src/officecli/Core/PivotTableHelper.Set.cs b/src/officecli/Core/PivotTableHelper.Set.cs
+index fbe73fc..3a0be50 100644
+--- a/src/officecli/Core/PivotTableHelper.Set.cs
++++ b/src/officecli/Core/PivotTableHelper.Set.cs
+@@ -675,6 +675,13 @@ internal static partial class PivotTableHelper
+                 };
+                 var sda = ParseShowDataAs(showAs);
+                 if (sda.HasValue) dataField.ShowDataAs = sda.Value;
++                if (sda == ShowDataAsValues.RunTotal)
++                {
++                    var previous = pivotDef.DataFields?.Elements<DataField>()
++                        .FirstOrDefault(f => f.Field?.Value == (uint)idx && f.Name?.Value == displayName);
++                    dataField.BaseField = ResolveRunningTotalBaseField(
++                        rowFieldIndices, colFieldIndices, previous?.BaseField?.Value);
++                }
+                 if (sourceColumnNumFmtIds != null && idx >= 0 && idx < sourceColumnNumFmtIds.Length
+                     && sourceColumnNumFmtIds[idx] is uint nfid)
+                 {
+@@ -764,7 +771,7 @@ internal static partial class PivotTableHelper
+                 RenderPivotIntoSheet(
+                     hostSheet, anchorRefForGeometry, cacheHeaders, cacheColumnData,
+                     rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices,
+-                    sourceColumnStyleIds);
++                    sourceColumnStyleIds, pivotDef.DataFields);
+ 
+                 // Collapse any duplicate <row r="N"> elements produced by the
+                 // re-render interacting with other pivots in the same sheet.
+diff --git a/src/officecli/Core/PivotTableHelper.cs b/src/officecli/Core/PivotTableHelper.cs
+index b154900..0bcd671 100644
+--- a/src/officecli/Core/PivotTableHelper.cs
++++ b/src/officecli/Core/PivotTableHelper.cs
+@@ -738,20 +738,18 @@ internal static partial class PivotTableHelper
+         if (rowCount == 0) return;
+ 
+         // Aggregate per outer-key using the first value field's function.
+-        var buckets = new Dictionary<string, List<double>>(StringComparer.Ordinal);
++        var buckets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+         for (int r = 0; r < rowCount; r++)
+         {
+             var key = outerCol[r];
+             if (string.IsNullOrEmpty(key)) continue;
+             if (r >= valueCol.Length) continue;
+-            if (!NumericText.TryParse(valueCol[r], out var v))
+-                continue;
+             if (!buckets.TryGetValue(key, out var list))
+             {
+-                list = new List<double>();
++                list = new List<string>();
+                 buckets[key] = list;
+             }
+-            list.Add(v);
++            list.Add(valueCol[r]);
+         }
+ 
+         if (buckets.Count <= topN) return; // keeps everything — no-op
+@@ -1385,7 +1383,7 @@ internal static partial class PivotTableHelper
+         // Those configs are tracked as a v2 expansion.
+         RenderPivotIntoSheet(
+             targetSheet, position, headers, columnData,
+-            rowFields, colFields, valueFields, filterFields, columnStyleIds);
++            rowFields, colFields, valueFields, filterFields, columnStyleIds, pivotDef.DataFields);
+ 
+         // After rendering, collapse any duplicate <row r="N"> elements the
+         // renderer may have appended if this sheet already had pivot-rendered
+@@ -1701,7 +1699,8 @@ internal static partial class PivotTableHelper
+         // naturally (zero leaves, zero subtotals).
+         // N≤2 with both axes non-empty: keep the existing specialized formulas
+         // (regression-tested via pivot_baselines).
+-        if (rowFieldIndices.Count >= 3 || colFieldIndices.Count >= 3
++        if (valueFields.Any(v => ParseShowDataAs(v.showAs) == ShowDataAsValues.RunTotal)
++            || rowFieldIndices.Count >= 3 || colFieldIndices.Count >= 3
+             || rowFieldIndices.Count == 0
+             || (rowFieldIndices.Count == 2 && colFieldIndices.Count == 0))
+         {
+@@ -2198,7 +2197,7 @@ internal static partial class PivotTableHelper
+                     RenderPivotIntoSheet(
+                         worksheetPart, anchorRef, cacheHeaders, cacheColumnData,
+                         rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices,
+-                        sourceColumnStyleIds);
++                        sourceColumnStyleIds, pivotDef.DataFields);
+ 
+                     DedupeSheetDataRows(sheetData);
+                 }
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.Add.Cf.cs b/src/officecli/Handlers/Excel/ExcelHandler.Add.Cf.cs
+index a1f15ae..06ab938 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.Add.Cf.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.Add.Cf.cs
+@@ -254,7 +254,6 @@ public partial class ExcelHandler
+         };
+         if (maxVal != null) x14MaxCfvo.Append(new DocumentFormat.OpenXml.Office.Excel.Formula(maxVal));
+         x14DataBar.Append(x14MaxCfvo);
+-        x14DataBar.Append(new X14.FillColor { Rgb = normalizedColor });
+         x14DataBar.Append(new X14.NegativeFillColor { Rgb = dbNegColor });
+         x14DataBar.Append(new X14.BarAxisColor { Rgb = dbAxisColor });
+ 
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.Add.Chart.cs b/src/officecli/Handlers/Excel/ExcelHandler.Add.Chart.cs
+index 36ae4f8..290443c 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.Add.Chart.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.Add.Chart.cs
+@@ -151,6 +151,9 @@ public partial class ExcelHandler
+         // Extended chart types (cx:chart) — funnel, treemap, sunburst, boxWhisker, histogram
+         if (ChartExBuilder.IsExtendedChartType(chartType))
+         {
++            if (SchemaKeyNormalizer.Normalize(chartType) == "pareto" && string.IsNullOrEmpty(dataRangeStr)
++                && !EnumerateChartRangeKeys(properties).Any(key => properties.TryGetValue(key, out var value) && ChartHelper.IsRangeReference(value)))
++                (categories, seriesData) = ChartExBuilder.PreparePareto(categories, seriesData);
+             // Excel chartEx pulls data directly from the host workbook via
+             // cx:f references, not from an embedded xlsx. When the caller
+             // provided inline categories+values (no dataRange), persist
+@@ -556,7 +559,7 @@ public partial class ExcelHandler
+                     {
+                         var bang = catRef.LastIndexOf('!');
+                         f.Text = bang > 0
+-                            ? Core.ModernFunctionQualifier.QuoteSheetNameForRef(catRef[..bang].Trim('\'')) + catRef[bang..]
++                            ? Core.ModernFunctionQualifier.QuoteSheetNameForRef(UnquoteSheetName(catRef[..bang])) + catRef[bang..]
+                             : catRef;
+                     }
+                     else
+@@ -586,8 +589,10 @@ public partial class ExcelHandler
+         {
+             yield return $"series{i}";
+             yield return $"series{i}.values";
++            yield return $"series{i}.valuesRef";
+             yield return $"series{i}.categories";
+             yield return $"series{i}.bubbleSize";
++            yield return $"series{i}.bubbleSizeRef";
+         }
+     }
+ }
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.ChartCache.cs b/src/officecli/Handlers/Excel/ExcelHandler.ChartCache.cs
+index 98cc1e8..c43fada 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.ChartCache.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.ChartCache.cs
+@@ -97,7 +97,7 @@ public partial class ExcelHandler
+         List<(string Name, WorksheetPart Part)> worksheets,
+         Dictionary<string, (SheetData sd, Core.FormulaEvaluator ev, Dictionary<string, Cell> idx)> sheetCtx)
+     {
+-        var bang = formula.IndexOf('!');
++        var bang = formula.LastIndexOf('!');
+         if (bang <= 0) return null;
+         var sheetPart = formula[..bang].Trim();
+         if (sheetPart.StartsWith('\'') && sheetPart.EndsWith('\''))
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.Helpers.Chart.cs b/src/officecli/Handlers/Excel/ExcelHandler.Helpers.Chart.cs
+index 80f0532..dee6441 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.Helpers.Chart.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.Helpers.Chart.cs
+@@ -423,10 +423,10 @@ public partial class ExcelHandler
+         // Parse sheet name and range
+         string rangeSheetName = defaultSheetName;
+         string rangePart = dataRange.Trim();
+-        var bangIdx = rangePart.IndexOf('!');
++        var bangIdx = rangePart.LastIndexOf('!');
+         if (bangIdx >= 0)
+         {
+-            rangeSheetName = rangePart[..bangIdx].Trim('\'');
++            rangeSheetName = UnquoteSheetName(rangePart[..bangIdx]);
+             rangePart = rangePart[(bangIdx + 1)..];
+         }
+ 
+@@ -640,10 +640,10 @@ public partial class ExcelHandler
+         // Cell range form. Strip a leading 'Sheet'! prefix (same approach as dataRange).
+         string catSheetName = defaultSheetName;
+         string rangePart = trimmed;
+-        var bangIdx = rangePart.IndexOf('!');
++        var bangIdx = rangePart.LastIndexOf('!');
+         if (bangIdx >= 0)
+         {
+-            catSheetName = rangePart[..bangIdx].Trim('\'');
++            catSheetName = UnquoteSheetName(rangePart[..bangIdx]);
+             rangePart = rangePart[(bangIdx + 1)..];
+         }
+ 
+@@ -763,10 +763,10 @@ public partial class ExcelHandler
+     {
+         string sheetName = defaultSheetName;
+         string rangePart = rangeRef.Trim();
+-        var bangIdx = rangePart.IndexOf('!');
++        var bangIdx = rangePart.LastIndexOf('!');
+         if (bangIdx >= 0)
+         {
+-            sheetName = rangePart[..bangIdx].Trim('\'');
++            sheetName = UnquoteSheetName(rangePart[..bangIdx]);
+             rangePart = rangePart[(bangIdx + 1)..];
+         }
+ 
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.Helpers.cs b/src/officecli/Handlers/Excel/ExcelHandler.Helpers.cs
+index ee45410..fe30bdf 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.Helpers.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.Helpers.cs
+@@ -274,7 +274,7 @@ public partial class ExcelHandler
+     // The location string is what gets written to the OOXML @location attribute.
+     private static readonly System.Text.RegularExpressions.Regex s_internalLinkPattern =
+         new System.Text.RegularExpressions.Regex(
+-            @"^#?(?:'(?:[^']|'')+'|[A-Za-z_][\w\.]*)![A-Za-z]{1,3}\d+(?::[A-Za-z]{1,3}\d+)?$",
++            @"^#?(?:'(?:[^']|'')+'|[A-Za-z_][\w\.]*)!\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?$",
+             System.Text.RegularExpressions.RegexOptions.Compiled);
+ 
+     internal static string? TryParseInternalHyperlinkLocation(string value)
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.Remove.cs b/src/officecli/Handlers/Excel/ExcelHandler.Remove.cs
+index 678585d..d8ec067 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.Remove.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.Remove.cs
+@@ -131,7 +131,7 @@ public partial class ExcelHandler
+                 ? workbookPart.GetPartById(sheetIdForCheck) as WorksheetPart
+                 : null;
+             var refToken = sheetName + "!";
+-            var quotedRefToken = "'" + sheetName + "'!";
++            var quotedRefToken = "'" + sheetName.Replace("'", "''") + "'!";
+             foreach (var otherWsPart in workbookPart.WorksheetParts)
+             {
+                 if (sheetWsPartForCheck != null && ReferenceEquals(otherWsPart, sheetWsPartForCheck)) continue;
+@@ -204,6 +204,15 @@ public partial class ExcelHandler
+                         throw new ArgumentException(
+                             $"Cannot remove sheet '{sheetName}': it is referenced by a hyperlink in this workbook. " +
+                             $"Remove or repoint the hyperlink first.");
++                foreach (var relationship in otherWsPart.HyperlinkRelationships)
++                {
++                    var target = relationship.Uri.OriginalString;
++                    var separator = target.LastIndexOf('!');
++                    if (target.StartsWith('#') && separator > 1 && UnquoteSheetName(target[1..separator]).Equals(sheetName, StringComparison.OrdinalIgnoreCase))
++                        throw new ArgumentException(
++                            $"Cannot remove sheet '{sheetName}': it is referenced by a hyperlink in this workbook. " +
++                            $"Remove or repoint the hyperlink first.");
++                }
+             }
+ 
+             // CONSISTENCY(remove-sheet-refs): pivotCacheDefinition parts live
+diff --git a/src/officecli/Handlers/Excel/ExcelHandler.Set.Sheet.cs b/src/officecli/Handlers/Excel/ExcelHandler.Set.Sheet.cs
+index 5668a82..881a446 100644
+--- a/src/officecli/Handlers/Excel/ExcelHandler.Set.Sheet.cs
++++ b/src/officecli/Handlers/Excel/ExcelHandler.Set.Sheet.cs
+@@ -267,6 +267,15 @@ public partial class ExcelHandler
+                                     wsChanged = true;
+                                 }
+                             }
++                            foreach (var relationship in anyWsPart2.HyperlinkRelationships.ToList())
++                            {
++                                var target = relationship.Uri.OriginalString;
++                                var separator = target.LastIndexOf('!');
++                                if (!target.StartsWith('#') || separator < 2 || !UnquoteSheetName(target[1..separator]).Equals(oldName, StringComparison.OrdinalIgnoreCase)) continue;
++                                anyWsPart2.DeleteReferenceRelationship(relationship.Id);
++                                anyWsPart2.AddHyperlinkRelationship(new Uri("#" + newRef + target[(separator + 1)..], UriKind.Relative), true, relationship.Id);
++                                wsChanged = true;
++                            }
+                             if (wsChanged) wsRoot.Save();
+                         }
+ 
+diff --git a/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs b/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs
+index f1e2c51..51f14a9 100644
+--- a/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs
++++ b/src/officecli/Handlers/Pptx/PowerPointHandler.Add.Media.cs
+@@ -745,6 +745,8 @@ public partial class PowerPointHandler
+                 // Extended chart types (cx:chart) — funnel, treemap, sunburst, boxWhisker, histogram
+                 if (ChartExBuilder.IsExtendedChartType(chartType))
+                 {
++                    if (SchemaKeyNormalizer.Normalize(chartType) == "pareto")
++                        (categories, seriesData) = ChartExBuilder.PreparePareto(categories, seriesData);
+                     var cxChartSpace = ChartExBuilder.BuildExtendedChartSpace(
+                         chartType, chartTitle, categories, seriesData, properties);
+                     var extChartPart = chartSlidePart.AddNewPart<ExtendedChartPart>();
+diff --git a/src/officecli/Handlers/Pptx/PptxBatchEmitter.Charts.cs b/src/officecli/Handlers/Pptx/PptxBatchEmitter.Charts.cs
+index 39bcee6..ac68caf 100644
+--- a/src/officecli/Handlers/Pptx/PptxBatchEmitter.Charts.cs
++++ b/src/officecli/Handlers/Pptx/PptxBatchEmitter.Charts.cs
+@@ -83,14 +83,7 @@ public static partial class PptxBatchEmitter
+             }
+         }
+ 
+-        // Waterfall round-trip: BuildWaterfallChart encodes the user's delta
+-        // input into 3 stacked-bar series (Base/Increase/Decrease) with
+-        // cumulative values. Re-feeding those 3 series on replay doubles the
+-        // running total — Builder would re-encode the already-encoded data.
+-        // Reverse the encoding here: each category's delta is `inc[i]` if
+-        // inc[i] != 0 else `-dec[i]`; emit a single series under the chart's
+-        // own name (or "Series 1") so AddChart's waterfall path takes over.
+-        // Per-category names are recovered from `categories=`.
++        // Recover changes from the stored waterfall segments before replay.
+         if (props.TryGetValue("chartType", out var ctype)
+             && ctype.Equals("waterfall", StringComparison.OrdinalIgnoreCase)
+             && fullChart.Children != null)
+@@ -116,15 +109,19 @@ public static partial class PptxBatchEmitter
+                 && inc.Length == dec.Length
+                 && inc.Length > 0)
+             {
++                byName.TryGetValue("Increase below zero", out var incNegative);
++                byName.TryGetValue("Decrease below zero", out var decNegative);
+                 var deltas = new double[inc.Length];
+                 for (int i = 0; i < inc.Length; i++)
+-                    deltas[i] = inc[i] != 0 ? inc[i] : -dec[i];
++                    deltas[i] = inc[i] - dec[i]
++                        - (incNegative != null && i < incNegative.Length ? incNegative[i] : 0)
++                        + (decNegative != null && i < decNegative.Length ? decNegative[i] : 0);
+                 var deltaStr = string.Join(",",
+                     deltas.Select(d => d.ToString("G",
+                         System.Globalization.CultureInfo.InvariantCulture)));
+                 seriesParts = new List<string> { $"Waterfall:{deltaStr}" };
+                 // Strip per-series color/style props that referred to the
+-                // encoded triplet — Builder re-applies increase/decrease/
++                // encoded segments — Builder re-applies increase/decrease/
+                 // total colors from explicit chart-level keys.
+             }
+         }
+diff --git a/src/officecli/Handlers/Word/WordBatchEmitter.Charts.cs b/src/officecli/Handlers/Word/WordBatchEmitter.Charts.cs
+index b71c230..1baf1e8 100644
+--- a/src/officecli/Handlers/Word/WordBatchEmitter.Charts.cs
++++ b/src/officecli/Handlers/Word/WordBatchEmitter.Charts.cs
+@@ -214,26 +214,16 @@ public static partial class WordBatchEmitter
+             props["data"] = string.Join(";", seriesParts);
+         }
+ 
+-        // Waterfall idempotency: a waterfall chart is stored as a stacked bar
+-        // with three DERIVED series (Base / Increase / Decrease). DetectChartType
+-        // reports it as "waterfall", but the raw series children still carry the
+-        // derived stacks. If we replay those as `data=`, BuildWaterfallChart
+-        // derives base/increase AGAIN on top of the already-derived values —
+-        // corrupting heights and dropping the first bar. Reconstruct the single
+-        // logical change series (value[i] = Increase[i] - Decrease[i]) and feed
+-        // that as `data=` so the round-trip is idempotent. The derived triplet's
+-        // per-series styling keys are re-generated by the builder from
+-        // increaseColor / decreaseColor / totalColor (already surfaced at chart
+-        // level), so strip them here.
++        // Stored waterfall segments must be collapsed before the builder runs again.
+         if (props.TryGetValue("chartType", out var ctW)
+             && string.Equals(ctW, "waterfall", StringComparison.OrdinalIgnoreCase)
+-            && seriesParts.Count == 3)
++            && seriesParts.Count is 3 or 5)
+         {
+             var logical = CollapseWaterfallSeries(seriesParts);
+             if (logical != null)
+             {
+                 props["data"] = logical;
+-                // Strip the derived-triplet series keys (series1, series1.spPr,
++                // Strip the derived-series keys (series1, series1.spPr,
+                 // series2.dPt, series2.color, series3.color, …). The waterfall
+                 // builder regenerates all styling from the chart-level colors.
+                 foreach (var k in props.Keys
+@@ -275,13 +265,8 @@ public static partial class WordBatchEmitter
+     }
+ 
+     /// <summary>
+-    /// Collapse a waterfall chart's stored Base/Increase/Decrease stacked-bar
+-    /// triplet back into the single logical change series the waterfall builder
+-    /// expects (value[i] = Increase[i] - Decrease[i]). The last bar is the
+-    /// auto-computed total, so its logical value is irrelevant on replay
+-    /// (BuildWaterfallChart recomputes it); we emit the total magnitude for a
+-    /// readable data string. Returns null when the triplet doesn't match the
+-    /// expected Base/Increase/Decrease shape.
++    /// Recover changes from the positive and negative segments of a waterfall.
++    /// The final value is ignored when the last bar is an automatic total.
+     /// </summary>
+     private static string? CollapseWaterfallSeries(List<string> seriesParts)
+     {
+@@ -289,7 +274,6 @@ public static partial class WordBatchEmitter
+         {
+             var colon = part.IndexOf(':');
+             if (colon < 0) return null;
+-            var name = part[..colon];
+             var vals = part[(colon + 1)..].Split(',', StringSplitOptions.RemoveEmptyEntries);
+             var arr = new double[vals.Length];
+             for (int i = 0; i < vals.Length; i++)
+@@ -304,9 +288,12 @@ public static partial class WordBatchEmitter
+         if (inc == null || dec == null || inc.Length != dec.Length || inc.Length == 0)
+             return null;
+         var n = inc.Length;
++        var incNegative = seriesParts.Count == 5 ? Parse(seriesParts[3]) : new double[n];
++        var decNegative = seriesParts.Count == 5 ? Parse(seriesParts[4]) : new double[n];
++        if (incNegative?.Length != n || decNegative?.Length != n) return null;
+         var logical = new double[n];
+         for (int i = 0; i < n; i++)
+-            logical[i] = inc[i] - dec[i];
++            logical[i] = inc[i] - incNegative[i] - dec[i] + decNegative[i];
+         return "Series1:" + string.Join(",", logical.Select(v =>
+             v.ToString("G", System.Globalization.CultureInfo.InvariantCulture)));
+     }
+diff --git a/src/officecli/Handlers/Word/WordHandler.Add.Media.cs b/src/officecli/Handlers/Word/WordHandler.Add.Media.cs
+index 989e376..ef020a3 100644
+--- a/src/officecli/Handlers/Word/WordHandler.Add.Media.cs
++++ b/src/officecli/Handlers/Word/WordHandler.Add.Media.cs
+@@ -59,6 +59,8 @@ public partial class WordHandler
+         // Extended chart types (cx:chart) — funnel, treemap, sunburst, boxWhisker, histogram
+         if (Core.ChartExBuilder.IsExtendedChartType(chartType))
+         {
++            if (Core.SchemaKeyNormalizer.Normalize(chartType) == "pareto")
++                (categories, seriesData) = Core.ChartExBuilder.PreparePareto(categories, seriesData);
+             var cxChartSpace = Core.ChartExBuilder.BuildExtendedChartSpace(
+                 chartType, chartTitle, categories, seriesData, properties);
+             var extChartPart = chartMainPart.AddNewPart<ExtendedChartPart>();

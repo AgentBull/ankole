@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '@ankole/uikit'
 import { t } from 'i18next'
@@ -211,7 +212,7 @@ export function useChatCommands({
     const edit = model.editCommand()
     if (edit) changeQueue(edit)
     else {
-      const submission = model.submit(conversationID, agentUID, () => crypto.randomUUID())
+      const submission = model.submit(conversationID, agentUID, () => uuidV4())
       // Release the new-chat slot without treating an unconfirmed create as a saved conversation.
       if (!conversationID && !pageID) drafts.remember(model, submission.conversationID)
       send.mutate({
@@ -305,7 +306,7 @@ export function useChatCommands({
     canStop: stoppable.length > 0,
     stop: () => {
       if (!data || !policy().canQueue('stop')) return
-      const commandID = model.stopID(() => crypto.randomUUID())
+      const commandID = model.stopID(() => uuidV4())
       void (async () => {
         for (const agentUID of stoppable) {
           await queue.mutateAsync({ action: 'stop', agentUID, commandID })
@@ -328,7 +329,7 @@ export function useChatCommands({
               action: 'regenerate',
               messageID: message.id,
               agentUID: slot.agentUID,
-              commandID: crypto.randomUUID()
+              commandID: uuidV4()
             })
           }
         }

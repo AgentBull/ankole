@@ -1053,16 +1053,6 @@ export type ExternalIdentityType = {
   /**
    * Field included by default.
    */
-  id: string
-  /**
-   * Field included by default.
-   */
-  metadata: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
   principal_uid: string
   /**
    * Field included by default.
@@ -1159,10 +1149,6 @@ export type BackgroundAgentJobType = {
   /**
    * Field included by default.
    */
-  authorization_kind?: string | null
-  /**
-   * Field included by default.
-   */
   completed_at?: string | null
   /**
    * Field included by default.
@@ -1182,14 +1168,6 @@ export type BackgroundAgentJobType = {
    * Field included by default.
    */
   execution_failures: number
-  /**
-   * Field included by default.
-   */
-  human_access_version?: number | null
-  /**
-   * Field included by default.
-   */
-  human_uid?: string | null
   /**
    * Field included by default.
    */
@@ -1231,12 +1209,6 @@ export type BackgroundAgentJobType = {
   /**
    * Field included by default.
    */
-  runtime_projection?: {
-    [key: string]: unknown
-  } | null
-  /**
-   * Field included by default.
-   */
   runtime_thread_id?: string | null
   /**
    * Field included by default.
@@ -1266,10 +1238,6 @@ export type BackgroundAgentJobType = {
    * Field included by default.
    */
   updated_at: string
-  /**
-   * Field included by default.
-   */
-  worker_wait_started_at?: string | null
   /**
    * Field included by default.
    */
@@ -1703,10 +1671,6 @@ export type AgentSkillLessonType = {
   /**
    * Field included by default.
    */
-  checked_skill_hash?: string | null
-  /**
-   * Field included by default.
-   */
   content: string
   /**
    * Field included by default.
@@ -1988,10 +1952,6 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  authorization_kind?: string | null
-  /**
-   * Field included by default.
-   */
   automation_job_id?: number | null
   /**
    * Field included by default.
@@ -2013,14 +1973,6 @@ export type CronScheduleType = {
    * Field included by default.
    */
   execution_session_id?: string | null
-  /**
-   * Field included by default.
-   */
-  human_access_version?: number | null
-  /**
-   * Field included by default.
-   */
-  human_uid?: string | null
   /**
    * Field included by default.
    */
@@ -2251,7 +2203,7 @@ export type AiGatewayConversation = {
     /**
      * Field included by default.
      */
-    channel_kind?: 'im_dm' | 'im_group' | 'webhook_endpoint' | 'issue' | 'alert_stream' | 'unknown' | null
+    channel_kind?: 'native' | 'im_dm' | 'im_group' | 'webhook_endpoint' | 'issue' | 'alert_stream' | 'unknown' | null
     /**
      * Field included by default.
      */
@@ -2313,10 +2265,6 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  authorization_kind?: string | null
-  /**
-   * Field included by default.
-   */
   automation_job_id?: number | null
   /**
    * Field included by default.
@@ -2350,14 +2298,6 @@ export type ScheduledEventType = {
    * Field included by default.
    */
   fired_at?: string | null
-  /**
-   * Field included by default.
-   */
-  human_access_version?: number | null
-  /**
-   * Field included by default.
-   */
-  human_uid?: string | null
   /**
    * Field included by default.
    */
@@ -3007,10 +2947,6 @@ export type OidcLogoutDeliveryType = {
   /**
    * Field included by default.
    */
-  endpoint: string
-  /**
-   * Field included by default.
-   */
   id: string
   /**
    * Field included by default.
@@ -3135,10 +3071,6 @@ export type AgentType = {
    * Field included by default.
    */
   status?: 'active' | 'disabled' | null
-  /**
-   * Field included by default.
-   */
-  type: 'ai_colleague'
   /**
    * Field included by default.
    */

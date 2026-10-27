@@ -17,7 +17,13 @@ defmodule Ankole.Sessions.AmbientTriageTest do
 
   test "NOOP from the real provider protocol settles input without a model conversation or epoch",
        %{agent: agent} do
-    configure_model(agent.uid, fn _ -> {:json, 200, response("NOOP")} end)
+    owner = self()
+
+    configure_model(agent.uid, fn request ->
+      send(owner, {:ambient_request, request.body})
+      {:json, 200, response("NOOP")}
+    end)
+
     event = ambient_event(agent, "ordinary room chatter")
     key = %{agent_uid: agent.uid, session_id: event.session_id}
 
@@ -26,6 +32,8 @@ defmodule Ankole.Sessions.AmbientTriageTest do
     refute Repo.exists?(ModelConversation)
 
     assert {:ok, :settled} = AmbientTriage.run(key, event)
+    assert_receive {:ambient_request, request}
+    refute Map.has_key?(request, "temperature")
 
     assert %Signal{completed_at: %DateTime{}, turn_outcome: "silent", last_attempt_at: nil} =
              Repo.reload!(event)

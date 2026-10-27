@@ -122,21 +122,17 @@ defmodule Ankole.OIDC.LoginPolicyTest do
              )
   end
 
-  test "combined prompts force upstream login while account selection stays in the browser transaction" do
+  test "combined prompts force upstream login while account selection stays in the authorization request" do
     selected_at = DateTime.utc_now()
 
-    transaction = %{
-      upstream_state: "upstream-nonce",
-      updated_at: selected_at,
-      request: %{"prompt" => ["login", "select_account"], "max_age" => 3600}
-    }
+    request = %{"prompt" => ["login", "select_account"], "max_age" => 3600}
+    opts = LoginPolicy.upstream_options("upstream-nonce", request, selected_at)
 
-    opts = LoginPolicy.upstream_options(transaction)
     assert opts[:prompt] == "login"
     assert opts[:max_age] == 0
     assert opts[:nonce] == "upstream-nonce"
     assert opts[:auth_time_required]
     assert opts[:auth_time_not_before] == DateTime.to_unix(selected_at)
-    assert LoginPolicy.selection_required?(transaction.request)
+    assert LoginPolicy.selection_required?(request)
   end
 end

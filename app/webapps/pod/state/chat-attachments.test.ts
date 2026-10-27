@@ -11,6 +11,24 @@ const tick = async () => {
 const file = () => new File(['brief'], 'brief.txt', { type: 'text/plain' })
 
 describe('Human chat attachments', () => {
+  test('uploads keep a UUID identity when randomUUID is unavailable on the origin', async () => {
+    const previous = Object.getOwnPropertyDescriptor(crypto, 'randomUUID')
+    Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: undefined })
+    const model = new ChatAttachments(async () => receipt('prepared'))
+    try {
+      model.add([file()])
+      await tick()
+      expect(model.canSend.value).toBe(true)
+      expect(model.capture().attachmentIDs[0]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      )
+    } finally {
+      model.dispose()
+      if (previous) Object.defineProperty(crypto, 'randomUUID', previous)
+      else Reflect.deleteProperty(crypto, 'randomUUID')
+    }
+  })
+
   test('an upload failure keeps the File and retries with the same upload identity', async () => {
     const calls: string[] = []
     const model = new ChatAttachments(async (_file, id) => {

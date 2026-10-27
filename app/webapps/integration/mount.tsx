@@ -35,6 +35,7 @@ import { ScheduleCronEditorPage, SchedulesListPage } from '../console/pages/sche
 import { AgentLibraryEditor } from '../console/pages/agent-library-editor'
 import { AgentLibraryEditorModel } from '../console/state/agent-library-editor-model'
 import { WorkerEnvAgentSection } from '../console/pages/worker-env-agent-section'
+import { AgentLibraryPage, AgentPluginDetailPage } from '../console/pages/agent-library'
 
 await loadLocale('en-US')
 const setupSurface = window.location.pathname.startsWith('/setup-repair')
@@ -46,7 +47,7 @@ const consoleSurface =
   provider ||
   home ||
   brain ||
-  /^\/(settings|tenants|webhooks|files|schedules|library|worker-env|worker-providers|identity|access|oidc-clients)(\/|$)/.test(
+  /^\/(settings|tenants|webhooks|files|schedules|library|agent-library|worker-env|worker-providers|identity|access|oidc-clients)(\/|$)/.test(
     window.location.pathname
   )
 const client = createQueryClient(consoleSurface ? createConsoleMutationCache() : undefined)
@@ -87,6 +88,12 @@ const app = setupSurface ? (
       component: BrainObjectsPage
     })
     const routeTree = rootRoute.addChildren([
+      createRoute({ getParentRoute: () => rootRoute, path: '/agent-library', component: AgentLibraryPage }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/agent-library/agent-plugins/$pluginID',
+        component: AgentPluginDetailPage
+      }),
       regressionNavRoute.addChildren([
         settingsRoute.addChildren([
           createRoute({ getParentRoute: () => settingsRoute, path: 'group/$group', component: SettingGroupDrawer }),

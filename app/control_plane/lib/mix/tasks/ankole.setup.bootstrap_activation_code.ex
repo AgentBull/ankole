@@ -53,8 +53,10 @@ defmodule Mix.Tasks.Ankole.Setup.BootstrapActivationCode do
 
     with {:ok, _apps} <- Application.ensure_all_started(:ankole_kernel),
          {:ok, _apps} <- Application.ensure_all_started(:ecto_sql),
+         {:ok, _apps} <- Application.ensure_all_started(:phoenix_pubsub),
          :ok <- start_child(Ankole.Repo),
          :ok <- start_child(Ankole.AppConfigure.Registry),
+         :ok <- start_child(Phoenix.PubSub.Supervisor, name: Ankole.PubSub),
          :ok <- start_child(Ankole.AppConfigure.Cache) do
       :ok
     else
@@ -63,8 +65,8 @@ defmodule Mix.Tasks.Ankole.Setup.BootstrapActivationCode do
     end
   end
 
-  defp start_child(module) do
-    case module.start_link([]) do
+  defp start_child(module, opts \\ []) do
+    case module.start_link(opts) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
       {:error, reason} -> {:error, {module, reason}}

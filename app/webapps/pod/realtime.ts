@@ -1,3 +1,4 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { t } from 'i18next'
 import { Presence, Socket, type Channel, type Push } from 'phoenix'
 import type { EphemeralChannel, PresenceMember } from '@ankole/applet-sdk/types'
@@ -137,7 +138,7 @@ export class PodRealtime {
   }
 
   watchVersion(kind: 'pages' | 'tables', id: string, changed: (version: number | undefined) => void) {
-    const key = `${kind}:${id}:${crypto.randomUUID()}`
+    const key = `${kind}:${id}:${uuidV4()}`
     this.versions.set(key, { kind, id, changed })
     if (!this.verifyTimer) {
       this.verifyTimer = setInterval(() => {

@@ -284,6 +284,8 @@ defmodule Ankole.Sessions.CommandsTest do
           ]
         )
 
+      stub_driver(%{agent_uid: agent.uid, session_id: conversation.conversation_key})
+
       assert {:ok, %{signal: compress_event}} =
                emit_entry(
                  agent.uid,

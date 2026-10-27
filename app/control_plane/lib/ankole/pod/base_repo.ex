@@ -47,9 +47,17 @@ defmodule Ankole.Pod.BaseRepo do
 
             remaining = remaining!(deadline)
 
+            statement_timeout =
+              min(remaining, Keyword.get(opts, :statement_timeout_ms, remaining))
+
             query!(
-              "SELECT set_config('transaction_timeout',$1,true),set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('TimeZone',$3,true)",
-              [to_string(remaining), if(opts[:ddl], do: "2000", else: "5000"), timezone]
+              "SELECT set_config('transaction_timeout',$1,true),set_config('statement_timeout',$2,true),set_config('lock_timeout',$3,true),set_config('TimeZone',$4,true)",
+              [
+                to_string(remaining),
+                to_string(statement_timeout),
+                if(opts[:ddl], do: "2000", else: "5000"),
+                timezone
+              ]
             )
 
             result = fun.()

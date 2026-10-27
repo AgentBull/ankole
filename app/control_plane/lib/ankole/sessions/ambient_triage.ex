@@ -96,7 +96,6 @@ defmodule Ankole.Sessions.AmbientTriage do
       "instructions" => Prompt.ambient_system(observation),
       "input" => [Run.user(input)],
       "max_output_tokens" => 300,
-      "temperature" => 0,
       "text" => %{
         "format" => %{
           "type" => "json_schema",

@@ -489,7 +489,9 @@ Its state is `active`, `unavailable`, or `settled`; it is a display observation,
 not a second execution lifecycle. Labels have bounded text and bindings, and
 `tools` retains the ordered steps in the current turn, including completed
 and failed steps with duration. Tool arguments and result bodies do not enter
-this activity projection.
+this activity projection. The browser shows the active phase label even when
+an active Response has a live text stream. The phase label is separate from the
+recorded thinking summary. An unavailable or settled snapshot clears this label.
 
 The stream subscribes before reading a bounded current Driver snapshot. It
 checks the stored workspace epoch and open Signal before accepting active
@@ -497,7 +499,9 @@ details, and monitors the Driver. The initial frame includes the current
 snapshot, so a late connection can show a capacity wait without replaying an
 event log. Epoch and revision ordering reject older observations; a settled
 epoch cannot reopen. Driver loss, retry, and disconnection clear transient
-details and fall back to the durable status. An activity frame never triggers
+details and fall back to the durable status. While the connection is closed,
+an active snapshot cannot restore these details. A new connection accepts its
+current snapshot. An activity frame never triggers
 a full history read.
 
 `Conversations.Events` publishes a message event after a public statement commits.

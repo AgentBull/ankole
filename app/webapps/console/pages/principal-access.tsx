@@ -1,4 +1,4 @@
-import { isRecord } from '@agentbull/active-support'
+import { isRecord, uuidV4 } from '@agentbull/active-support'
 import { ActorLabel } from '../actor-label'
 import {
   Badge,
@@ -321,7 +321,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                       body: {
                         data: {
                           reason: restoreModel.reason.value.trim(),
-                          operation_id: crypto.randomUUID(),
+                          operation_id: uuidV4(),
                           identity_verified: true,
                           review_fingerprint: restoreModel.approvedFingerprint.value!
                         }
@@ -431,7 +431,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                   body: {
                     data: {
                       reason: disableReason.trim(),
-                      operation_id: crypto.randomUUID(),
+                      operation_id: uuidV4(),
                       disposition: disableDisposition
                     }
                   }
@@ -505,7 +505,7 @@ function RestrictionClearCard({
           onClick={() =>
             clear.mutate({
               path: { uid, restriction_id: restriction.id },
-              body: { data: { reason: reason.trim(), operation_id: crypto.randomUUID() } }
+              body: { data: { reason: reason.trim(), operation_id: uuidV4() } }
             })
           }>
           {t('console.human_access.clear')}

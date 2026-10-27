@@ -34,6 +34,32 @@ const config = {
 }
 
 describe('RuntimeFabric channel transport', () => {
+  it('rejects a frame overflow before sending and keeps the sequence for the next request', async () => {
+    const { socket, fabric } = await connectReady()
+    const channel = socket.current!
+    const oversized = rpcRequestEnvelope('pod.read')
+    if (oversized.body.case !== 'rpcRequest') throw new Error('Expected an RPC request')
+    oversized.body.value.payload = new Uint8Array(32 * 1024 * 1024)
+    try {
+      const rejected = fabric.sendEnvelope(oversized).catch(error => error)
+      await tick()
+      expect(channel.pushes).toHaveLength(0)
+      expect(await rejected).toMatchObject({ code: 'rejected', reason: 'frame_too_large', retryable: false })
+
+      const next = rpcRequestEnvelope('pod.read')
+      if (next.body.case !== 'rpcRequest') throw new Error('Expected an RPC request')
+      next.body.value.payload = new Uint8Array(16 * 1024 * 1024 - 2048)
+      const sending = fabric.sendEnvelope(next)
+      await tick()
+      expect(channel.pushes).toHaveLength(1)
+      expect(decodeEnvelope(channel.pushes[0]!.bytes()).transportSeq).toBe(1n)
+      channel.pushes[0]!.reply('ok')
+      await sending
+    } finally {
+      fabric.stop()
+    }
+  })
+
   it('join success opens the windows without a second admission message', async () => {
     const { socket, fabric } = connect()
     const channel = socket.current!

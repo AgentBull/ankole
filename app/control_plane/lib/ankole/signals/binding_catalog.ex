@@ -57,7 +57,7 @@ defmodule Ankole.Signals.BindingCatalog do
           label: %{default: "Target ID", "zh-Hans-CN": "目标 ID"},
           description: %{
             default: "The Conversation UUID or fixed Session key.",
-            "zh-Hans-CN": "固定对话或执行会话时必填；按 subject 归并或每个事件独立时留空。"
+            "zh-Hans-CN": "对话 UUID 或固定执行会话的键。"
           }
         },
         %{
