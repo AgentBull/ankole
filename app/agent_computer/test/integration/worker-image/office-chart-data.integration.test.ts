@@ -49,7 +49,7 @@ with zipfile.ZipFile(io.BytesIO(workbook)) as xlsx:
     for cell in ws.iter(S + 'c'):
         cells[cell.get('r')] = (cell.get('t'), ''.join(cell.itertext()))
     assert cells['Z99'] == ('inlineStr', 'User data'), cells.get('Z99')
-    output, columns = [], set()
+    output, columns = [], {}
     for series in chart.findall('.//' + C + 'ser'):
         values = {}
         for slot in series:
@@ -63,8 +63,9 @@ with zipfile.ZipFile(io.BytesIO(workbook)) as xlsx:
             match = re.fullmatch(r'Sheet1!\$([A-Z]+)\$1(?::\$\1\$(\d+))?', formula)
             assert match is not None, formula
             col, end = match.groups()
-            assert col not in columns, formula
-            columns.add(col)
+            if col in columns:
+                assert kind in ('cat', 'xVal', 'bubbleSize') and columns[col] == (kind, formula), formula
+            columns[col] = (kind, formula)
             cache = ref.find(C + ('numCache' if numeric else 'strCache'))
             points = cache.findall(C + 'pt')
             count = int(cache.find(C + 'ptCount').get('val'))
@@ -131,6 +132,97 @@ with zipfile.ZipFile(sys.argv[1], 'w') as ppt:
   )
   expect(fixture.status, fixture.stderr).toBe(0)
 }
+
+function formulaSources(path: string, seed = false): Record<string, unknown>[] {
+  office('save', path)
+  office('close', path)
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      String.raw`
+import io, json, posixpath, re, sys, zipfile
+import xml.etree.ElementTree as ET
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+C = '{http://schemas.openxmlformats.org/drawingml/2006/chart}'
+R = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+with zipfile.ZipFile(sys.argv[1]) as ppt:
+    parts = [(info, ppt.read(info)) for info in ppt.infolist()]
+    part, chart = next((info.filename, ET.fromstring(data)) for info, data in parts
+        if info.filename.endswith('.xml') and ET.fromstring(data).tag == C + 'chartSpace')
+    rels = ET.fromstring(ppt.read(posixpath.join(posixpath.dirname(part), '_rels', posixpath.basename(part) + '.rels')))
+    rid = chart.find(C + 'externalData').get(R + 'id')
+    target = next(rel.get('Target') for rel in rels if rel.get('Id') == rid)
+    embedded = posixpath.normpath(posixpath.join(posixpath.dirname(part), target)).lstrip('/')
+    payload = ppt.read(embedded)
+workbook = load_workbook(io.BytesIO(payload))
+if sys.argv[2] == 'seed':
+    workbook.create_sheet('Inputs')
+column, result = 0, []
+for series in chart.findall('.//' + C + 'ser'):
+    links = {}
+    for slot in series:
+        kind = slot.tag.removeprefix(C)
+        if kind not in ('cat', 'xVal', 'bubbleSize'):
+            continue
+        formula = slot.find('.//' + C + 'f').text
+        match = re.fullmatch(r'Sheet1!\$([A-Z]+)\$1:\$\1\$(\d+)', formula)
+        assert match is not None, formula
+        col, end = match.groups()
+        column += 1
+        cells = []
+        for row in range(1, int(end) + 1):
+            cell = workbook['Sheet1'][f'{col}{row}']
+            if sys.argv[2] == 'seed':
+                source = f'{get_column_letter(column)}{row}'
+                workbook['Inputs'][source] = cell.value
+                cell.value = '=Inputs!' + source
+            assert isinstance(cell.value, str) and cell.value.startswith('=Inputs!'), (formula, cell.value)
+            cells.append((cell.value, workbook['Inputs'][cell.value.removeprefix('=Inputs!')].value))
+        links[kind] = {'formula': formula, 'cells': cells}
+    result.append(links)
+if sys.argv[2] == 'seed':
+    output = io.BytesIO()
+    workbook.save(output)
+    payload = output.getvalue()
+    with zipfile.ZipFile(sys.argv[1], 'w') as ppt:
+        for info, data in parts:
+            ppt.writestr(info, payload if info.filename == embedded else data)
+open(sys.argv[1] + '.xlsx', 'wb').write(payload)
+print(json.dumps(result))
+`,
+      path,
+      seed ? 'seed' : 'read'
+    ],
+    { encoding: 'utf8', timeout: 10_000 }
+  )
+  expect(result.status, result.stderr).toBe(0)
+  office('validate', path)
+  office('validate', `${path}.xlsx`)
+  return JSON.parse(result.stdout)
+}
+
+test('series count edits preserve the existing category and numeric formula sources', () => {
+  const root = mkdtempSync('/tmp/ankole-office-chart-links-')
+  try {
+    for (const type of ['column', 'scatter', 'bubble']) {
+      const path = join(root, `${type}.pptx`)
+      try {
+        createChart(path, type, 'categories=1.5,4.25,9', 'data=Revenue:1,2,3;Cost:4,5,6')
+        const source = formulaSources(path, true)[0]!
+        office('set', path, '/slide[1]/chart[1]', '--prop', 'data=Solo:10,20,30')
+        expect(formulaSources(path)).toEqual([source])
+        office('set', path, '/slide[1]/chart[1]', '--prop', 'data=First:11,21,31;Second:12,22,32;Third:13,23,33')
+        expect(formulaSources(path)).toEqual([source, source, source])
+      } finally {
+        office('close', path)
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 60_000)
 
 test('standard column chart data stays editable across data lengths and series counts', () => {
   const root = mkdtempSync('/tmp/ankole-office-chart-')
