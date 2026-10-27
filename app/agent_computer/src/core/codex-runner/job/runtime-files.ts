@@ -1,9 +1,4 @@
-import { writeFileAtomicSync } from '../../../common/atomic-write'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { labeledZonedDateTime } from '../../../common/zoned-time'
-
-const legacySkillMigrationMarker = '<!-- ankole-background-job-skill-view-v1='
 
 export function renderCodexJobAgents(input: {
   jobRoot: string
@@ -31,49 +26,6 @@ export function renderCodexJobAgents(input: {
   }
 }
 
-/**
- * Migrates native Skill roots that predate skill_view. Returns true until the
- * thread recorded by the marker is replaced.
- */
-export function migrateLegacyCodexJobSkillRoots(input: {
-  jobRoot: string
-  runtimeThreadID: string
-  skillsPrompt: string
-}): boolean {
-  const legacyRoots = [join(input.jobRoot, '.agents', 'skills'), join(input.jobRoot, '.ankole', 'agent-plugins')]
-  const agentsPath = join(input.jobRoot, 'AGENTS.md')
-  const existing = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : ''
-  let migratedThreadID = legacySkillMigrationThreadID(existing)
-  const hasLegacyRoots = legacyRoots.some(existsSync)
-
-  if (!migratedThreadID && hasLegacyRoots) {
-    const marker = `${legacySkillMigrationMarker}${encodeURIComponent(input.runtimeThreadID)} -->`
-    const skillsPrompt = input.skillsPrompt.trim()
-    const separator =
-      existing.length === 0 ? '' : existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n'
-    writeFileAtomicSync(
-      agentsPath,
-      `${existing}${separator}${[marker, skillsPrompt].filter(Boolean).join('\n\n')}\n`,
-      0o600
-    )
-    migratedThreadID = input.runtimeThreadID
-  }
-
-  if (hasLegacyRoots) {
-    for (const root of legacyRoots) rmSync(root, { recursive: true, force: true })
-  }
-  return migratedThreadID === input.runtimeThreadID
-}
-
-function legacySkillMigrationThreadID(content: string): string | undefined {
-  const start = content.indexOf(legacySkillMigrationMarker)
-  if (start === -1) return undefined
-  const valueStart = start + legacySkillMigrationMarker.length
-  const valueEnd = content.indexOf(' -->', valueStart)
-  if (valueEnd === -1) throw new Error('invalid legacy Background Job Skill migration marker')
-  return decodeURIComponent(content.slice(valueStart, valueEnd))
-}
-
 export function codexJobDriveContext(driveDirectory?: string): string {
   return [
     driveDirectory ? `Source conversation drive directory: ${driveDirectory}/.` : '',
@@ -92,8 +44,6 @@ function renderTaskAgents(input: {
   driveDirectory?: string
   podInstructions?: string
   lazySkillRouting?: boolean
-  background?: string
-  notes?: string
   timezone?: string | null
   now: Date
 }): string {
@@ -121,8 +71,6 @@ function renderTaskAgents(input: {
     '# Ankole Background Agent Job Context',
     section('SOUL', input.soul),
     section('MISSION', input.mission),
-    section('Background', input.background),
-    section('Notes', input.notes),
     section('Execution Context', executionContext),
     input.skillsPrompt?.trim()
   ]

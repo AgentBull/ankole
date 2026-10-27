@@ -1,82 +1,81 @@
 ---
 title: 軌跡とメッセージ形式
-description: Ankole が会話メッセージとBackground Agent Jobの軌跡をどう保存・プロジェクションするか — 2 つの保存形状、ChatML の正規形式、モデルが見るプロジェクション。
+description: Ankole が会話メッセージと Background Agent Job の実行軌跡をどのように永続化し、モデル向け形式へ投影（プロジェクション）するかを説明します。
 section: Developer guide
 order: 121
 ---
 
-Ankole は agent がしたことを 2 つの場所に、2 種類の作業について記録します。AIGateway は会話メッセージ（ステートフル Responses 会話が生成するライブトランスクリプト）を保存し、Background Agent Jobs はターン軌跡（永続的な Job の実行のターンごとの記録）を保存します。このページは両方の保存形状、正規の ChatML 形式、そしてプロトコル詳細を取り除くモデル可視プロジェクションを説明します。[AIGateway](../ai-gateway/) と [Background Agent Jobs](../background-agent-jobs/) の上に構築されます。
+Ankole は、Agent の実行履歴を作業の性質に応じて 2 つの異なるストアに記録します。通常のステートフルな Responses 会話のライブトランスクリプトは AIGateway が「会話メッセージ」として保存し、永続 Background Agent Job の Turn ごとの実行記録は Background Agent Jobs が「ターン軌跡（trajectory）」として保存します。このページでは、両者の保存構造、正規化された ChatML 形式、およびプロトコル固有の内部情報を除去するモデル向けプロジェクションの仕組みを解説します。前提となる設計については、[AIGateway](../ai-gateway/) および [Background Agent Jobs](../background-agent-jobs/) を参照してください。
 
-決定的な性質を先に述べます: モデルは生の保存行を決して見ません。両方の形状は、プロトコルのアイデンティティを取り除き、ターンローカルな呼び出しエイリアスに置き換えたモデル可視形式にプロジェクションされます。モデルは内部 UUID やワイヤープロトコルフィールドではなく「ツール呼び出し 1 → ツール結果 1」を見ます。保存形式は永続性と監査のためであり、プロジェクション形式はモデルのためのものです。
+ここで最も重要な設計原則は、**モデルがデータベース上の生の保存行を直接見ることは決してない**という点です。どちらの保存形式も、モデルに渡す際にはプロトコル固有の内部 ID が取り除かれ、その Turn 内だけで有効な呼び出しエイリアスに置き換えられた「モデル可視形式」へと投影されます。その結果、モデルが目にするのは内部 UUID やワイヤプロトコルの生フィールドではなく、「ツール呼び出し 1 → ツール結果 1」という対応関係だけになります。つまり、保存形式は永続性と監査のためにあり、プロジェクション形式はモデル推論のためにあります。
 
-ここで AIGateway conversation は Session のモデル履歴を指します。`Ankole.Conversations` が保存する共有の Conversation と Message とは別です。公開履歴は現在の背景情報を提供できますが、保存したモデルチェーンとツールの記録を置き換えません。
+なお、本ページで扱う「AIGateway conversation」は Session ごとのモデル推論履歴を指しており、`Ankole.Conversations` が管理する参加者間の共有 Conversation / Message とは別物です。共有の会話履歴は直近の背景文脈を補うために参照されますが、保存済みのモデル応答チェーンやツール実行記録を置き換えるものではありません。
 
 ## AIGateway 会話メッセージ
 
-AIGateway はライブ会話トランスクリプトを所有します。各メッセージは `ai_gateway_messages` の 1 行です:
+ライブの会話トランスクリプトは AIGateway が所有しており、各メッセージは `ai_gateway_messages` テーブルの 1 行として保存されます。
 
 | フィールド | 意味 |
 |---|---|
-| `subject_uid` | 会話が属する Principal |
-| `conversation_id` | このメッセージが属する会話 |
-| `type` | メッセージタイプ（assistant、tool result など） |
-| `role` | メッセージがトランスクリプトで果たすロール |
-| `status` | ライフサイクルステータス |
-| `previous_message_id` | 自己参照の継続アンカー。API では `previous_response_id` として描画され、会話が連鎖します |
-| `content` | メッセージコンテンツ（単一の文字列ではなく、JSON 値） |
-| `metadata` | 不透明な呼び出し側メタデータに加え、AIGateway が所有する応答事実（モデル、provider、使用量、provider の生 id）|
+| `subject_uid` | この会話履歴を所有する Principal |
+| `conversation_id` | このメッセージが属する AIGateway 会話 ID |
+| `type` | メッセージ種別（assistant、tool result など） |
+| `role` | トランスクリプト上でのロール |
+| `status` | ライフサイクル上のステータス |
+| `previous_message_id` | 自己参照型の継続アンカー。API 上では `previous_response_id` として公開され、会話の連鎖を形成します |
+| `content` | メッセージ本文（単一文字列ではなく構造化された JSON 値） |
+| `metadata` | 呼び出し元の不透明メタデータと、AIGateway が記録する応答情報（モデル名、Provider、トークン使用量、Provider 側の生 ID） |
 
-`previous_message_id` は継続アンカーです。各メッセージは先行メッセージを指し、連結されたチェーンを生成します。API では `previous_response_id` として描画されるため、呼び出し側や圧縮は任意のアンカーから再開できます。`metadata` フィールドは AIGateway が所有する事実（使用されたモデルと provider、token 使用量、provider の生応答 id）を、不透明な呼び出し側メタデータと並べて運びます。2 つ目のアイテムリストを運んではいけません。
+`previous_message_id` は会話を数珠つなぎにする継続アンカーです。各メッセージが直前のメッセージを指すことで単方向リストを形成し、API 上では `previous_response_id` として表現されるため、呼び出し元やコンテキスト圧縮処理は任意のアンカー位置から会話を再開できます。また、`metadata` フィールドには、呼び出し元が渡した不透明メタデータと並んで、AIGateway 自身が管理する事実情報（実際に使われたモデルと Provider、トークン消費量、Provider 側の生レスポンス ID）が格納されます。ここに第 2 のメッセージ配列などを二重持ちさせてはなりません。
 
-圧縮（[Context compression](../context-compression-and-caching/) を参照）は要約 checkpoint を新しい可視アンカーとして保存します。以前の行は復旧と監査のために残ります。モデルへの投影は要約から始まり、それ以前のメッセージを再生しません。
+コンテキスト圧縮（[Context compression](../context-compression-and-caching/) を参照）が実行されると、要約チェックポイントが新しい可視アンカーとして保存されます。圧縮前の古い行も障害復旧や監査のためにそのままデータベースへ残りますが、モデル向けの投影は新しい要約アンカーから始まるため、それ以前の古いメッセージが再送されることはありません。
 
 ## Background Agent Job の軌跡
 
-Background Agent Jobはターンごとの実行を `background_agent_job_turn_items` の追記専用のサニタイズ済みセマンティックスレッドアイテムのストリームとして保存します。各アイテムは 1 つのターンに属し、ポジション、リビジョン、アイテムキー、セマンティックアイテム本体を持ちます:
+Background Agent Job は、Turn ごとの実行過程を `background_agent_job_turn_items` テーブルへ追記専用（append-only）のサニタイズ済みセマンティックアイテム列として保存します。各アイテムは特定の 1 Turn に属し、順序位置、リビジョン、アイテムキー、およびセマンティックアイテム本体を持ちます。
 
 | フィールド | 意味 |
 |---|---|
-| `turn_id` | このアイテムが属する Job ターン |
-| `position` | ターン内でのアイテムの順序 |
-| `revision` | このアイテムを受理したターンのリビジョン |
-| `item_key` | アイテムの安定したキー（`client:` キーは呼び出し元メッセージを示す） |
-| `item` | 型付きのセマンティックスレッドアイテム 1 つ |
+| `turn_id` | このアイテムが属する Job Turn の ID |
+| `position` | Turn 内での出現順序 |
+| `revision` | このアイテムを受理した時点の Turn リビジョン |
+| `item_key` | アイテムの不変キー（`client:` プレフィックスは呼び出し元からの入力メッセージを表す） |
+| `item` | 型付きのセマンティックスレッドアイテム 1 件 |
 
-行は追記専用です。ステアやプロンプトは保存済みアイテムを書き換えず、新しいアイテムを追記します。すべてのリーダーは読み取り時に保存済みアイテムを正規 ChatML メッセージにプロジェクションします。メッセージをプロジェクションしないアイテムもスレッドリプレイのために保存されたままです。アイテム行がないターンは空の軌跡として表示されます。
+レコードはすべて追記専用です。実行途中の steer 指示や追加プロンプトが届いた場合も、保存済みの過去アイテムを書き換えるのではなく新しいアイテムとして末尾に追記します。読み取り時には、すべてのリーダーが保存済みアイテムを正規の ChatML メッセージ列へ投影します。ChatML メッセージへ直接変換されない制御系アイテムも、スレッドリプレイのためにそのまま保持されます。アイテム行がまだ 1 件もない Turn は、空の軌跡として返されます。
 
-ツール結果メッセージの metadata は `execution_mechanism` を記録します。モデル Provider が実行したツールには `provider_hosted`、Codex が呼び出した Ankole の動的ツールには `local_dynamic` を使います。この安定した事実により、表示名が同じツールも区別できます。
+なお、ツール実行結果メッセージの `metadata` には `execution_mechanism` が記録されます。モデル Provider 側で実行されたホスト型ツールには `provider_hosted`、Codex から呼び出された Ankole の動的ツールには `local_dynamic` が入るため、表示名が同じツールであっても実行経路を明確に区別できます。
 
-これは AIGateway 会話メッセージとは別の保存形状です。Background Agent Jobの軌跡は会話ではなく Job に属するからです。Job のターンは独自のスレッドであり、報告先の会話は軌跡ではなく結果を受け取ります。
+Background Agent Job の軌跡が AIGateway の会話メッセージと別構造になっているのは、軌跡の所有者が会話ではなく Job 自身だからです。Job の各 Turn は独立した実行スレッドとして進み、依頼元の会話には途中の軌跡行ではなく最終的な結果イベントだけが返されます。
 
 ## モデル可視プロジェクション
 
-control plane は `Ankole.Sessions.Tools.Jobs.visible_trajectory/1` で保存済み Job item を投影します。モデル可視の投影には次を含みます。
+コントロールプレーンでは、`Ankole.Sessions.Tools.Jobs.visible_trajectory/1` を使って保存済みの Job アイテムをモデル向け形式へ投影します。このプロジェクションでは次の処理が行われます。
 
-- **保存されたプロトコルのアイデンティティを取り除く** — 内部メッセージ id、ワイヤープロトコルフィールド、モデルが作用すべきでないもの。
-- **ツール呼び出し id をターンローカルなエイリアスに置き換える** — `call_1`、`call_2` など。モデルはどのツール結果がどのツール呼び出しに属するか（唯一有用な関係）を見ます。それらを配線する内部 UUID は見ません。
-- **コンテンツとロールを保持する** — 実際のメッセージ、ツール呼び出しとその結果を、起こった順に。
-- **境界付きコンテンツの事実を保持する** — 軌跡レベルの `metadata.redacted` と `metadata.content_truncated` は可視のまま残ります。コントロールプレーンのプロジェクションは、選択したメッセージコンテンツをページ制限に合わせて縮小する必要があるとき、`content_truncated` を設定します。
-
+- **保存用のプロトコル識別子を除去する：** 内部メッセージ ID やワイヤプロトコル固有のフィールドなど、モデルに推論材料として見せるべきではない情報をすべて取り除きます。
+- **ツール呼び出し ID を Turn ローカルな連番エイリアスに置き換える：** `call_1`、`call_2` のような短い別名に変換します。これにより、内部 UUID を露出させずに「どのツール結果がどのツール呼び出しに対応するか」という必要な関係だけをモデルへ正確に伝えます。
+- **本文とロールを時系列順に維持する：** 実際の発言、ツール呼び出し、ツール結果を発生した順序どおりに並べます。
+- **制限・省略に関するメタデータを維持する：** 軌跡レベルの `metadata.redacted` や `metadata.content_truncated` はそのまま可視情報として残します。ページサイズ上限に収めるためにコントロールプレーン側で本文を切り詰めた場合は、`content_truncated` が設定されます。
 
 ## 2 つの形状の関係
 
-| | AIGateway メッセージ | Background Agent Job軌跡 |
+| 観点 | AIGateway メッセージ | Background Agent Job 軌跡 |
 |---|---|---|
-| 保存するもの | ライブ会話トランスクリプト | ターンごとの Job 実行記録 |
-| 所有者 | AIGateway | Background Agent Jobs |
-| 正規形式 | AIGateway のメッセージスキーマ | セマンティックアイテムを ChatML にプロジェクション |
-| モデルが見る経路 | ステートフル Responses API | `visible_trajectory/1` プロジェクション |
-| 圧縮 | AIGateway が新しい可視 checkpoint を保存し、以前の行を残す | 圧縮されない（Job は再試行予算で境界付けられる）|
+| 保存対象 | ライブの会話トランスクリプト | Turn ごとの Job 実行記録 |
+| 所有ドメイン | AIGateway | Background Agent Jobs |
+| 正規形式 | AIGateway のメッセージスキーマ | セマンティックアイテムから投影された ChatML |
+| モデルへの提示経路 | ステートフル Responses API | `visible_trajectory/1` によるプロジェクション |
+| コンテキスト圧縮 | 新しい可視チェックポイントを保存し、過去の行も監査用に保持 | 圧縮なし（Job 側のリトライ・実行バジェットで上限管理） |
 
-この 2 つは混ざりません。会話のメッセージは AIGateway のものであり、Job の軌跡は Job のものです。Job は起床イベント（[Background Agent Jobs](../background-agent-jobs/) を参照）を通じて結果を所有会話に報告します。会話のメッセージストアに書き込むわけではありません。
+この 2 つのストアが混ざり合うことはありません。会話メッセージは AIGateway が管理し、Job の軌跡は Background Agent Jobs が管理します。Job が完了または状態変化した際は、会話メッセージストアを直接書き換えるのではなく、wakeup イベント（[Background Agent Jobs](../background-agent-jobs/) を参照）を通じてオーナー会話へ結果を報告します。
 
 ## このガイドがそうでないもの
 
-ChatML 仕様ではありません。正規の ChatML 形式は標準であり、Ankole の読み取り時プロジェクションはその形状を保つもので、再定義しません。軌跡を読む消費者向け API でもありません。Console のルート（`/api/v2/ai-gateway/conversations/:id/messages`、`/api/v2/background-agent-jobs/:id`）はオペレーターサーフェスであり、[Console API reference](../console-api/) に文書化されています。そして保存ページの代わりでもありません。これは両方にまたがる形式レベルの見方です。
+このページは ChatML 自体の仕様書ではありません。正規の ChatML 形式は一般的な標準仕様であり、Ankole の読み取り時プロジェクションはその構造に沿って出力するだけで独自拡張は行いません。また、外部コンシューマー向けの公開 API リファレンスでもありません。`/api/v2/ai-gateway/conversations/:id/messages` や `/api/v2/background-agent-jobs/:id` といった Console ルートはオペレーター向けの管理 API であり、仕様は [Console API reference](../console-api/) にまとめられています。このページは、2 つの永続ストアにまたがるデータ形式の設計を横断的に理解するための開発者ガイドです。
 
 ## 次のステップ
 
-- 会話メッセージストアについては、[AIGateway](../ai-gateway/) を読んでください。
-- Job 軌跡ストアについては、[Background Agent Jobs](../background-agent-jobs/) を読んでください。
-- 圧縮と可視 checkpointについては、[Context compression](../context-compression-and-caching/) を読んでください。
-- これらを読み取る Console ルートについては、[Console API reference](../console-api/) を読んでください。
+- 会話メッセージストアの詳細については、[AIGateway](../ai-gateway/) を参照してください。
+- Job 軌跡ストアの詳細については、[Background Agent Jobs](../background-agent-jobs/) を参照してください。
+- コンテキスト圧縮と可視チェックポイントについては、[Context compression](../context-compression-and-caching/) を参照してください。
+- これらのデータを取得する Console API ルートについては、[Console API reference](../console-api/) を参照してください。

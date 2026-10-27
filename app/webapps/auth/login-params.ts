@@ -1,3 +1,4 @@
+import { compactRecord } from '@agentbull/active-support'
 import type { LoginProvidersData } from '../common/api/generated/types.gen'
 
 export interface LoginContext {
@@ -40,25 +41,25 @@ export function readLoginSearch(search = window.location.search): {
   const invitation = readParam(params, 'invitation')
   const invitationToken = readParam(params, 'invitation_token')
 
-  const query: NonNullable<LoginProvidersData['query']> = {
-    ...(oauthRequest ? { oauth_request: oauthRequest } : {}),
-    ...(purpose ? { purpose } : {}),
-    ...(prompt ? { prompt } : {}),
-    ...(switchAccount ? { switch: switchAccount } : {}),
-    ...(reauth ? { reauth } : {}),
-    ...(invitation ? { invitation } : {}),
-    ...(invitationToken ? { invitation_token: invitationToken } : {})
-  }
+  const query: NonNullable<LoginProvidersData['query']> = compactRecord({
+    oauth_request: oauthRequest,
+    purpose,
+    prompt,
+    switch: switchAccount,
+    reauth,
+    invitation,
+    invitation_token: invitationToken
+  })
 
-  const context: LoginContext = {
-    ...(oauthRequest ? { oauthRequest } : {}),
-    ...(purpose ? { purpose } : {}),
-    ...(returnTo ? { returnTo } : {}),
-    ...(prompt ? { prompt } : {}),
-    ...(reauth ? { reauth } : {}),
-    ...(invitation ? { invitation } : {}),
-    ...(invitationToken ? { invitationToken } : {})
-  }
+  const context: LoginContext = compactRecord({
+    oauthRequest,
+    purpose,
+    returnTo,
+    prompt,
+    reauth,
+    invitation,
+    invitationToken
+  })
 
   const authorizationParams = new URLSearchParams()
   for (const key of authorizationQueryKeys) {

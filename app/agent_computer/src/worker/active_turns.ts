@@ -1,4 +1,4 @@
-import { ms, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { ms, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../common/errors'
 import { turnAcceptedEnvelope, workerProgressEnvelope } from '../lanes/session_lane'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
@@ -361,7 +361,7 @@ export class ActiveTurns {
 
     if (control.command !== 'retry' && control.command !== 'stop') return
 
-    const reason = stringFromDetails(control.payload_json, 'reason') ?? control.command
+    const reason = stringArg(control.payload_json, 'reason') ?? control.command
     active.requestControlledStop(control.command, reason)
   }
 
@@ -520,11 +520,6 @@ function invalidAttemptReason(error: unknown): string | undefined {
   ) {
     return error.reason
   }
-}
-
-function stringFromDetails(source: JSONObject | undefined, key: string): string | undefined {
-  const value = source?.[key]
-  return typeof value === 'string' ? value : undefined
 }
 
 /** Keys one local Turn across mailbox revisions of the same Signal. */

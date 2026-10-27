@@ -23,7 +23,9 @@ const supportedLngs = Object.keys(catalogLoaders)
 const loadedLocales = new Map<string, Promise<void>>()
 
 i18n.on('languageChanged', locale => {
-  if (typeof document !== 'undefined') document.documentElement.lang = locale
+  if (typeof document !== 'undefined' && document.documentElement && locale) {
+    document.documentElement.lang = locale
+  }
 })
 
 /**
@@ -59,11 +61,6 @@ export function loadLocale(locale: string): Promise<void> {
           resources: { [supported]: { translation: catalog } },
           supportedLngs
         })
-      i18n.on('languageChanged', lng => {
-        if (typeof document !== 'undefined' && document.documentElement && lng) {
-          document.documentElement.lang = lng
-        }
-      })
     })
     loadedLocales.set(supported, loading)
   }

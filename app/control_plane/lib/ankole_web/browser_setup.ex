@@ -196,7 +196,9 @@ defmodule AnkoleWeb.BrowserSetup do
               ]
             ]
           ],
-          selected: @strings
+          selected: @strings,
+          displayName: [type: :string, allow_nil?: false],
+          slug: [type: :string, allow_nil?: false]
         ]
       )
 
@@ -206,8 +208,17 @@ defmodule AnkoleWeb.BrowserSetup do
     end
 
     action :put_brain_packs, :map do
-      constraints(fields: [packs: @strings])
+      constraints(
+        fields: [
+          packs: @strings,
+          displayName: [type: :string, allow_nil?: false],
+          slug: [type: :string, allow_nil?: false]
+        ]
+      )
+
       argument(:packs, {:array, :string}, allow_nil?: false)
+      argument(:displayName, :string, allow_nil?: false)
+      argument(:slug, :string, allow_nil?: false)
 
       run(fn input, _context ->
         perform_put_brain_packs(input.context.conn, Ankole.JSON.plain(input.arguments))
@@ -404,7 +415,8 @@ defmodule AnkoleWeb.BrowserSetup do
   end
 
   defp perform_brain_packs(conn, _params) do
-    with :ok <- require_setup_session(conn) do
+    with :ok <- require_setup_session(conn),
+         {:ok, tenant} <- Ankole.Tenants.privileged() do
       packs =
         [SchemaPacks.base_pack() | SchemaPacks.industry_packs()]
         |> Enum.map(fn name ->
@@ -424,18 +436,30 @@ defmodule AnkoleWeb.BrowserSetup do
           end
         end)
 
-      BrowserAPI.ok(conn, %{packs: packs, selected: WebSession.setup_brain_packs(conn)})
+      BrowserAPI.ok(conn, %{
+        packs: packs,
+        selected: WebSession.setup_brain_packs(conn),
+        displayName: tenant.display_name,
+        slug: tenant.slug
+      })
     else
       {:error, status, reason} -> error(conn, status, reason)
+      {:error, reason} -> error(conn, 400, reason)
     end
   end
 
   defp perform_put_brain_packs(conn, params) do
     with :ok <- require_setup_session(conn),
-         {:ok, packs} <- validate_brain_packs(params["packs"]) do
+         {:ok, packs} <- validate_brain_packs(params["packs"]),
+         {:ok, tenant} <- Ankole.Tenants.privileged(),
+         {:ok, tenant} <-
+           Ankole.Tenants.update(tenant, %{
+             display_name: params["displayName"],
+             slug: params["slug"]
+           }) do
       conn
       |> WebSession.put_setup_brain_packs(packs)
-      |> BrowserAPI.ok(%{packs: packs})
+      |> BrowserAPI.ok(%{packs: packs, displayName: tenant.display_name, slug: tenant.slug})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> error(conn, 422, reason)

@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { TFunction } from 'i18next'
 import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/configuration-types'
@@ -9,13 +10,9 @@ export function settingDecryptedDraft(value: unknown): string {
 }
 
 export function encryptedSettingValue(text: string): unknown {
-  try {
-    const parsed = JSON.parse(text) as unknown
-    if (parsed !== null && typeof parsed === 'object') return parsed
-  } catch {
-    // An opaque secret does not have to be JSON.
-  }
-  return text
+  // An opaque secret does not have to be JSON.
+  const parsed = safeJsonParse(text).unwrapOr(undefined)
+  return parsed !== null && typeof parsed === 'object' ? parsed : text
 }
 
 export const SettingEditorModel = createModel(() => {

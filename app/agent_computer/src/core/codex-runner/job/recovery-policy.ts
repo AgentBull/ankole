@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { firstNumber, firstString, isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
 
 export type CodexRecoveryFailure =
   | 'transient'
@@ -83,14 +83,10 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   if (error.code === -32603) return 'transient'
 
   const info = error.codexErrorInfo
-  const infoName =
-    typeof info === 'string'
-      ? info
-      : info && typeof info === 'object' && !Array.isArray(info)
-        ? Object.keys(info)[0]
-        : undefined
+  const infoName = typeof info === 'string' ? info : isRecord(info) ? Object.keys(info)[0] : undefined
   const httpStatus = codexErrorHTTPStatus(info)
-  const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`.toLowerCase()
+  const message =
+    `${firstString(error, ['message']) ?? ''} ${firstString(error, ['additionalDetails']) ?? ''}`.toLowerCase()
   if (infoName === 'contextWindowExceeded') return 'context_overflow'
   if (
     httpStatus === 402 ||
@@ -151,15 +147,10 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
  * lap, not that this worker should start another local retry loop.
  */
 export function codexCredentialPoolExhaustion(error: JSONObject): CodexCredentialPoolExhaustion | undefined {
-  const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`
+  const message = `${firstString(error, ['message']) ?? ''} ${firstString(error, ['additionalDetails']) ?? ''}`
   const normalizedMessage = message.toLowerCase()
   const info = error.codexErrorInfo
-  const infoName =
-    typeof info === 'string'
-      ? info
-      : info && typeof info === 'object' && !Array.isArray(info)
-        ? Object.keys(info)[0]
-        : undefined
+  const infoName = typeof info === 'string' ? info : isRecord(info) ? Object.keys(info)[0] : undefined
   const status = codexErrorHTTPStatus(info)
 
   if (
@@ -191,17 +182,12 @@ function transition(action: CodexRecoveryTransition['action'], nextState: CodexR
   return { action, nextState }
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value ? value : undefined
-}
-
 function codexErrorHTTPStatus(info: unknown): number | undefined {
-  if (!info || typeof info !== 'object' || Array.isArray(info)) return undefined
+  if (!isRecord(info)) return undefined
   const variant = Object.values(info)[0]
-  if (!variant || typeof variant !== 'object' || Array.isArray(variant)) return undefined
-  const value = variant as Record<string, unknown>
-  const status = value.httpStatusCode ?? value.http_status_code
-  return typeof status === 'number' && Number.isInteger(status) ? status : undefined
+  if (!isRecord(variant)) return undefined
+  const status = firstNumber(variant, ['httpStatusCode', 'http_status_code'])
+  return status !== undefined && Number.isInteger(status) ? status : undefined
 }
 
 function retryAtFromMessage(message: string): string | undefined {

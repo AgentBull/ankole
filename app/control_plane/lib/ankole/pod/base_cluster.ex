@@ -32,7 +32,7 @@ defmodule Ankole.Pod.BaseCluster do
     if version < 180_000, do: raise("Ankole requires PostgreSQL 18 or later")
 
     configured = Enum.map(databases(), & &1.id)
-    assigned = Repo.query!("SELECT DISTINCT base_db_id FROM tenants", []).rows |> List.flatten()
+    assigned = Ankole.Tenants.assigned_base_db_ids()
     missing = assigned -- configured
     if missing != [], do: raise("BASE_DB_URLS omits assigned shards: #{inspect(missing)}")
 

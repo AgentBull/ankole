@@ -1,97 +1,97 @@
 ---
 title: Webhook 委托
-description: 让 Agent 或确定性脚本无需轮询即可等待低频外部事件。
+description: 让 Agent 或确定性自动化脚本无需轮询即可被动等待低频外部事件。
 section: User guide
 order: 23
 ---
 
-Webhook 委托让 Agent 等待运行在 Ankole 之外的任务。外部系统检测事件，再调用一条短期有效的 Ankole 回调 URL。Ankole 默认持久化回执、唤醒创建委托的 session，并通过原聊天路由返回 Agent 复核后的结果。纯确定性脚本需要先消费回执时，endpoint 也可以指向一个 automation job。
+借助 Webhook 委托机制，Agent 可以安心等待运行在 Ankole 外部的长耗时任务或业务变更：由外部系统负责监测事件，并在条件满足时主动回调一条短期有效的 Ankole 专属 URL。收到回调后，Ankole 默认先持久化保存回执，随即唤醒当初发起委托的会话，由 Agent 复核后通过原聊天渠道回复结果；若需先由纯确定性脚本对回执做预处理过滤，也可将该回调端点直接绑定至一个自动化任务（Automation Job）。
 
-回调 URL 只是一张唤醒凭据，不证明请求 body 中的内容为真。Agent 在报告事实或执行已授权变更之前，会先读取外部系统中的当前对象。
+需要注意，回调 URL 本身只是一张“唤醒凭证”，并不能证明请求体（Body）内声称的业务内容绝对真实可靠。因此，Agent 在向用户汇报结论或执行任何实质性变更操作前，都会先主动查询外部系统的权威接口核实当前最新状态。
 
-支持的场景是 GitHub repository webhook。
+目前官方内置支持的典型场景为 GitHub 代码仓库 Webhook。
 
 ## 适用场景
 
-Webhook 委托适合由外部系统精确过滤的低频事件：
+Webhook 委托非常适合承接已在外部系统侧做过精确事件过滤的低频通知：
 
-- GitHub issue、comment、pull request 或 workflow run；
-- 只需唤醒原对话一次的事件；
-- 可以安全处理重复唤醒的持续值守。
+- GitHub Issue、评论、Pull Request 或 Actions Workflow 运行状态变更；
+- 只需在外部任务完成时唤醒原对话一次的单次跟进；
+- 能够安全幂等处理重复通知的周期性持续值守。
 
-它不适合高吞吐事件流、轮询循环或通用事件总线。检测留在外部系统；判断、记忆和回复留在 Ankole。
+这一机制不适用于高吞吐实时事件流、高频轮询循环或企业级通用事件总线——它的核心分工是：将事件检测留在外部系统，把上下文记忆、综合判断与对话回复留在 Ankole。
 
-请求中应写清结果、授权范围、事件集合和结束时间。例如：
+向 Agent 下达值守请求时，建议一并交代期望结果、操作授权边界、关注的事件范围及值守截止时间。例如：
 
-> 帮我盯住 `owner/repository` 的 pull request，到周五为止。required check 失败时告诉我。报告前先复核当前 PR 和 check 状态；除非我另行要求，不要修改代码。
+> 帮我盯住 `owner/repository` 的 Pull Request，一直到本周五为止。一旦必选检查（required check）失败就通知我；向我汇报前请先复核 PR 与检查项的最新状态，除非我明确要求，否则不要自行修改代码。
 
-GitHub Skill 负责具体的布防与恢复细节。
+具体的 Webhook 注册布防、连通性确认与到期撤防细节，均由内置的 GitHub Skill 自动处理。
 
 ## 前置条件
 
-Agent 创建 GitHub 委托之前，需要满足：
+在让 Agent 创建 GitHub Webhook 委托之前，请先配妥以下条件：
 
-1. 把一条公网 HTTPS 域名路由到 Ankole 控制面，并原样转发 `/webhooks/v1/event-callbacks/*`。
-2. 为该 Agent 开启公开发行的 **GitHub** Agent Plugin 和所需 Skills。GitHub 默认关闭。
-3. 在该 Agent 的 WorkerEnv 中配置 `GITHUB_TOKEN`。Token 需要读取目标 repository，并具备 repository webhook 写权限。
-4. 修改能力或 WorkerEnv 后，开始一个新的 Agent turn。
+1. 将一个公网可达的 HTTPS 域名指向 Ankole 控制面，并在反向代理层原样转发 `/webhooks/v1/event-callbacks/*` 路径。
+2. 在能力库中为目标 Agent 开启随系统发布的 **GitHub** Agent Plugin 及配套 Skill（GitHub 插件默认关闭）。
+3. 在该 Agent 的环境变量（WorkerEnv）中配置 `GITHUB_TOKEN`，确保该令牌具备读取目标代码仓库及管理仓库 Webhook 的写权限。
+4. 调整能力开关或环境变量后，发起一轮新的 Agent 回合使配置生效。
 
-端点命令只在活跃 turn 中对主 Agent 可用。后台 Agent Job 不持有 turn-local webhook 连接。
+回调端点管理命令仅在活跃回合期间对主对话 Agent 开放；后台 Agent 任务（Job）不持有回合级的局部 Webhook 连接权限。
 
 ## 生命周期
 
-一笔有效的 GitHub 委托包含一个 repository、一组精确事件、一个到期时间、一个 Ankole endpoint、一个 GitHub hook 和一个对账 checkback。
+一笔完整的 GitHub 委托由目标代码仓库、精确订阅的事件列表、到期时间、Ankole 回调端点、远端 GitHub Hook 以及一条兜底对账回访提醒（Checkback）共同组成：
 
-1. Agent 为当前对话创建 endpoint。
-2. Agent 在创建 GitHub hook 前先创建 durable checkback，记录清理和对账责任。
-3. Agent 用回调 URL 创建 repository hook。GitHub 随即发送 `ping`。
-4. Agent 读取 GitHub delivery 日志，确认 `ping` 成功。
-5. 匹配的 delivery 到达后，Ankole 在返回成功之前，用同一 PostgreSQL 事务提交 endpoint 判定，以及 `webhook.received` Signal 或绑定的 automation job run。
-6. 在直接路径上，被唤醒的 Agent 把回执当作不可信输入。绑定的 automation job 在发出事件前必须遵守同一规则。
-7. 对账检查 hook、事件集合、失败 delivery、当前 GitHub 对象、到期时间和下一次检查时间。
-8. 撤防先删除 GitHub hook，再取消 Ankole endpoint 和 checkback。
+1. **创建回调端点**：Agent 为当前对话向控制面申请创建一条专属回调端点。
+2. **登记兜底回访**：在向外部注册 Hook 之前，Agent 先创建一条持久化的 Checkback 提醒，明确记录后续到期清理与定期对账责任。
+3. **注册远端 Hook**：Agent 携带生成的回调 URL 在目标仓库上创建 GitHub Webhook，GitHub 随即自动发出一条 `ping` 探测请求。
+4. **确认链路畅通**：Agent 查询 GitHub 侧的投递（delivery）日志，确认 `ping` 请求已成功送达。
+5. **原子接纳回调**：当匹配的业务事件回调抵达时，Ankole 会在返回 HTTP 成功响应前，于同一个 PostgreSQL 事务内原子提交端点状态判定与 `webhook.received` 信号（或绑定的自动化任务运行记录）。
+6. **按不可信输入复核**：在直接唤醒会话的路径上，被唤醒的 Agent 一律将回调载荷视作不可信外部输入重新核实；若绑定了自动化任务，脚本在调用 `emitEvent` 上报前也须遵守同一准则。
+7. **定期对账巡检**：Checkback 到期触发对账时，Agent 会逐一核查远端 Hook 状态、订阅事件列表、近期投递失败记录、GitHub 对象最新状态、委托截止时间及下一轮巡检安排。
+8. **有序撤防清理**：值守结束撤防时，先调用 GitHub 接口删除远端仓库 Hook，随后再取消 Ankole 侧的回调端点与 Checkback 提醒。
 
-GitHub 不会自动重试失败的 webhook delivery。GitHub Skill 会检查近期失败，并在事件仍有意义时调用 GitHub redelivery API。
+由于 GitHub 不会自动重试投递失败的 Webhook 请求，GitHub Skill 在对账巡检时会主动排查近期的失败投递，并在事件仍具时效价值时调用 GitHub 重投递（redelivery）接口补发。
 
 ## One-shot 与 standing
 
-| 模式 | 契约 | 用途 |
+| 模式 | 投递契约 | 适用场景 |
 |---|---|---|
-| `one_shot` | 并发 delivery 只有一个能 claim endpoint；后续 delivery 得到成功的空操作 | 只期待一次回执 |
-| `standing` | 每个被接受的 delivery 都为所选消费者创建一条记录；投递是 at-least-once，重复可见 | 低频边沿事件 |
+| `one_shot` | 并发抵达的多条回调中仅首个请求能成功认领（claim）该端点，后续请求均以幂等空操作返回成功 | 仅需等待单次外部事件回执 |
+| `standing` | 每次通过校验的回调都会为目标消费者生成一条独立记录；遵循至少一次（at-least-once）语义，消费者可能收到重复通知 | 持续监听低频状态跳变事件 |
 
-Standing delivery 可以创建多条消费者记录。消费者以外部系统当前状态为权威，并保证重复处理是幂等的。
+在 `standing` 常驻模式下，同一外部事件可能产生多条消费者记录；因此消费逻辑必须始终以查询外部系统的实时状态为准，确保重复唤醒完全幂等无害。
 
 ## 使用确定性消费者
 
-Agent 创建 endpoint 时可以传入 `--automation-job-id <id>`。被接受的 `webhook.received` 信封会成为持久 automation job run 的 `context().event`，而不是直接唤醒会话。脚本可以静默丢弃无关回执，也可以在完成确定性检查后调用 `emitEvent`。
+创建回调端点时，Agent 可附加 `--automation-job-id <id>` 参数将端点绑定至指定的自动化任务。这样一来，接纳后的 `webhook.received` 事件信封会作为持久化脚本运行的 `context().event` 注入，而不会直接唤醒主对话会话：脚本可在过滤掉无关事件后直接静默退出，也可在完成确定性核查后调用 `emitEvent` 唤醒归属会话。
 
-回执仍是不可信输入。脚本必须从权威来源复核有后果的事实，并让重复 delivery 无害。如果处理需要记忆、判断或对话，继续直接唤醒 Agent。介绍见 [Automation Job](../automation-jobs/)，SDK 与失败合同见 [Worker CLI 能力](../cli-capabilities/)。
+即便交由脚本先行消费，回调载荷依然属于不可信外部输入——脚本在触发后续动作前必须向权威数据源核实关键事实，并妥善做好重复投递幂等防护。若每次回调本身就需要结合历史记忆、综合推理或直接组织自然语言回复，则保持默认直接唤醒 Agent 即可。自动化任务的完整介绍见 [Automation Job](../automation-jobs/)，脚本 SDK 与错误处理契约见 [Worker CLI 能力](../cli-capabilities/)。
 
 ## Console
 
-在 Console 中打开 **Webhooks**，可以按 Agent 和 session 查看 endpoint。页面显示 label、mode、状态、到期时间和来源路由，但不显示 callback URL、明文 token 或存储的 digest。
+打开 Console 的 **Webhooks** 页面，可按 Agent 与会话筛选查看现存的回调端点：列表会展示端点的备注标签、触发模式（`one_shot` / `standing`）、当前状态、到期时间及来源回复路由，但绝不会回显完整回调 URL、明文令牌或数据库内存储的哈希摘要。
 
-Console 可以查看和取消 Agent 创建的 raw 回调 endpoint。Agent 在活跃回合中使用当前回复路由创建这种 endpoint。CloudEvents 事件源及其信号路由规则可在 Console 的 **Signals** 页面创建，见 [Signals](../signals/)。
+管理员可在该页面查看或手动取消由 Agent 在活跃回合中创建的原始回调端点；至于面向系统集成的 CloudEvents 事件源及其信号路由规则，则统一在 Console 的 **Signals** 页面配置管理，详见 [Signals](../signals/)。
 
-需要紧急撤销凭据时，可以从 Console 取消 endpoint。这个操作不会删除外部 GitHub hook，仍需单独删除。正常撤防应让 Agent 先删 GitHub hook。
+遇到令牌疑似泄露等紧急情况时，可直接在 Console 中一键取消对应回调端点以立即阻断入站唤醒。注意，此操作仅在 Ankole 侧作废端点，不会自动前往 GitHub 删除远端仓库 Hook（仍需另行清理）；日常正常结束值守时，应交由 Agent 按标准撤防顺序先删远端 Hook 再销本地端点。
 
 ## 安全与投递限制
 
-- Ankole 只在创建时返回一次完整 callback URL。PostgreSQL 只保存它的 SHA-256 digest。
-- Ankole 请求日志把 `/webhooks/v1/event-callbacks/*` 统一替换为 `/webhooks/v1/event-callbacks/[REDACTED]`。Ingress、proxy 和 CDN 也要对同一路径脱敏。
-- Callback body 上限为 1 MiB。超过上限的请求会在普通 body parser 之前返回 `413`。
-- Ankole 只保留事件元数据请求头：`content-type`、`x-hub-signature-256`、`x-github-*` 和 `ce-*`。Authorization 和其他通用请求头会被丢弃。
-- Agent 看到的是有界回执，并被包在不可信数据边界中。外部数据里的字面闭合标签会被转义。
-- Callback URL 只授权唤醒。即使请求里有签名头，它也不授权业务副作用。
+- **一次性单向展示**：完整回调 URL 仅在创建成功那一刻向调用方返回一次，PostgreSQL 中仅持久化保存令牌的 SHA-256 哈希摘要。
+- **日志全链路脱敏**：Ankole 访问日志会将 `/webhooks/v1/event-callbacks/*` 统一掩码替换为 `/webhooks/v1/event-callbacks/[REDACTED]`；请在前端 Ingress、反向代理及 CDN 层同步配置相同的路径脱敏规则。
+- **请求体大小硬限制**：单次回调请求体上限为 `1 MiB`，超出上限的请求会在进入常规正文解析器前直接被拦截并返回 HTTP `413`。
+- **请求头白名单过滤**：系统仅保留事件元数据相关的请求头（`content-type`、`x-hub-signature-256`、`x-github-*` 与 `ce-*`），`Authorization` 及其他通用请求头一律在入口处丢弃。
+- **不可信数据隔离包裹**：注入 Agent 上下文的是经过长度裁剪的回执摘要，且外层严格包裹在不可信数据边界标签内（外部文本中若夹带同名的字面闭合标签会被强制转义）。
+- **唤醒权与执行权分离**：回调 URL 仅代表“允许唤醒目标会话或脚本”，哪怕请求附带平台签名头，也绝不直接等同于已获准执行业务变更操作。
 
 ## 排查
 
-- **Agent 找不到 GitHub Skill：**确认该 Agent 已开启 GitHub Agent Plugin 及相关 Skills，再开始新的 turn。
-- **GitHub 无法访问 callback：**检查公网 HTTPS 证书、DNS、ingress route 和 `/webhooks/v1/event-callbacks/*` 转发。
-- **Hook 已存在但 Agent 没有回复：**依次检查 GitHub delivery 日志、Console 中的 endpoint 状态、Worker readiness、durable Signal 和聊天出站投递。
-- **GitHub 返回 `413`：**所选事件的 payload 超过 1 MiB。缩小 GitHub 侧事件形状，或改用其他检测器。
-- **同一事件唤醒两次：**standing endpoint 允许这种情况。Agent 必须重新读取 GitHub 当前状态，并让重复处理保持安全。
-- **布防时丢失 callback URL：**先删除可能存在的 GitHub hook，取消旧 endpoint 与 checkback，再创建一个替代 endpoint。
+- **Agent 提示找不到 GitHub Skill**：确认已在该 Agent 的能力库中开启 GitHub Agent Plugin 及下属 Skill，随后新开一轮对话回合重试。
+- **GitHub 后台提示无法连接回调地址**：依次排查公网域名的 HTTPS 证书有效性、DNS 解析、Ingress 路由规则，确认 `/webhooks/v1/event-callbacks/*` 已原样转发至控制面。
+- **远端 Hook 已触发成功，但聊天窗口迟迟没有回复**：按链路顺序核查 GitHub 投递日志、Console 中的端点状态、对应 Agent 的 Worker 就绪状态、持久化的 Signal 记录以及聊天渠道出站投递记录。
+- **GitHub 投递报错返回 `413`**：所订阅事件的原始 JSON 载荷超过了 `1 MiB` 上限；请收窄 GitHub 侧勾选的事件范围，或改用其他轻量检测方式。
+- **同一个外部事件把 Agent 唤醒了两次**：在 `standing` 常驻模式下属于符合契约的正常现象；请确保 Agent 每次先重读 GitHub 当前状态，使重复唤醒保持幂等安全。
+- **布防途中意外丢失了刚生成的回调 URL**：请先检查并删除远端可能已建出一半的 GitHub Hook，再取消本地残留的旧端点与 Checkback 提醒，最后重新走一遍完整的创建流程。
 
-入口所有者和事务边界见 [Signals](../signals/)。能力设置见 [Agent 能力库](../skills/)和 [环境变量](../worker-env/)。
+关于底层接纳模块与数据库事务边界，请参阅 [Signals](../signals/)；插件开关与令牌配置步骤分别见 [Agent 能力库](../skills/) 与 [环境变量](../worker-env/)。

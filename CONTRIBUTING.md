@@ -1,60 +1,30 @@
 # Contributing to Ankole
 
-Thank you for contributing to Ankole. This guide is for both human contributors and coding agents, and it assumes no previous experience with Ankole, Elixir, Phoenix, Ecto, Rust, or OTP.
+Thank you for contributing to Ankole! This guide walks both human contributors and coding agents through setting up, testing, and changing the repository, assuming no prior background in Ankole, Elixir, Phoenix, Ecto, Rust, or OTP.
 
 > [!WARNING]
-> Ankole is in active development. Public APIs do not yet have a compatibility contract, so interfaces and subsystem boundaries can change between releases.
+> Ankole is under active development. Public APIs do not yet carry a backwards-compatibility contract, so interfaces and subsystem boundaries can change between releases.
 
-A site is one complete deployment. It can contain several tenants, each with its own people, Agents, Brain, and integrations. Site operators manage shared providers and infrastructure in the site administration Console at `/site-admin-console` (or the absolute path set in `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup). Active Humans sign in on their tenant's slug host (locally, `http://<tenant-slug>.ankole.localhost:4000/`) through its configured identity providers, or start login from an OIDC application.
+A **site** is one complete Ankole deployment. A single site can host multiple **tenants**, each owning its own people, Agents, Company Brain, and external integrations. Site operators manage shared providers and cluster infrastructure through the site administration Console at `/site-admin-console` (or the custom absolute path configured in `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup). Active Human users sign in on their tenant's subdomain (locally, `http://<tenant-slug>.ankole.localhost:4000/`) through that tenant's configured identity providers, or initiate login from an OIDC application.
 
 ## Source builds
 
-`ANKOLE_EDITION=foss|saas` is a build input. The default is `foss`, including
-when the checkout contains `internals`. FOSS does not compile private modules,
-read private configuration, or install private migrations. SaaS requires the
-matching private source; a missing file or module fails the build.
+`ANKOLE_EDITION=foss|saas` selects which edition to build. Even when a private `internals/` checkout is present, builds default to `foss`: the FOSS build never compiles private modules, reads private configuration, or installs private migrations. Building with `ANKOLE_EDITION=saas` requires the matching `internals/` checkout and fails immediately if any required file or module is missing.
 
-Both forms use one Mix project, `:ankole` application, Repo, and database. They
-have separate `_build/foss` and `_build/saas` trees. Vite assets and generated
-locale catalogs also stay in those trees. Release assembly copies only the
-selected assets and catalogs into its application directory. A release uses
-those packaged paths and does not need the source checkout. Build tasks do not
-use Turbo artifact caching; checks include the edition in their cache input.
+Both editions share one Mix project, one `:ankole` OTP application, one `Repo`, and one control-plane database, while keeping isolated `_build/foss` and `_build/saas` build trees (including Vite bundles and generated locale catalogs). Assembling a release copies only the selected edition's assets and catalogs into the release directory, so a packaged release runs without a source checkout. Build tasks bypass Turbo artifact caching, while static and test checks include the active edition in their cache keys.
 
-The SaaS source has these required inputs:
+A `saas` build expects these inputs under `internals/`:
 
-- `internals/control_plane/config.exs` declares the HTTP entry, Host policy,
-  AppConfigure definitions module, and trusted site identity sources.
-- `internals/control_plane/lib` contains distinct private modules. It does not
-  redefine public modules or add another OTP application.
-- `internals/control_plane/test/test_helper.exs` accompanies the private tests.
-  Mix runs both public and private test paths; support modules compile only in
-  the test environment.
-- `internals/webapps/entries.json` has an `entries` map for private entry names
-  and an optional `overrides` map for public entry wrappers. Additional names
-  must be unique; overrides must name public entries. Values are relative source
-  paths. Private sources use the public
-  webapp dependencies through a generated `node_modules` link. Entry reads do
-  not create the link. Mix, Vite, type checks, and Bun test preparation create
-  a relative link and accept concurrent preparation of the same target.
-  Preparation replaces stale symbolic links and rejects a separate dependency
-  directory. `lint`, type checks,
-  and tests include both source sets.
-- `internals/locales` supplies TOML catalogs. Build preparation merges them with
-  public catalogs into generated JSON. Duplicate message keys fail the build.
-  Phoenix, Vite development, production, and Bun tests read the same output.
-- `internals/control_plane/priv/repo/migrations` contains private migrations.
+- **`internals/control_plane/config.exs`** — declares the HTTP entry point, `Host` policy, `AppConfigure` definitions module, and trusted site identity sources.
+- **`internals/control_plane/lib/`** — provides distinct private Elixir modules without redefining public modules or starting a second OTP application.
+- **`internals/control_plane/test/test_helper.exs`** — configures private tests. Mix runs both public and private test suites together, compiling test-support modules only in `:test`.
+- **`internals/webapps/entries.json`** — defines an `entries` map of unique private entry names and an optional `overrides` map wrapping existing public entries (values are relative source paths). Private frontend code shares the public webapp dependencies via a relative `node_modules` symlink created automatically by Mix, Vite, type-checking, and Bun test preparation (plain entry reads do not create it; concurrent tasks safely converge on the same target, replace stale symlinks, and reject standalone `node_modules` directories). Linting, type checks, and tests cover both public and private sources.
+- **`internals/locales/`** — supplies private TOML translation catalogs that build preparation merges with `app/locales/` into generated JSON (duplicate message keys fail the build). Phoenix, Vite dev/prod builds, and Bun tests all read that single merged output.
+- **`internals/control_plane/priv/repo/migrations/`** — supplies private Ecto migrations.
 
-`Ankole.Migrations` supplies the complete selected migration set to
-`mix ecto.migrate`, `mix ecto.migrations`, `mix ecto.rollback`, and
-`Ankole.Release.migrate/0`. Versions, filenames, and literal module names must
-be unique across both directories, including files whose versions already ran.
-Data migration queries select only the columns present at that schema version.
-SaaS releases place private files in `priv/repo/internal_migrations`, beside
-public migrations. Both use the same `schema_migrations` ledger. Removing
-private source does not reverse its schema changes.
+`Ankole.Migrations` feeds the full selected migration set to `mix ecto.migrate`, `mix ecto.migrations`, `mix ecto.rollback`, and `Ankole.Release.migrate/0`. Migration timestamps, filenames, and module names must be globally unique across both public and private directories (including historical migrations that have already run), and data-migration queries must select only columns that exist at that point in the migration timeline. SaaS releases package private migrations under `priv/repo/internal_migrations` alongside public migrations, sharing the same `schema_migrations` table. Switching back from `saas` to `foss` does not automatically roll back private schema changes.
 
-From `app/control_plane`:
+To verify edition builds from `app/control_plane`:
 
 ```bash
 mix test
@@ -62,18 +32,9 @@ ANKOLE_EDITION=saas mix test
 MIX_TEST_PARTITION=edition_build mix test integration/edition_build_test.exs --trace
 ```
 
-The build integration test uses a labeled private fixture in a temporary
-checkout. It checks FOSS isolation, SaaS compilation and resources, private test
-discovery, empty and upgraded databases, rollback, and a detached release.
-Its browser fixture uses the built Pod and Auth entries, real HTTPS sessions,
-Principal authorization, generated API clients, and the SMTP protocol. Install
-Chromium with `bunx playwright install chromium` before this check. OpenSSL must
-be on `PATH` for the temporary test certificate.
-It does not implement or certify a SaaS account product.
+`edition_build_test.exs` spins up a labeled private fixture inside a temporary checkout to verify FOSS isolation, SaaS compilation and assets, private test discovery, fresh and upgraded databases, rollbacks, and a standalone release—exercising built Pod and Auth webapps over real HTTPS sessions, Principal authorization, generated API clients, and local SMTP (it tests build plumbing rather than certifying a commercial SaaS product). Before running it, install Chromium with `bunx playwright install chromium` and ensure `openssl` is on `PATH` for temporary TLS certificates.
 
-The control-plane image uses Cargo to build the Kernel and Torque native libraries.
-
-A SaaS source image uses the public Dockerfile with a named private context:
+Docker builds for the control plane use Cargo to compile the native Rust Kernel and Torque libraries. To build a SaaS image from the public `Dockerfile`, pass `internals/` as a named build context:
 
 ```bash
 docker build -f app/control_plane/Dockerfile \
@@ -81,72 +42,62 @@ docker build -f app/control_plane/Dockerfile \
   --build-context ankole-internals=./internals .
 ```
 
-The internal resource image can also add private Agent resources to an
-assembled image. Copying resources into that image does not compile a SaaS
-backend. Use the source build for private server and frontend code.
+(Note: while an internal resource image layer can bundle private Agent templates or Skills onto an existing image, copying files alone never compiles SaaS backend or frontend code—always run a `saas` source build for code changes.)
 
 ## What a successful setup means
 
-A full local setup is complete only when all of these are true:
+A full local development setup is complete only when all five of these hold:
 
-1. Bun, Elixir/Erlang, Rust, Docker, and Docker Compose work from a new terminal.
-2. The devkit PostgreSQL and Function Runtime services are healthy, and the control-plane database is migrated.
-3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation requests Worker startup. Environment tools or Jobs request it again after idle release; pure questions do not wait for it.
-4. The first administrator can sign in, and an LLM provider, agent, and Signal binding are configured.
-5. A real message sent through Feishu/Lark reaches the agent and receives the expected reply.
+1. `bun`, `elixir`, `rustc`, `docker`, and `docker compose` all work in a fresh terminal session.
+2. Both devkit containers (`PostgreSQL` and `Function Runtime`) report healthy, and control-plane Ecto migrations have completed.
+3. `bun dev` serves the Phoenix control plane, Web Console, and Vite assets. Creating an Agent triggers Worker startup; after an idle Worker stops, environment tools or Codex Jobs wake it on demand, whereas pure Q&A turns answer immediately without waiting on a Worker.
+4. The initial root administrator can sign in, and an LLM provider, Agent, and Signal binding are configured.
+5. Sending a live message in Feishu/Lark reaches the Agent and posts the expected reply back to the chat.
 
-A documentation-only or package-local change may not need the full Feishu path. State exactly which stage you reached and which stages you did not verify.
+Documentation-only or isolated package changes usually do not require completing the live Feishu smoke test—just state clearly which stage you verified and which stages you skipped.
 
 ## How a coding agent should guide a human
 
-The coding agent owns terminal work it can perform safely: inspecting the workspace, installing project dependencies, starting services, running checks, reading non-sensitive logs, and locating the first failing boundary.
+When pairing on setup, divide responsibilities along trust boundaries:
 
-The human owns account and trust decisions: entering passwords or secrets, signing in to external services, approving OAuth, creating and publishing a Feishu app, and approving destructive recovery.
+- **The coding agent** handles safe terminal work: inspecting the repo, installing toolchains and packages, starting Docker services, running verification commands, reading non-sensitive logs, and pinpointing the first failing boundary.
+- **The human** handles credentials and external account actions: entering `sudo` passwords or API keys, completing browser logins and OAuth consent screens, creating/publishing the Feishu test app, and approving any destructive reset.
 
-Before starting, the agent should:
+Before running commands, the coding agent must:
 
-1. Read this file and [`AGENTS.md`](AGENTS.md) in full.
-2. Confirm it is operating from the repository root.
-3. Run `git status --short` and preserve unrelated changes.
-4. Work through the setup stages in order and verify each stage before continuing.
+1. Read both this guide and [`AGENTS.md`](AGENTS.md) completely.
+2. Verify that its working directory is the repository root.
+3. Run `git status --short` and leave unrelated worktree diffs untouched.
+4. Advance through the numbered setup stages in order, verifying each stage before moving on.
 
-The agent must pause when the human needs to:
+The agent must pause and hand off whenever the human needs to:
 
-- enter a system password or secret;
-- complete a browser login, OAuth consent, or account-admin action;
-- choose a provider, model, or external application policy;
-- approve database rebuilds, Docker volume removal, or discarded files.
+- enter a system password or secret credential;
+- complete a browser sign-in, OAuth consent flow, or external admin console step;
+- choose a model provider, model tier, or external app visibility policy;
+- approve dropping a database, deleting a Docker volume, or discarding local files.
 
-Never print the whole environment, open secret files without a concrete need, paste credentials into chat, or place credentials in commands that may be saved in shell history. Prefer the Console's secret fields.
-
-Do not turn a failed full setup into a smaller success claim. Report the first broken stage, the evidence, the next safe action, and any step that remains unverified.
+Never dump `env`, open secret files without a specific reason, paste credentials into chat, or embed secrets in shell commands that land in shell history—enter secrets directly into the Console's masked fields instead. And if a full end-to-end setup fails partway through, do not reframe partial progress as full completion: name the first broken stage, show the error evidence, propose the next safe step, and list what remains unverified.
 
 ## Understand the local system
 
-You do not need to learn every runtime before starting. The repository-level Bun commands select the correct working directory and coordinate the runtimes.
+You do not need to learn Elixir, Rust, and Bun internals up front—the root `package.json` scripts automatically switch directories and coordinate every runtime.
 
-| Component | What it does | Source | Local surface |
+| Component | Role | Source | Local address / container |
 | --- | --- | --- | --- |
-| PostgreSQL | Stores all durable control-plane state | Devkit Compose service | `localhost:5433` |
-| Function Runtime | Runs Applet backends and deterministic program steps | `app/function_runtime` | `localhost:5435` |
-| Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://ankole.localhost:4000` |
-| Webapps | Provide setup, authentication, and Console pages | `app/webapps` | Vite on `localhost:3035`, served through the control plane |
-| Agent Computer | Runs environment tools, Codex, Skill materialization, and Worker-local state | `app/agent_computer` | One Docker container per Agent, label `ankole.installation=dev` |
-| Kernel | Provides native primitives and transport | `app/kernel` | Loaded by Elixir through Rustler and the browser daemon through Node-API |
-| RuntimeFabric | Carries live control-plane-to-worker traffic over a Phoenix Channel | Control Plane | `ws://localhost:4000/runtime-fabric/worker` |
+| PostgreSQL | Stores all authoritative control-plane state and dev Base shards | Devkit Compose service | `localhost:5433` |
+| Function Runtime | Executes stateless Applet backends and deterministic TypeScript steps | `app/function_runtime` | `localhost:5435` |
+| Control Plane | Serves Setup, Console APIs, durable workflows, and commit authority | `app/control_plane` | `http://ankole.localhost:4000` |
+| Webapps | React apps for Setup, Auth, Pod, and Console | `app/webapps` | Vite on `localhost:3035` (proxied via `:4000`) |
+| Agent Computer | Executes Worker environment tools, Codex, and materialized Skills | `app/agent_computer` | One Docker container per Agent (`ankole.installation=dev`) |
+| Kernel | Shared native Rust primitives and HTTP/WebSocket transport | `app/kernel` | Loaded into Elixir via Rustler and browser daemon via N-API |
+| RuntimeFabric | Multiplexes live control-plane-to-Worker RPCs over a Phoenix Channel | Control Plane | `ws://localhost:4000/runtime-fabric/worker` |
 
 ### Elixir in five minutes
 
-`mix` is the Elixir task runner, Phoenix is the web framework, Ecto owns database access and migrations, ExUnit is the test framework, and OTP provides supervised processes.
+If Elixir is new to you: `mix` is the build and task tool, **Phoenix** is the HTTP/WebSocket web framework, **Ecto** handles database queries and schema migrations, **ExUnit** runs tests, and **OTP** supervises fault-tolerant background processes. Regular source files end in `.ex`, while tests, scripts, and configs end in `.exs`.
 
-Elixir implementation files use `.ex`; tests, scripts, and configuration often use `.exs`.
-
-Domain and web code lives under `app/control_plane/lib`. Configuration, tests,
-and migrations also live under `app/control_plane`. Its Mix project compiles
-`plugins/*/lib` into the same `:ankole` application. Each Plugin source directory
-contains its matching provider client.
-
-Use the root Bun commands in this guide. Run `mix` directly only when a module-specific instruction says to, and then use `app/control_plane` as the working directory.
+Control-plane domain logic, web routes, configuration, migrations, and tests all live under `app/control_plane/`, whose Mix project also compiles first-party plugins from `plugins/*/lib` (along with their provider clients) into the same `:ankole` application. Stick to root `bun run ...` scripts unless a section explicitly tells you to run `mix` inside `app/control_plane`.
 
 ## 1. Get the repository and choose an environment
 
@@ -202,7 +153,7 @@ Then run it:
 bash tools/devkit/scripts/env-setup.sh
 ```
 
-The script installs system build packages, Docker, stable Rust with `rustfmt` and `clippy`, the repository's Elixir/Erlang toolchain, and the Bun version pinned by the repository.
+The script installs system build packages, Docker, the Rust toolchain pinned in `rust-toolchain.toml` with `rustfmt` and `clippy`, `sccache`, the repository's Elixir/Erlang toolchain, and the Bun version pinned by the repository. Whenever `sccache` is on `PATH`, devkit, Rustler NIF builds, and Kernel scripts automatically wrap Cargo with a local SSD cache; machines without `sccache` (or with `ANKOLE_SCCACHE=0`) run standard Cargo without extra configuration.
 
 When it finishes:
 
@@ -220,7 +171,7 @@ docker compose version
 docker info
 ```
 
-`bun --version` must match the `packageManager` version in `package.json`. Every other command must exit successfully, and `docker info` must connect to the daemon.
+`bun --version` must match the `packageManager` version in `package.json`, and `rustc --version` must match the channel in `rust-toolchain.toml`. Every other command must exit successfully, and `docker info` must connect to the daemon.
 
 Do not continue while `docker info` fails. Fix Docker Desktop startup or Linux group permissions first.
 
@@ -240,7 +191,7 @@ bun run control-plane:setup
 They perform distinct jobs:
 
 1. `bun install` installs every workspace dependency.
-2. `services:start` starts PostgreSQL and builds Function Runtime through `tools/devkit/external-services.docker-compose.yml`, then waits for their health checks. The first Function Runtime build compiles the pinned Rust engine. Later builds reuse its native layer when only Main or application code changes.
+2. `services:start` starts PostgreSQL and resolves Function Runtime for `tools/devkit/external-services.docker-compose.yml`, then waits for their health checks. When Function Runtime inputs match a published commit, devkit pulls `ghcr.io/agentbull/ankole-function-runtime:<revision>` directly; when TypeScript inputs change while the native stage matches a published commit, Docker reuses that image's `/usr/local/bin/edge-runtime` binary and bundles the local TypeScript service; when the native stage or patches differ, Docker compiles the pinned Rust engine.
 3. `services:status` shows the Compose service state.
 4. `control-plane:setup` fetches Elixir dependencies, creates the development database, runs Ecto migrations, and loads seeds.
 
@@ -258,11 +209,11 @@ Run:
 bun dev
 ```
 
-Keep this terminal open. The devkit starts or verifies PostgreSQL and Function Runtime, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
+Keep this terminal open. The devkit starts or verifies PostgreSQL and Function Runtime, creates and migrates the local database, resolves a published or local Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
 
 The devkit formats Phoenix logs and keeps service builds attached to the terminal.
 
-The first run may spend substantial time building the Function Runtime and Agent Computer images. Wait while there is active build output.
+When local runtime inputs diverge from published images, the first run may spend substantial time building the Function Runtime or Agent Computer images. Wait while there is active build output.
 
 For the SaaS edition with its private source checkout, use the same command
 with the edition selected:
@@ -621,270 +572,99 @@ Use `kit --help` to discover database, service, generation, worker-test, and ana
 
 ## Run the right checks
 
-Start with checks scoped to the files you changed. This makes failures easier to attribute and avoids treating unrelated worktree noise as your regression.
+Start with the targeted checks that cover the area you changed—failures are much faster to diagnose when isolated from unrelated worktree activity.
 
-The `Repository checks` workflow runs on pull requests and pushes to `main`.
-It runs static checks in three jobs: `bun-static` (oxlint, oxfmt, analysis,
-and workspace type checks), `kernel-lint` (rustfmt, clippy for each feature set,
-and Elixir formatting), and `control-plane-lint` (formatting, compilation with
-warnings as errors, Credo, compile-connected cycles, Plugin dependency
-directions, and OpenAPI and generated SDK consistency). Control Plane checks
-use the FOSS edition. Test suites use the dedicated commands below. The
-runtime-image workflow releases a `main` push after these static checks succeed
-for that revision.
+On pull requests and pushes to `main`, the `Repository checks` GitHub Actions workflow runs three static-verification jobs against the FOSS edition:
+- **`bun-static`** — `oxlint`, `oxfmt`, workspace dependency/unused-export analysis, and TypeScript checks
+- **`kernel-lint`** — `rustfmt`, `clippy` across every Cargo feature combination, and Elixir formatting
+- **`control-plane-lint`** — Elixir formatting, `mix compile --warnings-as-errors`, Credo, compile-connected cycle checks, Plugin dependency boundaries, and OpenAPI / generated SDK drift checks
 
-| Changed area | Useful first checks |
+Once those static checks pass on `main`, the runtime-image workflow builds, verifies, and publishes release images for that commit.
+
+| Changed area | Recommended initial checks |
 | --- | --- |
-| Documentation only | `git diff --check` and link/command inspection |
-| Repository tooling or any TypeScript | `bun run lint:repo` and `bun run fmt:check:repo` |
+| Documentation only | `git diff --check` plus link and command verification |
+| Repository tooling or shared TypeScript | `bun run lint:repo` and `bun run fmt:check:repo` |
 | Control Plane | `bun run --filter @ankole/control-plane type-check` and `bun run control-plane:test` |
 | Agent Computer | `bun run agent-computer:type-check` and `bun run agent-computer:test` |
 | Webapps | `bun run webapps:type-check`, `bun run --filter @ankole/webapps test`, and `bun run webapps:build` |
 | Kernel | `bun run --filter @ankole/kernel lint` and `bun run --filter @ankole/kernel test` |
-| Function Runtime | `bun run --filter @ankole/function-runtime type-check`, `bun run --filter @ankole/function-runtime test`, and `bun run --filter @ankole/function-runtime test:integration` with local services running, plus `bun run --filter @ankole/function-runtime test:native` against the built image |
-| Browser | `bun run --filter @ankole/browser lint`, `bun run --filter @ankole/browser test`, and `bun run --filter @ankole/browser test:integration` with `ANKOLE_BROWSER_TEST_CHROMIUM` set to Chromium |
-| Provider clients | `bun run control-plane:test:plugins`; for Feishu only, `bun run lark-adapter:test` |
+| Function Runtime | `bun run --filter @ankole/function-runtime type-check`, `bun run --filter @ankole/function-runtime test`, `bun run --filter @ankole/function-runtime test:integration` (with local services running), and `bun run --filter @ankole/function-runtime test:native` (against the built image) |
+| Browser | `bun run --filter @ankole/browser lint`, `bun run --filter @ankole/browser test`, and `bun run --filter @ankole/browser test:integration` (with `ANKOLE_BROWSER_TEST_CHROMIUM` pointing to Chromium) |
+| Provider clients | `bun run control-plane:test:plugins` (or `bun run lark-adapter:test` for Feishu/Lark alone) |
 | Block editor | `bun run --filter @ankole/block-editor type-check`, `bun run --filter @ankole/block-editor test`, and `bun run --filter @ankole/block-editor test:package` |
 | Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |
 
-Function Runtime protocol checks start a local HTTP webhook receiver. The devkit
-container uses `host.docker.internal` to reach this receiver.
-`test:native` starts an ephemeral container from `ankole-function-runtime:dev`.
-Set `ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE` to test another built image. It checks
-actual CPU shutdown events, physical PTC cancellation, one-shot and warm-worker
-thread retirement, memory at 20 and 100 resident workers, and SIGTERM drain.
-It prints the artifact directory and removes its container. The fixture uses
-shorter native wall lifetimes for bounded checks; the production Applet maximum
-lifetime is five minutes. The artifact directory contains the native event log
-and resource report.
+### Subsystem check notes
 
-The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7. `astro check` stops with an error on TypeScript 7.0, and `@astrojs/check` lists TypeScript 5 and 6 as its supported versions. Keep this pin when you update dependencies. Move the website to the workspace version when Astro supports it: `@astrojs/ts-content-mapper` needs TypeScript 7.1 or later.
-
-For one Elixir test file, set the working directory to `app/control_plane` and run `mix test test/path/to/file_test.exs`. This is the normal case where a direct `mix` command is appropriate.
-
-Protocol tests that assert a provider TCP disconnect need a direct connection
-to their loopback fixture. Add `127.0.0.1`, `localhost`, and `::1` to `NO_PROXY`
-for the test process, and keep its other exclusions. A proxy owns a separate
-connection to the fixture.
-
-Run provider client unit tests without PostgreSQL from the repository root:
-
-```bash
-bun run control-plane:test:plugins
-bun run control-plane:test:plugins lark_adapter
-```
-
-The optional Plugin directory name selects one client. The command runs
-`mix ankole.plugins.test` in the test environment. It compiles the same
-application as the main suite, skips application startup, and uses each
-client's test helper to start only its supervisor. The ordinary control-plane
-test suite also runs these tests.
-
-Control Plane lint runs the Credo default check set, ex_slop checks, and the
-Ankole checks. Fix violations; there is no baseline exemption. The checks that
-`app/control_plane/.credo.exs` lists as `disabled` had findings when the default
-set was switched on; enable one again in the change that removes its findings.
-The nesting limit is 4 and the cyclomatic complexity limit is 20.
-`bun run analyze:unused` checks production files, exports, types, and
-dependencies; tests do not retain dead production code.
-
-The build applies the pinned Ash 3.37.2, AshPostgres 2.15.1, AshJsonApi
-1.8.0, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
-Docker build installs it. The control-plane Mix project owns the patch loader.
-Each build tree checks its own stamp for the patch and loader contents
-before it loads dependencies. When the stamp changes, Mix rebuilds the patched
-dependencies and their consumers, and clears the current application's Elixir
-compilation cache. A failed patch stops the build. The fixes prevent
-false notification warnings, handle skipped upserts whose row is not visible in
-the selected tenant, and describe timestamps, embedded IDs, nullable array items,
-and DELETE responses in native OpenAPI. The JSON:API router respects a halted
-`before_dispatch` response. The attesto patch accepts the existing
-opaque Principal UID namespace for both human and Agent subjects. The Ash and
-AshJsonApi resource-reference DSL fields record runtime module dependencies;
-resource and route verifiers still validate their declarations.
-Check the public action behavior when updating these dependencies. Remove each
-patch when an upstream release includes its fix.
-
-Resource compilation checks the tenant and transaction contracts
-(`Ankole.Ash.Verifiers.Contracts`). The persistence boundary checks keep each
-database call at its owner (see [Persistence boundary](#persistence-boundary)).
-Database tests check the resulting isolation and writes.
-
-After you change compile-time dependencies, run this check from
-`app/control_plane`:
-
-```bash
-MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
-MIX_ENV=prod ANKOLE_EDITION=foss mix ankole.compile_cycles
-```
-
-The command checks the control plane and every local Mix dependency. It rejects
-dependency cycles that contain a compile-time dependency. Runtime-only cycles
-remain allowed. It also checks compile, export, and runtime references between
-the control-plane source directories. Domain code in `app/control_plane/lib`
-and `internals/control_plane/lib` cannot statically reference a concrete Plugin.
-A Plugin cannot statically reference another Plugin. The exact migration
-exceptions are `Ankole.Upgrade202610` references to
-`Ankole.Plugins.SlackAdapter.Config` and
-`Ankole.Plugins.Microsoft365Adapter.Config`. See
-[Control Plane Plugins](docs/design-docs/Plugins.md#fixed-source-builds).
-CI checks both test and production builds
-of the FOSS edition. Production uses compile-time plug initialization, so a
-test build alone cannot detect all compile dependencies. Endpoint and Router
-use local function plugs for business implementations and keep the standard
-library plug initialization. The private SaaS router uses
-`AnkoleWeb.runtime_forward` to retain Phoenix forwarding and record its target
-as a runtime dependency. Check both environments with `ANKOLE_EDITION=saas`
-when private control plane sources are present. Do not add `--only-direct`:
-it removes indirect paths that can close a compile-connected cycle.
-
-The source boundary tests compile temporary Mix projects and inspect their
-actual xref graphs. Run them without PostgreSQL from `app/control_plane`:
-
-```bash
-elixir -e 'ExUnit.start(); Code.require_file("integration/compile_cycles_test.exs")'
-```
-
-Run the Driver's process and transaction checks separately from the unit suite.
-Use a separate test partition and a resolvable local node name:
-
-```bash
-cd app/control_plane
-MIX_TEST_PARTITION=session_driver elixir --sname session_checks@localhost -S mix test integration/session_driver_test.exs
-```
-
-`bun run test:integration` in `app/control_plane` runs the integration files
-that use the local PostgreSQL and Function Runtime services. It excludes the `cloud`, `cluster` (a named node),
-and `external` (Docker, Kubernetes, or cloud tooling) tags; run those files with
-the commands later in this guide.
-
-`bun run agent-computer:test` runs Agent Computer unit tests on the host. The
-host needs Bun, Bash, GNU `timeout`, and Python 3. In `app/agent_computer`,
-`bun run test:integration` runs portable integration tests on the host with
-Codex 0.164.0, MCPorter 0.16.0 running with Bun, native `apply_patch`, and GNU
-`stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select a local Codex binary.
-The command sets `TMPDIR=/tmp` to keep Unix socket paths short.
-
-On Linux, also run `bun run test:integration:linux`. It checks the supervisor
-and managed Codex runtime with `setsid` and util-linux `flock` (`-F` support).
-`bun run test:integration:docker` checks the Worker entrypoint, image
-configuration, `tini`, pinned Codex bindings, browser, OCR, and installed Lark
-CLI. `bun run test:docker` runs the unit suite in the image. Only the Docker
-commands require Docker and a current Worker image.
+- **Function Runtime (`test:integration` & `test:native`)**: Protocol integration tests spin up a local HTTP webhook receiver that the devkit container reaches via `host.docker.internal`. `test:native` launches an ephemeral container from `ankole-function-runtime:dev` (override with `ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE`) to verify CPU-limit shutdown events, physical PTC cancellation, one-shot and warm-worker thread retirement, resident memory at 20 and 100 workers, and `SIGTERM` draining (using shortened wall-clock limits rather than production's 5-minute Applet ceiling), then prints the artifact directory containing native event logs and resource metrics before removing the container.
+- **Website TypeScript version pin**: `app/website` intentionally pins TypeScript `6.0.3` while the rest of the workspace uses TypeScript 7, because `@astrojs/check` supports only TypeScript 5–6 (`astro check` errors on 7.0, and `@astrojs/ts-content-mapper` requires 7.1+). Keep that pin until Astro supports TypeScript 7.1+.
+- **Single Elixir test file**: To run one ExUnit file directly, `cd app/control_plane` and run `mix test test/path/to/file_test.exs`.
+- **Loopback TCP disconnect tests**: Protocol tests that verify upstream TCP disconnects need direct loopback sockets rather than going through an HTTP proxy (which holds its own separate connection). Ensure `NO_PROXY` includes `127.0.0.1`, `localhost`, and `::1` alongside any existing exclusions.
+- **Database-free plugin unit tests**: From the repo root, run all or one plugin's unit suite without PostgreSQL:
+  ```bash
+  bun run control-plane:test:plugins
+  bun run control-plane:test:plugins lark_adapter
+  ```
+  Under the hood, `mix ankole.plugins.test` compiles `:ankole` in `:test`, skips full application boot, and runs each plugin's `test_helper.exs` to start only its own supervisor (the full `control-plane:test` suite runs these tests as well).
+- **Credo and unused-code gates**: Control-plane lint enforces Credo's default suite, `ex_slop`, and Ankole's custom checks with zero baseline exemptions (max nesting depth `4`, max cyclomatic complexity `20`). If a PR eliminates all remaining findings for a check currently marked `disabled` in `app/control_plane/.credo.exs`, re-enable that check in the same PR. Likewise, `bun run analyze:unused` flags dead production files, exports, types, and dependencies—test-only callers do not keep unused production code alive.
+- **Pinned Elixir dependency patches**: Before compiling Mix dependencies, `app/control_plane` applies local patches to Ash `3.37.2`, AshPostgres `2.15.1`, AshJsonApi `1.8.0`, and `attesto` `2.6.1` (requiring `patch` on `PATH`, preinstalled in Docker). Each `_build` tree tracks a content stamp over the patches and patch loader; whenever either changes, Mix recompiles the patched packages and clears `:ankole`'s build cache, failing hard if any hunk fails to apply. Together these patches silence spurious notification warnings, handle tenant-invisible skipped upserts, emit accurate native OpenAPI schemas (timestamps, embedded IDs, nullable array items, `DELETE` responses), honor halted `before_dispatch` plugs in JSON:API routers, accept Ankole's opaque Principal UIDs in `attesto`, and treat Ash/AshJsonApi resource-reference DSL entries as runtime rather than compile-time module edges (while keeping verifier coverage intact). Re-verify public action behavior whenever bumping these libraries, and drop each patch once upstream ships the fix.
+- **Compile-connected cycle and boundary checks**: Whenever you change module references in `app/control_plane`, verify both `:test` and `:prod` graphs (since `:prod` initializes plugs at compile time):
+  ```bash
+  MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
+  MIX_ENV=prod ANKOLE_EDITION=foss mix ankole.compile_cycles
+  ```
+  `mix ankole.compile_cycles` rejects any cycle containing at least one compile-time edge across `:ankole` and its local Mix dependencies (pure runtime cycles are fine), and enforces directory boundaries: core domain code (`app/control_plane/lib` and `internals/control_plane/lib`) must never statically reference a concrete Plugin, nor may one Plugin statically reference another (the sole legacy upgrade exceptions are `Ankole.Upgrade202610` referencing `Ankole.Plugins.SlackAdapter.Config` and `Ankole.Plugins.Microsoft365Adapter.Config`; see [Control Plane Plugins](docs/design-docs/Plugins.md#fixed-source-builds)). Endpoints and Routers wrap business plugs in local function plugs, and the SaaS router uses `AnkoleWeb.runtime_forward` so forwarded targets stay runtime-only edges. Also run both commands with `ANKOLE_EDITION=saas` when `internals/` is present, and never pass `--only-direct` (which hides transitive compile cycles). To run the standalone xref boundary suite without PostgreSQL:
+  ```bash
+  elixir -e 'ExUnit.start(); Code.require_file("integration/compile_cycles_test.exs")'
+  ```
+- **Session Driver & integration suites**: Run Session Driver cluster/transaction tests in an isolated partition with a short node name:
+  ```bash
+  cd app/control_plane
+  MIX_TEST_PARTITION=session_driver elixir --sname session_checks@localhost -S mix test integration/session_driver_test.exs
+  ```
+  Running `bun run test:integration` inside `app/control_plane` executes PostgreSQL + Function Runtime integration suites while excluding `cloud`, `cluster`, and `external` tags (covered below).
+- **Agent Computer test tiers**: `bun run agent-computer:test` runs host unit tests (requires Bun, Bash, GNU `timeout`, Python 3). Inside `app/agent_computer`, `bun run test:integration` runs portable host integration tests with Codex `0.164.0`, MCPorter `0.16.0` on Bun, native `apply_patch`, and GNU `stat` (`gstat` on macOS), honoring `ANKOLE_CODEX_BINARY` and setting `TMPDIR=/tmp` to keep Unix socket paths short. On Linux, also run `bun run test:integration:linux` (`setsid` + util-linux `flock -F`). Docker-backed checks (`bun run test:integration:docker` and `bun run test:docker`) verify the packaged Worker image (`tini`, pinned Codex bindings, browser, OCR, Lark CLI).
 
 ### Persistence boundary
 
-The control plane keeps durable state in Ash resources. The root module of each
-domain, for example `Ankole.Signals`, is its Ash domain. Its `define` entries
-and public Elixir functions are the boundary for other domains, `ankole_web`,
-plugins, and the application.
+Control-plane persistence is owned by **Ash resources**, with each domain's root module (such as `Ankole.Signals`) acting as its `Ash.Domain`. External callers—other domains, `ankole_web`, plugins, and OTP startup code—interact with a domain strictly through its root `define` interfaces and public functions:
 
-- A create, update, or destroy action does not open a transaction. It runs as
-  one statement, or in the caller's transaction.
-- A domain write with more than one step runs in
-  `Ankole.Repo.transact_top_level/2`. It owns its transaction and must be the
-  top-level call: inside `Repo.transact` or a generic action it raises
-  `Ankole.Errors.Framework.NestedOperation`. Pass post-commit work with
-  `after_commit: fun`, or run it in the domain function after commit.
-- A JSON:API route that executes a command or returns a non-resource result uses
-  a generic action on the subject resource or on a resource with
-  `Ash.DataLayer.Simple`. Resource generic actions own their transaction unless
-  they declare `transaction?(false)` and delegate to a domain function that
-  opens its own `Repo.transact_top_level/2` transaction.
-- A step that another domain runs in its own transaction is a `*_in_tx(...)`
-  function of the owning module. It uses `Ankole.Repo` implicitly and raises
-  `Ankole.Errors.Framework.TransactionRequired` outside a transaction. It does
-  not open a transaction, publish, or wake a process. Lock the row of another
-  domain only through its `lock_*_in_tx` function.
-- In its own directory, a domain reads and writes its resources with
-  `Ash.Query` and `Ankole.Ash`: `read/2` and `read_one/2` (`lock_identity:` for
-  a row lock), `read_across_tenants!/2` for an `allow_global` read action,
-  `create/4`, `update/4`, `destroy/3`, `update_atomic/4`, `update_where/4`,
-  `destroy_where/4`, `insert_if_absent/4`, and `run_action/4`. These functions
-  give Ash the process tenant of `Ankole.Repo`.
-- A domain module compiles its code interface from its resources. Thus a
-  resource must not call code that reaches a domain module: that call makes a
-  compile-connected cycle (`mix ankole.compile_cycles`). The resource refers to
-  that code through a module in its DSL. Spark does not record a module in the
-  DSL as a dependency of the resource. For `run`, this is true because the
-  configuration sets `infer_generic_action_reactors?: false` for `:ash`.
-  `mix deps.compile ash --force` rebuilds a local cache that used a different
-  value for this compile-time setting. CI restores dependencies only from a
-  cache with the same core configuration. Put
-  the module in the directory of the resource, under the resource name:
-  - `run(__MODULE__.Actions)`: `<Resource>.Actions`
-    (`use Ash.Resource.Actions.Implementation`) runs the JSON:API generic
-    actions of the resource. Its `run/3` selects a function clause by the action
-    name, for example `Ankole.Tenants.Tenant.Actions` in
-    `tenants/tenant/actions.ex`.
-  - `prepare(__MODULE__.Preparations)`: `<Resource>.Preparations` does the
-    same for the preparations that call domain code.
-  - A calculation, a validation, or a change that calls domain code is one
-    module, for example `Ankole.Brain.Schemas.MergeSuggestion.PageSummary`.
-  - Functions that read or write a resource and call other domain code are in
-    a different module, for example `Ankole.Conversations.Delivery.PreviewStates`
-    for the `PreviewState` resource.
+- **Composable resource actions**: Resource `create`, `update`, and `destroy` actions never open their own database transaction; each runs either as a single SQL statement or inside the caller's active transaction.
+- **Top-level multi-step writes**: Multi-step intra-domain writes use `Ankole.Repo.transact_top_level/2`, which owns the outer transaction and raises `Ankole.Errors.Framework.NestedOperation` if called inside an existing `Repo.transact` or transactional generic action. Schedule post-commit side effects via `after_commit: fun` or run them after `transact_top_level/2` returns.
+- **JSON:API generic actions**: Commands or non-resource JSON:API endpoints declare generic actions on either the subject resource or a stateless `Ash.DataLayer.Simple` resource. Resource generic actions open a transaction automatically unless they set `transaction?(false)` and delegate to a domain function that calls `Repo.transact_top_level/2`. Stateless `Ash.DataLayer.Simple` transport actions always set `transaction?(false)` and delegate transaction ownership and commit notifications to the underlying domain functions after `Principal`/`AuthZ` authorizes the route.
+- **Cross-domain transactional steps (`*_in_tx`)**: When Domain A needs to invoke Domain B inside A's open transaction, Domain B exposes a `*_in_tx(...)` function that uses `Ankole.Repo` implicitly, raises `Ankole.Errors.Framework.TransactionRequired` if called outside a transaction, and never opens a nested transaction, publishes events, or wakes processes on its own. Cross-domain row locks go exclusively through the owning domain's `lock_*_in_tx` helper.
+- **Executing Ash operations (`Ankole.Ash`)**: Inside its own directory, a domain executes queries and changesets through `Ash.Query` and `Ankole.Ash` (`read/2`, `read_one/2` with `lock_identity:` for row locks, `read_across_tenants!/2` for `allow_global` reads, `create/4`, `update/4`, `destroy/3`, `update_atomic/4`, `update_where/4`, `destroy_where/4`, `insert_if_absent/4`, and `run_action/4`), which bind the active `Ankole.Repo` process tenant automatically.
+- **Avoiding resource-to-domain compile cycles**: Because an `Ash.Domain` compiles its code interface from its resources, a resource module must never call code that transitively references an `Ash.Domain` (which would create a compile-connected cycle caught by `mix ankole.compile_cycles`). Instead, reference domain-calling hooks by module name in the resource DSL (with `infer_generic_action_reactors?: false` configured on `:ash`, Spark records DSL module names without adding compile-time edges; if your local build cache used a different setting, run `mix deps.compile ash --force`), placing those companion modules under the resource's subdirectory:
+  - `run(__MODULE__.Actions)` — `<Resource>.Actions` (`use Ash.Resource.Actions.Implementation`) dispatches JSON:API generic actions by clause (e.g., `Ankole.Tenants.Tenant.Actions` in `tenants/tenant/actions.ex`).
+  - `prepare(__MODULE__.Preparations)` — `<Resource>.Preparations` houses query/changeset preparations that call domain code.
+  - Calculations, validations, or changes that call domain code each live in their own focused module (e.g., `Ankole.Brain.Schemas.MergeSuggestion.PageSummary`).
+  - Procedural helpers that both touch a resource and call other domain modules live in a separate sibling module (e.g., `Ankole.Conversations.Delivery.PreviewStates` alongside `PreviewState`).
+  - Inline anonymous functions in the DSL and functions defined directly on the resource module may call only leaf utilities that never touch a domain (such as `Ankole.Errors`, `Ankole.Repo`, or `Ankole.Files.Path`).
+- **Domain error wrapping (`Ankole.Errors`)**: Resource actions surface `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`, while generic actions wrap domain rejection reasons into `Invalid.Rejected` via `Ankole.Errors.wrap/1`. Callers extract reasons with `Ankole.Errors.reason/1` rather than pattern-matching raw `Ash.Error` structs, and `AnkoleWeb.ConsoleErrors.fallback/4` translates those errors into HTTP responses.
 
-  An anonymous function in the DSL and a function of the resource module can
-  call only modules that do not reach a domain module, for example
-  `Ankole.Errors`, `Ankole.Repo`, or `Ankole.Files.Path`.
-- `Ankole.Errors` declares the errors. A resource action gives
-  `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`. A generic
-  action gives its domain reason as `Invalid.Rejected` through
-  `Ankole.Errors.wrap/1`. A caller gets the reason with `Ankole.Errors.reason/1`
-  and does not match `Ash.Error` structs. `AnkoleWeb.ConsoleErrors.fallback/4`
-  maps the errors to HTTP responses.
+For the handful of low-level subsystems whose access patterns do not fit Ash resource semantics—process coordination (`M2`), flat read models (`M4`, returning maps/scalars rather than resource structs), dynamic Base schemas (`M7`), set maintenance (`M8`), or hybrid search retrieval (`M9`)—`app/control_plane/test/ankole/persistence_boundary.exs` maintains an explicit, user-approved allowlist. Only allowlisted modules may run direct Ecto writes, Ecto row locks, `Repo.transact`, or raw Ecto queries over resource tables, and stale allowlist entries fail the test once migrated to Ash.
 
-JSON:API transport actions can combine domain operations without a subject
-resource. They use `Ash.DataLayer.Simple` and `transaction?(false)`, hold no
-durable state, and call the owning domain interfaces. Each domain operation
-owns its transaction and commit notifications. Principal/AuthZ checks the
-route before dispatch.
-
-Some modules do not match Ash resource semantics.
-`app/control_plane/test/ankole/persistence_boundary.exs` lists them, each with
-its mismatch pattern: M2 process coordination, M4 read model, M7 dynamic
-schema, M8 set maintenance, or M9 retrieval. Only a listed module can use Ecto
-writes, Ecto row locks, `Repo.transact`, and Ecto queries of resource tables. A
-read model selects maps or values, not resource structs. The user approves each
-new entry. Remove an entry when its module stops using the database directly;
-the boundary test reports a stale entry.
-
-- `test/ankole/persistence_boundary_test.exs` uses the compiled resources. It
-  reports an Ecto query of a resource and an Ash call on the resource of
-  another domain outside the listed modules.
-- The Credo check `AshBoundary` reports Ecto writes, Ecto row locks,
-  `Repo.transact`, direct `Ash.*` execution or `Ash.bulk_*` calls, transaction
-  hooks, bulk-result decoding, `Ash.Error` matches, and Ash calls in
-  `ankole_web`, plugins, and the application. It also requires
-  `change(filter(...))` for the filter of an update or destroy action.
-- The Credo check `RawSQLTenant` requires `tenant_id` in raw SQL that reads a
-  table. A module that reads no tenant rows can declare `@raw_sql_scope :site`.
-  Physical Base modules declare `@raw_sql_scope :tenant_schema` and use
-  `BaseRepo` table helpers, which derive the schema from `Repo.tenant_id!()`.
-- `test/ankole/tenancy_guard_test.exs` keeps a reviewed count of the raw SQL,
-  fragments, and cross-tenant reads of each function.
+Four automated checks enforce this boundary continuously:
+- **`Ankole.Ash.Verifiers.Contracts`** validates tenant and transaction rules at resource compile time.
+- **`test/ankole/persistence_boundary_test.exs`** inspects compiled modules to catch unauthorized Ecto queries on resource tables or cross-domain Ash resource calls.
+- **Credo `AshBoundary`** rejects unauthorized Ecto writes/locks, `Repo.transact`, direct `Ash.*` / `Ash.bulk_*` calls, transaction hooks, manual bulk-result decoding, `Ash.Error` pattern matches, Ash calls from `ankole_web`/plugins/`Application`, and update/destroy filters that omit `change(filter(...))`.
+- **Credo `RawSQLTenant` & `test/ankole/tenancy_guard_test.exs`** require `tenant_id` filtering in raw SQL unless a module declares `@raw_sql_scope :site` (no tenant rows) or `@raw_sql_scope :tenant_schema` (physical Base modules using `BaseRepo` helpers keyed off `Repo.tenant_id!()`), and lock down the exact reviewed inventory of raw SQL, fragments, and cross-tenant reads per function.
 
 ### Pod content checks
 
-The Pod domain tests are under `test/ankole/pod`. Dedicated integration files
-check concurrent page moves, interrupted purge, tenant teardown, and 100,000-row
-Base queries with committed PostgreSQL transactions. Use a separate test
-partition. The GitHub sync file has the `external` tag and makes a read-only
-request to the public GitHub API; run it explicitly when network access is
-available.
+Unit and integration tests for the Pod domain live under `test/ankole/pod/`, while dedicated integration suites exercise concurrent page moves, interrupted purges, tenant teardown, and 100,000-row physical Base queries against real committed PostgreSQL transactions (run these in a separate `MIX_TEST_PARTITION`). The GitHub sync integration test carries the `external` tag because it performs a read-only call against the public GitHub API; run it explicitly when internet access is available.
 
-The real-browser check uses the production Pod, SDK, and site Console with
-three Pod identities and one site administrator. In separate terminals, run:
+To run the real-browser Playwright suite against production Pod bundles, the Applet SDK, and the site Console (using three Pod Human identities plus one site administrator), execute these three steps across separate terminals:
 
 ```bash
-# Build the production frontend assets.
+# 1. Build production frontend bundles
 cd app/webapps
 bun run build
 ```
 
 ```bash
-# Create a dedicated browser-test database and start its authenticated fixture.
+# 2. Create the dedicated browser-test database and launch the fixture server
 cd app/control_plane
 MIX_ENV=test MIX_TEST_PARTITION=pod_browser mix ecto.create
 MIX_ENV=test MIX_TEST_PARTITION=pod_browser mix ecto.migrate
@@ -894,85 +674,30 @@ MIX_ENV=test MIX_TEST_PARTITION=pod_browser \
 ```
 
 ```bash
+# 3. Run the Playwright browser suite
 cd app/webapps
 POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json bun run test:pod
 ```
 
-The fixture binds `127.0.0.1:4000` by default. Set `POD_BROWSER_PORT` and use a
-distinct `pod_browser_`-prefixed test partition to run beside another fixture.
-It serves the built production assets on
-`http://<tenant-slug>.ankole.localhost:4000`. The state file supplies that canonical
-`base_url` and the site's shared account proof cookies; use it rather than navigating to the bind
-address or adding `tenant_id` to a URL. Stop another local server on that port
-before starting it. Each fixture start
-creates a new tenant and writes test identities to the state file with mode
-`0600`. Treat that file as credentials and remove it after the check. The browser database
-uses the normal connection pool so channel processes do not keep SQL Sandbox
-checkouts. The site administrator belongs to the privileged tenant and uses a
-fixed fixture email. Each restart reuses this Principal and checks the same
-Root claim. The test does not bypass endpoint or page authorization. It covers
-live edits, tables, Applet publication, access revocation, and Office previews.
-Console cases create members and guests in a selected data tenant, change
-membership, and verify the stored access version after a reload.
-The fixture sends login codes through a local TLS SMTP server. Its companion
-`.mail.json` file lets browser cases read the delivered code without bypassing
-the login challenge.
-Its independent sample-reservation workspace uses the production function Applet
-backend and committed records. The backend story checks pending submission,
-retained inputs after rejection, viewer write denial, competing reservations,
-and revision-paired frontend/backend replacement. It delays delivery of one
-real committed response to inspect pending UI; it does not replace that write.
-The Applet frame cases also check module loading, style isolation, and the
-identity selected by each tab.
+How `pod_browser_server.exs` works:
+- **Host, port, and state file**: By default the server binds `127.0.0.1:4000` (stop any competing server on `:4000` first, or set `POD_BROWSER_PORT` alongside a distinct `pod_browser_*` `MIX_TEST_PARTITION`) and serves built production assets on `http://<tenant-slug>.ankole.localhost:4000`. Always navigate via the canonical `base_url` and shared account-proof cookies written to `POD_BROWSER_STATE_PATH` (`0600` permissions; delete it after testing) rather than hitting `127.0.0.1` directly or appending `?tenant_id=` query parameters.
+- **Real connections and real auth**: The server uses the standard Ecto connection pool (not SQL Sandbox) so Phoenix Channels stay alive across requests, creates a fresh data tenant on each boot, reuses a fixed root-administrator Principal in the privileged tenant, and delivers login OTPs through a local TLS SMTP fixture whose `.mail.json` companion file lets Playwright read delivered codes without bypassing authentication or AuthZ.
+- **Coverage**: The suite verifies live collaborative page edits, Base tables, Applet publishing, access revocation, Office file previews, Console member/guest provisioning and access-version bumps across reloads, iframe module loading, CSS isolation, per-tab identity selection, and the full sample-reservation Applet backend (pending submissions, input retention on rejection, viewer write denial, competing reservations, and paired frontend/backend revision swaps—delaying one real committed HTTP response solely to inspect pending UI state).
 
 ### Console API and OpenAPI
 
-The Console JSON API uses `/api/v2` for tenant data and `/api/v2/site` for
-site administration. Both use the session and CSRF pipelines in
-`AnkoleWeb.Router`; the tenant API also selects the data context. Both use
-JSON:API (`application/vnd.api+json`) through AshJsonApi.
-The `json_api` section of an Ash domain declares its routes. The `json_api`
-section of a resource declares its type and default fields.
-`AnkoleWeb.JSONAPI.ConsoleRouter` and `AnkoleWeb.JSONAPI.SiteRouter` mount the
-domains; a domain is in one router only.
+Ankole exposes JSON:API (`application/vnd.api+json` via `AshJsonApi`) on `/api/v2` for tenant-scoped Console operations and `/api/v2/site` for site administration. Both routers share the browser session and CSRF pipelines in `AnkoleWeb.Router`, while `/api/v2` additionally binds the active tenant context. Each Ash domain mounts in either `AnkoleWeb.JSONAPI.ConsoleRouter` or `AnkoleWeb.JSONAPI.SiteRouter` (never both), declaring routes in the domain's `json_api` block and resource types/default fields in each resource's `json_api` block.
 
-Resource actions use JSON:API resource documents. Generic actions receive their
-arguments directly in `data`, for example `{"data":{"value":true}}`. A route
-with `wrap_in_result?: false` returns its declared typed result directly. Read
-the generated operation type before you consume its response. File upload and
-download use native multipart and byte responses under `/api/v2/agents`.
-OIDC, OpenAI-compatible APIs, webhooks, and internal runtime transport use their
-own protocol handlers. Setup, email-code login, and browser session operations use
-the Browser JSON:API router.
+Transport conventions across API surfaces:
+- **Resource vs. generic actions**: Standard CRUD routes exchange JSON:API resource documents (`data.type`, optional `data.id`, `data.attributes`), whereas generic actions accept typed arguments directly under `data` (e.g., `{"data":{"value":true}}`). Routes configured with `wrap_in_result?: false` return their typed payload directly—check the generated TypeScript operation signature before consuming a response.
+- **Non-JSON:API endpoints**: Agent Drive uploads/downloads use native multipart and binary responses under `/api/v2/agents`, Applet HTTP forwarding and SSE keep their native streaming semantics under `/api/v2`, OIDC and OpenAI-compatible endpoints keep their standard protocol paths, and initial setup, email OTP login, and browser session switching run through the dedicated Browser JSON:API router (which, like the Pod and SaaS routers, supplies its own request context without requiring a Console admin session).
 
-Each Console and Site JSON:API route has these properties:
+Every Console and Site JSON:API route must satisfy three compile-time and test-enforced invariants (`router_test.exs` and `native_authorization_routes_test.exs`):
+1. **Unique `name`**: Serves as the OpenAPI `operationId` and generated TypeScript SDK function name.
+2. **Explicit `authz` rule**: Declared on the owning resource and evaluated by `Ankole.AuthZ.Authorizer` against the explicit Actor via `Principal`/`AuthZ` (verifiers require complete routed-action coverage, target resolvers, and `json_api.authorize?(true)`).
+3. **Explicit list inputs**: Declared on read actions, with derived filters and sorts disabled (`index` and `related` routes must also pass `derive_sort?: false` explicitly because `AshJsonApi` `1.8.0` ignores the resource-level flag).
 
-- A unique `name`. The name is the OpenAPI `operationId` and gives the function
-  name in the generated client.
-- One native authorization rule on the owning resource's `authz` declaration.
-  `Ankole.AuthZ.Authorizer` checks the explicit Actor through Principal/AuthZ.
-  Compile-time verifiers require routed action coverage, target resolvers, and
-  `json_api.authorize?(true)` on protected domains.
-- List inputs are declared on their read actions. Index and relationship routes
-  disable derived filters and sorts; generic actions expose their typed arguments
-  directly. AshJsonApi 1.8.0 ignores the resource option `derive_sort?`, so each
-  `index` and `related` route also sets `derive_sort?: false`.
-
-`test/ankole_web/json_api/router_test.exs` and `native_authorization_routes_test.exs` check these
-properties. HTTP tests also check the domain result, permissions, and tenant
-isolation.
-
-Browser, Pod, and SaaS routers provide their own request contexts and domain
-authorization. Setup and login do not require a Console administrator session;
-Pod actions authorize the selected human in the selected tenant.
-
-First-party JSON APIs are declared by Ash resources and domain `json_api` routes.
-`AshJsonApi.Router.spec/0` generates their OpenAPI documents; controllers do not
-maintain a second operation or schema definition. `app/webapps/openapi/` contains
-`browser-v2.json` (setup and authentication), `pod-v2.json`, `console-v2.json`, and
-`site-v2.json`. SaaS also generates `internals/webapps/openapi/saas-v2.json`.
-`mix ankole.openapi.check` compares the committed documents with these native
-router specs. After changing an action, route, or public field:
+OpenAPI specs in `app/webapps/openapi/` (`browser-v2.json`, `pod-v2.json`, `console-v2.json`, `site-v2.json`, plus `internals/webapps/openapi/saas-v2.json` when `ANKOLE_EDITION=saas`) are exported directly from `AshJsonApi.Router.spec/0`. Whenever you change an exposed action, route, or field, regenerate both the specs and TypeScript clients (never hand-edit `api/generated`, `api/v2/generated`, or `api/v2-site/generated`):
 
 ```bash
 cd app/control_plane
@@ -981,26 +706,11 @@ cd ../webapps
 bun run openapi:generate
 ```
 
-Run the exporter with `ANKOLE_EDITION=saas` to include the installed SaaS domain.
-The generated clients live beside the consuming applications in `api/generated`
-(and Console's `api/v2/generated` / `api/v2-site/generated`). Do not edit them.
-Use `fromDocument` to read resource documents as flat Console records; use
-constrained generic-action results directly. A bare resource result uses its
-declared `default_fields` in both serialization and its generated schema.
-Browser, Pod, and SaaS actions send
-arguments under `data`. Standard resource writes send `data.type`, `data.id`
-where applicable, and `data.attributes`.
-
-Multipart files, downloads, Applet HTTP forwarding, SSE, and external protocol
-handlers keep their transport semantics. Their first-party paths use `/api/v2`;
-OIDC and OpenAI-compatible protocols keep their protocol routes. Browser cookie,
-CSRF, target identity, and tenant checks remain applicable to their transport.
-The public and SaaS CI workflows check native specs and regenerate SDKs before
-checking that the committed output has no differences.
+On the frontend, unwrap resource documents with `fromDocument` and consume typed generic-action results directly (bare resource returns serialize using the resource's `default_fields`). Both FOSS and SaaS CI pipelines fail if committed OpenAPI specs or generated SDKs drift from the Elixir declarations.
 
 ### Full local quality gate
 
-Before pushing a broad code change, run:
+Before opening or updating a pull request with cross-cutting code changes, run:
 
 ```bash
 bun run lint
@@ -1011,13 +721,11 @@ bun run test
 git diff --check
 ```
 
-`bun run fmt` changes files in place.
-
-If the full workspace has an unrelated failure, keep the scoped validation result separate and report the exact ambient blocker. Do not weaken a test or bypass a production path to make the aggregate command green.
+(`bun run fmt` formats files in place.) If an unrelated pre-existing failure exists elsewhere in the shared worktree, report your scoped check results separately alongside the exact ambient error—never weaken a test or bypass a production code path just to force an aggregate command green.
 
 ### End-to-end suites
 
-The dedicated runner builds a missing or stale Worker image and starts PostgreSQL and Function Runtime when needed:
+`tools/e2e/run` builds any missing or stale Worker image automatically and starts PostgreSQL and Function Runtime when needed:
 
 ```bash
 tools/e2e/run --help
@@ -1029,140 +737,48 @@ tools/e2e/run --real-llm
 tools/e2e/run --all
 ```
 
-These suites are slower and are not part of the default fast path. Run the mode that protects the changed boundary; real-provider and real-LLM modes require the relevant test credentials.
+Because these suites take longer than unit tests, run the specific mode that covers the boundary you changed (`--real-provider` and `--real-llm` require live operator test credentials):
 
-The gate includes a real Compose upgrade from the pooled release pinned in
-`tools/e2e/pooled-worker-revision`. It pulls that release's images and builds
-the current control-plane image. To use an image already built from the
-current source and resolved Worker image, set `ANKOLE_E2E_CONTROL_PLANE_IMAGE`.
-This is required for the Compose scenario with `--no-build`. To run only that
-scenario, use `tools/e2e/run --gate --only=compose_upgrade`.
-
-Use `tools/e2e/run --gate --only=authn_compose` for fresh SMTP setup and the
-pinned password-release migration to email login. It checks the same Human UID,
-encrypted mail configuration, administrator roles, and login after restart.
-The focused authentication integration checks use real PostgreSQL and TLS SMTP:
-
-```bash
-cd app/control_plane
-MIX_TEST_PARTITION=authn mix test integration/authn_email_transport_test.exs \
-  integration/authn_membership_stories_test.exs integration/authn_otp_concurrency_test.exs
-```
-
-The chaos suite's idle and image replacement scenarios use real database
-transactions and wait for the five-minute Worker demand window to end. Do
-not run another suite against the same database partition at the same time.
-
-For the Pod collaboration story, run:
-
-```bash
-tools/e2e/run --real-llm --only=pod_content_real_llm
-```
-
-This selection runs four stories with real models and Docker Workers. A Human
-uses browser Chat to request a report, typed sales table, formula, and applet;
-follows the saved Page link; adds a sale in the published applet; and requests
-an update through Page Chat without repeating the Page identity. The check
-reads the saved content and data, revokes Agent access, and deletes the
-Conversation while retaining its Pages. Another story develops a pure frontend
-SPA, exercises it in the browser, and verifies Agent-created and moved Pages.
-The Agent moves the original Page with space `edit` access and no permission
-upgrade. The move must preserve access to the Page and its subpages.
-The short move can finish directly in Main or through a real Job.
-The research story invokes the installed research Skill without specifying an
-output format and requires an editable Page linked from Chat. Individual tags
-are `pod_content_browser_report`, `pod_content_pure_spa`,
-`pod_content_research`, and `pod_applet_backend`. The backend story asks a real
-Agent to build and publish a sample-reservation Applet, uses its POST route in
-the browser, checks the saved caller-attributed write and retained failed
-quantity, and requests an update to the same Applet. These checks require the existing OpenRouter test
-credentials and production frontend assets. A successful Job report alone is
-not proof that the requested content was saved.
-Long-lived browser channels use the normal SQL connection pool; the suite
-deletes its committed fixtures and restores the test pool after cleanup.
-
-For Skill Lessons from native Pod work, run:
-
-```bash
-tools/e2e/run --real-llm --only=pod_skill_lessons_real_llm
-```
-
-The fixture grants the Human chat and tool access to one Agent with zero
-external Bindings. Two browser requests create real Jobs on its Docker Worker.
-Each Job must execute the named-key openpyxl failure, repair the workbook, and
-verify its rows. The suite invokes the Dreaming phase, runs the reflection on
-the Worker, and checks persisted lessons and their production Skill rendering.
-It also checks that reflection creates no public reply or external delivery.
-This checks the reflection path; it does not check the periodic Dreaming schedule.
-The suite requires OpenRouter test credentials and production frontend assets.
-
-For the DeepSeek user stories and recovery checks, select these tags:
-
-```bash
-tools/e2e/run --real-llm --only=deepseek_release_stories
-tools/e2e/run --real-llm --only=deepseek_clarification_flow
-ANKOLE_REAL_LLM_E2E=1 tools/e2e/run --chaos --only=real_llm_chaos
-tools/e2e/run --real-llm --only=deepseek_delivery_chaos
-ANKOLE_REAL_LLM_E2E=1 tools/e2e/run --gate --only=real_llm_compose_chaos
-```
-
-These selections use `deepseek/deepseek-v4.1-flash` through OpenRouter and
-FakeFeishu transport. Computer scenarios use real Docker Workers; direct
-replies, Skill views, and clarification do not require a computer.
-Set `OPENROUTER_API_KEY` or
-`OPEN_ROUTER_API_KEY` through the existing test credential configuration.
-The first four run the control plane in the test BEAM. The Compose selection
-runs the control plane and PostgreSQL in containers, stops the complete
-control plane, restarts PostgreSQL, and waits for production reconciliation.
-It uses the same image preflight as `compose_upgrade`.
-
-Check the stored file contents, the number of effects, and the platform-visible
-reply or attachment. A model's completion text alone does not prove delivery
-or recovery. After Worker process loss, an unsafe tool with an unknown result
-must return an interrupted result. Inspect the authoritative effect before
-repeating it; only a declared retry-safe call can run again automatically.
-The clarification scenario checks the visible choices and an ordinary WS
-reply that continues the same conversation. An ordinary reply supersedes
-the old interaction; only managed interaction callbacks record it as answered.
-
-The local kind user-flow suite below uses fake Feishu and a fake model. Its
-Kubernetes, Worker, and storage checks do not establish real model behavior.
-FakeFeishu observations also do not prove the real Feishu service or web UI.
-
-The conversation driver suite also uses two named BEAM nodes with PostgreSQL.
-It checks one writer, epoch fencing, settings invalidation, remote routing, and
-recovery after planned node shutdown. Its model provider and Worker channel
-are test fakes; the Docker suites check the real Worker separately.
-
-```bash
-cd app/control_plane
-MIX_TEST_PARTITION=conversation_loop_cluster \
-  elixir --sname ankole_session_checks@localhost -S mix test \
-  integration/session_driver_test.exs --trace
-```
+- **Compose upgrade & authn gates**: The default `--gate` run includes `compose_upgrade`, which upgrades a live Docker Compose stack from the pooled release pinned in `tools/e2e/pooled-worker-revision` to the current control-plane build (pass `ANKOLE_E2E_CONTROL_PLANE_IMAGE` when running with `--no-build`, or isolate it via `tools/e2e/run --gate --only=compose_upgrade`). Similarly, `tools/e2e/run --gate --only=authn_compose` verifies fresh SMTP setup and password-to-OTP migration (preserving Human UIDs, encrypted mail settings, admin roles, and post-restart login). For faster database + TLS SMTP authentication stories without full Compose:
+  ```bash
+  cd app/control_plane
+  MIX_TEST_PARTITION=authn mix test integration/authn_email_transport_test.exs \
+    integration/authn_membership_stories_test.exs integration/authn_otp_concurrency_test.exs
+  ```
+- **Chaos & demand-window isolation**: Idle-release and image-replacement scenarios in `--chaos` commit real transactions and wait through the five-minute Worker demand window—never run another test suite against the same database partition concurrently.
+- **Pod collaboration with real LLMs (`pod_content_real_llm`)**: Requires OpenRouter test credentials and built production frontend bundles (`app/webapps/ bun run build`), running four end-to-end browser stories (`pod_content_browser_report`, `pod_content_pure_spa`, `pod_content_research`, `pod_applet_backend`) over the standard SQL connection pool:
+  ```bash
+  tools/e2e/run --real-llm --only=pod_content_real_llm
+  ```
+  Across these four stories, a Human uses browser Chat to generate a report, typed Base sales table, formula, and Applet, submits a sale through the published Applet, requests an edit via Page Chat without re-stating the Page ID, revokes Agent access, and deletes the Conversation while verifying its Pages survive; a second story builds and exercises a pure frontend SPA and verifies that an Agent with space `edit` access (in Main or a Job) can move Pages while preserving subpage permissions; the research story invokes the built-in research Skill into a linked editable Page; and `pod_applet_backend` has an Agent build and update a sample-reservation Applet, verifying caller-attributed `POST` writes and retained rejected inputs (always asserting saved database state rather than trusting Job completion text alone).
+- **Skill Lessons & Dreaming (`pod_skill_lessons_real_llm`)**: Grants a Human chat/tool access to an Agent with zero external Bindings, triggers two real Docker Worker Jobs that hit and repair a named-key `openpyxl` failure, invokes the Dreaming reflection phase on the Worker, and verifies that persisted lessons render into production Skills without leaking public chat replies or external deliveries (tests the reflection pipeline directly rather than the cron timer):
+  ```bash
+  tools/e2e/run --real-llm --only=pod_skill_lessons_real_llm
+  ```
+- **DeepSeek user stories & crash recovery**: Uses `deepseek/deepseek-v4.1-flash` via OpenRouter (`OPENROUTER_API_KEY` or `OPEN_ROUTER_API_KEY`) paired with `FakeFeishu` transport (spinning up Docker Workers only for computer-tool scenarios, while direct replies, Skill views, and clarifications stay in the control plane):
+  ```bash
+  tools/e2e/run --real-llm --only=deepseek_release_stories
+  tools/e2e/run --real-llm --only=deepseek_clarification_flow
+  ANKOLE_REAL_LLM_E2E=1 tools/e2e/run --chaos --only=real_llm_chaos
+  tools/e2e/run --real-llm --only=deepseek_delivery_chaos
+  ANKOLE_REAL_LLM_E2E=1 tools/e2e/run --gate --only=real_llm_compose_chaos
+  ```
+  The first four run the control plane in the test BEAM, while `real_llm_compose_chaos` runs both the control plane and PostgreSQL in containers (reusing the `compose_upgrade` image preflight), kills the control plane, restarts PostgreSQL, and verifies production reconciliation. Always assert stored file contents, side-effect counts, and platform-visible replies/attachments rather than trusting model prose: after a Worker crash, non-idempotent tools with an ambiguous outcome must return an interrupted error until inspected, whereas only declared retry-safe tools rerun automatically; in clarification flows, sending a normal WebSocket message supersedes an open card, while only managed card callbacks mark the interaction answered.
+- **Two-node BEAM cluster suite**: Verifies single-writer exclusivity, epoch fencing, settings invalidation, cross-node routing, and graceful node-shutdown recovery across two named BEAM nodes against real PostgreSQL (using test fakes for the LLM and Worker channel):
+  ```bash
+  cd app/control_plane
+  MIX_TEST_PARTITION=conversation_loop_cluster \
+    elixir --sname ankole_session_checks@localhost -S mix test \
+    integration/session_driver_test.exs --trace
+  ```
 
 ### Worker provider checks
 
-The Docker and kind suites call the production provider adapters. They delete
-instances, attach the same storage to new instances, check files, and delete
-storage. The lifecycle suites also call the real platform APIs and interrupt
-the coordinator to check recovery and row locks. The provider transaction
-suite uses concurrent PostgreSQL transactions to check seed import and default
-selection. These checks do not replace the full user flow in `tools/e2e/run`.
-The kind user-flow suite uses the real Worker Channel, AIGateway, command and
-file tools, and Kubernetes provider with fake Feishu and model services. It
-checks a reply, file retention after Pod deletion, a reply from the replacement,
-and Agent deletion with both storage layouts.
-Run them separately from the fast suite and do not run two `mix test` commands
-against the same database partition at the same time.
+The Worker provider suites exercise production provider adapters directly—creating and deleting instances, remounting persistent Home storage across replacements, interrupting the coordinator mid-transition to verify row locks and recovery, and testing concurrent seed imports (`worker_provider_transactions_test.exs`). Always run them in dedicated `MIX_TEST_PARTITION` databases separate from fast unit tests (note that `kind` and `FakeFeishu` suites verify Kubernetes/Worker/storage mechanics rather than live LLM or live Feishu behavior).
 
-With Docker, Helm, kubectl, and kind installed, run these commands from the
-repository root. The kind cluster and NFS fixture are for local tests only.
-Always pass the temporary kubeconfig; do not use a cloud cluster context.
-kind gives the node the `HTTP_PROXY` and `HTTPS_PROXY` of your shell. A proxy
-on a loopback address does not work in the node, and the NFS fixture image
-cannot be pulled; for `kind create cluster`, use an address that the node can
-reach, such as `http://host.docker.internal:<port>` on Docker Desktop.
+#### Local Docker & Kubernetes (`kind`) suite
+
+Requires `docker`, `helm`, `kubectl`, and `kind`. Always pass the temporary `--kubeconfig` (never point tests at a production cluster). Note that `kind` inherits `HTTP_PROXY` / `HTTPS_PROXY` from your shell—if you run a local proxy, bind it to an address reachable from inside the `kind` container (such as `http://host.docker.internal:<port>` on Docker Desktop) rather than `127.0.0.1`, or pulling the NFS fixture image will fail; Pods also reach the host control plane via `host.docker.internal`:
 
 ```bash
 WORKER_PROVIDER_TEST_DIR=$(mktemp -d)
@@ -1195,190 +811,81 @@ kind delete cluster --name ankole-worker-provider-test \
 rm -r "$WORKER_PROVIDER_TEST_DIR"
 ```
 
-The kind suite uses `standard` for exclusive local-path PVCs and `example-nfs`
-for a shared NFS PVC. Its fixture pins NFS-Ganesha 4.0.8 and uses NFS 4.0; see
-the source and kernel compatibility note in the fixture. These checks do not
-cover CSI block storage or recovery after a node fails. The Helm suite also
-checks the internal chart when that checkout is present.
-For an approved EFS check, use a separate kind cluster and a dedicated EFS
-test directory. Replace the NFS fixture with a static RWX NFS PV and a
-`kubernetes.io/no-provisioner` StorageClass named `example-nfs`. Set the PV's
-storage class to `example-nfs`, capacity to `128Mi`, reclaim policy to `Retain`,
-and mount options to `vers=4.1` and `hard`. The node must reach the EFS mount
-target. Run the same `kubernetes_worker_storage_test.exs` without changing its
-assertions. If a TCP tunnel supplies a different NFS port, set `port` only;
-do not set `mountport`, because EFS does not provide the NFSv3 mount service.
-Afterward, remove the test PV, cluster, and EFS resources. This check does not
-exercise the EFS CSI driver or access-point identity mapping.
-The user-flow suite needs Pods to reach the host control plane through
-`host.docker.internal`, as provided by Docker Desktop.
+This `kind` fixture tests both exclusive `local-path` PVCs (`standard`) and shared RWX NFS PVCs (`example-nfs`, pinned to NFS-Ganesha `4.0.8` over NFSv4.0; CSI block volumes and node-loss failover are out of scope), plus the internal Helm chart when `internals/` is present. To validate real **AWS EFS** storage against an approved test directory, spin up a separate `kind` cluster, replace the Ganesha deployment with a static RWX NFS PV (`storageClassName: example-nfs` backed by `kubernetes.io/no-provisioner`, capacity `128Mi`, `persistentVolumeReclaimPolicy: Retain`, `mountOptions: ["vers=4.1", "hard"]`; if tunneling over TCP, set `port` only—never `mountport`, since EFS has no NFSv3 mountd), run `kubernetes_worker_storage_test.exs` unchanged, and tear down all test resources afterward. Note that shared-PVC `.deleted/` rename-and-purge cleanup must be verified on real NFSv4.1 / EFS targets, as neither the `kind` NFSv4.0 fixture nor local bootstrap tests prove production EFS behavior.
 
-The Cloudflare storage check needs a dedicated adapter, R2 bucket, and two
-different digest-pinned amd64 images in that adapter. It runs two real Workers
-and uses the real control-plane Channel and file relay. It checks same-generation
-creation, provider isolation, file restore after instance deletion and image
-replacement, and Agent deletion. It does not use an LLM or prove the full user
-flow. Obtain approval for the cloud resources and image uploads first.
+#### Local Linux bootstrap checks (AWS Lambda & Alibaba Cloud FC)
 
-Provide these values only for the approved run:
+Without calling AWS or Alibaba Cloud APIs, you can verify container entrypoint invariants locally on Linux:
 
-- `ANKOLE_CLOUDFLARE_TEST_ADAPTER_URL` and `ANKOLE_CLOUDFLARE_TEST_ADAPTER_TOKEN`.
-- `ANKOLE_CLOUDFLARE_TEST_IMAGE` and
-  `ANKOLE_CLOUDFLARE_TEST_REPLACEMENT_IMAGE`: the two deployed image names.
-- `ANKOLE_CLOUDFLARE_TEST_CP_PORT`: a free local port for the test control plane.
-- `ANKOLE_CLOUDFLARE_TEST_CP_ORIGIN`: an approved public HTTPS origin that
-  forwards to that port, with no trailing slash. It must carry WebSockets and
-  the file relay. Use a separate test database.
+- **Lambda NFSv4.1 bootstrap** (requires privileged Linux containers and kernel `nfsd`; verifies root bootstrap, `uid 1000` access, directory isolation, container replacement, and idempotent deletion hooks):
+  ```bash
+  bun tools/devkit/src/local-worker-image.ts --scope complete --output /tmp/ankole-worker-image
+  export ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat /tmp/ankole-worker-image)
+  docker build --build-arg WORKER_IMAGE="$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" \
+    -f app/control_plane/integration/fixtures/nfs-server.Dockerfile \
+    -t ankole-worker-nfs-test .
+  cd app/control_plane
+  ANKOLE_NFS_TEST_SERVER_IMAGE=ankole-worker-nfs-test \
+    MIX_TEST_PARTITION=worker_provider mix test integration/lambda_worker_bootstrap_test.exs --trace
+  ```
+- **Function Compute contract bootstrap** (verifies admission gating, root identity, `sudo` removal, preserved writable Home ownership, fail-fast on read-only Home, and idempotent Worker/deletion contracts):
+  ```bash
+  cd app/control_plane
+  ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat /tmp/ankole-worker-image) \
+    MIX_TEST_PARTITION=worker_provider mix test integration/function_compute_worker_bootstrap_test.exs --trace
+  ```
 
-```bash
-cd app/control_plane
-MIX_TEST_PARTITION=cloudflare_worker_provider mix test \
-  integration/cloudflare_worker_storage_test.exs --trace
-```
+#### Approved live cloud provider suites (Cloudflare, Vercel, AWS Lambda, Alibaba Cloud FC)
 
-The check deletes its Agents through the coordinator. If cloud cleanup fails,
-it keeps the unresolved Worker rows and provider credentials in the test
-database. Keep that database until the instances and storage are deleted.
-Remove the adapter, bucket, uploaded images, and public forwarding endpoint
-after the approved checks. This check does not cover a forced platform stop,
-a Durable Object restart, or direct inspection of R2 objects after deletion.
+All four live cloud suites drive the real coordinator, `RuntimeFabric` Channel, and HTTP file relay against two distinct Worker images and a publicly reachable HTTPS/WebSocket test control plane (`*_CP_ORIGIN`, no trailing slash, forwarded to local `*_CP_PORT`). Always obtain explicit approval before provisioning cloud resources, store temporary credentials outside the repository, use a dedicated test database per suite, and **keep that test database until every cloud instance and storage bucket/volume is confirmed deleted** (if cloud teardown fails, unresolved Worker rows stay in PostgreSQL so you can clean them up):
 
-The Lambda entry check runs the production Worker image against a local Linux
-kernel NFS server. It verifies NFS 4.1, the root Worker identity, uid 1000 file
-access, directory isolation, real container deletion and image replacement,
-and repeated deletion hooks. It
-does not call AWS or prove EFS behavior through suspension. Docker must support
-privileged Linux containers and kernel NFS:
-
-```bash
-bun tools/devkit/src/local-worker-image.ts --scope complete --output /tmp/ankole-worker-image
-export ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat /tmp/ankole-worker-image)
-docker build --build-arg WORKER_IMAGE="$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" \
-  -f app/control_plane/integration/fixtures/nfs-server.Dockerfile \
-  -t ankole-worker-nfs-test .
-cd app/control_plane
-ANKOLE_NFS_TEST_SERVER_IMAGE=ankole-worker-nfs-test \
-  MIX_TEST_PARTITION=worker_provider mix test integration/lambda_worker_bootstrap_test.exs --trace
-```
-
-The Function Compute contract-file check also runs the production entry in
-Linux. It checks admission gating, the root Worker identity, removal of sudo,
-and repeated Worker and deletion contracts. It also checks that writable Home
-ownership stays unchanged and a read-only Home stops startup. It does not call
-Aliyun or envd:
-
-```bash
-cd app/control_plane
-ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat /tmp/ankole-worker-image) \
-  MIX_TEST_PARTITION=worker_provider mix test integration/function_compute_worker_bootstrap_test.exs --trace
-```
-
-The Vercel and Lambda cloud checks use the production coordinator, Channel,
-and file relay. They are separate from the local and default suites. Prepare
-only approved temporary resources and keep credentials in temporary files
-outside the repository. Both need two different target images and a reachable
-HTTPS/WebSocket test control plane. They preserve unresolved rows if cleanup
-fails; retain the test database until cleanup is complete.
-
-Vercel requires the `vercel-worker-provider` Control Plane Plugin. Function
-Compute requires `china-market-ai-providers`. Before running either cloud
-suite, save its Plugin ID in `plugins.enabled_ids` in that suite's database
-partition and restart the test process. Keep the Plugin enabled through Agent
-and storage cleanup. The suite checks this activation policy before cloud I/O.
-
-- Vercel: `ANKOLE_VERCEL_TEST_TOKEN_FILE`, `ANKOLE_VERCEL_TEST_TEAM_ID`,
-  `ANKOLE_VERCEL_TEST_PROJECT_ID`, `ANKOLE_VERCEL_TEST_REGION`,
-  `ANKOLE_VERCEL_TEST_IMAGE_REPOSITORY`, `ANKOLE_VERCEL_TEST_IMAGE`,
-  `ANKOLE_VERCEL_TEST_REPLACEMENT_IMAGE`, `ANKOLE_VERCEL_TEST_CP_PORT`, and
-  `ANKOLE_VERCEL_TEST_CP_ORIGIN`. Images must be ready digests in VCR. The check
-  creates two providers, sandboxes, and Drives and removes them afterward.
-  The default session timeout is 24 hours. Set
-  `ANKOLE_VERCEL_TEST_SESSION_TIMEOUT_SECONDS=2700` for an account with a
-  45-minute limit. This sets the provider's `sessionTimeoutSeconds` value.
-- Lambda: `ANKOLE_LAMBDA_TEST_CONFIG_FILE` contains provider YAML;
-  `ANKOLE_LAMBDA_TEST_CREDENTIALS_FILE` contains a JSON object with temporary
-  `accessKeyId`, `secretAccessKey`, and `sessionToken` values. Also set
-  `ANKOLE_LAMBDA_TEST_IMAGE`, `ANKOLE_LAMBDA_TEST_REPLACEMENT_IMAGE`,
-  `ANKOLE_LAMBDA_TEST_CP_PORT`, and `ANKOLE_LAMBDA_TEST_CP_ORIGIN`. Prepare the
-  S3 build bucket, build IAM role, EFS root, VPC connector, and NAT access.
-  The check builds provider images, creates MicroVMs and EFS directories,
-  exercises suspend/resume, and deletes its Agents through the coordinator.
-  Read the account's applied ARM64 memory quota with `GetServiceQuota` before
-  the flow starts. This flow has two Agents. Each replacement waits for its
-  old Worker to terminate, and a deletion helper replaces its terminated
-  Worker. It needs room for two instances at the configured size:
-  at least 8 GiB with the default 4 GiB size, after other account usage.
-  Supported sizes are 4096 and 8192 MiB. A deletion helper reports success
-  after file removal. The coordinator then requests its deletion. Wait for AWS
-  to report `TERMINATED` before using that allocation for another instance.
-  Remove the tagged images, S3 build objects, and supporting cloud resources
-  after the instances have terminated. A local Docker check cannot prove this
-  cloud path.
-
-Run one command at a time from `app/control_plane` with a separate database:
-
-```bash
-MIX_TEST_PARTITION=vercel_worker_provider mix test integration/vercel_worker_storage_test.exs --trace
-MIX_TEST_PARTITION=lambda_worker_provider mix test integration/lambda_worker_storage_test.exs --trace
-```
-
-The Function Compute cloud check uses the same coordinator, Channel, and file
-relay. It needs an account with second-generation memory pause enabled. Run
-it once with AgenticFS and once with OSS; one storage layout does not prove
-the other. Set `ANKOLE_FUNCTION_COMPUTE_TEST_CONFIG_FILE` to provider YAML and
-`ANKOLE_FUNCTION_COMPUTE_TEST_CREDENTIALS_FILE` to a temporary JSON file with
-the provider's credential fields. Also set `ANKOLE_FUNCTION_COMPUTE_TEST_IMAGE`,
-`ANKOLE_FUNCTION_COMPUTE_TEST_REPLACEMENT_IMAGE`,
-`ANKOLE_FUNCTION_COMPUTE_TEST_CP_PORT`, and
-`ANKOLE_FUNCTION_COMPUTE_TEST_CP_ORIGIN`. Both image versions must exist in
-the configured ACR Enterprise repository. The test checks memory resume,
-instance deletion, image replacement, provider isolation, and storage deletion.
-The OSS run keeps the instance paused for 90 seconds, then checks that the
-first retained-file read completes within 30 seconds. A short pause can leave
-the old TCP connections usable and miss a storage recovery failure.
-Remove its remaining templates after cleanup.
-
-```bash
-MIX_TEST_PARTITION=function_compute_provider mix test integration/function_compute_worker_storage_test.exs --trace
-```
-
-The Kubernetes shared-PVC cleanup must also be checked on the target NFS
-server and EFS using NFS 4.1, including the rename under `.deleted/` and the
-removal. Neither the kind NFS 4.0 fixture nor the local Lambda entry check
-proves that production path.
+- **Cloudflare Containers + R2** (requires a dedicated adapter, R2 bucket, and two digest-pinned `amd64` images; set `ANKOLE_CLOUDFLARE_TEST_ADAPTER_URL`, `ANKOLE_CLOUDFLARE_TEST_ADAPTER_TOKEN`, `ANKOLE_CLOUDFLARE_TEST_IMAGE`, `ANKOLE_CLOUDFLARE_TEST_REPLACEMENT_IMAGE`, `ANKOLE_CLOUDFLARE_TEST_CP_PORT`, `ANKOLE_CLOUDFLARE_TEST_CP_ORIGIN`; does not test forced platform kills, Durable Object restarts, or raw R2 object inspection):
+  ```bash
+  cd app/control_plane
+  MIX_TEST_PARTITION=cloudflare_worker_provider mix test \
+    integration/cloudflare_worker_storage_test.exs --trace
+  ```
+- **Vercel Sandbox + Drive** (first persist `"vercel-worker-provider"` in `plugins.enabled_ids` in the test partition and restart the test VM, keeping it enabled through cleanup; set `ANKOLE_VERCEL_TEST_TOKEN_FILE`, `ANKOLE_VERCEL_TEST_TEAM_ID`, `ANKOLE_VERCEL_TEST_PROJECT_ID`, `ANKOLE_VERCEL_TEST_REGION`, `ANKOLE_VERCEL_TEST_IMAGE_REPOSITORY`, ready VCR digests in `ANKOLE_VERCEL_TEST_IMAGE` and `ANKOLE_VERCEL_TEST_REPLACEMENT_IMAGE`, `ANKOLE_VERCEL_TEST_CP_PORT`, and `ANKOLE_VERCEL_TEST_CP_ORIGIN`; pass `ANKOLE_VERCEL_TEST_SESSION_TIMEOUT_SECONDS=2700` on accounts capped at 45-minute sessions instead of the 24-hour default):
+  ```bash
+  MIX_TEST_PARTITION=vercel_worker_provider mix test integration/vercel_worker_storage_test.exs --trace
+  ```
+- **AWS Lambda + EFS** (prepare S3 build bucket, IAM build role, EFS root, VPC connector, and NAT; check `GetServiceQuota` for applied ARM64 memory first—the two-Agent flow needs room for two simultaneous instances, i.e., at least `8 GiB` free at the default `4096 MiB` size, with `4096` and `8192 MiB` supported, and wait for AWS to report `TERMINATED` on deletion helpers before reusing capacity; set `ANKOLE_LAMBDA_TEST_CONFIG_FILE`, `ANKOLE_LAMBDA_TEST_CREDENTIALS_FILE` with temporary `accessKeyId`/`secretAccessKey`/`sessionToken`, `ANKOLE_LAMBDA_TEST_IMAGE`, `ANKOLE_LAMBDA_TEST_REPLACEMENT_IMAGE`, `ANKOLE_LAMBDA_TEST_CP_PORT`, `ANKOLE_LAMBDA_TEST_CP_ORIGIN`):
+  ```bash
+  MIX_TEST_PARTITION=lambda_worker_provider mix test integration/lambda_worker_storage_test.exs --trace
+  ```
+- **Alibaba Cloud Function Compute (AgenticFS & OSS)** (first enable `"china-market-ai-providers"` in `plugins.enabled_ids` and restart; requires an account with Gen-2 memory pause enabled and both images pushed to ACR Enterprise; run **twice**—once with AgenticFS and once with OSS, where the OSS run pauses 90s to force stale TCP drops and asserts retained-file read recovery within 30s—setting `ANKOLE_FUNCTION_COMPUTE_TEST_CONFIG_FILE`, `ANKOLE_FUNCTION_COMPUTE_TEST_CREDENTIALS_FILE`, `ANKOLE_FUNCTION_COMPUTE_TEST_IMAGE`, `ANKOLE_FUNCTION_COMPUTE_TEST_REPLACEMENT_IMAGE`, `ANKOLE_FUNCTION_COMPUTE_TEST_CP_PORT`, `ANKOLE_FUNCTION_COMPUTE_TEST_CP_ORIGIN`, and removing leftover templates afterward):
+  ```bash
+  MIX_TEST_PARTITION=function_compute_provider mix test integration/function_compute_worker_storage_test.exs --trace
+  ```
 
 ## Keep design docs and the changelog current
 
-A significant or cross-subsystem change should update or add a document under [`docs/design-docs/`](docs/design-docs/).
+Whenever a change alters subsystem behavior, schemas, protocols, or cross-domain contracts, update (or create) the owning specification under [`docs/design-docs/`](docs/design-docs/).
 
-All timeless documentation (`README*`, `CONTRIBUTING.md`, `docs/`, `app/website/src/content/docs/`, and package `README.md` or `SPEC.md` files, except dedicated upgrade guides and `CHANGELOG.md`) describes the current system state directly:
+All timeless documentation (`README*`, `CONTRIBUTING.md`, `docs/`, `app/website/src/content/docs/`, and package `README.md` / `SPEC.md` files—everything except `CHANGELOG.md` and dedicated upgrade guides) must state the current system contract directly and read naturally for human engineers:
 
-- Do not use temporal or diff-relative phrasing (`after this upgrade`, `in this release`, `no longer`, `previously`, `retains its existing...`, `keeps its existing...`, `remains unchanged`).
-- Do not document deleted routes, removed columns, or abandoned alternatives in negative space (for example, do not write that an obsolete route returns 404 in a general guide; record upgrade changes in `CHANGELOG.md` and the upgrade guide).
-- Do not echo task-prompt constraints, internal test-coverage disclaimers, or cleanup TODOs into user or architecture documentation.
-- Integrate new facts into the section that owns the topic instead of appending patch paragraphs to the bottom of a file or after `## Rules`. Keep every localized document in its target language.
+- **No diff-relative or upgrade-anchored phrasing**: Never write `after this upgrade`, `in this release`, `no longer`, `previously`, `retains its existing...`, `keeps its existing...`, or `remains unchanged`.
+- **No negative-space residue**: Do not describe deleted routes, dropped columns, or abandoned designs in general documentation (record breaking upgrade steps in `CHANGELOG.md` and `docs/upgrades/` instead).
+- **No prompt-constraint echoes**: Keep task-prompt disclaimers, internal test-coverage caveats, and cleanup TODOs out of user and architecture docs.
+- **Cohesive structure and native localization**: Integrate new facts directly into the section that owns the topic rather than tacking patch paragraphs onto the bottom of a file, and write every localized document idiomatically in its target language rather than calquing English sentence structure.
 
 ### Changelog
 
-`CHANGELOG.md` tells the people who run and use Ankole what a release changes for them. It is history, not an authority for product behavior or design; the owning design document or an explicit human decision is.
+`CHANGELOG.md` tells operators and users what changed for them in each release. Treat it as release history rather than a design specification—product behavior is governed by `docs/design-docs/` and explicit product decisions.
 
-Record only what a user or an operator notices after the upgrade: a new capability, changed behavior, a removal, a fix for a failure that they could have met, and any action that the upgrade requires. Do not record documentation, the website, tests, tooling, dependency updates, refactors, or other internal work. When a version has no such change, its only bullet is `Internal changes only.`
+Include only changes that a user or operator can observe or must act on when upgrading: new capabilities, behavior changes, removals, fixes for user-facing bugs, and required upgrade steps. Omit documentation edits, website updates, test changes, dev tooling, dependency bumps, internal refactors, and similar non-user-facing work; if a release contains nothing user-visible, write a single bullet: `Internal changes only.`
 
-A commit that changes only documentation (root `*.md` files, `docs/`, `app/website/`) or the changelog itself adds no version. Every other commit adds exactly one version at the top of the file, because the runtime-image workflow releases the newest version of each `main` push and refuses to reuse a version for another commit. Write the entry when the work is complete. When the changelog already differs from `HEAD`, add to that pending version; all uncommitted work in the worktree goes into the same next commit. A change confined to `internals/` that does not affect FOSS goes only in `internals/CHANGELOG.md`.
-
-Use the heading `## Version MAJOR.MINOR.PATCH (YYYY-MM-DD)`, newest first, with a few short bullets in plain language.
+Commits that touch **only** documentation (root `*.md` files, `docs/`, `app/website/`) or `CHANGELOG.md` itself do **not** add a changelog version. Every other commit on `main` must add (or update) one pending top-of-file version section (`## Version MAJOR.MINOR.PATCH (YYYY-MM-DD)`, newest first, written in concise plain language once implementation is complete), because the runtime-image release workflow tags the top version on each `main` push and refuses to reuse an already-published version. If `CHANGELOG.md` already has an uncommitted version header compared to `HEAD`, append your bullet to that pending version so all uncommitted worktree changes ship together. Changes confined strictly to `internals/` with zero FOSS impact belong in `internals/CHANGELOG.md` instead.
 
 ### Version selection
 
-Increment `PATCH` by default. Increment `MINOR` and reset `PATCH` to `0` when a user or an operator can do something that the product could not do before, or when existing behavior stops working until a person changes configuration, stored data, or an external caller; the bullet states that capability or action. `MAJOR` and the `-alpha`, `-beta`, and `-rc` suffixes follow an explicit human decision. `alpha` and `beta` publish as pre-releases; `rc` is a release.
+Bump `PATCH` by default. Bump `MINOR` (resetting `PATCH` to `0`) when a release adds a new user- or operator-facing capability, or when existing behavior requires an operator or caller to update configuration, stored data, or API calls (state that capability or required action clearly in the bullet). Bumping `MAJOR` or adding `-alpha`, `-beta`, or `-rc` suffixes requires an explicit human product decision (`alpha` and `beta` publish as GitHub pre-releases; `rc` publishes as a full release).
 
 ### Runtime image releases
 
-The runtime-image workflow runs for a `main` push after `Repository checks` succeeds for that revision, and skips a revision whose only changes since the last release are documentation. The newest changelog version is the release identity. After the control-plane and Worker image pair passes verification, the workflow adds immutable version tags and creates the matching `vVERSION` GitHub Release from that exact changelog section. An `alpha` or `beta` version publishes as a GitHub pre-release and moves `canary`; an `rc` or stable version publishes as a full release and moves `main-latest`.
+On every push to `main` where `Repository checks` passes (and where changes since the previous release go beyond documentation), the runtime-image workflow reads the top version from `CHANGELOG.md`, builds and verifies the paired control-plane and Worker images, pushes immutable image tags, and creates the matching `vVERSION` GitHub Release using that exact changelog section (`alpha`/`beta` move the `canary` tag as pre-releases; `rc`/stable versions move `main-latest` as full releases). The workflow fails hard rather than reusing a version number, overwriting an existing image tag digest, or publishing release notes that diverge from `CHANGELOG.md`.
 
-The workflow must fail rather than reuse a version for another commit, replace an existing image tag with another digest, or publish release notes that differ from the changelog.
-
-The same workflow publishes the Agent OS base, built from `app/agent_computer/Dockerfile.base`, as `ghcr.io/agentbull/ankole-agent-os-base:REVISION`. Local Worker builds use the base that `app/agent_computer/base-image.lock` pins when the working tree's `Dockerfile.base` matches that commit. When the recipe differs, devkit builds the base from the current file. A commit that changes `Dockerfile.base` cannot pin its own base, because the workflow publishes that base only after the push. After the workflow publishes the base of that commit, run `bun run kit pin-base-image` and commit the lock. The command pins the base of `HEAD` or of a commit that you give. It accepts only a commit in the history of `HEAD` that has the `Dockerfile.base` of `HEAD` and a published base. Codex, MCPorter, OfficeCLI, Typst, kubectl, and the AWS CLI are installed by the Worker image, so a version change does not change the base recipe.
+That same workflow builds `app/agent_computer/Dockerfile.base` and publishes `ghcr.io/agentbull/ankole-agent-os-base:REVISION`. Local Worker builds pull the prebuilt base image pinned in `app/agent_computer/base-image.lock` whenever `Dockerfile.base` matches that pinned commit, falling back to a local build when `Dockerfile.base` has changed. Because CI publishes the new base image only *after* a `Dockerfile.base` change lands on `main`, a commit editing `Dockerfile.base` cannot update `base-image.lock` in the same commit; once CI publishes the new base image, run `bun run kit pin-base-image` (which verifies that the target commit is an ancestor of `HEAD` with an identical `Dockerfile.base` and a published image) and commit the updated lockfile. Note that Codex, MCPorter, OfficeCLI, Typst, `kubectl`, and AWS CLI are installed in the outer Worker Dockerfile, so bumping their versions does not invalidate `Dockerfile.base`.
 
 ## Submit a pull request
 

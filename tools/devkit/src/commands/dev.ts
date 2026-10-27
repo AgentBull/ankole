@@ -5,15 +5,16 @@ import { defineCommand } from '@crustjs/core'
 
 import { createLocalAppDatabase, runAppMigrations } from './app-db'
 import { runPrettyLogs } from './logs'
+import { startComposeServices } from '../local-function-runtime-image'
 import { resolveLocalWorkerImage } from '../local-worker-image'
+import { applyOptionalLocalSccacheEnv, type SccacheOptions } from '../sccache'
 import {
   appRootPath,
   loadAppDevelopmentEnv,
   mixCommand,
   repoRootPath,
   resolveAppDatabaseName,
-  runChildCaptured,
-  startComposeServices
+  runChildCaptured
 } from '../utils'
 
 const defaultPhoenixPort = 4000
@@ -25,6 +26,7 @@ export type ControlPlaneEnvOptions = {
   port: number
   workerImage: string
   repoRoot: string
+  sccache?: SccacheOptions
 }
 
 /**
@@ -33,14 +35,15 @@ export type ControlPlaneEnvOptions = {
  * runs the mounted source with `bun --watch`.
  */
 export function buildControlPlaneEnv(env: NodeJS.ProcessEnv, opts: ControlPlaneEnvOptions): NodeJS.ProcessEnv {
+  const baseEnv = applyOptionalLocalSccacheEnv(env, opts.sccache)
   const aiGatewayBaseURL =
-    env.ANKOLE_AI_GATEWAY_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
+    baseEnv.ANKOLE_AI_GATEWAY_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
 
   return {
-    ...env,
+    ...baseEnv,
     PORT: String(opts.port),
-    ANKOLE_FUNCTION_RUNTIME_URL: env.ANKOLE_FUNCTION_RUNTIME_URL || 'http://127.0.0.1:5435',
-    ANKOLE_FUNCTION_RUNTIME_TOKEN: env.ANKOLE_FUNCTION_RUNTIME_TOKEN || 'dev-function-runtime-token',
+    ANKOLE_FUNCTION_RUNTIME_URL: baseEnv.ANKOLE_FUNCTION_RUNTIME_URL || 'http://127.0.0.1:5435',
+    ANKOLE_FUNCTION_RUNTIME_TOKEN: baseEnv.ANKOLE_FUNCTION_RUNTIME_TOKEN || 'dev-function-runtime-token',
     ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: `http://host.docker.internal:${opts.port}`,
     ANKOLE_AI_GATEWAY_BASE_URL: aiGatewayBaseURL,
     ANKOLE_WORKER_PROVIDERS_FILE: path.join(opts.repoRoot, 'var', 'ankole-dev', 'worker-providers.yaml'),
@@ -184,7 +187,7 @@ async function runDev(flags: {
   const databaseName = resolveAppDatabaseName()
 
   if (flags.services) {
-    await startComposeServices({ pull: false, wait: true, waitTimeout: 60 })
+    await startComposeServices({ pull: false, wait: true, waitTimeout: 60, allowBuild: flags.build })
   }
 
   await createLocalAppDatabase(databaseName)
@@ -252,7 +255,7 @@ export function devCommand() {
           {
             name: 'build',
             type: 'boolean',
-            description: 'Build a missing or stale worker image.',
+            description: 'Build missing or stale local runtime images.',
             default: true
           },
           {

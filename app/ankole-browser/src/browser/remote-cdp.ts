@@ -1,3 +1,4 @@
+import { deepString } from '@agentbull/active-support'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
@@ -75,8 +76,8 @@ async function resolveOrCreateRemoteSession(
   }
 
   const response = await executeRequest(backend.request, backend.connect_timeout_ms)
-  const endpoint = jsonPath(response, backend.response.endpoint_json_path)
-  if (typeof endpoint !== 'string' || !endpoint) {
+  const endpoint = deepString(response, backend.response.endpoint_json_path)
+  if (!endpoint) {
     throw new BrowserDataError('backend_unavailable', 'remote session response did not contain a CDP endpoint')
   }
   try {
@@ -121,15 +122,6 @@ async function executeRequest(request: RemoteSessionRequestBackend['request'], t
   }
   const contentType = response.headers.get('content-type') ?? ''
   return contentType.includes('json') ? await response.json() : await response.text()
-}
-
-function jsonPath(value: unknown, path: string[]): unknown {
-  let current = value
-  for (const key of path) {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
-    current = (current as Record<string, unknown>)[key]
-  }
-  return current
 }
 
 function redactEndpoint(endpoint: string): string {

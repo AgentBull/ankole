@@ -1,19 +1,20 @@
 # Brain Body Syntax and Object Editing
 
-Brain Object bodies use CommonMark, block-level `audience` tags, and `[[slug]]`
-links. The native `brain_markdoc` module owns the grammar. comrak parses Markdown
-structure; `brain_markdoc` uses those boundaries to identify audience tags.
-The control plane calls this parser through a NIF, validates scopes, and filters
-read results. The Console uses local parsing for previews.
+Brain Object bodies combine CommonMark, block-level `audience` tags, and
+`[[slug]]` wikilinks. The native Rust `brain_markdoc` module defines this
+grammar: it runs `comrak` to parse Markdown structure and uses those structural
+boundaries to locate `audience` tags. On the server, the Elixir control plane
+calls this parser through a NIF, validates each scope, and filters segments on
+read. In the browser, the Console parses drafts locally to render live previews.
 
 ## Body contract
 
-`brain_objects.body` stores body text. Structured fields own `slug`, `type`,
-`subtype`, `title`, `meta`, and `effective_date`.
+`brain_objects.body` stores the Markdown body text, while dedicated structured
+fields store `slug`, `type`, `subtype`, `title`, `meta`, and `effective_date`.
 
 ### Audience tags
 
-The supported tag is block-level `audience`:
+The only supported Markdoc tag is the block-level `audience` tag:
 
 ```markdoc
 {% audience scope="principal:alice" %}
@@ -21,22 +22,26 @@ Only Alice can read this.
 {% /audience %}
 ```
 
-- The opening tag is `{% audience scope="..." %}`. The closing tag is
-  `{% /audience %}`. Each tag starts at column one and occupies its own line.
-  Trailing whitespace is allowed. Adjacent blank lines are optional.
-- Tags form pairs and cannot nest. Text outside tags has the `world` scope.
-  Each segment has one scope, stored as `brain_chunks.audience_scope` after
-  chunking.
-- Tag text inside fenced code, indented code, or inline code is literal code.
-- Scope values are `world`, `group:<name>`, or `principal:<uid>`.
-  `Ankole.Brain.Scope` validates their shape. The control plane checks scope
-  existence and the writer's access in the write transaction. `world` covers
-  the current tenant. See [BrainV3](BrainV3.md).
-- An `{% audience` or `{% /audience` candidate outside a tag line or code range
-  produces `misplaced_audience_tag`. This includes candidates inside a heading,
-  blockquote, list, HTML block, or ordinary text line.
+- An audience block opens with `{% audience scope="..." %}` and closes with
+  `{% /audience %}`. Each tag must start at column one on its own line; trailing
+  whitespace is allowed, and adjacent blank lines are optional.
+- Tags must form matching pairs and cannot nest. Text outside any `audience`
+  block belongs to the `world` scope. Every parsed segment carries a single
+  scope, which chunking stores in `brain_chunks.audience_scope`.
+- Tag syntax inside fenced code blocks, indented code blocks, or inline code
+  spans is treated as literal code.
+- Valid scope strings are `world`, `group:<name>`, and `principal:<uid>`.
+  `Ankole.Brain.Scope` validates the string format, and the control plane checks
+  that the target exists and that the writer may address it inside the write
+  transaction. The `world` scope covers eligible Principals in the current
+  tenant; see [BrainV3](BrainV3.md).
+- If `{% audience` or `{% /audience` appears outside a standalone column-one tag
+  line or a code range (including inside a heading, blockquote, list, HTML
+  block, or ordinary text line), the parser rejects the body with
+  `misplaced_audience_tag`.
 
-In this input, the closing tag is code:
+For example, in the following input, the fenced code block captures the closing
+tag as literal code:
 
 ````markdoc
 {% audience scope="principal:alice" %}
@@ -47,30 +52,33 @@ private
 tail that must stay private
 ````
 
-The parser returns `unclosed_audience_tag`, and the write fails. `GetPage`
-returns an empty body when stored body syntax is invalid.
+Because the opening tag is never closed outside code, the parser returns
+`unclosed_audience_tag` and the control plane rejects the write. Likewise, if a
+stored Object body contains invalid syntax, `GetPage` returns an empty body
+rather than exposing unfiltered text.
 
 ### Internal links
 
-`[[companies/minghu-ai]]` links to an internal page. In `[[target|title]]`, the
-text before `|` identifies the target. comrak's `wikilinks_title_after_pipe`
-extension identifies links. Dreaming stores them as link edges. Wikilink text
-inside code is literal code.
+Authors link to internal pages using `[[companies/minghu-ai]]` or
+`[[target|title]]`, where the text before `|` identifies the target slug. The
+parser detects these links through `comrak`'s `wikilinks_title_after_pipe`
+extension while treating wikilink syntax inside code ranges as literal code.
+Dreaming and link reconciliation store resolved targets as link edges.
 
 ## Canonical parser
 
-The implementation and syntax tests are in
-`app/kernel/src/brain_markdoc/mod.rs` and its adjacent `tests.rs`.
-The Cargo feature `brain_markdoc = ["dep:comrak"]` uses comrak with its default
-features disabled and is included in `nif`.
+The parser implementation and syntax test suite live in
+`app/kernel/src/brain_markdoc/mod.rs` and its adjacent `tests.rs`. The Cargo
+feature `brain_markdoc = ["dep:comrak"]` builds `comrak` with default features
+disabled and is enabled by the `nif` feature.
 
 ### NIF contract
 
-`brain_markdoc_analyze_nif` accepts UTF-8 body text and returns JSON.
-`Ankole.Kernel.brain_markdoc_analyze/1` decodes it with `Torque.decode!`.
-The NIF runs on a DirtyCpu scheduler in the current process.
+`brain_markdoc_analyze_nif` accepts UTF-8 body text and returns a JSON string,
+which `Ankole.Kernel.brain_markdoc_analyze/1` decodes with `Torque.decode!`. The
+NIF executes on a `DirtyCpu` scheduler in the calling BEAM process.
 
-A successful result has this shape:
+When the body is valid, the NIF returns segments and deduplicated wikilinks:
 
 ```json
 {"segments": [{"scope": "world", "text": "..."},
@@ -78,58 +86,67 @@ A successful result has this shape:
  "wikilinks": ["companies/minghu-ai"]}
 ```
 
-Syntax errors are returned as data:
+When the body has a syntax error, the NIF returns the error as structured data:
 
 ```json
 {"error": {"code": "unclosed_audience_tag", "line": 12}}
 ```
 
-The error codes are `nested_audience_tag`, `unopened_audience_tag`,
-`unclosed_audience_tag`, and `misplaced_audience_tag`. Line numbers start at one.
-A native analysis or encoding failure fails the NIF call.
+The syntax error codes are `nested_audience_tag`, `unopened_audience_tag`,
+`unclosed_audience_tag`, and `misplaced_audience_tag`, with 1-based line
+numbers. If an internal failure occurs during native analysis or JSON encoding,
+the NIF call itself fails.
 
 ### Analysis
 
-1. comrak parses the complete body with wikilinks enabled. The parser collects
-   source positions for `CodeBlock`, `Code`, and `HtmlBlock`, and targets for
-   `WikiLink`.
-2. The parser identifies column-one tag lines outside code and HTML blocks.
-3. It checks every audience candidate. A candidate outside a tag line or code
-   range produces `misplaced_audience_tag`.
-4. It pairs tags in document order. Segments preserve the original bytes and
-   whitespace between tags. Text outside a pair forms a `world` segment.
-5. It trims link targets, removes empty values, and removes duplicates in
-   document order.
+`brain_markdoc` analyzes a body in five steps:
 
-comrak supplies structural ranges and link facts. `brain_markdoc` supplies the
-audience grammar. Reads call the parser directly; syntax trees, segments, and
-diagnostics are temporary results.
+1. `comrak` parses the full Markdown document with wikilinks enabled and
+   collects byte ranges for `CodeBlock`, `Code`, and `HtmlBlock` nodes together
+   with `WikiLink` targets.
+2. `brain_markdoc` locates valid column-one tag lines that lie outside code and
+   HTML blocks.
+3. It scans the remaining body for any `{% audience` or `{% /audience`
+   occurrence; if one appears outside a recognized tag line or code range,
+   analysis stops with `misplaced_audience_tag`.
+4. It pairs opening and closing tags in document order. Each segment preserves
+   the exact bytes and whitespace between tags, and text outside a tag pair
+   forms a `world` segment.
+5. It trims wikilink targets, drops empty targets, and removes duplicates while
+   preserving first-seen document order.
+
+In this division of work, `comrak` provides Markdown structural ranges and link
+targets, while `brain_markdoc` enforces the `audience` tag grammar. Read paths
+invoke the parser directly on demand; syntax trees, segments, and diagnostics
+are temporary values that are never persisted.
 
 ### Control-plane interface
 
-`Ankole.Brain.Markdoc` calls the canonical parser:
+`Ankole.Brain.Markdoc` wraps the canonical parser for control-plane callers:
 
 | Interface | Behavior |
 | --- | --- |
 | `segments/1` | Validates scopes, maps syntax errors to atoms, and omits whitespace-only segments |
-| `scopes/1` | Returns the distinct scopes in the body |
-| `prune/2` | Keeps segments selected by `keep?` and restores tags around scoped text |
-| `wrap/2` | Adds canonical tags around scoped text; returns `world` text directly |
-| `wikilinks/1` | Returns internal link targets, or an empty list for invalid bodies |
-| `diagnostic/1` | Returns native syntax error codes and line numbers for the editor |
+| `scopes/1` | Returns the distinct scopes present in the body |
+| `prune/2` | Keeps segments selected by `keep?` and restores canonical tags around scoped text |
+| `wrap/2` | Wraps scoped text in canonical `audience` tags, or returns `world` text unchanged |
+| `wikilinks/1` | Returns internal link targets, or `[]` when the body is invalid |
+| `diagnostic/1` | Returns native syntax error codes and line numbers for editor feedback |
 
-Objects validates write scopes and chunks each segment. GetPage filters the
-body by read and disclosure access. SourceLearning, Synthesis, and other derived
-body writers use `wrap/2` to preserve source scopes.
+On writes, `Objects` validates write scopes and chunks each segment. On reads,
+`GetPage` filters the body according to the caller's read and disclosure
+boundaries. Derived-body writers such as `SourceLearning` and `Synthesis` call
+`wrap/2` so generated text retains its source scopes.
 
 ## Console creation and editing
 
 ### Body ownership
 
-`managed_by_source_id` identifies a Brain Source that owns the body.
-SourceLearning uses an internal upsert bound to that Source identity. Ordinary
-Object updates reject changes to managed bodies. The server returns `editable`
-and `edit_block_reason` for the Console's controls.
+When `managed_by_source_id` is set on an Object, that Brain Source owns the
+body. `SourceLearning` updates managed bodies through an internal upsert bound
+to that Source identity, whereas ordinary Object update actions reject edits to
+managed bodies. When the Console fetches an Object, the server returns
+`editable` and `edit_block_reason` to drive the editor controls.
 
 | State | Body actions | Owner |
 | --- | --- | --- |
@@ -140,9 +157,10 @@ and `edit_block_reason` for the Console's controls.
 
 ### Console API
 
-Slugs can contain `/`, so the Console sends them in query parameters or request
-bodies. The API uses `/api/v2/brain` and `application/vnd.api+json`. Generic
-actions receive arguments under `data` and return their declared typed results.
+Because Object slugs can contain `/`, the Console passes slugs in query
+parameters or JSON request bodies rather than path segments. All endpoints live
+under `/api/v2/brain` and speak `application/vnd.api+json`; generic actions
+accept arguments under `data` and return typed results.
 
 | Method and path | Purpose | Main inputs or outputs |
 | --- | --- | --- |
@@ -151,61 +169,72 @@ actions receive arguments under `data` and return their declared typed results.
 | `PATCH /api/v2/brain/objects` | Update a tenant-owned Object with `:console_update` | slug, mutable fields, `expected_content_hash` |
 | `GET /api/v2/brain/object-versions?slug=...` | Read version history | author, body, meta, tags, snapshot_at |
 
-Writes return an Object summary. After a successful save, the editor reloads
-detail to obtain the current `content_hash` and normalized tags. If that read
-fails, it keeps the draft and shows the error. A successful read updates the
-save baseline.
+Write endpoints return an Object summary. After a save succeeds, the Console
+editor reloads the Object detail to refresh `content_hash` and normalized tags,
+updating its save baseline once that read succeeds; if the follow-up read fails,
+the editor keeps the local draft and displays the error.
 
-Create and update require `site_console:brain` `update` permission. They accept
-an optional `tags` array. Omitting `tags` preserves the current set; an empty
-array clears it. Each tag has its own editor input and can contain newlines.
-Tags participate in the compare-and-swap baseline and the author-attributed
-version snapshot. Version rollback restores `body` and `meta`.
+Creating or updating an Object requires the `site_console:brain` `update`
+permission and accepts an optional `tags` array. If the caller omits `tags`, the
+server preserves the existing tag set; passing `[]` clears all tags. In the
+editor, each tag has its own input field and may contain newlines. Tags are
+covered by both the compare-and-swap hash baseline and the version snapshot
+recorded with the author, whereas rolling back a version restores only `body`
+and `meta`.
 
-Raw body reads require `site_console:brain` `read` permission. Domain rejections
-return 422 with the domain error code. The local preview supplies syntax error
-line numbers. `content_hash_conflict`, `object_deleted`, and `slug_taken` return
-409.
+Reading raw Object bodies requires the `site_console:brain` `read` permission.
+When domain validation rejects a write, the server returns HTTP 422 with the
+domain error code (while the local preview supplies line numbers for syntax
+errors). State conflicts (`content_hash_conflict`, `object_deleted`, and
+`slug_taken`) return HTTP 409.
 
 ### Editor behavior
 
-The Console uses full-page routes `/brain/objects/new` and
-`/brain/objects/:slug/edit`. A textarea edits source text.
-`previewBrainObjectBody` uses CommonMark source ranges for fenced, indented, and
-multiline inline code, then identifies tag lines outside those ranges.
-`MarkdownBody` renders the segments with scope badges. Wikilinks appear as
-literal text in the preview.
+The Console mounts full-page editors at `/brain/objects/new` and
+`/brain/objects/:slug/edit`, using a plain `textarea` for source editing. On
+each edit, `previewBrainObjectBody` computes CommonMark byte ranges for fenced,
+indented, and multiline inline code and identifies column-one `audience` tag
+lines outside those ranges. `MarkdownBody` then renders valid segments with
+scope badges while leaving `[[wikilinks]]` as literal text and hiding
+whitespace-only segments. Valid segments preserve their original text and
+newlines.
 
-The preview reports misplaced, nested, unopened, and unclosed audience tags
-with line numbers. Invalid bodies show diagnostics without scope badges.
-Native and Console tests share `app/kernel/test/fixtures/brain_markdoc.json`.
-Valid segments preserve original text and newlines; the preview hides
-whitespace-only segments. On save, the server parses the body and checks syntax,
-scope validity, and write access. Server diagnostics appear in Problems.
+When a draft has misplaced, nested, unopened, or unclosed `audience` tags, the
+preview reports the diagnostic with its line number and omits scope badges. Both
+the Rust NIF tests and the Console preview tests run against the shared fixture
+corpus in `app/kernel/test/fixtures/brain_markdoc.json`. On save, the server
+re-parses the body, validates every scope, checks write permissions, and
+surfaces any server-side rejections in the editor's Problems panel.
 
-Saves carry the loaded `expected_content_hash`. A conflict preserves the local
-draft. The operator can load the current version, compare it, and update the
-baseline. Leaving an unsaved draft prompts for confirmation. The baseline covers
-title, body, meta, tags, subtype, and effective_date. Derived retrieval and
-embedding state does not change it. Ordinary saves and rollbacks check the
-Object lock and reject deleted Objects with `object_deleted`; restore them
-before editing.
+Every save request carries the loaded `expected_content_hash`, which covers
+`title`, `body`, `meta`, `tags`, `subtype`, and `effective_date` (derived
+retrieval chunks and embeddings do not affect this hash). If the server returns
+`content_hash_conflict`, the editor preserves the operator's local draft so the
+operator can load the latest server version, compare the two, and adopt the new
+baseline. If the operator navigates away from an unsaved draft, the browser asks
+for confirmation. Ordinary saves and rollbacks acquire the Object row lock and
+reject soft-deleted Objects with `object_deleted`, so operators must restore a
+deleted Object before editing it.
 
-Save and comparison results belong to the editor instance that started them.
-A request can finish its server write and global query refresh after navigation,
-but its result does not change a later draft, error, or destination. Creation
-accepts slug, type, subtype, title, effective_date, and meta. Editing keeps slug
-and type read-only. Administrators can repair invalid stored syntax through the
+In-flight save and comparison callbacks are bound to the specific editor
+instance that started them: if the operator navigates away before a request
+completes, the server write and global query cache refresh still finish, but the
+callback will not overwrite a newer draft, error state, or route. Creating an
+Object accepts `slug`, `type`, `subtype`, `title`, `effective_date`, and `meta`;
+editing an existing Object keeps `slug` and `type` read-only. If a stored Object
+contains invalid body syntax, an administrator can repair it directly in this
 raw-body editor.
 
 ## Implementation boundaries
 
-The syntax consists of the audience tags and wikilinks above. The in-process
-NIF owns parsing and access enforcement remains in the control plane. The
-editor saves source as entered and previews it with the shared test corpus.
-`GetPage.rendered` joins the segments that pass disclosure checks. Per-Principal
-disclosure uses that Principal's actual read path; recall administration is a
-separate function.
+The Brain body grammar consists solely of CommonMark, block-level `audience`
+tags, and `[[slug]]` wikilinks. The in-process Rust NIF owns syntax parsing,
+while the Elixir control plane owns scope validation and access enforcement. The
+Console editor saves the exact source text entered by the operator and validates
+preview parity through the shared test corpus. On read, `GetPage.rendered`
+concatenates only the segments that pass knowledge and disclosure checks.
+Evaluating disclosure for a specific Principal always runs through that
+Principal's read path; recall administration is a separate operation.
 
 ## References
 

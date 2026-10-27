@@ -1,69 +1,69 @@
 ---
 title: kit CLI 参考
-description: devkit 命令界面——运维者或贡献者会跑的每一条 `bun run kit` 命令、它做什么，以及包裹它的脚本。
+description: devkit 命令行参考——汇总日常运维与开发常用的 `bun run kit` 命令、具体用途及对应的脚本别名。
 section: Reference
 order: 200
 ---
 
-`kit` 是 Ankole 的 devkit 命令行。在仓库根目录用 `bun run kit <command>` 调用，覆盖环境准备、本地服务、开发环境、数据库生命周期、激活码、日志、代码生成和仓库分析。本页是每条命令的参考。
+`kit` 是 Ankole 的开发工具箱（devkit）命令行程序，可在仓库根目录下通过 `bun run kit <command>` 调用，涵盖环境初始化、本地依赖服务、开发环境、数据库生命周期、激活码查询、日志格式化、代码生成与仓库静态分析等功能。本页汇总了各常用命令的说明。
 
-先说明最关键的一点：`kit` 是 `tools/devkit/` 里的一个 Bun + TypeScript 程序，仓库 `package.json` 的脚本把常用命令（`services:start`、`services:stop`、`dev`、`analyze` 等）包了起来，你不必打全 `bun run kit` 形态。两种形态都行；脚本只是别名。
+简言之，`kit` 是位于 `tools/devkit/` 下的 Bun + TypeScript 程序；仓库根目录的 `package.json` 已将常用子命令封装为快捷脚本（如 `services:start`、`services:stop`、`dev`、`analyze` 等），作为 `bun run kit` 的简写别名，两种调用方式完全等效。
 
 ## 环境与检测
 
-| 命令 | 做什么 |
+| 命令 | 用途 |
 |---|---|
-| `kit env-setup` | 安装 Ankole 开发所需的主机工具链——系统构建软件包、Docker、Rust、Elixir/Erlang 工具链、固定版本的 Bun。加 `--print` 可只打印安装命令而不执行。 |
-| `kit is-ci` | 在 CI 环境退出 `0`，否则 `1`。供按 CI 分支的脚本使用。 |
-| `kit is-dev` | 在开发环境退出 `0`，否则 `1`。 |
+| `kit env-setup` | 安装开发 Ankole 所需的主机工具链，包括系统构建软件包、Docker、Rust、Elixir/Erlang 工具链及固定版本的 Bun。附加 `--print` 时仅打印安装命令而不实际执行。 |
+| `kit is-ci` | 在 CI 环境中以状态码 `0` 退出，否则返回 `1`，供按 CI 环境分支处理的脚本调用。 |
+| `kit is-dev` | 在开发环境中以状态码 `0` 退出，否则返回 `1`。 |
 
-在一台新机器上跑一次 `env-setup`；其余是其它命令内部调用的检测助手。
+在新机器上首次搭建环境时运行一次 `env-setup` 即可；其余两条主要用于其他命令或脚本内部的环境检测。
 
 ## 本地服务与开发环境
 
-| 命令 | 做什么 |
+| 命令 | 用途 |
 |---|---|
-| `kit external-services start` | 启动 devkit Docker Compose 服务（PostgreSQL 18 与 `ankole-function-runtime`）。包裹为 `bun run services:start`。 |
-| `kit external-services stop` | 停止 devkit Compose 服务。包裹为 `bun run services:stop`。 |
-| `kit external-services status` | 报告 devkit 服务健康。包裹为 `bun run services:status`。 |
-| `kit dev` | 启动完整开发环境——PostgreSQL 18、`ankole-function-runtime`、Phoenix 与前端资源，并使用 Docker Worker 后端为每个 Agent 创建一个 Worker 容器。包裹为 `bun run dev`。保持该终端开着。 |
+| `kit external-services start` | 启动 devkit Docker Compose 服务（PostgreSQL 18 与 `ankole-function-runtime`）。对应脚本别名为 `bun run services:start`。 |
+| `kit external-services stop` | 停止 devkit Compose 服务。对应脚本别名为 `bun run services:stop`。 |
+| `kit external-services status` | 查看 devkit 服务的健康状态。对应脚本别名为 `bun run services:status`。 |
+| `kit dev` | 启动完整本地开发环境——包括 PostgreSQL 18、`ankole-function-runtime`、Phoenix 与前端资源，并使用 Docker Worker 后端为每个 Agent 创建独立的 Worker 容器。对应脚本别名为 `bun run dev`，运行期间请保持该终端窗口开启。 |
 
-`kit dev` 是启动整套本地栈的命令。它启动或检查 PostgreSQL 18 与 `ankole-function-runtime`、创建并迁移本地控制面数据库（`ankole_dev`）、构建缺失或过期的 worker 镜像，并以 Docker Worker 后端启动控制面。未设置 `BASE_DB_URLS` 时，控制面开发引导还会自动创建并准备四个本地 Base 分片数据库（`ankole_base_00` 至 `ankole_base_03`）。创建 Agent 时，控制面为它创建 Worker 容器；容器用 `bun --watch` 运行本地 Agent Computer 源码。用 `docker ps -a --filter label=ankole.installation=dev` 列出这些容器。不要再开第二个 `kit dev`；在它的终端按 `Ctrl+C` 停止，这也会删除 `dev` 安装的 Worker 容器，因此重启后，控制面会在已有 Agent 下次需要 Worker 时重新创建它。
+`kit dev` 用于一键拉起整套本地技术栈：先启动或检查 PostgreSQL 18 与 `ankole-function-runtime`，创建并迁移本地控制面数据库（`ankole_dev`），构建缺失或过期的 Worker 镜像，最后以 Docker Worker 后端启动控制面。未显式设置 `BASE_DB_URLS` 时，控制面在开发引导阶段还会自动创建并初始化四个本地 Base 分片数据库（`ankole_base_00` 至 `ankole_base_03`）。新建 Agent 时，控制面会为其创建 Worker 容器，并在容器内通过 `bun --watch` 直接运行本地 Agent Computer 源码；可通过 `docker ps -a --filter label=ankole.installation=dev` 查看这些容器。请勿同时启动第二个 `kit dev` 实例。在终端按下 `Ctrl+C` 停止服务时，系统会一并清理带有 `dev` 安装标签的 Worker 容器；下次重启后，控制面会在已有 Agent 需要执行任务时自动重建容器。
 
 ## 数据库生命周期
 
-`kit app-db` 拥有本地控制面数据库：
+`kit app-db` 用于管理本地控制面数据库：
 
-| 命令 | 做什么 |
+| 命令 | 用途 |
 |---|---|
-| `kit app-db create` | 若 app 数据库不存在则创建。 |
-| `kit app-db drop` | 删除 app 数据库。需要 `--yes` 确认破坏性操作。 |
-| `kit app-db rebuild` | 删除、创建并迁移 app 数据库。需要 `--yes`；重建后跑 Ecto migration。 |
-| `kit app-db migrate` | 对已配置的本地数据库跑控制面 Ecto migration。 |
+| `kit app-db create` | 若本地应用数据库尚不存在，则创建该数据库。 |
+| `kit app-db drop` | 删除本地应用数据库。此操作不可逆，必须附加 `--yes` 确认。 |
+| `kit app-db rebuild` | 删除并重新创建本地应用数据库，随后自动运行 Ecto 迁移。必须附加 `--yes` 确认。 |
+| `kit app-db migrate` | 对当前配置的本地数据库运行控制面 Ecto 迁移。 |
 
-`create`、`drop` 和 `rebuild` 共享以下选项：`--start-services` 在操作前启动 Compose，`--pull` 先拉取最新服务镜像，`--wait-timeout` 设置等待服务健康检查的秒数（默认 `60`）。`app-db rebuild` 会删除本地 `ankole_dev` 数据库——只在数据确实可丢弃时才运行。
+`create`、`drop` 与 `rebuild` 共用以下选项：`--start-services` 会在操作前先启动 Compose 服务，`--pull` 会预先拉取最新服务镜像，`--wait-timeout` 用于设置等待服务通过健康检查的超时秒数（默认 `60`）。由于 `app-db rebuild` 会彻底删除本地 `ankole_dev` 数据库，请仅在确认本地数据可丢弃时运行。
 
 ## 设置与检查
 
-| 命令 | 做什么 |
+| 命令 | 用途 |
 |---|---|
-| `kit show bootstrap-activation-code` | 打印当前设置激活码。首次访问页面需要 code 而 `kit dev` 终端看不见时用它。 |
-| `kit logs pretty` | 把 stdin 里的 Ankole 结构化 JSON 日志行漂亮打印。把日志流管给它，得到可读的本地输出。 |
+| `kit show bootstrap-activation-code` | 打印当前的初始化激活码。首次打开设置页面需要输入激活码、但又看不到 `kit dev` 终端输出时，可运行此命令查看。 |
+| `kit logs pretty` | 从标准输入（stdin）读取 Ankole 结构化 JSON 日志并格式化打印。可将日志流通过管道传给该命令，获得易于阅读的本地输出。 |
 
 ## 代码生成与分析
 
-| 命令 | 做什么 |
+| 命令 | 用途 |
 |---|---|
-| `kit generate [collection-name:]<schematic-name> [options]` | 按 schematic 生成或修改文件。`bun run kit g code-workspace`（包裹为 `bun run workspace:update`）重新生成 VS Code 工作区。 |
-| `kit analyze all` | 跑全部仓库分析。包裹为 `bun run analyze`。 |
-| `kit analyze smells` | 报告代码异味。包裹为 `bun run analyze:smells`。 |
-| `kit analyze unused` | 报告未使用代码。包裹为 `bun run analyze:unused`。 |
-| `kit analyze structure` | 报告仓库结构。包裹为 `bun run analyze:structure`。 |
-| `kit analyze cycles` | 报告依赖循环。包裹为 `bun run analyze:cycles`。 |
+| `kit generate [collection-name:]<schematic-name> [options]` | 按指定模板（Schematic）生成或更新文件。例如 `bun run kit g code-workspace`（对应脚本别名 `bun run workspace:update`）用于重新生成 VS Code 工作区文件。 |
+| `kit analyze all` | 运行全部仓库静态分析检查。对应脚本别名为 `bun run analyze`。 |
+| `kit analyze smells` | 检测并报告代码异味。对应脚本别名为 `bun run analyze:smells`。 |
+| `kit analyze unused` | 检测并报告未使用的代码。对应脚本别名为 `bun run analyze:unused`。 |
+| `kit analyze structure` | 检查并报告仓库目录与模块结构。对应脚本别名为 `bun run analyze:structure`。 |
+| `kit analyze cycles` | 检测并报告循环依赖。对应脚本别名为 `bun run analyze:cycles`。 |
 
 ## worker 测试运行器
 
-`kit agent-computer-test` 在规范 worker 容器运行时里跑 Agent Computer Worker 包测试，于是测试在与真实回合相同的环境里执行。它取 `--suite` 为 `unit` 或 `integration`，以及一个 `--image` 指向特定 Agent Computer Worker Docker 镜像，而不构建。
+`kit agent-computer-test` 会在标准 Worker 容器运行时内执行 Agent Computer Worker 包的测试套件，确保测试在与真实回合一致的环境中运行。可通过 `--suite` 指定 `unit` 或 `integration`，也可通过 `--image` 直接指定现成的 Agent Computer Worker Docker 镜像以跳过构建步骤。
 
 ## 发现更多
 
@@ -71,9 +71,9 @@ order: 200
 bun run kit --help
 ```
 
-`kit` 是一个 `@crustjs` 命令树，每一层都有 `--help`。上面的命令是运维者或贡献者实际会跑的；某条命令的完整子命令面（比如 `kit app-db --help`），直接问 CLI。
+`kit` 基于 `@crustjs` 构建为分层命令树，每一级均支持 `--help`。上文列出了运维与日常开发最常用的命令；如需查看某条命令下的完整子命令与参数列表（如 `kit app-db --help`），可直接在终端查询帮助信息。
 
 ## 下一步
 
-- 用到这些命令的本地环境走查，读 [快速开始](../quickstart/)。
-- `kit dev` 启动了什么，读 [架构概览](../architecture/)。
+- 查看串联使用这些命令的本地部署流程，请参阅 [快速开始](../quickstart/)。
+- 了解 `kit dev` 启动了哪些组件及其职责，请参阅 [架构概览](../architecture/)。

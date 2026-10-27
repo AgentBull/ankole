@@ -1,5 +1,5 @@
 import { LIST_REFRESH_MS } from '../refresh-intervals'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { recordValue } from '@agentbull/active-support'
 import {
   Alert,
   AlertDescription,
@@ -363,8 +363,8 @@ export function SignalBindingEditorPage() {
 
   const sourceAgentUID = params.agent ?? searchParams.get('agent') ?? ''
   const returnAgentUID = searchParams.get('return_agent') ?? ''
-  const lockedAdapter = params.adapter ?? searchParams.get('adapter') ?? undefined
-  const lockedName = params.name ?? searchParams.get('name') ?? undefined
+  const lockedAdapter = params.adapter
+  const lockedName = params.name
   const editing = Boolean(lockedName)
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
@@ -647,12 +647,8 @@ function formFromBinding(binding: SignalBindingItem, config: unknown): SignalBin
     name: binding.name,
     groupMessageMode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
     unmatchedSenderPolicy: binding.unmatched_sender_policy,
-    config: asJSONObject(config)
+    config: recordValue(config) ?? {}
   }
-}
-
-function asJSONObject(value: unknown): JSONObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as JSONObject) : {}
 }
 
 function defaultGroupMessageMode(adapter: SignalAdapterItem): GroupMessageMode | '' {

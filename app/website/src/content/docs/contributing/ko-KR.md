@@ -1,77 +1,77 @@
 ---
 title: 기여하기
-description: 병합되는 Ankole 기여로 가는 길 — 규칙이 어디 있는지, 설정 방법, 올바른 검사를 실행하는 방법, 그리고 프로젝트가 요구하는 changelog와 PR 규율.
+description: Ankole에 기여하고 변경 사항을 병합하기까지의 안내 — 핵심 규칙 문서, 개발 환경 구성, 필수 검증 명령, 그리고 프로젝트가 요구하는 변경 로그 및 PR 원칙을 정리합니다.
 section: Guides
 order: 321
 ---
 
-Ankole에 기여한다는 것은 첫 편집 전에 두 문서를 읽고, 그 문서들이 정의하는 경로를 따르는 것을 의미합니다. 이 페이지는 지도입니다: 권위 있는 소스를 가리키고, 그 소스를 통과하는 경로를 명명하며, 어느 쪽도 복제하지 않습니다. 이 페이지와 소스 문서가 충돌하면 소스 문서가 옳습니다.
+Ankole에 기여하려면 코드를 수정하기 전에 먼저 두 가지 핵심 문서를 읽고 그 절차에 따라야 합니다. 이 페이지는 전체 흐름을 짚어 주는 안내도 역할을 하며, 기준 문서를 가리키고 작업 순서를 요약할 뿐 내용을 중복해서 다루지 않습니다. 이 페이지와 원본 문서의 설명이 다를 때는 항상 원본 문서를 기준으로 삼습니다.
 
-결정적인 속성을 먼저 밝힙니다: Ankole의 기여 규칙은 선택적 관례가 아니라 프로젝트의 검토 프로세스와 제품을 변경하는 모든 커밋을 관문으로 막는 changelog 규칙에 의해 강제됩니다. [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 또는 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 건너뛴 기여는 돌아가서 읽으라는 요청을 받을 것입니다. 먼저 읽으세요.
+먼저 핵심 원칙을 짚고 넘어가겠습니다. Ankole의 기여 규칙은 선택적인 관례가 아니며, 코드 리뷰 절차와 제품 변경 커밋마다 반드시 거쳐야 하는 변경 로그(changelog) 검증을 통해 강제됩니다. [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)나 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 읽지 않고 제출한 PR은 먼저 두 문서를 숙지해 달라는 요청을 받게 됩니다. 작업 전에 꼭 읽어 보세요.
 
 ## 규칙을 소유하는 두 문서
 
-- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)** — 프로젝트 전역 규칙: 범위와 권한, changelog를 버전 단위로 삼는 규칙, 핵심 규율(가장 작은 올바른 변경, worse-is-better), 설계 우선순위(단순성 > 정확성 > 일관성 > 완전성), 목표 충실성(objective fidelity), 서브시스템 경계. 변경을 *어떻게* 만드는지를 결정하는 문서입니다.
-- **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)** — 기여 경로: 6단계 로컬 설정, Feishu 엔드투엔드 수락, 문제 해결 순서, 저장소 지도, 품질 관문, changelog와 PR 단계. 변경을 착수하기 위해 *무엇을* 해야 하는지를 결정하는 문서입니다.
+- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)** — 프로젝트 전역 규칙을 담고 있습니다. 작업 범위와 권한, 변경 로그를 버전 단위로 관리하는 규칙, 핵심 설계 규율(가장 작은 올바른 변경, worse-is-better), 설계 우선순위(단순성 > 정확성 > 일관성 > 완전성), 목표 충실성(objective fidelity), 서브시스템 경계를 정의합니다. 즉, 변경을 *어떻게* 작성할지 결정하는 문서입니다.
+- **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)** — 실제 기여 절차를 안내합니다. 6단계 로컬 환경 구성, Feishu 엔드투엔드 검증, 문제 해결 순서, 저장소 구조, 품질 검증 명령, 변경 로그 작성과 PR 제출 절차를 다룹니다. 즉, 변경을 병합하기까지 *무엇을* 수행해야 하는지 결정하는 문서입니다.
 
-둘 다 각자의 영역에서 진실의 원천(source of truth)입니다. 이 가이드와 나머지 문서들은 둘에 링크합니다. 여기의 어떤 것도 둘을 덮어쓰지 않습니다.
+두 문서는 각자의 영역에서 단일 기준(source of truth)이 됩니다. 이 가이드를 비롯한 다른 문서는 모두 이 두 문서를 참조하며, 여기에 적힌 어떤 요약도 원본 규칙에 우선하지 않습니다.
 
 ## 설정 경로(6단계)
 
-`CONTRIBUTING.md`는 설정을 여섯 단계로 안내하며 그것이 권위 있는 버전입니다. 모양은 다음과 같으니, 어떤 과정인지 알 수 있습니다:
+로컬 환경 구성의 공식 기준은 `CONTRIBUTING.md`의 6단계 안내입니다. 전체 과정의 큰 흐름은 다음과 같습니다.
 
-1. **저장소를 얻고 환경을 선택하세요** — 클론하고 macOS/Linux/WSL2 또는 GitHub Codespaces를 선택합니다.
-2. **시스템 도구를 설치하고 검증하세요** — `bash tools/devkit/scripts/env-setup.sh`를 실행한 다음 `bun`, `elixir`, `rustc`, `cargo clippy`, `docker`가 모두 작동하는지 확인합니다. 각 `kit` 명령이 무엇을 하는지는 [kit CLI reference](../kit-cli/)를 참조하세요.
-3. **의존성을 설치하고 로컬 서비스를 초기화하세요** — `bun install`, `bun run services:start`(PostgreSQL 18 및 `Function Runtime` / `ankole-function-runtime` 시작), 그리고 `bun run control-plane:setup`.
-4. **완전한 개발 환경을 시작하세요** — `bun dev`.
-5. **최초 제품 설정을 완료하세요** — `/setup`에서 활성화하고, 패스워드리스 SMTP 이메일 OTP 또는 Feishu 앱 OAuth로 첫 관리자 로그인을 완료하며(전체 Feishu 엔드투엔드 테스트를 실행할 때는 Feishu 테스트 앱 생성), `/site-admin-console`의 Site Admin Console에서 런타임을 구성합니다.
-6. **엔드투엔드 경로를 증명하세요** — 실제 Feishu 메시지가 agent에 도달하고 예상된 답변을 반환합니다.
+1. **저장소를 준비하고 실행 환경을 선택합니다** — 저장소를 클론한 뒤 macOS/Linux/WSL2 또는 GitHub Codespaces 중 하나를 선택합니다.
+2. **시스템 도구를 설치하고 검증합니다** — `bash tools/devkit/scripts/env-setup.sh`를 실행한 뒤 `bun`, `elixir`, `rustc`, `cargo clippy`, `docker`가 모두 정상 동작하는지 확인합니다. 각 `kit` 명령의 역할은 [kit CLI reference](../kit-cli/)를 참조하세요.
+3. **의존성을 설치하고 로컬 서비스를 초기화합니다** — `bun install`, `bun run services:start`(PostgreSQL 18 및 `Function Runtime` / `ankole-function-runtime` 시작), `bun run control-plane:setup`을 순서대로 실행합니다.
+4. **전체 개발 환경을 시작합니다** — `bun dev`를 실행합니다.
+5. **초기 제품 설정을 완료합니다** — `/setup`에서 사이트를 활성화하고, 패스워드리스 SMTP 이메일 OTP 또는 Feishu 앱 OAuth로 첫 관리자 로그인을 마친 뒤(전체 Feishu 엔드투엔드 테스트를 수행할 경우 Feishu 테스트 앱 생성 포함), `/site-admin-console`의 Site Admin Console에서 런타임을 구성합니다.
+6. **엔드투엔드 경로를 검증합니다** — 실제 Feishu 메시지가 Agent에 전달되고 기대한 응답이 돌아오는지 확인합니다.
 
-설정은 페이지가 열렸을 때 끝나는 것이 아닙니다. 실제 메시지가 왕복했을 때 끝납니다. 짧은 경로는 [Quick start](../quickstart/)를, 전체 수락은 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 참조하세요.
+화면에 웹 페이지가 열렸다고 해서 환경 구성이 끝난 것은 아닙니다. 실제 메시지가 Agent를 거쳐 응답으로 돌아오는 왕복 흐름까지 확인해야 완료됩니다. 빠른 설정 절차는 [Quick start](../quickstart/)를, 전체 인수 기준은 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 참조하세요.
 
 ## 변경하는 방법
 
-첫 편집 전에 `AGENTS.md`를 읽으세요. 가장 자주 등장하는 규칙:
+첫 편집을 시작하기 전에 `AGENTS.md`를 읽으세요. 실무에서 가장 자주 마주치는 핵심 규칙은 다음과 같습니다.
 
-- **범위와 권한.** 답변 또는 계획 요청은 읽기 전용 검사를 승인하고, 구현 요청은 편집을 승인합니다. 승인 없이 범위를 확장하지 마세요.
-- **changelog는 사용자와 운영자를 위한 것입니다.** 제품을 변경하는 커밋은 하나의 `CHANGELOG.md` 버전을 추가하고, 업그레이드 후 그들이 알아차릴 변화를 기록합니다. 문서만 바꾸는 커밋은 버전을 추가하지 않습니다. 아래 섹션을 참조하세요.
-- **가장 작은 올바른 변경.** 선택된 방향을 따르고 시스템이 유지할 수 있는 계약을 보존하며 이해 가능한 가장 작은 변경을 선호하세요. 약간의 중복은 복잡성을 키우는 추상화보다 낫습니다.
-- **Worse is better.** 단순성이 인터페이스 균일성이나 이론적 완전성을 이깁니다. 단순성이 이길 때는, 조용히 잘못된 결과를 만들기보다 계약을 좁히거나 지원하지 않는 경우를 명시적으로 거부하세요.
-- **목표 충실성(objective fidelity).** 요청된 작업을 하지, 더 저렴한 대리물을 하지 마세요. 초록 테스트가 목표가 아니라, 소유 추상화를 통과하는 실제 경로가 목표입니다.
-- **서브시스템 경계.** PostgreSQL은 지속적 사실을 소유하고, Elixir control plane은 지속적 상태와 감독을 소유하고, Rust kernel은 공유 네이티브 프리미티브를 소유하고, Bun Agent Computer Worker는 Agent별 실행을 소유하며, `Function Runtime`(`app/function_runtime/`)은 무상태 Applet 백엔드와 결정론적 프로그램 격리 실행을 담당합니다. 경계를 가로지르는 변경은 그 경계를 존중해야지, 덮어서는 안 됩니다.
+- **범위와 권한.** 질문 답변이나 계획 수립 요청을 받았을 때는 읽기 전용 조사만 허용되며, 구현 요청을 받았을 때만 파일 수정이 허용됩니다. 명시적인 승인 없이 작업 범위를 넓히지 마세요.
+- **변경 로그는 사용자와 운영자를 위한 기록입니다.** 제품 동작을 바꾸는 커밋은 `CHANGELOG.md`에 버전 항목을 하나 추가하고, 업그레이드한 사용자나 운영자가 체감하게 될 변화를 적어야 합니다. 문서만 수정하는 커밋에는 버전 항목을 추가하지 않습니다. 자세한 규칙은 아래 섹션을 참조하세요.
+- **가장 작은 올바른 변경.** 정해진 설계 방향을 따르고 시스템이 보장할 수 있는 계약을 지키면서, 한눈에 이해할 수 있는 가장 작은 변경을 택하세요. 복잡도를 키우는 성급한 추상화보다는 약간의 코드 중복이 낫습니다.
+- **Worse is better.** 인터페이스 균일성이나 이론적 완전성보다 단순성을 우선합니다. 단순성을 지키는 편이 낫다면, 애매하게 잘못된 결과를 내보내기보다 계약 범위를 좁히거나 지원하지 않는 입력을 명시적으로 거부하세요.
+- **목표 충실성(objective fidelity).** 요청받은 결과 자체를 구현해야지, 구현하기 쉬운 대용물로 대체해서는 안 됩니다. 단순히 테스트 상태만 통과시키는 것이 목표가 아니라, 해당 책임을 소유한 추상화 계층을 거쳐 실제 실행 경로가 올바르게 동작하게 만드는 것이 목표입니다.
+- **서브시스템 경계.** PostgreSQL은 영속 도메인 사실을 소유하고, Elixir 컨트롤 플레인은 영속 상태와 감독을 맡으며, Rust 커널은 공유 네이티브 프리미티브를 제공하고, Bun Agent Computer Worker는 Agent별 도구 실행을 담당하며, `Function Runtime`(`app/function_runtime/`)은 무상태 Applet 백엔드와 결정론적 프로그램의 격리 실행을 맡습니다. 여러 서브시스템에 걸친 변경을 작성할 때는 이러한 경계를 존중해야 하며, 임의로 허물거나 우회해서는 안 됩니다.
 
 ## changelog 규칙
 
-이것은 제품을 변경하는 모든 커밋을 관문으로 막는 규칙이며, 대부분의 기여가 처음에 틀리는 규칙입니다. `CONTRIBUTING.md`에서:
+제품을 변경하는 모든 커밋에 적용되는 필수 검증 규칙이자, 처음 기여할 때 가장 자주 실수하는 부분입니다. `CONTRIBUTING.md`의 핵심 기준은 다음과 같습니다.
 
-- 문서나 changelog 자체만 바꾸는 커밋은 버전을 추가하지 않습니다. 그 밖의 모든 커밋은 정확히 하나의 루트 `CHANGELOG.md` 버전을 추가하고, 하나의 버전은 여러 커밋에 걸치지 않습니다.
-- 버전은 사용자나 운영자가 업그레이드 후 알아차릴 것을 기록합니다: 새 기능, 동작 변경, 제거, 그들이 겪었을 수 있는 장애의 수정, 필요한 조치. 문서, 테스트, 도구, 의존성, 리팩터링은 기록하지 않습니다. 그런 변화가 없는 버전은 `Internal changes only.`라고만 씁니다.
-- 버전은 `MAJOR.MINOR.PATCH`를 사용합니다. 기본은 `PATCH`입니다. `MINOR`는 제품에 이전에 없던 기능이나 사람이 조치해야 하는 파괴적 변경을 위한 것입니다. `MAJOR`와 사전 릴리스 접미사는 유지보수자의 결정을 따릅니다.
+- 문서나 `CHANGELOG.md` 자체만 수정하는 커밋에는 새 버전을 추가하지 않습니다. 그 밖의 모든 커밋은 루트 `CHANGELOG.md`에 정확히 하나의 버전을 추가해야 하며, 하나의 버전을 여러 커밋에 나누어 담지 않습니다.
+- 변경 로그에는 새 기능, 동작 변경, 기능 제거, 사용자가 겪을 수 있었던 장애 수정, 운영자 조치 사항처럼 업그레이드 시 체감되는 변화만 기록합니다. 문서, 테스트, 개발 도구, 의존성, 내부 리팩터링은 적지 않으며, 사용자에게 보이는 변화가 없다면 `Internal changes only.` 한 줄만 남깁니다.
+- 버전 번호는 `MAJOR.MINOR.PATCH` 형식을 따르며 기본 단위는 `PATCH`입니다. 제품에 없던 새 기능을 추가하거나 사람의 직접 조치가 필요한 호환성 변경에는 `MINOR`를 사용합니다. `MAJOR` 승격과 프리릴리스 접미사는 메인테이너의 결정에 따릅니다.
 
-changelog는 유일한 changelog이자 버전 단위입니다 — 별도의 릴리스 노트 파일은 없습니다. `main` 런타임 이미지 빌드가 동일 버전의 세 가지 런타임 이미지(`ankole-control-plane`, `ankole-agent-computer`, `ankole-function-runtime`) 검증을 모두 통과한 후, 워크플로는 세 이미지 태그에 최신 버전을 사용하고 정확히 그 섹션에서 불변 GitHub Release를 만듭니다. changelog를 변경의 일부로 취급하고, 사후 서류 작업으로 취급하지 마세요.
+루트 `CHANGELOG.md`가 프로젝트의 유일한 변경 로그이자 릴리스 버전 기준이며, 별도의 릴리스 노트 파일은 두지 않습니다. `main` 브랜치의 런타임 이미지 빌드가 동일 버전의 세 런타임 이미지(`ankole-control-plane`, `ankole-agent-computer`, `ankole-function-runtime`) 검증을 모두 통과하면, 배포 워크플로는 세 이미지 태그에 최신 버전을 부여하고 해당 변경 로그 섹션으로 불변(immutable) GitHub Release를 생성합니다. 따라서 변경 로그는 작업이 끝난 뒤 덧붙이는 서류 작업이 아니라 코드 변경의 일부로 함께 작성하세요.
 
 ## 올바른 검사 실행
 
-`CONTRIBUTING.md`가 검사를 명명하고, [kit CLI reference](../kit-cli/)가 명령을 문서화합니다. 모양:
+실행해야 할 검증 항목은 `CONTRIBUTING.md`에, 세부 명령어는 [kit CLI reference](../kit-cli/)에 정리되어 있습니다. 기본 구성은 다음과 같습니다.
 
-- **변경한 패키지의 대상 테스트와 일반 정적 검사** — 전체 스위트가 아니라 영향받는 패키지의 테스트를 실행합니다.
-- **영향받는 통합 또는 엔드투엔드 스위트** — 변경이 프로세스, provider, 지속성 재시작, 또는 사용자 흐름 경계를 가로지를 때, 그리고 건너뛰지 마세요.
-- **`bun run analyze`** (`kit analyze all`) — 저장소 전반의 악취, 사용되지 않는 코드, 구조, 순환을 검사합니다.
-- **`bun run lint`** 및 **`bun run fmt:check`** — 커밋 전에.
+- **수정한 패키지의 단위 테스트와 정적 검사** — 전체 스위트를 무조건 돌리기보다 변경 영향권에 있는 패키지의 테스트를 집중적으로 실행합니다.
+- **영향받는 통합 테스트 및 엔드투엔드 스위트** — 프로세스 경계, 외부 프로바이더, 재시작 후 영속성, 실제 사용자 흐름을 가로지르는 변경이라면 반드시 실행하고 건너뛰지 마세요.
+- **`bun run analyze`** (`kit analyze all`) — 저장소 전반의 코드 스멜, 미사용 코드, 구조 규칙 위반, 순환 의존성을 검사합니다.
+- **`bun run lint`** 및 **`bun run fmt:check`** — 커밋하기 전에 코드 스타일과 포맷을 점검합니다.
 
-필요한 명령을 환경에서 실행할 수 없으면 정확한 명령과 차단 요인을 보고하세요 — 해당 보증을 검증된 것으로 주장하지 마세요.
+현재 실행 환경의 제약 때문에 필수 명령을 직접 돌릴 수 없다면, 실행하지 못한 정확한 명령어와 차단 사유를 투명하게 공유하세요. 실행하지 않은 검증을 통과한 것처럼 보고해서는 안 됩니다.
 
 ## pull request 제출
 
-`CONTRIBUTING.md`가 PR 단계를 다룹니다. 간단한 모양: PR의 커밋은 changelog 규칙(제품을 변경하는 커밋당 하나의 버전)을 따르고, 변경은 `AGENTS.md`의 경계를 존중하며, PR 설명은 문서들이 사용하는 용어로 무엇이 왜 바뀌었는지 말합니다. 리뷰도 같은 것들을 확인할 것입니다.
+PR 제출 절차 역시 `CONTRIBUTING.md`에 정의되어 있습니다. 핵심은 간단합니다. PR에 포함된 각 커밋이 변경 로그 규칙(제품 변경 커밋당 버전 하나)을 지키고 있는지, 코드 변경이 `AGENTS.md`의 서브시스템 경계를 준수하는지 확인하고, PR 본문에는 프로젝트 문서의 표준 용어를 사용해 무엇을 왜 바꾸었는지 명확히 적으세요. 리뷰어 역시 동일한 기준으로 PR을 검토합니다.
 
 ## 이 가이드가 아닌 것
 
-이 가이드는 두 문서의 대체물이 아닙니다 — 두 문서로 가는 문입니다. 읽지 않고 편집할 수 있는 면허도 아닙니다. `AGENTS.md`는 의도적으로 짧으며, 읽는 것은 기여가 할 수 있는 가장 저렴한 일입니다. 그리고 규칙을 논쟁할 자리도 아닙니다. 규칙은 정착된 트레이드오프이며, 로컬 선호는 발견(finding)이 아닙니다 — 대신 구현이 선택된 방향 안에서 일관적인지 평가하세요.
+이 가이드는 두 기준 문서를 대체하지 않으며, 어디서부터 읽어야 할지 안내하는 입구일 뿐입니다. 원본 문서를 건너뛰고 바로 코드를 고쳐도 좋다는 허가서도 아닙니다. `AGENTS.md`는 의도적으로 짧게 유지되고 있으므로, 작업 전에 먼저 읽는 것이 가장 시행착오를 줄이는 길입니다. 또한 이곳은 프로젝트 규칙 자체를 놓고 논쟁하는 자리가 아닙니다. 각 규칙은 이미 확정된 설계상 절충의 결과이므로, 개인적인 취향 차이를 문제점으로 제기하기보다는 구현이 정해진 방향 안에서 일관성을 지키는지를 기준으로 삼아 주세요.
 
 ## 다음 단계
 
 - 첫 편집 전에 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)를 읽으세요.
-- 설정과 수락은 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 따르세요.
-- devkit 명령은 [kit CLI reference](../kit-cli/)를 사용하세요.
-- 변경이 가로지르는 서브시스템 경계를 이해하려면 [architecture overview](../architecture/)를 읽으세요.
+- 환경 설정과 인수 검증은 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)를 따르세요.
+- devkit 명령어는 [kit CLI reference](../kit-cli/)를 참조하세요.
+- 변경이 가로지르는 서브시스템 경계를 파악하려면 [architecture overview](../architecture/)를 읽으세요.

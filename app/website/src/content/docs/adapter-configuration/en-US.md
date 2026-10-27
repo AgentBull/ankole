@@ -5,13 +5,15 @@ section: Getting started
 order: 3
 ---
 
-This page lists the enterprise identity and chat adapters included with Ankole. First determine whether a platform supplies an **Identity Provider (IdP)**, a **Channel Provider**, or both. Then consult the applicable configuration guide.
+This page lists the enterprise identity and chat adapters included with Ankole. First, check whether your platform acts as an **Identity Provider (IdP)**, a **Channel Provider**, or both, and then open the matching guide below.
 
-During first-run setup, `/setup` shows the login callback URL and a guide link for the selected IdP. Pod administrators (`pod_admin`) manage tenant enterprise identity providers in **Pod Settings** (`/api/v2/pod/admin/identity-providers`), and site administrators manage identity providers in **Console → Identity Providers** alongside site-level passwordless Email OTP SMTP settings (`authn.email.*`). Bind external chat applications to Agents under **Console → Signal Routing**.
+During first-run setup, the `/setup` page displays the exact login callback URL and a setup guide link for your chosen IdP. Pod administrators (`pod_admin`) manage enterprise identity providers for a tenant in **Pod Settings** (`/api/v2/pod/admin/identity-providers`), while site administrators manage identity providers in **Console → Identity Providers** alongside the site-level SMTP settings for passwordless Email OTP sign-in (`authn.email.*`). External chat applications connect to Agents under **Console → Signal Routing**.
 
 ## Identity Providers
 
-An IdP provides organization sign-in and can synchronize employees, departments, or groups. Pod administrators (`pod_admin`) configure enterprise identity providers in **Pod Settings**, and site administrators can also manage them in **Console → Identity Providers**. Passwordless Email OTP sign-in uses the site SMTP settings (`authn.email.*`) configured in the Site Console and appears when mail delivery is configured. During setup, verify a real email code or complete enterprise SSO to create the first administrator. Ankole stores no user passwords. The credential names below match the Ankole form. Use the linked guides for provider permissions, callback URLs, and verification steps.
+An IdP authenticates members of your organization and can synchronize employees, departments, and groups. Pod administrators (`pod_admin`) configure enterprise identity providers in **Pod Settings**, and site administrators can also manage them in **Console → Identity Providers**. When site SMTP delivery (`authn.email.*`) is configured in the Site Console, Ankole also offers passwordless Email OTP sign-in. Because Ankole never stores user passwords, you create the first administrator during setup either by verifying a live email code or by completing enterprise SSO.
+
+In the table below, the credential names match the fields in the Ankole configuration form. Follow the linked guides for required provider permissions, callback URLs, and verification steps.
 
 | Platform | External application | Main configuration | Detailed guide |
 |---|---|---|---|
@@ -22,11 +24,11 @@ An IdP provides organization sign-in and can synchronize employees, departments,
 | DingTalk | Internal enterprise application | Client ID, Client Secret, Corp ID, and directory permissions | [DingTalk IdP guide](../quickstart/?idp=dingtalk#identity-providers) |
 | WeCom | Self-built app with optional contacts synchronization | CorpID, AgentId, application Secret, contacts-sync Secret, and trusted IP addresses | [WeCom IdP guide](../quickstart/?idp=wecom#identity-providers) |
 
-After you configure the provider, register the callback URL exactly as `/setup` shows it. Do not type it manually. Do not replace the browser-facing HTTPS origin with an internal container address. After sign-in succeeds, run one full directory sync and check the users, departments, or groups under **Principals and permission groups**.
+After you configure the provider, copy and register the callback URL exactly as shown on `/setup`—do not type it by hand or replace the browser-facing HTTPS origin with an internal container address. Once sign-in succeeds, run a full directory sync and verify the imported users, departments, and groups under **Principals and permission groups**.
 
 ## Channel Providers
 
-A chat adapter receives messages and sends Agent replies. For production use, create separate applications for identity and chat, even when one platform supplies both. This separation keeps sign-in permissions, bot permissions, release scope, and credential rotation independent.
+A chat adapter receives incoming messages and delivers Agent replies. In production, register separate external applications for identity and chat—even when one platform supports both—so that sign-in permissions, bot permissions, release scope, and credential rotation remain independent.
 
 | Platform | External application | Connection and main configuration | Detailed guide |
 |---|---|---|---|
@@ -41,19 +43,19 @@ A chat adapter receives messages and sends Agent replies. For production use, cr
 | WhatsApp | Meta App with the WhatsApp product and a Business phone number | Cloud API webhook; App ID, App secret, verify token, Phone number ID, and System User token | [WhatsApp channel guide](../quickstart/?channel=whatsapp#chat-channels) |
 | Email | A dedicated mailbox with IMAP and SMTP | IMAP and SMTP hosts and ports, login, password, and sender authentication | [Email channel guide](../quickstart/?channel=email#chat-channels) |
 
-Telegram, Discord, LINE, and WhatsApp are consumer IMs. Their users have no employee record, so a new sender is mapped to an account under **Identity → Pending mappings** before the Agent serves them; WhatsApp maps a sender by itself when a known account already owns the phone number. An email sender is known only through an explicit email identity binding, which directory sync creates for employees and an administrator creates for everyone else. See [Signal routing rules](../signal-bindings/#choose-what-happens-to-unknown-senders).
+Because Telegram, Discord, LINE, and WhatsApp are consumer messaging platforms without an employee directory, an administrator maps each new sender to an account under **Identity → Pending mappings** before the Agent serves them. On WhatsApp, however, Ankole resolves the sender automatically when an existing account already owns that phone number. Email senders are recognized only through an explicit email identity binding, which directory sync creates automatically for employees and an administrator creates for everyone else. See [Signal routing rules](../signal-bindings/#choose-what-happens-to-unknown-senders).
 
-After you prepare the external application, open **Console → Signal Routing → New routing rule**. Select the Agent and adapter, and enter the credentials. The **Identity provider** field references the IdP of the same platform: a single IdP is adopted by default, several require a choice, and the standalone option keeps a namespace of the binding's own. The reference makes chat senders and synced directory users one account, so select only an IdP that belongs to the same enterprise organization as the chat application.
+Once the external application is ready, open **Console → Signal Routing → New routing rule**, select the target Agent and adapter, and enter the credentials. Use the **Identity provider** field to link the rule to an IdP on the same platform: if only one matching IdP exists, Ankole selects it by default; if multiple exist, choose the appropriate one; or choose the standalone option to keep sender identities in a dedicated namespace for this binding. Linking an IdP unifies chat senders and synced directory users under a single account, so only select an IdP that belongs to the same enterprise organization as the chat application.
 
 ## Update a stored credential
 
-When you edit an Identity Provider or signal routing rule, the Console only indicates that an encrypted credential is stored. It never returns tokens or secrets to the browser. Leave the credential field blank to keep the stored value. Enter and save a new value only when replacing it. Rotate or revoke old credentials in the external provider, as stored values cannot be retrieved from the Console.
+When you edit an Identity Provider or a signal routing rule, the Console shows whether an encrypted credential is stored without ever returning raw tokens or secrets to the browser. Leave a credential field blank to keep the stored value, or enter and save a new value when replacing it. Because stored secrets cannot be retrieved from the Console, rotate or revoke old credentials directly in the external provider.
 
 ## Verification order
 
-1. Verify Enterprise IdP SSO sign-in or passwordless SMTP Email OTP sign-in. Confirm that the first administrator opens the Pod workspace with `siteadmin` and `pod_admin` access and can open the Site Admin Console at `/site-admin-console`.
-2. When an enterprise IdP is configured, run a full directory sync and check the Principals and permission groups.
-3. Create the chat routing rule. Test it first with a direct message or an explicit mention.
-4. Confirm that the Agent receives the message and sends a reply. Then enable advanced functions such as group observation, real-time directory sync, or cards.
+1. Verify sign-in via enterprise IdP SSO or passwordless Email OTP over SMTP, and confirm that the first administrator opens the Pod workspace with `siteadmin` and `pod_admin` access and can access the Site Admin Console at `/site-admin-console`.
+2. If you configured an enterprise IdP, run a full directory sync and inspect the resulting Principals and permission groups.
+3. Create the chat routing rule and test it first with a direct message or an explicit mention.
+4. Once you confirm that the Agent receives the message and replies, enable optional features such as group observation, real-time directory sync, or interactive cards.
 
-If you change provider scopes, application permissions, or release scope, reinstall or republish the application when the provider requires this action. Update Ankole with each rotated credential.
+Whenever you change provider scopes, application permissions, or release scope, reinstall or republish the application if the platform requires it, and update Ankole with each rotated credential.

@@ -12,10 +12,10 @@
     "fmt": "cargo fmt --manifest-path Cargo.toml && mix format",
     "fmt:check": "cargo fmt --manifest-path Cargo.toml --check && mix format --check-formatted",
     "build:node": "bun scripts/build-node-addon.ts",
-    "lint": "cargo fmt --manifest-path Cargo.toml --check && cargo clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && cargo clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && cargo clippy --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi --all-targets -- -D warnings && mix format --check-formatted",
+    "lint": "cargo fmt --manifest-path Cargo.toml --check && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi --all-targets -- -D warnings && mix format --check-formatted",
     "test": "bun run test:rust && bun run test:elixir && bun run test:node",
     "test:elixir": "mix deps.get && mix test",
-    "test:node": "cargo test --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi && bun run build:node && bun test ./test/node",
-    "test:rust": "cargo test --manifest-path Cargo.toml --no-default-features && cargo test --manifest-path Cargo.toml --no-default-features --features nif"
+    "test:node": "bun scripts/cargo.ts test --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi && bun run build:node && bun test ./test/node",
+    "test:rust": "bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif"
   }
 }

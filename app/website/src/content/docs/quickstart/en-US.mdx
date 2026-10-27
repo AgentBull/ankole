@@ -84,8 +84,8 @@ export const deploymentTabs = [
         {
           title: 'Set the Docker socket group',
           body: [
-            'The control plane creates the Worker containers through the Docker socket. It runs as an unprivileged user and gets the socket through the group that owns it inside containers.',
-            'On Linux, set ANKOLE_DOCKER_GID in .env to the group ID that this command prints. With Docker Desktop on macOS, set ANKOLE_DOCKER_GID=0. Docker Desktop gives containers a socket of group 0, whatever the host shows. Set ANKOLE_DOCKER_SOCKET only when the socket is not /var/run/docker.sock.'
+            'The control plane runs as an unprivileged user and provisions Worker containers through the Docker socket using the socket’s owning group ID.',
+            'On Linux, set ANKOLE_DOCKER_GID in .env to the group ID printed below. On macOS with Docker Desktop, set ANKOLE_DOCKER_GID=0—Docker Desktop exposes the container socket as group 0 regardless of what the host reports. Set ANKOLE_DOCKER_SOCKET only if your socket path differs from /var/run/docker.sock.'
           ],
           code: [
             {
@@ -94,7 +94,7 @@ export const deploymentTabs = [
             }
           ],
           caution:
-            'Access to the Docker socket is equal to root access on the host. Treat the host as a trusted first-party compute boundary.'
+            'Access to the Docker socket grants root-equivalent control over the host. Treat the host as a trusted first-party compute boundary.'
         },
         {
           title: 'Set the public host',
@@ -145,12 +145,12 @@ export const deploymentTabs = [
         {
           title: 'Pin verified images',
           body: [
-            'The control-plane image names the Worker image of the same source revision, and the control plane creates every Worker with it. For a controlled rollout, pin both the control-plane image and ankole-function-runtime image to immutable digests from the same release.'
+            'Each control-plane image references the matching Worker image from the same source revision and uses it to provision every Worker. For controlled production rollouts, pin both the control-plane image and ankole-function-runtime image to immutable digests from the same release.'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
-              description: 'Control-plane image or immutable digest. It also names the Worker image.'
+              description: 'Control-plane image or immutable digest. It also determines the Worker image.'
             },
             {
               name: 'ANKOLE_FUNCTION_RUNTIME_IMAGE',
@@ -175,7 +175,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Stop all writers and back up PostgreSQL (plus any dedicated BASE_DB_URLS shard databases), ankole_files_data, every persistent Agent Home, and the deployment secrets (ANKOLE_SECRET_BASE, RELEASE_COOKIE, and ANKOLE_FUNCTION_RUNTIME_TOKEN). Stopping the control plane alone does not stop Workers. Test the full restore on isolated resources; see the Backup and restore guide."
+            "Stop all writers and back up PostgreSQL (plus any dedicated BASE_DB_URLS shard databases), ankole_files_data, every persistent Agent Home, and the deployment secrets (ANKOLE_SECRET_BASE, RELEASE_COOKIE, and ANKOLE_FUNCTION_RUNTIME_TOKEN). Because stopping the control plane alone leaves Worker containers running, stop Workers explicitly as well, and verify full restores on isolated infrastructure; see the Backup and restore guide."
           ]
         },
         {
@@ -192,10 +192,10 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'docker compose stop keeps the ankole_workers network, which the Worker containers still use. Worker containers keep running and connect to the new control plane. The control plane replaces each Worker of an older image when its Agent is idle.'
+            'docker compose stop preserves the ankole_workers network so existing Worker containers stay up and reconnect to the upgraded control plane, which then replaces Workers running older images as their Agents become idle.'
           ],
           caution:
-            "docker compose down -v deletes Compose-managed database and file-store volumes. Independent Agent Home volumes have a separate lifecycle. Make a tested full backup before deleting any persistent storage."
+            "docker compose down -v deletes Compose-managed database and file-store volumes (independent Agent Home volumes have a separate lifecycle). Always verify a complete backup before deleting persistent storage."
         },
         {
           title: 'Use a local-only HTTPS host',
@@ -349,7 +349,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'The installation has no Worker Pod yet. The control plane creates the Worker of an Agent when you create the Agent.'
+            'No Worker Pod runs yet—the control plane provisions each Agent’s Worker Pod once you create the Agent.'
           ]
         },
         {
@@ -568,9 +568,9 @@ export const deploymentTabs = [
         {
           title: 'Use Codespaces or another forwarded origin',
           body: [
-            'Register the forwarded HTTPS origin in the IdP. A localhost callback and a forwarded callback are different URLs, so verify sign-in against the URL the browser uses.'
+            'Register the forwarded HTTPS origin in your IdP: because a localhost callback and a forwarded HTTPS callback are distinct URLs, always test sign-in through the exact origin that your browser opens.'
           ],
-          caution: 'Use this path for development. Use Docker Compose or Kubernetes for a production deployment.'
+          caution: 'Use source installation only for development; deploy with Docker Compose or Kubernetes in production.'
         }
       ]
     }
@@ -1301,7 +1301,7 @@ export const identityTabs = [
             'On the same page, set two values: add the Ankole domain as the trusted domain for web authorization, and add the deployment egress IP to the trusted-IP list.'
           ],
           caution:
-            'A missing trusted-IP entry fails sign-in and API calls with error 60020. A missing trusted domain blocks the redirect after the QR scan.'
+            'If your egress IP is missing from the trusted-IP list, WeCom rejects sign-in and API calls with error 60020; if the trusted domain is missing, WeCom blocks the redirect after the QR scan.'
         },
         {
           title: 'Enable Contacts sync and record its dedicated secret',
@@ -1386,13 +1386,13 @@ export const modelAdvanced = {
     {
       title: 'Select the Brain maintainer and retrieval models',
       body: [
-        'Open Console → AppConfigure → Brain. Select a tenant and an active Agent responsible for its Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Disabling it stops model calls and URL Source fetching until it is enabled or replaced. Edit its model profiles from the linked Agent page.'
+        'Open Console → AppConfigure → Brain, choose a tenant, and select an active Agent to run Brain maintenance for that tenant. Brain executes all of its model calls as this Agent and attributes usage to it; disabling the Agent pauses Brain model calls and URL Source fetching until you re-enable or replace it. Edit its model profiles directly from the linked Agent page.'
       ],
       fields: [
         {
           name: 'brain.maintainer_agent_uid',
           description:
-            'Uses the selected Agent’s light profile for extraction, heavy for Dreaming, and web_fetch for URL Sources. A missing web_fetch profile or a failed Provider request makes the Source fetch fail.'
+            'Uses the selected Agent’s light profile for extraction, heavy for Dreaming, and web_fetch for URL Sources; if web_fetch is unbound or the upstream Provider call fails, Ankole rejects the URL Source fetch.'
         },
         {
           name: 'brain.embedding_model',
@@ -1831,7 +1831,7 @@ export const channelTabs = [
           title: 'Create the AI card template and add its variables',
           body: [
             'DingTalk cards are template-hosted: the layout lives on the DingTalk card platform, and Ankole only writes values into a fixed set of variables. Build one template per DingTalk organization; budget about twenty minutes for the first one. Before you start, the Agent must already reply with plain text, and the app needs the interactive card instance write and AI card streaming update permissions.',
-            'Open the DingTalk developer console → Card Platform → New template and choose the AI card category. Only this category has the AI card container, which draws the writing indicator and the finished and failed states. Add each variable below with exactly this name; a name that does not match leaves its area empty on every reply.'
+            'Open the DingTalk developer console → Card Platform → New template and choose the AI card category. Only this category has the AI card container, which draws the writing indicator and the finished and failed states. Add each variable below with its exact name—if any variable name does not match, DingTalk leaves that card region blank on every reply.'
           ],
           fields: [
             { name: 'state', description: 'Text. One status line, such as the running tool label.' },
@@ -2053,9 +2053,9 @@ export const channelTabs = [
         {
           title: 'Respect the platform limits',
           bullets: [
-            'The Bot API cannot download a file larger than 20 MB. The Agent sees the file name and size but cannot read the content.',
-            'Telegram sends no event when a user deletes a message, so the deleted text stays in the session context.',
-            'When Telegram may have accepted a send that the connection lost, Ankole does not repeat the send automatically. It applies the possible-duplicate flow instead of posting a second reply.'
+            'The Bot API cannot download files larger than 20 MB—the Agent sees the filename and size but cannot read the file contents.',
+            'Telegram sends no event when a user deletes a message, so deleted text stays in the session context.',
+            'If a network drop occurs after Telegram may already have accepted a message, Ankole enters its possible-duplicate recovery flow instead of resending automatically and risking a duplicate reply.'
           ]
         },
         {
@@ -2148,10 +2148,10 @@ export const channelTabs = [
         {
           title: 'Respect the platform limits',
           bullets: [
-            'Ankole downloads an attachment of at most 25 MB. The Agent sees the name and size of a larger file but cannot read the content.',
-            'Discord sends no event that Ankole uses when a user deletes a message, so the deleted text stays in the session context.',
-            'A reply is split at 2,000 characters. A card shows at most 25 buttons.',
-            'When Discord may have accepted a send that the connection lost, Ankole does not repeat the send automatically. It applies the possible-duplicate flow instead of posting a second reply.'
+            'Ankole downloads attachments up to 25 MB—for larger files, the Agent sees the filename and size without reading the file contents.',
+            'Discord sends no message-deletion event that Ankole consumes, so deleted text stays in the session context.',
+            'Long replies split at 2,000 characters, and each card displays at most 25 buttons.',
+            'If a network drop occurs after Discord may already have accepted a message, Ankole enters its possible-duplicate recovery flow instead of resending automatically and risking a duplicate reply.'
           ]
         },
         {
@@ -2447,7 +2447,7 @@ export const channelTabs = [
         {
           title: 'Know how email senders become accounts',
           body: [
-            'Anyone on the internet can write to the mailbox, and a From address proves nothing by itself, so Ankole never matches an email sender by an unlinked profile email or a SiteCredential login email alone. A sender is known only through an explicit Pod email identity binding: directory sync and enterprise provider sign-in bind the address the provider reports, so employees of a synced directory are admitted without a manual step; an administrator binds any other address from Identity → Pending mappings. Create a standalone account creates an account whose identifier is the address; use it only for an open mailbox.'
+            'Because anyone on the internet can write to a mailbox and an unverified From header proves nothing on its own, Ankole never matches an email sender against an unlinked profile email or a SiteCredential login email alone. Instead, Ankole recognizes senders strictly through an explicit Pod email identity binding: directory sync and enterprise IdP sign-in automatically bind the email address that the provider reports (admitting synced employees with no manual step), while administrators bind external addresses under Identity → Pending mappings. Selecting Create a standalone account creates an account keyed by that email address—enable it only on an intentionally open mailbox.'
           ]
         },
         {
@@ -2505,45 +2505,45 @@ export const signalAdvanced = {
 
 ## How Ankole is deployed
 
-A private Ankole deployment instance has one control plane and one Agent Computer Worker for each Agent. The control plane owns durable domain state and supervision as the management platform; a Worker provides the execution environment and acts as the Agent's own work computer.
+Every private Ankole deployment runs one control plane alongside a dedicated Agent Computer Worker for each Agent: the control plane owns durable domain state and supervision, while each Worker provides an isolated execution environment that acts as that Agent's personal work computer.
 
-Agents never share a Worker, just as each colleague has a work computer of their own. The control plane creates the Worker of an Agent when you create the Agent, and it stops, replaces, and deletes the Worker by itself.
+Agents never share a Worker, just as human teammates each use their own workstation. Whenever you create an Agent, the control plane provisions its Worker automatically and manages stopping, replacing, and deleting that Worker throughout its lifecycle.
 
 <DocsKnowledgeNote
   label="💡 Did you know?"
-  text="The container or Pod of a Worker is its only isolation boundary. The Agent's commands, Automation scripts, and browser run in it without an inner sandbox, and the container needs no extra kernel privileges. An Agent can install software on its Worker or even break it, but it cannot act as another Agent. The control plane rebuilds a Worker that does not become ready in time."
+  text="A Worker's container or Pod is its sole isolation boundary: the Agent's shell commands, Automation scripts, and browser run directly inside it without an inner sandbox or elevated kernel privileges. While an Agent can install packages on its own Worker—or even break it—it can never act as another Agent, and the control plane automatically rebuilds any Worker that fails to become ready in time."
 />
 
-Each deployment needs PostgreSQL, a drive file store, and persistent storage for every Agent Home. The default Kubernetes chart uses a shared ReadWriteMany Home claim and separate ReadWriteOnce cache claims. Home needs a backup; the cache does not.
+Every deployment requires PostgreSQL, a control-plane file store, and persistent storage for each Agent Home. In Kubernetes, the default Helm chart provisions a shared `ReadWriteMany` claim for Agent Homes alongside separate `ReadWriteOnce` cache claims—always back up Agent Homes, whereas cache claims are rebuildable.
 
-One site can contain several tenants. Site operators manage the shared infrastructure; each tenant has its own people, Agents, Brain and integrations. The administrator Console defaults to `/site-admin-console`. Set `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (Helm: `controlPlane.siteAdminConsolePath`) before startup to change it.
+A single site can also host multiple tenants: site operators run the shared infrastructure, while each tenant owns its own Principals, Agents, Brain, and integrations. By default, the Site Admin Console is served at `/site-admin-console` (configurable before startup via `ANKOLE_SITE_ADMIN_CONSOLE_PATH` or Helm's `controlPlane.siteAdminConsolePath`).
 
 <span id="terminology" aria-hidden="true" />
 
 ### Terms used in this guide
 
-This page defines the terms used in Ankole user documentation and interfaces. The names in parentheses match third-party platforms, configuration fields, and APIs. Later sections use the short form.
+The table below maps the canonical terms used across Ankole's interfaces and docs (with matching third-party or API terms in parentheses) to the short forms used throughout the rest of this guide:
 
 | Canonical term | Meaning | Short form |
 |---|---|---|
 | **Site** | One complete Ankole deployment with shared infrastructure and trusted operators | Site |
-| **Tenant** | One organization's people, Agents, Brain, integrations and work inside a site | Tenant |
-| **Principal** | A person, Agent, or system service that can have an identity and permissions in Ankole | Principal |
+| **Tenant** | One organization's people, Agents, Brain, integrations, and work inside a site | Tenant |
+| **Principal** | A person, Agent, or system service that holds an identity and permissions in Ankole | Principal |
 | **Identity Provider (IdP)** | An external identity source that provides Console SSO and synchronizes employees, contacts, and organization structure | IdP |
 | **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a mailbox | Platform |
 | **Channel Provider** | One chat application or bot configuration that receives messages and sends Agent replies | Channel Provider |
-| **Conversation** | A shared space for people and Agents; native messages use Ankole as their authority, external messages use their host | Conversation |
+| **Conversation** | A shared space for people and Agents; native messages use Ankole as their authority, while external messages use their host platform | Conversation |
 | **Message** | A committed record visible to conversation participants | Message |
-| **Signal** | A durable stimulus from a message, time, external event, or task completion | Signal |
-| **Session** | An execution context with a signal queue and recoverable work; it does not cross conversations | Session |
-| **Delivery** | A durable intent, attempt, and result for a message sent to an external conversation | Delivery |
-| **Signal Routing Rule (Signal Binding)** | The rule that sends messages or events from a signal source to an Agent | Routing rule |
-| **LLM Provider** | A configuration that stores a model service endpoint, credentials, and available models | LLM Provider |
+| **Signal** | A durable stimulus triggered by a message, schedule, external event, or task completion | Signal |
+| **Session** | An execution context with its own signal queue and recoverable work, scoped within a single Conversation | Session |
+| **Delivery** | A durable intent, attempt, and result for sending a message to an external conversation | Delivery |
+| **Signal Routing Rule (Signal Binding)** | The rule that routes messages or events from a signal source to a target Agent | Routing rule |
+| **LLM Provider** | A configuration storing a model service endpoint, credentials, and available models | LLM Provider |
 | **Background Agent Jobs profile (internal key: `coding`)** | Selects the AIGateway provider and model for Background Agent Jobs | Background Agent Jobs |
 
 ## Let an Agent complete the setup
 
-You can send this prompt to Codex, Claude Code, or another Agent that can operate a terminal:
+You can paste this prompt into Codex, Claude Code, or another terminal-capable coding Agent to walk through deployment and verification with you:
 
 <QuickstartAgentPrompt
   client:visible
@@ -2555,9 +2555,9 @@ You can send this prompt to Codex, Claude Code, or another Agent that can operat
 
 ## 1. Deploy Ankole
 
-Use Docker Compose for one host or Kubernetes for an enterprise deployment. Install from source for development and debugging.
+Choose Docker Compose for single-host deployments, Kubernetes for production cluster deployments, or source installation for local development and debugging.
 
-The Worker installation name uses 1–20 lowercase letters, digits, or hyphens, with a letter or digit at each end. For example, `e2e-1011b01` is valid. Compose sets it with `ANKOLE_WORKER_INSTALLATION` (default `ankole`); Helm uses `worker.installation`, or the release name when that value is empty. Choose the name before the first start and keep it after installation: Worker resources and persistent Home storage use this name.
+Before starting Ankole for the first time, pick a permanent Worker installation name (`1–20` lowercase letters, digits, or hyphens, starting and ending with an alphanumeric character—for example, `e2e-1011b01`). Set it via `ANKOLE_WORKER_INSTALLATION` in Compose (default `ankole`) or `worker.installation` in Helm (defaulting to the Helm release name), and keep it unchanged afterward because Worker resources and persistent Agent Home paths are keyed to it.
 
 <QuickstartTabs
   client:visible
@@ -2572,9 +2572,9 @@ The Worker installation name uses 1–20 lowercase letters, digits, or hyphens, 
 
 ## 2. Set up sign-in and identity first
 
-Ankole is designed for private deployment inside an enterprise. A site can contain several tenants. Each tenant represents its Agents, employees, and system services as Principals, and AuthZ manages their permissions. Completing `/setup` grants the initial administrator both `siteadmin` (for the Site Admin Console at `/site-admin-console`) and default Pod `pod_admin`. Select the target tenant in the Console before configuring tenant-specific settings.
+Ankole is built for private enterprise deployments where a single site can host multiple tenants, each modeling its employees, Agents, and system services as Principals governed by AuthZ. Finishing `/setup` grants the initial administrator both `siteadmin` (for the Site Admin Console at `/site-admin-console`) and `pod_admin` on the default Pod—always select the target tenant in the Console before editing tenant-scoped settings.
 
-During `/setup`, choose either passwordless **Email OTP** (`email_otp` via your SMTP server and a 6-digit verification code) or an **Enterprise SSO Identity Provider (IdP)** that also synchronizes employees, directory contacts, and the organization structure. Configure sign-in before you configure the chat channel.
+During `/setup`, configure sign-in before setting up any chat channel: choose either passwordless **Email OTP** (`email_otp` via your SMTP server and a 6-digit verification code) or an **Enterprise SSO Identity Provider (IdP)** that also syncs employees, directory contacts, and organizational groups.
 
 | Setting | What it controls | Configure it where |
 |---|---|---|
@@ -2582,13 +2582,13 @@ During `/setup`, choose either passwordless **Email OTP** (`email_otp` via your 
 | **Identity Provider (IdP)** | Enterprise SSO and the employees, contacts, organization structure, and permission groups synchronized from the enterprise directory | `/setup` first, then **Console → Identity Providers** |
 | **Channel Provider** | The IM app or bot that receives messages and sends Agent replies | **Console → Signal Routing** |
 
-The sign-in method and chat channel can use different platforms. You can bootstrap with Email OTP or Google Workspace and talk to the Agent in Slack, or let Entra ID supply identity while Lark, Slack, DingTalk, Teams, or WeCom carries the conversation.
+Sign-in and chat channels do not have to share the same platform: for example, you can sign in with Email OTP or Google Workspace while chatting in Slack, or run SSO through Microsoft Entra ID while routing conversations over Lark/Feishu, Slack, DingTalk, Teams, or WeCom.
 
 ### Complete the setup for your sign-in method
 
-Select **Email OTP** or the enterprise identity source that your organization uses. Each enterprise SSO tab starts in the provider console and ends with the first sign-in and directory sync.
+Select **Email OTP** or your organization's enterprise identity provider below (each enterprise SSO tab walks from app creation in the provider console through initial sign-in and full directory sync).
 
-If you enable an enterprise adapter for the first time, restart the control plane after the first sign-in. This restart starts the plugin background work, such as directory connections and Graph subscriptions.
+When enabling an enterprise adapter for the first time, restart the control plane after completing your initial sign-in so Ankole launches the plugin's background workers, such as directory streams and Microsoft Graph subscriptions.
 
 <QuickstartTabs
   client:visible
@@ -2603,13 +2603,9 @@ If you enable an enterprise adapter for the first time, restart the control plan
 
 ## 3. Add an LLM Provider and create an Agent
 
-An Agent model profile stores a model reference, so add the LLM Provider first. Sign in to the Console. Open **Providers → New provider**, choose the provider kind, give it a stable Provider ID, enter the endpoint and credential fields, and save.
+Because an Agent's model profiles reference an existing LLM Provider, register the provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, assign a stable Provider ID, enter its endpoint and credentials, and save. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
 
-Provider credentials stay encrypted in the control plane. Do not put them in deployment environment files or Agent files.
-
-Open **Agents → New Agent**. Set the handle, display name, Worker provider, and a mission that states its work and acceptance criteria. Ankole generates the opaque UID.
-
-Then configure its model profiles:
+Next, open **Agents → New Agent**, enter a handle, display name, Worker provider, and a mission defining the Agent's responsibilities and acceptance criteria (Ankole assigns its opaque UID automatically), then bind the three required model profiles:
 
 | Profile | First-run use |
 |---|---|
@@ -2617,7 +2613,7 @@ Then configure its model profiles:
 | `light` | Short and frequent work |
 | `heavy` | Hard synthesis |
 
-All three are required before the Agent can run. For the first conversation, you can bind the same known-good provider and model to all three. Split them only after the end-to-end path works.
+All three profiles must be bound before the Agent can run. For your initial test, bind the same known-good provider and model to all three slots, then split tiers once the end-to-end conversation path works.
 
 <QuickstartDisclosure
   client:visible
@@ -2629,11 +2625,13 @@ All three are required before the Agent can run. For the first conversation, you
 
 ## 4. Connect a chat channel and create its signal routing rule
 
-Enable the chat platform's Control Plane Plugin in the Console, and then create the bot or application on that platform. Use separate apps for the IdP and chat roles, even when both use the same platform. This separation keeps sign-in and directory permissions away from bot permissions. It also separates credential rotation and app releases.
+Enable your chat platform's Control Plane Plugin in the Console, then create the bot application on that platform. Even when your IdP and chat channel use the same vendor, register separate apps for each role so SSO/directory scopes, bot scopes, credential rotations, and app releases stay cleanly isolated. Because each chat app carries one bot identity, create separate chat apps whenever multiple Agents need distinct names, avatars, or permission scopes, then bind each app to its target Agent via a routing rule.
 
-One chat app usually represents one bot identity. If several Agents need different bot names, avatars, or permissions, create several apps on that platform. After you prepare an app, create its routing rule in the Console and connect it to the intended Agent.
+How Ankole resolves chat senders depends on the platform category:
 
-Slack, Teams, Lark/Feishu, DingTalk, and WeCom are enterprise platforms: their users come from the directory that the IdP synchronized. Telegram, Discord, LINE, and WhatsApp are consumer IMs: their users have no employee record, so an administrator maps each new sender to an account under **Identity → Pending mappings** before the Agent serves them; WhatsApp maps a sender by itself when a known account already owns the phone number. Email connects a dedicated mailbox, and a sender is known only through an explicit email identity binding.
+- **Enterprise platforms (Slack, Teams, Lark/Feishu, DingTalk, WeCom)**: Senders match directly against directory Principals synced by your IdP.
+- **Consumer IMs (Telegram, Discord, LINE, WhatsApp)**: Senders have no directory employee record, so an administrator links each new sender under **Identity → Pending mappings** before the Agent serves them (except on WhatsApp when an existing account already owns that verified phone number).
+- **Email**: Connects a dedicated mailbox and admits senders strictly through explicit Pod email identity bindings.
 
 <QuickstartTabs
   client:visible
@@ -2646,9 +2644,7 @@ Slack, Teams, Lark/Feishu, DingTalk, and WeCom are enterprise platforms: their u
 
 ### Complete the connection in the Console
 
-A routing rule connects one Channel Provider to one Agent. It records the adapter, app credentials, target Agent, and group-message behavior. Create a separate rule for each bot.
-
-In the Console, open **Signal Routing → New routing rule** and set:
+Each signal routing rule links one Channel Provider to one target Agent—storing the adapter, app credentials, target Agent, and group-message policy—so create a separate rule per bot under **Signal Routing → New routing rule**:
 
 | Field | What to choose |
 |---|---|
@@ -2658,11 +2654,11 @@ In the Console, open **Signal Routing → New routing rule** and set:
 | **Group message mode** | Start with `addressed_only` |
 | **Channel settings** | Paste the credentials and values from the channel tab |
 
-Save the rule. The list must show it as enabled. If the form rejects a credential, fix that error before testing the IM; the adapter has not opened its connection yet.
+Save the rule and confirm that it appears as enabled. If Ankole rejects a credential on save, resolve that validation error before testing in chat—the adapter has not opened its platform connection yet.
 
 <DocsKnowledgeNote
   label="💡 Did you know?"
-  text="A Signal Routing Rule sends messages or events from a source to its target Agent. A chat adapter records messages in a Conversation and then creates Signals. A CloudEvents endpoint can also receive events from an external system. Agents can share Conversation history. Each Agent uses its own Session to process that history."
+  text="A Signal Routing Rule dispatches inbound messages or external CloudEvents from a source to its target Agent: chat adapters first record messages in a shared Conversation and then emit Signals, and while multiple Agents can share Conversation history, each Agent processes Signals inside its own isolated Session."
 />
 
 <QuickstartDisclosure
@@ -2673,26 +2669,26 @@ Save the rule. The list must show it as enabled. If the form rejects a credentia
 
 ## 5. Talk to the Agent in the IM
 
-Add the bot to a test conversation. In a group chat, start with an explicit @-mention:
+Invite the bot into a test conversation and, in group chats, start with an explicit `@mention`:
 
 > @Ankole What can you do, and which team are you serving?
 
-After the first real model reply, tune the Agent mission, models, and group-chat policy for the team.
+Once you receive the first live reply, refine the Agent's mission, model tiers, and group-message policy for production use.
 
 <span id="agent-not-replying" aria-hidden="true" />
 
 ### If the Agent does not reply
 
-Check one boundary at a time, in this order:
+Walk through each boundary in order:
 
-1. The latest provider app version is published and available to the test user.
-2. The bot is installed in the channel, team, or conversation.
-3. The required message event and scopes are active.
-4. The routing rule is enabled and points to the intended Agent.
-5. The Agent has `primary`, `light`, and `heavy` model profiles.
+1. The latest provider app version is published and covers your test user in its availability scope.
+2. The bot is installed in the target channel, team, or conversation.
+3. All required message event subscriptions and OAuth scopes are active.
+4. The signal routing rule is enabled and targets the intended Agent.
+5. The Agent has `primary`, `light`, and `heavy` model profiles bound.
 6. The LLM Provider credential and model selector are valid.
-7. The Agent's Worker is Ready under **Console → Workers**. Otherwise, that page shows the reason from the backend.
+7. The Agent's Worker shows as Ready under **Console → Workers** (otherwise, inspect the backend failure reason displayed there).
 
-For Compose, inspect `docker compose logs -f control-plane`. List the Worker containers with `docker ps -a --filter label=ankole.installation=ankole` and read one with `docker logs CONTAINER_NAME`. For Kubernetes, inspect the control-plane and Worker Pod logs. Read only the relevant error; do not print environment variables or secrets.
+On Docker Compose, tail `docker compose logs -f control-plane`, list Worker containers with `docker ps -a --filter label=ankole.installation=ankole`, and inspect a specific Worker via `docker logs CONTAINER_NAME`. On Kubernetes, check the control-plane and Worker Pod logs—always reading only the relevant error lines without dumping environment variables or secrets.
 
-Once the reply arrives, continue with [Agents](../agents/), [Signal routing rules](../signal-bindings/), or [Background Agent Jobs](../background-jobs/).
+Once your Agent replies end to end, continue with [Agents](../agents/), [Signal routing rules](../signal-bindings/), or [Background Agent Jobs](../background-jobs/).

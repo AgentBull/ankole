@@ -114,13 +114,13 @@ export const TokenQuotaEditorModel = createModel(() => {
       return (accepted: TokenQuotaDraft) => {
         if (generation !== requestedGeneration) return false
         batch(() => {
-          if (JSON.stringify(periodDays.value) === JSON.stringify(submitted.periodDays)) {
+          if (periodDays.value === submitted.periodDays) {
             periodDays.value = accepted.periodDays
           }
-          if (JSON.stringify(periodStartAt.value) === JSON.stringify(submitted.periodStartAt)) {
+          if (periodStartAt.value === submitted.periodStartAt) {
             periodStartAt.value = accepted.periodStartAt
           }
-          if (JSON.stringify(limitTokens.value) === JSON.stringify(submitted.limitTokens)) {
+          if (limitTokens.value === submitted.limitTokens) {
             limitTokens.value = accepted.limitTokens
           }
           initialDraft.value = { ...accepted }

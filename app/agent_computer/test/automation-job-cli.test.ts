@@ -1,11 +1,14 @@
+import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { startEmitBridge } from '../src/automation-jobs/run'
 import { startAutomationJobCLIBridge } from '../src/cli/automation-jobs/automation-job-cli-bridge'
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { commandFromArgs } from '../src/cli/automation-jobs/automation-job-cli'
-import { RPCRejectedError, RPCTimeoutError } from '../src/lanes/rpc_lane'
+import { AutomationJobRunRequestSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { RPCRejectedError, RPCTimeoutError, type RPCRequester } from '../src/lanes/rpc_lane'
 import {
   type AutomationJobManagementRPCMethod,
   type AutomationJobRPCRequester
@@ -208,6 +211,32 @@ describe('automation job CLI', () => {
       await expect(create('./linked')).rejects.toThrow('must contain a regular main.ts file')
       await expect(create('./missing')).rejects.toThrow('automation job path must be a directory')
       expect(drive.paths()).toEqual([])
+    } finally {
+      bridge.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects non-object and malformed JSON lines on the automation emit bridge', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-automation-emit-'))
+    const rpc = (async () => {
+      throw new Error('unexpected RPC')
+    }) as unknown as RPCRequester
+    const bridge = startEmitBridge(
+      create(AutomationJobRunRequestSchema, {
+        automationJobRunId: '1000',
+        attemptId: 'attempt-1'
+      }),
+      rpc,
+      root
+    )
+
+    try {
+      for (const raw of ['null', '123', '[]', '{bad']) {
+        await expect(
+          requestSocketLineBridge(bridge.socketPath, raw, 'emit bridge returned an invalid response')
+        ).rejects.toThrow('Invalid JSON request')
+      }
     } finally {
       bridge.close()
       rmSync(root, { recursive: true, force: true })

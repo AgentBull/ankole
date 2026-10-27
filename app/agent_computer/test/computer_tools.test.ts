@@ -15,7 +15,6 @@ import type { ComputerToolContext } from '../src/tools/computer/context'
 import { createComputerTools } from '../src/tools/computer'
 import { createApplyPatchTool } from '../src/tools/computer/apply-patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
-import { FakeDrive } from './support/fake-drive'
 import { workerToolDeclarations, workerToolsPath } from '../scripts/export-worker-tools'
 import { computerToolsForContext } from '../src/tools/computer'
 
@@ -64,7 +63,6 @@ function contextFor(computer: ContainerComputer, overrides: Partial<ComputerTool
   return {
     agentHome: '/agents/agent-1',
     workspaceRoot: '/agents/agent-1/sessions/session-1',
-    drive: new FakeDrive('/agents/agent-1').drive(),
     computer,
     ...overrides
   }
@@ -85,8 +83,7 @@ describe('computer tools', () => {
   it('exposes only foreground, stateless computer tools to the main agent', () => {
     const tools = createComputerTools({
       agentHome: '/agents/agent-1',
-      workspaceRoot: '/agents/agent-1/sessions/session-1',
-      drive: new FakeDrive('/agents/agent-1').drive()
+      workspaceRoot: '/agents/agent-1/sessions/session-1'
     })
     const names = tools.map(tool => tool.name)
 

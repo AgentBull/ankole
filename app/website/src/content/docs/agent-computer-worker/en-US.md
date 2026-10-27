@@ -5,31 +5,31 @@ section: Developer guide
 order: 108
 ---
 
-An Agent Computer Worker is one Agent's computer. Agent creation saves the provider binding and an absent Worker row. The control plane starts it when an environment tool or Codex first needs it. Pure questions and control-plane tools work without it.
+Each Agent has its own isolated computer, called an Agent Computer Worker. When you create an Agent, Ankole records its Worker provider binding and initializes the Worker row in an absent state without booting an instance. Pure Q&A turns and control-plane tools run directly in the control plane without a Worker; the control plane starts the Worker on demand the first time a turn invokes an environment tool or starts a Codex Job.
 
 ## Execution and ownership
 
-The Bun Worker executes commands, file and browser tools, Skills, MCP calls, automation scripts, and Codex Jobs. `Ankole.Sessions` in the control plane runs the main Agent loop, commits input consumption and tool results, and owns final replies. AIGateway owns the stored Response chain and hosted tools.
+Inside the Worker, the Bun runtime executes shell commands, file and browser tools, Skills, MCP calls, automation scripts, and Codex Jobs. Durable orchestration stays in the Elixir control plane: `Ankole.Sessions` drives the main Agent loop, commits consumed inputs and tool results, and owns final replies, while AIGateway manages the stored Response chain and hosted tools.
 
-The control plane supplies `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. The Worker serves its own Agent, removes credentials from child environments, and has no database connection. The container is the Agent's isolation boundary; commands run as uid 1000 without sudo.
+When booting a Worker, the control plane injects `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. Each Worker serves only its assigned Agent, strips control-plane credentials from child process environments, and never opens a database connection. The container itself forms the Agent's isolation boundary, where commands run as `uid` `1000` without `sudo`.
 
 ## Worker pools and the live connection
 
-The Agent's saved Worker provider selects its pool, platform, instance configuration, and storage. Several Agents can use the same pool; the platform creates a separate computer for each Agent. Idle release can remove or pause the instance while retaining Home. See [Worker pools](../worker-management/) for configuration and lifecycle rules.
+An Agent's saved Worker provider determines its pool, underlying platform, instance sizing, and storage backend. Even when multiple Agents share the same pool, the platform provisions a separate computer for each Agent. When a Worker sits idle, the control plane can pause or remove the compute instance while preserving the Agent's persistent Home directory. See [Worker pools](../worker-management/) for configuration and lifecycle rules.
 
-The Worker opens one authenticated WebSocket to `/runtime-fabric/worker/websocket` and joins its Phoenix Channel. RuntimeFabric protobuf envelopes carry environment calls, results, Codex control, and progress. Generation and incarnation checks reject a replaced Worker. File bytes use one-time HTTP relay URLs; PostgreSQL owns durable recovery facts.
+Once running, the Worker opens a single authenticated WebSocket connection to `/runtime-fabric/worker/websocket` and joins its Phoenix Channel. Over this channel, the control plane and Worker exchange environment calls, execution results, Codex control commands, and progress updates in RuntimeFabric protobuf envelopes, while transferring file bytes out-of-band through one-time HTTP relay URLs. The control plane verifies generation and incarnation numbers to reject messages from a replaced Worker, and stores all durable recovery facts in PostgreSQL.
 
 ## Operation identity and recovery
 
-Environment work uses a `RunRef` for the Agent, Session, and triggering input. A call is keyed by Response ID and call ID. A replacement Driver probes the existing workspace and adopts a running call or its result. Disconnecting the control plane leaves commands running. After Worker process loss, only safe calls retry; other unknown calls return `interrupted`.
+For interactive environment work, the Driver tags operations with a `RunRef` identifying the Agent, Session, and triggering input, and keys each call by its Response ID and call ID. Because running commands survive a control-plane disconnect, a replacement Driver can probe the existing workspace and adopt an in-flight call or collect its finished result. If the Worker process itself crashes, the Driver retries only idempotent safe calls and returns `interrupted` for any other unknown calls.
 
-Codex uses `JobTurnRef` with the Job ID and attempt. An `adopt` request keeps the same running turn, thread, and workspace. The Job owner fences terminal writes and consumes applied input IDs in the same transaction. Codex keeps its own model loop.
+Codex Jobs instead identify work with a `JobTurnRef` carrying the Job ID and attempt number, while Codex runs its own model loop inside the Worker. If the control-plane Job owner restarts, it sends an `adopt` request to stay attached to the running turn, thread, and workspace; when the turn finishes, the Job owner fences terminal writes and consumes applied input IDs in a single transaction.
 
-An open environment workspace and a running Codex turn each use one Worker slot. Main and Workflow model calls do not use these slots.
+For capacity accounting, each open environment workspace and each running Codex turn occupies one Worker slot, whereas main-loop and Workflow model calls execute in the control plane without consuming Worker slots.
 
 ## The filesystem contract
 
-Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a symbolic link to `/workspace`; path checks resolve symbolic links before checking the Home boundary. Its layout is:
+Each Agent's persistent Home directory is mounted at `/workspace`, with `/agents/<agent_uid>` symlinked to `/workspace`. Before enforcing the Home boundary, the Worker resolves all symbolic links. Its layout is:
 
 ```text
 /workspace/
@@ -46,18 +46,18 @@ Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a sym
     └── temp/
 ```
 
-The model sees the absolute container path. The Worker does not translate paths, and a command's working directory must be inside the Agent Home. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. `ConfidentialityPolicy.md` guides audience selection for Brain writes. The [Agent Library](../agent-library/) manages all four documents. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces. PostgreSQL assigns each Session a stable numeric workspace ID that starts at 10000.
+Models see these absolute container paths directly: the Worker performs no path translation, and every command's working directory must stay inside Agent Home. At the root of `/workspace`, four documents managed by the [Agent Library](../agent-library/) govern the Agent: `SOUL.md` and `MISSION.md` define behavior and responsibilities, `DESIGN.md` specifies the design system for visual work, and `ConfidentialityPolicy.md` guides audience selection when writing to Brain. Alongside them, `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces; PostgreSQL assigns each Session a stable numeric `workspace-id` starting at `10000`.
 
-Home survives instance deletion and image changes. A rebuild removes only `/var/cache/ankole`. Docker local volumes depend on their host; a forced Cloudflare stop can lose writes since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
+Agent Home survives instance deletion and container image updates—rebuilding a Worker clears only `/var/cache/ankole`. Storage durability follows the backing provider: local Docker volumes depend on the host disk, whereas forcing a Cloudflare Worker stop can lose writes made since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
 
-The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files. Job workspaces and Codex threads remain in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
+Attachments, published files, Skills, and Automation scripts live separately in the control-plane Files drive rather than in `/workspace`. Agents use `ankole-files` to read from or publish to that drive, while keeping Job workspaces and Codex threads in persistent Home. Before starting a turn, the Worker synchronizes `installed-skills/` with the control-plane drive.
 
-Codex Home is `/workspace/.codex`. Thread files survive replacement; Codex can resume them even after the rebuildable SQLite cache at `/var/cache/ankole/codex` is replaced. Background Jobs load Skills through `skill_view`.
+Codex Home lives at `/workspace/.codex`. Because raw thread files stay in persistent Home, Codex can resume threads across Worker replacements even after the rebuildable SQLite cache at `/var/cache/ankole/codex` is recreated. Background Jobs load Skills on demand through `skill_view`.
 
 ## Progress and capacity
 
-The Driver owns main-loop streaming and tool presentation. The Worker reports environment results and Codex progress over RuntimeFabric. Progress is best effort; PostgreSQL completion facts and stored results own recovery.
+The Session Driver owns main-loop streaming and tool presentation, while the Worker sends environment results and Codex progress updates over RuntimeFabric. Streaming progress is best-effort; recovery always relies on the completion facts and stored results persisted in PostgreSQL.
 
-Heartbeats report active workspaces, Codex turns, and free slots. The control plane manages idle release through provider YAML `idleReleaseAfter`; `never` retains an idle Worker. Reconnection keeps the process incarnation and in-flight work.
+Periodic Worker heartbeats report active workspaces, running Codex turns, and remaining free slots. When a Worker is idle, the control plane releases it according to `idleReleaseAfter` in the provider YAML (setting `never` retains idle Workers indefinitely). Reconnecting over the WebSocket preserves the Worker's process incarnation and all in-flight work.
 
 See [Sessions](../sessions/) for writer and operation fences, [AIGateway](../ai-gateway/) for Responses, [Agent Library](../agent-library/) for Skills, and [Workers](../worker-management/) for provider states.

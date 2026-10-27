@@ -50,8 +50,11 @@ defmodule AnkoleWeb.JSONAPI.Router do
 
       def call(conn, opts) do
         case unquote(scope) do
-          :site -> Ankole.Repo.without_tenant(fn -> super(conn, opts) end)
-          _ -> super(conn, opts)
+          scope when scope in [:site, :saas_site] ->
+            Ankole.Repo.without_tenant(fn -> super(conn, opts) end)
+
+          _ ->
+            super(conn, opts)
         end
       end
     end

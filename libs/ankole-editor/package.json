@@ -35,7 +35,7 @@
     "test": "bun test --preload ./test/mac-platform.ts ./test",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium firefox webkit",
-    "type-check": "tsc --noEmit",
+    "type-check": "bun check --noEmit",
     "fmt": "oxfmt src playground test e2e scripts compat upstream/*.ts upstream/tests playwright*.config.ts vite.config.ts tsconfig.json package.json index.html turbo.json",
     "fmt:check": "oxfmt --check src playground test e2e scripts compat upstream/*.ts upstream/tests playwright*.config.ts vite.config.ts tsconfig.json package.json index.html turbo.json",
     "test:upstream": "bun test ./upstream/tests",

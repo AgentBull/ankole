@@ -73,13 +73,14 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
   defp edition_specs do
     for {name, module} <- [
           {"saas-v2", Ankole.SaaSWeb.JSONAPIRouter},
-          {"saas-pod-v2", Ankole.SaaSWeb.PodJSONAPIRouter}
+          {"saas-pod-v2", Ankole.SaaSWeb.PodJSONAPIRouter},
+          {"saas-site-v2", Ankole.SaaSWeb.SiteJSONAPIRouter}
         ],
         Code.ensure_loaded?(module),
         do: {name, module}
   end
 
-  defp committed_spec_path(name) when name in ["saas-v2", "saas-pod-v2"] do
+  defp committed_spec_path(name) when name in ["saas-v2", "saas-pod-v2", "saas-site-v2"] do
     Path.expand(
       "../../internals/webapps/openapi/#{name}.json",
       Path.dirname(Mix.Project.project_file())

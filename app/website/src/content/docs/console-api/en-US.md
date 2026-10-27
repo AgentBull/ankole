@@ -5,27 +5,27 @@ section: Reference
 order: 203
 ---
 
-The Console API uses multi-account browser authentication: sealed session cookies in `Cookie` plus `x-ankole-authentication` to select the active account. `RequireSiteAdminSession` resolves the active administrator session, checks Human access state, and binds the `Ankole.AuthZ` actor (`console_rest`), while `Ankole.AuthZ.Authorizer` authorizes each Ash action against `site_console:**` and `tenant_console:**` permissions. A failed authentication check returns `401`. Requests other than GET and HEAD must send the shell's `x-csrf-token` header; missing or invalid CSRF proof returns `403`, as does a denied authorization check.
+The Console API authenticates requests using multi-account browser sessions: sealed session cookies in `Cookie` paired with `x-ankole-authentication` to select the active account. On every request, `RequireSiteAdminSession` resolves the active administrator session, verifies Human access status, and binds the `Ankole.AuthZ` actor (`console_rest`), while `Ankole.AuthZ.Authorizer` checks each Ash action against `site_console:**` and `tenant_console:**` permissions. Ankole returns `401` if authentication fails. Every request other than `GET` and `HEAD` must also carry the Console shell's `x-csrf-token` header; Ankole returns `403` whenever CSRF proof is missing or invalid, or when `Ankole.AuthZ` denies the action.
 
-Console configuration, aggregate views, and audited secret operations use `/api/v2`. Site administration routes use `/api/v2/site`. Tenant routes use the selected data tenant. The tables give each full path.
+Console configuration, aggregate read views, and audited secret operations live under `/api/v2`: site-administration routes sit under `/api/v2/site`, while tenant routes operate on the selected data tenant. The tables below give every full path.
 
-Use `application/vnd.api+json` for v2 requests. Each operation's OpenAPI schema defines its request and response. Resource create and update requests use `data.type` and `data.attributes`. Generic operations put their action arguments directly under `data`; they can return a typed object instead of a JSON:API resource document. For example, `PUT /api/v2/worker-envs/EXAMPLE` accepts `{"data":{"value":"example","secret":false}}` and returns a `worker_env` object. Resource list routes use `page[limit]` and `page[after]` when their schema declares keyset pagination.
+Send v2 requests with `Content-Type: application/vnd.api+json` matching each operation's OpenAPI schema. Standard resource create and update requests wrap fields in `data.type` and `data.attributes`, whereas generic actions place their arguments directly under `data` and may return a typed object rather than a JSON:API resource document—for example, `PUT /api/v2/worker-envs/EXAMPLE` accepts `{"data":{"value":"example","secret":false}}` and returns a `worker_env` object. List routes that declare keyset pagination accept `page[limit]` and `page[after]`.
 
-For tenant routes, `x-ankole-tenant: <tenant UUID>` selects the data tenant. Without this header, the caller's tenant is used. An invalid, unavailable, or deleting tenant returns `404` with `data_tenant_unavailable`. The header does not change the caller's identity or site administration permission, and does not select a scope for site routes.
+On tenant-scoped routes, pass `x-ankole-tenant: <tenant UUID>` to select the target data tenant, or omit the header to use the caller's own tenant. If the requested tenant is invalid, unavailable, or being deleted, Ankole returns `404` with `data_tenant_unavailable`. Passing `x-ankole-tenant` never alters the caller's Principal identity or site-administration permissions, and site-scoped routes ignore it.
 
-`/api/v2/openapi.json` and `/api/v2/site/openapi.json` describe the Console and site administration operations and need the same authentication as those routes. Other browser JSON:API scopes publish their own OpenAPI 3.1 documents: `/api/v2/pod/openapi.json` (Pod workspace and `/api/v2/pod/admin/*` routes for `pod_admin`) and `/api/v2/browser/openapi.json` (browser authentication and setup). File upload and download use the native `/api/v2` routes listed below. Runtime AI calls, OIDC protocol operations, and webhooks use their own contracts.
+`/api/v2/openapi.json` and `/api/v2/site/openapi.json` publish the Console and site-administration schemas behind the same authentication checks. Other browser JSON:API scopes publish separate OpenAPI 3.1 documents at `/api/v2/pod/openapi.json` (Pod workspace and `/api/v2/pod/admin/*` routes for `pod_admin`) and `/api/v2/browser/openapi.json` (browser authentication and first-run setup). File uploads and downloads use the native `/api/v2` multipart and byte-stream routes listed below, while runtime AI calls, OIDC protocol flows, and inbound webhooks use their own dedicated contracts.
 
 ## The configuration surfaces
 
-Configuration is organized by what is being configured, not by controller. The surfaces an operator actually drives:
+Routes are grouped by the domain resource being configured rather than by internal controller. Below are the surfaces that operators manage:
 
 ### Providers and model access
 
-A running agent needs a model behind it. The operator wires that through AIGateway's provider surface and the agent's model profiles:
+Every active Agent needs at least one model behind it, wired through AIGateway's provider endpoints and the Agent's model profiles:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v2/site/ai-gateway/provider-kinds` | List the provider kinds this deployment instance can configure |
+| `GET` | `/api/v2/site/ai-gateway/provider-kinds` | List the provider kinds that this deployment instance can configure |
 | `GET` | `/api/v2/site/ai-gateway/models` | List typed provider models for Console configuration |
 | `GET` | `/api/v2/site/ai-gateway/providers` | List configured providers |
 | `GET` | `/api/v2/site/ai-gateway/providers/:provider_id` | Read one provider and its credential-pool status |
@@ -43,11 +43,11 @@ A running agent needs a model behind it. The operator wires that through AIGatew
 | `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Create or replace a profile |
 | `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Remove a profile |
 
-Provider credentials live as encrypted pool members in the control plane, never in the agent's environment. A model profile binds an agent to a provider and model. AIGateway selects a healthy member inside that provider, and the projection returns only safe account facts, health, rate-limit data, and usage.
+Provider credentials stay encrypted as pool members inside the control plane—never inside an Agent's Worker environment. Model profiles bind an Agent to a provider row and model, leaving AIGateway to pick a healthy pool member while API read projections expose only non-secret account metadata, health state, rate-limit status, and usage totals.
 
 ### Agents and their capabilities
 
-The agent is the unit an operator configures everything else against:
+The Agent is the central identity that capabilities, profiles, and routing rules attach to:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -60,7 +60,7 @@ The agent is the unit an operator configures everything else against:
 
 ### Worker providers
 
-Each Agent selects one Worker provider at creation. The assignment cannot change. A provider stores its YAML configuration and encrypted credentials separately. See [Worker management](../worker-management/) for the lifecycle and storage contract.
+When creating an Agent, you assign one Worker provider permanently—the binding cannot be changed afterward. Each provider stores its YAML configuration separately from its encrypted platform credentials; see [Worker management](../worker-management/) for lifecycle and storage rules.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -74,11 +74,11 @@ Each Agent selects one Worker provider at creation. The assignment cannot change
 
 ### Signal routing rules
 
-A signal routing rule (`Signal Binding` in the API schema) connects a provider adapter to an Agent so shared work can reach it:
+A signal routing rule (`Signal Binding` in the API schema) connects an external channel adapter to an Agent so incoming messages and events can wake it:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v2/signal-adapters` | List adapters this deployment instance declared |
+| `GET` | `/api/v2/signal-adapters` | List adapters that this deployment instance declared |
 | `GET` | `/api/v2/signal-bindings` | List routing rules; `?agent=` filters to one Agent |
 | `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
 | `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
@@ -86,11 +86,11 @@ A signal routing rule (`Signal Binding` in the API schema) connects a provider a
 | `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | Read one Conversation's standing orders |
 | `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | Replace one Conversation's standing orders |
 
-Disabling a binding stops new signals from waking its agent without deleting the binding.
+Disabling a binding stops new Signals from waking its Agent without deleting the stored configuration.
 
 ### Agent Library capabilities
 
-Library defaults belong to the selected tenant. Agent overrides apply within that tenant.
+Library defaults apply at the selected tenant level, with optional overrides per Agent within that tenant:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -106,11 +106,11 @@ Library defaults belong to the selected tenant. Agent overrides apply within tha
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | Add a human Skill lesson to an enabled Skill |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Retire a Skill lesson |
 
-A capability is enabled for the tenant, then narrowed or widened per agent. Skill lessons give one Agent additional process guidance without changing the Skill source. The list includes evidence and retirement history. A retired lesson stops being delivered, and Dreaming keeps human-retired content on its never-relearn list. See [Skill lessons](../skill-lessons/) for the lifecycle and limits.
+Operators set tenant defaults first and then narrow or widen capabilities per Agent. Alongside capabilities, Skill lessons supply Agent-specific procedural guidance without modifying the base Skill files, exposing supporting evidence and retirement history; retiring a lesson stops delivery immediately, and Dreaming keeps human-retired lessons on its never-relearn list. See [Skill lessons](../skill-lessons/) for lifecycle rules and limits.
 
 ### Environment variables (WorkerEnv)
 
-WorkerEnv values have site defaults, tenant overrides, and Agent attachments. The following routes return metadata; plaintext requires the separate audited decryption operation.
+WorkerEnv entries layer site defaults, tenant overrides, and per-Agent attachments. Standard list and update routes return metadata only—revealing plaintext requires calling the separate audited `decryptions` endpoint:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -127,7 +127,7 @@ WorkerEnv values have site defaults, tenant overrides, and Agent attachments. Th
 | `DELETE` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Remove an Agent attachment |
 | `POST` | `/api/v2/agents/:agent_uid/worker-envs/:name/decryptions` | Decrypt an Agent value |
 
-An Agent attachment uses its own value or inherits the tenant value, then the site default. Environment values are resolved when Worker work starts. An existing workspace keeps its captured environment.
+An Agent attachment uses its explicit Agent override when present, or inherits the tenant value and then the site default. Ankole resolves WorkerEnv values when Worker execution begins, so an already open workspace keeps the environment captured when it opened.
 
 ### Control Plane Plugins
 
@@ -136,13 +136,13 @@ An Agent attachment uses its own value or inherits the tenant value, then the si
 | `GET` | `/api/v2/site/control-plane-plugins` | List Control Plane Plugins and their state |
 | `PUT` | `/api/v2/site/control-plane-plugins` | Enable or disable plugins |
 
-Control Plane Plugins are compiled first-party extensions that add control-plane capabilities such as Signals adapters, Identity Provider adapters, AI Gateway providers, and Worker providers. Plugins with `activation: :always` stay enabled with the build. `PUT /api/v2/site/control-plane-plugins` toggles `:optional` plugins for the next restart and runs subsystem `veto_disable` checks so a plugin with active resources (such as a configured Worker provider) cannot be disabled.
+Control Plane Plugins are compiled first-party extensions that register control-plane capabilities such as Signals adapters, Identity Provider adapters, AIGateway providers, and Worker providers. Plugins declared with `activation: :always` stay enabled with the build, whereas `PUT /api/v2/site/control-plane-plugins` toggles `:optional` plugins for the next control-plane restart after running subsystem `veto_disable` checks so plugins backing active resources (such as a configured Worker provider) cannot be turned off.
 
 ### Identity providers and AppConfiguration
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v2/identity-provider-adapters` | List the IdP adapters this deployment instance supports |
+| `GET` | `/api/v2/identity-provider-adapters` | List the IdP adapters that this deployment instance supports |
 | `GET` | `/api/v2/identity-providers` | List configured identity providers |
 | `PUT` | `/api/v2/identity-providers/:provider_id` | Create or replace an IdP |
 | `POST` | `/api/v2/identity-providers/:provider_id/sync-runs` | Sync directory groups from an IdP |
@@ -153,7 +153,7 @@ Control Plane Plugins are compiled first-party extensions that add control-plane
 | `PUT` | `/api/v2/app-configurations/:key` | Set a configuration value |
 | `POST` | `/api/v2/app-configurations/:key/decryptions` | Decrypt one secret configuration value |
 
-`AppConfiguration` stores declared operator settings at site or tenant scope. `/api/v2/site/app-configurations` manages site keys; `/api/v2/app-configurations` manages tenant keys. Both support listing, reading one key, setting, deleting an override, and audited decryption. Bootstrap credentials and startup facts live in environment variables or secret mounts.
+`AppConfiguration` stores declared runtime settings at site scope (`/api/v2/site/app-configurations`) or tenant scope (`/api/v2/app-configurations`), supporting listing, single-key reads, updates, override resets, and audited decryption. Bootstrap credentials and pre-database startup facts live in environment variables or secret mounts instead.
 
 ### Tenant administration
 
@@ -170,21 +170,21 @@ Control Plane Plugins are compiled first-party extensions that add control-plane
 
 ## The read surfaces
 
-Alongside configuration, the Console is the observability path for the rest of the system — each subsystem already documented has its read surface here:
+Alongside configuration, `/api/v2` provides operational read surfaces across every subsystem:
 
-- **Agents in flight**: `/api/v2/agents/:agent_uid/sessions`, per-Agent cron schedule and checkback management; the list endpoints are tenant-wide with an `agent` filter.
-- **Workers**: `/api/v2/agent-workers` lists the Worker state for each Agent.
-- **Agent drives**: `/api/v2/agents/:agent_uid/files` lists and deletes files; `/api/v2/agents/:agent_uid/file-moves` moves a file. `POST /api/v2/agents/:agent_uid/files` uploads multipart data, and `GET /api/v2/agents/:agent_uid/files/content` downloads bytes. These native transfers use the same browser session, CSRF, tenant selection, and file permissions. The control plane owns the files.
-- **Jobs**: `/api/v2/background-agent-jobs` (list, read, cancel).
-- **AI activity**: `/api/v2/ai-gateway/conversations`, with messages per conversation.
-- **Principals, AuthZ, and OIDC clients**: `/api/v2/principals` (including `PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, and `POST /api/v2/principals/:uid/access-restorations`), `/api/v2/principal-groups`, `/api/v2/permission-grants`, and `/api/v2/oidc-clients` — see [Principal and AuthZ](../principal-authz/).
+- **Agents in flight**: `/api/v2/agents/:agent_uid/sessions`, plus per-Agent cron schedule and checkback management (list routes are tenant-wide with an `?agent=` filter).
+- **Workers**: `/api/v2/agent-workers` lists the current Worker state for each Agent.
+- **Agent drives**: `/api/v2/agents/:agent_uid/files` lists and deletes files, `/api/v2/agents/:agent_uid/file-moves` moves or renames a file, `POST /api/v2/agents/:agent_uid/files` uploads multipart files, and `GET /api/v2/agents/:agent_uid/files/content` streams file bytes—all governed by the same browser session, CSRF check, tenant header, and AuthZ file permissions on the control-plane file store.
+- **Jobs**: `/api/v2/background-agent-jobs` lists, inspects, and cancels Background Agent Jobs.
+- **AI activity**: `/api/v2/ai-gateway/conversations` lists stateful model threads and their per-turn messages.
+- **Principals, AuthZ, and OIDC clients**: `/api/v2/principals` (including `PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, and `POST /api/v2/principals/:uid/access-restorations`), `/api/v2/principal-groups`, `/api/v2/permission-grants`, and `/api/v2/oidc-clients`—see [Principal and AuthZ](../principal-authz/).
 
 ## A note on what is not here
 
-`/webhooks/*` authenticates the provider. Runtime `/api/v1/ai-gateway/*` calls use AIGateway authentication. Console configuration routes use the session and CSRF checks described above.
+Inbound `/webhooks/*` routes authenticate external webhook senders directly, and runtime `/api/v1/ai-gateway/*` routes use AIGateway bearer tokens; only `/api/v2` Console routes enforce the browser session and CSRF checks documented above.
 
 ## Next steps
 
-- For the runtime surfaces the Console configures, read [AIGateway API](../ai-gateway/), [Signals](../signals/), and [Sessions](../sessions/).
-- For the permission model the Console itself runs under, read [Principal and AuthZ](../principal-authz/).
+- For the runtime surfaces that the Console configures, read [AIGateway API](../ai-gateway/), [Signals](../signals/), and [Sessions](../sessions/).
+- For the permission model that the Console itself runs under, read [Principal and AuthZ](../principal-authz/).
 - To configure a new deployment instance, read the [deployment section of Quick start](../quickstart/#deployment).

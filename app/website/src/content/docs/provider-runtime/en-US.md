@@ -5,84 +5,84 @@ section: Developer guide
 order: 119
 ---
 
-A model call travels through three stages before it reaches a provider: the resolver turns a selector into a provider runtime map, the provider module builds a prepared request, and the kernel's `UniversalAIClient` executes it. This page documents the path, against the real code in `ai_gateway/resolver.ex`, `providers.ex`, and `universal_ai_request.ex`. It builds on [AIGateway](../ai-gateway/) and [Adding a provider](../adding-a-provider/).
+Every model call passes through three stages before reaching an upstream provider: `Ankole.AIGateway.Resolver` maps a model selector to a concrete runtime map, the provider module builds a `UniversalAIRequest` specification, and the Rust kernel's `UniversalAIClient` executes the wire call. This page traces that pipeline across `ai_gateway/resolver.ex`, `providers.ex`, and `universal_ai_request.ex`, building on [AIGateway](../ai-gateway/) and [Adding a provider](../adding-a-provider/).
 
-The resolver, the provider module, and the kernel each own one stage. The resolver owns selector, credential-pool selection, and OAuth refresh. The provider module owns request preparation. The kernel owns one wire attempt. A control-plane attempt owner can select another credential and rebuild the request, but the kernel never selects credentials or retries by itself.
+Each component owns a single responsibility: the resolver handles selector lookup, credential-pool selection, and OAuth token refresh; the provider module shapes the upstream request; and the Rust kernel executes a single wire attempt. While the control-plane attempt wrapper can rotate to another credential and rebuild the request after a failure, the kernel itself never chooses credentials or retries autonomously.
 
 ## Stage 1: resolution (Resolver)
 
-`Ankole.AIGateway.Resolver` turns the `model` field of a request into a concrete provider runtime map. The resolver is where a subject-visible selector — such as `primary`, `web_search.default`, or an explicit `provider_id/model` — becomes a provider id, a provider kind, an upstream model name, and the resolved runtime settings.
+`Ankole.AIGateway.Resolver` translates a request's `model` field—such as `primary`, `web_search.default`, or an explicit `provider_id/model`—into a provider runtime map containing the provider ID, provider kind, upstream model identifier, and resolved runtime settings.
 
-An Agent has eight built-in model profiles: `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. `coding` is the API and storage name for the user-facing Background Agent Jobs profile. The first five profiles select language models; the last three select separate web-search, web-fetch, and image-generation capabilities.
+Every Agent exposes eight built-in model profiles: `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate` (where `coding` is the API and storage key for the user-facing Background Agent Jobs profile). The first five profiles select language models, while the remaining three select dedicated web-search, web-fetch, and image-generation providers.
 
-Embedding and rerank are not Agent profiles. Direct AIGateway calls for these capabilities require an explicit `provider_id/model` selector. Brain reads the site embedding model from `brain.embedding_model` and the tenant rerank model from `brain.rerank_model` in [AppConfigure](../app-configuration/). See [Brain](../brain/) for their effect on retrieval.
+Embeddings and reranking are not configured as per-Agent profiles. Direct AIGateway requests for those capabilities must pass an explicit `provider_id/model` selector, while Brain reads the site-wide embedding model from `brain.embedding_model` and each tenant's rerank model from `brain.rerank_model` in [AppConfigure](../app-configuration/); see [Brain](../brain/) for how they affect retrieval.
 
-After it resolves the provider row, the resolver selects one usable credential. Thread affinity wins before the row's `fill_first`, `round_robin`, `least_used`, or `random` strategy. The runtime map carries the exact credential ID to every later failure path. For a ChatGPT subscription OAuth member, the resolver refreshes a near-expiry or stale token under the provider-row lock. A permanent refresh failure marks that member `dead`; a temporary failure marks it `exhausted`; both select the next usable member.
+Once the resolver locates the provider row, it picks a usable credential from the pool—honoring thread affinity first before applying the provider's `fill_first`, `round_robin`, `least_used`, or `random` strategy—and attaches that exact credential ID to the runtime map for downstream failure attribution. For ChatGPT Subscription OAuth credentials, the resolver refreshes near-expiry or stale tokens while holding a row lock on the provider: if a refresh fails permanently, the resolver marks that pool member `dead`; if it fails transiently, the resolver marks it `exhausted`—and in either case selects the next usable member.
 
-Resolution can fail before any provider is contacted:
+Resolution can fail before Ankole contacts any upstream provider:
 
-- `422 unknown_model_selector` — the selector is not bound for this subject.
-- `422 model_binding_not_configured` — the capability and name are bound but the provider row is incomplete.
+- `422 unknown_model_selector` — no binding exists for this selector on the calling subject.
+- `422 model_binding_not_configured` — the capability and profile name exist, but the target provider row is incomplete.
 
-These errors identify a missing model profile, an unavailable Provider, or an incomplete Provider configuration.
+Both errors point to a missing model profile, a disabled Provider, or an incomplete Provider configuration.
 
-An unavailable credential pool is different. It returns `credential_pool_exhausted` with the safe status of each current member. It includes `retry_at` only when a current exhausted member has a known future recovery time.
+When every member of the credential pool is unusable, the resolver instead returns `credential_pool_exhausted` along with the non-secret status of each member, including `retry_at` only when a cooling-down member has a known recovery timestamp.
 
 ## Stage 2: preparation (Provider module + Providers)
 
-With the runtime map resolved, `Ankole.AIGateway.Providers` dispatches to the provider module's prepare function. The entrypoints are typed by capability:
+With the runtime map resolved, `Ankole.AIGateway.Providers` invokes the provider module's preparation entrypoint for the requested capability:
 
 ```elixir
-build_response_request(runtime, request)    # :language_model
-build_embeddings_request(runtime, request)  # :embedding_model
-build_rerank_request(runtime, request)      # :rerank_model
-build_web_search_request(runtime, request)  # :web_search
-build_web_fetch_request(runtime, request)   # :web_fetch
+build_response_request(runtime, request)       # :language_model
+build_embeddings_request(runtime, request)     # :embedding_model
+build_rerank_request(runtime, request)         # :rerank_model
+build_web_search_request(runtime, request)     # :web_search
+build_web_fetch_request(runtime, request)      # :web_fetch
 build_image_generate_request(runtime, request) # :image_generate
 ```
 
-Each delegates to `build_prepared_request/4`, which looks up the capability on the provider's `ProviderDefinition`, verifies the provider supports it (`supports_capability?/2`), and calls the capability's `prepare` function — the normal Elixir function that builds a `UniversalAIRequest` struct from the resolved settings and the request. The prepared request keeps a control-plane-only rebuild context with the selected credential ID. That context is removed before the request crosses the native boundary.
+Each function delegates to `build_prepared_request/4`, which looks up the capability on the provider's `ProviderDefinition`, verifies that the provider supports it (`supports_capability?/2`), and calls the capability's `prepare` callback to construct a `UniversalAIRequest` struct from the resolved runtime settings and caller payload. Alongside the request fields, Ankole attaches a rebuild context—used only in the control plane—carrying the selected credential ID, and strips that context before passing the struct across the Rust NIF boundary.
 
-This is the stage where provider differences live: URL construction, auth headers, body shaping, the quirks of a specific upstream API. The prepared request is a `UniversalAIRequest` — a struct with a path, an `api_resolver` atom, headers, and provider options — not an HTTP call.
+All upstream API differences—endpoint URLs, authentication headers, JSON body structure, and vendor-specific options—live in this pure Elixir preparation step, producing a `UniversalAIRequest` struct (path, `api_resolver` atom, headers, and provider options) without opening any network connection.
 
 ## Stage 3: execution (UniversalAIRequest → kernel)
 
-`UniversalAIRequest` is a thin execution adapter from AIGateway to the kernel's `UniversalAIClient`. Provider modules prepare the request specification; the adapter executes it and preserves the HTTP/SSE-ready boundary expected by Phoenix callers.
+`UniversalAIRequest` acts as the thin execution bridge between AIGateway and the Rust kernel's `UniversalAIClient`, running the prepared specification and streaming back chunks in the HTTP/SSE shape expected by Phoenix controllers.
 
-The execution hands the prepared request to the Rust kernel, which:
+When invoked, the Rust kernel:
 
-- resolves the `api_resolver` to the wire protocol (encoding, transport),
-- opens the upstream connection (HTTP SSE, EventStream, WebSocket, or plain JSON, as the capability's `upstream` declared),
-- sends the request with the provider's auth and headers,
-- receives the response stream,
-- normalizes it into the downstream chunk format.
+- maps `api_resolver` to the upstream wire codec and transport,
+- opens the upstream connection (HTTP SSE, EventStream, WebSocket, or plain JSON, matching the capability's `upstream` declaration),
+- transmits the request with the prepared authentication and provider headers,
+- reads the upstream response stream, and
+- normalizes chunks into Ankole's downstream wire format.
 
-The kernel returns a restricted response-header set on success and failure. It includes the `x-codex-*` rate-limit family and `cf-mitigated`, but excludes credentials, cookies, and other provider headers. The control plane uses this set for cooldown, rate-limit projection, and Cloudflare challenge diagnosis.
+On both success and failure, the kernel returns a filtered subset of upstream response headers—retaining the `x-codex-*` rate-limit headers and `cf-mitigated` while stripping credentials, cookies, and other vendor headers—so the control plane can project rate limits, schedule cooldowns, and detect Cloudflare challenges safely.
 
-`CredentialAttempts` wraps each kernel attempt. An attributed `429`, `5xx`, or transport failure marks only the credential that made that attempt, selects another healthy member, rebuilds authorization and provider headers, waits with exponential backoff and jitter, and asks the kernel for one new attempt. A single usable member gets one same-credential retry. A failure without a credential ID marks no member and stops after one pool lap. When every member is unavailable, the attempt owner returns `credential_pool_exhausted`; it does not switch to another provider.
+In the control plane, `CredentialAttempts` wraps each kernel attempt. When a `429`, `5xx`, or transport error is attributed to a specific credential, `CredentialAttempts` marks only that credential, selects another healthy pool member, rebuilds the authorization and provider headers, waits with exponential backoff and jitter, and dispatches a fresh attempt through the kernel. If the pool has only one usable member, `CredentialAttempts` permits a single retry on that same credential; if an error carries no credential ID, it leaves pool members unmarked and stops after one pass across the pool. Once every pool member is unavailable, `CredentialAttempts` returns `credential_pool_exhausted` without failing over to another provider.
 
-This is the stage the [Kernel](../kernel/) page documents: the `universal_ai_client` module in Rust, with its transport, demand credit, and cancellation. The provider module does not participate in execution.
+This wire stage is covered in [Kernel](../kernel/), which details `universal_ai_client` transport, demand credit, and cancellation in Rust; the Elixir provider module plays no part during wire execution.
 
 ## How a failure surfaces
 
-Each stage produces a distinct class of error:
+Each stage surfaces its own error category so callers know how to respond:
 
 | Stage | Failure shape | What it means |
 |---|---|---|
-| Resolution | `422 unknown_model_selector` / `model_binding_not_configured` | the selector or binding is wrong — configuration, not transient |
-| Credential pool | `429 credential_pool_exhausted` | all members are disabled, dead, or cooling down; wait until `retry_at` when present, otherwise repair the pool |
-| Preparation | `422 unsupported_capability` / provider-specific validation | the provider does not serve this capability, or the request options are invalid |
-| Execution | `502 upstream_response_failed` / `504 upstream_timeout` | the provider returned an error or timed out — may be transient |
+| Resolution | `422 unknown_model_selector` / `model_binding_not_configured` | Selector or binding misconfiguration — fix settings rather than retrying |
+| Credential pool | `429 credential_pool_exhausted` | Every pool member is disabled, dead, or cooling down — wait until `retry_at` if present, or repair credentials |
+| Preparation | `422 unsupported_capability` / provider-specific validation | The provider does not support this capability, or request options are invalid |
+| Execution | `502 upstream_response_failed` / `504 upstream_timeout` | Upstream provider error or timeout — often transient and safe to retry |
 
-The error class tells the caller whether to fix configuration (422), wait and retry (502/504), or investigate the provider. The [AIGateway](../ai-gateway/) page documents the full error envelope.
+From the status code alone, callers can tell whether to fix configuration (`422`), wait for cooldown or credential repair (`429`), or retry a transient upstream fault (`502`/`504`). See [AIGateway](../ai-gateway/) for the full error envelope.
 
 ## The registry and plugin-contributed providers
 
-The provider registry in `Providers` holds the compiled `ProviderDefinition` structs. First-party providers are compiled in; plugin-contributed providers arrive through the `ai_gateway.provider` contract, and `refresh_from_adapter_declarations/1` merges them into the registry. A provider kind must match `~r/\A[a-z][a-z0-9_]{0,62}\z/`, and the registry caches the merged set so resolution does not re-scan plugins on every call.
+`Ankole.AIGateway.Providers` maintains the merged registry of `ProviderDefinition` structs: built-in providers are compiled directly into the control plane, while Control Plane Plugins contribute additional providers via the `ai_gateway.provider` adapter contract, merged by `refresh_from_adapter_declarations/1`. Every provider kind must match `~r/\A[a-z][a-z0-9_]{0,62}\z/`, and the registry caches the merged map so request resolution never re-scans plugins per call.
 
 ## What this guide is not
 
-It is not a provider-authoring tutorial — see [Adding a provider](../adding-a-provider/) for the DSL, the definition, and the prepare function. It is not a wire-protocol reference — the kernel owns the wire, and that is the [Kernel](../kernel/) page. And it is not a substitute for reading the three modules; this page is the path through them.
+This page traces how a request moves through resolution, preparation, and execution, rather than walking through how to build a new provider—for the provider DSL and `prepare` callbacks, see [Adding a provider](../adding-a-provider/). For the Rust wire transport itself, see [Kernel](../kernel/).
 
 ## Next steps
 

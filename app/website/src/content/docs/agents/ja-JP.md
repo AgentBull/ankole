@@ -1,117 +1,117 @@
 ---
 title: Agents
-description: Console で Agent を作成し、所有者、永続的な動作、モデル、機能、環境変数を設定する方法を説明します。
+description: Console で Agent を作成し、所有者、永続ドキュメント、モデル、能力、環境変数を設定する方法を説明します。
 section: User guide
 order: 13
 ---
 
-Agent は、Ankole Agent Harness 内で継続して存在する作業主体です。各 Agent は、固有のミッション、所有者、アクセス権、ツール、モデルプロファイル、ファイル領域を持ちます。
+Agent は、Ankole Agent Harness 内で継続的に稼働する作業主体です。各 Agent は固有のミッション、所有者、アクセス権、ツール、モデルプロファイル、専用ファイル領域を持ちます。
 
-Agent は、知識境界の範囲で Company Brain を使えます。Signal routing rule は、Agent をメッセージやその他のイベントに接続します。
+また、許可された知識境界の範囲内で Company Brain を利用できるほか、Signal routing ルールを通じてチャットメッセージや各種イベントと接続されます。
 
 ## Agent を作成する
 
 1. **Console → Agents** を開き、**New Agent** を選択します。
-2. 表示名を入力し、自動生成された handle を確認します。handle は後から変更できます。保存時に Ankole がグローバルに一意の不透明な UID を生成します。
-3. ロール、任意のアバター URL、Worker provider を設定します。
-4. Agent を所有する人間の Principal と、group memory の開示モードを選択します。
-5. Agent を保存します。ページにはその永続的な指示、モデルプロファイル、Agent 固有の環境変数が表示されます。
+2. 表示名を入力し、自動生成された handle を確認します。handle は後から変更可能です。保存すると、グローバルに一意な不透明 UID が自動生成されます。
+3. ロール、アバター URL（任意）、および Worker provider を設定します。
+4. Agent の所有者となる人間の Principal と、group memory の開示モードを選択します。
+5. Agent を保存します。保存後の詳細ページで、永続ドキュメント、モデルプロファイル、Agent 固有の環境変数を設定できます。
 
-ロールは、「Research Analyst」や「Customer Support」など、作業の短い要約を提供します。以下の 4 つの永続的なドキュメントが、責任、動作、ビジュアルデザイン、機密性を管理します。
+ロールには「Research Analyst」や「Customer Support」など、担当業務の短い要約を入力します。具体的な責務、振る舞い、ビジュアルデザイン、機密情報の扱いについては、後述する 4 つの永続ドキュメントで定義します。
 
-Worker provider は Agent の [Worker pool](../worker-management/) を選びます。指定しない要求は site の既定 pool を使い、既定がなければ作成に失敗します。保存後の選択は変更できません。同じ pool の Agent も専用 Worker と永続 Home を持ちます。Agent 保存時はインスタンスを起動せず、コンピュータ作業が必要になった時点で control plane が起動します。
+Worker provider では、Agent が使用する [Worker pool](../worker-management/) を指定します。指定を省略した場合はサイトの既定 pool が使われますが、既定 pool が存在しない場合は作成に失敗します。なお、この設定は保存後に変更できません。同じ pool を共有する Agent 同士であっても、それぞれ専用の Worker と永続 Home が割り当てられます。Agent を保存した時点ではインスタンスは起動せず、コンピュータ上での作業が実際に必要になった段階で control plane が起動します。
 
 ## 所有者と group memory の開示を設定する
 
-すべての Agent に所有者が必要です。所有者は、Agent が作成または保持する知識と、その Agent を audience とする知識を確認できます。所有者が Group のメンバーでない場合、所有権だけではその Group の知識を読み取れません。
+すべての Agent には所有者の設定が必須です。所有者は、その Agent が作成・保持する知識や、その Agent が閲覧対象（audience）に含まれる知識を確認できます。ただし、所有者自身が特定の Group のメンバーでない場合、Agent の所有者であることだけを理由にその Group 限定の知識を読み取ることはできません。
 
-group memory の開示モードは、複数の人が回答を見られるときに Agent が開示できる知識を制御します。
+group memory の開示モードは、複数のメンバーが回答を閲覧できる場面で Agent がどこまで知識を開示してよいかを制御します。
 
-- **Strict** では、group conversation にいる全員が、memory item の audience scope を満たす必要があります。
-- **Relaxed** では、質問者だけを確認します。他の参加者は結果を狭めません。
+- **Strict**: グループ会話に参加している全員が、その記憶アイテムの audience スコープを満たしている必要があります。
+- **Relaxed**: 質問者本人の権限だけを確認します。会話に他の参加者がいても、検索結果が絞り込まれることはありません。
 
-direct message では、両方のモードが同じように動作します。Group が広い開示規則を受け入れている場合を除き、**Strict** を使います。知識と開示の全体像は [Brain](../brain/) を参照してください。
+ダイレクトメッセージではどちらのモードでも同じ動作になります。グループ内でより広い情報共有を明示的に許容している場合を除き、通常は **Strict** を選択してください。知識境界と開示制御の全体像については、[Brain](../brain/) を参照してください。
 
 ## 永続的なドキュメントを設定する
 
-Agent ページで **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** を開きます。
+Agent の詳細ページで **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** を開きます。
 
 | ドキュメント | 書くべき内容 |
 |---|---|
-| `MISSION.md` | Agent がなぜ存在するか、どの作業を所有するか、完全な結果が何を意味するか |
-| `SOUL.md` | どのようにコミュニケーションするか、どのように決定するか、不確実性にどう対処するか |
-| `DESIGN.md` | ウェブページ、スライド、ドキュメント、チャート、その他のビジュアルアーティファクトのデザインシステム |
-| `ConfidentialityPolicy.md` | Agent が Brain に知識を書き込むときに audience scope を選択する方法 |
+| `MISSION.md` | Agent の存在目的、担当する業務範囲、どのような状態を完了とみなすか |
+| `SOUL.md` | コミュニケーションのスタイル、意思決定の基準、不確実な状況への向き合い方 |
+| `DESIGN.md` | Web ページ、スライド、ドキュメント、チャートなど視覚的な制作物のデザインシステム |
+| `ConfidentialityPolicy.md` | Agent が Brain に知識を書き込む際、どのように audience スコープを選ぶか |
 
-`DESIGN.md` は <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md 形式</a>を使います。YAML frontmatter は色、タイポグラフィ、間隔、角、コンポーネントなどのデザイン token を保存します。Markdown の本文はビジュアルの原理とその適用方法を説明します。Ankole にはそのまま使えるデフォルトのデザインシステムが含まれています。**Console → Agents → DESIGN** で自社のブランドに置き換えられます。
+`DESIGN.md` には <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md 形式</a>を使用します。YAML frontmatter にカラー、タイポグラフィ、余白、角丸、コンポーネントなどのデザイントークンを記述し、Markdown 本文にデザイン原則と適用ガイドラインを記述します。Ankole にはすぐに使える標準デザインシステムが用意されていますが、**Console → Agents → DESIGN** から自社ブランドのデザインシステムに置き換えることもできます。
 
-ワークフロー、権限境界、動作ルールを `DESIGN.md` に入れないでください。それらは `MISSION.md`、`SOUL.md`、`ConfidentialityPolicy.md`、または特定の Skill に入れてください。`ConfidentialityPolicy.md` は Agent 自身の Brain 書き込みを導きます。chat からの自動学習では、conversation の参加者から audience を決めます。少なく明確なドキュメントのセットから始め、実際の作業が必要であることを示したときだけルールを追加してください。
+なお、業務ワークフローや権限境界、行動ルールを `DESIGN.md` には記述しないでください。それらは `MISSION.md`、`SOUL.md`、`ConfidentialityPolicy.md`、または個別の Skill に記述します。`ConfidentialityPolicy.md` は Agent 自身が能動的に Brain へ書き込む際の判断基準として使われます（チャットからの自動学習では、会話の参加者にもとづいて audience が自動的に決まります）。最初はシンプルで明確な記述から始め、実際の運用を通じて必要になったルールだけを段階的に追加していくのが効果的です。
 
-保存した変更は後の会話に適用されます。すでに実行中の作業は、開始時に読み取ったバージョンで続行します。
+保存した変更は次の会話から反映されます。すでに実行中の作業は、開始時点で読み込まれたバージョンのまま最後まで処理されます。
 
 ## モデルを設定する
 
-同じページで、少なくとも `primary`、`light`、`heavy` のモデルプロファイルを設定します。これらは通常の会話、軽い作業、複雑な推論を担当します。
+同じページで、少なくとも `primary`、`light`、`heavy` の 3 つのモデルプロファイルを設定します。これらはそれぞれ通常の会話、軽量な処理、複雑な推論に使われます。
 
-最初のセットアップでは、3 つすべてに、すでに検証済みの同じモデルを使えます。
+初回セットアップ時は、動作確認済みの同じモデルを 3 つすべてに割り当てても構いません。
 
-オプションのプロファイルは、Agent が必要なときだけ設定します。
+任意のプロファイルは、Agent の用途に応じて必要なものだけ設定します。
 
-- Agent が画像を読む必要があるときは、`vision_fallback` を設定します。
-- Agent が公開ウェブページを検索または読む必要があるときは、`web_search` と `web_fetch` を設定します。
-- Agent が画像を作成する必要があるときは、`image_generate` を設定します。
-- Job が別の provider かモデルを必要とするときは、**Background Agent Jobs** を設定します。ChatGPT サブスクリプションは、[ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/)を通じて同じ provider 選択を使います。
+- 画像の読み取りが必要な場合は、`vision_fallback` を設定します。
+- 公開 Web ページの検索や閲覧が必要な場合は、`web_search` と `web_fetch` を設定します。
+- 画像の生成が必要な場合は、`image_generate` を設定します。
+- Background Agent Job で別の provider やモデルを使いたい場合は、**Background Agent Jobs** を設定します。ChatGPT サブスクリプションも、[ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/) を通じて同じ手順で選択できます。
 
-モデルを選択または入力する前に Provider を選択します。context length フィールドも Provider の選択後に使用できます。空のままにすると、Provider とモデルのデフォルト値を使います。
+モデルを選択・入力する前に、まず Provider を選択してください。Provider を選ぶと context length 欄も入力できるようになります。空欄のままにした場合は、Provider とモデルの既定値が使われます。
 
-高度な設定には、選択した Provider が宣言したオプションだけが表示されます。**Reasoning summary** は Responses API だけに適用されます。**Answer detail** は応答の既定の詳しさを設定します。**Service tier** は、このモデルプロファイルの request tier を上書きします。使用できる値は Provider、アカウント、モデルによって異なります。空のままにすると Provider のデフォルト値を使います。
+詳細設定（Advanced）には、選択した Provider がサポートするオプションだけが表示されます。**Reasoning summary** は Responses API でのみ有効です。**Answer detail** は応答の既定の詳細度を指定し、**Service tier** はこのモデルプロファイルにおけるリクエスト tier を上書きします。指定可能な値は Provider、アカウント、モデルによって異なり、空欄の場合は Provider の既定値が使われます。
 
-最初の LLM Provider とモデルのセットアップは、[Quick start](../quickstart/#llm-providers)を参照してください。
+最初の LLM Provider とモデルを登録する手順については、[Quick start](../quickstart/#llm-providers) を参照してください。
 
 ## token quota を設定する
 
-モデルプロファイルの隣にある **トークンクォータ** セクションは、この Agent が繰り返しの期間内に消費できる token を制限します。期間の長さ（日数）、期間の開始時刻、token の上限を設定します。quota のない Agent には上限がありません。
+モデルプロファイルの隣にある **トークンクォータ** セクションでは、一定期間ごとにこの Agent が消費できるトークン数の上限を設定できます。期間の長さ（日数）、期間の開始日時、トークン上限を指定してください。クォータを設定しない場合、上限は設けられません。
 
-セクションには、使用済み token が上限に対する割合とともにバーで表示され、現在の期間の開始時刻と終了時刻も表示されます。Ankole は、Agent が行うすべてのモデル呼び出しについて provider が報告する入力 token と出力 token を数えます。スケジュールされた Turn、Workflow、Background Agent Job、およびそれらの呼び出しが開始する compaction も含まれます。Brain のモデル呼び出し、embedding、ウェブツール、画像生成、および人が自分の token で行うリクエストは数えません。
+設定すると、現在の期間における消費トークン数と上限に対する割合がプログレスバーで表示され、期間の開始日時と終了日時も確認できます。集計対象となるのは、その Agent が行うすべてのモデル呼び出しに対して provider から報告される入力トークンと出力トークンです。これにはスケジュール実行の Turn、Workflow、Background Agent Job のほか、それらの呼び出しに伴って発生する compaction も含まれます。一方、Brain 内部のモデル呼び出し、embedding、Web ツール、画像生成、および人間が自身のトークン枠で行うリクエストは集計対象外です。
 
-Agent が上限に達すると、チャットメッセージには回答の代わりに、使用済み token、上限、期間の終了時刻を含む返信が返ります。その Agent の Background Agent Job は失敗し、次の期間を待ちません。上限は各モデル呼び出しの前に確認されるため、1 回の呼び出しがその使用量の分だけ上限を超えて終わることがあります。ブロックされたメッセージは再送されません。期間が終了した後、ユーザーがもう一度送信します。
+トークン消費量が上限に達すると、チャットメッセージに対して通常の回答は行われず、使用済みトークン数・上限・期間の終了日時を知らせる案内メッセージが返されます。また、その Agent の Background Agent Job は次の期間を待たずに失敗終了します。クォータは各モデル呼び出しの直前にチェックされるため、最後の 1 回の呼び出しで消費した分だけ上限を超過して止まることがあります。ブロックされたメッセージは自動再送されないため、期間が切り替わった後にユーザーから再度送信してください。
 
-**期間をリセット** はその時点で新しい期間を開始するため、期間が終わる前に Agent が再び作業できます。**上限を解除** は quota を削除します。どちらの場合も、使用量の記録は監査のために残ります。他の支出レバーは [コスト管理](../cost-management/) を参照してください。
+期間終了を待たずに Agent の稼働を再開したい場合は、**期間をリセット** を実行するとその時点から新しい期間が始まります。**上限を解除** を実行するとクォータ自体が削除されます。いずれの操作を行っても、過去の使用量レコードは監査用に保持されます。その他のコスト制御手段については、[コスト管理](../cost-management/) を参照してください。
 
 ## 機能と環境変数を設定する
 
-Agent は、Agent Plugins と Skills のテナントのデフォルトを継承します。変更するには、**Console → Agent Library** を開き、デフォルトを編集するか、この Agent の上書きを設定します。
+Agent は既定で、テナントに設定された Agent Plugins と Skills の有効化状態を引き継ぎます。これを変更するには、**Console → Agent Library** を開いてテナント既定値を編集するか、対象の Agent に個別の上書き設定を行います。
 
-完全な手順は[Agent Library](../skills/)を参照してください。
+詳しい手順については、[Agent Library](../skills/) を参照してください。
 
-Skill、コマンドラインツール、または MCP サービスが API key を必要とする場合は、Agent ページの **Environment variables** に追加します。Agent 固有の値はこの Agent だけが使えます。
+Skill、コマンドラインツール、または MCP サービスで API キーなどが必要な場合は、Agent 詳細ページの **Environment variables** に追加します。ここで登録した環境変数は、その Agent だけが参照できます。
 
-同名のテナント値を上書きし、テナントの設定がなければサイト値を上書きします。[環境変数](../worker-env/)を参照してください。
+同名の環境変数がある場合、Agent 固有の値はテナント設定を上書きし、テナント設定がなければサイト設定を上書きします。詳しくは [環境変数](../worker-env/) を参照してください。
 
 ## chat channel を接続する
 
-**Pod Chat** では、ワークスペースのメンバーは Signal Binding を設定することなく、有効な Agent に直接ダイレクトメッセージ（`dm`）を送ったり、グループ会話（`group`）へ即座に追加したりできます。
+**Pod Chat** では、Signal Binding を別途設定しなくても、ワークスペースのメンバーが有効な Agent にそのままダイレクトメッセージ（`dm`）を送ったり、グループ会話（`group`）へ追加したりできます。
 
-Signal Binding は外部 IM チャネルおよびメールボックスを管理します。Slack、Microsoft Teams、Lark、Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または専用のメールボックスからメッセージを受け取るには、signal routing ルールを設定します。
+一方、外部の IM チャネルやメールボックスとの連携は Signal Binding で管理します。Slack、Microsoft Teams、Lark、Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または専用メールボックスからメッセージを受け取るには、Signal routing ルールを作成してください。
 
-**Console → Signal routing** を開き、チャットアプリケーションとターゲット Agent を選択します。1 つのチャットアプリケーションに複数のルールを作成でき、異なる Agent 用に別々の bot アプリケーションを作成できます。
+**Console → Signal routing** を開き、連携するチャットアプリケーションと宛先の Agent を選択します。1 つのチャットアプリケーションに対して複数のルールを作成することも、Agent ごとに別々の Bot アプリケーションを用意することも可能です。
 
-[Signal routing ルール](../signal-bindings/)を参照してください。
+詳しくは [Signal routing ルール](../signal-bindings/) を参照してください。
 
 ## Agent を変更または無効化する
 
-表示名、ロール、永続的な指示、モデル、機能はいつでも変更できます。他の設定が UID を使って Agent を識別するため、UID は変更できません。
+表示名、ロール、永続ドキュメント、モデル、有効な能力はいつでも変更できます。ただし UID は他の設定から Agent を参照する識別子として使われるため、変更できません。
 
-無効化された Agent は新しい作業を受け付けませんが、「無効」ステータスのまま agent 一覧に残ります。いつでも再有効化でき、完全に削除することもできます。削除は無効化済みの Agent に対してのみ実行でき、その Agent のセッション、ジョブ、関連レコードも一緒に削除されます。1 つのチャットの入口だけを止めたい場合は、Agent 全体を無効化するのではなく、関連する signal routing ルールを無効化してください。
+Agent を無効化すると新しい作業は受け付けなくなりますが、「無効」ステータスのまま一覧には残ります。その後いつでも再有効化でき、完全に削除することも可能です。削除操作は無効化済みの Agent に対してのみ実行でき、実行するとその Agent のセッション、ジョブ、関連レコードもあわせて削除されます。特定のチャット窓口からの流入だけを止めたい場合は、Agent 自体を無効化するのではなく、該当する Signal routing ルールを無効化してください。
 
 ## Agent が応答しない場合
 
-次の項目を順に確認してください。
+Agent から返信が返らないときは、次の項目を順番に確認してください。
 
-1. Agent が有効になっている。
-2. `primary`、`light`、`heavy` profile が設定され、LLM Provider が利用可能です。
-3. シグナルルーティングルールがこの Agent を指しています。
-4. **Console → Workers** で Agent の Worker が ready であるか、失敗の理由なしに起動中である。
-5. **Console → Conversations** にメッセージが含まれ、役立つエラーが表示されている。
+1. 対象の Agent が有効になっていること。
+2. `primary`、`light`、`heavy` の各プロファイルが設定されており、LLM Provider が利用可能な状態にあること。
+3. Signal routing ルールが対象の Agent を正しく指していること。
+4. **Console → Workers** で、Agent の Worker が `ready` 状態であるか、エラーなく起動処理中であること。
+5. **Console → Conversations** に該当メッセージが記録されているか、また原因を示すエラーが表示されていないか確認すること。
 
-channel 固有の確認は、[Quick start のトラブルシューティング](../quickstart/#agent-not-replying)を参照してください。
+チャネル別の確認ポイントについては、[Quick start のトラブルシューティング](../quickstart/#agent-not-replying) を参照してください。

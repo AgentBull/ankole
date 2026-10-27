@@ -1,66 +1,68 @@
 ---
 title: 環境変数
-description: コマンドラインツール、MCP サーバー、Background Agent Job が必要とする環境変数を Console で設定する。
+description: コマンドラインツール、MCP サーバー、および Background Agent Job が必要とする環境変数を Console で設定する方法を説明します。
 section: User guide
 order: 10
 ---
 
-Agent は、コマンドの実行、MCP サーバーの呼び出し、Agent Computer Worker での Background Agent Job の開始の際に、環境変数を必要とすることがあります。API key、token、サービス URL、その他同種の値には、Console の **Environment variables** を使ってください。
+Agent Computer Worker 上でコマンドを実行したり、MCP サーバーを呼び出したり、Background Agent Job を動かしたりする際に、外部サービス向けの環境変数が必要になることがあります。API キー、トークン、サービス URL などの設定には、Console の **Environment variables** を使用してください。
 
-credential を Skill、Agent ドキュメント、チャットメッセージに入れないでください。
+認証情報（credential）の生値を Skill 本文、Agent の定義ドキュメント、またはチャットメッセージに直接書き込まないでください。
 
-Agent と、Agent が起動するプログラムは、これらの変数を読み取れます。Agent が実行する各コマンドは、これらの値を含む新しい環境で始まり、Worker プロセスの環境を継承しません。Agent が使う必要がある credential だけを保存してください。LLM Providers、identity provider、chat channel の credential は、それぞれの Console ページで設定してください。
+ここに登録した変数は、Agent 自身および Agent が起動する子プログラムから参照できます。実行される各コマンドはこれらの変数をセットしたクリーンな環境で立ち上がり、Worker デーモンプロセス自身の内部環境変数を引き継ぐことはありません。ここには Agent の業務実行に必要な認証情報だけを保存し、LLM Provider、Identity Provider、チャットチャネル自体の認証情報はそれぞれの専用 Console ページで設定してください。
 
 ## 先にスコープを選ぶ
 
-| 誰が変数を必要とするか | どこに設定するか | スコープ |
-|---|---|---|
-| site 全体の Agent | **Console → Environment variables → New site variable** | site デフォルト |
-| 1 つの tenant の Agent | **Console → tenant を選択 → Environment variables → New tenant variable** | この tenant で site 値を override |
-| 1 つの Agent | **Console → Agents → Agent を選択 → Environment variables** | その Agent で tenant と site の値を override |
+変数を必要とする対象範囲に合わせて、設定先のスコープを選択します。
 
-Agent override、tenant 値、site デフォルトの順で解決します。override をクリアすると次に利用可能な値を使用します。どの scope にも値がない場合、変数を渡しません。
+| 変数を必要とする対象 | 設定場所 | スコープ |
+|---|---|---|
+| サイト内のすべての Agent | **Console → Environment variables → New site variable** | サイト既定値 |
+| 特定テナント内のすべての Agent | **Console → 対象テナントを選択 → Environment variables → New tenant variable** | そのテナント内でサイト既定値を上書き |
+| 特定の 1 体の Agent | **Console → Agents → 対象 Agent を選択 → Environment variables** | その Agent でテナント値・サイト既定値を上書き |
+
+実行時には「Agent 単位の上書き → テナント値 → サイト既定値」の優先順で値が解決されます。上書き設定をクリアすると 1 つ上のスコープの値が使われ、どのスコープにも値が登録されていない変数は環境に渡されません。
 
 ## site または tenant の変数を追加する
 
-1. **Console → Environment variables** を開き、tenant を選択します。必要な scope の **New site variable** または **New tenant variable** を選びます。
-2. 名前を入力します。英字、数字、アンダースコアを含められますが、数字で始めることはできません。例えば `MY_API_KEY` のようにします。
-3. 値を入力します。API key、token、パスワードなど、機密性の高い値では **Store as secret** をオンにしたままにします。
-4. オプションで、その変数を使う tool またはサービスを示すメモを追加します。このメモは Agent には渡りません。
+1. **Console → Environment variables** を開いて対象テナントを選択し、設定したいスコープに応じて **New site variable** または **New tenant variable** をクリックします。
+2. 変数名を入力します。英字、数字、アンダースコアを使用できますが、先頭を数字にすることはできません（例：`MY_API_KEY`）。
+3. 値を入力します。API キー、トークン、パスワードなどの機密値では、**Store as secret** をオンのままにしてください。
+4. 任意で、どのツールや外部サービスで使う変数かをメモ欄に記入します（このメモが Agent 側に渡されることはありません）。
 5. 変数を保存します。
 
-runtime は `PATH`、`HOME`、`SHELL`、`TERM`、`LANG`、`BASH_ENV`、`ENV`、`WORKER_ID`、`DATABASE_URL`、`CODEX_UNSAFE_ALLOW_NO_SANDBOX`、および `ANKOLE_` で始まる名前を予約しています。これらの名前はここでは設定できません。
+なお、`PATH`、`HOME`、`SHELL`、`TERM`、`LANG`、`BASH_ENV`、`ENV`、`WORKER_ID`、`DATABASE_URL`、`CODEX_UNSAFE_ALLOW_NO_SANDBOX`、および `ANKOLE_` で始まる変数名はランタイム側で予約されているため、この画面からは設定できません。
 
 ## 1 つの Agent に変数を設定する
 
-1. **Console → Agents** を開き、Agent を選択します。
-2. **Environment variables** を見つけます。
-3. 変数を追加するか、既存の変数で **Override** を選択します。
+1. **Console → Agents** を開き、対象の Agent を選択します。
+2. **Environment variables** セクションを開きます。
+3. 新規変数を追加するか、既存変数の行で **Override** を選択します。
 4. 値を入力して保存します。
 
-このセクションは site、tenant、Agent の値を表示します。**Source** 列は有効な値の出所を示します。**Clear** は Agent override だけを削除し、tenant または site 値に戻します。
+この一覧にはサイト、テナント、Agent の各スコープの変数がまとめて表示され、**Source** 列で現在有効な値がどのスコープに由来するかを確認できます。**Clear** を実行すると Agent 単位の上書きだけが削除され、テナント値またはサイト既定値へ戻ります。
 
 ## 変数のタイプを理解する
 
-WorkerEnv エントリはすべて運用者が追加した custom 値です。Ankole と Plugin は WorkerEnv を介して AppConfigure key を export しません。runtime の予約変数と binding credential は各 domain が管理します。
+WorkerEnv に並ぶ項目はすべて、運用者が明示的に登録したカスタム変数です。Ankole 本体や Plugin が AppConfigure の設定キーを WorkerEnv へ自動エクスポートすることはありません。ランタイムの予約変数やチャネル連携の認証情報は、それぞれの所有ドメインが個別に管理します。
 
 ## 値の暗号化、表示、ローテーション
 
-**Store as secret** は新しい変数で既定でオンです。Console は暗号化された値をリストでマスクしますが、Agent は実行時に元の値を受け取ります。
+新規変数の作成時は、既定で **Store as secret** がオンになっています。暗号化された値は Console の一覧上ではマスク表示されますが、実行時の Agent 環境には復号された元の値が渡されます。
 
-暗号化された変数を編集するとき、マスクを変更せずに保存すれば、保存された値が維持されます。credential をローテーションするには、新しい値を入力して保存します。先に古い値を表示する必要はありません。
+暗号化済みの変数を編集する際、マスク表示に触れずにそのまま保存すれば既存の値が維持されます。認証情報をローテーションするときは、古い値をわざわざ再表示せず、新しい値をそのまま入力して保存してください。
 
-現在の値を確認しなければならない場合にのみ **Reveal** を選択してください。**Store as secret** をオフにすると、Console は平文保存の確認を求めます。API key、token、パスワードでは暗号化をオフにしないでください。
+**Reveal**（値の表示）を使うのは、障害調査などで現在保存されている値をどうしても確認しなければならない場面だけに限定してください。また、**Store as secret** をオフに切り替えると平文保存の確認ダイアログが表示されますが、API キー、トークン、パスワードでは暗号化をオフにしないでください。
 
 ## 変更が有効になるタイミング
 
-変更は後続の Worker 作業に適用します。環境を取得済みの実行や workspace は以前の値を保持します。主モデル推論は control plane で実行し、WorkerEnv をそのプロセス環境として受け取りません。
+環境変数の変更は、保存後に新しく開始される Worker 作業から反映されます。すでに環境変数を取得して稼働中の実行や開いているワークスペースは、開始時点の古い値をそのまま保持します。なお、メイン Agent のモデル推論ループ自体はコントロールプレーン上で動くため、コントロールプレーンのプロセス環境変数として WorkerEnv が読み込まれることはありません。
 
-Agent が期待する値を受け取らない場合、次の項目を順番に確認してください。
+もし Agent 側で期待した環境変数が参照できない場合は、次の項目を上から順に確認してください。
 
-1. 名前が Skill、スクリプト、`bearer_token_env_var` 宣言と完全に一致すること。大文字と小文字を区別します。
-2. site デフォルトより先に Agent と tenant の override を確認すること。
-3. いずれかの scope に値が存在すること。
-4. 変更後に新しい Worker 作業を開始すること。既存 workspace は取得済みの環境を保持します。
+1. 変数名が Skill、スクリプト、または `bearer_token_env_var` の宣言と大文字・小文字まで完全に一致しているか。
+2. サイト既定値を見る前に、Agent 単位やテナント単位の上書き設定が入っていないか。
+3. いずれかのスコープに値が実際に保存されているか。
+4. 設定変更後に新しい Worker 作業を開始したか（すでに開いているワークスペースでは開始時点の環境変数が使われます）。
 
-MCP ベースの Skill では、`bearer_token_env_var` に環境変数名だけを入れます。token はここに保存します。宣言契約は [MCP](../mcp/) を参照してください。
+なお、MCP 連携を使う Skill では、`openai.yaml` の `bearer_token_env_var` には環境変数名だけを記述し、トークンの実体はここで登録します。宣言スキーマの詳細は [MCP](../mcp/) を参照してください。

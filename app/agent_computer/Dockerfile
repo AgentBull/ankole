@@ -31,9 +31,22 @@ RUN --mount=type=cache,target=/root/.nuget/packages \
 
 FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
 
-FROM ${BASE_IMAGE} AS build
+FROM ${BASE_IMAGE} AS kernel-addon
 
 ARG TARGETARCH
+
+WORKDIR /repo
+
+COPY app/kernel/Cargo.toml app/kernel/Cargo.lock app/kernel/build.rs ./app/kernel/
+COPY app/kernel/src ./app/kernel/src
+COPY app/kernel/scripts ./app/kernel/scripts
+
+RUN --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-kernel-${TARGETARCH},target=/repo/app/kernel/target \
+  bun app/kernel/scripts/build-node-addon.ts --release \
+  && cp /repo/app/kernel/target/napi-build/ankole_kernel.node /tmp/ankole_kernel.node
+
+FROM ${BASE_IMAGE} AS build
 
 WORKDIR /repo
 
@@ -58,35 +71,35 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
   done; \
   timeout 120s bun install --no-save
 
-COPY app/agent_computer ./app/agent_computer
+RUN set -eux; \
+  mkdir -p /tmp/ankole-browser-runtime/node_modules; \
+  cp app/ankole-browser/package.json /tmp/ankole-browser-runtime/package.json; \
+  cp -RL app/ankole-browser/node_modules/playwright-core /tmp/ankole-browser-runtime/node_modules/playwright-core; \
+  PLAYWRIGHT_BROWSERS_PATH=/tmp/ankole-browser-runtime/browsers \
+    bun app/ankole-browser/node_modules/playwright-core/cli.js install chromium-headless-shell; \
+  browser_bin="$(find /tmp/ankole-browser-runtime/browsers -type f \
+    \( -name headless_shell -o -name chrome-headless-shell \) -perm /111 -print -quit)"; \
+  test -n "${browser_bin}"; \
+  mkdir -p /tmp/ankole-browser-runtime/browsers/chromium; \
+  ln -s "$(realpath --relative-to=/tmp/ankole-browser-runtime/browsers/chromium "${browser_bin}")" \
+    /tmp/ankole-browser-runtime/browsers/chromium/chrome-headless-shell
+
+COPY --from=kernel-addon /tmp/ankole_kernel.node ./app/kernel/target/napi-build/ankole_kernel.node
+COPY app/kernel/node.ts ./app/kernel/node.ts
 COPY app/ankole-browser ./app/ankole-browser
-COPY app/kernel/Cargo.toml app/kernel/Cargo.lock app/kernel/build.rs app/kernel/node.ts ./app/kernel/
-COPY app/kernel/src ./app/kernel/src
-COPY app/kernel/scripts ./app/kernel/scripts
+
+WORKDIR /repo/app/ankole-browser
+
+RUN rm -rf dist /tmp/ankole-browser-runtime/dist \
+  && bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=bun --outdir dist --external playwright-core \
+  && cp -R dist /tmp/ankole-browser-runtime/dist
+
+WORKDIR /repo
+
 COPY libs/ankole-editor/src ./libs/ankole-editor/src
 COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
 COPY libs/applet-sdk/src ./libs/applet-sdk/src
 COPY libs/uikit/src ./libs/uikit/src
-
-WORKDIR /repo/app/ankole-browser
-
-RUN --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,id=ankole-kernel-${TARGETARCH},target=/repo/app/kernel/target \
-  bun ../kernel/scripts/build-node-addon.ts --release \
-  && rm -rf dist \
-  && bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=bun --outdir dist --external playwright-core \
-  && mkdir -p /tmp/ankole-browser-runtime/node_modules \
-  && cp package.json /tmp/ankole-browser-runtime/package.json \
-  && cp -R dist /tmp/ankole-browser-runtime/dist \
-  && cp -RL node_modules/playwright-core /tmp/ankole-browser-runtime/node_modules/playwright-core \
-  && PLAYWRIGHT_BROWSERS_PATH=/tmp/ankole-browser-runtime/browsers \
-    bun node_modules/playwright-core/cli.js install chromium-headless-shell \
-  && browser_bin="$(find /tmp/ankole-browser-runtime/browsers -type f \
-    \( -name headless_shell -o -name chrome-headless-shell \) -perm /111 -print -quit)" \
-  && test -n "${browser_bin}" \
-  && mkdir -p /tmp/ankole-browser-runtime/browsers/chromium \
-  && ln -s "$(realpath --relative-to=/tmp/ankole-browser-runtime/browsers/chromium "${browser_bin}")" \
-    /tmp/ankole-browser-runtime/browsers/chromium/chrome-headless-shell
 
 FROM ${BASE_IMAGE}
 
@@ -139,21 +152,15 @@ RUN set -eux; \
     rm -rf /tmp/ossfs2.deb /var/lib/apt/lists/*; \
   fi
 
-COPY --from=build /repo/node_modules ./node_modules
-COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
-COPY --from=build /repo/app/ankole-browser/node_modules ./app/ankole-browser/node_modules
-COPY --from=build /repo/libs ./libs
-COPY --from=build /tmp/ankole-browser-runtime /opt/ankole-browser
-COPY tsconfig.base.json ./tsconfig.base.json
-COPY app/library ./app/library
+COPY --from=build /tmp/ankole-browser-runtime/browsers /opt/ankole-browser/browsers
 
-RUN chmod -R a+rX,go-w /repo/app/library
-
-RUN set -eux; \
+RUN --mount=from=build,source=/tmp/ankole-browser-runtime/node_modules/playwright-core,target=/tmp/playwright-core \
+  set -eux; \
   PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers \
     bun \
-    /opt/ankole-browser/node_modules/playwright-core/cli.js \
+    /tmp/playwright-core/cli.js \
     install-deps chromium-headless-shell; \
+  ln -s /opt/ankole-browser/browsers/chromium/chrome-headless-shell /usr/local/bin/chromium; \
   rm -rf /var/lib/apt/lists/*
 
 # Release CLIs stay in this image. A version change rebuilds the Worker image
@@ -190,8 +197,7 @@ COPY --from=officecli-build /out/officecli /usr/local/bin/officecli
 
 RUN set -eux; \
   chmod +x /usr/local/bin/officecli; \
-  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
-  ln -s /opt/ankole-browser/browsers/chromium/chrome-headless-shell /usr/local/bin/chromium
+  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"
 
 # Typst is not packaged for Debian trixie, so the pinned release binary is
 # installed here.
@@ -234,13 +240,6 @@ RUN set -eux; \
   aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
   rm -rf /tmp/aws /tmp/awscliv2.zip
 
-COPY app/agent_computer/package.json ./app/agent_computer/package.json
-COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
-COPY app/agent_computer/src ./app/agent_computer/src
-COPY app/agent_computer/matplotlibrc /etc/ankole/matplotlibrc
-COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
-COPY app/ankole-browser/src ./app/ankole-browser/src
-
 RUN set -eux; \
   usermod -l agent -d /workspace -s /bin/bash bun; \
   groupmod -n agent bun; \
@@ -249,6 +248,25 @@ RUN set -eux; \
   chmod 0755 /agents /workspace /var/cache/ankole; \
   chmod 1777 /var/share; \
   printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
+
+COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
+COPY --from=build /repo/app/ankole-browser/node_modules ./app/ankole-browser/node_modules
+COPY --from=build /repo/libs ./libs
+COPY --from=build /tmp/ankole-browser-runtime/package.json /opt/ankole-browser/package.json
+COPY --from=build /tmp/ankole-browser-runtime/node_modules /opt/ankole-browser/node_modules
+COPY --from=build /tmp/ankole-browser-runtime/dist /opt/ankole-browser/dist
+COPY tsconfig.base.json ./tsconfig.base.json
+COPY app/library ./app/library
+
+RUN chmod -R a+rX,go-w /repo/app/library
+
+COPY app/agent_computer/package.json ./app/agent_computer/package.json
+COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
+COPY app/agent_computer/src ./app/agent_computer/src
+COPY app/agent_computer/matplotlibrc /etc/ankole/matplotlibrc
+COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
+COPY app/ankole-browser/src ./app/ankole-browser/src
 
 RUN set -eux; \
   printf '%s\n' \

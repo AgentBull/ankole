@@ -75,16 +75,16 @@ defmodule AnkoleWeb.Session do
   def authentication_references(conn) do
     conn = fetch_cookies(conn)
 
+    prefix = SessionCookies.authentication_prefix()
+
     cookie_refs =
       Enum.flat_map(conn.req_cookies, fn {name, value} ->
-        if prefix =
-             Enum.find(SessionCookies.authentication_prefixes(), &String.starts_with?(name, &1)) do
+        if String.starts_with?(name, prefix) do
           {_sid, reference} = SessionCookieStore.get(cookie_conn(conn), value, cookie_options())
 
-          if reference["id"] ==
-               String.replace_prefix(name, prefix, ""),
-             do: [reference],
-             else: []
+          if reference["id"] == String.replace_prefix(name, prefix, ""),
+            do: [reference],
+            else: []
         else
           []
         end
@@ -131,7 +131,7 @@ defmodule AnkoleWeb.Session do
 
   defp authentication_cookie_proven?(conn, %{"id" => id} = reference) when is_binary(id) do
     conn = fetch_cookies(conn)
-    raw = Enum.find_value(SessionCookies.authentication_prefixes(), &conn.req_cookies[&1 <> id])
+    raw = conn.req_cookies[SessionCookies.authentication_prefix() <> id]
 
     {_sid, cookie_ref} =
       SessionCookieStore.get(cookie_conn(conn), raw, cookie_options())
@@ -140,22 +140,6 @@ defmodule AnkoleWeb.Session do
   end
 
   defp authentication_cookie_proven?(_, _), do: false
-
-  @doc "Copies only verified legacy proofs into shared cookies without changing the active identity."
-  def migrate_legacy_authentications(conn) do
-    Enum.reduce(authentication_references(conn), conn, fn reference, conn ->
-      name = "__Host-ankole-auth-" <> reference["id"]
-
-      if conn.req_cookies[name] do
-        case BrowserSessions.get_authentication(reference) do
-          {:ok, authentication} -> put_authentication_cookie(conn, authentication)
-          _ -> conn
-        end
-      else
-        conn
-      end
-    end)
-  end
 
   defp put_authentication_cookie(conn, authentication) do
     value =
@@ -449,7 +433,6 @@ defmodule AnkoleWeb.Session do
          SessionCookies.authentication_prefix() <> ref["id"],
          SessionCookies.delete_options()
        )
-       |> delete_resp_cookie("__Host-ankole-auth-" <> ref["id"], secure: true, path: "/")
        |> put_private(:browser_authentication_ref, nil)
        |> put_private(
          :browser_authentication_proofs,
@@ -479,15 +462,10 @@ defmodule AnkoleWeb.Session do
 
     conn =
       Enum.reduce(conn.req_cookies, conn, fn {name, _}, acc ->
-        cond do
-          String.starts_with?(name, SessionCookies.authentication_prefix()) ->
-            delete_resp_cookie(acc, name, SessionCookies.delete_options())
-
-          String.starts_with?(name, "__Host-ankole-auth-") ->
-            delete_resp_cookie(acc, name, secure: true, path: "/")
-
-          true ->
-            acc
+        if String.starts_with?(name, SessionCookies.authentication_prefix()) do
+          delete_resp_cookie(acc, name, SessionCookies.delete_options())
+        else
+          acc
         end
       end)
 

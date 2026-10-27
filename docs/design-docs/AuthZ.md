@@ -1,455 +1,442 @@
 # AuthZ
 
 AuthZ answers one question: can this Principal perform this action on this
-resource? A Principal is the human or Agent responsible for the request.
+resource? A Principal is the Human or Agent accountable for the request.
 
-PostgreSQL stores permission rules per tenant. Group names are unique within
-a tenant. Tenant resource checks use the selected tenant. Site Console checks
-find the Principal and grants in the privileged tenant. This tenant limits
-the authorization lookup; it does not own the site Console resources. A
-separate data tenant selects the records that a Console operation reads or
-writes. Snapshots last for one request.
-
-AuthZ grants permission only through explicit allow rules. It has no deny rule.
-If required data is missing, invalid, disabled, or unmatched, AuthZ denies the
+PostgreSQL stores permission rules per tenant, and group names are unique within
+each tenant. When checking a tenant resource, AuthZ evaluates rules in the
+selected tenant. When checking a Site Console operation, AuthZ looks up the
+Principal and grants in the privileged tenant instead; that tenant scopes only
+the authorization lookup and does not own the site-level resources themselves,
+while a separate data tenant identifies which tenant's records the Console
+operation reads or writes. Each authorization snapshot lasts for a single
 request.
+
+AuthZ grants permission solely through explicit allow rules—it has no deny
+rules. Whenever required data is missing, invalid, disabled, or unmatched, AuthZ
+denies the request by default.
 
 ## Ash actors and execution
 
-External protected actions receive `%Ankole.AuthZ.Actor{principal,
-interactive_principal, turn_authority, authn, interactive_authn}`. The Principal supplies identity;
-`ActorRef.from_actor/1` supplies audit attribution. Browser, OIDC, and worker
-entries supply verified authentication facts. These include source scope,
-provider, methods, ceremony start, authentication time, surface, and IP.
-The snapshot places them at `context.request.authn` for CEL conditions.
-An Agent uses its own authentication facts. `interactive_authn` contains the
-Human's evidence and applies only to the Human's permission check. An explicit
-operation surface, such as `conversation` or `agent_tool`, selects
-`context.request.surface` without changing the authentication evidence.
+External protected actions receive an `%Ankole.AuthZ.Actor{principal,
+interactive_principal, turn_authority, authn, interactive_authn}` struct. On
+this struct, `principal` identifies the acting subject and
+`ActorRef.from_actor/1` derives audit attribution. Browser, OIDC, and Worker
+entry points attach verified authentication facts—source scope, provider,
+authentication methods, ceremony start, authentication time, surface, and
+client IP—which the decision snapshot exposes at `context.request.authn` for CEL
+conditions. An Agent carries its own authentication facts in `authn`, while
+`interactive_authn` holds the Human's authentication evidence and applies only
+to the Human's permission check. When a caller sets an explicit operation
+surface (such as `conversation` or `agent_tool`), AuthZ updates
+`context.request.surface` without modifying the underlying authentication
+evidence.
 
-`Ankole.AuthZ.Extension` owns the compile-time `authz` declarations.
-`Ankole.AuthZ.Authorizer` is the runtime Ash authorizer. The declaration names
-the scope, target parameter resolvers, and allowed actions. Resource verifiers
-check coverage and resolvers. The Domain verifier requires every exposed
-JSON:API resource to declare the native authorizer and extension, and requires
-JSON:API authorization. Verifier diagnostics fail the build through
-`warnings_as_errors`. The verifiers inspect the native authorizer contract
-without depending on its permission engine.
+At compile time, resources declare authorization rules through
+`Ankole.AuthZ.Extension` (`authz` blocks), specifying the scope, target
+parameter resolvers, and allowed actions, while `Ankole.AuthZ.Authorizer`
+enforces those rules as the runtime Ash authorizer. Resource verifiers validate
+action coverage and parameter resolvers, and the Domain verifier requires every
+exposed JSON:API resource to declare both the native authorizer and extension
+with JSON:API authorization enabled. These verifiers inspect the authorizer
+contract directly without calling the runtime permission engine, and any
+verifier diagnostic fails the build under `warnings_as_errors`.
 
-Setup, login, and site credential entry actions declare both `scope(:public)`
-and `check: :public`. These actions do not require a tenant Principal. Their
-own authentication and setup checks validate the browser proof or activation
-credential. The verifier rejects a public check in a protected scope.
+Public bootstrap actions—setup, login, and site credential entry—declare both
+`scope(:public)` and `check: :public`. Because they run before a user holds a
+tenant Principal, their own authentication and setup checks validate the browser
+proof or activation credential instead. The compile-time verifier rejects
+`check: :public` inside any protected scope.
 
-`Ankole.AuthZ.Checks.ActorGuardrail` checks active status, tenant scope, and Guest admission.
-`Ankole.AuthZ.Checks.GrantCheck` evaluates concrete resources and actions with the decision snapshot
-and Kernel. Target selectors resolve in the data tenant. A site request without
-a data tenant resolves in the privileged tenant. Site decisions then use the
-privileged tenant. An interactive Human and an Agent must both pass their checks.
+During protected execution, `Ankole.AuthZ.Checks.ActorGuardrail` verifies active
+status, tenant scope, and Guest admission, and `Ankole.AuthZ.Checks.GrantCheck`
+evaluates concrete resources and actions against the decision snapshot in the
+Rust kernel. Target parameter selectors resolve in the data tenant (or in the
+privileged tenant when a site request has no data tenant), after which site
+authorization decisions evaluate against the privileged tenant. Whenever both an
+interactive Human and an Agent appear on the Actor, both Principals must pass
+their respective checks.
 
-A group selector resolves a UUID or a name to the stored canonical name.
-Stored directory, IM, and Signal source groups can use colon-separated
-namespaces. The resolver checks that such a group exists before it expands
-the resource target. The normal grant rules authorize the resulting target.
+When resolving a group target selector, AuthZ maps either a group UUID or a
+group name to the stored canonical name. Because synchronized directory, IM, and
+Signal source groups can contain colon-separated namespaces, the resolver first
+confirms that the group exists in PostgreSQL before expanding the resource
+target for standard grant evaluation.
 
-`Pod.Access.Graph` owns the read-only anchor graph and permission projection.
-`Ankole.AuthZ.Checks.PodAnchorFilter` evaluates that graph in a repeatable-read transaction
-and adds one Page query filter for permitted containers and self pages. Its
-result projection computes each page's role from that same graph. Directory
-queries select only the navigation fields covered by the directory index;
-a detail read loads the document fields. The `position` column uses `C`
-collation for both ordering and cursor comparisons.
-`Ankole.AuthZ.Checks.LockedAccess` checks records inside the transaction, after the owner takes tree
-and row locks. Table writes use internal Ash operations in that transaction.
+For Pod content, `Pod.Access.Graph` maintains the read-only anchor graph and
+permission projection. On reads, `Ankole.AuthZ.Checks.PodAnchorFilter` evaluates
+that graph inside a repeatable-read transaction, attaches a single Page query
+filter for permitted containers and self-scoped pages, and computes each
+returned page's effective role from the same graph. Directory listing queries
+select only the navigation columns covered by the directory index (using `C`
+collation on `position` for both sorting and cursor comparisons), while detail
+reads load full document fields. On writes, `Ankole.AuthZ.Checks.LockedAccess`
+re-verifies access inside the write transaction after the caller acquires tree
+and row locks, and subsequent table mutations use internal Ash operations within
+that transaction.
 
-`Ankole.Ash.read_authorized`, `read_one_authorized`, and
-`run_action_authorized` require a full Actor and force `authorize?: true`.
-Internal persistence helpers use `authorize?: false`. Their caller owns the
-external authorization decision and lock order.
+At the Elixir call boundary, `Ankole.Ash.read_authorized`,
+`read_one_authorized`, and `run_action_authorized` require a full `Actor` and
+enforce `authorize?: true`. Internal persistence helpers pass
+`authorize?: false` only after their caller has already enforced external
+authorization and lock ordering.
 
 ## How AuthZ Makes a Decision
 
-An authorization request contains these values:
+Every authorization request supplies four inputs:
 
 - One Principal UID.
 - One concrete resource.
 - One exact action or a list of exact actions.
 - One JSON context object.
 
-A grant permits one action only when:
+A grant authorizes an action only when all five conditions hold:
 
 1. The Principal is active.
-2. The grant belongs to the Principal or one of its groups.
-3. The action matches exactly.
-4. The resource pattern matches the concrete resource.
-5. The CEL condition returns true.
+2. The grant belongs to the Principal or to one of its groups.
+3. The grant's action matches the requested action exactly.
+4. The grant's resource pattern matches the concrete resource.
+5. The grant's CEL condition evaluates to `true`.
 
-Any failed check denies the action. A batch stops at its first denied action.
+If any check fails, AuthZ denies the action; in a multi-action check, evaluation
+stops at the first denied action.
 
-`Ankole.AuthZ.authorize_checks/3` accepts independent resource/action checks
-with atom keys and loads one snapshot. Optional `grant_ids` restricts a check
-to those grants. AuthZ owns input validation and the kernel wire format. The kernel
-returns one boolean per check in request order. It evaluates computed groups
-once and uses one CEL environment. A check can restrict itself to named grant
-IDs from that snapshot; an empty set denies the check. The kernel still checks
-the subject, action, pattern, and condition. This permits a caller to distinguish
-direct shares from inherited access without another permission model.
-Repeated diagnostics for the same stored error appear once per call.
+For multi-target checks, `Ankole.AuthZ.authorize_checks/3` accepts a list of
+independent resource/action checks keyed by atoms and loads a single decision
+snapshot. AuthZ validates the inputs and serializes the wire payload for the
+Rust kernel, which evaluates computed groups once in a shared CEL environment
+and returns one boolean per check in request order. An individual check can pass
+`grant_ids` to restrict evaluation to specific grant IDs within that snapshot
+(an empty `grant_ids` list denies the check immediately while non-empty lists
+still verify subject, action, pattern, and CEL condition). Callers use
+`grant_ids` to distinguish direct shares from inherited permissions without
+introducing a second permission model. If multiple checks encounter the same
+invalid stored rule, AuthZ emits that diagnostic only once per call.
 
 ## Split Work between Elixir and Rust
 
 The Elixir control plane:
 
-- stores groups, memberships, external bindings, and grants
-- creates the first administrator
-- protects the last active human administrator
-- checks and normalizes request fields
-- loads all data needed for one decision
-- returns the public result
+- stores groups, memberships, external bindings, and grants in PostgreSQL
+- creates the first administrator and protects the last active Human administrator
+- validates and normalizes incoming request fields
+- loads all data required for one decision in a single snapshot
+- maps kernel outcomes to public Elixir results
 
 The Rust kernel:
 
-- checks and evaluates CEL
-- checks and matches resource patterns
-- evaluates computed groups
-- evaluates grants and batches
+- parses and evaluates CEL expressions
+- validates and matches resource glob patterns
+- evaluates computed group memberships
+- evaluates individual grants and check batches
 
-Elixir passes the kernel all data for one decision. The kernel never reads
-PostgreSQL or changes Ankole data. It does not know about setup sessions or
-first-administrator rules.
-
-Rustler exposes the evaluator to the Elixir control plane. The bindings only
-convert values and errors.
-
-Bun code calls the control plane for permission decisions.
+Elixir passes all required state for a decision into the Rust kernel by value.
+The kernel never queries PostgreSQL, mutates Ankole state, or handles setup
+sessions and first-administrator rules. Rustler bindings convert values and
+errors across the NIF boundary without adding business logic, and Bun Worker
+processes call the Elixir control plane whenever they need a permission check.
 
 ## Stored Groups and Grants
 
-`Ankole.AuthZ` is the Ash domain of the four stored resource types. Their typed
-actions own field validation, native constraint errors, and persistence.
-Group conditions and grant rules use the Kernel syntax validators.
-Metadata uses the durable JSON object type.
+`Ankole.AuthZ` is the Ash domain for the four stored authorization resources.
+Their typed actions enforce field validation, database constraint mapping, and
+persistence, calling Rust kernel validators for group CEL conditions and grant
+patterns and storing `metadata` as a JSON object.
 
-Each aggregate write that locks a group, a Principal, or the Pod tree runs in
-`Repo.transact_top_level/2`, and the `/api/v2` Console routes use generic
-actions on `Group`, `Membership`, and `Grant`. `Ankole.AuthZ.Administration.Store`
-and `Ankole.AuthZ.Administration.Grants` run the
-steps and lock contracts inside the caller's transaction: another domain calls
-them, for example `Store.replace_static_group_members/3` or
-`Grants.upsert_permission_grant/1`.
-They protect the last administrator and distinguish operator groups from
-groups owned by directory and conversation synchronization. Grant creation
-and upsert hold the Pod tree lock when the grant has a Page action or matches
-`tenant_console:pod_space` with the `update` action. Grant update and deletion
-read the current rule, then lock the Pod tree before the Grant row if the
-current or proposed rule affects Pod access. Other changes lock only the
-Grant row. Each operation checks the locked rule again. A concurrent change
-that makes the current or proposed rule affect Pod access returns the
-stale-write error. The caller reloads the Grant and retries. Console checks
-the locked rule's Page-grant policy before this concurrency rejection.
-`AuthZ.add_synced_group_member/3` and `remove_synced_group_member/3` change one member of a synchronized group for
-an adapter that observes the change. Ash policies do not make permission
-decisions.
+Console routes under `/api/v2` invoke generic actions on `Group`, `Membership`,
+and `Grant`, wrapping every aggregate write that locks a group, a Principal, or
+the Pod tree in `Repo.transact_top_level/2`. Cross-domain callers compose writes
+inside their own transactions through `Ankole.AuthZ.Administration.Store` and
+`Ankole.AuthZ.Administration.Grants` (for example,
+`Store.replace_static_group_members/3` or `Grants.upsert_permission_grant/1`),
+while synchronization adapters add or remove individual members via
+`AuthZ.add_synced_group_member/3` and `remove_synced_group_member/3`. These
+administration modules enforce last-administrator protection and prevent
+operator mutations from modifying directory- or IM-synchronized groups. Ash
+resource policies are not used for permission decisions.
 
-`Ankole.AuthZ.Engine.Snapshot` assembles the decision snapshot for each check. It is a
-read model in the persistence boundary. One tenant-bound SQL statement loads
-the Principal, static memberships, computed groups, and candidate grants.
-The Pod snapshot includes conditional Userset grants. PostgreSQL evaluates
-unconditional Userset edges directly.
-`AuthZ.restoration_review/1` is the other read model. The other AuthZ reads
-use Ash queries.
+Grant mutations follow a strict lock order so Pod anchor state stays consistent:
 
-Membership admission preserves its first timestamp. External bindings use
-their tenant-scoped composite key. Grant upserts use the partial
-natural indexes for a Principal, a group, or a Userset and update only
+- Creating or upserting a grant acquires the Pod tree lock whenever the grant
+  carries a Page action or matches `tenant_console:pod_space` with the `update`
+  action.
+- Updating or deleting a grant first reads the existing rule; if either the
+  existing rule or the proposed rule affects Pod access, AuthZ locks the Pod
+  tree before locking the `Grant` row (otherwise it locks only the `Grant` row).
+- Once locked, AuthZ re-reads the `Grant` row (and Console routes check the
+  locked rule's Page-grant policy first). If a concurrent write changed the rule
+  so that it now affects Pod access when the Pod tree lock was not acquired,
+  AuthZ returns a stale-write error so the caller can reload the `Grant` and
+  retry.
+
+On the read path, `Ankole.AuthZ.Engine.Snapshot` and
+`AuthZ.restoration_review/1` act as dedicated SQL read models at the persistence
+boundary, while all other AuthZ reads use Ash queries. `Snapshot` loads the
+Principal, static memberships, computed groups, and candidate grants in a single
+tenant-bound SQL query; for Pod checks, PostgreSQL evaluates unconditional
+Userset edges directly in SQL while including conditional Userset grants in the
+snapshot for the Rust kernel.
+
+Idempotent writes preserve existing identity: re-admitting a static group member
+keeps its original `inserted_at` timestamp, external group bindings key on their
+tenant-scoped composite primary key, `ensure` operations return an existing
+group without overwriting its shape or metadata, built-in group identity and CEL
+conditions are immutable on update, and grant upserts match partial natural
+unique indexes (for Principal, group, or Userset owners) and update only
 descriptive fields.
-An ensure operation returns the stored group identity without replacing its
-shape or metadata. Built-in group identity and computation are immutable in
-the update action.
 
 ### `principal_groups`
 
-The table stores these fields:
+`principal_groups` stores these columns:
 
-- A UUIDv7 `id`.
-- A unique lowercase `name`.
-- A nonempty `display_name`.
-- A `domain`.
-- A `kind`.
-- A `built_in` flag.
-- Optional `computed_condition` and `description`.
-- A JSON `metadata` object.
-- Timestamps.
+- `id` (UUIDv7)
+- `name` (unique lowercase key within the tenant)
+- `display_name` (non-empty string)
+- `domain` (`operator`, `directory`, `im_group`, or `signal_source`)
+- `kind` (`static` or `computed`)
+- `built_in` (boolean flag)
+- optional `computed_condition` and `description`
+- `metadata` (JSON object)
+- timestamps
 
-The `domain` field accepts these values:
-
-- `operator`
-- `directory`
-- `im_group`
-- `signal_source`
-
-The `kind` field accepts `static` or `computed`.
-A static group cannot contain `computed_condition`.
-A computed group requires a valid CEL condition.
-Every computed group must use the `operator` domain.
+Static groups cannot set `computed_condition`. Computed groups must belong to
+the `operator` domain and supply a valid CEL expression in `computed_condition`.
 
 ### `principal_group_memberships`
 
-This table records explicit membership in static groups.
-Its composite primary key is:
+`principal_group_memberships` records explicit memberships in static groups
+using the composite primary key:
 
 ```text
 principal_uid + group_id
 ```
 
-The table also stores `inserted_at`. The kernel evaluates computed group
-membership when needed and does not create a row here.
+Each row also stores `inserted_at`. Computed groups never write rows here; the
+Rust kernel evaluates their membership on demand.
 
 ### `principal_group_external_bindings`
 
-The table maps an external group identity to one AuthZ group.
-Its composite primary key is:
+`principal_group_external_bindings` maps an external group identifier to one
+AuthZ group using the composite primary key:
 
 ```text
 tenant_id + provider + external_kind + external_id
 ```
 
-The `external_kind` field accepts these values:
-
-- `directory_department`
-- `im_group`
-
-Provider names use lowercase local namespaces.
-The row also stores `group_id`, JSON metadata, and timestamps.
+Here, `external_kind` is either `directory_department` or `im_group`, `provider`
+uses a lowercase local namespace, and the row stores `group_id`, JSON
+`metadata`, and timestamps.
 
 ### `permission_grants`
 
-The table stores these fields:
+`permission_grants` stores these columns:
 
-- A UUIDv7 `id`.
-- One owner, `principal_uid`, `group_id`, or `source_page_id`.
-- `source_action` for a Userset owner.
-- `target_page_id` and `target_scope` for a page target.
-- `resource_pattern`.
-- `action`.
-- `condition` with default `true`.
-- Optional `description`.
-- A JSON `metadata` object.
-- Timestamps.
+- `id` (UUIDv7)
+- exactly one owner column: `principal_uid`, `group_id`, or `source_page_id`
+- `source_action` (when owned by a Userset via `source_page_id`)
+- `target_page_id` and `target_scope` (when targeting a Pod Page)
+- `resource_pattern`
+- `action` (cannot contain a colon)
+- `condition` (CEL expression, defaulting to `true`)
+- optional `description`
+- `metadata` (JSON object)
+- timestamps
 
-Exactly one owner field must exist.
-An action cannot contain a colon.
-
-The natural key contains owner, resource pattern, action, and condition.
-Separate partial unique indexes cover Principal, group, and Userset grants.
-A Userset names one source Page and one exact page action. Both source and
-target Pages must belong to the grant's tenant. A Page cannot reference itself.
+A grant's natural key comprises its owner, `resource_pattern`, `action`, and
+`condition`, enforced by separate partial unique indexes for Principal, group,
+and Userset owners. A Userset grant names one source Page and one exact page
+action; both the source Page and the target Page must belong to the grant's
+tenant, and a Page cannot reference itself.
 
 ## Name Resources and Actions
 
-A request names one concrete resource. It cannot contain `*`, `?`, brackets,
-or braces.
+Authorization requests must name a concrete resource without glob metacharacters
+(`*`, `?`, brackets, or braces). Stored grants, by contrast, can use
+colon-delimited glob patterns, which the Rust kernel translates to path
+separators before matching with `globset`:
 
-A stored grant can use a glob pattern. Colons separate resource segments.
+- `*` matches within a single colon-separated segment.
+- `**` matches across segment boundaries (though a bare `**` grant is invalid).
 
-- `*` stays inside one segment.
-- `**` can cross segment boundaries.
+Resource namespaces separate administrative and runtime scopes:
 
-The kernel translates colons to path separators before `globset` matching.
+- **Site Console**: `site_console:`
+- **Pod administration**: `tenant_console:` (including
+  `tenant_console:pod_space`, `tenant_console:pod_settings`,
+  `tenant_console:principals`, `tenant_console:principal:<uid>`,
+  `tenant_console:group:pod_admin`, `tenant_console:invitations`, and
+  `tenant_console:identity_providers`)
+- **Runtime Agents**: `agent:<uid>` and `agent:<uid>:tool:<name>`
+- **Pod content**: `pod:space:**`, `pod:private:<uid>:**`,
+  `pod:**:<page-id>:**`, or `pod:**:<page-id>:page`
 
-Site Console resources use `site_console:`. Pod administration resources use
-`tenant_console:` (including `tenant_console:pod_space`,
-`tenant_console:pod_settings`, `tenant_console:principals`,
-`tenant_console:principal:<uid>`, `tenant_console:group:pod_admin`,
-`tenant_console:invitations`, and `tenant_console:identity_providers`). Runtime
-Agent resources use `agent:<uid>` and `agent:<uid>:tool:<name>`. Pod grants use
-`pod:space:**`, `pod:private:<uid>:**`, `pod:**:<page-id>:**`, or
-`pod:**:<page-id>:page`. A bare `**` grant is invalid. Console administration
-does not give runtime Agent or Private access.
+Administrative grants (`site_console:` and `tenant_console:`) never confer
+runtime Agent access or access to a Human's private Pod space.
 
-Actions are nonempty exact strings.
-They cannot contain a colon.
-
-`authorize_permission` also accepts `<resource>:<action>` and splits at the
-final colon.
+Actions are non-empty exact strings without colons. As a convenience,
+`authorize_permission/3` also accepts a combined `<resource>:<action>` string
+and splits it at the final colon.
 
 ## Add a CEL Condition
 
-Computed group conditions receive this CEL value:
+CEL conditions receive typed bindings depending on what they guard:
 
-- `principal`
+- **Computed group conditions** receive `principal`.
+- **General grant conditions** receive `principal`, `resource`, `action`, and
+  `context`.
+- **Pod Page grant conditions** can reference only `principal` and `context`.
 
-Grant conditions receive these CEL values:
+Within these bindings, `principal.membership` is `"member"` or `"guest"` for
+Humans and `null` for Agents and System Principals, while request metadata lives
+under `context.request`. When validating CEL expressions on write, the Rust
+kernel walks the AST and tracks comprehension loop variables to reject unknown
+free variables; writes also validate `resource_pattern` syntax in the kernel.
 
-- `principal`
-- `resource`
-- `action`
-- `context`
+Trusted request context comes only from verified transport boundaries, never
+from caller-supplied request bodies:
 
-Request fields are available under `context.request`. `principal.membership`
-is `member` or `guest` for Humans, and null for Agents and System Principals.
-Page conditions can use only `principal` and `context`. The Kernel traverses
-the CEL AST and tracks comprehension bindings when it checks free variables.
+- Direct HTTP and WebSocket adapters populate the client IP and surface, and
+  Applet tasks forward that context to capability calls.
+- Native conversation Signals persist the trusted client IP in
+  `data.request_context`. Runtime tools and Pod RPCs accept that IP only from a
+  kernel-produced native input with matching conversation and session keys;
+  derived work (Background Agent Jobs, Workflows, Schedules, and Automations)
+  traces its stored owner chain back to that originating input, requiring every
+  hop to preserve the Agent and `WorkAccess` identity (a missing or broken link
+  yields no trusted IP).
+- Runtime Agent requests set `context.request.surface` to `agent_tool` or
+  `agent_rpc`. Tool checks pass the public tool name and normalized arguments in
+  `context.request.args` during both preparation and dispatch; internal Worker
+  transport names and wire arguments do not alter this authorization input.
 
-HTTP and WebSocket adapters supply the request IP and surface. Applet tasks
-carry that context to each capability call. Native conversation Signals store
-the trusted input IP in `data.request_context`. Runtime tools and Pod RPC
-read this field only from a kernel-produced native input with matching
-conversation and session keys. Derived work follows the stored Job, Workflow,
-Schedule, or Automation owner to that input. Each link must retain the Agent
-and WorkAccess identity. An absent or invalid link supplies no trusted IP.
-Runtime requests set the surface to `agent_tool` or `agent_rpc`. Tool checks
-receive the public tool name and normalized arguments in `context.request.args`
-at preparation and dispatch. Worker transport names and arguments do not
-change this authorization input. Request bodies cannot supply trusted IP facts.
+When an Agent acts on behalf of a Human—across main turns, Workflow tasks,
+scheduled work, and Background Agent Jobs—AuthZ requires the Human's `invoke`
+grant for each tool and intersects the Human's and Agent's permissions for Pod
+access. Autonomous service work uses the Agent's own permissions.
 
-Human-derived work checks the Human's `invoke` grant for each tool and uses
-the intersection of Human and Agent permissions for Pod access. This applies
-to main turns, Workflow tasks, scheduled work, and Background Agent Jobs.
-Service autonomous work uses Agent permissions.
-
-Writes validate CEL syntax and free variables through the native kernel.
-Writes also validate resource pattern syntax through the native kernel.
-
-If stored CEL or a pattern is invalid, the kernel skips that group or grant,
-returns a diagnostic, and denies by default.
-
-The control plane logs these diagnostics with `authz.invalid_persisted_data`.
-It also emits the `ankole.authz.invalid_persisted_data` telemetry event.
+If a persisted CEL expression or resource pattern is corrupt or invalid at
+evaluation time, the Rust kernel skips that group or grant, records a
+diagnostic, and denies by default. The control plane logs these diagnostics
+under `authz.invalid_persisted_data` and emits the
+`ankole.authz.invalid_persisted_data` telemetry event.
 
 ## Load the Data for One Decision
 
-The control plane:
+To evaluate a decision, the Elixir control plane:
 
-1. Checks the Principal UID, resource, action, and context.
-2. Loads the Principal, group state, and candidate grants in one SQL snapshot.
-3. Calls the Rust kernel with the snapshot.
-4. Converts the kernel decision to an AuthZ result.
-
-SQL narrows the possible grants for speed. The kernel still checks the owner,
-action, pattern, and condition.
-
-The kernel can return these decision statuses:
-
-- `allow`
-- `deny`
-- `principal_disabled`
-- `invalid_request`
-
-The Elixir API returns `:ok` only for `allow`.
-Boolean `allowed?` returns false for every error or denial.
+1. Validates the Principal UID, concrete resource, action, and context.
+2. Loads the Principal, group state, and candidate grants in one SQL snapshot
+   (narrowing candidate grants in SQL for speed while leaving full verification
+   to the kernel).
+3. Passes the snapshot to the Rust kernel, which checks owner, action, pattern,
+   and CEL condition.
+4. Maps the kernel's status (`allow`, `deny`, `principal_disabled`, or
+   `invalid_request`) to the public Elixir result: `authorize/4` returns `:ok`
+   only for `allow`, and `allowed?/4` returns `false` on any denial or error.
 
 ## Manage Groups
 
-`Ankole.AuthZ` supports these group operations:
+`Ankole.AuthZ` provides operations to:
 
-- List, read, create, update, and delete operator groups.
-- List static members and group grants.
-- Add or remove static membership.
-- Preview a computed condition against active Principals.
-- Summarize stored members and owned grants.
+- list, read, create, update, and delete `operator` groups
+- list static group members and group-owned grants
+- add or remove static group memberships
+- preview a computed group's CEL condition against active Principals (without
+  writing membership rows)
+- summarize stored member counts and owned grants
 
-Group names are stable lowercase keys. Previewing a computed group does not
-write membership rows.
+Group `name` values are stable lowercase identifiers. Built-in groups cannot be
+deleted, and updates to a built-in group cannot alter its `name`, `kind`,
+`built_in` flag, or `computed_condition`.
 
-The API rejects deletion of built-in groups.
-Updates cannot change their name, kind, built-in flag, or computed condition.
-
-Directory synchronization changes only memberships from that directory. It
-does not change operator groups or another provider's bindings.
-
-Chat group synchronization uses the `im_group` domain. Domain checks stop one
-provider path from changing another kind of group.
+Domain boundaries isolate group synchronization: directory sync updates only
+memberships bound to that directory provider without touching `operator` groups
+or other providers' bindings, and chat group sync operates strictly within the
+`im_group` domain.
 
 ## Manage Grants
 
-`Ankole.AuthZ` supports these grant operations:
+`Ankole.AuthZ` provides operations to:
 
-- List Principal-owned or group-owned grants.
-- Create a grant.
-- Upsert a grant by its natural key.
-- Update a grant by ID.
-- Delete a grant by ID.
-
-For an existing natural key, an upsert changes only the description, metadata,
-and `updated_at`.
+- list Principal-owned or group-owned grants
+- create a grant or upsert one by its natural key (updating only `description`,
+  `metadata`, and `updated_at` when the natural key already exists)
+- update or delete a grant by ID
 
 ### Page Actions
 
-The Pod page domain reserves `page_view`, `page_write_records`, `page_edit`,
-and `page_manage`, with bits 1, 2, 4, and 8. The roles `view`, `contribute`,
-`edit`, and `manage` expand to masks 1, 3, 7, and 15. Each stored grant has
-one action, and each recursive graph edge compares one exact source bit.
-Human-driven Agent work intersects the Human and Agent masks.
-The Console grant API rejects Page grant creation and deletion. It permits
-only description changes on a Page grant. Pod sharing writes Page grants
-through AuthZ with a typed target Page and a `container` or `self` scope.
-`container` grants pass to children that inherit permissions. `self` grants
-apply to the target Page only. Each action is exact. A role writes the set of
-actions that the role requires.
+Pod Page permissions use four reserved actions—`page_view` (bit `1`),
+`page_write_records` (bit `2`), `page_edit` (bit `4`), and `page_manage` (bit
+`8`)—which combine into the four Pod roles: `view` (mask `1`), `contribute`
+(mask `3`), `edit` (mask `7`), and `manage` (mask `15`). Each stored row in
+`permission_grants` holds a single exact action (so assigning a role writes the
+set of actions required by that role), and each recursive Userset edge checks
+one exact source bit. For Human-driven Agent work, Ankole intersects the Human
+and Agent bitmasks.
 
-The Kernel evaluates request-dependent conditions once. PostgreSQL combines
-those results with direct grants, groups, inheritance, and Userset edges.
-A recursive `UNION` computes the least fixed point. Cycles with no granted
-seed give no permission. A deleted Page or ancestor removes the subtree from
-normal authorization. See [Pod content model](PodContentModel.md).
+Operators cannot create or delete Page grants through the generic Console grant
+API (which allows only `description` edits on existing Page grants). Instead,
+Pod sharing creates and removes Page grants through AuthZ using a typed target
+Page and a `container` or `self` scope: `container` grants flow down to
+inheriting child Pages, whereas `self` grants apply only to the target Page.
+
+During Pod access evaluation, the Rust kernel evaluates request-dependent CEL
+conditions once, and PostgreSQL combines those results with direct grants, group
+memberships, tree inheritance, and Userset edges via a recursive `UNION` that
+computes the least fixed point. Self-referential cycles without a granted seed
+confer zero permissions, and deleting a Page (or any of its ancestors) removes
+its entire subtree from normal authorization (see
+[Pod content model](PodContentModel.md)).
 
 ## Create the First Administrator
 
-Every tenant receives the computed `all_humans` group and the built-in static
-`pod_admin` group. `pod_admin` grants `tenant_console:**` operations in that
-tenant. The privileged tenant also receives the built-in static `siteadmin`
-group. A site administrator must be an active human member in the privileged
-tenant and a member of `siteadmin`. A same-named group in another tenant does
-not grant site access.
+Every tenant starts with two built-in groups:
 
-AuthZ computes the `all_humans` group.
-It uses this CEL condition:
+- `all_humans`, a computed group defined by:
 
-```text
-principal.type == "human" && principal.membership == "member" && principal.status == "active"
-```
+  ```text
+  principal.type == "human" && principal.membership == "member" && principal.status == "active"
+  ```
 
-Built-in administrator group members must be active Human members. Guests and
-Agents cannot join `siteadmin` or `pod_admin`. During first-time site setup,
-one transaction creates the built-in groups, adds the first human to both
-`siteadmin` and `pod_admin`, and creates the `site_console:**` and
-`tenant_console:**` grants. Creating an additional tenant adds its initial
-administrator to that tenant's `pod_admin` group.
+- `pod_admin`, a static group that grants administrative actions over
+  `tenant_console:**` within that tenant.
 
-The same Principal can safely repeat the first claim. After that, another
-Principal cannot claim the first-administrator role.
+In addition, the privileged tenant receives the built-in static `siteadmin`
+group. A site administrator must be an active Human member of the privileged
+tenant who belongs to `siteadmin`; a group named `siteadmin` in any other tenant
+confers no site access. Only active Human members can join `siteadmin` or
+`pod_admin`—Guests and Agents are rejected.
 
-`siteadmin` receives these actions over `site_console:**` and
-`tenant_console:**`, and `pod_admin` receives them over `tenant_console:**`:
+During first-time site setup, a single transaction creates these built-in
+groups, adds the first Human to both `siteadmin` and `pod_admin`, and grants
+`read`, `update`, `delete`, `reset`, `decrypt`, and `sync` over both
+`site_console:**` and `tenant_console:**` to `siteadmin` (and over
+`tenant_console:**` to `pod_admin`). That first Principal can safely repeat the
+initial claim idempotently, after which no other Principal can claim the
+first-administrator role; setup bootstrap can also repair missing built-in
+grants after root setup finishes. Creating an additional tenant places its
+initial administrator in that tenant's `pod_admin` group with those same six
+actions over `tenant_console:**`.
 
-- `read`
-- `update`
-- `delete`
-- `reset`
-- `decrypt`
-- `sync`
+AuthZ blocks manual operations from removing or disabling the last active Human
+administrator in `siteadmin` or in any tenant's `pod_admin` group. Only a
+confirmed enterprise-provider departure can disable that last Human, and public
+setup remains closed afterward. If no active administrator remains, an operator
+can run `mix ankole.admin.recover` (optionally with `--tenant SLUG`), which
+invokes `recover_admin_in_tx/1` or `recover_pod_admin_in_tx/1` for the audited
+recovery procedure described in [Human Offboarding](HumanOffboarding.md).
 
-The setup bootstrap can repair these grants after root setup completes.
-
-AuthZ prevents manual removal or disabling of the last active Human
-administrator in `siteadmin` or in any tenant's `pod_admin` group. Confirmed
-provider departure can disable that Human. The public setup remains closed.
-`recover_admin_in_tx/1` and `recover_pod_admin_in_tx/1` permit the audited
-operator recovery described in [Human Offboarding](HumanOffboarding.md) (via
-`mix ankole.admin.recover`, optionally with `--tenant SLUG`) when no active
-administrator remains in that group.
-
-`restoration_review/1` projects direct grants, static memberships, computed
-group rules, and all Userset grants in the selected tenant for explicit approval
-before Human restoration. Each Userset entry includes its source Page and action,
-target Page and scope, resource pattern, action, and condition. Entries are sorted
-by ID. Its fingerprint includes this rule set and the Human access version. AuthZ
-editors remove unwanted permissions; restoration records the approved projection.
+Before restoring a suspended or offboarded Human, `restoration_review/1` builds
+an approval projection of the tenant's direct grants, static memberships,
+computed group rules, and all Userset grants (sorted by ID, including source
+Page and action, target Page and scope, `resource_pattern`, `action`, and
+`condition`), together with a fingerprint over that rule set and the Human's
+access version. Administrators can prune unwanted permissions in AuthZ first,
+and the restoration record captures the approved projection.
 
 ## Public Functions
 
-`Ankole.AuthZ` provides these decision functions:
+`Ankole.AuthZ` exposes six primary decision functions:
 
 - `authorize/4`
 - `authorize_all/4`
@@ -458,34 +445,37 @@ editors remove unwanted permissions; restoration records the approved projection
 - `authorize_decision/4`
 - `authorize_all_decision/4`
 
-It also exposes data builders for tests and explicit cross-process calls. Write
-functions return detailed domain errors.
+It also provides snapshot/data builders for tests and explicit cross-process
+calls, while administrative write functions return structured domain errors.
 
 ## Site Administration
 
-`tenants.privileged_tenant_id` selects the privileged tenant by its stable ID. A
-slug change does not change this assignment. The key is not writable in
-the generic settings editor. `Tenants.transfer_site_administration/2` owns the
-transaction that locks this configuration and the target tenant, makes the
-selected active human a site administrator, and transfers the role. Suspending
-or deleting the privileged tenant is rejected. Deleting the old group's grants
-refreshes each affected Page anchor and its inheriting descendants in the same
-transaction. Site resources use the
-`site_console:` AuthZ namespace. All Web Console modules use this namespace, including
-modules that operate on a selected data tenant. The `/api/v2/site/` routes
-manage site resources; the other Console routes can manage tenant data.
-The authorization lookup stays in the privileged tenant in both cases.
+`tenants.privileged_tenant_id` identifies the privileged tenant by its immutable
+ID (so renaming a tenant's slug does not alter site-admin ownership) and is
+marked non-writable in the generic settings editor. Transferring site
+administration runs through `Tenants.transfer_site_administration/2`, which
+locks both `tenants.privileged_tenant_id` and the target tenant in one
+transaction, ensures the chosen active Human is a site administrator, transfers
+the role, and refreshes every Page anchor (and inheriting descendants) affected
+by deleting the old group's grants. Ankole rejects suspending or deleting the
+privileged tenant.
+
+All Web Console modules authorize against the `site_console:` namespace—even
+modules that read or write records in a selected data tenant. While
+`/api/v2/site/` routes operate on site-owned resources and other Console routes
+operate on tenant data, AuthZ always evaluates the caller's `site_console:`
+grants in the privileged tenant.
 
 ## Rules
 
-- Use Principals as the only accountable subjects.
-- Store permission rules in PostgreSQL.
-- Give every grant exactly one owner.
-- Match actions exactly.
-- Evaluate only concrete request resources.
-- Use the Rust kernel for shared rule evaluation.
-- Skip invalid persisted rules and emit diagnostics.
-- Deny by default.
-- Protect the last active Human administrator during manual operations.
+- Use Principals as the sole accountable subjects.
+- Persist all permission rules in PostgreSQL.
+- Assign each grant to exactly one owner (Principal, group, or Userset).
+- Match action names exactly without wildcards or colons.
+- Evaluate authorization checks only against concrete resource identifiers.
+- Run shared pattern, computed-group, and CEL evaluation in the Rust kernel.
+- Skip invalid persisted rules, emit diagnostics, and deny by default.
+- Grant access only through explicit allow rules; deny everything else by default.
+- Prevent manual operations from removing or disabling the last active Human administrator.
 
-See [Principal](Principal.md) for identity and status rules.
+See [Principal](Principal.md) for Principal identity and status rules.

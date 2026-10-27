@@ -9,7 +9,9 @@ defmodule AnkoleWeb.JSONAPI.Context do
   def before_dispatch(conn, :not_found, _scope), do: conn
 
   def before_dispatch(conn, %{resource: resource, params: params}, scope) do
-    with true <- scope == :site or is_binary(Ankole.Repo.tenant_id()),
+    site? = scope in [:site, :saas_site]
+
+    with true <- site? or is_binary(Ankole.Repo.tenant_id()),
          {:ok, params} <- canonical_targets(resource, params) do
       conn = %{
         conn
@@ -17,7 +19,7 @@ defmodule AnkoleWeb.JSONAPI.Context do
       }
 
       conn
-      |> Ash.PlugHelpers.set_tenant(if(scope == :site, do: nil, else: Ankole.Repo.tenant_id()))
+      |> Ash.PlugHelpers.set_tenant(if(site?, do: nil, else: Ankole.Repo.tenant_id()))
       |> Ash.PlugHelpers.set_actor(conn.assigns[:authz_actor])
       |> Ash.PlugHelpers.set_context(browser_context(conn))
     else

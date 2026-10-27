@@ -1,11 +1,18 @@
 import { expect, test } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { createConnection } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { BrowserDaemonServer } from '../src/daemon/server'
 import { BrowserDataError } from '../src/errors'
 import {
   BrowserMaterialSchema,
   BrowserRequestSchema,
+  BrowserResponseSchema,
   parseBrowserRequest,
   type BrowserCommand,
-  type BrowserMaterial
+  type BrowserMaterial,
+  type BrowserResponse
 } from '../src/protocol'
 
 const material: BrowserMaterial = {
@@ -117,4 +124,40 @@ test('batch items are structurally limited to page commands plus status', () => 
   expect(rejectionMessage({ name: 'batch', args: { commands: [{ name: 'click', args: {} }] } })).toBe(
     'commands[0].args.selector must be a non-empty string'
   )
+})
+
+async function sendRawLine(socketPath: string, line: string): Promise<BrowserResponse> {
+  const payload = await new Promise<string>((resolve, reject) => {
+    const socket = createConnection(socketPath)
+    let chunks = ''
+    socket.setEncoding('utf8')
+    socket.once('error', reject)
+    socket.on('data', chunk => {
+      chunks += chunk
+    })
+    socket.once('connect', () => {
+      socket.write(line)
+    })
+    socket.once('end', () => resolve(chunks))
+  })
+  return BrowserResponseSchema.parse(JSON.parse(payload.trim()))
+}
+
+test('daemon rejects malformed and non-object JSON lines as invalid_command', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ankole-browserd-'))
+  const server = new BrowserDaemonServer(join(dir, 'browserd.sock'))
+  await server.listen()
+  try {
+    for (const line of ['null\n', '123\n', '[]\n', '{bad\n']) {
+      const response = await sendRawLine(server.socketPath, line)
+      expect(response.ok).toBe(false)
+      if (!response.ok) {
+        expect(response.error.code).toBe('invalid_command')
+        expect(response.error.message).toBe('Invalid JSON request')
+      }
+    }
+  } finally {
+    await server.close()
+    await rm(dir, { recursive: true, force: true })
+  }
 })

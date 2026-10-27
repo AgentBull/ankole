@@ -200,7 +200,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
       "event" => %{
         "eventtype" => "template_card_event",
         "task_id" => "ankole:actor-evt-1",
-        "key" => "ank1|int-1|7|choice|opt-a|a"
+        "key" => "ank2:" <> Torque.encode!(["int-1", 7, "choice", "opt-a", "a"])
       }
     }
 

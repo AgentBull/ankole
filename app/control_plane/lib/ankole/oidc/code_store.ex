@@ -17,6 +17,7 @@ defmodule Ankole.OIDC.CodeStore do
            scope: Enum.join(data.scope, " "),
            code_challenge: data.code_challenge,
            nonce: data.claims["nonce"],
+           auth_time: data.claims["auth_time"],
            session_id: data.claims["session_id"],
            expires_at: timestamp(expiry)
          }) do
@@ -81,7 +82,11 @@ defmodule Ankole.OIDC.CodeStore do
         resource: [],
         dpop_jkt: nil,
         family_id: nil,
-        claims: %{"session_id" => row.session_id, "nonce" => row.nonce}
+        claims: %{
+          "session_id" => row.session_id,
+          "nonce" => row.nonce,
+          "auth_time" => row.auth_time
+        }
       }
     }
   end

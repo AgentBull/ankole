@@ -1,3 +1,4 @@
+import { equal } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { WorkerProviderKind } from '../api/configuration-types'
 import { type Flat, fromDocument } from '../api/json-api'
@@ -70,8 +71,7 @@ export const WorkerProviderEditorModel = createModel(() => {
   const dirty = computed(
     () =>
       Boolean(initialDraft.value) &&
-      (JSON.stringify(draft.value) !== JSON.stringify(initialDraft.value) ||
-        Object.values(credentials.value).some(value => value !== ''))
+      (!equal(draft.value, initialDraft.value) || Object.values(credentials.value).some(value => value !== ''))
   )
 
   return {
@@ -142,15 +142,15 @@ export const WorkerProviderEditorModel = createModel(() => {
       return (accepted: WorkerProviderDraft) => {
         if (generation !== requestedGeneration) return false
         batch(() => {
-          if (JSON.stringify(providerID.value) === JSON.stringify(submitted.providerID)) {
+          if (providerID.value === submitted.providerID) {
             providerID.value = accepted.providerID
           }
-          if (JSON.stringify(displayName.value) === JSON.stringify(submitted.displayName)) {
+          if (displayName.value === submitted.displayName) {
             displayName.value = accepted.displayName
           }
-          if (JSON.stringify(kind.value) === JSON.stringify(submitted.kind)) kind.value = accepted.kind
-          if (JSON.stringify(config.value) === JSON.stringify(submitted.config)) config.value = accepted.config
-          if (JSON.stringify(isDefault.value) === JSON.stringify(submitted.isDefault)) {
+          if (kind.value === submitted.kind) kind.value = accepted.kind
+          if (config.value === submitted.config) config.value = accepted.config
+          if (isDefault.value === submitted.isDefault) {
             isDefault.value = accepted.isDefault
           }
           initialDraft.value = { ...accepted }

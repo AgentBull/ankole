@@ -4,12 +4,17 @@ defmodule AnkoleWeb.MemberAPI do
 
   resources do
     resource(AnkoleWeb.MeOperations)
+    resource(AnkoleWeb.JSONAPI.PodRealtime)
   end
 
   json_api do
     authorize?(true)
 
     routes do
+      base_route "/", AnkoleWeb.JSONAPI.PodRealtime do
+        route(:get, "/realtime-token", :token, name: "podRealtimeToken")
+      end
+
       base_route "/me", AnkoleWeb.MeOperations do
         route(:get, "/", :show, name: "podMe")
         route(:patch, "/", :update_profile, name: "updatePodProfile")

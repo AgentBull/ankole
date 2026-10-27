@@ -1,8 +1,22 @@
 defmodule Ankole.AgentWorkers.WorkerBootstrapTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.AgentWorkers.WorkerBootstrap
   alias Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec
+
+  setup do
+    previous_version = System.get_env("ANKOLE_VERSION")
+    previous_env = System.get_env("ANKOLE_ENV")
+    System.delete_env("ANKOLE_VERSION")
+    System.delete_env("ANKOLE_ENV")
+
+    on_exit(fn ->
+      restore_env("ANKOLE_VERSION", previous_version)
+      restore_env("ANKOLE_ENV", previous_env)
+    end)
+
+    :ok
+  end
 
   describe "agent_worker_spec/5" do
     test "binds the generation and credential to the Agent's persistent storage" do
@@ -47,9 +61,32 @@ defmodule Ankole.AgentWorkers.WorkerBootstrapTest do
                Enum.sort(~w(WORKER_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT
                  ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY ANKOLE_WORKER_STORAGE
                  ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE ANKOLE_WORKER_BOOTSTRAP
-                 ANKOLE_WORKER_ADAPTER_URL HOME CODEX_HOME CODEX_SQLITE_HOME))
+                 ANKOLE_WORKER_ADAPTER_URL ANKOLE_VERSION ANKOLE_ENV
+                 HOME CODEX_HOME CODEX_SQLITE_HOME))
+    end
+
+    test "forwards non-blank ANKOLE_VERSION and ANKOLE_ENV from the control plane" do
+      System.put_env("ANKOLE_VERSION", "v2.0.0")
+      System.put_env("ANKOLE_ENV", "prod")
+
+      provider = %{
+        kind: "docker",
+        settings: %{},
+        runtime: %{
+          image: "ankole-agent-computer:2",
+          runtime_fabric_endpoint: "ws://control-plane:4000/runtime-fabric/worker"
+        }
+      }
+
+      spec = WorkerBootstrap.agent_worker_spec(provider, "agent-a", "gen0000001", "token-a")
+
+      assert spec.env["ANKOLE_VERSION"] == "v2.0.0"
+      assert spec.env["ANKOLE_ENV"] == "prod"
     end
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 
   test "Skill directories use the three Worker library roots" do
     for {source, kind, expected} <- [

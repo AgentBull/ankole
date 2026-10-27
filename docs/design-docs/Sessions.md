@@ -1,40 +1,47 @@
 # Sessions
 
-A Session is one Agent's execution context. Its identity is `(agent_uid,
+A Session is one Agent's execution context, identified by `(agent_uid,
 session_id)`. `Ankole.Sessions` owns admission, the Driver, tools, continuations,
-retry, and completion. AIGateway owns the exact model input/output, provider
-artifacts, branches, and compaction. Conversations owns public statements;
-Signals owns durable stimuli. These records have different writers and lifetimes.
+retries, and completion. Surrounding domains own the related records, which have
+separate writers and lifetimes: AIGateway owns exact model inputs and outputs,
+provider artifacts, branches, and compaction; Conversations owns public
+statements; and Signals owns durable stimuli.
 
-`Prompt.Delimiters` owns the quoted conversation, external event, environment,
-and recalled-memory boundaries. It preserves each input policy: conversation
-and event text replace reserved delimiters; memory text escapes its reserved
-tags; environment fields also stay on one line. Input builders use the same
-boundary names. This encoding does not replace Skill lesson admission rules
-or authorization checks.
+`Prompt.Delimiters` owns the boundary tags for quoted conversations, external
+events, environment fields, and recalled memories, and all input builders share
+these boundary names. Each input kind follows its own escaping policy:
+conversation and event text replace reserved delimiters, memory text escapes its
+reserved tags, and environment fields also stay on a single line. This boundary
+encoding does not replace admission rules for Skill lessons or authorization
+checks.
 
-Each Agent participant in a conversation uses `conversation:<public_uuid>` as
-its Session ID. Two Agents in one external room therefore share public history
-and keep separate Sessions and model states. A cron rule uses its own stable
-Session. A Background Agent Job or Workflow task has its own execution context
-and can publish a result or notice into an explicitly routed conversation.
+Each Agent participating in a conversation uses `conversation:<public_uuid>` as
+its Session ID. Because of this, two Agents in the same external room share
+public history while keeping separate Sessions and model states. A cron rule
+uses its own stable Session, while a Background Agent Job or Workflow task runs
+in its own execution context and can publish results or notices to an explicitly
+routed conversation.
 
-`Sessions.Key` owns construction and parsing of the transport key formats:
-`conversation:<uuid>`, `cron:<id>`, `job:<id>`, and `wf_task:<id>`. Other valid
-UTF-8, nonblank, NUL-free strings are named Session keys. `parse/1` classifies
-the key; each work domain validates its own ID. `routable?/1` excludes private
+`Sessions.Key` constructs and parses the transport key formats:
+`conversation:<uuid>`, `cron:<id>`, `job:<id>`, and `wf_task:<id>`. Any other
+valid UTF-8 string that is nonblank and free of NUL bytes is treated as a named
+Session key. `parse/1` classifies the key, and each work domain validates its
+own ID. To protect internal execution boundaries, `routable?/1` excludes private
 Job and Workflow task keys from external route selection.
 
 `SessionWorkspace` is an Ash resource stored in the `sessions` table. Its
 persisted `kind` selects exactly one owner: a named Session, a Conversation, a
-Background Agent Job, a Workflow task, or a Cron rule. Work references are typed foreign keys that include the tenant
-and Agent. A Conversation reference includes the tenant because its participants
-can use separate Agent Sessions. A missing owner cannot allocate a workspace.
+Background Agent Job, a Workflow task, or a Cron rule. Work references use typed
+foreign keys that include both the tenant and the Agent, whereas a Conversation
+reference includes only the tenant because its participants can run in separate
+Agent Sessions. Ankole refuses to allocate a workspace if its owner row is
+missing.
 
-PostgreSQL generates `session_id` from these facts. Callers cannot write a key
-that disagrees with its owner. Owner deletion removes its workspace through the
-foreign key. Allocation locks the referenced owner before the Session advisory
-lock; the `advance_epoch` action advances the locked workspace once.
+PostgreSQL generates `session_id` directly from these owner columns, so callers
+cannot write a key that disagrees with its owner. When an owner row is deleted,
+its foreign key removes the associated workspace. During workspace allocation,
+Ankole locks the referenced owner before acquiring the Session advisory lock,
+and the `advance_epoch` action advances the locked workspace once.
 
 ## Durable Owners
 
@@ -48,403 +55,467 @@ lock; the `advance_epoch` action advances the locked workspace once.
 | `AgentWorkers` | Worker provisioning and incarnation; its in-memory route can be rebuilt |
 
 `RoundState`, `Receipt`, and `AmbientJudgment` are Ash resources in the Sessions
-domain. Their write actions run in the transaction of a Session operation (see
-[Persistence and Operations](#persistence-and-operations)). `record_once`
-keeps the first round snapshot when recovery records the same model message
-again. `commit_result` stores a tool result with its domain write. A
-transaction-scoped advisory lock on the receipt identity serializes two
-executions of one call; the second one reads the committed receipt and does not
-repeat the domain write.
+domain whose write actions run inside the enclosing Session transaction (see
+[Persistence and Operations](#persistence-and-operations)). On `RoundState`,
+`record_once` keeps the first round snapshot if recovery records the same model
+message again. On `Receipt`, `commit_result` stores a tool result together with
+its domain write. A transaction-scoped advisory lock on the receipt identity
+serializes concurrent executions of the same tool call, so the second execution
+reads the committed receipt instead of repeating the domain write.
+
 Receipt results, round pages, and result journals use the shared strict JSON
-object type. Unsupported runtime values reject the write and roll back its
-domain effects. PostgreSQL also rejects non-object journal values.
-Round recording removes its receipts in the same transaction. An ambient
-judgment keeps its original route and progress. Removing its accepted message
-anchor can only degrade attribution and clear that reference.
+object type. If a tool or caller returns an unsupported runtime value, Ankole
+rejects the write and rolls back its domain effects; PostgreSQL also rejects
+non-object journal values. When a round is recorded, the same transaction
+deletes its receipts. By contrast, an `AmbientJudgment` retains its original
+route and progress: if its accepted message anchor is deleted, that removal only
+clears the message reference and degrades attribution.
 
-PostgreSQL is authoritative. A Driver, Worker process, socket, or PubSub event
-is not recovery truth. Committing an input also commits an EnsureDriver job.
-Immediate wakeups improve latency after commit; startup and durable recovery
-find accepted work even if the producer dies at that point.
+PostgreSQL is the sole recovery source of truth—never a Driver, Worker process,
+socket, or PubSub event. Every transaction that commits an input also commits an
+`EnsureDriver` job. Immediate wakeups reduce latency after commit, while startup
+reconciliation and durable recovery find accepted work even if the producer
+exits right after committing.
 
-`Sessions.Events` uses the `Ankole.PubSub` server. Its input and state
-topics include the tenant, Agent, and Session. It accepts scalar identities and
-encodes the Agent and Session identifiers before it joins the topic fields, so
-delimiters cannot change the target or channel. It does not depend on a Signal
-schema or execution module. Input notifications
-contain an already accepted Signal ID. They do not create work or start a Driver.
-The public wakeup path calls `ensure_driver/1` before it publishes a ready
-input. Future inputs keep their stored EnsureDriver deadline.
+`Sessions.Events` broadcasts over `Ankole.PubSub` using input and state topics
+scoped by tenant, Agent, and Session. It accepts scalar identities and encodes
+the Agent and Session identifiers before joining the topic segments, so embedded
+delimiters cannot alter the target or channel, and it does not depend on any
+Signal schema or execution module. Input notifications carry only an already
+accepted Signal ID—they neither create work nor start a Driver. On the public
+wakeup path, Ankole calls `ensure_driver/1` before publishing a ready input,
+whereas future-dated inputs wait for their stored `EnsureDriver` deadline.
 
-Both Driver types set their tenant context and subscribe to input before their
-initial inbox rebuild. A publication before subscription is found by that rebuild;
-a later publication enters the inbox handler. Admission, preparation,
-round recording, and finalization apply their postponement rules.
-The handler reads the Signal under its Agent and Session and checks authorization.
-Duplicate notifications cannot change the durable queue order. Lost notifications
-are repaired by EnsureDriver and the Reconciler.
+Both Driver types set their tenant context and subscribe to the input topic
+before rebuilding their initial inbox. Consequently, the initial rebuild catches
+any input published before subscription, while later publications enter the live
+inbox handler. When a notification arrives, the handler loads the Signal under
+its Agent and Session, verifies authorization, and applies the postponement
+rules for admission, preparation, round recording, and finalization. Duplicate
+notifications do not affect the durable queue order, and `EnsureDriver` plus the
+Reconciler repair any lost notifications.
 
 ## Persistence and Operations
 
-`Ankole.Sessions` is the Sessions Ash domain. Its resources are
-`SessionWorkspace`, `RoundState`, `Receipt`, and `AmbientJudgment`.
+`Ankole.Sessions` is the Ash domain for Sessions and owns `SessionWorkspace`,
+`RoundState`, `Receipt`, and `AmbientJudgment`.
 
-Each multi-step Session operation (`admit_input`, `finalize_run`,
-`record_run_round`, `defer_run_retry`, `apply_command`, `execute_receipt`,
-`reset_session`, and others) runs in `Repo.transact_top_level/2` in its owning
-module (`Admission`, `Run`, `Commands`, `Notices`, `CodexJob`, `Receipts`), so
-the lock order and compensation writes stay in one readable function.
+Each multi-step Session operation—such as `admit_input`, `finalize_run`,
+`record_run_round`, `defer_run_retry`, `apply_command`, `execute_receipt`, and
+`reset_session`—runs inside `Repo.transact_top_level/2` in its owning module
+(`Admission`, `Run`, `Commands`, `Notices`, `CodexJob`, or `Receipts`). Keeping
+the transaction in one function makes the lock order and compensation writes
+explicit.
 
-Each operation is a top-level call. Inside `Repo.transact` or a generic action
-it raises `Ankole.Errors.Framework.NestedOperation`. Work that already runs in a
-transaction, such as a tool commit in a receipt or another domain's operation,
-calls the `*_in_tx` function. Post-commit publication runs through the
-`after_commit` option of `Repo.transact_top_level/2` or after the transaction
-returns: `defer_retry` publishes the Session status, `record_round` publishes
-tool result events, `reclaim_stale` publishes failed responses, `execute_receipt`
-runs receipt notifications, and `Run.finalize/3` runs `Run.after_finalization/1`.
+Because these operations are top-level entry points, calling them inside an
+existing `Repo.transact` block or generic action raises
+`Ankole.Errors.Framework.NestedOperation`. Callers that already own a
+transaction—such as a tool commit inside a receipt or an operation in another
+domain—must call the corresponding `*_in_tx` function instead. Post-commit side
+effects run either through the `after_commit` option of
+`Repo.transact_top_level/2` or after the outer transaction returns:
+`defer_retry` publishes the Session status, `record_round` publishes tool-result
+events, `reclaim_stale` publishes failed responses, `execute_receipt` runs
+receipt notifications, and `Run.finalize/3` runs `Run.after_finalization/1`.
 
-Sessions reads and changes Signals only through `Ankole.Signals`: queue reads
-(`session_queue/3`, `session_status_signal/3`), row locks
+Sessions reads and mutates Signals exclusively through `Ankole.Signals`, using
+its queue readers (`session_queue/3`, `session_status_signal/3`), row lockers
 (`lock_signal_in_tx/1`, `lock_session_signal_in_tx/2`, `lock_signals_in_tx/2`),
-state changes (`transition_in_tx/3`, `reset_attempts_in_tx/2`), and the Signal
-defines. Rows of other domains are read through their domain defines; a locked
-read gives its lock identity to `Ankole.LockOrder`. Allocation locks the
-workspace owner with `FOR KEY SHARE` through the owner domain.
+state-transition helpers (`transition_in_tx/3`, `reset_attempts_in_tx/2`), and
+domain defines. Similarly, Sessions reads rows from other domains through their
+domain defines, and every locked read registers its lock identity with
+`Ankole.LockOrder`. During workspace allocation, Sessions locks the workspace
+owner with `FOR KEY SHARE` through the owning domain.
 
-Ambient triage gives a typed result: `{:ok, :intervene, signal}` admits the
-input, `{:ok, :settled}` rebuilds the queue, `{:ok, :deferred, signal}` waits
-until the retry time, and `{:error, reason}` follows the admission error path.
+Ambient triage returns a typed outcome that drives the next step:
+`{:ok, :intervene, signal}` admits the input, `{:ok, :settled}` rebuilds the
+queue, `{:ok, :deferred, signal}` waits until the retry deadline, and
+`{:error, reason}` follows the admission error path.
 
-The operator console lists model histories with the `console_list` read action
-of `AIGateway.Schemas.Conversation` (keyset pagination) through the Console
-JSON:API (`/api/v2/ai-gateway/conversations`). Sessions owns that action, its
-preparation `Sessions.ConsoleQueries.Prepare`, and the relationships that it
-filters on: the public conversation, the direct-message peer, and the
-messages. The display facts are calculations of the conversation: `kind`,
-`display_name`, `channel_kind`, and `signal_adapter`
-(`Sessions.ConsoleQueries.Channel`, one batch for each page) and the
-`message_count` aggregate. The messages of one conversation are the
-`console_list` read action of `AIGateway.Schemas.Message`, oldest first.
+The operator console lists model histories through the Console JSON:API
+(`/api/v2/ai-gateway/conversations`) by calling the `console_list` read action
+on `AIGateway.Schemas.Conversation` with keyset pagination. Sessions owns that
+action, its preparation module (`Sessions.ConsoleQueries.Prepare`), and the
+relationships on which it filters: the public conversation, the direct-message
+peer, and the messages. Display metadata comes from conversation
+calculations—`kind`, `display_name`, `channel_kind`, and `signal_adapter`
+(loaded in a single batch per page by `Sessions.ConsoleQueries.Channel`)—together
+with the `message_count` aggregate. To inspect an individual conversation, the
+console calls the `console_list` read action on `AIGateway.Schemas.Message`,
+ordered oldest first.
 
-The Session picker reads `GET /api/v2/agents/:agent_uid/sessions`. It shows
-only the selected Agent's persisted Sessions in the active tenant. The
-Conversation standing-order routes are
-`GET` and `PUT /api/v2/conversations/:conversation_id/standing-orders`.
+The Session picker queries `GET /api/v2/agents/:agent_uid/sessions` and shows
+only the selected Agent's persisted Sessions within the active tenant. Routes
+for conversation standing orders are served at `GET` and
+`PUT /api/v2/conversations/:conversation_id/standing-orders`, without wrapping
+an extra outer transaction around the domain operation.
 `Sessions.AmbientCuration` validates and persists each edit with the current
-Principal as its actor. The next Signal snapshot reads the stored order;
-clearing the order excludes it from later snapshots. The transport action
-adds no outer transaction around the owning domain operation.
+Principal recorded as the actor. Subsequent Signal snapshots read the stored
+standing order, while clearing the order omits it from later snapshots.
 
 ## Turn Progression
 
-`Sessions.Turn.step/2` owns the next execution step. It takes the current Turn
-and an event, then returns the next Turn and ordered commands. Events include
-operation results, inbox notices, Worker messages, model completion, and timer
-expiry. The Turn includes its Run, pending calls, observation state, and Worker
-acquisition state. It has no process, database table, or recovery journal.
+`Sessions.Turn.step/2` computes each execution step as a pure state transition.
+Given the current Turn and an incoming event—such as an operation result, inbox
+notice, Worker message, model completion, or timer expiry—it returns the updated
+Turn and an ordered list of commands. The Turn holds its Run, pending calls,
+observation state, and Worker acquisition state in memory; it has no process,
+database table, or recovery journal of its own.
 
-The Driver executes these commands through the Admission, Run, Tools,
-Commands, and Worker contracts. It owns registry membership, subscriptions,
-Task monitors, stream handles, timers, tracing, and activity publication. It
-returns each operation result to the Turn. Commands are private to this pair;
-they do not form a shared work engine or a persistent command queue.
+The Driver executes those commands through the Admission, Run, Tools, Commands,
+and Worker contracts, and feeds each operation result back to the Turn. In doing
+so, the Driver owns registry membership, PubSub subscriptions, Task monitors,
+stream handles, timers, tracing, and activity publication. Commands stay private
+to this Turn–Driver pair rather than forming a shared work engine or persistent
+command queue.
 
-Turn owns tool scheduling, result acceptance, receipt restoration, round
-completion, continuation, and failure policy. Its repeated-tool-failure rule
-also folds committed history during Run recovery. Run and the Ash resources
-hold transaction authority: a proposed record, retry, or finalization cannot
-advance past that boundary until its operation succeeds. Epoch and closed-run
-errors stop the Driver. Turn state cannot authorize a durable write.
+Within a turn, Turn governs tool scheduling, result acceptance, receipt
+restoration, round completion, continuation, and failure policy—including the
+rule for repeated tool failures, which also folds committed history during Run
+recovery. However, in-memory Turn state cannot authorize durable writes; only
+Run and the Ash resources hold transaction authority, so no proposed record,
+retry, or finalization can advance past that boundary until its database
+operation commits. If an operation returns an epoch mismatch or closed-run
+error, the Driver stops immediately.
 
-Preparation replays durable inbox controls before it resumes model or tool I/O.
-A superseded epoch cannot resume the previous Run. Round commit cancels that
-round's transport and observation tasks before the next boundary. Worker
-acquisition uses the bounded policy, including safe probes for calls
-whose result is unknown. Activity is an observation of these pending calls
-in the same Driver process.
+During preparation, the Driver replays durable inbox controls before resuming
+model or tool I/O, and if a newer epoch has superseded the workspace, Ankole
+refuses to resume the previous Run. When a round commits, the Driver cancels
+that round's transport and observation tasks before advancing to the next
+boundary. Worker acquisition follows a bounded policy that uses safe probes when
+a prior call's result is unknown, and live activity reflects an in-process
+observation of those pending calls inside the Driver.
 
-Turn tests exercise event sequences without a Driver or database. Receipt and
-Run tests use PostgreSQL for atomicity and recovery. Driver integration
-tests verify process ordering, cancellation, presentation, single-writer,
-epoch-fence, and cross-node checks.
+Tests mirror this separation of responsibilities: Turn unit tests exercise event
+sequences without a Driver or database; Receipt and Run tests verify atomicity
+and recovery against PostgreSQL; and Driver integration tests check process
+ordering, cancellation, presentation, single-writer guarantees, epoch fences,
+and cross-node behavior.
 
-State publications occur in the outer transaction owner's process after success.
-The guard only rejects a transaction in that process; it is not proof of commit.
-Transaction code must not start a Task to publish pending facts. Completion
-publishes one `turn_completed` notification with its Signal ID and outcome.
-Transient activity uses a separate publication method with Driver PID,
-epoch, and revision checks. No subscriber commits a reply or sends a Delivery
-because it received a completion notification.
+State publications run in the outer transaction owner's process only after
+commit. A process-local guard rejects publication calls made while a transaction
+is still open, though passing the guard does not by itself prove commit, and
+transaction code must never spawn a Task to publish pending facts. When a turn
+finishes, completion publishes a single `turn_completed` notification carrying
+its Signal ID and outcome. Transient activity uses a separate publication
+channel guarded by Driver PID, epoch, and revision checks. Subscribers treat
+`turn_completed` strictly as an observation: no subscriber commits a reply or
+dispatches a Delivery in response to a completion notification.
 
-`Sessions.driver_name/1` owns the shared registry identity for ordinary and Job
-drivers. `driver_pid/1` and `active_model_conversation_id/1` are read-only
-locators; neither starts a process nor creates history. External Preview uses
-its checkpoint identity when recovering a completed presentation.
+`Sessions.driver_name/1` defines the shared registry identity for both ordinary
+and Job drivers. `driver_pid/1` and `active_model_conversation_id/1` are
+read-only locators that neither start a process nor create model history, while
+External Preview uses its stored checkpoint identity when recovering a completed
+presentation.
 
-`Driver.display_snapshot/1` reads an existing Driver. It checks the current
-Signal and workspace epoch, reads the stream's display snapshot, and adds
-completed reasoning from earlier Responses of the same Signal through
-ModelHistory. During tool execution, the current recorded Response supplies
-its text and reasoning. Pod SSE reads this view after subscription so a new
-connection can show the received prefix and continue with later deltas.
+`Driver.display_snapshot/1` inspects a running Driver by verifying the current
+Signal and workspace epoch, reading the active stream's display snapshot, and
+prepending completed reasoning from earlier Responses of the same Signal via
+ModelHistory. While tools are executing, the latest recorded Response supplies
+the text and reasoning. Pod SSE reads this snapshot right after subscribing so a
+newly connected client can render the prefix received so far and then follow
+subsequent stream deltas.
 
-Both Driver types register the same global name before initialization.
+Both Driver types register under the same global name before initializing.
 `ensure_driver/1` reuses an existing PID and accepts an `already_started` result
-when another caller wins registration. The DynamicSupervisor owns process
-supervision, not Session uniqueness. The stored workspace
-and Driver epoch fence a writer that survives a takeover. Worker commands also
-carry the current incarnation and run reference. Another Agent or Session never
-writes into this Session's model history. Other Sessions can append public
-statements to a shared conversation without changing the running model log.
+when another caller wins registration. Process supervision belongs to the
+DynamicSupervisor, whereas Session write safety comes from PostgreSQL: the
+stored workspace and Driver epoch fence out any writer that survives a takeover,
+and Worker commands also carry the current incarnation and run reference. No
+other Agent or Session ever writes into a Session's model history, although
+other Sessions can append public statements to a shared conversation without
+altering the running model log.
 
 ## Diagnostic Correlation
 
-Optional tracing uses the durable Signal ID across intake, admission, model
-requests, finalization, and Delivery. Intake inside a caller-owned transaction
-records `prepared_in_tx`; only a post-commit path records `committed`.
-Admission records `observed_committed`, queue age, readiness delay, and its
-outcome. These observations neither wake work nor establish durability.
+Optional tracing correlates intake, admission, model requests, finalization, and
+Delivery through the durable Signal ID. When intake runs inside a caller-owned
+transaction, it records `prepared_in_tx`, and only the post-commit path records
+`committed`. Admission records `observed_committed`, queue age, readiness delay,
+and its final outcome. These trace events neither wake work nor establish
+durability.
 
-Each attempt keeps its epoch and attempt number. A turn that absorbs more inputs
-records each input's relationship to the root Signal and the chosen reply Signal.
-Each Delivery records its own key, source Signal, attempt, send or reconciliation
-phase, and outcome, including unknown and stale results. Async recovery can start
-a new trace and use these identities; no persistent trace registry is needed.
+Each execution attempt records its workspace epoch and attempt number. If a turn
+absorbs additional inputs, the trace records how each absorbed input relates to
+the root Signal and the selected reply Signal. Likewise, each Delivery records
+its delivery key, source Signal, attempt number, send or reconciliation phase,
+and outcome (including unknown and stale results). Because asynchronous recovery
+can start a fresh trace from these durable IDs, Ankole needs no persistent trace
+registry.
 
-Stage spans carry identifiers, states, and elapsed times, never stimulus
-bodies, prompts, tool arguments, credentials, or attachment bytes. They use facts
-already loaded by the owning operation and do not add business queries or RPCs.
-Missing or failed tracing does not change admission, retries, sends, or commits.
+Stage spans carry only identifiers, states, and elapsed times—never stimulus
+bodies, prompts, tool arguments, credentials, or attachment bytes. They read
+facts already loaded by the owning operation without issuing extra business
+queries or RPCs, and missing or failed tracing never alters admission, retries,
+sends, or commits.
 
 ## Admission and Responsibility
 
-Internal control, revision, ambient, and scheduled paths require the intake's
-private kernel producer fact. An external event with the same type remains
-external data. Scheduled work also requires its actual ScheduledEvent-to-Signal
-link. JSON fields cannot select these paths, hide unread Messages, name the
-requester, or create conversation policy.
+Internal control, revision, ambient, and scheduled paths require the private
+`kernel` producer marker recorded at intake; an external event with the same
+type string is still treated as untrusted external data, and scheduled work must
+also carry an actual ScheduledEvent-to-Signal link. Callers cannot use payload
+JSON fields to select internal paths, hide unread Messages, name the requester,
+or invent conversation policy.
 
-Acceptance freezes authorization facts; admission checks them again before
-starting work. A Human request retains Human UID and access version, so a later
-revoke or restore cannot revive a queued request from an earlier version.
-Service stimuli execute under their explicit service authority. An ambient
-proposal defaults to the Agent's responsibility; a verified Human request can
-supply the responsible Human through the judged public Message. Attribution uses
-the selected Message ID from the observed batch and its current authorization.
-A later message from another speaker does not remove that request.
+Intake freezes the requester's authorization snapshot at acceptance, and
+admission verifies that snapshot again before starting work. Human requests
+record both the Human UID and access version, so revoking and later restoring
+access cannot revive a queued request from an earlier version. Service stimuli
+run under explicit service authority. An ambient proposal defaults to the
+Agent's own responsibility, though a verified Human request can supply the
+responsible Human through the judged public Message: attribution uses the
+Message ID selected from the observed batch together with that author's current
+authorization, and a subsequent message from another speaker does not clear that
+request.
 
-Generic Signal data and CloudEvents extensions never establish a Human identity.
-Runtime environment and Brain disclosure use frozen facts and canonical
-conversation records. An Agent being able to read a group message does not grant
-it the author's action authority. Delivery destination, execution identity,
-and requester authorization remain separate.
+Generic Signal payloads and CloudEvents extensions never establish a Human
+identity. Both the runtime environment and Brain disclosure rely strictly on
+frozen authorization snapshots and canonical conversation records. Being able to
+read a group message does not grant an Agent the message author's action
+authority; delivery destination, execution identity, and requester authorization
+remain independent.
 
-Before foreground admission, the Driver runs `AmbientTriage` in an asynchronous
-task for a kernel-produced ambient input. `Run.kind/1` selects this path. First,
-`Ambient.resolve/2` uses the Session admission owner to check the tenant and
-Agent before it folds pending observations from the same room and rejects
-expired or changed scenes. The triage builds an `Observation` from the public
-room, Agent documents, and current work candidates. It does not create an
-AIGateway conversation or a Session workspace. Second, the light model receives
-one stateless request outside a database transaction. The light profile owns
-the model's sampling settings. Third,
-`AmbientCuration.record_judgment/3` repeats admission under the tenant and Agent
-locks, then locks the target Job and participating Sessions. After those locks,
-it checks the scene against the current time and stores the canonical decision.
-A tenant suspension, Agent disablement, or expiry during the model request
-prevents the proposed route from committing. That transaction also completes `NOOP` and `HANDOFF` inputs silently.
-A HANDOFF locks its Job before the participating Session locks and commits one
-idempotent steer with the judgment. A changed scene rejects that entire write
-and returns to the observation resolver.
+When `Run.kind/1` identifies a kernel-produced ambient input, the Driver runs
+`AmbientTriage` in an asynchronous task before foreground admission:
 
-Only a persisted `FOREGROUND_REPLY` or `NEW_WORK` judgment permits ordinary
-admission to create model history and increment the workspace epoch. A retry
-uses that judgment instead of asking the model to select another route. Model
-request failures defer the input and increment `attempt_count`; they leave
-`last_attempt_at` empty so a newer room batch can supersede it. The third
-failure records a silent `NOOP`. A missing light profile also records a silent
-`NOOP` without posting a configuration notice to the room. Triage checks the
-Agent token quota before it builds model context. An exhausted quota records a
-silent `NOOP` at once. The same rule applies if another request uses the
-remaining quota before AIGateway checks it. Neither rejection creates a Session
-workspace, creates model history, or consumes a model retry.
+1. `Ambient.resolve/2` checks the tenant and Agent through the Session admission
+   owner, folds pending observations from the same room, and rejects expired or
+   changed scenes. Triage then assembles an `Observation` from the public room,
+   Agent documents, and active work candidates without creating an AIGateway
+   conversation or a Session workspace.
+2. Outside any database transaction, triage sends a single stateless request to
+   the light model using the sampling settings defined on the light profile.
+3. `AmbientCuration.record_judgment/3` re-runs admission checks under the tenant
+   and Agent locks, locks any target Job and participating Sessions, verifies
+   the scene against the current clock, and persists the canonical decision. If
+   the tenant is suspended, the Agent is disabled, or the observation expires
+   while the model call is in flight, Ankole refuses to commit the proposed
+   route. If the scene changed in the meantime, Ankole aborts the write and
+   returns control to the observation resolver. Otherwise, the same transaction
+   silently completes `NOOP` and `HANDOFF` inputs; for `HANDOFF`, it locks the
+   target Job before locking participating Sessions and commits one idempotent
+   steer alongside the judgment.
+
+Only a committed `FOREGROUND_REPLY` or `NEW_WORK` judgment allows ordinary
+admission to create model history and advance the workspace epoch; if the turn
+later retries, it reuses that persisted judgment instead of asking the model to
+pick a new route. If the light-model request fails, triage defers the input and
+increments `attempt_count` while leaving `last_attempt_at` empty so a newer room
+batch can supersede it, and on the third failure it records a silent `NOOP`.
+When no light profile is configured, triage likewise records a silent `NOOP`
+without posting a configuration notice to the room. Triage also checks the
+Agent's token quota before building model context: if the quota is already
+exhausted—or if another request consumes the remaining quota before AIGateway
+checks it—triage immediately records a silent `NOOP`. Neither quota nor profile
+rejection allocates a Session workspace, creates model history, or consumes a
+model retry.
 
 ## Prepare a Model Request
 
-The runtime builds its instructions, tool catalog, input, model binding, and
-Brain execution context. It passes that context explicitly to AIGateway.
-A Session function tool declaration sends `strict: false` unless it declares
-`strict` itself. The Responses API treats a missing `strict` as strict, and
-strict mode makes the model fill every declared property; Session tools declare
-optional parameters that the model must be able to omit. A custom (freeform)
-tool has no `strict` field and keeps its declaration unchanged.
-Public caller metadata is opaque to the model platform; a `signal_id` inside
-an OIDC request cannot borrow another execution's authorization or memory scope.
-Codex Jobs carry their runtime binding at the authenticated execution edge.
+Before calling a model, the runtime assembles instructions, the tool catalog,
+input items, the model binding, and the Brain execution context, passing that
+context explicitly to AIGateway. Function tool declarations in a Session default
+to `strict: false` unless the tool explicitly sets `strict`, because the
+Responses API treats an omitted `strict` flag as strict mode—which forces the
+model to populate every declared property—and Session tools declare optional
+parameters that the model must be allowed to omit. Custom (freeform) tools have
+no `strict` field and pass through unchanged. Public caller metadata remains
+opaque to the model platform, so a `signal_id` supplied on an OIDC request
+cannot borrow another execution's authorization or memory scope. Codex Jobs
+carry their runtime binding at the authenticated execution edge.
 
-Before a request, the runtime snapshots bounded unread public statements from
-the same conversation. The actual request records `conversation_read.max_seq`
-and its `message_ids` atomically. Subsequent requests derive their read position
-from the visible model branch. They exclude the running Session's own published
-output by both author Agent and Session, and see another Agent's output.
-A retry, fork, truncation, or compaction follows that branch's committed facts.
-Only completed ordinary Responses establish consumption. A compaction checkpoint
-can retain caller metadata for history without proving that its pending model
-request consumed those Messages. Failed requests after compaction therefore
-reread the same unconsumed background.
+Prior to sending a request, the runtime snapshots a bounded window of unread
+public statements from the conversation, and the outgoing AIGateway request
+atomically records `conversation_read.max_seq` and `message_ids` (the
+`conversation_read` payload carries only `id`, `max_seq`, and `message_ids`).
+Subsequent requests derive their read watermark from the visible model branch,
+skipping the running Session's own published output (matched by both author
+Agent and Session) while still reading statements from other Agents. Retries,
+forks, truncations, and compactions follow the committed watermarks on their
+visible branch. Only a completed ordinary Response marks those background
+Messages as consumed: a compaction checkpoint may retain caller metadata for
+lineage, but that metadata does not prove that a pending model request consumed
+the Messages, so a failed request after compaction rereads the same unconsumed
+background.
 
-Signals retain their original envelope and current stimulus Message identities.
-The native input environment identifies the current Human speaker by display
-name and Principal UID, so different people in one room remain distinct in the
-model request. Signals do not freeze the conversation's background history. Provider reasoning,
-signatures, and other continuation artifacts remain exact AIGateway records;
-they are not copied into the public Message table or regenerated from text.
+Signals keep their original envelope and the IDs of the stimulus Messages that
+triggered the turn, without freezing background conversation history. In native
+conversations, the input environment identifies the current Human speaker by
+display name and Principal UID so that multiple people in one room stay distinct
+in the model prompt. Provider reasoning, cryptographic signatures, and other
+continuation artifacts stay solely in AIGateway as exact records—they are
+neither copied into the public Message table nor reconstructed from plain text.
 
-Completed model history, summaries, tool calls, and results replay exactly as
-stored. Background edits do not rewrite it or restart the current turn. Edits
-retain sequence numbers, so later turns do not reread already consumed Messages.
-The request's `conversation_read` contains only `id`, `max_seq`, and `message_ids`.
+Completed model history, compaction summaries, tool calls, and tool results
+replay verbatim as stored. Edits to background conversation messages neither
+rewrite prior model history nor restart an active turn, and because edits
+preserve sequence numbers, later turns do not reread edited Messages that were
+already consumed.
 
 ## Execute Tools and Asynchronous Work
 
-Tool calls must contain complete, valid JSON arguments before execution. Invalid
-arguments return a tool error so the model can submit a complete call.
+Every tool call must supply complete, valid JSON arguments before execution; if
+the arguments are incomplete or invalid, Ankole returns a tool error so the
+model can submit a complete call.
 
-A tool result is durable before the model continues. A recorded result is reused
-on recovery. A sent tool call with an unknown result becomes interrupted rather
-than being silently reexecuted. Sequential calls keep their execution order;
-parallel calls retain their own receipts. Worker reconnection and workspace
-adoption restore committed progress under the current epoch.
+Tool results are persisted before the model continues, and recovery reuses any
+committed result rather than re-running the tool. If a tool call was already
+dispatched to a Worker and its outcome is unknown on recovery, Ankole marks the
+call as interrupted instead of silently re-executing it. Sequential calls run in
+declared order, whereas parallel calls record independent receipts. When a
+Worker reconnects or adopts an existing workspace, committed progress is
+restored under the current workspace epoch.
 
-A recovered Worker result can complete a batch before its new workspace open
-finishes. Recording that batch cancels the pending acquisition tasks and timers
-and retains the fact that the run requested a Worker. The next batch can acquire
-the workspace again. If the model finishes instead, the Driver closes the
-workspace for that exact Signal and the Worker releases its slot. A pure text
-run that never requested a Worker sends no Worker messages.
+During recovery, a Worker result can complete a pending tool batch before a
+newly requested workspace open finishes. When the Driver records that completed
+batch, it cancels the pending workspace-acquisition tasks and timers while
+retaining the fact that the run requested a Worker, so the next tool batch can
+acquire the workspace again. Conversely, if the model finishes the turn without
+further tool calls, the Driver closes the workspace for that exact Signal and
+the Worker releases its slot. A pure text run that never requested a Worker
+sends no Worker messages at all.
 
-`stale_driver` and `run_closed` are control results. Every asynchronous task
-passes them to the Driver's stop path. A fenced tool cannot turn them into a
-model-visible error or start the next call in its round.
+`stale_driver` and `run_closed` are control outcomes rather than tool errors.
+Every asynchronous task forwards them straight to the Driver's stop path, so a
+fenced tool task never converts them into a model-visible error or starts the
+next call in its round.
 
-Unexpected Ash tool errors return a generic message. Their logs use
-`Ankole.Logging.failure_fields/3` to keep private action data out of diagnostics.
-Job Driver operation failures use the same diagnostics and keep their retry
-policy. Logs include the operation name without the request payload.
-Receipt notification, workspace close, and Session reconciliation failures use
-the same diagnostics. A failed notification cannot undo a committed receipt
-or repeat its domain write.
+When an Ash tool raises an unexpected error, Ankole returns a generic error
+message to the model and formats diagnostic logs through
+`Ankole.Logging.failure_fields/3` so private action arguments stay out of logs.
+Job Driver operation failures, receipt notifications, workspace closes, and
+Session reconciliation failures use the same scrubbed logging—recording the
+operation name without request payloads—while Job Drivers preserve their own
+retry policy. If a post-commit receipt notification fails, the committed receipt
+remains valid and its domain write is never repeated.
 
-Jobs and Workflow calls preserve the parent's source authorization, explicit
-reply route, and owner Session. Their dispatch/completion/failure/attention
-notifications are Signals accepted through the same intake. Parent completion
-and child completion are separate records; a finished child cannot overwrite a
-parent model branch. A long-lived recipient can keep an ended model history.
-An orphaned pinned history or a cyclic owner chain is invalid.
+Background Agent Jobs and Workflow calls inherit their parent's source
+authorization, explicit reply route, and owner Session, and their dispatch,
+completion, failure, and attention notifications enter through the standard
+Signal intake. Parent and child completions commit as independent records: a
+finished child never overwrites its parent's model branch, and a long-lived
+recipient Session can retain an ended model history, whereas orphaned pinned
+histories and cyclic owner chains are rejected as invalid.
 
-Cron fires create Signals in the rule's stable Session. Native and external
-recipient conversations are explicit targets. Completion commits every native
-statement and every external Delivery intent in the same transaction. Failure,
-quota, suspension, and unavailable-model notices follow the same target set.
-The destination conversation's own Session sees those public reports on its
-next request, while the cron work keeps its own model state.
+When a cron rule fires, it enqueues a Signal in the rule's stable Session with
+explicit native or external target conversations. Turn completion commits every
+native statement and every external Delivery intent in a single transaction, and
+failure, quota, suspension, or unavailable-model notices publish to the same
+target set. Each destination conversation's own Session observes those public
+reports on its next model request, while the cron Session keeps its own isolated
+model state.
 
-Workflow-specific terminal-input recovery, retry exhaustion, task progress locks,
-and attempt restoration belong to `WorkflowTask`, not the shared RunType
-extension contract. Workflow owns model-unavailable diagnostics and locked task
-transitions. A caller-owned transaction returns the Workflow transition through
-the Session result; `Run.after_finalization/1` performs terminal cleanup only
-after the outer transaction commits. Ordinary cancellation and Human revocation
-apply their respective rules to already admitted work.
+`WorkflowTask`—rather than the shared `RunType` extension contract—owns recovery
+of terminal inputs, retry exhaustion, task-progress locking, attempt
+restoration, unavailable-model diagnostics, and locked task transitions for
+Workflows. When finalization runs inside a caller-owned transaction, the Session
+result returns the Workflow transition to the caller, and
+`Run.after_finalization/1` runs terminal cleanup only after the outer
+transaction commits. Ordinary cancellation and Human access revocation apply
+their respective rules to work that has already been admitted.
 
-Input injection locks Workflow parents and calls before it locks Session,
-Workspace, and Signal rows. This also applies to a fresh steer that must be
-rejected after tenant suspension. That rejection completes only the fresh
-input; an admitted task and its current input keep their attempt.
+Injecting an input into a Workflow task locks the Workflow parent and call rows
+before locking the Session, Workspace, and Signal rows. The same lock order
+governs a fresh steer that arrives after tenant suspension: Ankole rejects and
+completes only the fresh steer while leaving the already admitted task and its
+active input attempt untouched.
 
-`RoundState` captures and restores the same six scalar loop controls. Pages,
-steers, tool results, and Workflow attempts follow their recovery rules.
-Run records tool journals, completed wait inputs, RoundState, and receipt removal
-in the same fenced transaction. Recovery asks AIGateway for the caller's visible
-suffix; checkpoints and unmatched tool journals do not falsely end that suffix.
+`RoundState` captures and restores six scalar loop-control counters, while round
+pages, steers, tool results, and Workflow attempts follow their own recovery
+contracts. Each round commit writes tool journals, completed wait inputs,
+`RoundState`, and receipt deletions together in one epoch-fenced transaction. On
+recovery, Run queries AIGateway for the caller's visible branch suffix;
+compaction checkpoints and unmatched tool journals do not prematurely truncate
+that suffix.
 
 ## Revisions and Completion
 
-A new Human input, control command, or explicit input revision reaches the
-running Driver at a durable boundary. Explicit edits, supplements, and removals
-keep the original trigger and frozen authorization through the
-revision path.
+New Human inputs, control commands, and explicit input revisions reach a running
+Driver only at durable step boundaries. Explicit edits, supplements, and message
+removals travel through the revision path while preserving the original trigger
+and frozen authorization snapshot.
 
-Terminal validation distinguishes two withdrawals. If an explicit input source
-was withdrawn, it returns `:signal_canceled` and cancels the turn. If only a
-background Message read by this turn was deleted, it returns
-`:signal_context_canceled`, stops the turn, and posts `context_withdrawn` rather
-than the original answer. Background edits do not invalidate a running request.
-Completed model history stays unchanged in both cases.
+Terminal validation distinguishes between withdrawing the turn's trigger and
+deleting background context. If an explicit input source was withdrawn,
+validation returns `:signal_canceled` and cancels the turn. If only a background
+Message that the turn read was deleted, validation returns
+`:signal_context_canceled`, stops the turn, and posts a `context_withdrawn`
+notice instead of the drafted answer. Edits to background Messages do not
+invalidate a running request, and in both withdrawal cases, already completed
+model history stays intact.
 
-Work completion decides the final presentation once. Silent completion emits no
-statement. A visible native result becomes a Message in the completion
-transaction. An external result becomes a Delivery intent, whose provider
-success can complete later or fail independently. Raw streamed model text,
-reasoning, and tool results are not automatically public final statements.
+Completion resolves the turn's public presentation once. Silent completion emits
+nothing; a visible native result commits as a public Message inside the
+completion transaction; and an external result commits as a durable Delivery
+intent whose provider transmission can succeed or fail independently afterward.
+Raw streamed model text, reasoning traces, and tool outputs never become public
+statements automatically.
 
-Generated image bytes are prepared before the final Session transaction. The
-transaction rechecks the selected Artifact identity and digest, then commits
-file references, the recomputed journal-based presentation, and input completion
-together. A changed provider image alias or a collected blob returns a retryable
-execution error. The bounded admission and recovery path prepares it again;
-no path or reply is committed with missing image bytes. A failed final commit
-can leave unreferenced bytes for the file collector.
-If preparation fails, a short fence check rejects closed or replaced runs
-before returning an artifact error. Successful preparation
-uses only the final transaction's fence check.
+When a turn generates images, Ankole prepares the image bytes before opening the
+final Session transaction. That final transaction re-verifies the selected
+Artifact identity and digest, then atomically commits the file references, the
+recomputed journal-based presentation, and Signal completion. If the provider
+image alias changed or the file collector already swept the blob, preparation
+returns a retryable execution error so bounded admission or recovery prepares
+the bytes again—Ankole never commits a file path or reply that points to missing
+image bytes. If the final commit rolls back, the file collector later reclaims
+any unreferenced bytes. When image preparation fails, a lightweight fence check
+rejects closed or superseded runs before surfacing an artifact error; when
+preparation succeeds, the final transaction's own epoch fence is sufficient.
 
-A native Session publishes live progress through Pod SSE. External
-Sessions can use their Binding's transient reply preview. The preview is a
-presentation owner, not the execution log. Final delivery settles its recorded
-surface after the durable terminal intent takes ownership.
+Live progress uses separate surfaces for native and external conversations.
+Native Sessions stream progress over Pod SSE, whereas external Sessions can
+render a transient reply preview through their Binding. That preview owns only
+transient presentation, not the execution log, and final Delivery settles the
+preview surface once the durable terminal intent takes ownership.
 
-Native activity is an observation in the Driver: one phase and the current
-turn's tool history. `Sessions.Activity`
-filters native display fields, ignores late updates to terminal tools, advances
-display revisions, and clears details. The Driver holds the Turn and its
-PendingCalls; tracing handles stay outside that execution state. Each snapshot
-carries the admitted Signal, workspace epoch, response identity, and a revision
-within that epoch.
-Snapshots check the durable epoch and open input; a missing or stopped Driver
-falls back to durable generic status. Completion, retry, replacement, and death
-clear details. Activity creates no process, journal, or separate pending state.
+Inside the Driver, native activity is an in-memory observation consisting of one
+phase plus the current turn's tool history; it spawns no extra process, journal,
+or separate pending-call store. The Driver holds the Turn and its `PendingCalls`
+while keeping tracing handles outside execution state, and `Sessions.Activity`
+filters native display fields, ignores late updates for completed tools,
+increments display revisions, and clears transient details on completion, retry,
+takeover, or process exit. Every activity snapshot carries the admitted Signal,
+workspace epoch, response identity, and an intra-epoch revision, validated
+against the durable epoch and open input; if the Driver is missing or stopped,
+callers fall back to durable generic status.
 
-Only the Run's native source conversation receives activity. A scheduled report's
-destinations do not subscribe to its execution. External Preview uses its
-synchronous ownership, adoption, revision, checkpoint, and terminal handoff
-contracts; the native display projection does not filter its payloads.
+Only the Run's native source conversation receives live activity events—target
+conversations of a scheduled report do not subscribe to its execution stream.
+External Preview enforces its own synchronous contracts for ownership, adoption,
+revisions, checkpoints, and terminal handoff, and its payloads bypass the native
+display projection filter.
 
 ## Retry, Reset, and Recovery
 
-Retryable execution failure backs off through a committed Signal deadline and
-EnsureDriver job. EnsureDriver moves its pending wakeup only to an earlier time
-(`Ankole.Job.schedule_in_tx/4` with `only_earlier: true`). Admission uses
-`Run.defer_retry_in_tx/3` inside its transaction; `Run.defer_retry/3`
-publishes the resulting status after commit. A rollback
-publishes nothing. Provider-capacity waits keep their own accounting. Startup
-reconciliation resumes due Sessions and pending deliveries. A stale epoch, a
-closed run, or withdrawn authorization rejects late writes.
+When execution hits a retryable failure, Ankole backs off by committing a new
+Signal deadline alongside an `EnsureDriver` job, moving any existing wakeup job
+only to an earlier timestamp (`Ankole.Job.schedule_in_tx/4` with
+`only_earlier: true`). Inside an existing transaction, admission calls
+`Run.defer_retry_in_tx/3`; top-level `Run.defer_retry/3` publishes the updated
+Session status after commit, so a rolled-back transaction publishes nothing.
+Provider-capacity waits maintain their own separate attempt accounting. On node
+startup, reconciliation resumes due Sessions and pending deliveries, and Ankole
+rejects any late write that carries a stale epoch, targets a closed run, or
+relies on withdrawn authorization.
 
-An explicit `signal::<uuid>` retry must identify retained terminal work of the
-same Agent and valid Session, with no newer intervening user input. It restores
-the declared model anchor instead of merging an unrelated branch. Reset ends
-that Session's active model history and starts a new one; public conversation
-history remains available and can be read under the new branch's watermark.
-Neither operation removes another Agent's Session in a shared room.
+An explicit `signal::<uuid>` retry must reference retained terminal work
+belonging to the same Agent and a valid Session, with no newer user input in
+between; it restores the declared model anchor rather than merging an unrelated
+branch. Resetting a Session closes its active model history and starts a fresh
+branch, while leaving shared public conversation history intact and readable
+under the new branch's watermark. Neither retry nor reset affects another
+Agent's Session in a shared room.
 
-A Worker is rebuildable compute. Session workspace IDs are durable numeric
-IDs across provider restarts. Runtime Fabric protocol v10 names
-the execution key `SessionKey`, the run reference field `session`, and accepted
-inputs `Signal`; an accountable `ActorRef` identifies the responsible
-Principal. File provenance names public Conversation and Message UUIDs.
+Workers are stateless, rebuildable compute, whereas Session workspace IDs are
+durable integers that survive provider restarts. In Runtime Fabric protocol v10,
+the execution key is named `SessionKey`, the run reference field is `session`,
+accepted stimuli are `Signal`, and an accountable `ActorRef` identifies the
+responsible Principal. File provenance records reference public Conversation and
+Message UUIDs.
 
-See [Signals](Signals.md), [Conversations](Conversations.md),
-[AIGateway](AIGateway.md), [Background Agent Jobs](BackgroundAgentJob.md),
-[Workflow](Workflow.md), and [Schedule](Schedule.md) for their respective owners.
+For related domain contracts, see [Signals](Signals.md),
+[Conversations](Conversations.md), [AIGateway](AIGateway.md),
+[Background Agent Jobs](BackgroundAgentJob.md), [Workflow](Workflow.md), and
+[Schedule](Schedule.md).

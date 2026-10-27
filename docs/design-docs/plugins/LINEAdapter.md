@@ -1,23 +1,24 @@
 # LINE Adapter
 
-The LINE Adapter connects one LINE Official Account to one Agent binding
-through the Messaging API. LINE is a consumer IM. The category changes catalog
-and Console presentation only; the adapter uses the same Conversations
-contracts as every other Signal adapter.
+The LINE Adapter connects one LINE Official Account to one Agent binding via the
+LINE Messaging API. Although LINE belongs to the `consumer_im` catalog
+category—which affects only Console and catalog grouping—the adapter implements
+the same `Signals` and `Conversations` contracts as every other messaging
+adapter.
 
-Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+See [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Authentication](../Authentication.md) for the
-common message and identity rules.
+[Authentication](../Authentication.md) for the shared messaging and identity
+contracts.
 
 ## Provider and Public Identity
 
-The adapter reports an opaque `provider_conversation_id` and a
-`provider_message_id`. Conversations resolves these to a shared public
-Conversation UUID and Message UUID. All Agent observers of the same provider
-conversation in one tenant read those same public facts. Each participating
-Agent has its own `conversation:<public UUID>` Session; a Binding is its
-observation and delivery route, not the owner of the platform room.
+On inbound webhooks, the adapter reports an opaque `provider_conversation_id`
+and `provider_message_id`, which `Conversations` resolves to a shared public
+Conversation UUID and Message UUID. Every Agent observing that LINE chat within
+the same tenant reads those shared public records while running in its own
+`conversation:<public UUID>` Session—a Binding defines an observation and
+delivery route rather than owning the LINE chat.
 
 ## Current IDs and Features
 
@@ -30,210 +31,171 @@ observation and delivery route, not the owner of the platform room.
 | Webhook handler ID | `line` |
 | Messaging API client | Project `Req` client against `api.line.me` and `api-data.line.me` |
 
-The settings are the channel ID, the encrypted channel secret, and the
-encrypted long-lived channel access token from the LINE Developers Console. One
-channel can belong to only one enabled LINE binding, because two Agents behind
-one Official Account would both answer every message.
+Each binding stores the LINE Developers channel ID alongside the encrypted
+channel secret and encrypted long-lived channel access token. A channel ID can
+belong to at most one enabled LINE binding so two Agents never double-answer the
+same Official Account.
 
-The adapter supports all three group modes: `addressed_only`, `observe_all`,
-and `may_intervene`. LINE delivers every group message to the bot, so no extra
-permission is necessary.
-
-Inbound capabilities are `entry_receive`, `entry_removed`, and `action_event`.
-LINE has no reaction webhook, so the adapter does not declare reactions. It
-ignores the edit event.
-
-Outbound capabilities are `post_entry`, `reply_entry`, `divider`, `card`, and
-`outbound_reconciliation`. The Messaging API cannot edit, unsend, or react to a
-message, so the adapter does not declare `edit_entry`, `delete_entry`,
-`add_reaction`, or `remove_reaction`. It declares no reply-preview module: a
-LINE message cannot change after it is sent, so a live preview would only add
-messages and use the monthly message quota.
+Because LINE delivers all group messages to joined bots without extra scopes,
+all three group modes (`addressed_only`, `observe_all`, and `may_intervene`)
+work out of the box. Inbound capabilities are `entry_receive`, `entry_removed`,
+and `action_event` (LINE sends no emoji reaction webhooks, and the adapter
+ignores edit events). Outbound capabilities are `post_entry`, `reply_entry`,
+`divider`, `card`, and `outbound_reconciliation`; because the Messaging API
+supports neither editing, unsending, nor reacting to sent messages, the adapter
+omits `edit_entry`, `delete_entry`, `add_reaction`, `remove_reaction`, and
+streaming reply previews (which would otherwise post extra messages and burn the
+Official Account's monthly push quota).
 
 ## Receive Webhooks
 
-The Messaging API has no polling or socket transport. LINE posts events to
-this route:
+LINE's Messaging API pushes events exclusively over HTTP POST to:
 
 ```text
 https://<host>/webhooks/v1/line/<channelId>/events
 ```
 
-The handler finds the enabled binding for the channel ID and checks the
-`x-line-signature` header: the Base64 HMAC-SHA256 of the exact request bytes,
-keyed with the channel secret. Conversations keeps those bytes for every
-provider webhook. A request with a wrong signature gets status 401 and an
-unknown channel ID gets status 404, before the handler reads any event.
-
-The handler completes durable Conversations.Observe for every event in the
-request before it returns status 200. The Verify button in the LINE Developers
-Console sends an empty event list; the handler answers 200. When redelivery is
-enabled for the channel, LINE sends a batch again after a non-2xx answer. The
-`webhookEventId` of each event is its `source_event_id`, so the gateway stores
-a redelivered event once.
+Before inspecting any event payload, the handler looks up the enabled binding
+for `<channelId>` (returning `404` if unknown) and verifies `x-line-signature`
+as the Base64 HMAC-SHA256 of the raw request bytes keyed by the channel secret
+(returning `401` on mismatch). The handler then runs durable
+`Conversations.Observe` for every event in the batch before returning `200`
+(answering `200` immediately to the empty event array sent by the LINE
+Developers Console **Verify** button). When webhook redelivery is enabled in
+LINE, any non-`2xx` response triggers a batch retry, and Ankole deduplicates
+redelivered events via each event's `webhookEventId` (`source_event_id`).
 
 Operator setup in LINE:
 
-1. Create a Messaging API channel, and copy its channel ID, channel secret, and
-   a long-lived channel access token into the binding.
-2. Set the webhook URL above, enable **Use webhook**, and press **Verify**.
-3. In LINE Official Account Manager, set the response method to the bot and
-   disable auto-response and greeting messages, so the account does not answer
-   next to the Agent.
-4. For group chats, enable **Allow bot to join group chats**.
+1. Create a Messaging API channel and copy its channel ID, channel secret, and
+   long-lived channel access token into the Ankole binding.
+2. Configure the webhook URL above, enable **Use webhook**, and click **Verify**.
+3. In LINE Official Account Manager, set the response mode to Bot and disable
+   auto-responses and greeting messages so LINE does not reply alongside the
+   Agent.
+4. To use the Agent in groups, enable **Allow bot to join group chats**.
 
 ## Receive Messages
 
-The adapter accepts one-to-one chats, group chats, and multi-person chats
-(rooms). The `provider_conversation_id` includes the bot user ID from the webhook
-`destination` and the chat ID. LINE has no threads, so the adapter records no
-provider thread: the chat is the channel, and a quote is the only reply
-relation. A message in a group or room without a sender user ID cannot be
-attributed and is ignored. An event in `standby` mode is ignored.
+The adapter accepts 1-on-1 chats, group chats, and multi-person rooms, combining
+the webhook's `destination` bot user ID and the chat ID into
+`provider_conversation_id`. Because LINE has no sub-threads, `provider_thread_id`
+stays empty and message quoting is the sole reply relation. Events arriving in
+`standby` mode—or group/room messages lacking a sender `userId`—are ignored.
 
-A one-to-one message is explicit input. In a group or room, these forms are
-explicit:
+1-on-1 messages always count as explicit input; in groups and rooms, a message
+counts as explicit input when it either:
 
-- a mention of the bot (`mention.mentionees[].isSelf`), which the adapter
-  removes from the visible text;
-- a quote of a message the Agent sent, which the adapter recognizes through the
-  Delivery intent that recorded the sent message IDs; a long reply is several LINE
-  messages, and a quote of any of them counts.
+- @-mentions the bot (`mention.mentionees[].isSelf`, stripped from the prompt
+  text using UTF-16 code-unit offsets via `Ankole.Plugins.UTF16Text`), or
+- quotes any message that the Agent sent earlier (matched against the message
+  IDs recorded on outbound Delivery intents, including any chunk of a split
+  multi-message reply—though `/retry` quoting a non-initial chunk will not match
+  because `Conversations` indexes durable replies by their first message ID
+  only; users can quote the first chunk or run `/retry signal::<id>`).
 
-Known limit: a `/retry` that quotes a later message of a split reply does not
-find its target, because Conversations resolves a durable reply by its first
-message ID only. The user can quote the first message or name the Signal
-with `/retry signal::<id>`.
-
-A database error while checking the quoted author fails ingress. It must not
-turn a quote of the Agent into ordinary group input. Provider redelivery uses
-the durable source keys to prevent duplicate accepted input.
-
-Conversations applies the binding's group mode to other group messages. LINE
-indexes and character limits count UTF-16 code units; the shared
-`Ankole.Plugins.UTF16Text` helper applies them.
-
-Text, image, video, audio, file, sticker, and location messages enter the
-common message projection. A sticker or location becomes a short text line.
-The quote token of each text message stays in the entry metadata so a later
-group reply can quote it.
+If a database error occurs while checking whether a quoted message belongs to
+the Agent, ingress fails closed so LINE redelivers the webhook rather than
+downgrading an Agent reply into unaddressed group chatter. Other group messages
+follow the binding's group-message policy. Text, image, video, audio, file,
+sticker, and location messages project into `Conversations` (converting stickers
+and locations into concise text lines and retaining each text message's quote
+token in metadata for outbound group replies).
 
 ## Admit LINE Identities
 
-The author provider is always `line`, and the stable external identity is the
-LINE `userId`. A webhook event carries no display name, so the adapter
-declares the `Profile` author hydrator: for an unmatched sender the gateway
-reads the user profile, or the group or room member profile, and fills the
-display name that the console mapping request or a standalone account shows.
-The profile holds no email or phone number, so it never feeds the contact
-match.
+Senders map under provider namespace `line` keyed by their `userId`. Because
+LINE scopes `userId` values per LINE Developers provider, the same human has
+different `userId`s across channels owned by different LINE providers and needs
+separate identity bindings for each.
 
-A LINE user ID belongs to the LINE Developers provider that owns the channel.
-The same person has a different user ID under channels of different
-providers, so such bindings need separate mappings.
-
-The binding owns `unmatched_sender_policy` (`manual_review` or
-`create_standalone`). With `manual_review`, an unmatched addressed sender
-receives the fixed mapping notice while `Conversations.IdentityAdmission`
-creates a mapping request with the LINE display name without storing the
-original message; an administrator can then bind the LINE external identity to
-any existing human Principal. With `create_standalone`,
-`Conversations.IdentityAdmission` creates a human Principal and binds the LINE
-user ID.
+Because LINE webhooks omit display names, the adapter registers the `Profile`
+author hydrator: when an inbound `userId` is unmapped, the gateway fetches the
+user's 1-on-1, group-member, or room-member profile to populate the display name
+shown on Console mapping requests or standalone Principals (LINE profiles carry
+neither email addresses nor phone numbers, so hydration never triggers contact
+matching). Under `unmatched_sender_policy`, `manual_review` sends the localized
+mapping notice and records a mapping request without storing the message, while
+`create_standalone` creates a new Human Principal bound to that LINE `userId`.
 
 ## Materialize Attachments
 
-Conversations first commits the admitted message with a pending attachment
-observation inside the webhook request. A supervised task then downloads the
-bytes from `api-data.line.me`, stores them in the file service
-([Files](../Files.md)), and updates the same entry. The webhook answer does not wait for the download.
-If the task cannot start, the webhook fails and LINE delivers the event again;
-the pending observation is already durable, so that redelivery fetches the
-file. An unmatched sender cannot make Ankole download a file. A redelivered event
-keeps a result this Agent already holds and fetches everything else again,
-including a download whose earlier task never finished, because the adapter
-cannot prove that such a task is alive. Conversations never replaces an
-attachment this Agent can read with a later observation from this Agent that
-has no path, so a second download that overlaps the first cannot lose the
-file. A copy that another Agent downloaded does not count: when a route moves
-to another Agent, that Agent fetches its own copy.
+Inside the webhook transaction, `Conversations` commits admitted messages with
+pending attachment rows—ensuring unmapped senders never trigger downloads—and
+spawns a supervised background task to download the media from
+`api-data.line.me`, write it to the file service ([Files](../Files.md)), and
+finalize the entry without delaying the `200` webhook response:
 
-A video or audio message from the LINE app is transcoded first; the task waits
-a bounded time for that. Ankole applies its own budget of 25 MB. For a larger
-file, the adapter keeps the provider file metadata and a clear
-`provider_download_limit` restriction. Content that another service hosts
-keeps its URL and is not downloaded. The adapter never creates a local path
-for such a file or claims that the Agent can read it.
+- If the download task cannot start, the webhook returns an error so LINE
+  redelivers against the already committed pending observation.
+- On redelivery, the adapter reuses any attachment that the current Agent
+  already materialized and re-fetches anything still missing (including
+  in-flight downloads from earlier tasks whose liveness cannot be proved);
+  `Conversations` never overwrites an already materialized file path for that
+  Agent with a pathless update, and moving a route to a different Agent fetches
+  that Agent's own copy.
+- For LINE-transcoded video and audio, the download task waits a bounded interval
+  for transcoding to finish. Files up to 25 MB are stored locally; larger files
+  keep their provider metadata plus `provider_download_limit`, and externally
+  hosted content retains only its external URL without creating a local file
+  path.
 
 ## Send Replies and Actions
 
-Every outbound operation is a push message, because a reply token expires one
-minute after the webhook and an Agent turn is usually longer. Push messages
-count against the monthly message plan of the Official Account, and reply
-messages do not. Every Agent reply, mapping notice, and failure notice uses
-that plan; an operator must choose a plan that covers the expected traffic.
+Because LINE webhook `replyToken`s expire after 60 seconds—shorter than many
+Agent turns—all outbound sends use the Messaging API Push endpoint, which draws
+from the Official Account's monthly push-message quota (covering Agent replies,
+mapping notices, and failure notices alike, so operators should size their LINE
+plan accordingly).
 
-The adapter uses LINE message IDs as provider message IDs. It splits text at 5,000
-UTF-16 code units and sends up to five messages in one request. A reply in a
-group or room quotes the human message through its stored quote token; a
-one-to-one reply does not quote, because it already follows the human message.
-A divider is a text separator.
+Using LINE message IDs as `provider_message_id`, the adapter splits outbound
+text at 5,000 UTF-16 code units and packs up to five messages per Push request,
+quoting the user's stored quote token in groups/rooms while omitting quotes in
+1-on-1 chats, and rendering dividers as plain text separators. Because LINE bots
+can send media only via public `https://` URLs and Ankole exposes no unauthenticated
+public blob URLs, outbound file attachments fail permanently with
+`outbound_attachments_not_supported` while text intents still deliver normally.
 
-A pending clarification renders its choices as a buttons template with up to
-four postback actions after the text. The postback data carries a short token
-of at most 300 bytes that names the Signal, the action index, and the
-action fingerprint; it does not contain the action. The adapter records the
-sent message ID as the Signal's reply surface. On a postback, it resolves
-the LINE user to a Principal, restores the action from the durable checkpoint,
-reads the reply surface from the Delivery intent that sent the buttons, and submits
-the standard signal.action.invoked stimulus. A stale token produces no visible
-change.
-
-Outbound attachments are outside the contract. A bot can send only image,
-video, and audio messages, each by a public HTTPS URL, and Ankole serves no
-public file. An attachment row stops with a permanent
-`outbound_attachments_not_supported` error; the text intent is delivered
-separately.
+Interactive clarifications render up to four postback buttons beneath the prompt
+text, where each button's postback payload (capped at 300 bytes) encodes only
+the Signal ID, action index, and action fingerprint—recording the sent message
+ID as the Signal's reply surface. When a user taps a button, the postback
+webhook maps the LINE `userId` to a Principal, loads the full action from the
+durable checkpoint and the reply surface from the originating Delivery intent,
+and submits `signal.action.invoked` (stale tokens no-op cleanly).
 
 ## Failures and Secrets
 
-Each push request carries an `X-Line-Retry-Key` that the adapter derives from
-the intent key and the request index. LINE keeps a key for 24 hours after the
-first request and answers a repeated request with status 409 and the original
-message IDs, which the adapter records as success. A transport failure or a
-server error is therefore retryable, and the adapter declares
-`outbound_reconciliation`: a recovered in-flight `pending` intent repeats the same requests
-instead of marking the reply unknown.
+Every Push request carries a deterministic `X-Line-Retry-Key` derived from the
+Delivery intent key and request chunk index. Within LINE's 24-hour retry-key
+window, repeating a successful Push returns HTTP `409` alongside the original
+message IDs, which the adapter treats as confirmed success—allowing network and
+`5xx` errors to retry safely and enabling `outbound_reconciliation` to replay
+in-flight `pending` intents on startup rather than marking them `unknown`.
 
-The key protects a repeat only inside that window. The adapter measures the
-window from the Delivery intent's creation with a one hour margin. An in-flight `pending` intent
-recovered after the window reports `unknown`, and so does every retry after
-the window that follows an earlier attempt: the row records only its last
-error, and a long reply is several requests, so a definitive last answer does
-not prove that no earlier request landed. Delivery stops as `unknown`. An
-operator can requeue a visible durable reply for one more call with a
-possible-duplicate notice.
+Once an intent passes 23 hours of age (a 24-hour window minus a 1-hour safety
+margin), LINE does not guarantee retry-key deduplication across multi-chunk
+replies; any recovered `pending` intent or post-failure retry outside that
+window settles as `unknown` (operators can manually requeue a visible reply for
+one explicit resend carrying a possible-duplicate notice). Auth/permission
+errors require operator action, malformed `4xx` payloads fail permanently, and
+HTTP `429` distinguishes per-second rate limits (retryable) from monthly quota
+exhaustion (flagged for operator plan upgrade or monthly reset).
 
-Authentication and permission failures require operator action. A rejected
-request is permanent. LINE answers both a per-second limit and an exhausted
-monthly plan with status 429; the plan message names the monthly limit, and
-that case also requires operator action, because only a plan change or the
-next month can clear it.
-
-AppConfigure encrypts the channel secret and the channel access token. They do
-not enter logs, persisted errors, or stored raw provider payloads.
+`AppConfigure` encrypts the channel secret and channel access token at rest and
+excludes them from logs, error records, and stored raw webhook payloads.
 
 ## Tests
 
-Repository tests cover declaration validation, channel ownership, signature
-validation, the Verify probe, redelivery deduplication, message and mention
-projection, quote recognition, attachment limits and storage in the file
-service, unsend removal, identity policies with profile hydration,
-postback buttons and token resolution, outbound request construction, retry
-keys, accepted retries, and failure classification. Real LINE acceptance needs
-an operator channel that the repository does not contain.
+Automated tests cover plugin declarations, single-binding channel ownership,
+`x-line-signature` verification, empty-batch Console **Verify** probes,
+`webhookEventId` deduplication, UTF-16 mention stripping, quote detection, the
+25 MB download cap and file-service storage, unsend events, profile-hydrated
+identity admission, postback button tokens, Push chunking, `X-Line-Retry-Key` /
+`409` reconciliation, and error classification. Live LINE acceptance testing
+requires an operator Messaging API channel outside the repository.
 
-The implementation sources are:
+Implementation paths:
 
 - `plugins/line_adapter/lib/ankole/plugins/line_adapter.ex`
 - `plugins/line_adapter/lib/ankole/plugins/line_adapter/`

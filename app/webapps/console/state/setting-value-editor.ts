@@ -1,3 +1,5 @@
+import { isRecord, recordValue, safeJsonParse } from '@agentbull/active-support'
+
 export type SettingValueKind = 'boolean' | 'number' | 'string' | 'object' | 'structured'
 export type SettingEditorKind = 'aiGatewayCompaction' | 'timezone' | 'locale' | 'encrypted' | SettingValueKind
 
@@ -31,13 +33,7 @@ export type AIGatewayCompactionDraft = {
 }
 
 export function aiGatewayCompactionDraft(text: string): AIGatewayCompactionDraft {
-  const object = (() => {
-    try {
-      return record(JSON.parse(text))
-    } catch {
-      return undefined
-    }
-  })()
+  const object = recordValue(safeJsonParse(text).unwrapOr(undefined))
 
   const numbers: Record<string, string> = {}
 
@@ -73,21 +69,11 @@ export function settingValueKind(value: unknown): SettingValueKind {
   if (typeof value === 'boolean') return 'boolean'
   if (typeof value === 'number') return 'number'
   if (typeof value === 'string') return 'string'
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) return 'object'
+  if (isRecord(value)) return 'object'
   return 'structured'
 }
 
 export function settingStringDraft(text: string): string {
-  try {
-    const value: unknown = JSON.parse(text)
-    return typeof value === 'string' ? value : ''
-  } catch {
-    return ''
-  }
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
+  const value = safeJsonParse(text).unwrapOr(undefined)
+  return typeof value === 'string' ? value : ''
 }

@@ -5,13 +5,13 @@ section: Reference
 order: 201
 ---
 
-Ankole uses MCP behind Skills for domain integrations. It does not keep an Agent-level MCP registry or a persistent mcporter config.
+Ankole integrates MCP servers behind Skills rather than maintaining an Agent-level MCP registry or a persistent `mcporter` configuration file.
 
-Skill MCP dependencies are not registered as native model tools. The Agent does not receive their complete MCP catalogs. This keeps the Skill as the routing owner and avoids a second tool-selection surface.
+Because Ankole never registers Skill MCP dependencies as native model tools or exposes full MCP tool catalogs to the model, each Skill remains the sole routing owner without introducing a competing tool-selection surface.
 
 ## Declare a dependency
 
-Add MCP dependencies under `dependencies.tools` in the Skill `openai.yaml`:
+Declare MCP dependencies under `dependencies.tools` in the Skill's `openai.yaml` file:
 
 ```yaml
 dependencies:
@@ -34,67 +34,67 @@ dependencies:
         - delete_record
 ```
 
-One Skill can declare at most 64 dependencies. The schema is strict and rejects unknown or transport-incompatible fields.
+A single Skill can declare up to 64 dependencies. Ankole validates this schema strictly and rejects unknown fields or fields incompatible with the chosen transport.
 
 ### `streamable_http`
 
 | Field | Meaning |
 | --- | --- |
 | `url` | HTTP or HTTPS server URL |
-| `protocol_version` | Optional protocol mode: `auto`, `legacy`, or `2026-07-28`; the default is `auto` |
-| `bearer_token_env_var` | Environment variable name that contains the bearer token |
-| `enabled_tools` | Optional exact raw-name allowlist |
-| `disabled_tools` | Optional exact raw-name denylist |
+| `protocol_version` | Optional protocol mode: `auto`, `legacy`, or `2026-07-28` (defaults to `auto`) |
+| `bearer_token_env_var` | Name of the environment variable holding the bearer token |
+| `enabled_tools` | Optional allowlist of exact raw tool names |
+| `disabled_tools` | Optional denylist of exact raw tool names |
 
-Pin `protocol_version` only when the server requires one protocol era. Store the token in [Environment variables](../worker-env/). Put only its variable name in the Skill.
+Pin `protocol_version` only when the upstream server requires a specific MCP protocol revision. Store the actual bearer token in [Environment variables](../worker-env/), and reference only the variable name in `openai.yaml`.
 
 ### `stdio`
 
 | Field | Meaning |
 | --- | --- |
-| `command` | Trusted command line that starts the server |
-| `enabled_tools` | Optional exact raw-name allowlist |
-| `disabled_tools` | Optional exact raw-name denylist |
+| `command` | Trusted command line used to spawn the MCP server |
+| `enabled_tools` | Optional allowlist of exact raw tool names |
+| `disabled_tools` | Optional denylist of exact raw tool names |
 
-Agent Computer runs the command through `/bin/sh -lc`. Use stdio only for trusted, first-party server commands.
+Agent Computer launches `stdio` servers via `/bin/sh -lc`, so use `stdio` only for trusted, first-party server commands.
 
-The declaration does not set a call timeout. The Skill or Automation script passes `--timeout` to each mcporter list or call command.
+Because the YAML declaration does not configure a call timeout, the Skill instructions or Automation script must pass `--timeout` on every `mcporter list` or `mcporter call` command.
 
 ## Enabled set and conflicts
 
-An execution receives the union of MCP dependencies from its current enabled Skills. Two Skills can use the same server name only when their connection, description, and filter fields match. A conflict stops execution setup.
+Each execution receives the union of MCP dependencies declared across its currently enabled Skills. Multiple Skills may declare the same server name only if their connection fields, description, and tool filters match identically; otherwise, Agent Computer aborts execution setup with a conflict error.
 
-`ankole-runtime` controls which model can read the Skill. The Main Agent uses `any` and `main` Skills. Background Agent Jobs use `any` and `background_job` Skills. Automation Jobs do not run a model, so they receive dependencies from all current enabled Skills without an `ankole-runtime` filter.
+The Skill's `ankole-runtime` frontmatter field determines which execution surface sees the Skill: Main Agents load `any` and `main` Skills, while Background Agent Jobs load `any` and `background_job` Skills. Because Automation Jobs do not run a language model, they receive the MCP dependencies of all currently enabled Skills regardless of `ankole-runtime`.
 
-Disabling a Skill removes its dependency from the next turn, Background execution, or Automation attempt.
+When you disable a Skill, Ankole removes its MCP dependencies starting on the next turn, Background Agent Job execution, or Automation Job attempt.
 
 ## Generated mcporter config
 
-Agent Computer writes a unique `0600` config for each execution and injects its path as `MCPORTER_CONFIG`. The file always contains `imports: []`, so mcporter does not merge Agent Home, project, Codex, editor, or host configuration. The file is removed when the execution ends.
+Before each execution, Agent Computer writes a temporary `0600` configuration file and exposes its path via `MCPORTER_CONFIG`. That file always sets `imports: []` so `mcporter` never merges configuration from Agent Home, project directories, Codex, editors, or the host, and Agent Computer deletes the file as soon as the execution finishes.
 
-The file contains only connection facts and credential variable names. It never contains WorkerEnv secret values.
+The generated file holds only server connection metadata and credential environment-variable names—never decrypted WorkerEnv secret values.
 
-Main Agents call mcporter through the command tool. Background Agent Jobs call it through the Codex terminal. Automation Jobs call it from `main.ts` with `Bun.spawn`.
+At runtime, Main Agents invoke `mcporter` through the `command` tool, Background Agent Jobs invoke it from the Codex terminal, and Automation Jobs spawn it from `main.ts` with `Bun.spawn`.
 
 ## Select and call one tool
 
-The Skill must select one domain tool before schema discovery. Inspect only that tool when its current schema is needed:
+Skill instructions should direct the Agent to pick the specific domain tool first and fetch its live JSON Schema only when needed:
 
 ```bash
 mcporter list 'my-http-server.lookup' --schema --json --timeout 360000
 ```
 
-Send the argument object through stdin. Do not interpolate JSON into shell text:
+Pass the JSON argument object over `stdin` rather than interpolating JSON into a shell command string:
 
 ```bash
 mcporter call 'my-http-server.lookup' --json - --output json --timeout 360000 < /absolute/path/arguments.json
 ```
 
-An Automation script uses the same argv, writes JSON to the child stdin, checks the exit code, and parses stdout.
+Automation scripts follow the same pattern: pass the exact argument vector to `Bun.spawn`, write the JSON payload to child `stdin`, verify the exit code, and parse `stdout`.
 
 ## Security limits
 
-MCP output is untrusted input. The Skill and mcporter path does not validate output schemas, schedule by MCP annotations, prompt for tool-level approval, or redact WorkerEnv secrets from results. Use it for trusted, first-party MCP Skills. The remote credential scope remains the real read or write permission boundary.
+Treat all MCP responses as untrusted input. Neither the Skill layer nor `mcporter` validates output schemas, schedules calls by MCP annotations, prompts for per-tool human approval, or redacts WorkerEnv secrets from tool results. Use this integration path only for trusted, first-party MCP Skills, and scope the remote credential itself to enforce read/write boundaries.
 
 ## Next steps
 

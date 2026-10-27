@@ -1,13 +1,7 @@
 import { defineCommand } from '@crustjs/core'
 
-import {
-  appRootPath,
-  loadAppDevelopmentEnv,
-  resolveAppDatabaseName,
-  runMix,
-  runCompose,
-  startComposeServices
-} from '../utils'
+import { startComposeServices } from '../local-function-runtime-image'
+import { appRootPath, loadAppDevelopmentEnv, resolveAppDatabaseName, runCompose, runMix } from '../utils'
 
 const commonDBFlags = [
   {

@@ -8,12 +8,10 @@ import { createFindTool } from './find-tool'
 import { createGrepTool } from './grep-tool'
 import { createLsTool } from './ls-tool'
 import { createReadFileTool } from './read-file-tool'
-import type { Drive } from '../../drive/drive'
 
 export interface ComputerToolsBinding {
   agentHome: string
   workspaceRoot: string
-  drive: Drive
   /** Operator-managed shell variables resolved for this turn's agent. */
   workerEnv?: Record<string, string>
   /** Trusted ephemeral shell variables for this Actor turn. */
@@ -49,7 +47,6 @@ function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolC
   return {
     agentHome: binding.agentHome,
     workspaceRoot: binding.workspaceRoot,
-    drive: binding.drive,
     computer
   }
 }

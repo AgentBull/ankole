@@ -8,6 +8,7 @@ type EnvSetupFlags = {
   'system-packages': boolean
   docker: boolean
   rust: boolean
+  sccache: boolean
   elixir: boolean
   bun: boolean
 }
@@ -18,6 +19,7 @@ export function buildEnvSetupArgs(flags: EnvSetupFlags): string[] {
     ...(flags['system-packages'] ? [] : ['--no-system-packages']),
     ...(flags.docker ? [] : ['--no-docker']),
     ...(flags.rust ? [] : ['--no-rust']),
+    ...(flags.sccache ? [] : ['--no-sccache']),
     ...(flags.elixir ? [] : ['--no-elixir']),
     ...(flags.bun ? [] : ['--no-bun'])
   ]
@@ -52,6 +54,12 @@ export function envSetupCommand() {
             name: 'rust',
             type: 'boolean',
             description: 'Install Rust with rustup, clippy, and rustfmt.',
+            default: true
+          },
+          {
+            name: 'sccache',
+            type: 'boolean',
+            description: 'Install sccache for local SSD Rust build caching.',
             default: true
           },
           {

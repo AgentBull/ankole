@@ -5,29 +5,31 @@ section: Developer guide
 order: 120
 ---
 
-The control plane owns the main Agent's model loop and tool dispatch. `Ankole.Sessions.Driver` calls AIGateway, executes the requested tools, records their results, and continues the turn. Agent Computer executes environment operations and Codex Jobs. See [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
+The Elixir control plane drives the main Agent's model loop and tool dispatch: `Ankole.Sessions.Driver` calls AIGateway, executes the requested tools, persists their results, and advances the turn, while Agent Computer executes Worker environment operations and Codex Jobs. See [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
 
 ## Build the current tool set
 
-`Ankole.Sessions.ToolCatalog.for_run/1` combines the current domain declarations with the exported Worker declarations in `worker_tools.json`. The result depends on the run kind, model capabilities, selected Skills and plugins, and ambient authority. It is built for the run, rather than stored as an Agent's global tool set.
+At the start of each run, `Ankole.Sessions.ToolCatalog.for_run/1` merges active control-plane domain tools with the exported Worker tool declarations from `worker_tools.json`. Because availability depends on the run kind, selected model capabilities, enabled Skills and Agent Plugins, and ambient turn authority, Ankole computes the catalog fresh for each run rather than storing a static tool list per Agent.
 
-`Ankole.Sessions.Tool` records the model-visible schema, executor, execution mode, allowed callers, and read, destructive, and retry metadata. `Ankole.Sessions.Tools.prepare/2` checks the caller, parses the arguments, normalizes them through the owning tool, and validates the JSON Schema before execution.
+Each `Ankole.Sessions.Tool` struct defines the model-visible JSON Schema, executor, execution mode, permitted callers, and read-only, destructive, and retry flags. Before any tool runs, `Ankole.Sessions.Tools.prepare/2` verifies caller permissions, parses the raw JSON arguments, normalizes them through the tool module, and validates them against the declared JSON Schema.
 
 ## Execute at the owner
 
-- Session planning, schedules, Background Agent Jobs, Workflows, Skill reads, and domain web operations use their control-plane owners.
-- Computer operations are delegated through RuntimeFabric to the Agent's Worker. The first environment operation opens the Session workspace. The Worker owns its slot and process state; the control plane owns durable results.
-- MCP-backed Skills use the computer command tool and mcporter on the Worker.
-- Provider-hosted tools run through AIGateway. The catalog respects the selected model's declared capabilities.
+Each tool executes at the runtime boundary that owns its state:
 
-The Driver schedules parallel and sequential calls according to their declarations. Durable effects use `Ankole.Sessions.Receipts` so the domain mutation and its result are committed together. AIGateway stores tool output for the next model iteration. A Worker disconnection leaves the Driver to handle an uncertain environment operation through the declared retry contract.
+- **Control-plane domain tools** handle Session planning, schedules, Background Agent Jobs, Workflows, Skill loading, and configured `web_search` / `web_fetch` providers.
+- **Worker computer tools** run on the Agent's Worker over RuntimeFabric; the first environment call in a Session opens that Session's workspace, with the Worker managing its concurrency slot and child processes while the control plane commits durable results.
+- **MCP-backed Skills** invoke `mcporter` on the Worker through the `command` tool.
+- **Provider-hosted tools** execute through AIGateway whenever the selected model declares support for them.
+
+The Driver dispatches calls in parallel or sequentially according to each tool's concurrency metadata. Tools with durable control-plane side effects run through `Ankole.Sessions.Receipts` so the domain write and tool receipt commit together in PostgreSQL, and AIGateway stores the resulting tool output for the next model turn. If a Worker disconnects mid-execution, the Driver resolves the interrupted environment call using the tool's declared retry policy.
 
 ## Workflow task tools
 
-A Workflow task has a restricted catalog: web operations, the Background Agent Job operations for delegation and inspection, `sleep`, and `submit_result`. Its hosted Brain access is limited to `recall` and `get_page`. It receives no computer, shell, Skill, schedule, or Workflow creation tools.
+Workflow subagents receive a deliberately narrow tool catalog: web tools, the Background Agent Job tools for delegation and inspection, `sleep`, `submit_result`, and—when Brain is enabled—read-only `recall` and `get_page`. They never receive computer, shell, Skill, schedule, or nested Workflow tools.
 
-`submit_result` validates the value against the task's persisted result schema. Rejection permits correction; an accepted result ends the task. A task must settle its live delegated Jobs before it submits. See [Workflows](../workflows/).
+When a subagent calls `submit_result`, Ankole validates the payload against the task's persisted result schema: if validation fails, the task stays active so the subagent can submit a fixed payload; once validation succeeds, Ankole completes the task. Before submitting, a task must wait for or stop any live Background Agent Jobs that it delegated. See [Workflows](../workflows/).
 
 ## Add a tool
 
-Put a domain tool declaration and implementation in its control-plane owner. Add an environment tool to the Worker catalog and regenerate `worker_tools.json`. `WorkerAgentTool` and Zod define the Worker tool implementation contract. Preserve the schema and the execution boundary together.
+Place control-plane domain tools alongside their owning Elixir domain, or implement Worker environment tools with `WorkerAgentTool` and Zod in the Worker catalog and regenerate `worker_tools.json` so the control-plane schema and Worker execution contract stay synchronized.

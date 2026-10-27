@@ -12,7 +12,7 @@
     "gen:proto:check": "bun scripts/gen-proto.ts --check",
     "gen:rpc-contract": "bun scripts/gen-rpc-contract.ts",
     "tools:export": "bun scripts/export-worker-tools.ts",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "bun check",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",

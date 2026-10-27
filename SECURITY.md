@@ -1,31 +1,31 @@
 # Ankole Security Policy
 
-Ankole takes the security of our software products and services seriously. If you believe you have found a security vulnerability in any Ankole-owned repository, please report it to us as described below.
+We take the security of Ankole seriously. If you discover a security vulnerability in any Ankole repository, please report it privately using the instructions below.
 
 ## Supported Versions
 
-Ankole is a complete, self-hostable AgentOS in production. Its public APIs do not yet carry a compatibility contract. Only the latest `main` line receives security updates.
+Ankole is a self-hostable AgentOS designed for production use. Because public APIs do not carry a backwards-compatibility guarantee across releases, security fixes ship only on the latest `main` branch.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| >=1.0    | :white_check_mark: |
+| >=1.0   | :white_check_mark: |
 
+### How We Assess Severity
 
-### How severity is determined
+When we receive a vulnerability report, we investigate the finding internally and determine its severity based on:
 
-Ankole reserves the right to make a final decision regarding the severity of a reported finding. Upon receipt of the finding, we will conduct an internal investigation and determine the severity of the finding by considering multiple factors including but not limited to:
+- Common Vulnerability Scoring System (CVSS) metrics
+- The scope of affected users, tenants, and stored data
+- How difficult the issue is to exploit in a realistic deployment
+- Any preconditions or mitigating controls that limit impact
 
-- Common Vulnerability Scoring System
-- The quantity of affected users and data
-- The difficulty in exploiting
-- Other, if any, mitigating factors or exploit scenario requirements
-
+Ankole retains final discretion over severity ratings.
 
 ## Reporting a Vulnerability
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+**Do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
 
-Instead, please report them to `sre@agentbull.com`. If possible, encrypt your message with our PGP key:
+Email your report privately to `sre@agentbull.com`. Whenever possible, encrypt your message with our PGP public key:
 
 ```base64
 -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -43,24 +43,22 @@ i9/38mOunY8XArLcNCp+dYPgeOZ30pzNDlohn+pg7ws=
 -----END PGP PUBLIC KEY BLOCK-----
 ```
 
-You should receive a response within 48 hours. If the issue is confirmed, we will release a patch as soon as possible depending on complexity but historically within a few days.
+We aim to acknowledge reports within 48 hours. Once we confirm an issue, we work to ship a patch as quickly as its complexity allows—typically within a few days.
 
-Please include the requested information listed below (as much as you can provide) to help us better understand the nature and scope of the possible issue:
+To help us triage and reproduce your finding quickly, include as much of the following detail as you can:
 
-- Type of issue (e.g. buffer overflow, SQL injection, cross-site scripting, etc.)
-- Full paths of source file(s) related to the manifestation of the issue
-- The location of the affected source code (tag/branch/commit or direct URL)
-- Any special configuration required to reproduce the issue
-- Step-by-step instructions to reproduce the issue
-- Proof-of-concept or exploit code (if possible)
-- Impact of the issue, including how an attacker might exploit the issue
-
-This information will help us triage your report more quickly.
+- Vulnerability class (for example, SQL injection, authentication bypass, cross-site scripting, or SSRF)
+- Full repository paths to the affected source files
+- Exact code revision (tag, branch, commit SHA, or permalink)
+- Any non-default configuration needed to trigger the issue
+- Step-by-step reproduction instructions
+- Proof-of-concept code or request payloads, if available
+- Concrete security impact and how an attacker could exploit the flaw
 
 ## Preferred Languages
 
-We prefer all communications to be in English or Chinese.
+We accept security reports in English or Chinese.
 
-## Comments on this Policy
+## Policy Feedback
 
-If you have suggestions on how this process could be improved please submit a pull request.
+If you have suggestions for improving this security policy, feel free to open a pull request.

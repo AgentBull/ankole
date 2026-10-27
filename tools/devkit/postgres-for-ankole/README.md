@@ -1,28 +1,29 @@
 # postgres-for-ankole
 
-Ankole Agent development PostgreSQL image based on PostgreSQL 18.
+This directory builds the PostgreSQL 18 development image for Ankole, bundling
+the extensions that Ankole requires:
 
-Included extensions:
+- `pg_search` 0.25.11 (from the ParadeDB PostgreSQL 18 RPM)
+- `vector` (`pgvector_18`, installed without the optional LLVM JIT package)
+- `pg_trgm` (from PostgreSQL `contrib` in the base image)
 
-- `pg_search` 0.25.11, from the ParadeDB PostgreSQL 18 RPM
-- `vector`
-- `pg_trgm` (PostgreSQL contrib, present in the base image)
+All PostgreSQL server and `contrib` packages are installed from the official
+`download.postgresql.org` repositories.
 
-PostgreSQL packages use the official `download.postgresql.org` repositories.
-The image installs `pgvector_18` without the optional LLVM JIT package.
+PostgreSQL must load `pg_search` via `shared_preload_libraries` at server
+startup. The image's default `CMD` enables this setting automatically; if you
+override the container `command` or mount a custom `postgresql.conf`, keep
+`pg_search` in `shared_preload_libraries`. Enabling it on a running server
+requires a full PostgreSQL restart rather than a configuration reload.
 
-`pg_search` must be present in `shared_preload_libraries` when PostgreSQL
-starts. The image's default command enables it; preserve that setting if you
-override `command` or `postgresql.conf`. Adding the setting to a running server
-requires a PostgreSQL restart, not a reload.
-
-Build locally:
+Build the image locally:
 
 ```sh
 docker build -t postgres-for-ankole tools/devkit/postgres-for-ankole
 ```
 
-Run it directly with the same setting used by the devkit Compose service:
+Run it directly with the same password used by the Compose service in the
+devkit:
 
 ```sh
 docker run --rm -p 5433:5432 \
@@ -30,28 +31,28 @@ docker run --rm -p 5433:5432 \
   postgres-for-ankole
 ```
 
-The image follows the usual Postgres container environment variables:
+The container accepts the standard PostgreSQL entrypoint environment variables:
 
-- `POSTGRES_USER`, default `postgres`
-- `POSTGRES_PASSWORD`, default `just4local-dev`
-- `POSTGRES_DB`, default `POSTGRES_USER`
-- `POSTGRES_HOST_AUTH_METHOD`, default `md5`
+- `POSTGRES_USER` (default: `postgres`)
+- `POSTGRES_PASSWORD` (default: `just4local-dev`)
+- `POSTGRES_DB` (default: value of `POSTGRES_USER`)
+- `POSTGRES_HOST_AUTH_METHOD` (default: `md5`)
 
-Initialization scripts can be mounted into `/docker-entrypoint-initdb.d`.
+You can mount custom initialization scripts into `/docker-entrypoint-initdb.d`.
 
-New clusters use UTF8 for the template databases and `POSTGRES_DB`, including
-when the container locale is `C`. The devkit also creates new application
-databases with UTF8 from `template0`.
+Newly initialized clusters create both the template databases and `POSTGRES_DB`
+with `UTF8` encoding even when the container locale is `C`, and the devkit
+creates new application databases from `template0` with `UTF8` as well.
 
-An image update does not change the encoding of an existing database or its
-templates. Check `SHOW server_encoding` in the application database. To change
-an existing encoding, create a logical backup with `pg_dump --encoding=UTF8`,
-restore it into a separate UTF8 database, and verify the data before switching
-the control plane. Keep the original database for recovery. Do not change
-`pg_database.encoding` directly.
+Updating the container image leaves the encoding of existing databases and
+templates unchanged. Check `SHOW server_encoding` in the application database;
+if you need to convert an existing database to `UTF8`, take a logical dump with
+`pg_dump --encoding=UTF8`, restore it into a fresh `UTF8` database, and verify
+the restored data before switching the control plane over. Retain the original
+database for recovery, and never mutate `pg_database.encoding` directly.
 
-Before running Ankole migrations, verify the server rather than assuming the
-image tag is sufficient:
+Before running Ankole migrations, query the live server directly instead of
+relying on the image tag alone:
 
 ```sql
 SHOW server_version_num;          -- must be PostgreSQL 18 (>= 180000)
@@ -63,20 +64,21 @@ WHERE name IN ('pg_search', 'vector', 'pg_trgm')
 ORDER BY name;
 ```
 
-Ankole migrations install `vector` (required by `pg_search`), `pg_search`, and
-`pg_trgm`. All three extensions must be available in this image before the
+Ankole migrations install `vector` (a dependency of `pg_search`), `pg_search`,
+and `pg_trgm`, so all three extensions must be available on the server before
 migrations run.
 
-Apply pending migrations the usual way:
+Apply pending migrations with the devkit command:
 
 ```sh
 bun run kit app-db migrate
 ```
 
-For an existing database, changing the image does not update the installed
-extension SQL. Back up the database and stop the control plane for a
-maintenance window. Start PostgreSQL with this image, then run in the
-application database:
+When upgrading an existing database, swapping the container image updates the
+shared library on disk without updating the SQL catalog definitions of installed
+extensions. Back up the database first and stop the control plane for a
+maintenance window. Then start PostgreSQL with the updated image and run the
+following SQL in the application database:
 
 ```sql
 ALTER EXTENSION pg_search UPDATE TO '0.25.11';
@@ -85,8 +87,9 @@ SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
 SELECT * FROM paradedb.version_info();
 ```
 
-Both the installed extension and the loaded library must be 0.25.11. Then
-apply Ankole migrations and repeat a Brain text recall before you start the
-control plane. BM25 indexes that contain only text do not require a rebuild
-when upgrading to `0.25.11`. For a failed native index reader, use the
-[Brain index recovery procedure](../../../docs/design-docs/BrainV3.md#retrieval-index-recovery).
+Confirm that both the installed extension version and the loaded shared library
+report `0.25.11`. Next, apply Ankole migrations and verify a Brain text recall
+query before restarting the control plane. Text-only BM25 indexes do not need to
+be rebuilt when upgrading to `0.25.11`; if a native index reader fails to open,
+follow the
+[index recovery procedure for Brain](../../../docs/design-docs/BrainV3.md#retrieval-index-recovery).

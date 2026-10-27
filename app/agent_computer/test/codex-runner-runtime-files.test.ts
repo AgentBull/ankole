@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { migrateLegacyCodexJobSkillRoots, renderCodexJobAgents } from '../src/core/codex-runner/job/runtime-files'
+import { renderCodexJobAgents } from '../src/core/codex-runner/job/runtime-files'
 
 describe('@ankole/agent-computer Codex Job runtime files', () => {
   it('renders the real Job workspace in AGENTS.md', () => {
@@ -71,41 +68,5 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
 
     expect(content).toContain('## Skills')
     expect(content).toContain('- ordinary')
-  })
-
-  it('migrates legacy Skill roots once without replacing existing AGENTS guidance', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-job-skill-migration-'))
-    const original = '# Existing Job guidance\n\nKeep this operator constraint.\n'
-    const skillsPrompt = '## Skills\n\n<available_skills>\n  general:\n    - ordinary\n</available_skills>'
-    const agentsPath = join(root, 'AGENTS.md')
-
-    try {
-      writeFileSync(agentsPath, original)
-      mkdirSync(join(root, '.agents', 'skills', 'legacy'), { recursive: true })
-      mkdirSync(join(root, '.ankole', 'agent-plugins', 'legacy'), { recursive: true })
-
-      expect(migrateLegacyCodexJobSkillRoots({ jobRoot: root, runtimeThreadID: 'thread-old', skillsPrompt })).toBe(true)
-      const migrated = readFileSync(agentsPath, 'utf8')
-      expect(migrated.startsWith(original)).toBe(true)
-      expect(migrated).toContain(skillsPrompt)
-      expect(migrated.match(/ankole-background-job-skill-view-v1=/g)).toHaveLength(1)
-      expect(existsSync(join(root, '.agents', 'skills'))).toBe(false)
-      expect(existsSync(join(root, '.ankole', 'agent-plugins'))).toBe(false)
-      expect(migrateLegacyCodexJobSkillRoots({ jobRoot: root, runtimeThreadID: 'thread-old', skillsPrompt })).toBe(true)
-      expect(readFileSync(agentsPath, 'utf8')).toBe(migrated)
-
-      mkdirSync(join(root, '.agents', 'skills'), { recursive: true })
-      expect(
-        migrateLegacyCodexJobSkillRoots({
-          jobRoot: root,
-          runtimeThreadID: 'thread-new',
-          skillsPrompt: '## Skills\n\nThis must not replace the one-time index.'
-        })
-      ).toBe(false)
-      expect(readFileSync(agentsPath, 'utf8')).toBe(migrated)
-      expect(existsSync(join(root, '.agents', 'skills'))).toBe(false)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
   })
 })

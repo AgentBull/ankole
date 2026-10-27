@@ -67,6 +67,40 @@ describe('buildControlPlaneEnv', () => {
       expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('https://gateway.example.test/api/v1/ai-gateway')
     })
   })
+
+  test('automatically wires local sccache into the control-plane environment when present on PATH', () => {
+    withRepoRoot(repoRoot => {
+      const env = buildControlPlaneEnv(
+        { SCCACHE_BUCKET: 'unused-remote-bucket' },
+        {
+          port: 4001,
+          workerImage: 'ankole-agent-computer:dev',
+          repoRoot,
+          sccache: { resolveExecutable: () => '/usr/local/bin/sccache' }
+        }
+      )
+
+      expect(env.RUSTC_WRAPPER).toBe('/usr/local/bin/sccache')
+      expect(env.SCCACHE_CACHE_SIZE).toBe('20G')
+      expect(env.SCCACHE_BUCKET).toBeUndefined()
+    })
+  })
+
+  test('continues silently without RUSTC_WRAPPER when sccache is absent', () => {
+    withRepoRoot(repoRoot => {
+      const env = buildControlPlaneEnv(
+        { DATABASE_URL: 'postgres://local' },
+        {
+          port: 4001,
+          workerImage: 'ankole-agent-computer:dev',
+          repoRoot,
+          sccache: { resolveExecutable: () => null }
+        }
+      )
+
+      expect(env.RUSTC_WRAPPER).toBeUndefined()
+    })
+  })
 })
 
 describe('Docker helpers', () => {

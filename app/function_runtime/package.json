@@ -5,7 +5,7 @@
   "scripts": {
     "test": "bun test test/unit.test.ts",
     "test:integration": "bun test test/runtime.test.ts",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "bun check -p tsconfig.json --noEmit",
     "test:native": "bun test/native/run.ts"
   },
   "dependencies": {

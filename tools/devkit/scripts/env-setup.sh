@@ -4,12 +4,13 @@ set -euo pipefail
 INSTALL_SYSTEM_PACKAGES=1
 INSTALL_DOCKER=1
 INSTALL_RUST=1
+INSTALL_SCCACHE=1
 INSTALL_ELIXIR=1
 INSTALL_BUN=1
 DRY_RUN=0
 
 BUN_VERSION="${ANKOLE_BUN_VERSION:-1.4.4}"
-RUST_TOOLCHAIN="${ANKOLE_RUST_TOOLCHAIN:-stable}"
+RUST_TOOLCHAIN="${ANKOLE_RUST_TOOLCHAIN:-1.99.1}"
 ELIXIR_VERSION="${ANKOLE_ELIXIR_VERSION:-1.20.1-otp-29}"
 OTP_MAJOR="${ANKOLE_OTP_MAJOR:-29}"
 MISE_BIN="${MISE_BIN:-$HOME/.local/bin/mise}"
@@ -19,13 +20,14 @@ usage() {
 Usage: env-setup.sh [options]
 
 Installs the host tools needed for Ankole development on Linux and macOS:
-system build packages, Docker, Rust, Elixir/Erlang, and Bun.
+system build packages, Docker, Rust, sccache, Elixir/Erlang, and Bun.
 
 Options:
   --dry-run              Print commands without running them.
   --no-system-packages   Do not install OS build packages.
   --no-docker            Do not install Docker.
   --no-rust              Do not install Rust.
+  --no-sccache           Do not install sccache.
   --no-elixir            Do not install Elixir/Erlang.
   --no-bun               Do not install Bun.
   -h, --help             Show this help.
@@ -45,6 +47,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-rust | --skip-rust)
       INSTALL_RUST=0
+      ;;
+    --sccache)
+      INSTALL_SCCACHE=1
+      ;;
+    --no-sccache | --skip-sccache)
+      INSTALL_SCCACHE=0
       ;;
     --no-elixir | --skip-elixir)
       INSTALL_ELIXIR=0
@@ -417,6 +425,49 @@ install_rust() {
   run rustup component add clippy rustfmt
 }
 
+install_sccache() {
+  [[ "$INSTALL_SCCACHE" -eq 1 ]] || return 0
+
+  if have sccache; then
+    log "sccache is already installed."
+    return
+  fi
+
+  if [[ "$OS" == "macos" ]]; then
+    ensure_homebrew
+    log "Installing sccache."
+    brew_install_missing sccache
+    return
+  fi
+
+  log "Installing sccache."
+  if have apt-get; then
+    run_sudo apt-get update
+    if run_sudo apt-get install -y --no-install-recommends sccache; then
+      return
+    fi
+  elif have dnf; then
+    if run_sudo dnf install -y sccache; then
+      return
+    fi
+  elif have pacman; then
+    if run_sudo pacman -Sy --needed --noconfirm sccache; then
+      return
+    fi
+  elif have zypper; then
+    if run_sudo zypper --non-interactive install sccache; then
+      return
+    fi
+  fi
+
+  if have cargo; then
+    run cargo install sccache --locked
+    return
+  fi
+
+  die "Could not install sccache: no supported package manager or cargo binary is available."
+}
+
 install_mise() {
   if have mise || [[ -x "$MISE_BIN" ]]; then
     return
@@ -493,6 +544,7 @@ write_shell_env() {
 install_system_packages
 install_docker
 install_rust
+install_sccache
 install_bun
 install_elixir
 write_shell_env

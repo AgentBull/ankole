@@ -39,6 +39,10 @@ import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
 import { OIDCClientEditorPage, OIDCClientsListPage } from './pages/oidc-clients'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
 import { TenantsListPage, TenantEditorPage } from './pages/tenants'
+import { SlotBoundary, SlotGate } from '../common/slots'
+import { ConsoleSlotsContext, normalizeConsoleSlotPath, validateConsoleSlots, type ConsoleAppSlots } from './slots'
+
+export type { ConsoleAppSlots } from './slots'
 
 // Set the session and CSRF configuration before route components start queries.
 configureConsoleAPIClient()
@@ -47,7 +51,8 @@ configureConsoleAPIClient()
 // routing. Each resource is a list route plus its editor
 // routes. Settings are the exception: the key route is nested so its editor can
 // stay deep-linkable while opening as a drawer over the list.
-export function createConsoleRouter(queryClient: QueryClient) {
+export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppSlots = {}) {
+  validateConsoleSlots(slots)
   applyDataTenantNavigation()
   const basename = document.querySelector<HTMLMetaElement>('meta[name="ankole-site-admin-console-path"]')?.content
   if (!basename) throw new Error('The authenticated console shell did not provide its mount path')
@@ -325,6 +330,26 @@ export function createConsoleRouter(queryClient: QueryClient) {
         path: 'conversations/$conversationID',
         component: ConversationDetailPage
       }),
+      ...(slots.routes ?? []).map(route =>
+        createRoute({
+          getParentRoute: () => bodyRoute,
+          path: normalizeConsoleSlotPath(route.path),
+          staticData: { consoleSlot: route },
+          component: () => (
+            <SlotGate slot={route}>
+              {enabled =>
+                enabled ? (
+                  <SlotBoundary>
+                    <route.Component />
+                  </SlotBoundary>
+                ) : (
+                  <NotFoundPage />
+                )
+              }
+            </SlotGate>
+          )
+        })
+      ),
       createRoute({ getParentRoute: () => bodyRoute, path: '$', component: NotFoundPage })
     ])
   ])
@@ -337,6 +362,17 @@ export function createConsoleRouter(queryClient: QueryClient) {
   })
 }
 
-export function ConsoleApp({ router }: { router: ReturnType<typeof createConsoleRouter> }) {
-  return <RouterProvider router={router} />
+export function ConsoleApp({
+  router,
+  slots = {}
+}: {
+  router: ReturnType<typeof createConsoleRouter>
+  slots?: ConsoleAppSlots
+}) {
+  validateConsoleSlots(slots)
+  return (
+    <ConsoleSlotsContext value={slots}>
+      <RouterProvider router={router} />
+    </ConsoleSlotsContext>
+  )
 }

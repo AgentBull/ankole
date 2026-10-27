@@ -1,111 +1,111 @@
 ---
 title: Web 工具
-description: 为 Agent 配置网页搜索和正文读取，并判断何时改用浏览器。
+description: 为 Agent 配置网页搜索与正文抓取能力，并判断何时应改用浏览器自动化。
 section: User guide
 order: 33
 ---
 
-Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取选中的页面。`web_search` 必须配置 Provider；`web_fetch` 会优先使用已配置的 Provider，也可以在未配置 Provider 时使用 Worker 内置的渲染回退。
+Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提取目标页面的正文内容。其中，`web_search` 必须绑定外部提供商；`web_fetch` 则优先调用已绑定的提供商，若未配置也可自动回退至 Worker 内置的网页渲染提取器。
 
 ## 先选择正确的工具
 
-| 能力 | 适合做什么 | 运行位置 |
+| 能力 | 适用场景 | 可用执行环境 |
 |---|---|---|
-| `web_search` | 根据关键词、时间或来源范围查找公开网页 | 主 Agent 和后台 Agent Job |
-| `web_fetch` | 把一个或多个已知公开网址读取为正文 | 主 Agent 和后台 Agent Job |
-| [浏览器自动化](../browser-automation/) | 登录、点击、输入、翻页、截图和读取交互后的页面 | **仅后台 Agent Job** |
+| `web_search` | 按关键词、发布时间或站点范围检索公开网页 | 主对话 Agent 与后台 Agent 任务 |
+| `web_fetch` | 将一个或多个已知的公开网址提取为干净正文 | 主对话 Agent 与后台 Agent 任务 |
+| [浏览器自动化](../browser-automation/) | 登录账号、点击按钮、填写表单、翻页、截屏及读取交互后才呈现的动态页面 | **仅限后台 Agent 任务** |
 
-浏览器自动化由 `browser` Skill 提供，并声明为 `ankole-runtime: background_job`。它不会出现在 `web_search` 或 `web_fetch` 的 Provider 列表中，也不能直接在主 Agent 的普通对话回合中运行。
+浏览器自动化能力由 `browser` Skill 提供，并固定声明为 `ankole-runtime: background_job`；因此它不会出现在 `web_search` 或 `web_fetch` 的提供商下拉列表中，也无法在主对话 Agent 的日常前台回合里直接调用。
 
-当任务需要浏览器时，需要让主 Agent 创建或使用后台 Agent Job。后台 Job 不会阻塞当前对话，并会按需把问题、状态或结果送回原对话。
+一旦任务确需真实浏览器交互，主对话 Agent 会创建或复用后台 Agent 任务来执行——后台任务不会阻塞当前聊天窗口，并会按需将澄清问题、阶段进展或最终结论发回原会话。
 
 ## 配置 Web 工具
 
 ### 添加 Provider
 
-1. 打开 **Console → 模型提供商**。
-2. 选择支持 `web_search`、`web_fetch` 或两者的 Provider 类型。
-3. 填写 API Key 和该 Provider 要求的字段。
-4. 保存并确认 Provider 处于启用状态。
+1. 打开 **Console → 模型提供商** 页面。
+2. 选择支持 `web_search`、`web_fetch` 或同时支持两者的提供商类型。
+3. 填入 API Key 及该提供商要求的其他必填参数。
+4. 保存配置，并确认该提供商处于启用状态。
 
-同一种 Provider 类型可以建立多个实例。例如，你可以为不同地区或用途建立两个 Bright Data SERP Provider，再让不同 Agent 使用不同实例。
+同一种提供商类型下可创建多个独立实例——例如，你可以针对不同目标国家或业务线分别建立两个 Bright Data SERP 实例，再按需分配给不同的 Agent。
 
 ### 分配给 Agent
 
-1. 打开 **Console → 智能体**，选择目标 Agent。
-2. 在**模型档案**中找到 `web_search`，选择一个支持网页搜索的 Provider。
-3. 找到 `web_fetch`，选择一个支持网页读取的 Provider。
-4. 分别保存，然后开始一轮新对话。
+1. 打开 **Console → 智能体** 页面，点开目标 Agent。
+2. 在**模型档案**区域找到 `web_search`，选择一个支持网页搜索的提供商实例。
+3. 找到 `web_fetch`，选择一个支持网页正文提取的提供商实例。
+4. 分别保存后，开启一轮新对话使配置生效。
 
-这两项模型档案只需要选择 Provider，不需要选择模型或填写上下文长度。Provider 类型声明自己支持哪些能力，所以列表只会显示与当前档案匹配的实例。
+这两项档案只需绑定提供商实例，无需指定模型名称或上下文窗口长度。由于每种提供商类型已预先声明自身支持的能力，下拉列表会自动过滤，仅展示与当前槽位匹配的实例。
 
-如果列表中没有可选项，请先添加对应 Provider。首次添加方法见 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
+若下拉列表中暂无可选项，请先按上一节添加对应的提供商实例；首次配置指引见 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 
 ## 当前内置 Provider
 
-Control Plane Plugin 也可以添加更多 Provider 类型。以下是 Ankole 内置的类型。
+除以下随系统内置的提供商外，站点管理员也可通过 Control Plane Plugin 扩展接入更多提供商类型。
 
 ### `web_search` Provider
 
-| Provider | 同时支持 `web_fetch` | 主要差异 | 适合的情况 |
+| 提供商 | 同时支持 `web_fetch` | 核心特性差异 | 适用场景 |
 |---|---|---|---|
-| **Parallel** | 是 | 同一 Provider 同时提供搜索和正文提取；支持搜索目标、多条查询、模式和总字符预算 | 希望用一套凭据完成搜索与阅读，或处理研究型查询 |
-| **Bright Data SERP** | 否 | 通过 SERP API 搜索；必须填写 Zone，可指定国家、语言和 Google 域名 | 需要控制搜索地区、语言或本地化结果 |
-| **Jina Search** | 否 | 支持地区、位置、语言、页码、缓存和搜索引擎选项 | 需要直接的网页搜索，并希望控制地域、分页或缓存 |
-| **AgentBull Cloud** | 是 | 聚合搜索、网页正文提取与模型能力（`llm`、`embedding`、`rerank`、`image_generate`）；支持来源范围、时间范围和跳过缓存 | 希望用一把聚合 API Key 同时覆盖 Web 工具与模型，或需要明确限制来源和时间 |
+| **Parallel** | 是 | 单一提供商同时覆盖搜索与正文提取；支持指定检索意图、多组并发查询、运行模式及总字符数预算 | 希望用同一套凭据包揽搜索与精读，或处理深度调研类检索 |
+| **Bright Data SERP** | 否 | 调用 SERP API 检索结果；必填 Zone 名称，支持精细指定国家/地区、界面语言与 Google 区域域名 | 需要严格控制搜索地域、语种或获取本地化搜索结果 |
+| **Jina Search** | 否 | 支持指定国家/地区、地理位置、语言、分页页码、缓存开关及底层搜索引擎 | 需要直接网页搜索，并精细控制地域、翻页或缓存行为 |
+| **AgentBull Cloud** | 是 | 一站式聚合网页搜索、正文提取与多种模型能力（`llm`、`embedding`、`rerank`、`image_generate`）；支持限定站点范围、时间窗口及跳过缓存 | 希望凭一把聚合 API Key 同时搞定联网工具与模型调用，或需按域名与时间精确过滤 |
 
-Parallel 或 AgentBull Cloud 只需添加一个 Provider 实例，就可以同时分配给 `web_search` 和 `web_fetch`。
+若选用 Parallel 或 AgentBull Cloud，只需添加一次提供商实例，即可同时绑定给 `web_search` 与 `web_fetch` 两个槽位。
 
-Jina Search 与 Jina Reader 是两个不同的 Provider 类型。即使它们使用同一套 Jina 凭据，也要分别添加，再分配给对应档案。
+注意，Jina Search 与 Jina Reader 在系统中属于两个独立的提供商类型——即便共用同一把 Jina API Key，也需分别添加两个实例，再各自绑定至对应槽位。
 
 ### `web_fetch` Provider
 
-| Provider | 同时支持 `web_search` | 主要差异 | 适合的情况 |
+| 提供商 | 同时支持 `web_search` | 核心特性差异 | 适用场景 |
 |---|---|---|---|
-| **Parallel** | 是 | 使用与 Parallel Search 相同的 Provider 和凭据提取正文 | 已经使用 Parallel 搜索，希望保持一套配置 |
-| **AgentBull Cloud** | 是 | 复用同一 AgentBull Cloud Provider 与 API Key 提取公开网页正文 | 已经使用 AgentBull Cloud 访问模型或搜索，希望共用一套凭据 |
-| **Jina Reader** | 否 | 把公开网页转换为 Markdown；支持保留链接、目标选择器、等待选择器、缓存、引擎和 token 上限 | 阅读文章正文，或从页面中提取指定区域 |
+| **Parallel** | 是 | 直接复用 Parallel Search 的同一实例与凭据提取网页正文 | 已接入 Parallel 搜索，希望精简维护一套配置 |
+| **AgentBull Cloud** | 是 | 直接复用同一 AgentBull Cloud 实例与 API Key 提取公开网页正文 | 已通过 AgentBull Cloud 调用模型或搜索，希望共用同一套凭据 |
+| **Jina Reader** | 否 | 将公开网页转换为结构化 Markdown；支持保留超链接、CSS 目标选择器、等待元素选择器、缓存控制、渲染引擎切换及输出 Token 上限 | 提取长文正文，或仅截取页面中的特定 DOM 区域 |
 
-`web_fetch` 面向公开 HTTPS 页面。它不负责登录，也不是 PDF、图片、压缩包或音视频下载器。
+`web_fetch` 仅面向无需鉴权的公开 HTTPS 网页——它既不支持携带登录态访问受限页面，也不是用来下载 PDF、图片、压缩包或音视频文件的下载工具。
 
-Worker 内置的渲染回退不是 Provider，因此不会出现在 Console 的 Provider 列表中。它只负责读取渲染后的正文。
+Worker 内置的渲染回退机制属于底层兜底能力而非独立提供商，因此不会出现在 Console 的提供商列表中，仅用于在未配置专用提供商时提取渲染后的页面正文。
 
-渲染回退不能点击、输入、复用登录状态或截图，也不会让主 Agent 获得浏览器自动化能力。
+该内置回退同样无法执行点击、输入、复用登录 Cookie 或页面截屏，也不会赋予主对话 Agent 浏览器自动化能力。
 
-选择器和等待选项可以帮助 Provider 读取延迟出现的正文，但不能代替真实交互。需要登录、点击或填写表单时，仍应使用后台 Agent Job 中的浏览器自动化。
+虽然部分提供商支持通过 CSS 选择器与等待条件读取异步延迟加载的正文，但这些参数代替不了真实的页面操作；凡涉及账号登录、点击交互或表单填写的任务，仍须交由后台 Agent 任务中的浏览器自动化完成。
 
 ## 让 Agent 使用 Web 工具
 
-不需要输入特殊命令，直接说明目标即可。例如：
+日常提问时无需输入特殊指令，直接用自然语言交代目标即可。例如：
 
-> 查找本周发布的三条相关消息，阅读原文后总结差异，并附上来源链接。
+> 查找本周发布的三条相关动态，阅读原文后提炼核心差异，并附上出处链接。
 
-Agent 会先搜索，再选择需要阅读的页面。若你已经知道网址，可以直接把网址发给 Agent，并要求它读取和总结。
+收到请求后，Agent 会先搜索候选网页，再自主挑选高价值链接抓取精读；如果你手头已有明确网址，也可直接发给 Agent 让它提取并总结。
 
-以下情况应明确要求使用浏览器：
+遇到以下情形时，则应在指令中明确要求动用浏览器：
 
-- 页面需要登录；
-- 必须点击、输入或翻页后才能看到内容；
-- 需要截图或核对页面实际显示效果；
-- 网页内容只有在复杂交互后才会出现。
+- 目标页面需要登录账号才能查看；
+- 必须经过点击按钮、输入筛选条件或点击翻页后才会加载目标数据；
+- 需要截取网页实际渲染画面，或核对视觉排版效果；
+- 页面内容依赖复杂的前端多步交互才会呈现。
 
-浏览器工作会在后台 Agent Job 中运行。普通搜索、公开网页正文读取和多来源整理不需要浏览器，直接使用 `web_search` 与 `web_fetch` 更快。
+涉及浏览器的任务会自动转入后台 Agent 任务运行；而常规资讯检索、公开文章精读与多信源交叉汇总完全无需启动重型浏览器，直接使用 `web_search` 与 `web_fetch` 响应更快、开销更低。
 
 ## 无法搜索或读取网页
 
 ### 搜索或读取失败
 
-依次检查：
+请按以下顺序逐项排查：
 
-1. 当前 Agent 是否已配置任务需要的档案；`web_search` 必须选择 Provider。
-2. 若 `web_fetch` 没有 Provider，Worker 是否提供内置渲染回退。
-3. 所选 Provider 是否声明了对应能力。
-4. Provider 是否处于启用状态，凭据和必填字段是否有效。
-5. 修改配置后是否开始了新对话。
-6. 目标网址是否为公开 HTTPS 页面，且不需要登录。
+1. 目标 Agent 是否已配妥所需的模型档案（其中 `web_search` 必须显式指定提供商）；
+2. 若 `web_fetch` 留空未绑定提供商，当前 Agent 的 Worker 是否正常运行并具备内置渲染回退能力；
+3. 所绑定的提供商实例是否确实声明支持该项能力；
+4. 该提供商是否处于启用状态，API Key 与各项必填参数是否真实有效；
+5. 保存新配置后，是否已重新发起一轮新对话；
+6. 目标链接是否为免登录即可公开访问的 HTTPS 网页。
 
 ### 浏览器没有运行
 
-确认 Agent 已启用 `browser` Skill，并允许创建后台 Agent Job。不要尝试把浏览器配置到 `web_search` 或 `web_fetch` 档案中。
+请确认已为该 Agent 启用 `browser` Skill，且权限允许其创建后台 Agent 任务；切勿尝试在 `web_search` 或 `web_fetch` 档案中寻找或绑定浏览器。
 
-如果任务已在后台 Job 中运行，再检查 Worker 是否可用，以及 Job 是否报告了浏览器会话或访问权限问题。
+如果任务已经在后台 Agent 任务中运行但仍无法操控网页，请进一步检查对应 Worker 是否就绪，并查阅任务日志中是否报出了浏览器会话异常或网络访问受阻提示。

@@ -1,17 +1,17 @@
 ---
 title: アダプター設定ガイド
-description: 各 Ankole の Identity と chat アダプターについて、アプリの種類、credential、権限、検証手順を調べる。
+description: Ankole の各 Identity アダプターとチャットアダプターについて、アプリの種類、認証情報、権限、検証手順を確認します。
 section: Getting started
 order: 3
 ---
 
-このページでは、Ankole に含まれるエンタープライズ Identity と chat アダプターをまとめます。まず、そのプラットフォームが **Identity Provider（IdP）** を提供するのか、**Channel Provider** を提供するのか、それとも両方かを決め、該当する詳細ガイドを開いてください。
+このページでは、Ankole に含まれるエンタープライズ Identity アダプターとチャットアダプターを一覧でまとめています。まずは連携先のプラットフォームを **Identity Provider（IdP）** として使うか、**Channel Provider** として使うか、あるいはその両方に使うかを確認し、該当する詳細ガイドを開いてください。
 
-初回セットアップ時、`/setup` は選択した IdP のログイン callback URL とガイドリンクを表示します。エンタープライズ Identity Provider は Pod 管理者（`pod_admin`）が **Pod Settings**（`/api/v2/pod/admin/identity-providers`）で管理するほか、サイト管理者も Site Console（**Console → Identity Providers**）で管理できます。サイトレベルのパスワードレス Email OTP 用 SMTP 設定（`authn.email.*`）は Site Console で管理します。外部 chat アプリケーションの Agent へのバインドは、**Console → Signal Routing** で行います。
+初回セットアップ時には、選択した IdP のログイン callback URL とガイドへのリンクが `/setup` に表示されます。エンタープライズ Identity Provider は、Pod 管理者（`pod_admin`）が **Pod Settings**（`/api/v2/pod/admin/identity-providers`）で管理できるほか、サイト管理者も Site Console（**Console → Identity Providers**）から管理できます。サイトレベルのパスワードレス Email OTP 用 SMTP 設定（`authn.email.*`）は Site Console で管理し、外部チャットアプリケーションと Agent の紐付けは **Console → Signal Routing** で行います。
 
 ## Identity Providers
 
-IdP は組織のサインインを提供し、従業員、部門、グループを同期できます。エンタープライズ Identity Provider は Pod 管理者（`pod_admin`）が **Pod Settings** で設定するほか、サイト管理者も **Console → Identity Providers** で管理できます。パスワードレス Email OTP サインインは Site Console で設定したサイトの SMTP 設定（`authn.email.*`）を使用し、メール配信が設定されている場合に表示されます。初期設定では、実際のメールコード確認または組織の SSO を完了して最初の管理者を作成します。Ankole はユーザーパスワードを保存しません。以下の認証情報名はフォームと一致します。権限、コールバック URL、確認手順は各ガイドを参照してください。
+IdP を設定すると、組織向けのサインインを利用できるようになり、従業員・部門・グループの同期も可能になります。エンタープライズ Identity Provider は、Pod 管理者（`pod_admin`）が **Pod Settings** で設定するほか、サイト管理者が **Console → Identity Providers** で管理することもできます。また、Site Console でサイトの SMTP 設定（`authn.email.*`）を構成してメール配信を有効にすると、パスワードレス Email OTP サインインが表示されます。初期セットアップでは、実際のメール認証コードの確認または組織の SSO を完了することで最初の管理者を作成するため、Ankole はユーザーのパスワードを保存しません。以下の表に記載した認証情報名は設定フォームの項目名と一致しています。必要な権限、callback URL、確認手順については各ガイドを参照してください。
 
 | プラットフォーム | 外部アプリケーション | 主な設定 | 詳細ガイド |
 |---|---|---|---|
@@ -22,11 +22,11 @@ IdP は組織のサインインを提供し、従業員、部門、グループ�
 | DingTalk | 社内エンタープライズアプリ | Client ID、Client Secret、Corp ID、ディレクトリの権限 | [DingTalk IdP ガイド](../quickstart/?idp=dingtalk#identity-providers) |
 | WeCom | 連絡先同期が任意の自社ビルドアプリ | CorpID、AgentId、アプリの Secret、連絡先同期の Secret、信頼済み IP アドレス | [WeCom IdP ガイド](../quickstart/?idp=wecom#identity-providers) |
 
-provider を設定したら、callback URL を `/setup` が表示する通りに正確に登録します。手入力しないでください。ブラウザがアクセスする HTTPS origin を社内のコンテナアドレスに置き換えないでください。サインインに成功したら、ディレクトリのフル同期を 1 回実行し、**Principals and permission groups** でユーザー、部門、グループを確認します。
+プロバイダーを設定したら、`/setup` に表示される callback URL をそのまま正確にコピーして登録してください。手入力したり、ブラウザーがアクセスする HTTPS origin を内部のコンテナアドレスに書き換えたりしないでください。サインインに成功したら、ディレクトリのフル同期を 1 回実行し、**Principals and permission groups** にユーザー、部門、グループが反映されていることを確認します。
 
 ## Channel Providers
 
-chat アダプターはメッセージを受信し、Agent の返信を送信します。本番環境では、1 つのプラットフォームが両方を提供する場合でも、Identity 用と chat 用に別々のアプリケーションを作成してください。この分離により、サインイン権限、bot 権限、リリース範囲、credential のローテーションが独立して保たれます。
+チャットアダプターは外部チャネルからメッセージを受信し、Agent の返信を送信します。1 つのプラットフォームで Identity とチャットの両方を連携する場合でも、本番環境ではそれぞれ別のアプリケーションを作成してください。アプリケーションを分けることで、サインイン権限、Bot 権限、公開範囲、認証情報のローテーションを互いに独立して管理できます。
 
 | プラットフォーム | 外部アプリケーション | 接続と主な設定 | 詳細ガイド |
 |---|---|---|---|
@@ -41,19 +41,19 @@ chat アダプターはメッセージを受信し、Agent の返信を送信し
 | WhatsApp | WhatsApp product を追加した Meta App と Business の電話番号 | Cloud API webhook。App ID、App secret、verify token、Phone number ID、System User token | [WhatsApp channel ガイド](../quickstart/?channel=whatsapp#chat-channels) |
 | Email | IMAP と SMTP を持つ専用のメールボックス | IMAP と SMTP のホストとポート、ログイン名、パスワード、送信者認証 | [Email channel ガイド](../quickstart/?channel=email#chat-channels) |
 
-Telegram、Discord、LINE、WhatsApp はコンシューマー向け IM です。そのユーザーには従業員レコードがないため、Agent が応答する前に、新しい送信者を **アイデンティティ → 保留中のマッピング** でアカウントにマッピングします。WhatsApp では、既知のアカウントがすでにその電話番号を所有している場合、送信者は自動的にマッピングされます。メールの送信者は、明示的なメールの identity 紐付けによってのみ既知になります。この紐付けは、社員についてはディレクトリ同期が作成し、それ以外の人については管理者が作成します。[Signal routing ルール](../signal-bindings/) を参照してください。
+Telegram、Discord、LINE、WhatsApp はコンシューマー向け IM であり、利用者に対応する従業員レコードがありません。そのため、Agent が応答する前に **アイデンティティ → 保留中のマッピング** で新しい送信者をアカウントに紐付ける必要があります。ただし WhatsApp では、既存のアカウントに同じ電話番号が登録されていれば送信者が自動的に紐付けられます。また、メールの送信者はメールアドレスと Identity が明示的に紐付けられている場合にのみ既知のユーザーとして扱われます。この紐付けは、従業員であればディレクトリ同期によって作成され、社外の連絡先であれば管理者が手動で作成します。詳しくは [Signal routing ルール](../signal-bindings/) を参照してください。
 
-外部アプリケーションを準備したら、**Console → Signal Routing → New routing rule** を開きます。Agent とアダプターを選択し、credential を入力します。**Identity provider** フィールドは同じプラットフォームの IdP を参照します。IdP が 1 つだけならデフォルトで採用され、複数ある場合は選択が必要で、スタンドアロンの選択肢は binding 独自の namespace を保ちます。この参照によりチャットの送信者と同期されたディレクトリユーザーは 1 つのアカウントになるため、chat アプリケーションと同じエンタープライズ組織に属する IdP だけを選択してください。
+外部アプリケーションの準備ができたら、**Console → Signal Routing → New routing rule** を開き、Agent とアダプターを選択して認証情報を入力します。**Identity provider** 欄では同じプラットフォームの IdP を指定します。該当する IdP が 1 つだけなら自動的に選択され、複数ある場合は手動で選択します。スタンドアロンを選ぶと、その binding 固有の namespace が維持されます。この設定によってチャットの送信者と同期済みのディレクトリユーザーが同一アカウントとして統合されるため、必ずチャットアプリケーションと同じエンタープライズ組織に属する IdP を選択してください。
 
 ## 保存済み credential を更新する
 
-Identity Provider または signal routing ルールを編集するとき、Console は暗号化された credential が保存されていることだけを表示します。token や secret をブラウザーに返したり、ページに埋め込んだりしません。保存済みの値を維持する場合は credential フィールドを空のままにします。値を置き換える場合だけ、新しい値を入力して保存します。古い credential のローテーションまたは失効は外部 provider で実行します。現在の値を Console で表示することはできません。
+Identity Provider や Signal routing ルールを編集する際、Console には暗号化された認証情報が保存済みであることだけが表示されます。トークンやシークレットがブラウザーに返されたり、ページ内に埋め込まれたりすることはありません。既存の値をそのまま維持する場合は、認証情報の入力欄を空のままにしてください。値を更新する場合のみ、新しい値を入力して保存します。現在の保存値を Console 上で確認することはできないため、古い認証情報のローテーションや失効は外部プロバイダー側で行ってください。
 
 ## 検証の順序
 
 1. エンタープライズ IdP の SSO サインイン、または SMTP によるパスワードレス Email OTP サインインを検証し、最初の管理者が `siteadmin` および `pod_admin` として Pod ワークスペースを開き、`/site-admin-console` の Site Admin Console にアクセスできることを確認します。
 2. エンタープライズ IdP を設定した場合は、ディレクトリのフル同期を実行し、Principals と permission groups を確認します。
-3. chat のルーティングルールを作成し、まず direct message または明示的なメンションでテストします。
+3. チャットのルーティングルールを作成し、まずはダイレクトメッセージまたは明示的なメンションでテストします。
 4. Agent がメッセージを受信して返信を送ることを確認してから、グループ監視、リアルタイムのディレクトリ同期、カードなどの高度な機能を有効にします。
 
-provider の scopes、アプリケーションの権限、リリース範囲を変更した場合は、provider が要求するときにアプリケーションを再インストールまたは再公開してください。ローテーションした credential のたびに Ankole を更新します。
+プロバイダーのスコープ、アプリケーション権限、公開範囲を変更した際、プロバイダー側で再インストールや再公開が求められる場合はその手順を実施してください。また、認証情報をローテーションしたときは、その都度 Ankole 側の設定も更新してください。

@@ -18,7 +18,13 @@ import {
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
+import {
+  isRecord,
+  recordValue,
+  safeJsonParse,
+  stringArg,
+  type JsonObject as JSONObject
+} from '@agentbull/active-support'
 import i18n from './i18n'
 import { requestErrorCode, requestErrorDetails } from './request-errors'
 
@@ -279,21 +285,19 @@ export function configFieldValidationMessage(
 
   if (typeof value !== 'string') return message
 
-  try {
-    const object = JSON.parse(value)
-    if (!object || typeof object !== 'object' || Array.isArray(object)) return message
+  const object = recordValue(safeJsonParse(value).unwrapOr(undefined))
+  if (!object) return message
 
-    const requiredPropertiesValid = (validation.requiredStringProperties ?? []).every(
-      property => typeof object[property] === 'string' && object[property].trim() !== ''
-    )
-    const prefixesValid = Object.entries(validation.stringPrefixes ?? {}).every(
-      ([property, prefix]) => typeof object[property] === 'string' && object[property].startsWith(prefix)
-    )
+  const requiredPropertiesValid = (validation.requiredStringProperties ?? []).every(property => {
+    const entry = stringArg(object, property)
+    return entry !== undefined && entry.trim() !== ''
+  })
+  const prefixesValid = Object.entries(validation.stringPrefixes ?? {}).every(([property, prefix]) => {
+    const entry = stringArg(object, property)
+    return entry !== undefined && entry.startsWith(prefix)
+  })
 
-    return requiredPropertiesValid && prefixesValid ? undefined : message
-  } catch {
-    return message
-  }
+  return requiredPropertiesValid && prefixesValid ? undefined : message
 }
 
 export function configFieldRequired(field: ConfigFieldDefinition, config: JSONObject): boolean {
@@ -352,10 +356,7 @@ export function defaultValue(field: ConfigFieldDefinition): unknown {
 }
 
 export function getPath(source: JSONObject, path: string): unknown {
-  return path.split('.').reduce<unknown>((value, segment) => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return (value as JSONObject)[segment]
-    return undefined
-  }, source)
+  return path.split('.').reduce<unknown>((value, segment) => (isRecord(value) ? value[segment] : undefined), source)
 }
 
 export function setPath(source: JSONObject, path: string, value: unknown): JSONObject {
@@ -365,8 +366,7 @@ export function setPath(source: JSONObject, path: string, value: unknown): JSONO
   if (!head) return source
   if (rest.length === 0) return { ...source, [head]: value }
 
-  const current = source[head]
-  const child = current && typeof current === 'object' && !Array.isArray(current) ? (current as JSONObject) : {}
+  const child = recordValue(source[head]) ?? {}
 
   return {
     ...source,

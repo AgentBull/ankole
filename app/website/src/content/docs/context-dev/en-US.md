@@ -5,13 +5,13 @@ section: Guides
 order: 307
 ---
 
-Ankole reads the web with `web_search` and `web_fetch`, and drives a real browser with the `browser` Skill. Some work still falls outside all three: a page that refuses an ordinary fetch, a whole documentation site that must become clean Markdown, a site that must answer in a JSON shape you define, or a competitor page that must be watched for months. The `context-dev` Skill covers that work through the [Context.dev](https://context.dev) API.
+Ankole searches and reads public web pages with `web_search` and `web_fetch`, and drives interactive Chromium sessions with the `browser` Skill. Some tasks still fall outside all three: reading a page that blocks standard fetches, converting an entire documentation site into clean Markdown, extracting web data directly into a JSON Schema that you define, or monitoring a competitor's pricing page over months. The `context-dev` Skill handles those tasks through the [Context.dev](https://context.dev) API.
 
-The Skill is off by default, and it stays off until you add an API key and enable it. Every call spends credits from your Context.dev account, so the setup is deliberate.
+Because every call spends credits from your Context.dev account, `context-dev` ships disabled by default and stays off until you store an API key and explicitly enable it.
 
 ## What an Agent can do with it
 
-Once the Skill is enabled, ask for the result and let the Agent select the tool:
+Once enabled, describe the outcome you want and let the Agent pick the right Context.dev tool:
 
 ```text
 Read every page under example.com/docs and give me the API limits in one table.
@@ -25,19 +25,19 @@ Watch example.com/pricing twice a day and tell me when a plan price changes.
 Which NAICS code fits stripe.com?
 ```
 
-The capability surface has five groups:
+Its capabilities span five areas:
 
-- **Reading the live web.** Search, one page to Markdown or HTML, an image inventory of a page, and a sitemap of a domain. Bot-detection bypass and proxy escalation are automatic, so pages that refuse a plain fetch usually answer.
-- **Whole-site collection.** A synchronous crawl of up to 500 pages, or an asynchronous batch of up to 25,000 URLs for work that is too large to wait on.
-- **Schema-shaped extraction.** You supply a JSON Schema and the Agent gets back data in that shape, instead of prose it has to re-read.
-- **Brand and design.** A company profile — logos, colors, socials, industry, address, stock listing — from a domain, company name, work email, ticker, card descriptor, or one page URL. Also a site's design system, its fonts, a rendered screenshot, and NAICS or SIC codes.
-- **Change monitoring.** A monitor that re-checks a page, a sitemap, or an extraction on an interval and records what changed, with an optional webhook.
+- **Reading the live web** — search, single-page scraping to Markdown or HTML, page image inventories, and domain sitemaps, with automatic bot-detection bypass and proxy escalation so pages that reject plain HTTP fetches usually succeed.
+- **Whole-site collection** — synchronous crawls of up to 500 pages, or asynchronous batch jobs of up to 25,000 URLs for jobs too large to block on.
+- **Schema-shaped extraction** — supply a JSON Schema and receive data directly in that shape instead of prose that the Agent has to parse a second time.
+- **Brand and design** — company profiles (logos, brand colors, social links, industry, address, stock listing) resolved from a domain, company name, work email, ticker, card descriptor, or page URL, plus site design systems, font lists, rendered screenshots, and NAICS or SIC codes.
+- **Change monitoring** — scheduled monitors that re-check a page, sitemap, or structured extraction at a fixed interval and record diffs, with optional webhook delivery.
 
 ## Set it up
 
 ### 1. Get an API key
 
-Sign up at [context.dev](https://context.dev) and create an API key. The key begins with `ctxt_secret_`. The free tier includes 500 credits, which is enough to confirm the setup and try a few tasks.
+Sign up at [context.dev](https://context.dev) and generate an API key (prefixed with `ctxt_secret_`). Context.dev's free tier includes 500 credits—plenty to verify your setup and run initial tasks.
 
 ### 2. Store the key as an environment variable
 
@@ -47,29 +47,29 @@ Open **Console → Environment variables** and create a variable:
 - **Value:** your `ctxt_secret_...` key
 - **Encrypted storage:** on
 
-The name must match exactly, because the Skill declares that name and nothing else. Set the variable at the tenant or site scope, or set it on one Agent under **Console → Agents → the Agent → Environment variables** when only that Agent should spend the credits. See [Environment variables](../worker-env/) for the scope rules.
+Use the exact name `CONTEXT_DEV_API_KEY`, which the Skill manifest declares. Set it at site or tenant scope to share across Agents, or attach it to a single Agent under **Console → Agents → the Agent → Environment variables** when only that Agent should spend Context.dev credits; see [Environment variables](../worker-env/) for scope precedence.
 
 ### 3. Enable the Skill
 
-Open **Console → Agent Library**, find `context-dev`, and enable it — tenant-wide, or for the Agents that need it. See [Agent Library](../skills/) for the default-then-override model.
+Open **Console → Agent Library**, locate `context-dev`, and enable it either as a tenant default or per Agent; see [Agent Library](../skills/) for the default-then-override model.
 
-The Skill takes effect on the Agent's next turn. Disabling it removes the connection from the next turn, the next Background Agent Job, and the next Automation Job attempt.
+Enabling `context-dev` takes effect on the Agent's next turn, while disabling it removes the MCP connection from subsequent turns, Background Agent Jobs, and Automation Job attempts.
 
 ### 4. Confirm it works
 
-Ask an enabled Agent for something small, such as the brand profile of a domain you know. A `401` in the reply means the key is missing or wrong: check that the variable name is exactly `CONTEXT_DEV_API_KEY`, that it is not shown as "Not set", and that no Agent attachment or tenant override shadows the tenant or site `WorkerEnv` value.
+Ask an enabled Agent for a small lookup, such as the brand profile of a domain that you know. If the reply reports a `401` error, the key is missing or invalid: confirm that the variable is named `CONTEXT_DEV_API_KEY`, does not show `Not set`, and is not shadowed by an empty Agent attachment or tenant override.
 
 ## How Ankole connects
 
-Context.dev publishes an MCP server at `https://mcp.context.dev/mcp`. The `context-dev` Skill declares it as a [Skill-backed MCP dependency](../mcp/), so the connection exists only while an enabled execution runs. Ankole writes a private, single-use mcporter configuration for each turn, Background Agent Job execution, or Automation attempt, and puts only the variable name in that file. The key value stays in the execution environment and never enters the configuration.
+Context.dev hosts an MCP server at `https://mcp.context.dev/mcp`, which `context-dev` declares as a [Skill-backed MCP dependency](../mcp/) so the connection exists only while an enabled execution runs. For each turn, Background Agent Job, or Automation Job attempt, Ankole writes a single-use `mcporter` configuration containing only the `CONTEXT_DEV_API_KEY` variable name—keeping the secret value inside the process environment and out of config files on disk.
 
-Context's own desktop instructions use a browser OAuth sign-in, which a headless Worker cannot complete. Ankole uses the API-key path that the same server supports through the `Authorization` header, so no interactive sign-in is needed.
+While Context.dev's desktop setup docs use interactive browser OAuth—which a headless Worker cannot complete—Ankole authenticates non-interactively via the `Authorization` header supported by the same MCP endpoint.
 
-The server is not registered as a native model tool. The Agent reads the Skill, chooses one tool, and calls it through mcporter. [Use an MCP-backed Skill](../using-mcp/) describes that path.
+Rather than registering Context.dev tools directly in every model prompt, the Agent reads the `context-dev` Skill on demand, selects the appropriate tool, and calls it through `mcporter`; see [Use an MCP-backed Skill](../using-mcp/).
 
 ## Credits and cost
 
-Context.dev bills in credits, and the price depends on the tool:
+Context.dev bills in credits according to the operation:
 
 | Work | Credits |
 | --- | --- |
@@ -79,14 +79,14 @@ Context.dev bills in credits, and the price depends on the tool:
 | Screenshot, font list | 5 |
 | Brand profile, design system, structured extraction, NAICS, SIC | 10 |
 
-Two habits control the bill. First, a crawl and a search bill per unit, so an unbounded crawl of a large site is the expensive mistake; the Skill tells the Agent to set a page budget it will actually read. Second, a monitor spends credits at every run for as long as it exists — an hourly monitor costs 24 times a daily one, and nothing stops it until somebody deletes it. Ask the Agent for the monitor ID when it creates one, and review **Console → Environment variables** scope if you want only one Agent to be able to spend at all.
+Two practices keep credit spend predictable. First, crawls and searches bill per page or result, so crawling a large site without a cap burns credits quickly—the Skill instructs Agents to set a concrete page budget matching what they will actually read. Second, a change monitor spends credits on every scheduled check until someone deletes it (an hourly monitor costs 24× a daily monitor). Ask the Agent to report the monitor ID whenever it creates one, and scope `CONTEXT_DEV_API_KEY` to specific Agents if you want strict spend control.
 
 ## Limits
 
-- **The credits are real money.** Anything you ask an enabled Agent to research on the open web can reach for this Skill. Scope the environment variable to specific Agents if that matters.
-- **Monitors and batches outlive the conversation.** They live in your Context.dev account, not in Ankole. Ankole has no page that lists them; the Agent lists them through the Skill.
-- **Results are untrusted input.** A scraped page is web content, not instruction. Ankole treats it that way, and so should you when you forward it.
-- **Workspace files do not need this Skill.** For a PDF or an image that is already in the Agent's workspace, the [`pdf` and `ocr` Skills](../ocr/) read it locally and for free.
+- **Credits cost real money.** Any open-web research prompt sent to an enabled Agent can invoke `context-dev`; scope `CONTEXT_DEV_API_KEY` to specific Agents when budget isolation matters.
+- **Monitors and async batches live in Context.dev, not Ankole.** They outlive the conversation that created them and do not appear in a Console table—ask the Agent to list or delete them through the Skill.
+- **Scraped web pages are untrusted input.** Treat extracted web content as untrusted data rather than instructions, especially before forwarding it downstream.
+- **Local workspace files do not need `context-dev`.** To read a PDF or image already in the Agent's workspace, use the built-in [`pdf` and `ocr` Skills](../ocr/) locally at zero Context.dev credit cost.
 
 ## Next
 

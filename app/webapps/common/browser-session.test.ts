@@ -136,7 +136,7 @@ test('a new document consumes the navigation request before creating its router'
   expect(dataTenantID()).toBeNull()
 })
 
-test('explicit author context and site requests cannot inherit the selected data tenant', async () => {
+test('explicit author context, non-v2 paths, and site requests cannot inherit the selected data tenant', async () => {
   const tenants: (string | null)[] = []
   const transport = (async (request: Request) => {
     tenants.push(request.headers.get('x-ankole-tenant'))
@@ -144,9 +144,10 @@ test('explicit author context and site requests cannot inherit the selected data
   }) as typeof fetch
   const request = withDataContext(transport)
   await request('https://ankole.test/api/v2/principals/author', { headers: { 'x-ankole-tenant': 'author-tenant' } })
+  await request('https://ankole.test/api/v1/agents')
   await request('https://ankole.test/api/v2/site/app-configurations')
   await request('https://ankole.test/api/v2/site/tenants')
-  expect(tenants).toEqual(['author-tenant', null, null])
+  expect(tenants).toEqual(['author-tenant', null, null, null])
 })
 
 test('a new document for another authentication has its own Console data selection', () => {

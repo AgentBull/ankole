@@ -72,6 +72,7 @@ import {
 } from '../console-form'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions, SubNav } from '../console-list-page'
 import {
+  decomposeEveryMs,
   deliveryTargetDrafts,
   isMutableCronStatus,
   scheduleOccurrenceBound,
@@ -429,7 +430,7 @@ export function ScheduleCronEditorPage() {
   const locale = i18n.language
 
   const routeAgentUID = params.agent ?? searchParams.get('agent') ?? ''
-  const cronID = params.cronID ?? searchParams.get('cron') ?? undefined
+  const cronID = params.cronID
   const editing = Boolean(cronID)
 
   const agents = useQuery(agentListOptions())
@@ -1125,21 +1126,25 @@ function timezoneHintText(t: TFunction, locale: string, timezone: string): strin
   return preview ? `${t('console.schedules.timezone_hint')} — ${preview}` : t('console.schedules.timezone_hint')
 }
 
+const INTERVAL_UNIT_SUFFIX: Record<ScheduleIntervalUnit, string> = {
+  days: 'd',
+  hours: 'h',
+  minutes: 'm',
+  seconds: 's'
+}
+
 function describeSchedule(t: TFunction, schedule: ScheduleRecurrence): string {
   if (schedule.kind === 'cron') return schedule.expression ?? '—'
-  const ms = schedule.every_ms ?? 0
-  const interval =
-    ms <= 0
-      ? '?'
-      : ms >= 86_400_000 && ms % 86_400_000 === 0
-        ? `${ms / 86_400_000}d`
-        : ms >= 3_600_000 && ms % 3_600_000 === 0
-          ? `${ms / 3_600_000}h`
-          : ms >= 60_000 && ms % 60_000 === 0
-            ? `${ms / 60_000}m`
-            : ms >= 1_000 && ms % 1_000 === 0
-              ? `${ms / 1_000}s`
-              : `${ms}ms`
+  const everyMs = schedule.every_ms ?? 0
+  let interval: string
+  if (everyMs <= 0) {
+    interval = '?'
+  } else if (everyMs % 1_000 !== 0) {
+    interval = `${everyMs}ms`
+  } else {
+    const { value, unit } = decomposeEveryMs(String(everyMs))
+    interval = `${value}${INTERVAL_UNIT_SUFFIX[unit]}`
+  }
   return t('console.schedules.every_interval', { interval })
 }
 
@@ -1194,9 +1199,8 @@ function draftFromCron(row: CronScheduleItem): ScheduleEditorDraft {
     occurrences: scheduleOccurrenceBound(schedule),
     deliveryTargets: deliveryTargetDrafts(row.delivery),
     task: typeof payload.task === 'string' ? payload.task : '',
-    payload: JSON.stringify(payload, null, 2),
-    hasAutomationJob: row.automation_job_id != null,
-    idempotencyKey: row.idempotency_key
+    payload: { ...payload },
+    hasAutomationJob: row.automation_job_id != null
   }
 }
 
@@ -1213,8 +1217,7 @@ function emptyDraft(): ScheduleEditorDraft {
     timezone: '',
     deliveryTargets: [{ bindingName: '', conversationId: '', threadId: '' }],
     task: '',
-    payload: '{}',
-    hasAutomationJob: false,
-    idempotencyKey: ''
+    payload: {},
+    hasAutomationJob: false
   }
 }

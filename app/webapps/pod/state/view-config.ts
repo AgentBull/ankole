@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@agentbull/active-support'
 import type { BaseView } from '@ankole/applet-sdk/types'
 import { z } from 'zod'
 
@@ -40,10 +41,8 @@ export function parseEmbedView(raw?: string): EmbedView {
   if (!raw?.trim()) return { kind: 'saved' }
   const text = raw.trim()
   if (!text.startsWith('{') && !text.startsWith('[')) return { kind: 'saved', id: text }
-  try {
-    const result = parseViewConfig(JSON.parse(text))
-    return result.success ? { kind: 'inline', config: result.data } : { kind: 'invalid' }
-  } catch {
-    return { kind: 'invalid' }
-  }
+  const parsed = safeJsonParse(text)
+  if (parsed.isErr()) return { kind: 'invalid' }
+  const result = parseViewConfig(parsed.value)
+  return result.success ? { kind: 'inline', config: result.data } : { kind: 'invalid' }
 }

@@ -7,54 +7,50 @@ order: 1
 
 **Ankole is the open source Claude Tag alternative with a Company Brain. Its enterprise Agent Harness gives Agents the context, authority, tools, and feedback required to make decisions and show their evidence.**
 
-Durable Agents use shared company knowledge, Pod workspaces, live signals, enterprise authority, Agent Computer workers, and persistent execution across company work.
+Durable Agents combine shared company knowledge, Pod workspaces, live signals, enterprise access control, Agent Computer Workers, and persistent execution across everyday company work.
 
-A model reasons over the context it receives. The Harness selects current company facts, applies access rules, grants capabilities, restores work after failure, and records results for later decisions.
+While a language model can only reason over the context that it receives, the Harness assembles current company facts, enforces access rules, grants bounded capabilities, recovers in-flight work after failures, and records outcomes to inform future decisions.
 
 ## What the Harness provides
 
-- Brain keeps knowledge attached to its source, time, holder, confidence, conflicts, and audience.
-- Evidence, uncertainty, competing hypotheses, and missing information remain visible for review.
-- Messages, schedules, webhooks, and external events wake the Agent responsible for the work.
-- Identity, AuthZ, approvals, audit records, and escalation paths enforce the authority of each Agent.
-- Work can run for hours or days, accept new input, recover after process failure, and deliver to its original context.
-- Corrections and observed outcomes can revise Company Brain before the next decision begins.
+- **Provenance-rich memory:** Brain keeps every piece of knowledge attached to its source, timestamp, holder, confidence level, conflicts, and permitted audience.
+- **Inspectable reasoning:** Evidence, uncertainty, competing hypotheses, and missing information stay visible for human review.
+- **Event-driven activation:** Ankole routes chat messages, schedules, webhooks, and external business events to wake the Agent responsible for the work.
+- **Runtime access control:** Ankole enforces each Agent's authority through Principal identity, AuthZ grants, approvals, audit records, and escalation paths.
+- **Durable execution:** Sessions and Background Agent Jobs can run for hours or days, accept new input mid-run, recover after process crashes, and deliver results back to the originating conversation.
+- **Continuous learning:** Operators and Agents can feed corrections and observed outcomes back into Company Brain before the next decision begins.
 
 ## The parts of a deployment instance
 
-The following terms appear throughout the documentation.
+The following core concepts appear throughout the documentation:
 
 | Part | What it is | More |
 |---|---|---|
-| **Agent** | A working identity with its own mission, access, tools, and outbound identity. Editable files hold its mission and delivery standards. One deployment instance can hold several Agents. | [Agents](../agents/) |
-| **Pod** | The shared workspace where Humans and Agents collaborate on hierarchical pages, real-time documents, Base relational tables, Applets, and multiplayer Pod Chat. | [Architecture](../architecture/) |
-| **Brain** | Shared company knowledge with sources, claims, time, confidence, conflicts, and audience boundaries. Authorized Agents use the same current company context. | [Brain](../brain/) |
-| **Session** | The unit of execution that owns context, workspace state, steering, cancellation, and recovery. | [Sessions](../sessions/) |
-| **Signal routing rule** | Connects an Agent to a signal source and sets the boundary of what it can do there. | [Signal routing rules](../signal-bindings/) |
-| **Background job** | A task that runs outside a Session for hours and delivers its result to the originating channel. | [Background Agent Jobs](../background-agent-jobs/) |
-| **Skill** | An approved procedure for one kind of work. An Agent can propose an improvement, and a human approves it for the next Session. | [Skills](../skills/) |
-| **Principal** | The permission subject for a person or Agent. The runtime applies permissions and audit rules to each Principal. | [Principal and AuthZ](../principal-authz/) |
-| **Function Runtime** | The stateless `ankole-function-runtime` service that runs isolated TypeScript programs for Pod Applet backend functions and deterministic tool orchestration. | [Architecture](../architecture/) |
-| **Agent Computer Worker** | The environment that executes tools, files, terminal operations, browsers, and Codex Jobs. The control plane runs the main model loop. | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent** | A working identity with its own mission, permissions, tools, and outbound persona. Operators define its mission and delivery standards in editable Markdown files, and one deployment instance can host multiple Agents. | [Agents](../agents/) |
+| **Pod** | The shared workspace where humans and Agents collaborate across hierarchical pages, real-time documents, relational Base tables, Applets, and multiplayer Pod Chat. | [Architecture](../architecture/) |
+| **Brain** | Shared company knowledge tracking sources, claims, timestamps, confidence, conflicts, and audience boundaries so authorized Agents work from the same current facts. | [Brain](../brain/) |
+| **Session** | The unit of Agent execution that owns conversation context, workspace state, steering, cancellation, and crash recovery. | [Sessions](../sessions/) |
+| **Signal routing rule** | A rule that connects an Agent to a signal source and defines what it may observe and do there. | [Signal routing rules](../signal-bindings/) |
+| **Background job** | A durable task that runs outside a conversation Session—often for hours—and delivers its result back to the originating channel. | [Background Agent Jobs](../background-agent-jobs/) |
+| **Skill** | An approved procedure for a repeatable kind of work. Agents can accumulate dated cautions, and humans maintain the shared procedure across Sessions. | [Skills](../skills/) |
+| **Principal** | The accountable subject representing a person, Agent, or system service. The runtime evaluates permissions and records audit trails against each Principal. | [Principal and AuthZ](../principal-authz/) |
+| **Function Runtime** | The stateless `ankole-function-runtime` service that runs isolated TypeScript programs for deterministic tool orchestration and backend functions in Pod Applets. | [Architecture](../architecture/) |
+| **Agent Computer Worker** | The isolated compute environment that executes shell commands, file edits, browsers, and Codex Jobs while the control plane drives the main model loop. | [Agent Computer Worker](../agent-computer-worker/) |
 
-An Agent can also use [Deep Research](../deep-research-job/) for long research across several sources and [browser automation](../browser-automation/) to work with real web pages.
+Agents can also launch [Deep Research](../deep-research-job/) for multi-source investigations and use [browser automation](../browser-automation/) to interact with live web pages.
 
 ## Decision work it supports
 
-Ankole fits consequential digital work that produces inspectable evidence and observable results.
+Ankole is designed for consequential digital work that demands inspectable evidence and verifiable results—such as industry research across competing hypotheses, product and market evaluations backed by scenario models, and deep data analysis with reproducible code and causal checks.
 
-Examples include industry research with competing hypotheses, product and market selection with scenario models, and deep data analysis with reproducible methods and causal alternatives.
-
-The Harness supports many kinds of work. One Agent can own a decision. A Workflow can divide it across independent Agent contexts when separate contexts reduce correlated errors.
-
-Company knowledge and signals establish context. Bounded authority lets the Agent act. Evidence and observed outcomes update later decisions.
+Depending on the problem, a single Agent can own a decision end to end, or a Workflow can split the analysis across independent subagent contexts when separate contexts help reduce correlated errors. Throughout each run, Company Brain and incoming signals supply the working context, bounded Principal authority governs what the Agent can do, and new evidence and observed outcomes inform subsequent decisions.
 
 ## Current status
 
-Ankole runs in production as a complete enterprise Agent Harness. A company can host the control plane, Pod workspaces, Function Runtime (`ankole-function-runtime`), Agent Computer Workers, kernel, Company Brain, and operator console on its own infrastructure. Formal verification checks critical code and core state machines, and end-to-end suites verify message routing, crash recovery, concurrency, and upgrades.
+Ankole runs in production as a complete enterprise Agent Harness. Organizations can self-host the Elixir control plane, Pod workspaces, Function Runtime (`ankole-function-runtime`), Agent Computer Workers, Rust Kernel, Company Brain, and operator Console on their own infrastructure. We verify critical code paths and core state machines with formal methods, and run end-to-end test suites covering message routing, crash recovery, concurrency, and upgrades.
 
-Ankole has no public API compatibility contract. Releases can include breaking changes.
+Ankole carries no public API backwards-compatibility guarantee, so releases may introduce breaking changes.
 
 ## Next steps
 
-Local setup starts with the [quick start](../quickstart/). The [architecture overview](../architecture/) explains each component and boundary.
+To bring up a local deployment, follow the [quick start](../quickstart/). To see how the components fit together, read the [architecture overview](../architecture/).

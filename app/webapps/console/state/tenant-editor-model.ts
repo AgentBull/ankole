@@ -1,3 +1,4 @@
+import { equal } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { deriveSlugWithTransliteration, preloadTransliteration, slugFromDisplayName } from './agent-editor-model'
 
@@ -12,7 +13,7 @@ export const TenantEditorModel = createModel(() => {
   const brainPacks = signal<string[]>([])
   const initial = signal<TenantDraft>()
   const draft = computed(() => ({ slug: slug.value, displayName: displayName.value, brainPacks: brainPacks.value }))
-  const dirty = computed(() => Boolean(initial.value) && JSON.stringify(initial.value) !== JSON.stringify(draft.value))
+  const dirty = computed(() => Boolean(initial.value) && !equal(initial.value, draft.value))
   return {
     resetSource() {
       generation = Symbol()
@@ -58,11 +59,11 @@ export const TenantEditorModel = createModel(() => {
       return (accepted: TenantDraft) => {
         if (generation !== requestedGeneration) return false
         batch(() => {
-          if (JSON.stringify(slug.value) === JSON.stringify(submitted.slug)) slug.value = accepted.slug
-          if (JSON.stringify(displayName.value) === JSON.stringify(submitted.displayName)) {
+          if (slug.value === submitted.slug) slug.value = accepted.slug
+          if (displayName.value === submitted.displayName) {
             displayName.value = accepted.displayName
           }
-          if (JSON.stringify(brainPacks.value) === JSON.stringify(submitted.brainPacks)) {
+          if (equal(brainPacks.value, submitted.brainPacks)) {
             brainPacks.value = accepted.brainPacks
           }
           initial.value = { ...accepted }

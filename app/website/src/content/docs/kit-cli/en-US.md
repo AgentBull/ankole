@@ -5,65 +5,67 @@ section: Reference
 order: 200
 ---
 
-`kit` is the devkit command line for Ankole. It is invoked as `bun run kit <command>` from the repository root, and it covers environment setup, local services, the development environment, database lifecycle, the activation code, logs, code generation, and repository analysis. This page is the reference for every command.
+`kit` is Ankole's developer and operator command-line tool. Invoked as `bun run kit <command>` from the repository root, it manages host toolchains, local backing services, the development stack, control-plane databases, setup activation codes, structured logs, code generation, and static analysis.
 
-The decisive property, stated up front: `kit` is a Bun + TypeScript program in `tools/devkit/`, and the repository's `package.json` scripts wrap the common commands (`services:start`, `services:stop`, `dev`, `analyze`, and so on) so you do not have to type the full `bun run kit` form. Either form works; the scripts are aliases.
+Implemented as a Bun + TypeScript CLI in `tools/devkit/`, `kit` also backs the convenience scripts in the root `package.json` (`services:start`, `services:stop`, `dev`, `analyze`, and others). You can run either the `package.json` alias or the full `bun run kit <command>` form interchangeably.
 
 ## Environment and detection
 
 | Command | What it does |
 |---|---|
-| `kit env-setup` | Install the host toolchain required for Ankole development — system build packages, Docker, Rust, the Elixir/Erlang toolchain, the pinned Bun. Add `--print` to print the installer commands without running them. |
-| `kit is-ci` | Exit `0` if running in a CI environment, `1` otherwise. Used by scripts that branch on CI. |
-| `kit is-dev` | Exit `0` if running in a development environment, `1` otherwise. |
+| `kit env-setup` | Install the host toolchain required for Ankole development — system build packages, Docker, Rust, the Elixir/Erlang toolchain, and the pinned Bun version. Add `--print` to inspect the installer commands without executing them. |
+| `kit is-ci` | Exit `0` when running in a CI environment, or `1` otherwise. Used by scripts that branch on CI. |
+| `kit is-dev` | Exit `0` when running in a development environment, or `1` otherwise. |
 
-Run `env-setup` once on a fresh machine; the rest are detection helpers other commands call internally.
+Run `env-setup` once on a fresh machine; the remaining two commands are detection helpers that internal scripts call.
 
 ## Local services and the dev environment
 
 | Command | What it does |
 |---|---|
-| `kit external-services start` | Start the devkit Docker Compose services (PostgreSQL 18 and `ankole-function-runtime`). Wrapped as `bun run services:start`. |
-| `kit external-services stop` | Stop the devkit Compose services. Wrapped as `bun run services:stop`. |
-| `kit external-services status` | Report devkit service health. Wrapped as `bun run services:status`. |
-| `kit dev` | Start the complete development environment — PostgreSQL 18, `ankole-function-runtime`, Phoenix, frontend assets, and the Docker Worker backend that creates one Worker container for each Agent. Wrapped as `bun run dev`. Keep this terminal open. |
+| `kit external-services start` | Start the devkit Docker Compose services (PostgreSQL 18 and `ankole-function-runtime`). Aliased as `bun run services:start`. |
+| `kit external-services stop` | Stop the devkit Compose services. Aliased as `bun run services:stop`. |
+| `kit external-services status` | Report devkit service health. Aliased as `bun run services:status`. |
+| `kit dev` | Start the full development stack — PostgreSQL 18, `ankole-function-runtime`, Phoenix, frontend assets, and the Docker Worker backend that launches one Worker container per Agent. Aliased as `bun run dev`. Keep this terminal open. |
 
-`kit dev` runs the complete local stack. It starts or checks PostgreSQL 18 and `ankole-function-runtime`, creates and migrates the local control-plane database (`ankole_dev`), builds a missing or stale worker image, and starts the control plane with the Docker Worker backend. When `BASE_DB_URLS` is unset, control-plane development bootstrap also creates and prepares the four local Base shard databases (`ankole_base_00` through `ankole_base_03`). The control plane creates an Agent's Worker container when the Agent is created; the container runs the local Agent Computer source with `bun --watch`. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Do not start a second `kit dev`. Stop it with `Ctrl+C` in its terminal; this also removes the Worker containers of the `dev` installation. After a restart, the control plane creates the Worker of an existing Agent again when the Agent next needs it.
+`kit dev` brings up the entire local stack: it starts or verifies PostgreSQL 18 and `ankole-function-runtime`, creates and migrates the local control-plane database (`ankole_dev`), builds the Worker image if it is missing or stale, and boots the control plane with the Docker Worker backend. When `BASE_DB_URLS` is unset, the control plane's development bootstrap also creates and prepares the four local Base shard databases (`ankole_base_00` through `ankole_base_03`).
+
+Whenever you create an Agent, the control plane starts a dedicated Worker container that runs the local Agent Computer source under `bun --watch`. You can inspect those containers with `docker ps -a --filter label=ankole.installation=dev`. Never run two `kit dev` processes at once. Press `Ctrl+C` in the `kit dev` terminal to shut down the stack and remove all Worker containers belonging to the `dev` installation; on the next start, the control plane recreates each existing Agent's Worker container as soon as that Agent needs one.
 
 ## Database lifecycle
 
-`kit app-db` owns the local control-plane database:
+`kit app-db` manages the local control-plane database:
 
 | Command | What it does |
 |---|---|
-| `kit app-db create` | Create the app database if it does not already exist. |
-| `kit app-db drop` | Drop the app database. Requires `--yes` to confirm the destructive operation. |
-| `kit app-db rebuild` | Drop, create, and migrate the app database. Requires `--yes`; runs Ecto migrations after recreating. |
+| `kit app-db create` | Create the application database if it does not already exist. |
+| `kit app-db drop` | Drop the application database. Requires `--yes` to confirm the destructive operation. |
+| `kit app-db rebuild` | Drop, recreate, and migrate the application database. Requires `--yes` and runs Ecto migrations immediately after creation. |
 | `kit app-db migrate` | Run control-plane Ecto migrations against the configured local database. |
 
-Shared flags apply across `create`, `drop`, and `rebuild`: `--start-services` starts Compose before the operation, `--pull` pulls the latest service images first, and `--wait-timeout` sets how many seconds to wait for service health checks (default `60`). The `app-db rebuild` command deletes the local `ankole_dev` database — run it only when the data is disposable.
+`create`, `drop`, and `rebuild` share three service flags: `--start-services` starts Docker Compose beforehand, `--pull` pulls the latest service images first, and `--wait-timeout` sets how many seconds to wait for health checks (default `60`). Because `app-db rebuild` wipes your local `ankole_dev` database, run it only when your local data is disposable.
 
 ## Setup and inspection
 
 | Command | What it does |
 |---|---|
-| `kit show bootstrap-activation-code` | Print the current setup activation code. Use this when the first-visit page needs the code and the `kit dev` terminal is not visible. |
-| `kit logs pretty` | Pretty-print Ankole structured JSON log lines from stdin. Pipe a log stream to it for readable local output. |
+| `kit show bootstrap-activation-code` | Print the current setup activation code. Useful when the first-visit setup page prompts for the code and your `kit dev` terminal is out of view. |
+| `kit logs pretty` | Format structured JSON log lines from Ankole on `stdin` for human-readable local output. |
 
 ## Code generation and analysis
 
 | Command | What it does |
 |---|---|
-| `kit generate [collection-name:]<schematic-name> [options]` | Generate or modify files from a schematic. `bun run kit g code-workspace` (wrapped as `bun run workspace:update`) regenerates the VS Code workspace. |
-| `kit analyze all` | Run all repository analyses. Wrapped as `bun run analyze`. |
-| `kit analyze smells` | Report code smells. Wrapped as `bun run analyze:smells`. |
-| `kit analyze unused` | Report unused code. Wrapped as `bun run analyze:unused`. |
-| `kit analyze structure` | Report repository structure. Wrapped as `bun run analyze:structure`. |
-| `kit analyze cycles` | Report dependency cycles. Wrapped as `bun run analyze:cycles`. |
+| `kit generate [collection-name:]<schematic-name> [options]` | Generate or update files from a schematic. For example, `bun run kit g code-workspace` (aliased as `bun run workspace:update`) regenerates the VS Code workspace file. |
+| `kit analyze all` | Run every repository static check. Aliased as `bun run analyze`. |
+| `kit analyze smells` | Report code smells. Aliased as `bun run analyze:smells`. |
+| `kit analyze unused` | Report unused code. Aliased as `bun run analyze:unused`. |
+| `kit analyze structure` | Report repository boundary and structure violations. Aliased as `bun run analyze:structure`. |
+| `kit analyze cycles` | Report module dependency cycles. Aliased as `bun run analyze:cycles`. |
 
 ## Worker test runner
 
-`kit agent-computer-test` runs the Agent Computer Worker package tests in the canonical worker container runtime, so tests execute in the same environment a real turn uses. It takes a `--suite` of `unit` or `integration`, and a `--image` to run against a specific Agent Computer Worker Docker image rather than building one.
+`kit agent-computer-test` runs the tests for the Agent Computer Worker package inside the canonical Worker container image, ensuring that tests execute in the same runtime environment that a real Agent turn uses. Pass `--suite unit` or `--suite integration` to choose the test suite, and pass `--image <ref>` to test against a prebuilt Worker Docker image instead of building one locally.
 
 ## Discovering more
 
@@ -71,7 +73,7 @@ Shared flags apply across `create`, `drop`, and `rebuild`: `--start-services` st
 bun run kit --help
 ```
 
-`kit` is a `@crustjs` command tree, so every level has `--help`. The commands above are the ones an operator or contributor actually runs; for the full subcommand surface of any one command (for example, `kit app-db --help`), ask the CLI directly.
+Because `kit` is built on `@crustjs`, every subcommand exposes `--help`. The tables above cover the commands that operators and contributors run directly; pass `--help` to any subcommand (such as `bun run kit app-db --help`) to inspect its full flag list.
 
 ## Next steps
 

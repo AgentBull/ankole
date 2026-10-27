@@ -634,6 +634,7 @@ export type SetupBrainPacksResponses = {
    * Success
    */
   200: {
+    displayName: string
     packs: Array<{
       description?: string | null
       name: string
@@ -641,6 +642,7 @@ export type SetupBrainPacksResponses = {
       version?: string | null
     }>
     selected: Array<string>
+    slug: string
   }
 }
 
@@ -652,7 +654,9 @@ export type UpdateSetupBrainPacksData = {
    */
   body: {
     data: {
+      displayName: string
       packs: Array<string>
+      slug: string
     }
   }
   path?: never
@@ -674,7 +678,9 @@ export type UpdateSetupBrainPacksResponses = {
    * Success
    */
   200: {
+    displayName: string
     packs: Array<string>
+    slug: string
   }
 }
 

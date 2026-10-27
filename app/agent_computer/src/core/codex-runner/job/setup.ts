@@ -7,7 +7,6 @@ import {
 import { materializeCodexConfig } from '../runtime/agent-home-config'
 import { resolveCodexRuntimeConfig } from '../runtime-config'
 import { codexAppServerSpec, codexJobThreadEnv } from '../runtime/app-server-spec'
-import {} from '../../ai_gateway_transport'
 import { materializeAgentLibraryDocuments } from '../../agent-library-documents'
 import { agentHomePaths } from '../../agent-home-paths'
 import { createWebTools } from '../../../tools/web/web-tools'
@@ -28,7 +27,7 @@ import {
 import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection, type CodexJobProjection } from './projection'
-import { migrateLegacyCodexJobSkillRoots, renderCodexJobAgents } from './runtime-files'
+import { renderCodexJobAgents } from './runtime-files'
 import { skillAvailableInRuntime } from '../../../skills/effective-skill'
 import { createSkillLoader, type SkillLoader } from '../../../skills/skill-loader'
 import { loadEnabledSkillMCPServers, type MCPServerConfig } from '../../../tools/mcp'
@@ -59,7 +58,6 @@ export type PreparedCodexJobExecution = {
     mcpServers: MCPServerConfig[]
   }
   project: PreparedCodexJobProject
-  replaceLegacySkillThread: boolean
   preparedAgentPlugins: PreparedAgentPlugins
   cleanup(): Promise<void>
 }
@@ -112,13 +110,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   const jobProject = prepareCodexJobProject({ jobProjectRoot: projectLocation.hostPath })
   const initializeProject = !job.runtimeThreadId
   const skillsPrompt = agentContext.skillsPrompt
-  const replaceLegacySkillThread = initializeProject
-    ? false
-    : migrateLegacyCodexJobSkillRoots({
-        jobRoot: jobProject.root,
-        runtimeThreadID: job.runtimeThreadId,
-        skillsPrompt
-      })
   const agentsContent = initializeProject
     ? renderCodexJobAgents({
         jobRoot: jobProject.root,
@@ -250,7 +241,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         mcpServers: materials.mcpServers
       },
       project: jobProject,
-      replaceLegacySkillThread,
       preparedAgentPlugins,
       cleanup: materials.cleanup
     }

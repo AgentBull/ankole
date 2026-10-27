@@ -5,56 +5,56 @@ section: Developer guide
 order: 102
 ---
 
-A Signal is a durable event that asks an Agent Session to do work. It can describe a message, a scheduled wakeup, an automation result, or a business event. A Signal can refer to a Conversation and Message. A generic business event does not need either one.
+A Signal is a durable event that asks an Agent Session to perform work—whether triggered by a chat message, a scheduled wakeup, an automation result, or an external business event. While chat Signals reference a Conversation and Message, a generic business Signal can target a Session directly without either one.
 
-`Ankole.Signals` owns event admission and Signal Routing Rules. `Ankole.Conversations` owns shared statements, external observation, and delivery. `Ankole.Sessions` owns execution. These owners keep the source fact, the stimulus, and the execution state separate.
+Three control-plane domains divide this pipeline cleanly: `Ankole.Signals` owns event admission and Signal Routing Rules, `Ankole.Conversations` owns shared message history, external channel observation, and outbound delivery, and `Ankole.Sessions` owns Agent execution. Keeping these three domains distinct separates the recorded channel fact, the execution stimulus, and the Session runtime state.
 
 ## Conversations and Messages
 
-A Conversation stores shared history. Native chats and external chats use the same Message model. A Message records its author, content, and sequence within the Conversation. `ExternalMessageRef` connects an external Message to its provider identifier and payload.
+Every Conversation—whether in native Pod Chat or an external chat platform—stores shared history using the same Message schema, recording the author, content, and sequence number within the Conversation, while `ExternalMessageRef` links external Messages to their upstream provider IDs and raw payloads.
 
-An external Conversation has one identity within a tenant: its `provider_conversation_id`. Multiple Agents can participate in the same Conversation. They share its Messages and retain separate Sessions and model histories. Removing an Agent or routing rule preserves the external history.
+Within a tenant, each external Conversation is uniquely identified by its `provider_conversation_id`. Multiple Agents can participate in the same Conversation, sharing its recorded Messages while maintaining independent Sessions and model histories; removing an Agent or disabling a routing rule leaves the Conversation's external message history intact.
 
-`Conversations.Observe` accepts provider facts. `Conversations.External` writes Messages and external references. Repeated observations update the same fact. Reactions update that fact without starting a model turn. A provider deletion removes the Message through its owner and updates dependent execution facts in the same transaction.
+On the inbound path, `Conversations.Observe` accepts normalized provider events and `Conversations.External` persists Messages and external references. When a provider delivers an edit or duplicate event, Ankole updates the existing Message record; when a user adds a reaction, Ankole updates the Message record without starting a model turn; and when a message is deleted upstream, Ankole removes the Message through its owner and updates dependent execution records in the same transaction.
 
 ## From a message to a Signal
 
-An adapter verifies the provider request and normalizes its message, reaction, removal, or action. Observe resolves the Signal Routing Rule, applies its filter and message policy, and performs identity admission when required.
+When a chat webhook or stream frame arrives, the channel adapter verifies the provider's credentials and normalizes the message, reaction, deletion, or interactive action. `Conversations.Observe` then resolves the matching Signal Routing Rule, applies its filter and group-message policy, and runs identity admission when needed.
 
-An accepted message becomes a Message. If it needs Agent work, Signals accepts a Signal for that Agent's Session in the same transaction. A filtered fact is a successful no-op. A reaction does not wake the Agent.
+Once accepted, the inbound message is written as a Message, and if it calls for Agent work, `Ankole.Signals` admits a Signal for that Agent's Session inside the same PostgreSQL transaction. Messages excluded by a filter return a clean no-op, and reactions never wake the Agent.
 
-For an unaddressed group message, `addressed_only` can skip admission and recording. Referenced messages are retained for later resolution. A later explicit reply reference can promote the required source Message. [Ambient intervention](../ambient-intervention/) describes how an Agent evaluates other group activity.
+For unaddressed group chatter under an `addressed_only` rule, Ankole skips signal admission and message recording while retaining referenced context IDs—so if a later @-mention replies to an earlier unrecorded message, Ankole can promote that referenced source Message into context. See [Ambient intervention](../ambient-intervention/) for how Agents evaluate unaddressed group conversations in other modes.
 
 ## CloudEvents and routing
 
-A Signal Routing Rule is stored as a Binding. It selects an Agent, adapter, configuration reference, filters, and target. Operators manage these rules in Console. A disabled rule stops new admission; it does not delete recorded conversation facts.
+Each Signal Routing Rule is stored as a Binding specifying the target Agent, adapter, configuration reference, filters, and session target. Operators manage these rules in the Console; disabling a rule halts new signal admission without deleting recorded Conversation facts.
 
-CloudEvents endpoints accept structured JSON through:
+External systems can also post structured CloudEvents JSON to:
 
 ```text
 POST /signals/v1/cloudevents/:token
 ```
 
-The event has `specversion`, `id`, `source`, `type`, and optional `subject`, `time`, `data`, and extensions. Matching rules can route it to a fixed Conversation or Session, group events by source and subject, or use a separate Session for each event. Repeated delivery retains the event identity and does not create another stimulus.
+Each CloudEvent carries `specversion`, `id`, `source`, and `type`, plus optional `subject`, `time`, `data`, and extension attributes. Routing rules can direct matching events into a fixed Conversation or Session, group them by `source` and `subject`, or open a dedicated Session per event. Because Ankole deduplicates by event identity, redelivering the same CloudEvent is idempotent and never triggers a second Agent run.
 
-An external event's type and data are input facts. They cannot declare an internal control command or a trusted producer. Kernel events use private provenance assigned by their actual owner. Console can create and cancel CloudEvents endpoints and configure their rules.
+Ankole treats external event `type` and `data` payloads strictly as untrusted input—callers cannot spoof internal control commands or system producer identities, which carry private kernel provenance stamped by their owning Elixir modules. Operators create, configure, and revoke CloudEvents endpoints in the Console.
 
 ## Provider webhooks and callback capabilities
 
-Provider handlers use:
+Channel and integration webhooks enter through:
 
 ```text
 POST /webhooks/v1/:handler_id/:instance_id/:kind
 ```
 
-The declared handler verifies the provider's signature or credential. The controller selects a handler under the `signals.webhook_handler` contract and enforces its declared event kinds. Signal adapters use `signals.adapter`.
+The webhook controller looks up the registered handler under the `signals.webhook_handler` contract, enforces its declared event kinds, and delegates signature or token verification to that handler, while full signal adapters register under `signals.adapter`.
 
-An Agent-created raw callback uses `/webhooks/v1/event-callbacks/wh_<token>`. Its capability authorizes the recorded callback route, not the truth of the request body. Signals stores a token digest and commits the endpoint decision with `webhook.received` or the bound automation run. Read [Webhook delegations](../webhook-delegations/) for its lifecycle and Worker bridge.
+By contrast, Agent-created raw callbacks use `/webhooks/v1/event-callbacks/wh_<token>`. Possessing that capability URL authorizes waking the recorded callback route, not trusting the HTTP body. `Ankole.Signals` stores only a SHA-256 token digest and commits the endpoint state change atomically alongside either a `webhook.received` Signal or the bound Automation Job run; see [Webhook delegations](../webhook-delegations/) for the full lifecycle and Worker bridge.
 
 ## Delivery
 
-`Conversations.Delivery` stores external send intent and uses the adapter's `deliver` callback. It resolves the actual provider Conversation and Message identifiers before sending. A confirmed send records each resulting Message and external reference in the same commit as the delivery result.
+On the outbound path, `Conversations.Delivery` persists the send intent before invoking the adapter's `deliver` callback, resolving the upstream provider Conversation and reply-target Message IDs first. Once the upstream platform confirms delivery, Ankole records each resulting Message and `ExternalMessageRef` in the same database commit as the delivery status update.
 
-Delivery states are `pending`, `sent`, `failed`, `expired`, and `unknown`. An unconfirmed result remains visible as `unknown` and is not automatically sent again. The durable intent and diagnostics support reconciliation.
+Each outbound delivery tracks one of five states: `pending`, `sent`, `failed`, `expired`, or `unknown`. If a transport drop leaves delivery unconfirmed, Ankole marks the record `unknown` rather than blindly resending and duplicating messages in chat, preserving the durable intent and diagnostics for operator or adapter reconciliation.
 
-Read [Sessions](../sessions/) for execution and recovery, [Quick start](../quickstart/) for configuration, and [Conversations, Signals, and Sessions](../conversations-signals-sessions/) for the architecture comparison.
+Read [Sessions](../sessions/) for turn execution and crash recovery, [Quick start](../quickstart/) for channel setup, and [Conversations, Signals, and Sessions](../conversations-signals-sessions/) for how the three models fit together.

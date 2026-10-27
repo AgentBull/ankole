@@ -1,3 +1,4 @@
+import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import { createModel, signal } from '@preact/signals-react'
 
 export type NavigationScope = 'space' | 'private'
@@ -13,16 +14,13 @@ function browserStorage(): PreferenceStorage | undefined {
 }
 
 function decode(raw: string | null): Preferences {
-  try {
-    const saved = JSON.parse(raw ?? 'null')
-    return {
-      rootOpen: { space: saved?.rootOpen?.space !== false, private: saved?.rootOpen?.private !== false },
-      expanded: new Set<string>(
-        Array.isArray(saved?.expanded) ? saved.expanded.filter((id: unknown) => typeof id === 'string' && id) : []
-      )
-    }
-  } catch {
-    return { rootOpen: { space: true, private: true }, expanded: new Set() }
+  const saved = raw ? recordValue(safeJsonParse(raw).unwrapOr(undefined)) : undefined
+  const rootOpen = recordValue(saved?.rootOpen)
+  return {
+    rootOpen: { space: rootOpen?.space !== false, private: rootOpen?.private !== false },
+    expanded: new Set<string>(
+      Array.isArray(saved?.expanded) ? saved.expanded.filter((id: unknown) => typeof id === 'string' && id) : []
+    )
   }
 }
 

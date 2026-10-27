@@ -11,13 +11,8 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
   @spec agent_worker_spec(Runtime.t(), String.t(), String.t(), String.t(), map() | nil) ::
           AgentWorkerSpec.t()
   def agent_worker_spec(provider, agent_uid, generation, token, storage_ref \\ nil) do
-    %AgentWorkerSpec{
-      agent_uid: agent_uid,
-      generation: generation,
-      image: provider.runtime.image,
-      storage_ref: storage_ref,
-      # A provider whose platform needs another launch form projects this one.
-      env: %{
+    env =
+      %{
         "WORKER_ID" => agent_uid,
         "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
           get_in(provider.settings, ["endpoints", "runtimeFabricUrl"]) ||
@@ -25,6 +20,16 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
         "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => token,
         "ANKOLE_WORKER_STORAGE" => "mounted"
       }
+      |> maybe_put_env("ANKOLE_VERSION", System.get_env("ANKOLE_VERSION"))
+      |> maybe_put_env("ANKOLE_ENV", System.get_env("ANKOLE_ENV"))
+
+    %AgentWorkerSpec{
+      agent_uid: agent_uid,
+      generation: generation,
+      image: provider.runtime.image,
+      storage_ref: storage_ref,
+      # A provider whose platform needs another launch form projects this one.
+      env: env
     }
   end
 
@@ -47,6 +52,14 @@ defmodule Ankole.AgentWorkers.WorkerBootstrap do
   def contract_env_names do
     ~w(WORKER_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
       ANKOLE_WORKER_STORAGE ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE
-      ANKOLE_WORKER_ADAPTER_URL ANKOLE_WORKER_BOOTSTRAP HOME CODEX_HOME CODEX_SQLITE_HOME)
+      ANKOLE_WORKER_ADAPTER_URL ANKOLE_WORKER_BOOTSTRAP ANKOLE_VERSION ANKOLE_ENV
+      HOME CODEX_HOME CODEX_SQLITE_HOME)
+  end
+
+  defp maybe_put_env(env, key, value) do
+    case Ankole.Attrs.optional_text(value) do
+      nil -> env
+      present -> Map.put(env, key, present)
+    end
   end
 end

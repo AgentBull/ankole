@@ -18,7 +18,7 @@
     # M4 read models: projections of several resources that give maps.
     Ankole.AuthZ.Snapshot => :m4_read_model,
     {Ankole.AuthZ.Recovery, [:restoration_review]} => :m4_read_model,
-    {Ankole.Pod.Access, [:path, :query_reachable]} => :m4_read_model,
+    {Ankole.Pod.Access, [:path]} => :m4_read_model,
     {Ankole.Pod.Jobs.PurgePage, [:descendants]} => :m4_read_model,
     {Ankole.Brain.ConversationsLearning, [:known_pages]} => :m4_read_model,
     {Ankole.Brain.Dreaming, [:consolidation_buckets, :term_usage]} => :m4_read_model,
@@ -38,7 +38,8 @@
     {Ankole.Brain.Merge,
      [:repoint_timelines, :repoint_unique_rows, :repoint_links, :repoint_link_column]} =>
       :m8_set_maintenance,
-    Ankole.Tenants.Jobs.Delete => :m8_set_maintenance,
+    {Ankole.Tenants.Jobs.Delete, [:delete_batch, :delete_rows, :finish, :finish_in_tx]} =>
+      :m8_set_maintenance,
     Ankole.Upgrade202610 => :m8_set_maintenance,
     {Ankole.Pod.Access, [:reanchor_pass_through_children]} => :m8_set_maintenance,
     # M9 retrieval: candidate, rerank, and fusion queries over row sets.

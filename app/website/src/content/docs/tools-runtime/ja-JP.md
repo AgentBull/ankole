@@ -1,33 +1,35 @@
 ---
 title: Tool ランタイム
-description: コントロールプレーンのツール宣言と Worker の環境実行。
+description: コントロールプレーンにおけるツール宣言の組み立てと、Worker での環境ツール実行の仕組みを説明します。
 section: Developer guide
 order: 120
 ---
 
-コントロールプレーンはメイン Agent のモデルループとツール分配を所有します。`Ankole.Sessions.Driver` は AIGateway を呼び、要求されたツールを実行し、結果を記録して Turn を続けます。Agent Computer は環境操作と Codex Job を実行します。[Agent loop](../agent-loop/) と [Agent Computer Worker](../agent-computer-worker/) を参照してください。
+メイン Agent のモデルループとツールディスパッチはコントロールプレーンが所有します。`Ankole.Sessions.Driver` が AIGateway を呼び出し、モデルから要求されたツールを実行し、その結果を記録して次のイテレーションへ Turn を進めます。一方、Agent Computer は環境ワークスペース上の操作と Codex Job の実行を担当します。全体像については [Agent loop](../agent-loop/) および [Agent Computer Worker](../agent-computer-worker/) を参照してください。
 
 ## 現在のツールセット
 
-`Ankole.Sessions.ToolCatalog.for_run/1` は現在のドメイン宣言と `worker_tools.json` の Worker 宣言を組み合わせます。Run の種類、モデルの能力、選択された Skill とプラグイン、ambient 権限に従って構築し、Agent のグローバルなツールセットとして保存しません。
+各 Run で利用可能なツール一覧は、`Ankole.Sessions.ToolCatalog.for_run/1` がコントロールプレーン側のドメイン宣言と `worker_tools.json` の Worker 側宣言を組み合わせて動的に構築します。Agent ごとに固定のグローバルツールセットを保存するのではなく、Run の種別、選択モデルの対応機能、有効な Skill とプラグイン、および ambient 権限にもとづいてその都度決定します。
 
-`Ankole.Sessions.Tool` はモデル向け schema、実行主体、実行順序、許可する呼び出し元、読み取り・破壊・再試行のメタデータを保持します。`Ankole.Sessions.Tools.prepare/2` は呼び出し元を確認し、引数を解析して所有者に正規化させ、JSON Schema を検証してから実行します。
+各ツールの定義構造体である `Ankole.Sessions.Tool` は、モデルに提示する JSON Schema、実行主体、実行順序（並列可否）、許可される呼び出し元、および読み取り専用・破壊的操作・再試行可否を表すメタデータを保持します。実行前には `Ankole.Sessions.Tools.prepare/2` が呼び出し元の権限を確認し、引数をパースして所有モジュールで正規化したうえで、JSON Schema による検証を通過してからディスパッチします。
 
 ## 所有者での実行
 
-- Session の計画、スケジュール、Background Agent Job、Workflow、Skill の読み取り、ドメインの Web 操作はコントロールプレーンの所有者が実行します。
-- Computer 操作は RuntimeFabric 経由で Agent の Worker に委譲します。最初の環境操作が Session workspace を開きます。Worker は slot とプロセス状態、コントロールプレーンは永続的な結果を所有します。
-- MCP-backed Skill は Worker の computer command と mcporter を使います。
-- Provider の hosted tool は AIGateway 経由で実行し、選択モデルの宣言された能力に従います。
+ツールの種類ごとに、実際の処理を担う実行主体が分かれています。
 
-Driver は宣言に従って並列または順次実行します。永続的な変更は `Ankole.Sessions.Receipts` を使い、ドメイン変更と結果を同じトランザクションでコミットします。AIGateway は次のモデル反復用に出力を保存します。Worker 切断時は、Driver が宣言された再試行契約に従って結果不明の環境操作を処理します。
+- **コントロールプレーンのドメインツール：** Session 内の計画管理、スケジュール、Background Agent Job、Workflow、Skill の読み取り、およびドメイン層の Web 操作は、コントロールプレーン内の各所有モジュールが直接実行します。
+- **Worker の環境ツール：** ファイルやシェルなどの計算機操作は RuntimeFabric 経由でその Agent 専用の Worker へ委譲されます。最初の環境ツール呼び出しが行われた時点で Session ワークスペースが開かれます。実行スロットとプロセス状態は Worker 側が管理し、永続化すべき実行結果はコントロールプレーン側が管理します。
+- **MCP 連携 Skill：** Worker の `command` ツールと `mcporter` を組み合わせて実行します。
+- **Provider ホスト型ツール：** 選択したモデルが宣言している機能に従い、AIGateway 経由で実行します。
+
+Driver は各ツールの宣言に従い、並列または順次でツールを実行します。永続状態を伴う変更では `Ankole.Sessions.Receipts` を用い、ドメインデータの更新とツール実行結果を単一のトランザクションでコミットします。出力内容は次のモデル推論ラウンドで使えるよう AIGateway に保存されます。また、実行途中に Worker との接続が切れた場合、結果が確定していない環境操作については、各ツールで宣言された再試行契約に従って Driver が処理します。
 
 ## Workflow タスク
 
-カタログは Web 操作、委譲と確認用の Background Agent Job 操作、`sleep`、`submit_result` に限定されます。Hosted Brain は `recall` と `get_page` のみです。Computer、shell、Skill、スケジュール、Workflow 作成のツールは提供しません。
+Workflow タスクに提供されるツールカタログは、Web 操作、委譲および状態確認のための Background Agent Job 操作、`sleep`、そして `submit_result` のみに絞られます。また、ホスト型の Brain ツールも `recall` と `get_page` だけに限定され、計算機操作、シェル、Skill、スケジュール、新規 Workflow 作成のツールは公開されません。
 
-`submit_result` は保存済み結果 schema で検証します。拒否時は修正でき、受理時はタスクが終了します。提出前に実行中の委譲 Job を終了させる必要があります。[Workflow](../workflows/) を参照してください。
+`submit_result` が呼ばれると、保存済みの結果スキーマに対して出力が検証されます。検証に通らなければエラーが返されてモデルが修正でき、受理された時点でタスク完了となります。なお、結果を提出する前に、委譲中の Background Agent Job をすべて終了させておく必要があります。詳しくは [Workflow](../workflows/) を参照してください。
 
 ## ツールの追加
 
-ドメインツールはコントロールプレーンの所有者に宣言と実装を置きます。環境ツールは Worker に追加して `worker_tools.json` を再生成します。`WorkerAgentTool` と Zod は Worker ツールの実装契約を定義します。Schema と実行境界を一致させてください。
+新しいドメインツールを追加する場合は、コントロールプレーンの所有ドメイン内に宣言と実装の両方を配置します。新しい環境ツールを追加する場合は、Worker 側に実装を追加したうえで `worker_tools.json` を再生成します。Worker ツールの実装契約は `WorkerAgentTool` と Zod スキーマで定義されており、公開スキーマと実際の実行境界が常に一致するよう保つ必要があります。

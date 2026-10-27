@@ -274,9 +274,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     await this.runtimeLease.runtime.ensureAgentPlugins(this.prepared.preparedAgentPlugins)
     if (await this.finishClaimedFinalization()) return
 
-    const resumeOutcome = this.prepared.replaceLegacySkillThread
-      ? await this.replaceLostThread()
-      : await this.resumeExistingThread()
+    const resumeOutcome = await this.resumeExistingThread()
     this.recreatedThreadOnResume = resumeOutcome === 'recreated'
     this.replayedThreadOnResume = resumeOutcome === 'replayed'
     if (await this.finishClaimedFinalization()) return

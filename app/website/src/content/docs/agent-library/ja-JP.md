@@ -1,84 +1,84 @@
 ---
 title: Agent Library
-description: Agent にできること——Skill はファイル bundle として、Agent Plugin は Codex パッケージとして扱い、Agent ごとに「既定 → 上書き」で解決する有効化モデル。
+description: Agent に許可された能力の管理モデル。Skill はファイルバンドル、Agent Plugin は Codex パッケージとして扱い、Agent ごとに「既定 → 上書き」で有効化状態を解決します。
 section: Developer guide
 order: 107
 ---
 
-Agent Library は 1 つの問いに答えます。この Agent は実際には何をすることを許可されているのか。Agent Library とは、デプロイインスタンスが同梱する Skill と Agent Plugin のカタログであり、さらに特定の Agent に対してどれを有効にするかを決める Agent 単位の状態です。このページでは、そのモデルを `Ankole.AIAgent.Library` の実コードに対応付けて説明します。
+Agent Library は、「各 Agent にどの能力の使用を許可するか」を管理する仕組みです。デプロイ環境に同梱された Skill と Agent Plugin のカタログに加え、Agent ごとにどの項目を有効にするかという設定状態を保持します。このページでは、そのモデルを `Ankole.AIAgent.Library` の実装に対応付けて解説します。
 
-同梱の Skill と Agent Plugin は、アプリイメージ内のファイル bundle です。インストール済み Skill は、コントロールプレーンが管理する Agent の Files ドライブの `skills/` 配下に保存されます。PostgreSQL はカタログ、有効化状態、正本となるファイル参照を保持し、オブジェクトストアはインストール済みファイルの内容を保持します。Worker はこれらのファイルをローカルの実行キャッシュにダウンロードします。
+同梱の Skill と Agent Plugin はアプリケーションイメージ内にファイルバンドルとして含まれており、後からインストールされた Skill は、control plane が管理する Agent の Files ドライブ上の `skills/` 配下に保存されます。カタログ情報、有効化状態、正本となるファイル参照は PostgreSQL が保持し、インストール済みファイルの実体はオブジェクトストアに格納されます。Worker は必要なファイルをローカルの実行キャッシュへダウンロードして利用します。
 
 ## 2 種類の能力
 
-library は、関連するが異なる 2 つのものを保持します。
+Agent Library では、互いに関連しつつ役割の異なる 2 種類の能力を扱います。
 
-- **Skill** はファイル bundle であり、`SKILL.md` によって識別されます。Skill 名は小文字で英字から始まり、使えるのは英字・数字・`_`・`-` のみで、最大 64 文字です。Skill は `builtin`（アプリイメージに同梱され、`app/library/skills` から同期される）か、`installed`（Agent の Files ドライブの `skills/` 配下に保存される）のどちらかです。`agent_skills` 行は有効化状態、source kind、content hash、同期時刻を記録します——これは明確に、ファイルの中身を保持するテーブルではありません。
-- **Agent Plugin** は標準の Codex Plugin パッケージであり、Ankole の任意の `workspace-template/` 初期化ディレクトリを伴うことがあります。パッケージのバイト列とバージョンはインスタンスの library に置かれ、PostgreSQL が保存するのは Agent 単位の疎らな有効化上書きだけです。Plugin 識別子は Skill 名と同じ形式規則に従います。
+- **Skill** は `SKILL.md` で識別されるファイルバンドルです。Skill 名は英小文字で始まり、英小文字・数字・`_`・`-` のみを使用でき、最大 64 文字です。種類には `builtin`（アプリイメージに同梱され、`app/library/skills` から同期されるもの）と `installed`（Agent の Files ドライブの `skills/` 配下に保存されるもの）の 2 つがあります。データベースの `agent_skills` テーブルには有効化状態、source kind、content hash、同期時刻が記録されますが、ファイルの中身そのものはこのテーブルには格納されません。
+- **Agent Plugin** は標準の Codex Plugin パッケージであり、必要に応じて Ankole 固有の `workspace-template/` 初期化ディレクトリを含めることができます。パッケージのバイナリやバージョン情報はインスタンスのライブラリ側に置かれ、PostgreSQL には Agent ごとに上書きされた有効・無効の差分設定だけが保存されます。Plugin 識別子の命名規則は Skill 名と同じです。
 
-2 つはつながっています。Agent Plugin は Skill を内包でき、Skill 行は親の有効化とカタログ表示のために `agent_plugin_id` を記録します。ただし Agent Plugin への所属は独立したメタデータであり、Skill の読み込み方法を変えるものではありません。
+この 2 つは連携させることも可能です。Agent Plugin の内部に Skill を含めることができ、その場合 Skill レコードには親 Plugin の有効化状態やカタログ表示と連動するための `agent_plugin_id` が記録されます。ただし、Agent Plugin への所属はあくまで管理上のメタデータであり、Skill の読み込み方法自体が変わるわけではありません。
 
 ## 有効化: tenant の既定値と Agent の上書き
 
-tenant 設定が Agent Plugin と Skill の実効既定値を提供します。tenant に上書きがなければ site 設定を継承し、オペレーター設定がなければ同梱カタログの既定値を使います。Agent は自身の上書きだけを保存します。
+Agent Plugin と Skill の既定の有効・無効はテナント設定によって決まります。テナント側で上書き設定がなければサイト設定を継承し、運用者による設定が一切ない場合は同梱カタログの初期値が使われます。各 Agent には、そこから変更したい上書き設定だけを保存します。
 
-`effective_enabled` は Agent の上書き、または継承した tenant 既定値です。Plugin member Skill は親 Plugin の有効化も必要です。親を無効にしても member の設定は保持し、親を再び有効にすると適用します。
+実際に適用される `effective_enabled` は、Agent 個別の上書き値（未設定なら継承されたテナント既定値）から算出されます。なお、Plugin に含まれるメンバー Skill が有効になるには、親である Agent Plugin 自体も有効になっていなければなりません。親 Plugin を無効化してもメンバー Skill 個別の設定値は消えずに保持され、親を再び有効化すると元の設定がそのまま適用されます。
 
-Console の [Agent Library capabilities](../console-api/) は選択した tenant の既定値を読み書きし、Agent 単位の上書きを許可します。API フィールド `global_default_enabled` は site 継承を含む、選択した tenant の実効既定値を返します。
+Console の [Agent Library capabilities](../console-api/) ルートを使うと、選択中のテナントの既定値を読み書きしたり、Agent 単位の上書きを設定したりできます。API レスポンスの `global_default_enabled` フィールドには、サイト設定からの継承も加味した、そのテナントにおける実効既定値が返されます。
 
 ## Brain からだけ想起する Skill の発見
 
-同梱の standalone Skill または Agent Plugin member は、`brain-recall-only: true` を宣言できます。同梱 Skill は 1 つのグローバルな名前空間を共有するため、Plugin への所属は Skill 名を変えません。Agent がインストールした Skill はこの mode に参加しません。
+同梱の standalone Skill や Agent Plugin のメンバー Skill には、`brain-recall-only: true` を指定できます。同梱 Skill は単一のグローバルな名前空間を共有するため、Plugin に属していても Skill 名は変わりません。なお、Agent が後からインストールした Skill ではこのモードを利用できません。
 
-Agent Library は完全な実効 Skill セットを Worker に送ります。通常の Skill は model に見える Skill カタログへ入ります。Brain からだけ想起する Skill は `skill_view` の読み込み可能な集合に残りますが、カタログからは除外されます。library sweep は名前、説明、tag だけを、`lazyload-agent-skills/<skill-name>` の軽量な Brain レコードとして projection します。Skill の本文、リソース、Agent 固有の教訓は、それぞれを所有する file と database の経路に残ります。
+Agent Library は有効なすべての Skill セットを Worker へ渡しますが、モデルから見える Skill カタログに載るのは通常の Skill だけです。`brain-recall-only` が指定された Skill はカタログからは除外され、`skill_view` で読み込み可能な対象としてのみ保持されます。その代わり、library sweep 処理によって名前・説明・タグだけが抽出され、`lazyload-agent-skills/<skill-name>` という軽量な Brain レコードとして投影（projection）されます。Skill の本文や付属リソース、Agent 固有の教訓は、それぞれのファイルおよびデータベースの保存先にそのまま残ります。
 
-projection は同じテナント内の Agent で共有され、1 つの Agent が Skill を無効にしても削除されません。Brain query と `skill_view` は、その Agent の現在の Plugin と Skill の実効状態をどちらも適用します。そのため、無効なレコードは想起枠を消費せず、読み込むこともできません。能力を再び有効にすると、既存の projection がそのまま利用可能になります。
+この投影レコードは同一テナント内の Agent 間で共有されており、ある Agent が該当 Skill を無効化してもレコード自体は削除されません。その代わり、Brain 検索時と `skill_view` 実行時の両方で、対象 Agent における現在の Plugin・Skill の実効状態がチェックされます。そのため、無効化されている Skill が想起枠を消費することはなく、内容を読み込むこともできません。後から再び有効化すれば、既存の投影レコードをそのまま利用できます。
 
 ## Agent の永続ドキュメントと Skill 教訓
 
-能力に加えて、library は Agent 自身の書き込み可能なドキュメントと Agent 固有の Skill 指針を保持します。
+Agent Library は能力カタログだけでなく、Agent 自身の書き込み可能な永続ドキュメントと、Agent 固有の Skill 教訓も管理します。
 
-- **Agent の永続ドキュメント**は `mission`、`soul`、`design`、`confidentiality_policy` の 4 つで、コンテナテーブルが受け入れる 4 つの `source_kind` 値です。最初の 2 つは責任と振る舞いを定義します。`design` はビジュアル作業のためのデザインシステムを保存します。`confidentiality_policy` は、Agent が Brain に知識を書き込むときの audience 選択を導きます。これらは `agent_library_container_entries` に置かれ、content hash を使用します。
-- **Skill 教訓**は `agent_skill_lessons` の変更不可な意味論的 row です。各 row は 1 つの Agent と 1 つの Skill に属し、作成者、証拠、リース状態、廃止履歴を記録します。Dreaming は証拠に基づくリース付き教訓を書きます。運用者はリースのない人の教訓を追加し、任意の教訓を廃止できます。
+- **Agent の永続ドキュメント**には `mission`、`soul`、`design`、`confidentiality_policy` の 4 種類があり、これらがコンテナテーブルで許可される `source_kind` の値に対応します。最初の 2 つは Agent の責務と振る舞いを定義し、`design` は視覚的な制作物のデザインシステムを保持します。`confidentiality_policy` は、Agent が Brain に知識を書き込む際の公開範囲（audience）の判断基準を定めます。これらはいずれも `agent_library_container_entries` テーブルに格納され、content hash で管理されます。
+- **Skill 教訓**は `agent_skill_lessons` テーブルに記録されるイミュータブルなレコードです。各レコードは特定の Agent と特定の Skill に紐付き、作成者、根拠となる証拠、リース状態、廃止履歴を保持します。Dreaming 処理は根拠に基づくリース付きの教訓を作成し、運用者は期限リースのない人間由来の教訓を追加したり、任意の教訓を廃止したりできます。
 
-Skill view は Skill file を読み、配信条件を満たす教訓を `Agent-specific additions` の下に表示します。基礎となる `SKILL.md` は変わりません。証拠、再確認、配信の規則については [Skill 教訓](../skill-lessons/) を参照してください。
+`skill_view` で Skill を参照すると、元の `SKILL.md` を書き換えることなく、配信条件を満たす教訓が `Agent-specific additions` セクションとして末尾に付加されます。根拠の検証、再確認、配信条件の詳細については、[Skill 教訓](../skill-lessons/) を参照してください。
 
 ## 同期:レジストリの誠実さを保つ
 
-コントロールプレーンの `sync_agent_skills` は、2 種類のソースを 1 つの Agent のカタログにまとめます。
+control plane の `sync_agent_skills` は、次の 2 つのソースから情報を集めて各 Agent のカタログを最新の状態に保ちます。
 
-- **同梱の Skill** はアプリイメージから読み取り、standalone Skill と Agent Plugin member を含みます。新しいイメージは、次の同期でこれらの Skill を追加または更新できます。
-- **インストール済み Skill** は、Agent の Files ドライブの `skills/<name>/SKILL.md` から直接読み取ります。Library は一覧の全ページと各 manifest を読み取ってからカタログを変更します。追加または変更された manifest はカタログ行を更新し、削除された manifest は対応する行を削除します。読み取りや解析に失敗した場合、カタログは変更されません。更新時には、オペレーターが設定した既存の `enabled_override` を保持します。
+- **同梱の Skill**: アプリイメージから直接読み取られます（standalone Skill と Agent Plugin メンバーの両方を含みます）。新しいイメージをデプロイすると、次回の同期時にこれらの Skill が追加・更新されます。
+- **インストール済み Skill**: Agent の Files ドライブにある `skills/<name>/SKILL.md` から直接読み取られます。同期処理では、ファイル一覧の全ページと各マニフェストをすべて読み終えてからカタログを更新します。マニフェストが追加・変更されていればカタログ行を更新し、削除されていれば対応する行も削除します。途中で読み取りやパースに失敗した場合は、カタログは一切変更されません。また、更新時にも運用者が設定した既存の `enabled_override` はそのまま維持されます。
 
-Worker はインストール済み Skill を実行キャッシュにダウンロードします。キャッシュを走査してカタログを送信したり置き換えたりすることはありません。内容の hash によって、変更のない行への書き込みを省きます。
+Worker はインストール済み Skill をローカルの実行キャッシュへダウンロードして使いますが、キャッシュ側を走査してカタログを上書き・送信することはありません。また、content hash を比較することで、内容が変わっていない行への不要な書き込みを省いています。
 
 ## オペレーターの操作面
 
-[Console](../console-api/) ページで既に説明した Console ルートがこのモデルを駆動します。特に能力ルートです。
+[Console](../console-api/) ページで紹介している Console API ルート（特に capabilities 関連ルート）から、このモデルを操作できます。
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/agent-library/capabilities` | 選択した tenant のカタログと既定値 |
-| `PUT` | `/agent-library/agent-plugins/:id` | plugin の tenant 既定値を設定 |
-| `PUT` | `/agent-library/skills/:id` | Skill の tenant 既定値を設定 |
-| `GET` | `/agents/:agent_uid/library-capabilities` | 1 つの Agent の実効能力 |
-| `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 1 つの Agent について plugin を上書き |
-| `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの Agent について Skill を上書き |
-| `GET` | `/agents/:agent_uid/library-documents` | その Agent の mission/soul/design/confidentiality policy を一覧表示 |
-| `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 1 つのドキュメントを設定 |
-| `GET` | `/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓と廃止済み教訓を一覧表示 |
-| `POST` | `/agents/:agent_uid/skill-lessons` | 人の Skill 教訓を追加 |
+| `GET` | `/agent-library/capabilities` | 選択中のテナントのカタログと既定値を取得 |
+| `PUT` | `/agent-library/agent-plugins/:id` | Plugin のテナント既定値を設定 |
+| `PUT` | `/agent-library/skills/:id` | Skill のテナント既定値を設定 |
+| `GET` | `/agents/:agent_uid/library-capabilities` | 特定の Agent の実効能力を取得 |
+| `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 特定の Agent に対して Plugin 設定を上書き |
+| `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 特定の Agent に対して Skill 設定を上書き |
+| `GET` | `/agents/:agent_uid/library-documents` | 対象 Agent の mission / soul / design / confidentiality policy を一覧取得 |
+| `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 指定した種類の永続ドキュメントを更新 |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓および廃止済み教訓を一覧取得 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 人間による Skill 教訓を追加 |
 | `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
 
-`/agents/:agent_uid/library-capabilities` の読み取りは、アプリイメージと Agent の Files ドライブから Skill を同期します。実行中の Worker は必要ありません。
+`/agents/:agent_uid/library-capabilities` を読み取ると、アプリイメージおよび Agent の Files ドライブから Skill が同期されます。このとき Worker が起動している必要はありません。
 
 ## Agent Library ではないもの
 
-これはマーケットプレイスでも、ホットロード方式でもありません。Skill と Plugin は信頼された first-party の bundle です。同梱の bundle はデプロイインスタンスと共に出荷され、インストール済み Skill は Agent の Files ドライブに保存されます。サードパーティのディスカバリーはなく、worker が既に提供するもの以外の分離機構もありません。library は model の tool を定義する場所ではなく、オペレーターが Agent の Turn で使用できる能力を決める場所です。実行時に control plane が主 Agent の Skill 指示を読み、Worker がコンピュータツールと Codex Job の Skill を準備します。
+Agent Library はマーケットプレイスではなく、ホットロード機構でもありません。Skill と Plugin はいずれも信頼されたファーストパーティのバンドルであり、同梱バンドルはデプロイイメージに含まれ、インストール済み Skill は Agent の Files ドライブに格納されます。サードパーティ製パッケージの自動検索機能はなく、Worker が備える境界以上の追加サンドボックスもありません。また、モデルのツール定義そのものを記述する場所でもなく、あくまで「各 Agent が Turn 中にどの能力を使えるか」を運用者が制御するための仕組みです。実際の実行時には、control plane がメイン Agent 向けの Skill 指示を読み取り、Worker がコンピュータツールや Codex Job 向けの Skill を準備します。
 
 ## 次のステップ
 
-- library を設定するルートについては、[Console](../console-api/) ページを読んでください。
-- Agent 固有の作業指針については、[Skill 教訓](../skill-lessons/) をお読みください。
-- Turn 中に有効化された Skill を実行する worker については、[Sessions](../sessions/) ページを読んでください。
-- library がスコープされる Agent の Principal については、[Principal and AuthZ](../principal-authz/) を読んでください。
+- Agent Library を操作する API ルートの詳細については、[Console](../console-api/) を参照してください。
+- Agent 固有の作業指針の仕組みについては、[Skill 教訓](../skill-lessons/) を参照してください。
+- Turn の実行中に有効な Skill を動かす Worker の仕組みについては、[Sessions](../sessions/) を参照してください。
+- Agent Library のスコープ単位となる Agent の Principal については、[Principal and AuthZ](../principal-authz/) を参照してください。

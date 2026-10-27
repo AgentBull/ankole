@@ -1,60 +1,60 @@
 ---
 title: 介绍
-description: 介绍 Ankole Agent Harness、公司大脑和私有部署实例的工作方式。
+description: 了解 Ankole Agent Harness、公司大脑与私有部署实例的协作方式。
 section: Getting started
 order: 1
 ---
 
 **Ankole 是配备公司大脑的开源 Claude Tag 替代方案，也是一套企业级 Agent Harness。**
 
-实时信号唤醒 Agent。Agent 使用共享知识、Pod 工作空间、企业权限和 Agent Computer 工作环境执行长任务。进程发生故障后，任务可以恢复。
+收到实时信号后，Agent 会立即唤醒，结合共享知识、Pod 工作空间、企业权限体系与 Agent Computer 工作环境执行长耗时任务；即便中途遭遇进程故障，任务也能从断点恢复。
 
-模型根据收到的上下文推理。Harness 选择与任务相关且当前有效的企业事实，执行访问规则，选择可用能力，在故障后恢复任务，并记录结果供后续决策使用。
+大语言模型只能基于传入的上下文推理，而 Harness 负责在模型外围完成关键调度：筛选与当前任务相关且仍然有效的企业事实、执行访问控制规则、装配可用工具能力、在故障后恢复执行，并将最终结果沉淀下来，供后续决策参考。
 
 ## Harness 提供的能力
 
-- Brain 记录知识的来源、时间、持有者、置信度、冲突和可见范围。
-- 系统保留证据、不确定性、竞争假设和信息缺口，供人工复核。
-- 消息、计划任务、Webhook 和外部事件会唤醒负责该工作的 Agent。
-- 身份、AuthZ、审批节点、审计记录和升级路径限定每个 Agent 可以执行的操作。
-- 任务可以连续运行数小时或数天，在执行期间接收新输入，并在进程故障后恢复。任务完成后，结果会发送到发起任务的上下文。
-- 系统会在下一次决策前用人工纠正和实际结果更新公司大脑。
+- **结构化企业记忆**：在 Brain 中完整记录每条知识的来源、时间、归属主体、置信度、观点冲突与可见范围。
+- **推理过程可复核**：完整保留支撑证据、不确定性、竞争假设与信息缺口，便于人工核查。
+- **事件驱动唤醒**：收到聊天消息、计划任务触发、Webhook 回调或外部事件时，自动唤醒负责对应工作的 Agent。
+- **细粒度权限治理**：通过身份体系、AuthZ 策略、审批节点、审计日志与人工升级路径，严格限定每个 Agent 的操作边界。
+- **长任务容错执行**：任务可连续运行数小时乃至数天，期间随时接收新输入，进程故障后自动恢复，并在完成后将结果回传至发起上下文。
+- **知识闭环演进**：将人工纠偏与实际业务结果及时写回公司大脑，在下一次决策前完成知识更新。
 
 ## 一个实例包含哪些部件
 
-下文使用以下核心概念。
+下文将频繁使用以下核心概念：
 
 | 部件 | 说明 | 详见 |
 |---|---|---|
-| **Agent** | 具备明确使命、授权、工具和对外身份的工作主体。可编辑文件定义 Agent 的使命与交付标准。一个部署实例可以包含多个 Agent。 | [Agent](../agents/) |
-| **Pod** | 人类与 Agent 协作处理层级页面、实时文档、Base 多维表、Applet 小应用与多人 Pod Chat 的共享工作空间。 | [架构概览](../architecture/) |
-| **Brain** | 共享的公司知识层。Brain 保留来源、结论、时间、置信度、冲突和可见范围，让获授权的 Agent 使用同一份当前企业上下文。 | [Brain](../brain/) |
-| **会话（Session）** | 承载上下文、工作区状态、运行中引导、取消和恢复的执行单元。 | [Sessions](../sessions/) |
-| **信号路由规则** | 将指定 Agent 连接到信号源，并定义 Agent 在该信号源中的操作范围。 | [信号路由规则](../signal-bindings/) |
-| **后台任务** | 独立于发起会话运行数小时的任务。任务完成后，结果会发送到发起任务的频道。 | [Background Agent Jobs](../background-agent-jobs/) |
-| **技能** | 针对特定工作的标准作业程序。Agent 可以提出改进方案，经人工批准后在后续会话中生效。 | [Skills](../skills/) |
-| **主体（Principal）** | 人员和 Agent 都以 Principal 作为权限主体。运行时对每个 Principal 应用权限与审计规则。 | [主体与 AuthZ](../principal-authz/) |
-| **Function Runtime** | 无状态的 `ankole-function-runtime` 服务，在隔离环境中执行用于 Pod Applet 后端函数与确定性工具编排的 TypeScript 程序。 | [架构概览](../architecture/) |
-| **Agent Computer Worker** | 执行工具、文件操作、终端、浏览器与 Codex Job 的工作环境；主模型循环由控制面运行。 | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent** | 具备明确使命、权限边界、工具集与对外身份的工作主体。其使命目标与交付标准由可编辑文件定义，单个部署实例中可运行多个 Agent。 | [Agent](../agents/) |
+| **Pod** | 供人类与 Agent 协同办公的共享工作空间，集成了层级页面、实时协同文档、Base 多维表、Applet 小应用以及多人 Pod Chat。 | [架构概览](../architecture/) |
+| **Brain** | 共享的公司知识层，统一记录知识的来源、结论、时间、置信度、冲突与可见范围，确保获授权的 Agent 基于同一份最新企业上下文工作。 | [Brain](../brain/) |
+| **会话（Session）** | 承载对话上下文、工作区状态、运行中引导、取消与故障恢复的执行单元。 | [Sessions](../sessions/) |
+| **信号路由规则** | 将指定 Agent 绑定至信号源，并界定其在该信号源内的响应与操作范围。 | [信号路由规则](../signal-bindings/) |
+| **后台任务** | 脱离发起会话独立运行数小时的长任务，执行完毕后会将结果发回原发起频道。 | [Background Agent Jobs](../background-agent-jobs/) |
+| **技能** | 面向特定工作的标准作业程序（SOP）。Agent 可在实践中提出改进建议，经人工审批后对后续会话生效。 | [Skills](../skills/) |
+| **主体（Principal）** | 统一的权限主体模型，人员与 Agent 均表示为 Principal，运行时按 Principal 执行权限校验与操作审计。 | [主体与 AuthZ](../principal-authz/) |
+| **Function Runtime** | 无状态的 `ankole-function-runtime` 服务，负责在隔离环境中运行 TypeScript 程序，支撑 Pod Applet 后端函数与确定性工具编排。 | [架构概览](../architecture/) |
+| **Agent Computer Worker** | 负责执行工具调用、文件读写、终端命令、浏览器操作与 Codex Job 的沙箱工作环境；主模型推理循环则由控制面驱动。 | [Agent Computer Worker](../agent-computer-worker/) |
 
-Agent 还可以通过 [Deep Research](../deep-research-job/) 完成长时间、多来源调研，并通过 [浏览器自动化](../browser-automation/) 操作真实网页。
+此外，Agent 还可通过 [Deep Research](../deep-research-job/) 开展长耗时、多信源的深度调研，并借助 [浏览器自动化](../browser-automation/) 操作真实网页。
 
 ## Ankole 支持的决策工作
 
-Ankole 适用于能通过数字系统执行，并产生可供检查的证据和实际结果的决策工作。
+Ankole 适合处理可由数字系统推进、且能沉淀可核查证据与实际业务结果的复杂决策工作。
 
-典型场景包括比较竞争假设的行业研究、使用情景模型的产品与市场选择，以及采用可复现方法并列出备选因果解释的深度数据分析。
+典型场景包括：需要横向比对竞争假设的行业研究、借助情景推演权衡利弊的产品与市场决策，以及采用可复现方法并同步检验多种因果解释的深度数据分析。
 
-一个 Agent 可以负责整项决策。需要降低错误之间的相关性时，Workflow 可以将工作分配给多个 Agent，每个 Agent 使用独立上下文。
+简单场景下可由单个 Agent 独立完成整项决策；若需降低单一视角带来的系统性偏差，则可通过 Workflow 将工作拆解给多个 Agent，让它们在各自独立的上下文中并行推理、交叉验证。
 
-企业知识和信号提供上下文。企业权限规则限定 Agent 可以执行的操作。证据和实际结果更新后续决策所用的知识。
+在整个闭环中，企业知识库与实时信号为 Agent 提供决策上下文，企业权限规则界定其操作边界，而执行过程中积累的新证据与实际结果又会反哺知识库，持续改进后续决策。
 
 ## 当前状态
 
-Ankole 已在生产环境中运行，是一套完整的企业级 Agent Harness。企业可以在自己的基础设施上托管控制面、Pod 工作空间、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、内核、公司大脑和运维控制台。关键代码和重要状态机经过形式化验证，端到端测试覆盖消息路由、故障恢复、并发和升级路径。
+Ankole 是一套完备的企业级 Agent Harness，已投入生产环境运行。企业可在自有基础设施上完整托管控制面、Pod 工作空间、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、内核、公司大脑与运维控制台。核心代码路径与关键状态机均经过形式化验证，端到端测试全面覆盖消息路由、故障恢复、并发控制与版本升级路径。
 
-Ankole 不提供公共 API 兼容性契约。版本发布可能包含破坏性变更。
+Ankole 不提供公共 API 兼容性契约，版本发布可能包含破坏性变更。
 
 ## 下一步
 
-按照 [快速开始](../quickstart/) 在本地部署 Ankole。[架构概览](../architecture/) 说明各组件的职责和边界。
+可按照 [快速开始](../quickstart/) 在本地部署 Ankole，或阅读 [架构概览](../architecture/) 了解各组件的职责划分与系统边界。

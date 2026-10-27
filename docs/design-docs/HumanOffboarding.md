@@ -1,29 +1,33 @@
 # Human Offboarding
 
-Disabling a Human Principal prevents that person from signing in and starting
-more work in Ankole. It also ends future execution of the person's existing
-tasks, cron schedules, and automation jobs. The Principal UID, immutable enterprise subjects, work results, and audit
-history remain. Suspension keeps personal credentials and contacts; offboarding
-releases them in the affected tenant.
+Disabling a Human Principal immediately prevents that person from signing in or
+starting new work in Ankole, and it stops future execution of their queued
+tasks, cron schedules, and automation jobs. At the same time, Ankole preserves
+the Principal UID, immutable enterprise subject IDs, completed work results, and
+audit history. Suspension retains personal credentials and contact bindings,
+whereas offboarding releases them within the affected tenant.
 
-Ankole also provides standard Back-Channel Logout and Token Introspection for
-OIDC Clients. Clients own their business sessions and can apply these results
-with a delay; local disablement does not wait for them.
+Ankole also exposes standard Back-Channel Logout and Token Introspection for
+OIDC Clients. Because external OIDC Clients manage their own application
+sessions and may process logout notifications asynchronously, local account
+disablement commits immediately without waiting for external Clients.
 
-An attempt that passed its start check before disablement can finish. Ankole
-does not add a permission check before each tool call or interrupt that attempt
-because the Human status changed. A retry, a resumed attempt, or another
-scheduled run must pass a new start check.
+An execution attempt that already passed its admission check before disablement
+is allowed to finish: Ankole neither rechecks Human status before every tool
+call nor interrupts an in-flight attempt mid-run. However, any retry, resumed
+attempt, or subsequent scheduled run must pass a fresh admission check and is
+therefore rejected.
 
-This document owns Human revocation, directory reconciliation, and cross-module
-admission rules. The linked module documents own their storage and execution
-contracts.
+This document specifies Human revocation, directory reconciliation, and
+cross-subsystem work admission. Each linked subsystem document owns its own
+storage schema and execution lifecycle.
 
 ## Scope and Ownership
 
-The scope is one Ankole site containing tenant-owned Humans. Feishu and DingTalk supply
-automatic offboarding facts. Other identity providers can use the same
-restriction operation without automatic detection.
+Human offboarding operates across one Ankole site containing tenant-owned
+Humans. Feishu and DingTalk supply automatic offboarding events and directory
+syncs, while other identity providers use the same manual restriction contract
+without automatic detection.
 
 | Owner | Responsibility |
 | --- | --- |
@@ -37,78 +41,92 @@ restriction operation without automatic detection.
 | Agent Computer | Execute admitted attempts through the Worker contract. It does not own Human status or a separate permission list. |
 | Console | Submit authorized operations and show account, sync, and affected-work results. |
 
-The Elixir control plane owns durable state in PostgreSQL. Each work subsystem
-owns its lifecycle and public entry points. Oban can deliver durable
-follow-up work; it does not own the Human access decision. Operator settings
-belong to the owning subsystem's AppConfigure keys.
+The Elixir control plane stores all durable revocation state in PostgreSQL, and
+each work subsystem owns its own lifecycle and public entry points. Oban runs
+durable background cleanup jobs without owning the Human access decision itself,
+and operator settings live under each owning subsystem's declared `AppConfigure`
+keys.
 
-Ankole does not provide an HR system, another identity model, cross-enterprise
-routing, automatic data deletion, or a general asset-transfer system for
+Ankole does not implement an HR system, a second identity model, cross-enterprise
+routing, automatic data deletion, or automated asset-transfer workflows during
 offboarding.
 
 ## Tenant boundaries
 
-Each Human belongs to one tenant. A site administrator may authorize work in
-another tenant; that work still names the authenticated administrator. The six
-work tables keep `human_uid` as a text reference without a foreign key. Missing
-Humans are revoked at admission, and deleting the source tenant does not erase
-the authorizer's recorded UID or require the target tenant to act first.
+Every Human Principal belongs to one home tenant. When a site administrator
+authorizes work inside another tenant, that work still records the authenticated
+administrator's `human_uid`. Across all six work tables, `human_uid` is stored
+as a plain text reference without a database foreign key; if a referenced Human
+is missing, admission treats the authorization as revoked, and deleting
+the administrator's home tenant neither erases the recorded `human_uid` nor
+requires the target tenant to clean up first.
 
-Human disablement stops future work across all tenants by that UID. Tenant
-deletion uses the same path and completes durable work cleanup before removing
-the Human. Other tenants retain the stopped work and its original authorization.
-Their work-review list permits explicit reauthorization of paused cron rules;
-other terminal work must be replaced through its owner.
-WorkCleanup records its completed access-version sweep in
-Human access history; deletion processes bounded batches and retries safely.
+Disabling a Human stops future work associated with that `human_uid` across
+every tenant on the site. Tenant deletion follows the same revocation path and
+finishes durable work cleanup before deleting the Human rows. Other tenants
+retain their stopped work records together with their original authorization
+metadata: operators in those tenants can explicitly reauthorize paused cron
+rules from the work-review list, whereas terminal tasks and cancelled jobs must
+be recreated through their owning subsystem. `WorkCleanup` records each
+completed `access_version` sweep in Human access history, and tenant deletion
+processes cleanup in bounded, retry-safe batches.
 
-Tenant suspension rejects new work and treats Human OIDC tokens as inactive.
-Already admitted attempts can finish and recover after a process exit. Agent
-credentials used to finish those attempts remain usable.
+Suspending an entire tenant rejects new work admissions and marks Human OIDC
+tokens inactive, while allowing already admitted attempts (and the Agent
+credentials they use) to finish and recover across process restarts.
 
 ## Suspend and Offboard
 
-Suspension keeps the Human Principal, stable provider subjects, personal
-credentials, and contact ownership. Its restoration uses the same Human after
-identity and permission review.
+Suspending a Human preserves the Human Principal, immutable provider subject
+IDs, personal site credentials, and contact bindings so an administrator can
+later restore the same account after reviewing identity and permissions.
 
-Offboarding keeps the departed Human UID, immutable enterprise subject IDs,
-work ownership, and audit history. It releases every personal credential, email
-alias, contact email, and phone in that tenant. A replacement employee with new
-provider subjects receives a new Human UID. A released contact cannot select the
-departed Human. Local offboarding suppresses upstream contact writes during that
-cycle. Each Pod controls its own contact and credential ownership.
+Offboarding a Human preserves the departed Principal UID, immutable enterprise
+subject IDs, historical work attribution, and audit records, while releasing
+every unshared personal credential, email alias, contact email, and phone
+binding in that tenant:
 
-A restriction's `suspended` or `offboarded` disposition is part of its identity.
-An offboarding operation must release identifiers even if a prior suspension
-already disabled access. The audit stores the released identifier keys. Pending
-claims check their ceremony start against the latest release.
+- If a new employee later joins with different provider subject IDs, Ankole
+  creates a brand-new Human UID.
+- Looking up a released email or phone never resolves to the departed Human.
+- During an offboarding cycle, Ankole suppresses upstream contact writes for
+  that account, and each Pod manages its own contact and credential bindings
+  independently.
 
-All login methods and work of the affected Human use the same access version.
-See [Authentication](Authentication.md) for the credential release and fresh
-claim contract.
+Whether a restriction is `suspended` or `offboarded` is part of its durable
+identity. Consequently, an offboarding operation still releases credentials and
+contact identifiers even if an earlier suspension already disabled the account,
+recording the released identifier keys in the audit log. When a user later tries
+to claim a recyclable contact identifier, Ankole verifies that the verification
+ceremony started after the identifier's most recent release timestamp.
+
+Every login method and work item belonging to a Human checks the same
+`access_version`; see [Authentication](Authentication.md) for credential release
+and fresh-claim rules.
 
 ## Browser authentication evidence
 
-A site authentication can hold separate access proofs for Humans in several
-Pods. Each proof fixes the Principal UID and the version verified during real
-login. Disablement invalidates only that Human's proofs; the browser's other Pod
-identities can remain valid. A login completed during disablement records no
-proof for the disabled Human.
+A single site authentication in a browser can back independent Pod access proofs
+across multiple Pods, with each proof pinning the Human Principal UID and the
+`access_version` verified at sign-in. Disabling a Human invalidates only that
+Human's proofs while leaving the browser's other Pod identities usable, and any
+login ceremony that finishes concurrently with disablement writes no proof for
+the disabled Human.
 
-Restoration does not update these proofs. A new real authentication, or an
-explicit connection using a second current Pod proof, must verify the restored
-version. Ordinary navigation cannot copy the latest `access_version` into an
-old proof. The Principal lock and transaction revocation check enforce
-this boundary; no separate recovery clock is required. See
+Restoring a Human does not revive invalidated browser proofs: the user must
+complete a fresh authentication ceremony (or explicitly connect through a second
+current Pod proof) to verify the restored `access_version`. Navigating between
+pages never copies a newer `access_version` onto an older proof. Because the
+Principal row lock and transactional revocation check enforce this invariant
+directly, no separate recovery clock is needed; see
 [Browser Sessions](BrowserSessions.md#site-sources-and-human-recovery).
 
 ## Store Disable Reasons Separately from Sync Health
 
-Keep `active` and `disabled` as the Principal access states. Store the reason,
-source, operation or event ID, and relevant times with the disable fact.
-Several restrictions can apply at once. Clearing one restriction must not
-clear another.
+Principal access state uses only two values (`active` and `disabled`) while
+storing the specific reason, source, operation or event ID, and timestamps on
+separate restriction rows. Because multiple restrictions can apply to one Human
+simultaneously, clearing one restriction never clears another.
 
 | Observation | Required result |
 | --- | --- |
@@ -120,124 +138,145 @@ clear another.
 | Timeout, missing permission, failed page, or unknown coverage | Report a sync failure; do not infer departure. |
 | Return to the directory, unfreeze, or return to employment | Make recovery eligible for review; do not restore access automatically. |
 
-The directory read scope and the application admission scope are different
-provider facts. A smaller read scope alone is not evidence of departure or
-loss of Ankole admission. The operator must identify which verified provider
-scope controls admission.
+An identity provider's directory-read scope and Ankole's application-admission
+scope are distinct settings: a narrowed read scope by itself proves neither
+employee departure nor revoked Ankole access. Operators must explicitly configure
+which verified provider scope governs admission.
 
 ## Stored Access and Directory State
 
-`principals.access_version` is the durable Human revocation generation. Each
-new restriction invalidates session proofs and work that captured an earlier
-version. `human_access_restrictions` stores independent active reasons, each
-restriction's `disposition` (`:suspended` or `:offboarded`), and provider
-recovery evidence. `:suspended` retains personal `principal_site_credentials`
-and contact bindings; `:offboarded` releases unshared personal site credentials
-and tenant email/contact bindings. `human_access_events` stores immutable
-decisions, `released_identifiers` watermarks, permission approvals, and cleanup
-results. Duplicate source operations use a unique
-`(source, operation_id, principal_uid)` key.
+PostgreSQL tracks Human revocation and directory reconciliation across five
+tables:
 
-`identity_directory_events` stores provider events before acknowledgement.
-`identity_directory_states` stores the latest revision, scope and snapshot
-fingerprints, known members, missing candidates, sync health, and operator
-review. Provider configuration changes and received events advance the revision.
-A sync uses the exact saved configuration and cannot commit removal evidence
-if that configuration or revision changed during collection.
+- **`principals.access_version`** is the monotonic revocation generation for a
+  Human; adding a restriction increments it and invalidates session proofs and
+  work items that captured an earlier version.
+- **`human_access_restrictions`** stores each active restriction independently,
+  recording its `disposition` (`:suspended` or `:offboarded`) and any upstream
+  recovery evidence. `:suspended` retains personal `principal_site_credentials`
+  and contact bindings, whereas `:offboarded` releases unshared personal site
+  credentials and tenant email or phone bindings.
+- **`human_access_events`** appends immutable audit records for restrictions,
+  `released_identifiers` watermarks, permission-review approvals, and cleanup
+  sweeps, deduplicating repeated upstream deliveries via a unique
+  `(source, operation_id, principal_uid)` key.
+- **`identity_directory_events`** persists inbound provider webhook events
+  before acknowledging delivery.
+- **`identity_directory_states`** tracks the provider's latest revision, scope
+  and snapshot fingerprints, known members, missing-member candidates, sync
+  health, and operator review state. Editing provider settings or receiving a
+  directory event increments this revision, so an in-flight sync that started on
+  an older configuration or revision cannot commit missing-member removals.
 
-Both directory records use Ash resources. Event admission, event processing,
-review, sync start, snapshot commit, and approval run in
-`Repo.transact_top_level/2` in the `IdentityProviders` modules, and Console
-routes expose generic actions on `DirectoryState` and `DirectoryEvent`. The
-provider state row remains the serialization point for event admission,
-review, and snapshot commits. Only the owning actions advance its revision or
-change sync health. Configuration invalidation and a failed-ticket update use
-atomic database predicates. A failed or late collector cannot replace evidence
-from a newer revision. A completed or dismissed event cannot be processed
-again after a concurrent review. Reviewer attribution uses the Principal
-owner's tenant-qualified ActorRef codec.
+Both `DirectoryState` and `DirectoryEvent` are Ash resources in
+`IdentityProviders`. Event intake, event processing, operator review, sync
+start, snapshot commit, and approval each run inside `Repo.transact_top_level/2`
+and are exposed to the Console as generic actions. Locking the `DirectoryState`
+row serializes event intake, operator reviews, and sync commits, and only its
+owning actions may advance the revision or update sync health. Configuration
+invalidation and failed-sync updates use atomic SQL predicates so neither a
+failed sync nor a late collector can overwrite evidence from a newer revision,
+and a concurrently reviewed or dismissed event cannot execute twice. Reviewer
+attribution uses the Principal domain's tenant-qualified `ActorRef` codec.
 
-For Lark, `sync.admissionScope = "none"` permits profile sync without automatic
-missing-member removal. `"contact"` uses the provider contact scope only after
-operator approval. Collection covers explicit users, departments, child
-departments, and paginated group membership. It checks the scope again before
-completion. `sync.maximumRemovalPercent` defaults to 20. Empty results and
-scope changes require a new review even below that threshold. A provider
-recovery check must belong to current successful directory evidence.
+For Lark directories, `sync.admissionScope = "none"` syncs user profiles without
+disabling missing members, while `"contact"` enforces the provider contact scope
+only after an operator approves the initial scope review. A full Lark sync walks
+explicit users, departments, child departments, and paginated user groups, and
+re-verifies the configured scope before committing. `sync.maximumRemovalPercent`
+defaults to `20`: if a sync returns an empty directory or detects a scope
+change, Ankole requires manual operator review even when the removal share falls
+below `20%`. Clearing a provider restriction likewise requires recovery evidence
+from a current, healthy directory snapshot.
 
 ## Detect Offboarding
 
-The Feishu adapter distinguishes user deletion, user updates, and scope
-changes. The DingTalk adapter treats `user_leave_org` as a departure event; see
-[DingTalk Adapter](plugins/DingTalkAdapter.md). A reliable departure event can
-disable a known Human with only the stable provider identity; it does not need
-a complete profile.
+The Feishu adapter distinguishes user deletions, user profile updates, and scope
+changes, while the DingTalk adapter treats `user_leave_org` as a confirmed
+departure event (see [DingTalk Adapter](plugins/DingTalkAdapter.md)). When an
+adapter receives a trusted departure event, Ankole can disable a known Human
+using only the stable provider subject ID without fetching a full profile.
 
-Resolve the event through existing provider bindings and aliases. If the
-identity is unknown or the required IDs are missing, retain an actionable
-failure for review. Do not create a new enabled Human from a departure event.
-A pending departure fact for a known provider subject must be resolved before
-a later login or sync can admit that subject as a new Human.
+Ankole resolves each inbound event against stored provider bindings and aliases.
+If the subject is unknown or lacks required identifiers, Ankole records an
+actionable review failure rather than creating a new active Human from a
+departure event. Moreover, if a pending departure record exists for a provider
+subject, an operator must resolve it before any subsequent login or directory
+sync can provision that subject as a new Human.
 
-Acknowledge an event only after its result or its pending processing record is
-durable. Duplicate events must be safe. Failed processing must be retryable.
-Use provider ordering evidence when available. A stale update cannot undo a
-disablement. If ordering is uncertain, query current provider state and keep
-the restriction until recovery is authorized.
+Adapters acknowledge a webhook only after persisting either the completed
+outcome or a durable pending-event row, making duplicate deliveries idempotent
+and failed processing retryable. Whenever the provider supplies event-ordering
+metadata, Ankole enforces it so a stale profile update cannot undo a
+disablement; if event ordering is ambiguous, Ankole queries current provider
+state and keeps the restriction active until an administrator authorizes
+recovery.
 
-Use the directory-sync path for periodic and manual reconciliation.
-The default is one full sync every 15 minutes. Before disabling missing
-members, require all of these conditions:
+Periodic and manual directory syncs (every 15 minutes by default) reconcile full
+provider membership. Before a sync can automatically disable missing members,
+all five conditions must hold:
 
-1. The connection, permissions, admission scope, and all pages are valid.
-2. The result covers the complete admission set for that identity provider.
-3. Collection completes successfully before missing members are calculated.
-4. A concurrent event or newer sync cannot be overwritten by an older result.
-5. The operator has reviewed the initial identity and scope differences before
-   automatic missing-member handling is enabled.
+1. The provider connection, API permissions, configured admission scope, and
+   every paginated response are valid.
+2. The fetched set covers the complete admission scope for that provider.
+3. Member collection finishes completely before Ankole computes missing members.
+4. Neither a concurrent webhook event nor a newer sync has advanced the provider
+   revision since collection started.
+5. An operator has already approved the initial identity and scope baseline
+   before enabling automatic missing-member removal.
 
-A scope change, unexplained empty result, or unusually large reduction stops
-missing-member handling for that sync and produces a candidate list for review.
-The reduction threshold is an operator setting. These checks must not suppress
-a separate confirmed departure event. A failed collection may still leave
-valid profile updates, but it is never evidence that unseen people departed.
+If a sync encounters a scope change, an unexplained empty directory, or a member
+drop exceeding the configured removal threshold, Ankole halts automatic
+missing-member disablement for that run and records a candidate list for
+operator review instead. These sync safeguards never block an independent,
+confirmed departure webhook. Conversely, while a partially failed sync may still
+apply valid profile updates, Ankole never treats unseen users in an incomplete
+sync as departed.
 
 ## Disable the Human
 
-An effective administrator with the Human-management permission can
-disable an account from Console. The server checks permission and the current
-target state. Repeated requests return the current result. Manual operations
-protect against self-disablement and removal of the last effective Human
-administrator.
+From the Console, an active administrator holding the Human-management
+permission can disable a Human account. The server verifies both the caller's
+permission and the target's state, returning the existing outcome on duplicate
+requests while blocking manual self-disablement and blocking removal of the last
+effective Human administrator.
 
-Let `T0` be the commit time of the disable fact. Commit the disabled state,
-persistent revocation fact, audit record, and durable requests to end future
-work and notify OIDC Clients together. A failed downstream operation cannot
-undo the disablement.
-Task cleanup can retry after `T0`; execution admission must already reject the
-disabled Human, even while cleanup is pending.
+Let `T0` denote the PostgreSQL commit timestamp of the disable transaction. In a
+single transaction at `T0`, Ankole commits the `disabled` status, the bumped
+`access_version` and restriction row, the immutable audit event, and the durable
+Oban jobs that stop future work and notify OIDC Clients. Consequently, a
+downstream cleanup or webhook failure can never roll back the disablement:
+cleanup jobs retry safely after `T0`, while execution admission already rejects
+the disabled Human immediately after `T0`.
 
-Confirmed provider departure can disable the last effective Human
-administrator. This is an explicit exception to the current last-administrator
-protection for manual operations. Keep that exception in the Principal/AuthZ
-boundary. Do not add a global restricted-management state or leave the departed
-administrator active.
+As one deliberate exception to last-administrator protection, a confirmed
+departure event from a trusted identity provider is allowed to disable even the
+last effective Human administrator. Ankole keeps this exception strictly inside
+the Principal/AuthZ boundary rather than inventing a half-disabled administrator
+mode or leaving a departed employee active.
 
-An operator with control-plane shell and database access can grant administrator
-access to an independently verified, active Human. Run
-`mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified --tenant SLUG`
-from the control-plane directory with the deployment configuration. The target
-must have a login method that the Pod policy permits. The command refuses to run
-while an active Pod administrator has a permitted login method. Without
-`--tenant`, the command recovers site administrator access and also grants Pod
-administrator access. It records the operator and reason. Establish and verify
-the replacement Human through the Principal and identity-provider owners first. Zero active administrators must not
-reopen public first-administrator setup or automatically restore the departed
-person. See [AuthZ](AuthZ.md) for the administrator boundary.
+If a deployment is left with zero active administrators, an operator with shell
+and database access to the control plane can grant administrator rights to an
+independently verified, active Human by running:
+
+```sh
+mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified --tenant SLUG
+```
+
+Run this command from the control-plane directory using the deployment's
+configuration after provisioning and verifying the replacement Human through the
+normal Principal and identity-provider flows. The target Human must already have
+a login method permitted by the Pod's login policy, and the command refuses to
+run whenever an active Pod administrator with a permitted login method already
+exists. Omitting `--tenant` recovers site-administrator access in addition to
+Pod-administrator access, recording both `OPERATOR` and `REASON` in the audit
+log. Having zero active administrators never reopens public first-administrator
+setup or automatically restores a departed account; see [AuthZ](AuthZ.md).
 
 ## Reject New Authentication and Requests
 
-Ankole checks Human access at each applicable authentication or request entry:
+After `T0`, Ankole enforces Human revocation at every authentication and request
+boundary:
 
 | Entry | Result after disablement |
 | --- | --- |
@@ -249,107 +288,108 @@ Ankole checks Human access at each applicable authentication or request entry:
 | Existing Human WebSocket | Reject a new protected request; an idle connection need not be closed. |
 | Human signal, command, or approval input | Reject new action by the disabled Human. |
 
-Console and OAuth retain separate authorization contexts within the
-[Browser Sessions](BrowserSessions.md) lifecycle. Both use the persistent
-Human revocation fact. Restoring `active` must not make an old
-Cookie, Authorization Code, Refresh Token, or JWT usable again at Ankole.
-Use an authentication generation or an equivalent durable mechanism owned by
-the authentication path. A process restart or node change cannot erase it.
+Console and OAuth sessions maintain separate authorization contexts under
+[Browser Sessions](BrowserSessions.md), but both validate against the durable
+Human `access_version` in PostgreSQL. Because revocation increments a durable
+generation that survives process restarts and node failovers, restoring the
+Human to `active` later never makes an old browser cookie, authorization code,
+refresh token, or JWT valid again.
 
-A request that already passed its check can complete. Do not interrupt an
-existing response stream or recheck the Human between tools within an admitted
-attempt. This does not remove token, Agent, resource, or turn-fence
-checks. Ankole does not guarantee reversal of an external operation, including
-one sent before `T0` that completes afterward.
+Requests and turns that already passed admission before `T0` may finish
+streaming and running tools without rechecking Human status between tool calls,
+while still enforcing normal token, Agent, resource, and turn-fence checks.
+Ankole cannot roll back external side effects, including external requests sent
+before `T0` that settle afterward.
 
 ## Notify OIDC Clients and Check Their Tokens
 
-Deliver both Back-Channel Logout and Token Introspection as defined in
-[OIDC Server](OIDCServer.md#logout-and-cleanup).
-That document owns protocol fields, Client registration, authentication, and
-notification delivery.
+Ankole delivers Back-Channel Logout notifications and serves Token Introspection
+according to [OIDC Server](OIDCServer.md#logout-and-cleanup), which specifies
+wire payloads, Client registration, authentication, and retry behavior.
 
-Account disablement invalidates all personal OIDC authorizations, including
-Refresh Tokens issued with `offline_access`. This is an offboarding rule;
-ordinary session logout does not define the same authorization lifetime.
-Introspection after the disable commit reports the old authorization inactive
-without waiting for notification delivery. Code exchange, refresh, UserInfo,
-and Ankole's protected requests use the same revocation fact.
+Unlike an ordinary browser logout, disabling a Human revokes every personal OIDC
+authorization for that person, including `offline_access` refresh tokens. As
+soon as the disable transaction commits at `T0`, Token Introspection, code
+exchange, token refresh, `UserInfo`, and Ankole's own protected APIs all treat
+those authorizations as inactive without waiting for Back-Channel Logout HTTP
+deliveries.
 
-Notify every recorded Client session affected by the disablement. Delayed
-notifications must still address the old session after the Human is restored.
-Neither a new login nor restoration can reactivate an old authorization.
+Ankole queues a logout notification for every recorded OIDC Client session
+affected by the disablement. Even if an administrator restores the Human before
+a delayed notification is delivered, that notification still revokes the pre-`T0`
+Client session, and neither a fresh login nor account restoration reactivates
+revoked OIDC grants.
 
-The Client owns the actual removal of its session and the decision to stop its
-business requests. Ankole does not change Client-local accounts or business
-permissions. Ankole owns protocol delivery; a particular business
-application's deployment is outside Ankole.
-
-Notification transport, retry, and Client caching can delay external logout.
-There is no strict end-to-end logout deadline. Ankole must expose delivery
-failures and current token validity; it cannot report local disablement as
-proof that every Client has already blocked access.
+Each external OIDC Client remains responsible for terminating its own local
+session and blocking downstream business actions; Ankole does not mutate
+Client-local user tables or application roles. Because network retries and
+Client-side token caching can delay external enforcement, there is no hard
+end-to-end logout deadline across external apps. Instead, the Console surfaces
+per-Client delivery status and token validity directly rather than treating
+local disablement as proof that every external Client has revoked access.
 
 ## Associate Work with the Human
 
-Agent and Session ownership are separate from Human work authorization. An Agent's creator,
-a task display name, or a reply channel alone does not identify whose account
-must remain active for that task.
+Human work authorization is distinct from Agent ownership and Session routing:
+neither an Agent's creator, nor a task's title, nor a reply channel determines
+which Human account must stay active for a piece of work to run.
 
-The control plane must retain the Human Principal associated with work accepted
-on that person's behalf. Derive it from authenticated input and retain it
-through child work, schedules, automation triggers, retries, and recovery.
-The association is a control-plane fact, not a model-supplied owner field. Use
-source records where they prove the association; each work owner must
-persist any missing information needed after restart or source cleanup.
+Instead, the control plane derives the authorizing Human from the authenticated
+source input and propagates that provenance across child tasks, scheduled rules,
+automation triggers, retries, and crash recovery. Because this association is a
+control-plane security fact rather than a model-writable parameter, each work
+subsystem persists its own authorization columns so checks remain authoritative
+after restarts or source cleanup.
 
-Work associated with the disabled Human stops future execution even if its
-tools use an Agent or bot credential. A valid Agent token is not a substitute
-for the associated Human's active account. Conversely, independent Agent or
-system work with no Human dependency continues under its own authorization.
-Do not disable an entire shared Agent or Session because one sender departed.
-Reject that sender's pending instructions and retain other valid work.
+When a Human is disabled, all future work tied to that Human stops even if the
+task invokes tools using an Agent or bot credential: an Agent token never
+substitutes for an active Human authorizer. Conversely, independent service or
+system work with no Human dependency continues under its own `service`
+authorization, and disabling one sender in a shared room rejects only that
+sender's pending inputs without disabling the shared Agent or Session. If a work
+record lacks sufficient provenance (`review_required`), Ankole blocks execution
+until an operator classifies it rather than assuming independent service
+authority.
 
-Work with insufficient evidence of its Human association (`review_required`)
-requires operator classification before another execution. Do not interpret a
-missing field as proof of independent service authorization.
+Every durable work table stores three columns enforced by PostgreSQL check
+constraints (`authorization_kind`, `human_uid`, and `human_access_version`):
 
-Each durable work owner stores `authorization_kind`, `human_uid`, and
-`human_access_version`. `human` requires a Human and captured version; `service`
-requires an evidenced independent source; `review_required` cannot execute.
-`Ankole.Principals.WorkAccess` checks this fact in the owner's transaction and
-provides the explicit classification operation. It does not schedule
-work or select an Agent. PostgreSQL checks the three-field shape.
+- `human` requires both `human_uid` and a captured `human_access_version`.
+- `service` requires an evidenced non-Human source.
+- `review_required` blocks execution until an operator classifies the record.
 
-`Ankole.Work.Provenance` declares these fields and each owner's review states
-and revoke callback. It also declares the `allow_global` read action
-`:work_across_tenants`, because one Human's work can be in any tenant.
-`Ankole.Work.Owner` uses that metadata for the review registry and revocation
-dispatch, and reads and locks work rows through Ash. Execution owners call
-WorkAccess directly;
-Sessions owns wakeup delivery. WorkCleanup locks all
-candidate parent rows before a callback can lock child rows or Signals. Each
-callback runs in its row's tenant context in the same cleanup transaction.
+`Ankole.Principals.WorkAccess` validates these fields inside the owning
+subsystem's transaction and implements explicit operator classification without
+owning scheduling or Agent selection. `Ankole.Work.Provenance` declares the
+three fields, each owner's reviewable states, its revocation callback, and the
+`allow_global` read action `:work_across_tenants` (so cleanup can find a Human's
+work across every tenant). `Ankole.Work.Owner` consumes those declarations to
+drive the Console work-review registry and revocation dispatch, reading and
+locking work rows through Ash. Execution subsystems call `WorkAccess` directly,
+`Sessions` delivers wakeups, and `WorkCleanup` locks all candidate parent rows
+before any callback locks child rows or Signals, running each callback inside
+its row's tenant context within one transaction.
 
 ## Check Once at Each Execution Start
 
-An execution start is the control-plane admission of one attempt. It includes
-an initial run, a retry after failure or Worker loss, a resumed run after a
-wait, a new scheduled fire, and a separately dispatched child task. Another
-model round or tool call within that same attempt is not a new start.
+An execution start is the control-plane transaction that admits one attempt: an
+initial run, a retry after failure or Worker loss, a resume after waiting on
+input, a new scheduled fire, or a separately dispatched child task. Additional
+model rounds or tool calls inside an already admitted attempt do not count as
+new execution starts.
 
-The owning subsystem checks the associated Human's current access and the
-validity of the work's authorization before it admits the attempt. Admission
-ordered after `T0` must fail. An attempt admitted before `T0` can finish even
-if the Worker receives or starts it later. This admission point defines the
-race boundary; no atomic guarantee spans the database and a Worker process.
-If the check cannot read authoritative state, do not start the attempt.
+Before admitting an attempt, the owning subsystem verifies that the associated
+Human is currently `active` and that `human_access_version` still matches. Any
+admission ordered after `T0` fails, whereas an attempt admitted before `T0` may
+finish even if its RPC reaches the Worker slightly after `T0` (no distributed
+transaction spans PostgreSQL and Worker processes). If admission cannot read
+authoritative Human state, it refuses to start the attempt.
 
-Disablement invalidates the old work authorization as well as the account's
-current access. A quick disable-and-restore must not let queued work or a
-delayed retry start under the old authorization. New
-work dispatched by an already running attempt must pass its own start check
-and retain the Human association.
+Because disablement bumps `access_version`, a rapid disable-and-restore cycle
+still invalidates queued runs and delayed retries that captured the pre-`T0`
+version. Likewise, if a running attempt admitted before `T0` tries to dispatch
+new child work after `T0`, that child work retains the Human association, runs
+its own start check, and is rejected.
 
 | Work | Required lifecycle result |
 | --- | --- |
@@ -361,132 +401,137 @@ and retain the Human association.
 | Retry, resumed attempt, Workflow continuation, or separately dispatched child | Check again and reject the invalid Human authorization. |
 | Pending Human approval or confirmation | Reject that Human's response; another authorized Human must make a new decision. |
 
-Use the lifecycle operations in [Schedule](Schedule.md),
-[Background Agent Job](BackgroundAgentJob.md), [Workflow](Workflow.md), and
-[Automation Jobs](AutomationJobs.md). Do not invent a common task engine or
-force all of these objects into one terminal status. An admitted attempt's
-completion must not reactivate a cancelled definition, plan a valid next fire,
-or revive stopped work.
+Each subsystem transitions its records through its own native lifecycle
+([Schedule](Schedule.md), [Background Agent Job](BackgroundAgentJob.md),
+[Workflow](Workflow.md), and [Automation Jobs](AutomationJobs.md)) rather than a
+shared task engine or a single synthetic status, and completing an in-flight
+attempt never reactivates a cancelled definition, schedules a next cron fire, or
+revives stopped work.
 
-Ending future work requires no handover approval. Show affected objects and
-their reasons in Console. The work-review list includes unknown
-sources and missing, disabled, or revoked Human authority in the selected
-tenant. A paused cron rule can receive explicit new authority and then resume
-through Cron. The review records the previous Human UID and access version;
-it does not resume the rule. Other work that cleanup has made terminal must
-be replaced through its owner. Changing a label or an owner field
-cannot transfer the departed person's credentials.
+Stopping future work requires no handover approval. The Console surfaces
+affected work items and their revocation reasons, and its work-review view lists
+items with `review_required` or missing, disabled, or superseded Human authority
+in the selected tenant. From that view, an authorized operator can reauthorize a
+paused cron rule (recording the prior `human_uid` and `access_version` without
+automatically unpausing the schedule; the operator resumes it separately in
+Cron). Terminal tasks and cancelled jobs must be recreated through their owners,
+and editing a title or metadata field can never transfer a departed person's
+credentials.
 
 ## Restore Access Explicitly
 
-Restoration requires an authorized administrator, a reason, a verified identity,
-and clearance of all active restrictions. If the disabling source is a provider,
-its current state must permit recovery. A provider update alone cannot restore
-access.
+Restoring a disabled Human requires an authorized administrator, an explicit
+audit reason, verified identity, and clearance of every active restriction. When
+an upstream provider caused a restriction, current provider state must confirm
+that the user is active again, though an upstream provider update never restores
+Ankole access on its own.
 
-An administrator must approve the effective permissions through AuthZ before
-the Human becomes active. Review direct grants, static memberships, computed
-groups, and current directory membership. Old administrator membership must not
-silently become effective again. Keep only the permissions approved for the
-restored Human; retain removed permissions as audit history, not active grant
-rows merely labelled historical.
-`AuthZ.restoration_review/1` returns the current direct grants, static
-memberships, computed group definitions, their possible grants, and all Userset
-grants in the selected tenant. Userset entries contain the source Page and action,
-target Page and scope, resource pattern, action, and condition. They are sorted by
-ID and included in the fingerprint. This includes recursive permission paths;
-computed and conditional rules remain request-dependent. The preview does not
-assert that every rule applies to every resource. Remove unwanted grants or
-memberships through their AuthZ editors, then approve the current fingerprint.
-The restore operation rejects a changed fingerprint and records the approved
-rules and identity check.
-This review uses AuthZ rules and does not add a second permission model.
+Before a Human can return to `active`, an administrator must review and approve
+their effective permissions in AuthZ (covering direct grants, static group
+memberships, computed groups, and current directory memberships) so prior
+administrator roles or sensitive grants cannot silently reactivate. Any revoked
+grants are deleted from active AuthZ tables and preserved in audit history
+rather than left as active rows marked historical.
 
-The fingerprint includes the Principal display name and avatar URL because
-AuthZ exposes both fields to computed groups and grant conditions. A directory
-update to either field requires a new permission review, even when the change
-looks cosmetic.
+`AuthZ.restoration_review/1` builds this review snapshot for the selected
+tenant: it returns current direct grants, static memberships, computed group
+definitions and their candidate grants, and all Userset grants (sorted by ID,
+with source Page and action, target Page and scope, resource pattern, action,
+and condition, including recursive paths). Because computed groups and grant
+conditions evaluate per request and can inspect the Principal's display name and
+avatar URL, the review fingerprint hashes all of these rules alongside the
+Human's display name and avatar URL without claiming that every conditional rule
+matches every resource. Even a seemingly cosmetic directory change to the
+display name or avatar URL invalidates the fingerprint and requires a fresh
+approval. After removing any unwanted grants or memberships in the AuthZ
+editors, the administrator approves the current fingerprint; the restore
+transaction verifies that the fingerprint has not drifted and records the
+approved rules and identity check using standard AuthZ primitives.
 
-A provider restriction can be cleared only after a complete current snapshot
-observes that subject as healthy. The directory must be `healthy`; a snapshot
-that requires scope or removal approval must first receive that approval.
-Neither a partial sync nor a login profile proves recovery. This requirement
-does not clear an independent manual restriction or restore access by itself.
+A provider-originated restriction can be cleared only when a complete, `healthy`
+directory snapshot (with any pending scope or large-removal review already
+approved) observes the subject as active; neither a partial sync nor an OAuth
+login profile suffices, and clearing a provider restriction neither clears a
+separate manual restriction nor restores access by itself.
 
-Pod administrators clear eligible restrictions and restore the Human in one
-transaction. Each provider restriction requires current healthy directory
-evidence, and restoration requires the approved permission fingerprint.
-If any restriction or permission check fails, all restrictions and the disabled
-state stay in place.
+Pod administrators clear all eligible restrictions and restore the Human inside
+one atomic transaction. If any restriction lacks healthy recovery evidence or
+the permission fingerprint check fails, the transaction rolls back and keeps all
+restrictions and the `disabled` state intact.
 
-Require a new login after restoration. Old sessions, credentials, cancelled
-jobs, and paused schedules remain invalid or inactive. Restarting work requires
-a new authorized action. Personal provider authorization must be established
-again before new work can use it; old local CLI profiles are not recovery proof.
-
-Keep historical authors, task results, files, and knowledge under their original
-Principal UID. Handover access follows existing data permissions. Offboarding
-does not expose private data to other employees, change retention periods, or
-rotate enterprise bot credentials and shared secrets.
+After restoration, the person must sign in anew: pre-disablement browser
+sessions, OIDC tokens, cancelled jobs, and paused schedules remain invalid or
+paused, restarting work requires a fresh authorized action, and personal
+upstream tool authorizations must be re-established rather than reusing stale
+local CLI profiles. Historical authorship, completed task outputs, drive files,
+and Brain knowledge stay attributed to the original Principal UID under standard
+data permissions; offboarding never widens access to private items, alters
+retention policies, or rotates shared enterprise bot credentials.
 
 ## Console and Operations
 
-The Human list and detail show access state, identity source, disable reasons,
-disable time, operator or source, and the last successful source check. Show
-sync health separately from Human access state.
+In the Console, the Human list and detail views display the Human's access
+state, identity source, active disable reasons, disable timestamp, acting
+operator or upstream source, and latest successful directory check, keeping
+provider sync health visually distinct from individual Human access state.
 
-Show account disablement and task cleanup as separate results. A running attempt
-that was admitted earlier is allowed to finish and must be displayed that way;
-it is not a failed stop. Show cleanup failures with the affected object and a
-retry action. Repeated cleanup must not change a completed result or cancel work
-that was explicitly reauthorized later.
+The UI also separates account disablement from background work cleanup:
 
-Show logout registration and notification results for each OIDC Client. Keep
-local account disablement, work cleanup, and Client notification status separate.
-Record notification attempts, next retry time, errors, and acknowledgements
-without token contents. Provide manual retry for failed notifications and alert
-when automatic delivery is exhausted. Client acknowledgements do not prove
-that every business request is now blocked.
+- An in-flight attempt admitted before `T0` is shown as legitimately finishing
+  rather than as a failed stop.
+- Any work-cleanup failure names the affected record and exposes a retry button,
+  and retrying cleanup never alters completed outputs or cancels cron rules that
+  were explicitly reauthorized after `T0`.
+- For each OIDC Client, the Console displays Back-Channel Logout registration
+  and delivery status separately from local disablement and work cleanup,
+  logging attempt counts, next retry timestamps, sanitized errors, and
+  acknowledgements (never raw tokens), offering manual retry, and alerting when
+  automatic retries are exhausted. A Client HTTP acknowledgement does not prove
+  that every downstream app session has terminated.
 
-Audit records include the Principal UID, operation or event ID, source, previous
-and new state, reason, provider time, receive time, `T0`, operator, revocation
-reference, and affected-work results. Never log tokens, secrets, or a complete
-directory payload. Alert on failed disable processing, repeated sync failures,
-unexpected directory reductions, failed future-work cleanup, and zero active
-administrators. Each alert must identify the object and the recovery action.
+Audit events record the Principal UID, operation or event ID, source, prior and
+new states, reason, provider timestamp, receive timestamp, `T0`, operator,
+revocation generation, and affected-work summary, without ever logging tokens,
+secrets, or full directory payloads. Monitoring alerts fire on failed disable
+events, repeated sync failures, anomalous directory drops, failed work-cleanup
+sweeps, and zero active administrators, with every alert naming the target
+record and recovery step.
 
-Use an account-unavailable message for a disabled Human. Use a temporary-failure
-message when an authentication dependency is unavailable. Do not report a network
-failure as employee departure.
-
-Measure provider detection delay, the local disable commit, future-work cleanup,
-and Client notification delay separately. The periodic sync interval is a
-detection target, not an end-to-end deadline. Provider outages and incomplete
-scope can delay detection;
-manual disable remains available. After the local commit, new authentication
-and execution checks must reject the disabled Human without waiting for cleanup.
+User-facing login screens show an account-unavailable notice when a Human is
+disabled and a temporary-service-failure notice when an upstream identity
+provider is unreachable, never misreporting a network outage as employee
+departure. Operators should track provider detection latency, local `T0` commit
+latency, work-cleanup completion, and OIDC Client notification latency as
+separate metrics: the 15-minute sync cadence is a detection target rather than a
+hard end-to-end SLA, manual disablement remains available during provider
+outages, and new logins and execution starts block immediately at `T0` without
+waiting for background cleanup.
 
 ## Unresolved Work Classification
 
-Before enabling automatic missing-member handling, review provider permissions,
-event subscriptions, the full admission scope, and the initial differences.
-Preserve UIDs and identity bindings.
+Before turning on automatic missing-member disablement for a directory, review
+its API permissions, webhook subscriptions, full admission scope, and initial
+baseline diff while preserving existing Principal UIDs and identity bindings.
 
-Work without a proven source, a Console cron with only
-`created_by.principal_uid`, and events from non-Human senders use
-`authorization_kind = review_required`.
+Ankole assigns `authorization_kind = review_required` to work without verified
+provenance, to Console cron rules carrying only `created_by.principal_uid`, and
+to events from non-Human senders that lack evidenced service provenance.
 
-An unresolved queued Signal enters `dead_letter` when execution admission
-first rejects it with `work_authorization_review_required`. Review and classify
-it in Console. If execution is required, use `/retry signal::<id>`
-only when the event meets the
-[exact retry conditions](Sessions.md#retry-reset-and-recovery). A rejected
-event with no visible durable reply cannot use that command; submit the
-original request again under current authorization. Classification alone does
-not replay a dead letter or restart stopped work. Other work types use their
-owner's resume or restart action
-after classification. Select independent service authorization only when the
-recorded source proves that it has no Human dependency.
+When execution admission first encounters a queued Signal with
+`review_required`, it transitions that Signal to `dead_letter` with
+`work_authorization_review_required`. An operator can inspect and classify the
+item in the Console:
 
-An OIDC Client session without a recorded `sid` has no session-specific
-Back-Channel Logout coverage.
+- Assign `service` authorization only when the recorded source proves that the
+  work has no Human dependency; classifying an item never replays a dead-letter
+  Signal or restarts stopped work automatically.
+- To run a dead-letter Signal after classification, use `/retry signal::<id>`
+  only when it satisfies the
+  [exact retry conditions](Sessions.md#retry-reset-and-recovery); if the
+  rejected Signal produced no visible durable reply, resubmit the original
+  request under current authorization instead.
+- For other paused or stopped work types, use the owning subsystem's resume or
+  recreate action after classification.
+
+Finally, any OIDC Client session issued without a recorded `sid` cannot receive
+session-scoped Back-Channel Logout notifications.

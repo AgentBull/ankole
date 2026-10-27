@@ -1,150 +1,176 @@
 # Browser Sessions
 
-Ankole stores independent browser authentications in PostgreSQL. An active
-selection supplies the default for a new page. Each open Pod page keeps its own
-authentication and tenant. A change to the default cannot change that page's
-identity.
+Ankole stores independent browser authentications in PostgreSQL. While an active
+selection supplies the default identity for newly opened pages, each open Pod
+page pins its own authentication and tenant, so changing the browser default
+never alters an already open page's identity.
 
 ## Ownership and records
 
-The `Ankole.BrowserSessions` Ash domain owns browser groups, outbound upstream
-OIDC ceremony states (`OidcState`), independent authentications, and tenant
-access proofs. `Ankole.OIDC` owns inbound OIDC authorization requests
-(`AuthorizationRequest`) and RP links. `AnkoleWeb.Session` owns sealed browser
-cookies, short-lived sealed ceremony tickets, and request selection.
+Three modules divide browser session responsibilities:
 
-A group has an ID, revision, logout revision, default authentication and tenant,
-and expiry. An authentication records its source, subject, tenant when scoped,
-authentication time, challenge start time, authentication methods (`amr`),
-verified email or phone, local `authenticated_at`, expiry, CSRF secret, and Console admission flag.
-`PodAuthentication` binds a proved authentication to one Human and access version.
-`OidcState` records an outbound upstream OIDC redirect's state token, browser
-group, target tenant, provider ID, purpose, mode, started revision, redirect
-URI, return path, prompt, optional invitation or reauthentication pin, optional
-OIDC authorization request ID, consumption state, and expiry.
+- `Ankole.BrowserSessions` (the Ash domain) owns browser groups, outbound
+  upstream OIDC ceremony states (`OidcState`), independent authentications, and
+  tenant access proofs.
+- `Ankole.OIDC` owns inbound OIDC authorization requests
+  (`AuthorizationRequest`) and relying-party (RP) links.
+- `AnkoleWeb.Session` owns sealed browser cookies, short-lived sealed ceremony
+  tickets, and per-request authentication selection.
 
-Top-level operations own a `Repo.transact_top_level/2` transaction. Their
-`*_in_tx` functions run in the caller's transaction. The browser row lock comes
-before authentication, proof, and ceremony changes. Each ceremony resource owns
-its single-use consumption transition; a consumed state or authorization request
-cannot reopen.
+PostgreSQL stores four core records for browser state:
 
-An authentication lives for 24 hours; an outbound OIDC state and an inbound OIDC
-authorization request each live for 10 minutes. Completion extends the group's
-expiry to cover its proof. Cleanup preserves a group while a valid proof
-references it. [Authentication](Authentication.md) owns code challenges,
-delivery, and rate windows.
+- **Browser group:** an ID, `revision`, `logout_revision`, default
+  authentication and tenant, and expiry timestamp.
+- **Authentication:** the identity source, subject, scoped tenant (when
+  applicable), provider authentication time (`auth_time`), challenge start time
+  (`challenge_started_at`), authentication methods (`amr`), verified email or
+  phone, local `authenticated_at`, expiry, CSRF secret, and Console admission
+  flag (`console_authenticated`).
+- **`PodAuthentication`:** a tenant access proof binding a verified
+  authentication to one Human and `access_version`.
+- **`OidcState`:** an outbound upstream OIDC redirect state containing the state
+  token, browser group, target tenant, provider ID, purpose, mode,
+  `started_revision`, redirect URI, return path, prompt, optional invitation or
+  reauthentication pin, optional OIDC `AuthorizationRequest` ID, consumption
+  state, and expiry.
+
+Every top-level operation runs inside `Repo.transact_top_level/2`, while its
+`*_in_tx` counterpart composes inside a caller's transaction. Transactions
+always lock the browser group row before changing authentications, proofs, or
+ceremonies. Each ceremony resource enforces a single-use consumption transition;
+once an `OidcState` or `AuthorizationRequest` is consumed, it cannot reopen.
+
+An authentication lives for 24 hours, whereas an outbound `OidcState` and an
+inbound `AuthorizationRequest` each live for 10 minutes. Completing a login
+extends the browser group's expiry to cover the new proof, and background
+cleanup retains any group while at least one valid proof references it. Code
+challenges, delivery, and rate-limit windows belong to
+[Authentication](Authentication.md).
 
 ## Login purposes and targets
 
-`GET /sessions/new` serves the login shell directly without creating a database
-record. The shell reads its target from the host and query parameters
-(`purpose=console`, `return_to`, `switch=1`, `prompt=login`, `invitation_token`,
-sealed `reauth`, sealed `invitation`, or `oauth_request`).
+`GET /sessions/new` serves the login shell directly without writing a database
+row. The shell determines its login target from the request host and query
+parameters (`purpose=console`, `return_to`, `switch=1`, `prompt=login`,
+`invitation_token`, sealed `reauth`, sealed `invitation`, or `oauth_request`).
 
-`pod`, `console`, and `oauth` logins target one tenant. Pod entry uses its host
-or explicit target. Console uses the privileged tenant and requires site
-administration membership. OAuth uses the Client's tenant recorded on
-`AuthorizationRequest`. Outbound enterprise SSO creates an `OidcState` row when
-the browser visits `/sessions/oidc/:provider_id/authorization`, and its callback
-completes against that recorded tenant and provider. A `site` login verifies a
-personal credential and selects its available Pods.
+Login ceremonies target either a specific tenant or the site:
 
-The site proof's `console_authenticated` flag is set through a successful Console
-login. Console requests also check the privileged tenant, current Human access,
-and `siteadmin`. Pod proofs have independent scope and access versions.
+- `pod`, `console`, and `oauth` logins target one tenant. A Pod login resolves
+  its tenant from the host or an explicit target; a Console login targets the
+  privileged tenant and requires membership as a site administrator; and an
+  OAuth login uses the Client's tenant recorded on `AuthorizationRequest`.
+- Outbound enterprise SSO creates an `OidcState` row when the browser visits
+  `/sessions/oidc/:provider_id/authorization`, and its callback completes
+  against that recorded tenant and provider.
+- A `site` login verifies a personal credential and lets the user choose among
+  their available Pods.
 
-Pod login and additional credential flows use additive authentication mode. A
-trusted server entry sets this mode. Each open HTML document pins its
-authentication reference and Pod ID.
+Completing a Console login sets `console_authenticated` on the site proof, and
+subsequent Console requests still verify the privileged tenant, current Human
+access, and `siteadmin` membership. Pod proofs maintain their own independent
+tenant scopes and Human access versions.
+
+Pod logins and flows that add another credential run in additive authentication
+mode, which only a trusted server entry point can set. Once loaded, each open
+HTML document pins its `authentication_ref` and Pod ID.
 
 `GET /api/v2/browser/session` returns activated Pod identities, pending Pods,
-and proved site authentications. A zero-Pod site proof is a valid session.
-`POST /api/v2/browser/authentications/current` accepts `authenticationRef` and
-`tenantID`. It checks the proof, current policy, and any pending claim before it
-changes the browser default. The selected document navigates to the target Pod;
-other open documents keep their pinned context.
-
-Setup authority is separate from normal authentication.
+and verified site authentications; a site proof with zero Pods is still a valid
+session. `POST /api/v2/browser/authentications/current` accepts
+`authenticationRef` and `tenantID`, verifies the proof, current login policy,
+and any pending claim, and updates the browser default. Only the calling
+document navigates to the target Pod, while other open documents keep their
+pinned context. Initial instance setup uses isolated setup state that is
+separate from normal authentication.
 
 ## Cookies and request selection
 
-The sealed aggregate cookie carries a browser group reference and isolated setup
-state. The group reference grants no authenticated access and cannot list or
-exchange other accounts' proofs. HTTPS builds use `__Secure-ankole` for this
-cookie; HTTP development uses `_ankole_key`. Both use the site's configured
-parent domain.
+Ankole stores a browser group reference and isolated setup state in a sealed
+aggregate cookie (`__Secure-ankole` on HTTPS builds and `_ankole_key` in HTTP
+development, both scoped to the site's configured parent domain). This group
+reference grants no authenticated access on its own and cannot list or exchange
+proofs belonging to other accounts.
 
-Browser-wide logout retains this unprivileged group reference. A later login
-uses the same group. Successful login renews the cookie's expiry so that the
-group cookie does not expire before the new authentication. A delayed login
-response still names the same group; it cannot displace the next account.
+Browser-wide logout preserves this unprivileged group reference so that a later
+login reuses the same group and renews the group cookie's expiry past the new
+authentication's lifetime. As a result, a delayed HTTP response from an earlier
+login still names the same group and cannot displace a newer account.
 
-Each authentication has its own sealed cookie, named
-`__Secure-ankole-auth-<id>` in HTTPS builds and `_ankole-auth-<id>` in HTTP
-development. It carries the authentication ID and revision. Cookies use the
-`SessionCookieStore` AEAD format, HttpOnly, the site's configured
-parent domain, and `Path=/`; production also requires Secure. Development uses
-`ankole.localhost` to permit sharing across Pod subdomains. Login replaces only its own proof
-cookie. No response serializes a snapshot of all logged-in accounts.
+Each independent authentication is stored in its own sealed cookie, named
+`__Secure-ankole-auth-<id>` on HTTPS builds and `_ankole-auth-<id>` in HTTP
+development. Each proof cookie carries only that authentication's ID and
+revision, uses the `SessionCookieStore` AEAD format with `HttpOnly`, `Path=/`,
+and the site's configured parent domain (plus `Secure` in production), and is
+replaced individually on login. No HTTP response ever serializes a combined
+snapshot of all signed-in accounts. In HTTP development, cookies use
+`ankole.localhost` to share state across Pod subdomains, and Vite allows module
+requests from `http://ankole.localhost:4000` and its single-label Pod hosts in
+both editions so that browser hosts served by Phoenix can load the login
+application.
 
-In development, Vite permits module requests from `http://ankole.localhost:4000`
-and its single-label Pod hosts in both editions. These origins must match the
-browser hosts that Phoenix serves, so that the login application can load.
+An `authentication_ref` encodes an authentication ID and revision to select a
+proof rather than act as a credential. At the web boundary, Ankole requires both
+a valid matching proof cookie and a live server record in the same browser
+group; a group ID or a known `authentication_ref` by itself grants nothing. If
+an API caller supplies a stale or unknown reference, Ankole rejects the request
+without falling back to another signed-in account. Ordinary requests read and
+validate only the cookie for the selected authentication ID, whereas only an
+identity chooser reads all authentication cookies. Streaming connections retain
+the selected proof and recheck its server state before sending each frame.
 
-`authentication_ref` encodes an ID and revision. It selects a proof; it is not
-a credential. The web boundary requires the matching valid cookie and server
-record, in the same browser group. A group ID or a known reference alone grants
-nothing. An explicit stale or unknown API reference fails without fallback.
-Normal requests validate only the cookie for the selected authentication ID.
-Only an identity chooser reads all authentication cookies. Stream frames keep
-the selected proof and check its current server state each time.
+HTML shells emit `ankole-authentication` and `ankole-pod` metadata, which
+browser API clients echo in the `x-ankole-authentication` and `x-ankole-pod`
+request headers. Because `EventSource`, file subresources, and sandboxed Applet
+`iframe`s cannot attach custom headers, Pod conversation SSE URLs and
+`GET /api/v2/pod/pages/:id/files/content` pass those references as query
+parameters, and
+`GET /pod/applet-frame/:authentication_ref/:id/:revision/*path` embeds the
+authentication reference in the path. Even on these routes, the server requires
+the matching proof cookie and browser group, allowing an open document to keep
+its pinned identity after another account becomes the browser default. No other
+API, navigation, or OIDC authorization URL accepts an identity parameter to
+impersonate or switch accounts, and shareable links carry only the tenant and
+resource path.
 
-The shell emits `ankole-authentication` and `ankole-pod` metadata. Browser API
-requests send `x-ankole-authentication` and `x-ankole-pod`. EventSource, file
-subresources, and sandboxed Applet frames cannot send these headers, so Pod
-conversation event URLs and `GET /api/v2/pod/pages/:id/files/content` carry the
-same references in their query, and
-`GET /pod/applet-frame/:authentication_ref/:id/:revision/*path` carries the
-authentication reference in its path. These requests still require the selected
-proof cookie and browser group, so an open document keeps its identity when
-another account becomes active. Other API, navigation, and OIDC authorization
-URLs cannot select another logged-in account by adding an identity parameter.
-Shareable links contain only the tenant and resource.
+On the server, Pod API gates verify the selected tenant, authentication, current
+Human access, and credential binding. Conversation endpoints verify either
+participant membership or, for a Page-anchored thread, `page_view` permission on
+its anchor Page. Console API endpoints require current `siteadmin` membership; a
+Pod login never grants access to `/api/v2` Console management routes or native
+Console file transfers. Protected responses disallow shared caching.
 
-Pod API gates check the selected tenant, authentication, current Human access,
-and binding. Conversation operations check participant membership or, for a
-Page-anchored thread, `page_view` on its anchor Page. A Console
-API requires current siteadmin membership; Pod login does not grant access to
-v2 management operations or native Console file transfers. Protected responses cannot enter a shared cache.
-Pod query keys include both identity and tenant. Console data selection is local
-to the document's authentication. Switching the browser default does not change
-an open document or cause a failed request to retry as another person.
-Navigation within a Pod document to `/me` or `/settings` keeps that document's
-authentication and tenant.
+In the browser, Pod query cache keys include both the authentication identity
+and the tenant, and Console data selection stays local to the open document's
+authentication. Changing the browser default neither mutates an already open
+document nor causes a failed request to retry under another person's account.
+Navigating within a Pod document to `/me` or `/settings` likewise preserves that
+document's pinned authentication and tenant.
 
-Authenticated shells and authenticated APIs use the selected authentication's
-CSRF secret. Ceremony shells (`/sessions/new`, `/setup`, `/join/:token`,
-`/oauth/logout`) use the sealed browser session cookie's CSRF state, so starting
-or repeating a login ceremony does not modify another tab's authentication CSRF
-secret. Ceremony API endpoints accept the session CSRF token or, when called
-from an authenticated shell, the selected authentication's CSRF token.
-BrowserCSRF loads the selected state for the request, verifies both token
-validity and an exact matching Origin when supplied, and clears process-local
-token state after the response. SameSite does not establish that two Pod origins
-trust each other.
+Authenticated shells and APIs use the selected authentication's CSRF secret. By
+contrast, ceremony shells (`/sessions/new`, `/setup`, `/join/:token`, and
+`/oauth/logout`) use the CSRF state inside the sealed browser group cookie, so
+starting or repeating a login flow in one tab never invalidates another tab's
+authenticated CSRF secret. Ceremony API endpoints accept either the session CSRF
+token or, when called from an authenticated shell, the selected authentication's
+CSRF token. Because `SameSite` cookies do not make two Pod subdomains trust each
+other, `BrowserCSRF` loads the selected CSRF state for the request, verifies
+both the token and an exact `Origin` match whenever `Origin` is present, and
+clears process-local token state after the response finishes.
 
 ## Concurrent completion and revocation
 
-Login completion, single exit, and global exit lock the browser row. Each
-mutation advances `browser.revision`. A new or revoked target authentication
-gets that revision. Reverification of a live authentication preserves its
-reference and CSRF state, so pinned tabs and online RP sessions remain usable.
-Console admission is preserved when another ceremony uses the same site proof.
-Global exit also writes `logout_revision`. Selection alone does not advance
-either counter.
+Completing a login, logging out a single account, and logging out browser-wide
+all acquire the browser group row lock and increment `browser.revision`. A newly
+created or revoked authentication receives that new revision, whereas
+re-verifying a live authentication preserves its `authentication_ref` and CSRF
+state so pinned tabs and online RP sessions keep working. Using an existing site
+proof in another ceremony also preserves its `console_authenticated` admission.
+Browser-wide logout additionally updates `browser.logout_revision`, while merely
+switching the default account advances neither counter.
 
-An outbound `OidcState` or inbound `AuthorizationRequest` can complete only when:
+An outbound `OidcState` or inbound `AuthorizationRequest` can complete only when
+all three conditions hold:
 
 ```text
 ceremony is unconsumed and unexpired
@@ -152,127 +178,145 @@ ceremony.started_revision >= browser.logout_revision
 target does not exist, or target.revision <= ceremony.started_revision
 ```
 
-Ordinary email OTP verification establishes a new authentication. The challenge
-does not bind that login to a browser revision from code delivery. A valid
-unused ordinary code can complete after an earlier authentication ends.
-See [Authentication](Authentication.md#verification-ceremonies) for the code's
-lifetime, replacement rules, and current policy checks.
+Ordinary email OTP verification creates a fresh authentication without binding
+the code to the browser revision that was current when the email was sent, so an
+unused, unexpired code can still complete after an earlier session logs out; see
+[Authentication](Authentication.md#verification-ceremonies) for code lifetimes,
+replacement rules, and policy checks.
 
-The target key is browser, provider, subject, purpose, and tenant. A site source
-uses purpose `site` and no tenant, including when an OAuth request invokes
-it. A native source uses its tenant, provider, and Principal UID. The provider's
-verified external ID is retained separately.
+Ankole keys each authentication target by `(browser, provider, subject, purpose,
+tenant)`. A site source always uses purpose `site` with no tenant, even when
+invoked by an OAuth request, whereas a native tenant source uses its tenant,
+provider, and Principal UID while storing the provider's verified external ID
+separately.
 
-An authentication selected for OAuth reauthentication fixes its expected
-authentication ID on `AuthorizationRequest`. Personal settings start
-reauthentication through `/api/v2/pod/me/reauthentication`, which seals a
-10-minute `browser.reauth` ticket bound to the browser ID, tenant ID, Human UID,
-authentication ID, and `started_revision`. Another permitted login source can
-complete that operation only if it resolves to the same Human. Neither path can
-overwrite a target changed after `started_revision`. Single exit advances the
-revoked authentication's revision and writes a revocation tombstone, so any
-in-flight OIDC ceremony or reauthentication pinned to that authentication or
-target is rejected at completion.
+When OAuth triggers reauthentication for a selected account, Ankole pins that
+expected authentication ID on `AuthorizationRequest`. When a user starts
+reauthentication from personal settings (`/api/v2/pod/me/reauthentication`),
+Ankole seals a 10-minute `browser.reauth` ticket bound to the browser ID, tenant
+ID, Human UID, authentication ID, and `started_revision`. Another permitted
+login source can satisfy that reauthentication only if it resolves to the same
+Human, and neither path can overwrite a target modified after
+`started_revision`. Logging out a single account increments that
+authentication's revision and writes a revocation tombstone, causing completion
+to reject any in-flight OIDC ceremony or reauthentication pinned to that
+authentication or target.
 
-For its session-bound OIDC interactions, Logto's
+For session-bound OIDC interactions, Logto's
 [email verification routes](https://github.com/logto-io/logto/blob/2c9fde42fdea88f43a802e35c9d47d14afaefa39/packages/core/src/routes/experience/index.ts#L60-L69)
-load interaction details before verification. Its pinned OIDC provider
+load interaction details before verification, and its pinned OIDC provider
 [rejects an interaction whose bound session was destroyed](https://github.com/logto-io/node-oidc-provider/blob/513c523c0e68ee6112da8c871cce86204a136163/lib/provider.js#L445-L452).
-This check validates the login context; code expiry and consumption are separate.
+That check validates the login session context independently of OTP expiry and
+single-use consumption.
 
 | Interleaving | Result |
 | --- | --- |
-| A and B start OIDC ceremonies at revision 10; B completes at 11 in add mode. | A can complete if A's own target did not change. |
-| Two A OIDC ceremonies start at 10; one completes at 11. | The other fails. |
-| A exits before its old callback returns. | The retained revocation record rejects that callback; B remains valid. |
-| Global exit precedes an old callback. | `logout_revision` rejects it. |
-| An ordinary code is sent before logout and submitted afterward. | The valid unused code establishes a new authentication. |
-| A late HTTP response writes an old A cookie. | Only A's proof becomes unusable; B's differently named cookie remains valid. |
+| A and B start OIDC ceremonies at revision 10; B completes at 11 in add mode. | A can still complete because A's own target did not change. |
+| Two OIDC ceremonies for A start at revision 10; one completes at 11. | Completion rejects the second callback because A's target advanced to 11. |
+| A logs out before its earlier OIDC callback returns. | Completion rejects the callback against A's revocation tombstone; B remains valid. |
+| Browser-wide logout precedes an earlier OIDC callback. | Completion rejects the callback because `browser.logout_revision` advanced. |
+| An ordinary OTP code is sent before logout and submitted afterward. | Verification accepts the valid unused code and creates a new authentication. |
+| A delayed HTTP response overwrites A's cookie with an older revision. | Only A's proof becomes unusable; B's separately named cookie remains valid. |
 
-Revocation records remain until the group can be removed. They cannot disappear
-while an old OIDC ceremony could mistake the target for a new subject. OIDC
-completion, evidence writes, and state consumption commit together. OAuth
-completion binds the verified authentication to one `AuthorizationRequest`, which
-`/oauth/authorize/resume` consumes once for code issuance.
+Revocation tombstones stay in PostgreSQL until the browser group itself is
+eligible for removal, preventing a delayed OIDC callback from mistaking a
+revoked target for a brand-new subject. OIDC completion, evidence writes, and
+state consumption commit in one transaction. Likewise, OAuth completion binds
+the verified authentication to a single `AuthorizationRequest`, which
+`/oauth/authorize/resume` consumes once when issuing the authorization code.
 
-Provider network requests run outside the browser lock. Completion rechecks
-current state. Use the order browser, then Principal, then RP associations.
-Site authentication locks verified Humans in stable UID order.
+Upstream provider network calls always run outside the browser lock. When the
+callback returns, completion rechecks current state under locks acquired in
+strict order: browser group first, then Principal (locking verified Humans in
+ascending UID order during site authentication), and finally RP associations.
 
-The server cannot order HTTP responses at the browser. After a late response
-replaces A's cookie with an obsolete revision, A must sign in again. This
-recovery cannot invalidate another authentication.
+Because the server cannot control the arrival order of HTTP responses at the
+browser, a delayed response that overwrites A's proof cookie with an obsolete
+revision requires A to sign in again, without affecting any other signed-in
+account.
 
 ## Site sources and Human recovery
 
-`IdentityProviders.SiteSources` verifies a source's proof and returns its
-subject, actual authentication time, ceremony start, verified contacts, and
-methods. Email OTP uses a consumed durable challenge. The source identifier
-addresses personal credential bindings across tenants.
+`IdentityProviders.SiteSources` verifies an upstream or site source's proof and
+returns its subject, actual authentication time, ceremony start time, verified
+contacts, and authentication methods. Email OTP relies on a consumed durable
+challenge, and the source identifier links personal credential bindings across
+tenants.
 
-Every Pod proof requires an active Human, an available tenant, a current
-credential binding and access version, and the current Pod login policy.
-Unavailable membership in one Pod leaves other independently valid Pods usable.
+Every Pod access proof requires an active Human, an available tenant, a current
+credential binding and `access_version`, and compliance with the Pod's current
+login policy. If a Human's membership becomes unavailable in one Pod, their
+independently valid proofs in other Pods remain usable.
 
-A fresh target-Pod login can claim a unique pending Human. The public chooser
-and Pod switcher can also claim a pending member or directed invitation.
-The ceremony start must be later than the last release of a recyclable
-identifier. An older proof requires another verification.
+A fresh login targeting a specific Pod can claim a unique pending Human, and
+both the public chooser and the Pod switcher can claim a pending member or a
+directed invitation. When claiming a recyclable contact identifier, the ceremony
+start time must be newer than the identifier's most recent release timestamp; an
+older proof requires a fresh verification ceremony.
 
-`create_pod_access/2` locks the site authentication while its callback creates
-the tenant, Human, credential, and administrator membership in one transaction.
-Invitation acceptance locks its quota and records tenant access in that same
-transaction. Enterprise SSO completes only its fixed tenant's proof.
+During Pod creation, `create_pod_access/2` holds the site authentication lock
+while its callback creates the tenant, Human, credential binding, and
+administrator membership in a single transaction. Accepting an invitation
+likewise locks the tenant's member quota and records tenant access in one
+transaction. Enterprise SSO completes proofs only for its configured tenant.
 
-Restoration requires fresh verification at the restored Human access version.
-Switching checks evidence; it cannot refresh that evidence.
+Restoring a disabled Human requires a fresh verification ceremony at the
+restored Human `access_version`; account switching checks stored proofs and
+cannot refresh verification evidence.
 
 ## Freshness and logout
 
-Email OTP verification establishes a new authentication event. A provider
-adapter must supply evidence for requested freshness. Ordinary Lark login has
-no such evidence and omits `auth_time`; it cannot satisfy `prompt=login`,
-`max_age`, or essential `auth_time`. A profile read or callback time is not a
-new authentication. Reuse and selection preserve the event's actual time.
+Email OTP verification records a fresh authentication event. Upstream provider
+adapters must supply explicit provider evidence whenever a caller requests
+freshness: ordinary Lark login provides no authentication timestamp, omits
+`auth_time`, and therefore cannot satisfy `prompt=login`, `max_age`, or an
+essential `auth_time` claim. Reading a user profile or receiving a callback does
+not count as a new authentication event, and reusing or switching sessions
+preserves the original authentication timestamp.
 
-Personal credential changes and voluntary Pod exit use `authenticated_at`, the
-local completion time of browser verification. This verification expires 15
-minutes after that timestamp. `challenge_started_at` is the ceremony start used to reject
-proofs from before a recycled identifier was released. Personal settings
-reauthentication requires a new verification ceremony and cannot reuse a stored
-proof. The provider's `auth_time` remains its actual authentication event time.
-OIDC `prompt=login` and `max_age` keep their provider evidence requirements.
+Sensitive personal-credential updates and voluntary Pod exit check
+`authenticated_at` (the local timestamp when browser verification completed),
+which satisfies freshness checks for 15 minutes. Separately,
+`challenge_started_at` records when the verification ceremony began so Ankole
+can reject proofs started before a recycled contact identifier was released.
+Reauthenticating from personal settings always starts a new verification
+ceremony rather than reusing a stored proof, while upstream `auth_time`,
+`prompt=login`, and `max_age` continue to enforce OIDC provider evidence rules.
 
-Single exit revokes one authentication and its online RP associations. Its
-other Pod proofs fail with the parent. Other authentications remain usable.
-If it was active, the default is cleared; another account is not selected.
-A Pod stream rechecks its original proof before each frame or ping.
+Logging out a single account revokes that authentication, its dependent Pod
+proofs, and its online RP associations while leaving other signed-in accounts
+intact. If the revoked account was the browser default, Ankole clears the
+default rather than silently selecting another account. Open Pod streams recheck
+their pinned proof before each frame or heartbeat ping.
 
-Console logout and confirmed RP logout apply browser-wide. They advance
-`logout_revision` and end all authentications and online RP associations in one
-transaction. They cancel pending OIDC states and authorization requests.
-Reauthentication tied to a revoked proof also fails. The response drops the
-individual proof cookies after commit and keeps the group reference.
-A stale RP logout confirmation cannot end a newer browser revision. A
-late response cannot restore a revoked proof. RP confirmation commits this
-revocation once. Back-channel delivery and cookie cleanup do not repeat it or
-end an authentication added after that commit.
+Console logout and confirmed RP logout apply across the entire browser group: in
+one transaction, Ankole advances `logout_revision`, revokes all authentications
+and online RP associations, and cancels pending `OidcState` and
+`AuthorizationRequest` rows (causing any reauthentication tied to a revoked
+proof to fail as well). After the transaction commits, the HTTP response clears
+the individual proof cookies while retaining the unprivileged group cookie.
+Revision checks ensure that neither a stale RP logout confirmation nor a delayed
+response can revoke a newer browser revision or resurrect a revoked proof. RP
+confirmation commits this revocation once, so subsequent back-channel logout
+deliveries and cookie cleanups neither repeat the mutation nor terminate
+authentications created afterward.
 
-Browser exit does not disable a Human, end another browser, or log out an
-upstream provider. Granted `offline_access` tokens keep their OIDC lifetime;
-Human disablement revokes them. See [OIDC Server](OIDCServer.md).
+Logging out of a browser does not disable the Human Principal, sign out other
+browsers, or sign out the upstream identity provider. Refresh tokens granted
+with `offline_access` retain their OIDC lifetime until they expire or the Human
+is disabled; see [OIDC Server](OIDCServer.md).
 
 ## Expiration and cleanup
 
-The hourly OIDC cleanup uses one cutoff across all tenants. Tenant cleanup
-removes expired inbound `AuthorizationRequest` rows; afterward, the job calls
-`BrowserSessions.cleanup_expired/1` once, including when a tenant failed.
-Browser Sessions removes expired `OidcState` rows and expired groups with no
-retained RP association. Foreign keys then remove their independent
-authentications and proofs. Tenant deletion removes its access proofs, outbound
-OIDC states, inbound OIDC authorization requests, and native authentication rows
-through the tenant deletion owner.
+Hourly OIDC cleanup uses a single cutoff timestamp across all tenants: it first
+deletes expired inbound `AuthorizationRequest` rows per tenant, and then calls
+`BrowserSessions.cleanup_expired/1` once (even if a tenant sweep failed).
+`BrowserSessions` deletes expired `OidcState` rows and expired browser groups
+that have no retained RP associations, cascading via foreign keys to remove
+their authentications and Pod proofs. Deleting a tenant removes its Pod access
+proofs, outbound `OidcState` rows, inbound `AuthorizationRequest` rows, and
+native tenant authentications through the tenant-deletion owner.
 
-The configured `RequestHost` policy declares host classification, the shared
-cookie domain, tenant origins, canonical origins, and explicit per-host route
-admission; a route declaration alone does not grant access from a Pod Host.
+Finally, the `RequestHost` policy defines host classification, the shared cookie
+domain, tenant origins, canonical origins, and explicit per-host route
+allowlists; declaring a Phoenix route alone never exposes it on a Pod host.

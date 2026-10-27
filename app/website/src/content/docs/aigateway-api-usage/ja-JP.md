@@ -1,17 +1,17 @@
 ---
 title: AIGateway API の使い方
-description: 外部の呼び出し側が AIGateway REST API を使う方法——OpenResponses 互換エンドポイント、Agent と OIDC Human の token の違い、ステートレス/ステートフル呼び出し、実践例。
+description: 外部クライアントから AIGateway REST API を呼び出す実践ガイド。OpenResponses 互換エンドポイント、Agent トークンと OIDC Human トークンの違い、ステートレス呼び出しの例を説明します。
 section: Developer guide
 order: 126
 ---
 
-AIGateway は worker が呼び出す内部境界だけではありません。外部アプリケーション、企業システム、SDK が直接呼び出せる REST API です。このページは、呼び出し側のための実践ガイドです。エンドポイント、認証、2 つの呼び出しモード、実践例を説明し、[AIGateway](../ai-gateway/) のコンセプトページを実践的な使い方で補完します。
+AIGateway は、Worker が内部から呼び出すためだけの境界ではありません。外部アプリケーション、社内システム、各種 SDK から直接利用できる REST API でもあります。このページでは [AIGateway](../ai-gateway/) の概念ページを補完し、外部の呼び出し元向けにエンドポイント、認証方式、呼び出しモード、具体的なリクエスト例を紹介します。
 
-決定的な性質を先に述べます。AIGateway API は**OpenResponses 互換であり、Principal にスコープされます**。呼び出し側は bearer token（Agent または OIDC Human）を提示し、OpenResponses 形式のリクエストを送り、JSON レスポンスまたはストリームを受け取ります。呼び出し側が provider credential を見ることは決してありません——それらは control plane が所有します。
+最初に押さえておきたいのは、AIGateway API が **OpenResponses 互換であり、かつ Principal ごとにスコープ分離されている**という点です。呼び出し元は bearer token（Agent 用または OIDC Human 用）を提示して OpenResponses 形式のリクエストを送り、JSON レスポンスまたはストリームを受け取ります。上流 provider の認証情報はすべて control plane が管理するため、呼び出し元が API キーなどに触れることはありません。
 
 ## 認証
 
-`/api/v1/ai-gateway` 配下のすべての呼び出しには bearer token が必要です:
+`/api/v1/ai-gateway` 配下のすべてのリクエストには bearer token が必要です。
 
 ```bash
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -20,18 +20,18 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "Hello" }'
 ```
 
-2 種類の token が受け入れられます。
+受け付けられるトークンは次の 2 種類です。
 
-- **Agent token**——1 つの Agent の model binding にスコープされます。統合が特定の Agent に代わって行動するときに使います。
-- **OIDC Human token** — `ai_gateway.write` を持つ OIDC Client が active Human に発行します。その Client の model alias のみ使用でき、`subject_type = "oidc_human"` です。
+- **Agent token** — 特定の Agent の model binding にスコープされたトークンです。外部連携が特定の Agent として処理を実行する場合に使用します。
+- **OIDC Human token** — `ai_gateway.write` スコープを持つ OIDC Client から有効な Human に発行されるトークンです。その Client に許可されたモデルエイリアスのみを使用でき、`subject_type = "oidc_human"` として扱われます。
 
-OIDC Human token を取得するには、Console で `ai_gateway.write` scope を持つ OIDC Client を作成し、許可する group と model alias を設定します。Authorization Code と PKCE でログインしてください。長期利用には `offline_access` を要求し、ローテーションする Refresh Token を使用します。Human は許可された group に所属する必要があり、Client の model alias のみ使用できます。直接の `provider_id/model` selector は使用できません。
+OIDC Human token を取得するには、Console で `ai_gateway.write` スコープを持つ OIDC Client を作成し、許可するグループとモデルエイリアスを設定したうえで、Authorization Code + PKCE でログインします。長期間利用する場合は `offline_access` を要求し、ローテーション式の Refresh Token を使用してください。利用する人間は許可されたグループに所属している必要があり、指定できるのはその Client のモデルエイリアスのみです（`provider_id/model` 形式の直接指定はできません）。
 
-token がどのように Principal に解決されるかは、[Principal and AuthZ](../principal-authz/) を参照してください。
+トークンからどのように Principal が解決されるかについては、[Principal and AuthZ](../principal-authz/) を参照してください。
 
 ## ステートレスレスポンス（HTTP と SSE）
 
-ステートレス呼び出しは、1 つのリクエスト、1 つのレスポンスです。完全な input を送り、完全なボディを受け取ります:
+ステートレス呼び出しは、1 回のリクエストに対して 1 回のレスポンスが返るシンプルな方式です。入力全体を送ると、完了したレスポンスボディ全体が返されます。
 
 ```bash
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -40,7 +40,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "Summarize this thread.", "store": false }'
 ```
 
-ストリーミングには `"stream": true` を追加します。同じエンドポイントが Server-Sent Events に切り替わります:
+ストリーミングで受け取りたい場合は `"stream": true` を指定します。同じエンドポイントがそのまま Server-Sent Events（SSE）に切り替わります。
 
 ```bash
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -49,26 +49,26 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "Draft a release note.", "stream": true }'
 ```
 
-ステートレス HTTP と SSE はステートフルフィールド（`previous_response_id`、`conversation`、`store`）を拒否します。続きには WebSocket パスを使ってください。
+なお、HTTP および SSE によるステートレス呼び出しでは、ステートフル用のフィールド（`previous_response_id`、`conversation`、`store`）は拒否されます。ターンをまたいで会話を継続したい場合は、WebSocket 経路を使用してください。
 
 ## その他のエンドポイント
 
 | エンドポイント | 用途 |
 |---|---|
-| `GET /models` | 現在利用可能な model を一覧表示 |
-| `POST /embeddings` | embeddings を作成 |
+| `GET /models` | 現在の認証主体から利用可能なモデルを一覧取得 |
+| `POST /embeddings` | embedding を生成 |
 | `POST /rerank` | ドキュメントを再ランク付け |
-| `POST /web_search` | ウェブを検索 |
-| `POST /web_fetch` | ウェブページを取得 |
+| `POST /web_search` | Web を検索 |
+| `POST /web_fetch` | Web ページを取得 |
 
-それぞれ [AIGateway](../ai-gateway/) コンセプトページと、関連する User guide の機能ページに文書化されています。
+各エンドポイントの詳細については、[AIGateway](../ai-gateway/) の概念ページおよび対応するユーザーガイドの各機能ページを参照してください。
 
 ## このガイドではないもの
 
-これは AIGateway のコンセプトページではありません。完全なルートテーブル、ステートフルなライフサイクル、エラーエンベロープは [AIGateway](../ai-gateway/) を読んでください。SDK でもありません。Ankole はクライアント SDK を出荷しません。呼び出し側は標準の HTTP クライアントで REST API にアクセスします。
+このページは AIGateway 全体の仕様書ではありません。全ルートの一覧、WebSocket 上のステートフルなライフサイクル、エラーレスポンスの詳細については [AIGateway](../ai-gateway/) を参照してください。また、Ankole では専用のクライアント SDK を配布していないため、標準の HTTP クライアントや OpenResponses 互換クライアントから直接 REST API を呼び出してください。
 
 ## 次のステップ
 
-- AIGateway の完全な面については、[AIGateway](../ai-gateway/) を読んでください。
-- Provider の解決とリクエスト準備については、[Provider Runtime](../provider-runtime/) を読んでください。
-- Console API リファレンスについては、[Console API reference](../console-api/) を読んでください。
+- AIGateway の全仕様については、[AIGateway](../ai-gateway/) を参照してください。
+- Provider の解決ロジックとリクエスト準備の仕組みについては、[Provider Runtime](../provider-runtime/) を参照してください。
+- Console 側の管理 API については、[Console API reference](../console-api/) を参照してください。

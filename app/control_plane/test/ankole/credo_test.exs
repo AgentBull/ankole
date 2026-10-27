@@ -103,6 +103,13 @@ defmodule Ankole.CredoTest do
     assert [] =
              check(
                Ankole.Credo.AshBoundary,
+               String.replace(source, "Sample", "Ankole.Pod.Bases.Records"),
+               "sample.ex"
+             )
+
+    assert [_, _, _] =
+             check(
+               Ankole.Credo.AshBoundary,
                String.replace(source, "Sample", "Ankole.Tenants.Jobs.Delete"),
                "sample.ex"
              )

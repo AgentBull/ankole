@@ -25,7 +25,7 @@ export const quickstartLabels = {
 export const agentInstallPrompt = [
   '请参考 https://ankole.agentbull.com/zh-Hans-CN/docs/quickstart/index.md，帮我部署并配置一个 Ankole 私有化部署实例。',
   '请先检查我的运行环境，帮我在 Docker Compose、Kubernetes 和源码安装中选择最合适的部署方式。随后配置登录方式（免密邮箱验证码 Email OTP 或企业 SSO 身份源提供商 IdP）、大语言模型提供商（LLM Provider）、Agent、聊天渠道（Channel Provider）和信号路由规则（Signal Binding）。如果我没有指定登录方式和聊天平台，请先询问我使用哪种登录方式（SMTP 邮箱验证码或企业 IdP）和聊天平台，不要自行选择。',
-  '不要在对话或命令输出里泄露 secret。直到我能在选定的 IM 中收到 Agent 的真实回复，这项工作才算完成。'
+  '切勿在对话或命令输出中泄露任何密钥。直到我能在所选 IM 中收到 Agent 的真实回复，整个部署与配置才算完成。'
 ].join('')
 
 export const deploymentTabs = [
@@ -33,7 +33,7 @@ export const deploymentTabs = [
     value: 'docker',
     label: 'Docker Compose',
     badge: '单机推荐',
-    summary: "一台主机运行 PostgreSQL 18、ankole-function-runtime、控制面和 Caddy；选定的 provider 为每个 Agent 创建一个 Worker。",
+    summary: "单台主机统一运行 PostgreSQL 18、ankole-function-runtime、控制面和 Caddy，并由所选 WorkerProvider 为每个 Agent 创建专属 Worker。",
     prerequisites: [
       '能运行 Linux amd64 或 arm64 容器的 Linux、macOS 或 Windows 主机',
       'Docker Engine 与 Compose 插件，或 Docker Desktop',
@@ -41,7 +41,7 @@ export const deploymentTabs = [
     ],
     basic: {
       title: '使用 Docker Compose 安装',
-      intro: '不要把模型 API key 写进部署文件。登录 Console 后，再在其中添加凭证。',
+      intro: '请勿将模型 API 密钥写入部署配置文件；待登录 Console 后，再在界面中添加模型凭证。',
       steps: [
         {
           title: '下载部署文件',
@@ -58,8 +58,8 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '生成四个彼此独立的 secret',
-          body: ['复制并运行这条命令，再把完整输出粘贴到 `.env`。'],
+          title: '生成四组彼此独立的密钥',
+          body: ['复制并运行以下命令，再将完整输出粘贴到 `.env` 文件中。'],
           code: [
             {
               language: 'bash',
@@ -81,10 +81,10 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '设置 Docker socket 的所属组',
+          title: '设置 Docker Socket 所属用户组',
           body: [
-            '控制面通过 Docker socket 创建 Worker 容器。它以非特权用户运行，并通过容器内看到的 socket 所属组访问 socket。',
-            '在 Linux 上，把 .env 中的 ANKOLE_DOCKER_GID 设为下面命令输出的组 ID。在 macOS 的 Docker Desktop 上，设置 ANKOLE_DOCKER_GID=0。Docker Desktop 交给容器的 socket 所属组总是 0，与主机显示的组无关。只有 socket 不在 /var/run/docker.sock 时，才需要设置 ANKOLE_DOCKER_SOCKET。'
+            '控制面以非特权用户身份运行，需借助容器内看到的 Docker Socket 所属用户组权限来创建和管理 Worker 容器。',
+            '在 Linux 主机上，将 .env 中的 ANKOLE_DOCKER_GID 设为下方命令输出的组 ID；在 macOS 的 Docker Desktop 上，直接设置 ANKOLE_DOCKER_GID=0（Docker Desktop 映射进容器的 Socket 所属组恒为 0，与宿主机显示的组无关）。仅当 Socket 路径不在 /var/run/docker.sock 时，才需额外设置 ANKOLE_DOCKER_SOCKET。'
           ],
           code: [
             {
@@ -92,16 +92,16 @@ export const deploymentTabs = [
               code: 'stat -c %g /var/run/docker.sock   # Linux'
             }
           ],
-          caution: '能访问 Docker socket 就等同于拥有主机的 root 权限。请把这台主机视为受信任的第一方计算边界。'
+          caution: '持有 Docker Socket 访问权限等同于拥有宿主机的 root 权限，请将所在主机视为受信任的第一方计算边界加以保护。'
         },
         {
           title: '配置访问域名',
-          body: ['把 ANKOLE_HOST 设为指向这台主机的域名。ACME_EMAIL 应能收到证书通知。'],
+          body: ['将 ANKOLE_HOST 设为解析到当前主机的域名，并确保 ACME_EMAIL 能够正常接收证书通知。'],
           fields: [
             {
               name: 'ANKOLE_HOST',
               value: 'ankole.example.com',
-              description: '用户访问、SSO 回调和 provider 回调共用的 HTTPS 域名。'
+              description: '用户访问、企业 SSO 回调和外部平台回调共用的 HTTPS 域名。'
             },
             {
               name: 'ACME_EMAIL',
@@ -119,7 +119,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose 启动 PostgreSQL 18 与 ankole-function-runtime，完成数据库迁移后，再启动控制面与 Caddy。"
+            "Docker Compose 会先启动 PostgreSQL 18 与 ankole-function-runtime，完成数据库迁移后，再启动控制面与 Caddy。"
           ]
         },
         {
@@ -130,23 +130,23 @@ export const deploymentTabs = [
               code: 'docker compose logs control-plane | grep "SETUP ACTIVATION CODE"'
             }
           ],
-          body: ['打开 https://<ANKOLE_HOST>/setup，输入日志中的 activation code。']
+          body: ['打开 https://<ANKOLE_HOST>/setup，输入日志中输出的激活码。']
         }
       ]
     },
     advanced: {
       title: '正式环境的发布、备份和本地证书',
-      summary: '把 Ankole 用于正式环境前，请先看完这些设置。',
+      summary: '将 Ankole 投入正式生产使用前，请先核查以下设置。',
       steps: [
         {
           title: '固定经过验证的镜像',
           body: [
-            '控制面镜像指定同一次源码提交的 Worker 镜像，控制面用它创建每个 Worker。需要固定版本时，请把控制面镜像与同版本的 ankole-function-runtime 镜像一并设为不可变的 digest。'
+            '控制面镜像内置绑定了同一次源码提交构建的 Worker 镜像，并据此创建每个 Worker。生产环境锁定版本时，请将控制面镜像与同版本的 ankole-function-runtime 镜像一并设为不可变的镜像摘要（digest）。'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
-              description: '控制面镜像，建议填写不可变的 digest。它同时指定 Worker 镜像。'
+              description: '控制面镜像，建议填写不可变 digest，同时决定配套的 Worker 镜像版本。'
             },
             {
               name: 'ANKOLE_FUNCTION_RUNTIME_IMAGE',
@@ -171,7 +171,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "停止所有写者后，备份 PostgreSQL（以及配置了独立分片时的全部 BASE_DB_URLS 数据库）、ankole_files_data、全部持久 Agent Home 与部署密钥（ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）。仅停止控制面不会停止 Worker。请在隔离资源上验证完整恢复，具体步骤见“备份与还原”。"
+            "停止所有写入进程后（注意仅停止控制面不会停止正在运行的 Worker），将 PostgreSQL 主库（以及配置了独立分片时的全部 BASE_DB_URLS 数据库）、ankole_files_data、全部持久 Agent Home 与部署密钥（ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）一并完整备份，并在隔离资源上验证完整还原流程，具体步骤见“备份与还原”。"
           ]
         },
         {
@@ -188,15 +188,15 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'docker compose stop 会保留 Worker 容器仍在使用的 ankole_workers 网络。Worker 容器会继续运行，并连接到新控制面。控制面会在 Agent 空闲时替换它的旧镜像 Worker。'
+            '执行 docker compose stop 时会保留 Worker 容器正在使用的 ankole_workers 网络，使运行中的 Worker 容器不受中断并自动重连到新控制面；旧镜像的 Worker 会在对应 Agent 空闲时平滑替换。'
           ],
           caution:
-            "docker compose down -v 删除 Compose 管理的数据库与文件存储卷；独立 Agent Home 卷有自己的生命周期。删除任何持久存储之前，先验证完整备份。"
+            "执行 docker compose down -v 会删除由 Compose 管理的数据库卷与文件存储卷；独立的 Agent Home 卷拥有各自独立的生命周期。删除任何持久存储之前，请先验证备份完整可用。"
         },
         {
           title: '在本机测试 HTTPS',
           body: [
-            '本机测试时，可把 ANKOLE_HOST 设为 ankole.localhost。首次启动后，复制 Caddy 根证书，并在每台客户端上将它设为受信任证书。'
+            '在本机测试时，可将 ANKOLE_HOST 设为 ankole.localhost。首次启动后导出 Caddy 本地根证书，并在每台测试客户端上将其设为受信任证书。'
           ],
           code: [
             {
@@ -222,18 +222,18 @@ export const deploymentTabs = [
     value: 'kubernetes',
     label: 'Kubernetes',
     badge: '企业级推荐',
-    summary: '团队已经有 Kubernetes 集群，并且能配置调度和 HTTPS Ingress 时，选择这种方式。控制面通过 Kubernetes API 为每个 Agent 创建一个 Worker Pod。',
+    summary: '适合已具备 Kubernetes 集群，并能配置节点调度和 HTTPS Ingress 的企业团队；控制面通过 Kubernetes API 为每个 Agent 创建独立的 Worker Pod。',
     prerequisites: [
       'Kubernetes 1.27 或更高版本，Helm 3 或更高版本',
       'Linux amd64 或 arm64 节点',
-      "HTTPS Ingress，以及支持共享 ReadWriteMany Agent Home PVC 与 ReadWriteOnce 缓存 PVC 的存储"
+      "HTTPS Ingress，以及支持共享 ReadWriteMany（Agent Home PVC）与 ReadWriteOnce（缓存 PVC）的持久化存储"
     ],
     basic: {
       title: '安装 Helm Chart',
-      intro: '默认使用内置的 PostgreSQL 18 镜像，其中已经包含 pg_search 和 vector。',
+      intro: '默认启用内置的 PostgreSQL 18 镜像（已预装 pg_search 和 vector 扩展）。',
       steps: [
         {
-          title: '下载 Chart，并创建 namespace',
+          title: '下载 Chart 并创建命名空间',
           code: [
             {
               language: 'bash',
@@ -246,7 +246,7 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '创建 bootstrap Secret',
+          title: '创建引导 Secret',
           code: [
             {
               language: 'bash',
@@ -314,7 +314,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            '请替换域名、Ingress 配置和两个 StorageClass 名称。如果沿用上面的 DATABASE_URL，请保留 fullnameOverride。'
+            '请按实际环境替换域名、Ingress 配置和两个 StorageClass 名称；若沿用上一步生成的 DATABASE_URL，请保留 fullnameOverride。'
           ]
         },
         {
@@ -343,7 +343,7 @@ export const deploymentTabs = [
               ].join('\n')
             }
           ],
-          body: ['此时还没有 Worker Pod。创建 Agent 时，控制面会一并创建这个 Agent 的 Worker。']
+          body: ['此时集群中还没有 Worker Pod——后续创建 Agent 时，控制面会一并为其创建专属 Worker Pod。']
         },
         {
           title: '打开首次设置页面',
@@ -356,18 +356,18 @@ export const deploymentTabs = [
               ].join('\n')
             }
           ],
-          body: ['打开 https://ankole.example.com/setup，输入 activation code。']
+          body: ['打开 https://ankole.example.com/setup，输入日志中输出的激活码。']
         }
       ]
     },
     advanced: {
       title: '外部 PostgreSQL、镜像版本和集群安全',
-      summary: '正式上线前，请逐项确认这些条件。',
+      summary: '正式上线前，请逐项确认以下条件。',
       steps: [
         {
           title: '使用外部 PostgreSQL',
           body: [
-            '外部数据库必须使用 PostgreSQL 18 或更高版本，预加载 pg_search，并允许应用数据库的 owner 使用 pg_search 和 vector。'
+            '外部数据库必须使用 PostgreSQL 18 或更高版本，在 shared_preload_libraries 中预加载 pg_search，并授权应用数据库属主（owner）安装和使用 pg_search 与 vector 扩展。'
           ],
           code: [
             {
@@ -391,36 +391,36 @@ export const deploymentTabs = [
             },
             {
               name: 'DATABASE_URL',
-              description: '把外部数据库的 URL（连同 ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）存入 ankole-bootstrap。'
+              description: '将外部数据库连接串（连同 ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）存入 ankole-bootstrap。'
             }
           ]
         },
         {
           title: '确认 Worker 与 Function Runtime 的安全配置',
           body: [
-            'Worker Pod 不需要额外的内核权限：容器就是每个 Agent 的隔离边界。Chart 为控制面提供一个 namespace 级 Role，允许它创建和删除 Pod、Secret 和 PVC；为 Worker Pod 提供单独的无权限 ServiceAccount；并让 ankole-function-runtime 在不挂载数据库凭证或 ServiceAccount 令牌的条件下运行。'
+            'Worker Pod 不需要任何额外的内核特权——容器本身就是每个 Agent 的隔离边界。Chart 会为控制面分配一个命名空间级 Role（允许创建和删除 Pod、Secret 与 PVC），为 Worker Pod 绑定独立的无权限 ServiceAccount，并确保 ankole-function-runtime 在不挂载数据库凭据与 ServiceAccount 令牌的条件下运行。'
           ],
           fields: [
             {
               name: 'worker.runtimeClassName',
-              description: '可选。Worker Pod 的 RuntimeClass，例如 gvisor。'
+              description: '可选。Worker Pod 使用的 RuntimeClass，例如 gvisor。'
             },
             {
               name: 'networkPolicy.enabled',
               value: 'true',
-              description: '可选。启用后，Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址，同时 ankole-function-runtime 会阻断 functionRuntime.deniedCIDRs。'
+              description: '可选。启用后，Worker Pod 拒绝一切入站连接，出站仅可访问控制面、DNS 和公网地址，同时 ankole-function-runtime 会按 functionRuntime.deniedCIDRs 阻断受限网段。'
             }
           ],
           caution:
-            'Worker 容器是受信任的第一方组件。控制面持有能创建 Pod 和 Secret 的 namespace 级 Role，请把它当作等同于 root 权限的组件来保护。'
+            'Worker 容器属于受信任的第一方组件；控制面持有可创建 Pod 和 Secret 的命名空间级 Role，请将其当作等同于 root 权限的核心组件加以保护。'
         },
         {
           title: '同步固定和升级控制面、Function Runtime 与 Worker 镜像',
           body: [
-            "请把 controlPlane.image、functionRuntime.image 与（单独指定时的）worker.image 固定为同一验证版本。helm upgrade 之前，备份 PostgreSQL（及独立 BASE_DB_URLS 分片数据库）、文件存储、全部持久 Home 与 bootstrap 密钥（ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）。"
+            "请将 controlPlane.image、functionRuntime.image 与（单独指定时的）worker.image 统一固定为同一已验证版本。执行 helm upgrade 前，先完整备份 PostgreSQL 主库（及独立 BASE_DB_URLS 分片数据库）、文件存储、全部持久 Home 与引导密钥（ANKOLE_SECRET_BASE、RELEASE_COOKIE 和 ANKOLE_FUNCTION_RUNTIME_TOKEN）。"
           ],
           caution:
-            'Helm rollback 不会撤销数据库 migration。如果旧版本应用依赖旧 schema，还必须恢复数据库备份。'
+            '执行 helm rollback 不会自动回滚数据库迁移（migration）；若旧版本应用依赖旧表结构，还必须配套恢复数据库备份。'
         },
         {
           title: '查看 Chart 的完整配置说明',
@@ -437,10 +437,10 @@ export const deploymentTabs = [
   {
     value: 'source',
     label: '源码安装',
-    summary: "源码安装用于开发，启动 PostgreSQL 18、ankole-function-runtime、Phoenix、Console 与前端资源；控制面为每个 Agent 创建 Docker Worker。",
+    summary: "源码安装面向本地开发调试，会启动 PostgreSQL 18、ankole-function-runtime、Phoenix、Console 与前端资源，并由控制面为每个 Agent 创建本地 Docker Worker。",
     prerequisites: [
-      'macOS 或 Linux；Windows 使用 WSL2',
-      '有权限安装系统软件包的账号',
+      'macOS 或 Linux；Windows 请使用 WSL2',
+      '具备安装系统软件包权限的账号',
       'Docker Desktop 或 Docker Engine'
     ],
     basic: {
@@ -458,7 +458,7 @@ export const deploymentTabs = [
               ].join('\n')
             }
           ],
-          body: ['后续命令都从仓库根目录执行。']
+          body: ['后续命令均在仓库根目录下执行。']
         },
         {
           title: '安装项目所需的工具链',
@@ -469,7 +469,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            '脚本会安装编译所需的软件包、Docker、Rust、Elixir、Erlang，以及项目指定版本的 Bun。'
+            '脚本会自动安装编译所需的系统软件包、Docker、Rust、Elixir、Erlang，以及项目指定版本的 Bun。'
           ]
         },
         {
@@ -488,7 +488,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'macOS 用户应先启动 Docker Desktop。如果安装脚本把 Linux 用户加入了 docker group，请注销后重新登录。'
+            'macOS 用户请先启动 Docker Desktop；若安装脚本将当前 Linux 用户新加入了 docker 用户组，请先注销并重新登录。'
           ]
         },
         {
@@ -505,7 +505,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'bun run services:start 会在 Docker 中启动 PostgreSQL 18 和 ankole-function-runtime，随后由 control-plane:setup 初始化数据库。'
+            'bun run services:start 会在 Docker 中启动 PostgreSQL 18 和 ankole-function-runtime，随后由 control-plane:setup 完成数据库初始化。'
           ]
         },
         {
@@ -516,16 +516,16 @@ export const deploymentTabs = [
               code: 'bun dev'
             }
           ],
-          body: ['不要关闭这个终端。打开 http://localhost:4000，输入开发服务打印的 activation code。']
+          body: ['请保持该终端运行，在浏览器打开 http://localhost:4000，输入开发服务打印的激活码。']
         }
       ]
     },
     advanced: {
       title: '检查本地服务、停止环境和使用转发地址',
-      summary: '需要排查本地环境、停止服务，或通过远程 workspace 访问时，再看这里。',
+      summary: '需要排查本地环境、停止基础服务，或通过远程云端工作区访问时，请参考以下说明。',
       steps: [
         {
-          title: '在另一个终端读取 activation code',
+          title: '在另一个终端查看激活码',
           code: [
             {
               language: 'bash',
@@ -550,16 +550,16 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            '创建 Agent 之前，不会有 Worker 容器。每个 Worker 容器以 watch 模式运行本地的 Agent Computer 源码。',
-            '在运行 bun dev 的终端按 Ctrl+C，可停止控制面和 Worker。开发结束后，运行 bun run services:stop 停止 PostgreSQL 18 和 ankole-function-runtime。'
+            '创建 Agent 之前不会有 Worker 容器；创建后，每个 Worker 容器都会以监听（watch）模式运行本地的 Agent Computer 源码。',
+            '在运行 bun dev 的终端按 Ctrl+C 即可停止控制面和 Worker；开发结束后，运行 bun run services:stop 关闭 PostgreSQL 18 和 ankole-function-runtime。'
           ]
         },
         {
-          title: '使用 Codespaces 等转发地址',
+          title: '使用 Codespaces 等端口转发地址',
           body: [
-            '把转发后的 HTTPS origin 登记到 IdP 后台。localhost 和转发地址是两个不同的回调 URL，请使用浏览器实际访问的地址测试登录。'
+            '请将端口转发生成的 HTTPS 访问源（Origin）登记到 IdP 后台——localhost 与转发地址属于两个不同的回调 URL，测试登录时请使用浏览器实际访问的地址。'
           ],
-          caution: '请只在开发环境中从源码运行 Ankole。生产环境请选择 Docker Compose 或 Kubernetes。'
+          caution: '请仅在本地开发环境中从源码运行 Ankole；生产环境请选择 Docker Compose 或 Kubernetes。'
         }
       ]
     }
@@ -571,7 +571,7 @@ export const identityTabs = [
     value: 'email_otp',
     label: '邮箱验证码',
     summary:
-      '使用自有 SMTP 服务和 6 位邮箱验证码完成免密登录初始化。你可以单独使用邮箱验证码登录，也可以后续再添加企业 SSO 身份源提供商。',
+      '使用自有 SMTP 服务和 6 位邮箱验证码完成免密登录初始化。既可以单独使用邮箱验证码登录，也可以后续再接入企业 SSO 身份源提供商。',
     prerequisites: [
       '拥有有效 TLS 证书、可向首位管理员发信的 SMTP 服务器',
       '首位管理员可控的收件箱，用于接收 6 位验证码'
@@ -582,7 +582,7 @@ export const identityTabs = [
         {
           title: '在 /setup 中选择“邮箱验证码”',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code，依次确认“插件”与“行业”步骤后，在“用户登录”中选择“邮箱验证码”。'
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码，依次确认“插件”与“行业”步骤后，在“用户登录”中选择“邮箱验证码”。'
           ]
         },
         {
@@ -595,14 +595,14 @@ export const identityTabs = [
             '管理员显示名与管理员邮箱：首位管理员的显示名称和接收验证码的邮箱'
           ],
           body: [
-            '选择“发送验证码”。Ankole 会先通过所填 SMTP 服务发送 6 位验证码，验证通过后才提交初始化。'
+            '点击“发送验证码”。Ankole 会先通过所填 SMTP 服务发出 6 位验证码，校验通过后才会提交初始化。'
           ]
         },
         {
           title: '输入 6 位验证码并完成初始化',
           body: [
-            '输入收件箱收到的“6 位邮箱验证码”，选择“验证并完成初始化”。',
-            '验证通过后，系统会加密保存 authn.email.mail 配置、绑定已验证的 email_otp SiteCredential，并授予首位用户 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。'
+            '填入收件箱收到的“6 位邮箱验证码”，选择“验证并完成初始化”。',
+            '验证通过后，系统会加密保存 authn.email.mail 配置，绑定已验证的 email_otp SiteCredential，并同时授予首位用户 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。'
           ]
         }
       ]
@@ -620,7 +620,7 @@ export const identityTabs = [
             }
           ],
           body: [
-            '在 Release 容器内可调用 Ankole.Release.put_authn_mail(json)。请将 JSON 内容按密钥妥善保护。'
+            '在 Release 容器内可调用 Ankole.Release.put_authn_mail(json)。请将 JSON 文件内容视作敏感密钥妥善保护。'
           ]
         },
         {
@@ -635,11 +635,11 @@ export const identityTabs = [
   {
     value: 'slack',
     label: 'Slack',
-    summary: '用一套 Slack app 完成 Console 登录，并同步 workspace 成员和用户组。默认配置需要 OAuth Client、Bot Token 和 App Token。',
+    summary: '使用一个 Slack 应用完成 Console 登录，并同步工作区（Workspace）成员和用户组。默认配置需要 OAuth 客户端凭证、Bot Token 和 App Token。',
     prerequisites: [
-      '可创建并安装 Slack app 的 workspace 管理员',
+      '可创建并安装 Slack 应用的工作区管理员',
       'Ankole 对外可访问的 HTTPS 地址',
-      '用于首次登录的 workspace 成员账号'
+      '用于首次登录的工作区成员账号'
     ],
     basic: {
       title: '配置 Slack IdP',
@@ -647,14 +647,14 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“Slack 适配器”并保存，然后选择 Slack。',
-            '“配置 ID（Provider ID）”保持 slack-main。使用页面上的“复制”按钮复制登录回调地址；后面不要手写或改动它。'
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码。在插件页勾选“Slack 适配器”并保存，然后选择 Slack。',
+            '“配置 ID（Provider ID）”保持 slack-main。使用页面上的“复制”按钮复制登录回调地址；后续切勿手写或改动该地址。'
           ]
         },
         {
-          title: '创建 Slack app',
+          title: '创建 Slack 应用',
           body: [
-            '打开 Slack API 的 Your Apps 页面，选择 Create New App → From scratch。填写应用名，并选择员工所在的 workspace。',
+            '打开 Slack API 的 Your Apps 页面，选择 Create New App → From scratch，填写应用名称并选择员工所在的工作区。',
             '进入 Basic Information → App Credentials，复制 Client ID 和 Client Secret。'
           ],
           links: [
@@ -667,8 +667,8 @@ export const identityTabs = [
         {
           title: '登记登录回调地址',
           body: [
-            '进入 OAuth & Permissions → Redirect URLs，选择 Add New Redirect URL，粘贴刚才从 Ankole 复制的完整地址，然后保存。',
-            'Ankole 默认请求 openid、profile、email 三个登录 scope，不要把它们改成聊天机器人的 scope。'
+            '进入 OAuth & Permissions → Redirect URLs，点击 Add New Redirect URL，粘贴刚才从 Ankole 复制的完整地址并保存。',
+            'Ankole 登录默认请求 openid、profile、email 三个用户身份权限（Scope），请勿将其改成聊天机器人的权限。'
           ],
           links: [
             {
@@ -678,21 +678,21 @@ export const identityTabs = [
           ]
         },
         {
-          title: '授予通讯录权限并取得 Bot Token',
+          title: '授予通讯录权限并获取 Bot Token',
           body: [
-            '仍在 OAuth & Permissions 中，找到 Bot Token Scopes，依次添加下面三项。然后选择 Install to Workspace，并批准安装。'
+            '仍停留在 OAuth & Permissions 页面，找到 Bot Token Scopes，依次添加下面三项权限；随后点击 Install to Workspace 并批准安装。'
           ],
           copyItems: [
             { value: 'users:read', description: '读取成员资料' },
             { value: 'users:read.email', description: '读取成员邮箱' },
             { value: 'usergroups:read', description: '读取用户组及成员关系' }
           ],
-          caution: '安装完成后，复制 Bot User OAuth Token。它必须以 xoxb- 开头。以后每次增加 scope，都要重新安装应用。'
+          caution: '安装完成后复制 Bot User OAuth Token（必须以 xoxb- 开头）。此后每次新增权限范围（Scope），都必须重新安装应用。'
         },
         {
-          title: '取得 App Token，并启用 Socket Mode',
+          title: '获取 App Token 并启用 Socket Mode',
           body: [
-            '回到 Basic Information → App-Level Tokens，选择 Generate Token and Scopes，添加下面这项 scope，生成并复制以 xapp- 开头的 token。然后进入 Socket Mode，打开 Enable Socket Mode。'
+            '回到 Basic Information → App-Level Tokens，点击 Generate Token and Scopes，添加下方权限，生成并复制以 xapp- 开头的令牌；随后进入 Socket Mode 页面开启 Enable Socket Mode。'
           ],
           copyItems: [
             { value: 'connections:write', description: '允许 App Token 建立 Socket Mode 连接' }
@@ -701,10 +701,10 @@ export const identityTabs = [
         {
           title: '订阅通讯录变更事件',
           body: [
-            '进入 Event Subscriptions，打开事件订阅。在 Subscribe to bot events 中逐项添加下面五个事件。'
+            '进入 Event Subscriptions 开启事件订阅，在 Subscribe to bot events 中逐项添加下面五个事件。'
           ],
           copyItems: [
-            { value: 'team_join', description: '新成员加入 workspace' },
+            { value: 'team_join', description: '新成员加入工作区' },
             { value: 'user_change', description: '成员资料发生变化' },
             { value: 'subteam_created', description: '创建用户组' },
             { value: 'subteam_updated', description: '用户组资料发生变化' },
@@ -722,26 +722,26 @@ export const identityTabs = [
           bullets: [
             'Client ID：Basic Information 中的 Client ID',
             'Client Secret：同一页的 Client Secret',
-            'Workspace ID：可选。填写 Slack 网页地址 /client/T… 中以 T 开头的值，可以预先指定登录的 Workspace；它不限制通讯录同步范围',
-            'Bot User OAuth Token：刚才取得的 xoxb- token',
-            'App-Level Token：刚才取得的 xapp- token'
+            'Workspace ID：可选。填写 Slack 网页地址 /client/T… 中以 T 开头的值，可预先指定登录的工作区，但不限制通讯录同步范围',
+            'Bot User OAuth Token：刚才获取的 xoxb- 令牌',
+            'App-Level Token：刚才获取的 xapp- 令牌'
           ],
           body: [
-            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后选择“验证配置并登录”。在 Slack 授权页完成登录。'
+            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后点击“验证配置并登录”，在 Slack 授权页完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '浏览器回到 Ankole 后，当前 Slack 用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 slack-main，再选择“运行全量同步”。',
-            '同步完成后，在 Console → 主体和权限组中确认 workspace 成员与 Slack 用户组已经出现。'
+            '浏览器跳回 Ankole 后，当前 Slack 用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 slack-main，再点击“运行全量同步”。',
+            '同步完成后，在 Console → 主体和权限组中确认工作区成员与 Slack 用户组已经出现。'
           ]
         }
       ]
     },
     advanced: {
       title: '只做登录、实时同步与凭证更新',
-      summary: '只有在你明确不需要通讯录时，才关闭默认同步。',
+      summary: '仅当你明确不需要同步企业通讯录时，才关闭默认同步。',
       steps: [
         {
           title: '只使用 Slack 登录',
@@ -752,13 +752,13 @@ export const identityTabs = [
         {
           title: '暂时不用实时同步',
           body: [
-            '保留“同步通讯录”、关闭“实时同步通讯录变更”时，只需要 Bot User OAuth Token，不需要 App-Level Token。成员变化会在下一次全量同步后出现。'
+            '保留“同步通讯录”而关闭“实时同步通讯录变更”时，只需提供 Bot User OAuth Token，无需 App-Level Token；成员变动会在下一次全量同步后更新。'
           ]
         },
         {
-          title: '更新 scope 或 token',
+          title: '更新权限范围或令牌',
           body: [
-            'Slack app 的 scope 或 Bot Token 改动后，重新 Install to Workspace，再把新 token 写回身份源提供商。App Token 轮换后也要同步更新，否则 Socket Mode 无法连接。'
+            '每当修改 Slack 应用的权限范围（Scope）或重新生成 Bot Token 后，都必须重新执行 Install to Workspace，并将新令牌填回身份源提供商；轮换 App-Level Token 后也须同步更新，否则 Socket Mode 无法建立连接。'
           ]
         }
       ]
@@ -767,7 +767,7 @@ export const identityTabs = [
   {
     value: 'entra-id',
     label: 'Microsoft Entra ID',
-    summary: '注册一个单租户 Entra 应用，用它登录 Console、读取用户和组，并通过 Microsoft Graph 接收目录变更。',
+    summary: '注册一个单租户 Entra 应用，用于登录 Console、读取组织用户和组，并通过 Microsoft Graph 接收目录变更通知。',
     prerequisites: [
       '可注册应用并授予管理员同意的 Entra 管理员',
       'Ankole 对外可访问的 HTTPS 地址',
@@ -779,15 +779,15 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“Microsoft 365 适配器”并保存，然后选择 Entra ID。',
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码。在插件页勾选“Microsoft 365 适配器”并保存，然后选择 Entra ID。',
             '“配置 ID（Provider ID）”保持 entra-id-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '注册单租户应用',
           body: [
-            '打开 Microsoft Entra 管理中心，进入 Entra ID → App registrations → New registration。填写名称，并选择 Accounts in this organizational directory only。',
-            '在 Redirect URI 中选择 Web，粘贴 Ankole 的完整回调地址，然后选择 Register。'
+            '打开 Microsoft Entra 管理中心，进入 Entra ID → App registrations → New registration，填写应用名称并选择 Accounts in this organizational directory only。',
+            '在 Redirect URI 中选择 Web，粘贴 Ankole 的完整回调地址，然后点击 Register。'
           ],
           links: [
             {
@@ -800,13 +800,13 @@ export const identityTabs = [
           title: '复制三个应用凭证',
           body: [
             '在应用的 Overview 页面复制 Application (client) ID 和 Directory (tenant) ID。',
-            '进入 Certificates & secrets → Client secrets → New client secret。创建后立即复制 Value；不要复制 Secret ID，因为离开页面后 Value 不会再次显示。'
+            '进入 Certificates & secrets → Client secrets → New client secret，创建后立即复制密码值（Value）——切勿误复制 Secret ID，离开当前页面后该密码值将不再显示。'
           ]
         },
         {
           title: '授予 Microsoft Graph 权限',
           body: [
-            '进入 API permissions → Add a permission → Microsoft Graph。添加下面三项，然后选择 Grant admin consent for <组织名>。三项状态都应显示已授予。'
+            '进入 API permissions → Add a permission → Microsoft Graph，添加下面三项权限，然后点击 Grant admin consent for <组织名>，确认三项状态均变为已授予。'
           ],
           copyItems: [
             { value: 'User.Read', description: 'Delegated permission' },
@@ -825,17 +825,17 @@ export const identityTabs = [
           bullets: [
             '目录（租户）ID：Directory (tenant) ID',
             '应用程序（客户端）ID：Application (client) ID',
-            '客户端密码值：刚才复制的 secret Value',
-            'Ankole 公网地址：https://<ANKOLE_HOST>，不要填写内部容器或集群地址'
+            '客户端密码值：刚才复制的 Client Secret Value',
+            'Ankole 公网地址：https://<ANKOLE_HOST>，切勿填写内部容器或集群内网地址'
           ],
           body: [
-            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后选择“验证配置并登录”。用当前租户内的账号完成登录。'
+            '确认“同步通讯录”和“实时同步通讯录变更”已开启，点击“验证配置并登录”，使用当前租户内的账号完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 entra-id-main，再选择“运行全量同步”。',
+            '登录成功后，当前用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 entra-id-main，再点击“运行全量同步”。',
             '同步完成后，在主体和权限组中确认目录里的用户与组已经出现。'
           ]
         }
@@ -843,12 +843,12 @@ export const identityTabs = [
     },
     advanced: {
       title: 'Graph 实时通知、来宾和组过滤',
-      summary: '实时通知需要 Microsoft Graph 能从公网访问 Ankole。',
+      summary: '实时变更通知要求 Microsoft Graph 能够从公网访问 Ankole。',
       steps: [
         {
           title: '确认实时通知地址可访问',
           body: [
-            '开启“实时同步通讯录变更”时，“Ankole 公网地址”必须是有效的公网 HTTPS 地址。Ankole 会在其下建立 /webhooks/v1/entra-id/entra-id-main/directory 接口，并自动创建和续订 Graph 订阅。'
+            '开启“实时同步通讯录变更”时，“Ankole 公网地址”必须是有效的公网 HTTPS 地址。Ankole 会在该域名下暴露 /webhooks/v1/entra-id/entra-id-main/directory 回调接口，并自动创建与续订 Graph 订阅。'
           ],
           links: [
             {
@@ -860,13 +860,13 @@ export const identityTabs = [
         {
           title: '没有公网入口时关闭实时同步',
           body: [
-            '如果 Graph 无法访问这套实例，请在保存前关闭“实时同步通讯录变更”。全量同步仍然可用，“Ankole 公网地址”也不再必填。'
+            '如果 Microsoft Graph 无法从公网访问当前实例，请在保存前关闭“实时同步通讯录变更”；此时定时与手动全量同步依然可用，“Ankole 公网地址”也不再必填。'
           ]
         },
         {
           title: '按需包含来宾或筛选组',
           body: [
-            '“包含来宾用户”默认关闭。“同步组筛选条件”接受 Microsoft Graph 的 OData $filter；先让完整同步成功，再添加过滤条件，避免把权限问题误判成过滤结果。'
+            '“包含来宾用户”默认关闭。“同步组筛选条件”支持传入 Microsoft Graph 的 OData $filter 表达式；建议先在不设筛选条件的情况下跑通一次完整同步，再添加过滤规则，以免把权限缺失误判为过滤结果为空。'
           ]
         }
       ]
@@ -875,7 +875,7 @@ export const identityTabs = [
   {
     value: 'google-workspace',
     label: 'Google Workspace',
-    summary: 'Google 登录和通讯录读取使用两套凭证：OAuth Client 负责登录，启用全网域授权的服务账号负责同步用户与群组。',
+    summary: 'Google 登录与通讯录读取分别使用两套凭证：OAuth 客户端负责网页登录，开启全网域委派的服务账号负责同步用户与群组。',
     prerequisites: [
       'Google Workspace 超级管理员',
       '可管理 Google Cloud 项目的账号',
@@ -887,15 +887,15 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“Google Workspace 适配器”并保存，然后选择 Google Workspace。',
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码。在插件页勾选“Google Workspace 适配器”并保存，然后选择 Google Workspace。',
             '“配置 ID（Provider ID）”保持 google-workspace-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '准备 Google Cloud 项目',
           body: [
-            '打开 Google Cloud Console，选择或新建一个归企业管理的项目。在 API Library 中搜索并启用 Admin SDK API。',
-            '进入 Google Auth platform，按提示完成应用信息设置。Audience 选择 Internal，让应用只面向本 Workspace 的员工。'
+            '打开 Google Cloud Console，选择或新建一个归企业管理的项目，并在 API Library 中搜索启用 Admin SDK API。',
+            '进入 Google Auth platform 按提示完成应用信息配置，Audience 选择 Internal，将登录对象限定在本 Workspace 内部员工。'
           ],
           links: [
             {
@@ -905,10 +905,10 @@ export const identityTabs = [
           ]
         },
         {
-          title: '创建用于登录的 OAuth Client',
+          title: '创建用于登录的 OAuth 客户端',
           body: [
             '进入 Google Auth platform → Clients → Create client，Application type 选择 Web application。',
-            '在 Authorized redirect URIs 中粘贴 Ankole 的完整回调地址。创建后复制 Client ID 和 Client Secret。'
+            '在 Authorized redirect URIs 中粘贴 Ankole 的完整回调地址；创建完成后复制 Client ID 和 Client Secret。'
           ],
           links: [
             {
@@ -920,8 +920,8 @@ export const identityTabs = [
         {
           title: '创建用于同步通讯录的服务账号',
           body: [
-            '进入 IAM & Admin → Service Accounts，创建服务账号。打开该账号的详情，在 Domain-wide delegation 中启用 Google Workspace 全网域授权，并记下它的数字 Client ID。',
-            '进入 Keys → Add key → Create new key，选择 JSON。下载的完整 JSON 文件稍后要粘贴到 Ankole；不要把它提交到代码仓库。'
+            '进入 IAM & Admin → Service Accounts 创建服务账号；打开账号详情，在 Domain-wide delegation 中开启 Google Workspace 全网域委派，并记下它的数字 Client ID。',
+            '进入 Keys → Add key → Create new key，选择 JSON 下载密钥文件。稍后需将该 JSON 文件的完整内容粘贴到 Ankole，切勿将其提交到代码仓库。'
           ],
           links: [
             {
@@ -931,10 +931,10 @@ export const identityTabs = [
           ]
         },
         {
-          title: '在 Workspace 中批准全网域授权',
+          title: '在 Workspace 中批准全网域委派',
           body: [
-            '打开 admin.google.com，进入 Security → Access and data control → API Controls → Manage Domain Wide Delegation，选择 Add new。',
-            'Client ID 填服务账号的数字 Client ID。OAuth scopes 是一个输入框，直接复制下面这一整行并粘贴，然后授权。'
+            '打开 admin.google.com，进入 Security → Access and data control → API Controls → Manage Domain Wide Delegation，点击 Add new。',
+            'Client ID 填入服务账号的数字 Client ID；OAuth scopes 为单行输入框，直接复制下方这一整行内容粘贴并授权。'
           ],
           batchImport: {
             label: '一次复制全部 OAuth scopes',
@@ -951,19 +951,19 @@ export const identityTabs = [
         {
           title: '把 Google 配置填回 Ankole',
           bullets: [
-            'OAuth 客户端 ID / OAuth 客户端密钥：Web application 类型的 OAuth Client 凭证',
+            'OAuth 客户端 ID / OAuth 客户端密钥：Web application 类型的 OAuth 客户端凭证',
             '允许登录的 Workspace 域名：例如 example.com，不要带 @',
-            '服务账号 JSON 密钥：JSON 密钥文件的完整内容',
-            '委派管理员邮箱：服务账号要模拟的 Workspace 管理员邮箱，该账号必须能读取用户和群组'
+            '服务账号 JSON 密钥：下载的 JSON 密钥文件完整内容',
+            '委派管理员邮箱：服务账号代表调用目录接口的 Workspace 管理员邮箱，该账号必须具备读取用户与群组的权限'
           ],
           body: [
-            '确认“同步通讯录”已开启，然后选择“验证配置并登录”。使用“允许登录的 Workspace 域名”中的 Workspace 账号完成登录。'
+            '确认“同步通讯录”已开启，点击“验证配置并登录”，使用“允许登录的 Workspace 域名”内的企业账号完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 google-workspace-main，再选择“运行全量同步”。',
+            '登录成功后，当前用户会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 google-workspace-main，再点击“运行全量同步”。',
             '同步完成后，在主体和权限组中确认 Workspace 用户、群组及成员关系已经出现。'
           ]
         }
@@ -971,24 +971,24 @@ export const identityTabs = [
     },
     advanced: {
       title: '域名边界、同步节奏与服务账号',
-      summary: 'Google Workspace 只支持全量同步，不接收实时目录事件。',
+      summary: 'Google Workspace 仅支持全量同步，不推送实时目录变更事件。',
       steps: [
         {
           title: '严格填写允许登录的 Workspace 域名',
           body: [
-            '只填写企业实际使用的 Workspace 域名。Ankole 还会检查邮箱已经过 Google 验证，并且账号带有 Workspace hosted-domain 标记。普通 gmail.com 账号没有这个标记，即使 Google 登录成功也会被拒绝。'
+            '仅填写企业实际托管的 Workspace 域名。除核对域名后缀外，Ankole 还会检查邮箱已通过 Google 验证且带有企业托管域（hd）标记——个人 gmail.com 账号不含该标记，即使通过 Google 登录授权也会被拒绝。'
           ]
         },
         {
-          title: '目录变化后再运行全量同步',
+          title: '目录变动后重新运行全量同步',
           body: [
-            'Google Workspace 适配器不提供实时同步。新增员工、调整群组或停用账号后，在 Console → 身份源提供商中重新运行全量同步。'
+            'Google Workspace 适配器不提供实时目录同步；新增员工、调整群组或停用账号后，可在 Console → 身份源提供商中手动触发一次全量同步。'
           ]
         },
         {
-          title: '缩小服务账号权限',
+          title: '收敛服务账号委派权限',
           body: [
-            '首次验证完成后，可以把“委派管理员邮箱”换成只具备用户与群组读取权限的专用管理员账号。轮换 JSON 密钥时，要同时更新 Ankole 中的“服务账号 JSON 密钥”。'
+            '首次验证跑通后，可将“委派管理员邮箱”替换为仅具备用户与群组只读权限的专用管理员角色账号。轮换服务账号 JSON 密钥时，记得同步更新 Ankole 中保存的密钥内容。'
           ]
         }
       ]
@@ -997,7 +997,7 @@ export const identityTabs = [
   {
     value: 'lark',
     label: '飞书 / Lark',
-    summary: '创建一个企业自建应用，用 App ID 和 App Secret 完成登录、同步员工与部门，并通过长连接接收通讯录变更。',
+    summary: '创建一个企业自建应用，用 App ID 和 App Secret 完成单点登录、同步员工与部门，并通过出站长连接接收通讯录实时变更。',
     prerequisites: [
       '可创建并发布企业自建应用的管理员',
       '可审批通讯录权限的企业管理员',
@@ -1009,15 +1009,15 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“飞书适配器”并保存，然后选择飞书。',
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码。在插件页勾选“飞书适配器”并保存，然后选择飞书。',
             '“配置 ID（Provider ID）”保持 lark-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '创建企业自建应用',
           body: [
-            '飞书企业打开飞书开放平台，海外 Lark 企业打开 Lark Developer。选择创建企业自建应用或 Custom App。',
-            '进入“凭证与基础信息”或 Credentials & Basic Info，复制 App ID 和 App Secret。'
+            '国内飞书企业打开飞书开放平台，海外 Lark 企业打开 Lark Developer，选择创建“企业自建应用”（Custom App）。',
+            '进入“凭证与基础信息”（Credentials & Basic Info），复制 App ID 和 App Secret。'
           ],
           links: [
             {
@@ -1033,8 +1033,8 @@ export const identityTabs = [
         {
           title: '登记登录回调地址',
           body: [
-            '进入“开发配置 → 安全设置 → 重定向 URL”，添加从 Ankole 复制的完整地址。Lark 后台对应 Security Settings → Redirect URLs。',
-            '回调地址必须逐字一致。域名、协议、端口或 Provider ID 有一处不同，登录都会失败。'
+            '进入“开发配置 → 安全设置 → 重定向 URL”（Lark 后台对应 Security Settings → Redirect URLs），添加刚才从 Ankole 复制的完整地址。',
+            '回调地址必须逐字一致——协议、域名、端口或 Provider ID 只要有一处不同，登录都会失败。'
           ],
           links: [
             {
@@ -1046,7 +1046,7 @@ export const identityTabs = [
         {
           title: '批量开通登录和通讯录权限',
           body: [
-            '进入“权限管理”，选择“批量导入 / 导出权限”，粘贴下面的 JSON 并确认导入。需要企业管理员审批的权限，要等状态变成已开通再继续。'
+            '进入“权限管理”，点击“批量导入 / 导出权限”，粘贴下方 JSON 并确认导入。若部分权限需要企业管理员审批，请等待状态全部变为“已开通”后再继续。'
           ],
           batchImport: {
             label: '批量导入 JSON',
@@ -1071,7 +1071,7 @@ export const identityTabs = [
         {
           title: '配置长连接通讯录事件',
           body: [
-            '进入“事件与回调 → 事件配置”，选择“使用长连接接收事件”。添加下面七个事件；Lark 后台选择对应的 WebSocket 接收方式。'
+            '进入“事件与回调 → 事件配置”，选择“使用长连接接收事件”（Lark 后台选择对应的 WebSocket 接收模式），并添加以下七个事件。'
           ],
           copyItems: [
             { value: 'contact.user.created_v3' },
@@ -1086,7 +1086,7 @@ export const identityTabs = [
         {
           title: '设置可用范围并发布版本',
           body: [
-            '在应用管理中把首位管理员和需要同步的部门加入可用范围。进入“版本管理与发布”，创建版本并发布；未发布的权限、回调地址和事件配置不会对员工生效。'
+            '在应用可用范围中纳入首位管理员及所有需要同步的部门；随后进入“版本管理与发布”，创建并发布新版本——未发布的权限、回调地址与事件订阅不会对员工生效。'
           ]
         },
         {
@@ -1096,7 +1096,7 @@ export const identityTabs = [
             '服务区域：中国大陆选择“飞书（中国大陆）”；海外选择“Lark（海外）”'
           ],
           body: [
-            '默认的通讯录同步设置通常无需修改。选择“验证配置并登录”。完成授权后，打开 Console → 身份源提供商，对 lark-main 运行一次全量同步。',
+            '默认的通讯录同步设置通常无需修改。点击“验证配置并登录”，完成授权后打开 Console → 身份源提供商，对 lark-main 运行一次全量同步。',
             '最后在主体和权限组中确认员工、部门和成员关系已经出现。'
           ]
         }
@@ -1104,24 +1104,24 @@ export const identityTabs = [
     },
     advanced: {
       title: '长连接、应用范围与聊天应用',
-      summary: '长连接由控制面主动连出，不需要为飞书开放 webhook。',
+      summary: '长连接由控制面主动向外建立，无需为飞书开放公网 Webhook。',
       steps: [
         {
           title: '暂时不用实时同步',
           body: [
-            '可以在“高级设置（通常无需修改）”中关闭“实时同步通讯录变更”，只保留全量同步。此时不必订阅通讯录事件，但员工和部门的变化要等下一次全量同步。'
+            '可在“高级设置（通常无需修改）”中关闭“实时同步通讯录变更”，仅保留全量同步。此时无需订阅通讯录变更事件，但人员与部门变动要等下一次全量同步才会更新。'
           ]
         },
         {
-          title: '用应用可用范围限制登录人群',
+          title: '用应用可用范围控制可登录人群',
           body: [
-            '飞书和 Lark 的登录边界由应用可用范围决定。新增部门或员工后，更新可用范围并发布新版本，否则这些用户即使有企业账号也无法登录。'
+            '飞书与 Lark 的可登录人员边界直接由应用可用范围决定。后续新增部门或员工时，记得同步更新可用范围并重新发布版本，否则新成员即使拥有企业账号也无法登录。'
           ]
         },
         {
-          title: '身份应用和聊天应用分开',
+          title: '将身份应用与聊天机器人应用分开',
           body: [
-            '技术上可以复用同一个自建应用，但正式使用时建议分别创建。IdP 应用只保留登录和通讯录权限，聊天应用只保留机器人权限；在聊天绑定的「身份源提供商」字段中选择该 IdP，两个应用就会把发信人映射到同一批账号。'
+            '虽然技术上可复用同一个自建应用，但正式环境建议拆分为两个独立应用：IdP 应用仅授予登录与通讯录读取权限，聊天应用仅授予机器人收发消息权限；随后在聊天路由规则的「身份源提供商」字段中关联该 IdP，即可将聊天发信人与登录主体对齐到同一批账号。'
           ]
         }
       ]
@@ -1130,7 +1130,7 @@ export const identityTabs = [
   {
     value: 'dingtalk',
     label: '钉钉',
-    summary: '创建一个企业内部应用，用同一组 Client ID 和 Client Secret 完成登录、读取组织通讯录，并通过 Stream 接收人员与部门变更。',
+    summary: '创建一个企业内部应用，使用同一组 Client ID 和 Client Secret 完成扫码登录、读取组织通讯录，并通过 Stream 长连接接收人员与部门变更。',
     prerequisites: [
       '可创建并发布企业内部应用的钉钉管理员',
       '可审批通讯录接口权限的管理员',
@@ -1142,14 +1142,14 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“钉钉适配器”并保存，然后选择钉钉。',
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码。在插件页勾选“钉钉适配器”并保存，然后选择钉钉。',
             '“配置 ID（Provider ID）”保持 dingtalk-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '创建企业内部应用',
           body: [
-            '打开钉钉开发者后台，进入“应用开发 → 企业内部应用”，选择创建应用。进入“基础信息 → 凭证与基础信息”，复制 Client ID（原 AppKey）和 Client Secret（原 AppSecret）。'
+            '打开钉钉开发者后台，进入“应用开发 → 企业内部应用”创建应用；随后在“基础信息 → 凭证与基础信息”中复制 Client ID（原 AppKey）和 Client Secret（原 AppSecret）。'
           ],
           links: [
             {
@@ -1162,13 +1162,13 @@ export const identityTabs = [
           title: '登记登录回调地址',
           body: [
             '进入“开发配置 → 安全设置 → 重定向 URL（回调域名）”，粘贴从 Ankole 复制的完整地址并保存。',
-            '登录 scope 保持 openid corpid。corpid 用来把登录用户限定在当前钉钉组织。'
+            '登录权限范围保持为 openid corpid，其中 corpid 用于将可登录账号限定在当前钉钉企业组织内。'
           ]
         },
         {
           title: '申请登录和通讯录接口权限',
           body: [
-            '进入“权限管理 → 通讯录管理”，申请下面这些接口对应的读取权限。通讯录权限范围选择“全部员工”；如果只能选部分员工，就必须覆盖准备登录和同步的所有部门。'
+            '进入“权限管理 → 通讯录管理”，开通下方列出的读取接口权限。通讯录权限范围建议设为“全部员工”；若按最小范围指定部门，则必须完整覆盖所有需要登录和同步的部门。'
           ],
           copyItems: [
             { value: 'Contact.User.Read', description: '通讯录个人信息读权限' },
@@ -1180,9 +1180,9 @@ export const identityTabs = [
           ]
         },
         {
-          title: '用 Stream 订阅通讯录变更',
+          title: '通过 Stream 订阅通讯录变更',
           body: [
-            '进入“事件与回调”，接收方式选择 Stream 模式。添加下面十个事件；它们分别覆盖员工入职、更新、离职、激活，以及部门和管理员变更。'
+            '进入“事件与回调”，将事件接收方式设为 Stream 模式，并添加下面十个事件（分别覆盖员工入职、信息变更、离职、激活，以及部门和管理员调整）。'
           ],
           copyItems: [
             { value: 'user_add_org' },
@@ -1206,7 +1206,7 @@ export const identityTabs = [
         {
           title: '设置可用范围并发布版本',
           body: [
-            '把首位管理员和需要同步的部门加入应用可用范围。进入版本管理，创建并发布一个包含回调地址、权限和事件配置的版本。未发布的应用不能完成浏览器登录。'
+            '将首位管理员和需要同步的部门纳入应用可用范围；随后进入版本管理，创建并发布包含回调地址、接口权限与 Stream 事件配置的新版本——未发布的应用无法完成网页扫码登录。'
           ]
         },
         {
@@ -1216,32 +1216,32 @@ export const identityTabs = [
             'Client Secret（AppSecret）：同一页的 Client Secret'
           ],
           body: [
-            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后选择“验证配置并登录”。Ankole 会先校验这组凭证，再跳转到钉钉登录。',
-            '登录成功后，打开 Console → 身份源提供商，对 dingtalk-main 运行一次全量同步，再到主体和权限组检查员工与部门。'
+            '确认“同步通讯录”和“实时同步通讯录变更”已开启，点击“验证配置并登录”——Ankole 会先校验凭证有效性，再跳转至钉钉授权页。',
+            '登录成功后，打开 Console → 身份源提供商，对 dingtalk-main 运行一次全量同步，再到主体和权限组检查员工与部门列表。'
           ]
         }
       ]
     },
     advanced: {
       title: 'Stream、通讯录范围与分页',
-      summary: '钉钉长连接由控制面主动连出，不需要公网 webhook。',
+      summary: '钉钉 Stream 长连接由控制面主动连出，无需开放公网 Webhook。',
       steps: [
         {
           title: '只保留全量同步',
           body: [
-            '关闭“实时同步通讯录变更”后，可以不订阅 Stream 通讯录事件。员工和部门的变化会在下一次全量同步后出现。'
+            '关闭“实时同步通讯录变更”后，无需在钉钉后台订阅 Stream 通讯录事件；后续人员与部门变动会在下一次全量同步后更新。'
           ]
         },
         {
           title: '检查通讯录授权范围',
           body: [
-            '同步缺人或缺部门时，先检查应用在“权限管理”中的通讯录授权范围。接口权限已通过，但数据不在授权范围内，也会得到不完整结果。'
+            '若全量同步后发现缺少部分员工或部门，请先检查钉钉“权限管理”中的通讯录数据范围——即使接口权限本身已获批，超出授权范围的组织节点依然无法读出。'
           ]
         },
         {
-          title: '不要先改默认分页',
+          title: '保持默认分页大小',
           body: [
-            '分页大小默认 50，允许范围为 1–100。先用默认值完成一次全量同步；只有明确遇到限流或响应体问题时再调整。'
+            '单页拉取条数默认为 50（取值范围 1–100）。首次接入请直接使用默认值跑通全量同步；仅当明确遇到接口限流或单包过大时再按需微调。'
           ]
         }
       ]
@@ -1251,10 +1251,10 @@ export const identityTabs = [
     value: 'wecom',
     label: '企业微信',
     summary:
-      '用企业自建应用完成扫码登录，用“通讯录同步”的专用 Secret 周期性同步成员与部门。登录和通讯录接口都要求固定出口 IP。',
+      '通过企业自建应用完成扫码登录，并配合“通讯录同步”工具的专用 Secret 周期性拉取成员与部门。登录与通讯录接口均强制校验固定出口 IP。',
     prerequisites: [
       '企业微信超级管理员账号',
-      '出口 IP 固定的 Ankole 部署',
+      '公网出口 IP 固定的 Ankole 部署环境',
       '用于首次登录的本企业成员账号'
     ],
     basic: {
@@ -1263,13 +1263,13 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“企业微信适配器”并保存，然后选择企业微信。',
+            '打开 https://<ANKOLE_HOST>/setup，输入激活码。在插件页勾选“企业微信适配器”并保存，然后选择企业微信。',
             '“配置 ID（Provider ID）”保持 wecom-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '记录企业 ID',
-          body: ['打开企业微信管理后台，进入“我的企业 → 企业信息”，复制企业 ID（CorpID）。'],
+          body: ['打开企业微信管理后台，进入“我的企业 → 企业信息”，复制底部的企业 ID（CorpID）。'],
           links: [
             {
               label: '打开企业微信管理后台',
@@ -1278,60 +1278,60 @@ export const identityTabs = [
           ]
         },
         {
-          title: '创建自建应用，并配置可信域名和可信 IP',
+          title: '创建自建应用并配置可信域名与可信 IP',
           body: [
-            '进入“应用管理 → 自建 → 创建应用”。创建后打开应用详情，复制 AgentId 和 Secret。',
-            '在同一页设置两项：“网页授权及 JS-SDK”可信域名填 Ankole 的域名；“企业可信 IP”填部署的固定出口 IP。'
+            '进入“应用管理 → 自建 → 创建应用”，创建完成后打开应用详情页，复制 AgentId 和 Secret。',
+            '在同一详情页完成两项安全登记：“网页授权及 JS-SDK”的可信域名填入 Ankole 访问域名；“企业可信 IP”填入 Ankole 部署环境的固定公网出口 IP。'
           ],
-          caution: '缺少可信 IP 时，登录和接口调用会报错 60020。可信域名不含回调地址的域名时，扫码后无法回跳。'
+          caution: '未登记出口 IP 时，登录和服务端接口调用均会报 60020 错误；可信域名与回调地址域名不一致时，扫码确认后无法跳回 Ankole。'
         },
         {
-          title: '开启通讯录同步，并取得专用 Secret',
+          title: '开启通讯录同步并获取专用 Secret',
           body: [
-            '进入“安全与管理 → 管理工具 → 通讯录同步”，开启 API 接口同步，复制这里的专用 Secret，并配置它自己的可信 IP。',
-            '自 2022 年 6 月起，普通应用 Secret 拿不到成员姓名等字段。不配置这个专用 Secret，就无法同步通讯录，登录主体也没有姓名。'
+            '进入“安全与管理 → 管理工具 → 通讯录同步”，开启 API 接口同步，复制该页面的专用 Secret，并单独为它配置相同的可信出口 IP。',
+            '自 2022 年 6 月起，普通自建应用 Secret 已无法拉取成员真实姓名等字段；若不配置这把通讯录同步专用 Secret，既无法同步组织架构，扫码登录创建的主体也不会带有真实姓名。'
           ]
         },
         {
           title: '把企业微信配置填回 Ankole',
           bullets: [
-            '企业 ID（CorpID）：“企业信息”中的企业 ID',
-            '自建应用 AgentId / Secret：应用详情中的两个值',
-            '通讯录同步 Secret：“通讯录同步”页面的专用 Secret'
+            '企业 ID（CorpID）：“企业信息”页的企业 ID',
+            '自建应用 AgentId / Secret：自建应用详情页的两个值',
+            '通讯录同步 Secret：“通讯录同步”工具页生成的专用 Secret'
           ],
           body: [
-            '确认“启用登录”和“同步通讯录”已开启，然后选择“验证配置并登录”，用企业微信扫码完成登录。'
+            '确认“启用登录”和“同步通讯录”均已开启，点击“验证配置并登录”，使用企业微信扫码完成首次管理员登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前成员会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 wecom-main，再选择“运行全量同步”。',
-            '同步完成后，在主体和权限组中确认成员与部门已经出现。'
+            '登录成功后，当前成员会同时获得 siteadmin（访问 /site-admin-console 站点管理台）与默认 Pod 的 pod_admin 权限。打开 Console → 身份源提供商，选择 wecom-main，再点击“运行全量同步”。',
+            '同步完成后，在主体和权限组中确认企业成员与部门已经出现。'
           ]
         }
       ]
     },
     advanced: {
       title: '同步节奏、可信 IP 与只做登录',
-      summary: '企业微信没有实时通讯录事件，变更靠周期性全量同步收敛。',
+      summary: '企业微信不推送实时目录事件，人员变动依靠定时或手动全量同步更新。',
       steps: [
         {
-          title: '目录变化后运行全量同步',
+          title: '目录变动后触发全量同步',
           body: [
-            '企业微信不向 Ankole 推送通讯录变更。新增成员或调整部门后，在 Console → 身份源提供商中重新运行全量同步，或等待下一次周期同步。'
+            '企业微信不会向 Ankole 主动推送通讯录变更；企业内新增员工或调整部门架构后，可在 Console → 身份源提供商中手动运行一次全量同步，或等待下一轮周期同步。'
           ]
         },
         {
-          title: '出口 IP 变化时更新两处可信 IP',
+          title: '出口 IP 变更时须同时更新两处白名单',
           body: [
-            '自建应用和通讯录同步的可信 IP 各配各的。部署迁移或出口 IP 变化后，两处都要更新，否则登录和同步会同时报 60020。'
+            '自建应用与通讯录同步各自独立维护可信 IP 列表。迁移服务器或更换公网出口 IP 后，务必将两处列表同步更新，否则扫码登录与目录同步都会报错 60020。'
           ]
         },
         {
-          title: '只做登录',
+          title: '仅启用扫码登录',
           body: [
-            '关闭“同步通讯录”后，通讯录同步 Secret 不再必填。此时登录主体只有企业微信账号 ID，没有姓名，也没有部门权限组。'
+            '关闭“同步通讯录”后，通讯录同步专用 Secret 不再必填；但此时登录生成的主体仅记录企业微信账号 ID，既无真实姓名，也不会生成部门权限组。'
           ]
         }
       ]
@@ -1341,7 +1341,7 @@ export const identityTabs = [
 
 export const modelAdvanced = {
   title: '可选 Agent 档案和 Brain 维护配置',
-  summary: 'Agent 能力按需配置；Brain 使用站点级 embedding 模型和租户级 rerank 模型。',
+  summary: '扩展能力档案可按需选配；Brain 检索则使用站点级向量嵌入（Embedding）模型与租户级重排（Rerank）模型。',
   steps: [
     {
       title: '按需配置 Agent 能力档案',
@@ -1349,15 +1349,15 @@ export const modelAdvanced = {
         {
           name: '后台 Agent 任务',
           description:
-            '选择持久后台 Agent 任务使用的 Provider 和模型（内部存储为 coding 档案）。'
+            '选择持久后台 Agent 任务所使用的提供商和模型（内部存储键为 coding 档案）。'
         },
         {
           name: 'vision_fallback',
-          description: '主模型无法读取图像时改用的模型。'
+          description: '主模型不支持图像输入时自动切换使用的视觉模型。'
         },
         {
           name: 'web_search / web_fetch',
-          description: '负责搜索和抓取网页的 provider。'
+          description: '负责执行网页搜索与网页正文抓取的提供商。'
         },
         {
           name: 'image_generate',
@@ -1367,20 +1367,20 @@ export const modelAdvanced = {
     },
     {
       title: '选择 Brain 维护 Agent 和检索模型',
-      body: ['打开 Console → 系统配置 → Brain。先选择租户，再选择负责维护其 Brain 的活跃 Agent。Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。停用后，模型调用和 URL Source 抓取都会停止，直到重新启用或更换 Agent。再通过链接进入该 Agent 的模型配置。'],
+      body: ['打开 Console → 系统配置 → Brain，先选择目标租户，再指定负责维护该租户 Brain 的活跃 Agent。Brain 的全部后台模型调用均以该 Agent 身份发起并计入其用量；一旦该 Agent 停用，知识抽取与 URL 来源抓取都会暂停，直到重新启用或改派其他活跃 Agent。选定后，可通过页面链接跳转检查该 Agent 的模型档案配置。'],
       fields: [
         {
           name: 'brain.maintainer_agent_uid',
           description:
-            '使用所选 Agent 的 light profile 抽取知识、heavy profile 执行 Dreaming、web_fetch profile 读取 URL Source。未配置 web_fetch 或 Provider 请求失败时，Source 抓取会失败。'
+            '调用所选 Agent 的 light 档案抽取日常知识、heavy 档案执行离线整合（Dreaming）、web_fetch 档案抓取 URL 来源。若未配置 web_fetch 或提供商请求失败，URL 来源抓取也会随之失败。'
         },
         {
           name: 'brain.embedding_model',
-          description: '站点级设置。启用向量检索。请选择 Provider 和模型，并填写 embedding 维度。'
+          description: '站点级设置，用于开启语义向量检索。请选择提供商与模型，并准确填写向量维度。'
         },
         {
           name: 'brain.rerank_model',
-          description: '租户级设置。对融合后的搜索结果重新排序；留空会保留融合顺序。'
+          description: '租户级设置，使用交叉编码器对多路融合后的检索结果重新排序；留空则直接保留融合顺序。'
         }
       ],
       links: [
@@ -1396,15 +1396,15 @@ export const channelTabs = [
     value: 'slack',
     label: 'Slack',
     badge: '默认',
-    summary: 'Slack 通过 Socket Mode 连接。Ankole 会主动建立 WebSocket，所以不必向 Slack 开放公共 webhook。',
-    prerequisites: ['有权限创建并安装 Slack app', '一个测试频道或私聊'],
+    summary: 'Slack 通过 Socket Mode 连接：由 Ankole 主动向外建立 WebSocket 长连接，无需向 Slack 开放公网 Webhook。',
+    prerequisites: ['具备创建并安装 Slack 应用的权限', '一个测试频道或私聊窗口'],
     basic: {
-      title: '准备 Slack app',
+      title: '准备 Slack 应用',
       steps: [
         {
           title: '新建应用并启用 Socket Mode',
           body: [
-            '新建一个 Slack app。在 Basic Information 中创建 App-Level Token，添加下面这项权限，再启用 Socket Mode。'
+            '新建一个 Slack 应用，在 Basic Information 中生成 App-Level Token 并添加下方权限，随后开启 Socket Mode。'
           ],
           copyItems: [
             { value: 'connections:write', description: '允许 App Token 建立 Socket Mode 连接' }
@@ -1413,7 +1413,7 @@ export const channelTabs = [
         {
           title: '订阅聊天和频道状态事件',
           body: [
-            '进入 Event Subscriptions → Subscribe to bot events，逐项添加。这个集合与 Slack 适配器当前实现的消息、reaction 和频道状态能力一致。'
+            '进入 Event Subscriptions → Subscribe to bot events，逐项添加以下事件。该清单严格对应 Slack 适配器实现的消息收发、表情回应（reaction）与频道状态同步能力。'
           ],
           copyItems: [
             { value: 'app_mention', description: '接收频道中的 @ 消息' },
@@ -1434,19 +1434,19 @@ export const channelTabs = [
         {
           title: '启用私聊入口',
           body: [
-            '进入 App Home → Show Tabs，打开 Display Messages tab，并勾选 Allow users to send Slash commands and messages from the messages tab。只打开 Messages tab 会展示消息页，但用户仍不能向 Agent 发送私聊。'
+            '进入 App Home → Show Tabs，开启 Display Messages tab，并勾选 Allow users to send Slash commands and messages from the messages tab——若只开启标签页而不勾选允许发信，员工虽能看到消息页却无法向 Agent 发送私聊。'
           ]
         },
         {
           title: '启用 Slack 原生交互',
           body: [
-            '进入 Interactivity & Shortcuts 并启用 Interactivity。Socket Mode 会通过现有 WebSocket 交付 Block Kit 按钮点击，不需要填写公共 Request URL。'
+            '进入 Interactivity & Shortcuts 并启用 Interactivity。Socket Mode 会直接复用现有 WebSocket 通道投递 Block Kit 按钮点击事件，无需填写公网 Request URL。'
           ]
         },
         {
-          title: '添加完整聊天 scope，并安装应用',
+          title: '添加完整聊天权限并安装应用',
           body: [
-            '在 OAuth & Permissions → Bot Token Scopes 中逐项添加。这个集合只覆盖 Ankole 实际调用的 Slack API；不要添加未使用的 assistant、工作流、文档或会议权限。'
+            '在 OAuth & Permissions → Bot Token Scopes 中逐项添加以下权限。该清单仅涵盖 Ankole 实际调用的 Slack 接口，请勿额外添加未使用的 Assistant、工作流、文档或会议权限。'
           ],
           copyItems: [
             { value: 'app_mentions:read', description: '读取发给机器人的 @ 消息' },
@@ -1465,7 +1465,7 @@ export const channelTabs = [
             { value: 'files:write', description: '上传 Agent 发送的文件' },
             { value: 'users:read', description: '识别频道成员并排除机器人账号' }
           ],
-          caution: '修改 scope 后，必须重新安装应用到 workspace，并把新的 Bot Token 写回 Ankole。'
+          caution: '每次修改权限范围（Scope）后，都必须重新将应用安装到工作区，并把新生成的 Bot Token 更新回 Ankole。'
         },
         {
           title: '准备 Console 字段',
@@ -1486,17 +1486,17 @@ export const channelTabs = [
     },
     advanced: {
       title: '消息策略、身份映射和 Slack IdP',
-      summary: 'Slack 负责交付事件；信号路由规则仍决定 Agent 如何处理没有 @ 它的消息。',
+      summary: 'Slack 负责投递原始事件；Agent 如何处理未明确 @ 它的群消息，仍由信号路由规则决定。',
       steps: [
         {
-          title: '选择未直接提及 Agent 时的策略',
+          title: '选择未直接提及 Agent 时的群聊策略',
           body: [
-            '上面的事件和 scope 允许 Slack 交付完整会话，但不会替代 Ankole 的信号路由策略。第一次测试使用 addressed_only；只有明确需要旁听或主动介入时，才选择 observe_all 或 may_intervene。'
+            '上述事件和权限允许 Slack 向 Ankole 投递完整会话消息，但不会替代 Ankole 自身的群聊路由策略。首次测试请使用 addressed_only；仅当明确需要旁听上下文或主动插话时，才切换为 observe_all 或 may_intervene。'
           ]
         },
         {
-          title: '同一个 App 也承担 Slack IdP 时补充权限',
-          body: ['建议正式环境使用独立 IdP App。确需复用时，额外添加下面的 Bot scopes 和通讯录事件。'],
+          title: '同一个应用兼任 Slack IdP 时补充权限',
+          body: ['正式环境建议使用独立的 IdP 应用；确需共用同一个应用时，请额外补齐以下 Bot 权限与通讯录事件。'],
           copyItems: [
             { value: 'users:read.email', description: '同步成员邮箱' },
             { value: 'usergroups:read', description: '同步用户组及成员关系' },
@@ -1513,7 +1513,7 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: '选择 Slack IdP',
-              description: '只有一个 Slack IdP 时默认采用；有多个时必须选择，也可选择独立命名空间。此绑定的发信人解析为该 IdP 的用户，一个 workspace 对应一批账号。'
+              description: '仅有一个 Slack IdP 时默认自动关联；存在多个时必须显式指定（也可选择独立命名空间）。关联后，该路由规则下的发信人会解析为对应 IdP 中的企业账号，每个工作区对应同一批主体。'
             },
             {
               name: 'userName',
@@ -1523,9 +1523,9 @@ export const channelTabs = [
           ]
         },
         {
-          title: '另外创建 Slack IdP 应用',
+          title: '单独创建 Slack IdP 应用',
           body: [
-            '正式使用时，建议为 SSO 和通讯录另建一个 Slack app。IdP 应用只授予登录和通讯录权限；聊天应用只授予机器人权限。在聊天绑定的「身份源提供商」字段中选择该 IdP。'
+            '正式生产环境下，建议为企业 SSO 登录与通讯录同步单独建立一个 Slack 应用：IdP 应用仅授予登录与通讯录读取权限，聊天应用仅授予机器人消息权限，最后在聊天路由规则的「身份源提供商」字段中关联该 IdP。'
           ]
         }
       ]
@@ -1534,15 +1534,15 @@ export const channelTabs = [
   {
     value: 'teams',
     label: 'Microsoft Teams',
-    summary: 'Teams 通过 Bot Framework webhook 把消息发给 Ankole，因此 Ankole 必须有能从公网访问、证书受信任的 HTTPS 地址。',
-    prerequisites: ['一个 Entra ID 租户', '可从公网访问的 Ankole HTTPS 域名', '有权限注册并安装 Teams bot'],
+    summary: 'Teams 通过 Bot Framework Webhook 向 Ankole 推送消息，因此 Ankole 实例必须具备公网可达且证书受信任的 HTTPS 地址。',
+    prerequisites: ['一个 Entra ID 租户', '可从公网访问的 Ankole HTTPS 域名', '具备注册并安装 Teams 机器人的权限'],
     basic: {
-      title: '配置 Teams bot',
+      title: '配置 Teams 机器人',
       steps: [
         {
           title: '注册应用和机器人',
           body: [
-            '先在 Entra ID 中注册应用，再创建 Azure Bot。把 Application (client) ID 填入 appID，并创建一个 client secret 作为 appPassword。'
+            '先在 Entra ID 中注册应用，再创建关联的 Azure Bot：将 Application (client) ID 作为 appID，并新建一个客户端密钥（Client Secret）作为 appPassword。'
           ]
         },
         {
@@ -1561,11 +1561,11 @@ export const channelTabs = [
             {
               name: 'botTenancy',
               value: 'single_tenant',
-              description: '大多数企业先使用单租户模式。'
+              description: '大多数企业默认采用单租户模式。'
             },
             {
               name: 'tenantID',
-              description: 'Entra 租户的 GUID。单租户 bot 必填。'
+              description: '所属 Entra 租户的 GUID；单租户机器人必填。'
             }
           ]
         },
@@ -1574,24 +1574,24 @@ export const channelTabs = [
           fields: [
             {
               name: 'appID',
-              description: 'Azure Bot registration 中的 Microsoft App ID，必须是 GUID。'
+              description: 'Azure Bot 资源中的 Microsoft App ID（格式必须为 GUID）。'
             },
             {
               name: 'appPassword',
-              description: 'Microsoft App client secret。'
+              description: 'Microsoft App 客户端密钥（Client Secret 值）。'
             }
           ]
         }
       ]
     },
     advanced: {
-      title: '跨 Entra 租户的 bot、Entra 身份和通讯录 webhook',
-      summary: '机器人要服务多个 Entra 租户，或还要用 Entra ID 登录 Console 时，再看这里。',
+      title: '跨 Entra 租户机器人、Entra 身份关联与通讯录回调',
+      summary: '当机器人需服务多个 Entra 租户，或同时使用 Entra ID 登录 Console 时，请参考以下说明。',
       steps: [
         {
           title: '让 Bot Framework 应用服务多个 Entra 租户',
           body: [
-            '先确认 Azure Bot registration 的 app type 允许多个 Entra 租户使用，再把 botTenancy 设为 multi_tenant。Ankole 会从 botframework.com 获取 bot token。这里的 multi_tenant 是 Microsoft 的应用注册类型，不会改变 Ankole 实例的边界。'
+            '先确认 Azure Bot 资源的注册类型允许跨多个 Entra 租户使用，再将 botTenancy 设为 multi_tenant，此时 Ankole 会向 botframework.com 请求机器人令牌。注意这里的 multi_tenant 仅指微软侧的应用注册类型，不会改变 Ankole 实例自身的租户隔离边界。'
           ]
         },
         {
@@ -1600,7 +1600,7 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: '选择 Entra ID IdP',
-              description: '只有一个 Entra ID IdP 时默认采用；有多个时必须选择。Teams 发信人将解析为通讯录同步和登录使用的同一批账号。'
+              description: '仅有一个 Entra ID IdP 时默认自动关联；存在多个时必须显式选择。关联后，Teams 发信人会解析为通讯录同步与单点登录共用的同一批账号。'
             },
             {
               name: 'userName',
@@ -1612,7 +1612,7 @@ export const channelTabs = [
         {
           title: '在 IdP 中配置 Graph 通讯录同步',
           body: [
-            '全量同步和实时同步都在 Entra IdP 配置中开启。Graph notification 使用单独的 directory webhook，同样需要可从公网访问的 HTTPS 域名。'
+            '全量同步与增量实时同步均在 Entra IdP 配置中开启。Microsoft Graph 变更通知走独立的目录回调接口，同样要求实例具备公网可达的 HTTPS 域名。'
           ]
         }
       ]
@@ -1621,19 +1621,19 @@ export const channelTabs = [
   {
     value: 'lark',
     label: '飞书 / Lark',
-    summary: 'Ankole 通过出站长连接接收飞书或 Lark 消息。主机能访问互联网即可，不必开放消息 webhook。',
-    prerequisites: ['有权限创建企业自建应用', '测试用户已加入应用可用范围'],
+    summary: 'Ankole 通过出站长连接接收飞书或 Lark 消息；只要所在主机可访问公网即可，无需开放消息 Webhook。',
+    prerequisites: ['具备创建企业自建应用的权限', '测试用户已加入应用可用范围'],
     basic: {
       title: '配置飞书或 Lark 应用',
       steps: [
         {
           title: '创建应用并启用机器人能力',
-          body: ['创建企业自建应用，启用机器人，并把测试用户加入应用可用范围。']
+          body: ['创建企业自建应用，开启“机器人”能力，并将测试员工纳入应用可用范围。']
         },
         {
           title: '批量添加完整聊天权限',
           body: [
-            '进入“权限管理”，选择“批量导入 / 导出权限”，粘贴下面的 JSON 并确认导入。这个集合与适配器实际调用的机器人、消息、reaction、文件、卡片、群聊和成员 API 一致；聊天应用不需要通讯录写入、文档、会议或加急消息权限。'
+            '进入“权限管理”，点击“批量导入 / 导出权限”，粘贴下方 JSON 并确认导入。该集合严格对应适配器实际调用的机器人、消息、表情回应、文件、卡片、群聊及成员接口；聊天应用无需开通通讯录写入、云文档、日历会议或加急消息权限。'
           ],
           batchImport: {
             label: '批量导入 JSON',
@@ -1661,9 +1661,9 @@ export const channelTabs = [
           }
         },
         {
-          title: '启用长连接，并添加适配器事件',
+          title: '启用长连接并添加适配器事件',
           body: [
-            '在“事件与回调”中选择“使用长连接接收事件”，再逐项添加下面的事件。平台检查连接状态时，请保持 Ankole 控制面运行。'
+            '在“事件与回调”中选择“使用长连接接收事件”，再逐项添加以下事件。平台检测长连接在线状态时，请保持 Ankole 控制面正常运行。'
           ],
           copyItems: [
             { value: 'im.message.receive_v1', description: '接收发给机器人的消息' },
@@ -1680,7 +1680,7 @@ export const channelTabs = [
           ]
         },
         {
-          title: '发布版本，并记录 Console 所需字段',
+          title: '发布版本并记录 Console 所需字段',
           fields: [
             {
               name: 'appID',
@@ -1693,7 +1693,7 @@ export const channelTabs = [
             {
               name: 'domain',
               value: 'feishu 或 lark',
-              description: '飞书国内站选择 feishu，Larksuite.com 选择 lark。'
+              description: '国内飞书选择 feishu，海外 Lark（larksuite.com）选择 lark。'
             }
           ]
         }
@@ -1701,21 +1701,21 @@ export const channelTabs = [
     },
     advanced: {
       title: '读取完整群聊、SSO 和身份映射',
-      summary: '需要让 Agent 读取群里的所有消息，或同一个应用还要用于 SSO 时，再看这里。',
+      summary: '需要让 Agent 读取群内全部发言，或与企业飞书 SSO 对齐身份时，请参考以下说明。',
       steps: [
         {
-          title: '让 Agent 读取没有 @ 它的群消息',
+          title: '允许 Agent 读取未 @ 它的群消息',
           body: [
-            '要使用 observe_all 或 may_intervene，先在权限管理中添加下面的权限。第一次测试请使用 addressed_only。'
+            '若需开启 observe_all 或 may_intervene 群聊策略，请先在飞书“权限管理”中添加下方权限并重新发布版本。首次测试建议先用 addressed_only。'
           ],
           copyItems: [
             { value: 'im:message.group_msg', description: '读取群内没有 @ 机器人的消息' }
           ]
         },
         {
-          title: '另外创建飞书 IdP 应用',
+          title: '单独创建飞书 IdP 应用',
           body: [
-            '正式使用时，建议为 SSO 和通讯录另建一个自建应用。IdP 应用只保留登录和通讯录权限；聊天应用只保留机器人权限。在聊天绑定的「身份源提供商」字段中选择该 IdP。'
+            '正式生产环境下，建议为单点登录与通讯录同步另建一个自建应用：IdP 应用仅授予登录和通讯录读取权限，聊天应用仅授予机器人权限，并在聊天路由规则的「身份源提供商」字段中关联该 IdP。'
           ]
         },
         {
@@ -1724,7 +1724,7 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: '选择飞书 IdP',
-              description: '只有一个飞书 IdP 时默认采用；有多个时必须选择，也可选择独立命名空间。此绑定的发信人解析为该 IdP 同步的用户，一个人只有一个账号。'
+              description: '仅有一个飞书 IdP 时默认自动关联；存在多个时必须显式选择（也可选择独立命名空间）。关联后，发信人会统一映射到该 IdP 同步的员工账号，确保一人一号。'
             },
             {
               name: 'userName',
@@ -1734,12 +1734,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: '每个启用的 binding 使用独立应用',
+          title: '每条启用的路由规则使用独立应用',
           bullets: [
-            '一个 Agent 可以同时启用多个飞书 / Lark binding。',
-            '每个启用的 binding 必须使用不同的 domain 与 appID 组合。'
+            '一位 Agent 可以同时启用多条飞书 / Lark 路由规则。',
+            '每条处于启用状态的路由规则都必须使用不同的 domain 与 appID 组合。'
           ],
-          body: ['为每个 binding 创建独立的飞书或 Lark 应用；binding 被禁用后会释放该应用。']
+          body: ['请为每条路由规则分别创建飞书或 Lark 应用；停用规则后，对应的应用凭证会自动释放。']
         }
       ]
     }
@@ -1747,28 +1747,28 @@ export const channelTabs = [
   {
     value: 'dingtalk',
     label: '钉钉',
-    summary: '钉钉通过 Stream 模式连接。同一组 AppKey 和 AppSecret 既用于机器人认证，也用于接收消息。',
+    summary: '钉钉通过 Stream 模式建立长连接，同一组 Client ID（AppKey）与 Client Secret（AppSecret）同时用于机器人鉴权和消息接收。',
     alert: {
-      title: '钉钉会限制部分功能',
+      title: '钉钉平台会限制部分功能',
       body: [
-        '在群聊中，Agent 看不到完整的聊天记录，只能收到明确 @ 它的消息。钉钉卡片是模板托管的，流式卡片回复需要先在卡片平台搭一份 AI 卡片模板；没有模板时回复保持普通 Markdown。',
-        '这些限制会明显影响 Ankole 的完整功能和使用体验。长期记忆系统也只能从 Agent 收到的消息片段中积累上下文，效果会受到影响。条件允许时，请优先选择其他聊天渠道。'
+        '在群聊场景下，Agent 无法获取完整群聊记录，只能收到明确 @ 机器人的消息；同时钉钉互动卡片采用平台模板托管机制，要实现流式卡片回复必须先在钉钉卡片平台搭建一份 AI 卡片模板（未配置模板时将以普通 Markdown 文本回复）。',
+        '上述平台限制会影响旁听介入等完整体验，长期记忆系统也只能从明确发给 Agent 的消息片段中积累上下文。条件允许时，建议优先选用飞书 / Lark、Slack 或 Teams。'
       ]
     },
-    prerequisites: ['有权限创建企业内部应用和机器人', '一个测试会话'],
+    prerequisites: ['具备创建企业内部应用和机器人的权限', '一个测试会话'],
     basic: {
       title: '准备钉钉机器人',
       steps: [
         {
           title: '创建企业内部应用与机器人',
           body: [
-            '启用机器人，并把应用开放给测试用户。钉钉会发送私聊消息，以及群里明确 @ 机器人的消息。'
+            '开启应用内的机器人功能，并将测试员工纳入应用可用范围。钉钉会向机器人投递单聊消息及群内明确 @ 它的消息。'
           ]
         },
         {
-          title: '启用 Stream 模式，并发布应用',
+          title: '启用 Stream 模式并发布应用',
           body: [
-            'Stream 连接直接使用这组应用凭证，所以不必设置公共消息 webhook。'
+            'Stream 连接直接复用应用凭证由控制面主动连出，无需开放公网消息 Webhook。'
           ]
         },
         {
@@ -1776,90 +1776,90 @@ export const channelTabs = [
           fields: [
             {
               name: 'clientId',
-              description: '企业应用的 Client ID，也叫 AppKey；Stream clientId 填写同一个值。'
+              description: '企业内部应用的 Client ID（原 AppKey）；Stream 连接共用同一个值。'
             },
             {
               name: 'clientSecret',
-              description: '企业应用的 Client Secret，也叫 AppSecret；Stream clientSecret 填写同一个值。'
+              description: '企业内部应用的 Client Secret（原 AppSecret）；Stream 连接共用同一个值。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '钉钉群聊只支持此模式。'
+              description: '钉钉群聊仅支持该模式。'
             },
             {
               name: 'cardTemplateId',
               description:
-                '流式卡片回复用的 AI 卡片模板 id。首次测试可以留空；搭建步骤见下方“高级设置”。'
+                '用于流式卡片回复的钉钉 AI 卡片模板 ID。首次测试可留空，搭建步骤见下方“高级设置”。'
             }
           ]
         }
       ]
     },
     advanced: {
-      title: '搭建 AI 卡片模板、多个 Agent 与身份设置',
-      summary: '要让回复以流式 AI 卡片呈现、为多个 Agent 配置机器人，或同时接入钉钉身份源时，再看这里。',
+      title: '搭建 AI 卡片模板、多 Agent 接入与身份关联',
+      summary: '需要启用流式 AI 卡片回复、为多位 Agent 接入机器人，或关联钉钉企业身份源时，请参考以下说明。',
       steps: [
         {
-          title: '创建 AI 卡片模板，并添加变量',
+          title: '创建 AI 卡片模板并声明变量',
           body: [
-            '钉钉卡片是模板托管的：版式保存在钉钉卡片平台上，Ankole 只往一组固定变量里写值。为一个钉钉组织搭一份模板即可，第一次大约需要二十分钟。前提：Agent 已能用纯文本回复，应用具备互动卡片实例写入和 AI 卡片流式更新权限。',
-            '打开钉钉开发者后台 → 卡片平台 → 新建模板，选择“AI 卡片”类别；只有这个类别带 AI 卡片容器，由它绘制输入指示、完成态和出错态。按下表逐个添加模板变量，名称必须完全一致；名称不一致时，对应区域在每次回复里都是空的。'
+            '钉钉互动卡片采用模板托管机制：卡片排版保存在钉钉卡片平台上，Ankole 仅向一组约定变量写入动态值。整个钉钉组织只需搭建一份通用模板即可复用，首次配置约需 20 分钟。前提条件：Agent 已能正常返回纯文本回复，且应用已开通互动卡片实例写入与 AI 卡片流式更新权限。',
+            '打开“钉钉开发者后台 → 卡片平台 → 新建模板”，类别务必选择“AI 卡片”（仅该类别自带 AI 卡片容器，负责渲染输入中指示、完成态与出错态）。按下表逐一添加模板变量，变量名必须严格一致，否则对应区块在回复时将始终为空。'
           ],
           fields: [
-            { name: 'state', description: '文本。一行状态，例如正在运行的工具名。' },
-            { name: 'answer', description: 'Markdown（流式）。回复正文，每一帧全量重写。' },
-            { name: 'thought', description: 'Markdown。临时思考草稿，回复结束时清空。' },
-            { name: 'plan', description: '文本。执行计划与完成计数。' },
-            { name: 'activity', description: '文本。正在执行的工具调用，回复结束时清空。' },
-            { name: 'results', description: '文本。每条结构化结果一行。' },
-            { name: 'receipts', description: '文本。每条已记录的副作用一行。' },
-            { name: 'actions', description: '文本。按钮的 JSON 列表；Agent 不反问时为空。' },
-            { name: 'meta', description: '文本。触发原因、卡片序号、计数、耗时。' }
+            { name: 'state', description: '文本。单行状态提示，例如当前正在调用的工具名称。' },
+            { name: 'answer', description: 'Markdown（流式）。回复正文，每一帧全量覆写。' },
+            { name: 'thought', description: 'Markdown。阶段性思考草稿，回复完成时自动清空。' },
+            { name: 'plan', description: '文本。执行计划与步骤完成计数。' },
+            { name: 'activity', description: '文本。当前执行中的工具调用，回复完成时自动清空。' },
+            { name: 'results', description: '文本。结构化结果摘要，每条占一行。' },
+            { name: 'receipts', description: '文本。已记录的外部副作用回执，每条占一行。' },
+            { name: 'actions', description: '文本。交互按钮 JSON 列表；Agent 无需追问确认时为空。' },
+            { name: 'meta', description: '文本。触发原因、卡片序号、计数与耗时摘要。' }
           ]
         },
         {
-          title: '排布组件，并配置状态布局',
+          title: '排布组件并配置三种状态布局',
           body: [
-            '在 AI 卡片组件中配置输入中、完成和出错布局。需要显示回复的每个布局都放置绑定 answer 的 Markdown 组件，并在输入中布局开启流式；meta 与 state 可用小号文本放顶部，plan 用文本组件，thought 和 activity 可放进折叠区，results 与 receipts 用文本组件。需要保留决策按钮时，输入中和完成布局都要放置绑定 actions 的操作区，并原样透传每个按钮的 value。',
-            '钉钉根据 AI 卡片原生生命周期切换布局：Ankole 在流式更新中发送 isFinalize 后进入完成态，发送 isError 后进入出错态。不要创建或绑定 flowStatus 或 flowStatusVar。'
+            '在 AI 卡片容器内分别配置“输入中”“完成”和“出错”三种状态布局：凡需展示正文的状态布局，都必须放入绑定 answer 变量的 Markdown 组件，并在“输入中”布局开启流式开关；顶部可用小字号文本放置 meta 与 state，plan、results 与 receipts 使用普通文本组件，thought 与 activity 可放入折叠面板。若需支持交互决策按钮，请在“输入中”和“完成”布局均添加绑定 actions 的操作区组件，并原样回传每个按钮的 value。',
+            '钉钉依靠 AI 卡片原生生命周期切换状态布局：Ankole 在流式更新时携带 isFinalize 进入完成态，携带 isError 进入出错态。切勿手动创建或绑定 flowStatus 与 flowStatusVar 变量。'
           ],
           caution:
-            '如果当前状态布局没有绑定 answer 的 Markdown 组件，该状态会显示空白卡片。每次修改状态布局后都要重新发布模板。'
+            '一旦某个状态布局漏绑了 answer Markdown 组件，切入该状态时卡片便会显示为空白。每次调整状态布局后，都必须重新发布卡片模板。'
         },
         {
-          title: '发布模板，填入 id 并验证',
+          title: '发布模板、填入模板 ID 并验证',
           body: [
-            '把模板关联到持有机器人的企业内部应用并发布，复制模板 id，填进路由规则的 cardTemplateId 并保存。改动在下一次回复生效，无需重启任何组件。',
-            '验证：发一条能产出好几句话的消息，应出现边写边显示的卡片；回复结束后输入指示停止，思考区与活动区清空。再问一个需要你做决定的问题，此时必须出现按钮，点击后本轮继续；不再对应待答问题的旧按钮会被忽略。长回复约每 2.5 KB 封口一张卡片、在新卡片上继续，卡片始终是会话中的一条新消息，表格等富结构以文本呈现，这些都是平台限制下的预期行为。'
+            '将卡片模板关联到机器人所属的企业内部应用并正式发布，复制生成的模板 ID，填入路由规则的 cardTemplateId 字段保存即可——新模板在下一轮回复时立即生效，无需重启任何服务。',
+            '验收方法：先发送一条会让 Agent 输出多段文字的消息，确认出现边生成边刷新的流式卡片，且回答结束后输入指示消失、思考与活动区自动收空；再提一个需要你拍板选择的问题，确认卡片下方渲染出交互按钮且点击后本轮会话继续推进（过期的旧按钮点击会被安全忽略）。受钉钉单卡体积限制，长回复约每 2.5 KB 会自动封口当前卡片并另起一张新卡续写，表格等复杂富结构以纯文本呈现，均属正常现象。'
           ],
           bullets: [
-            '卡片空白：当前输入中、完成或出错布局没有绑定 answer，或模板没有重新发布。',
-            '某个区域始终为空：变量名与上表不一致，或组件没有绑定到它。',
-            '答案只在最后出现或完全不出现：answer 组件不是 markdown 流式组件。',
-            '回复结束后仍显示输入指示：查看控制面日志，确认钉钉接受了带 isFinalize 或 isError 的流式更新。',
-            '回复是普通 Markdown 消息：模板 id 为空、模板未发布到本应用，或钉钉拒绝了卡片内容，查控制面日志中的 param.contentUnsafe 或 param.cardNotExist。卡片路径永久失败时，本次回复一次性降级为普通 Markdown，回复仍会送达。',
-            '按钮出现但点击无反应：操作区没有原样透传按钮的 value。'
+            '卡片一片空白：当前所处的输入中、完成或出错布局未绑定 answer 组件，或修改后未重新发布模板。',
+            '局部区块始终空白：模板变量名与上表拼写不一致，或对应 UI 组件未绑定该变量。',
+            '正文直到最后才一次性弹出或完全不显示：answer 所绑组件未设为 Markdown 流式组件。',
+            '回复已结束但仍一直转圈显示输入中：查看控制面日志，确认钉钉服务端已正常接收带 isFinalize 或 isError 标记的结束帧。',
+            '退回成普通 Markdown 消息：cardTemplateId 留空、模板未关联发布到当前应用，或内容触发钉钉风控被拒（可在控制面日志中检索 param.contentUnsafe 或 param.cardNotExist）；一旦卡片通道永久失败，当次回复会自动降级为普通 Markdown 发出以确保消息送达。',
+            '点击交互按钮毫无反应：卡片操作区组件未原样透传按钮的 value 字段。'
           ]
         },
         {
-          title: '为每个 Agent 使用独立机器人',
+          title: '为每位 Agent 配备独立机器人',
           bullets: [
-            '一个 Agent 同时只能启用一个钉钉 binding。',
-            '同一个 clientId 不能绑定给多个 Agent。'
+            '每位 Agent 同一时间只能启用一条钉钉路由规则。',
+            '同一个 clientId 不能同时绑定给多位 Agent。'
           ],
-          body: ['每多接入一个 Agent，都要创建独立的机器人和凭证。']
+          body: ['每新增接入一位 Agent，都请在钉钉后台单独创建一个企业内部应用与机器人。']
         },
         {
-          title: '另行配置钉钉身份',
+          title: '关联钉钉企业身份源',
           body: [
-            '钉钉也可以提供 OIDC 登录和通讯录同步，但这些功能要在 IdP 中配置。只配置聊天渠道和路由规则，不能用钉钉登录 Console。'
+            '钉钉同样支持企业 OIDC 登录与通讯录同步，但需在“身份源提供商”中单独配置；仅配置聊天渠道与路由规则本身，并不能开启钉钉登录 Console。'
           ],
           fields: [
             {
               name: 'identityProvider',
               value: '选择钉钉 IdP',
-              description: '只有一个钉钉 IdP 时默认采用；有多个时必须选择。此绑定的发信人解析为该 IdP 的用户。'
+              description: '仅有一个钉钉 IdP 时默认自动关联；存在多个时必须显式选择。关联后，该路由规则的发信人会解析为对应 IdP 中的企业员工。'
             }
           ]
         }
@@ -1870,33 +1870,33 @@ export const channelTabs = [
     value: 'wecom',
     label: '企业微信',
     summary:
-      '企业微信智能机器人通过一条出站长连接收发消息，不需要公网消息 webhook。平台强制每个机器人只允许一条长连接。',
+      '企业微信智能机器人通过单条出站长连接收发消息，无需开放公网消息 Webhook；平台强制限制每个机器人同一时间只能维持一条长连接。',
     alert: {
-      title: '企业微信是限制最多的聊天渠道',
+      title: '企业微信是平台限制最多的聊天渠道',
       body: [
-        '群聊里 Agent 只能收到明确 @ 机器人的消息；图片、语音、文件和视频只有单聊能收到，语音只有平台转写的文字。发出的消息无法撤回、无法编辑，也不能加表情回应。Agent 不能主动开启新会话：用户必须先在该会话给机器人发过消息，收到消息后的回复窗口为 24 小时。流式回复只在回复用户时可用，单条限时 10 分钟，长回答会拆成多条；发消息限频约每会话每分钟 30 条。交互卡片在用户点击后只有 5 秒更新窗口。通讯录变更没有实时同步。',
-        '这些限制全部来自平台本身，Ankole 无法绕过；长期记忆也只能从 Agent 收到的消息片段中积累上下文。条件允许时，请优先选择飞书 / Lark、Slack、Teams 或钉钉。'
+        '群聊中 Agent 仅能收到明确 @ 机器人的消息；图片、语音、文件与视频仅在单聊中投递，且语音仅提供平台转写后的文本。已发出的消息不支持撤回、二次编辑或添加表情回应。Agent 无法主动向新用户发起会话——用户必须先在该会话内向机器人发过消息，且收到消息后的普通回复窗口为 24 小时。流式回复仅在被动回复用户时可用（单条上限 10 分钟，超长回答自动分段），主动推送与群发限频约为每会话每分钟 30 条；交互卡片在用户点击后仅有 5 秒更新窗口；通讯录亦无实时变更推送。',
+        '以上限制均源于企业微信平台接口规范，Ankole 无法绕过，长期记忆也只能从实际收到的消息片段中积累上下文。条件允许时，建议优先选用飞书 / Lark、Slack、Teams 或钉钉。'
       ]
     },
     prerequisites: [
-      '能创建智能机器人的企业微信超级管理员',
+      '具备创建智能机器人权限的企业微信超级管理员',
       '一个测试会话'
     ],
     basic: {
-      title: '准备企业微信机器人',
+      title: '准备企业微信智能机器人',
       steps: [
         {
-          title: '用超级管理员创建智能机器人',
+          title: '使用超级管理员账号创建智能机器人',
           body: [
-            '打开企业微信管理后台，创建 API 模式的智能机器人，记录 Bot ID 和与它同页展示的 Secret。'
+            '使用超级管理员登录企业微信管理后台，创建 API 模式的“智能机器人”，并记录页面展示的 Bot ID 与长连接 Secret。'
           ],
           caution:
-            '机器人必须由企业超级管理员创建。否则消息里的用户 ID 是加密形态，永远无法与通讯录和登录身份对应。'
+            '智能机器人必须由企业超级管理员亲自创建；否则消息体内的发信人 userid 会被加密脱敏，永远无法与企业通讯录和登录身份对齐。'
         },
         {
-          title: '不要让其他程序共用这个机器人',
+          title: '切勿让其他程序共用同一个 Bot ID',
           body: [
-            '平台强制每个机器人只允许一条长连接。如果别的程序用同一个 Bot ID 连接，双方会互相顶掉；Ankole 检测到被顶掉后会停下等待，不会反复抢线。'
+            '企业微信强制规定每个智能机器人同一时间只能建立一条长连接。若有其他服务共用同一 Bot ID 连接，双方会互相挤下线；Ankole 一旦检测到被异地连接顶掉便会暂停重连等待，避免死循环抢线。'
           ]
         },
         {
@@ -1913,20 +1913,20 @@ export const channelTabs = [
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '企业微信群聊只支持此模式。'
+              description: '企业微信群聊仅支持该模式。'
             }
           ]
         }
       ]
     },
     advanced: {
-      title: '主动推送、身份映射与多个 Agent',
-      summary: 'Agent 要主动开口，用户必须先在该会话给机器人发过消息。',
+      title: '主动推送解锁、身份映射与多 Agent 接入',
+      summary: '要让 Agent 发出主动通知，接收人必须先在该会话中与机器人互动过一次。',
       steps: [
         {
-          title: '解锁主动推送',
+          title: '激活会话的主动推送权限',
           body: [
-            '计划任务结果等主动消息只能发进用户已经激活的会话。让每位使用者先给机器人发一条消息；全新会话无法由 Agent 先发起。主动推送一次性发送完整 Markdown，不使用流式。'
+            '定时任务报告等主动消息只能投递至已被用户激活过的会话。请让每位接收成员先向机器人发送一条消息解锁会话；Agent 无法凭空开启全新会话。主动推送采用一次性完整 Markdown 发送，不走流式刷新。'
           ]
         },
         {
@@ -1935,7 +1935,7 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: '选择企业微信 IdP',
-              description: '只有一个企业微信 IdP 时默认采用；有多个时必须选择。此绑定的发信人解析为该 IdP 的用户。'
+              description: '仅有一个企业微信 IdP 时默认自动关联；存在多个时必须显式选择。关联后，发信人会解析为对应 IdP 同步的企业成员。'
             },
             {
               name: 'userName',
@@ -1945,12 +1945,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: '为每个 Agent 使用独立机器人',
+          title: '为每位 Agent 配备独立机器人',
           bullets: [
-            '一个 Agent 同时只能启用一个企业微信 binding。',
-            '同一个 Bot ID 不能绑定给多个 Agent。'
+            '每位 Agent 同一时间只能启用一条企业微信路由规则。',
+            '同一个 Bot ID 不能同时绑定给多位 Agent。'
           ],
-          body: ['每多接入一个 Agent，都要创建一个独立的智能机器人。']
+          body: ['每新增接入一位 Agent，都请单独创建一个企业微信智能机器人。']
         }
       ]
     }
@@ -1959,27 +1959,27 @@ export const channelTabs = [
     value: 'telegram',
     label: 'Telegram',
     summary:
-      'Telegram 使用 Bot API 长轮询。Ankole 通过出站连接调用 getUpdates，因此聊天链路不需要公网 webhook。Telegram 是消费级 IM：它的用户不是通讯录里的员工，所以要在第一条消息到来之前规划好身份映射。',
+      'Telegram 采用 Bot API 长轮询（getUpdates）接入，由 Ankole 主动发起出站连接，无需开放公网 Webhook。由于 Telegram 属于个人消费级 IM，发信人不在企业通讯录中，请在第一条消息到来前先规划好身份映射策略。',
     prerequisites: ['一个能与 @BotFather 对话的 Telegram 账号', '一个测试私聊或群组'],
     basic: {
       title: '准备 Telegram 机器人',
       steps: [
         {
-          title: '用 @BotFather 创建机器人',
+          title: '通过 @BotFather 创建机器人',
           body: [
-            '向 @BotFather 发送 /newbot，选择显示名称和一个以 bot 结尾的用户名，然后复制 BotFather 返回的 token。这个 token 是路由规则唯一需要的凭证。'
+            '向 @BotFather 发送 /newbot，按提示设置显示名称及以 bot 结尾的用户名，然后复制 BotFather 返回的机器人令牌（Token）——这是路由规则唯一需要的凭证。'
           ]
         },
         {
           title: '允许机器人读取群消息',
           body: [
-            '在 @BotFather 中打开 Bot Settings → Group Privacy，关闭隐私模式。隐私模式开启时，群组只会投递 /command@bot 形式的命令和对机器人的回复，@ 提及到不了 Agent，observe_all 或 may_intervene 也永远看不到其他消息。修改此设置后，需要把机器人移出群组再重新加入才会生效。'
+            '在 @BotFather 中打开 Bot Settings → Group Privacy，关闭隐私模式（Turn off）。隐私模式开启时，群组仅向机器人投递 /command@bot 形式的命令及直接回复机器人的消息，普通 @ 提及无法送达 Agent，observe_all 与 may_intervene 也无法读取群内其他发言。修改此设置后，需先将机器人移出群组再重新拉入才会生效。'
           ]
         },
         {
-          title: '删除旧的 webhook',
+          title: '删除残留的旧 Webhook',
           body: [
-            'Ankole 轮询 Bot API，而 Telegram 在 token 设有 webhook 时拒绝轮询。如果其他程序曾用这个 token 配置过 webhook，请在启用规则前删除它。Ankole 会报告 webhook_configured，不会删除由其他系统拥有的 webhook。'
+            'Ankole 通过长轮询拉取 Bot API 消息，而 Telegram 在机器人绑定有 Webhook 时会拒绝轮询请求。若其他程序此前曾用该令牌配置过 Webhook，请在启用路由规则前执行下方命令将其删除——Ankole 检测到冲突时只会报告 webhook_configured，不会擅自删除外部系统登记的 Webhook。'
           ],
           code: [
             {
@@ -1994,12 +1994,12 @@ export const channelTabs = [
             {
               name: 'botToken',
               value: '123456789:AA…',
-              description: '@BotFather 返回的机器人 token。一个 token 只能属于一条已启用的路由规则。'
+              description: '@BotFather 返回的机器人令牌。一个令牌同一时间只能绑定给一条已启用的路由规则。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '先从这里开始。私聊、@ 提及、/command@bot 命令或对机器人的回复都算指名 Agent。'
+              description: '首次测试请选此项。私聊、@ 提及、/command@bot 命令以及直接回复机器人消息，均视为明确指向 Agent。'
             }
           ]
         }
@@ -2007,33 +2007,33 @@ export const channelTabs = [
     },
     advanced: {
       title: '身份映射、论坛话题与平台限制',
-      summary: '展开以了解如何把 Telegram 用户映射到账号，以及 Agent 无法使用哪些 Telegram 功能。',
+      summary: '展开了解如何将 Telegram 用户映射为系统主体账号，以及 Telegram 平台侧的功能限制。',
       steps: [
         {
           title: '把 Telegram 用户映射到账号',
           body: [
-            'Telegram 用户没有员工记录，所以每个新发信人的自动映射账号都会失败。把「自动映射账号失败时」保持为「手动审核」：发信人会收到一条固定回复，出现在身份 → 待绑定账号列表中，由管理员把这个 Telegram 身份绑定到已有账号，例如一个预建成员档案。之后用户重新发送消息即可。只有在允许任何人与 Agent 对话的开放机器人上，才选择「自动创建独立账号」。'
+            'Telegram 用户没有企业员工档案，因此每位新发信人首次发消息时自动账号映射均无法命中。建议将「自动映射账号失败时」保持为「手动审核」：新发信人会收到一条固定引导回复，同时进入 Console 的「身份 → 待绑定账号」队列；待管理员将该 Telegram 身份关联至已有主体（如预建的成员档案）后，用户重新发信即可对话。仅当机器人面向公众开放、允许任何人与 Agent 对话时，才选择「自动创建独立账号」。'
           ]
         },
         {
-          title: '了解平台聊天如何对应对话',
+          title: '了解平台会话与对话的对应关系',
           bullets: [
-            '一个私聊、一个群组和一个超级群组各自构成一个对话。',
-            '超级群组中的每个论坛话题是一个独立对话。',
-            '频道帖子、来自其他机器人的消息，以及匿名或访客发信人的消息会被忽略。'
+            '每个私聊、普通群组与超级群组各自对应一个独立对话。',
+            '超级群组下的每个论坛话题（Forum Topic）各自构成一个独立对话。',
+            '频道广播帖子、其他机器人发出的消息，以及匿名管理员或访客身份的发言均会被忽略。'
           ]
         },
         {
           title: '注意平台限制',
           bullets: [
-            'Bot API 无法下载大于 20 MB 的文件。Agent 能看到文件名和大小，但读不到内容。',
-            '用户删除消息时 Telegram 不发送任何事件，因此被删除的文字仍留在会话上下文中。',
-            '当 Telegram 可能已接受一次发送、但连接随后丢失时，Ankole 不会自动重发，而是走疑似重复流程，不会发出第二条回复。'
+            'Telegram Bot API 不支持下载超过 20 MB 的文件；超出上限时，Agent 只能看到文件名和大小，无法读取内容。',
+            '用户在 Telegram 侧删除消息时平台不会下发事件通知，已进入会话上下文的历史文本仍会保留。',
+            '若消息发出后连接意外中断、无法确认 Telegram 服务端是否已接收，Ankole 会转入疑似重复投递保护流程，不会自动重发第二条回复。'
           ]
         },
         {
-          title: '为每个 Agent 使用独立机器人',
-          body: ['一个机器人 token 只能绑定给一条已启用的路由规则。每多接入一个 Agent，都要在 @BotFather 中再创建一个机器人。']
+          title: '为每位 Agent 配备独立机器人',
+          body: ['一个机器人令牌同一时间只能绑定给一条已启用的路由规则；每新增接入一位 Agent，都需在 @BotFather 中新建一个机器人。']
         }
       ]
     }
@@ -2042,10 +2042,10 @@ export const channelTabs = [
     value: 'discord',
     label: 'Discord',
     summary:
-      'Discord 通过出站 WebSocket 使用机器人 Gateway，因此聊天链路不需要公网 webhook。Discord 是消费级 IM：它的用户不是通讯录里的员工，所以要在第一条消息到来之前规划好身份映射。',
+      'Discord 通过出站 WebSocket 连接机器人 Gateway，无需开放公网 Webhook。由于 Discord 属于消费级 IM，用户不在企业通讯录中，请在第一条消息到来前先规划好身份映射。',
     prerequisites: [
-      '一个能在 Developer Portal 中创建应用的 Discord 账号',
-      '一个可以邀请机器人加入的服务器，或用于测试的私信'
+      '一个可在 Discord Developer Portal 创建应用的账号',
+      '一个可邀请机器人加入的测试服务器，或直接通过私信测试'
     ],
     basic: {
       title: '准备 Discord 机器人',
@@ -2053,20 +2053,20 @@ export const channelTabs = [
         {
           title: '创建应用和机器人',
           body: [
-            '打开 Discord Developer Portal，创建 New Application，进入 Bot 页面，选择 Reset Token。立即复制 token；Discord 只显示一次。'
+            '打开 Discord Developer Portal，点击 New Application 创建应用，进入左侧 Bot 页面点击 Reset Token，并立即复制生成的机器人令牌（Discord 仅展示这一次）。'
           ]
         },
         {
-          title: '启用消息内容 intent',
+          title: '开启 Message Content Intent',
           body: [
-            '在 Bot 页面的 Privileged Gateway Intents 下打开 Message Content Intent。没有它，Discord 投递的未提及机器人的服务器消息内容为空，Agent 只能读到私信和提及它的消息，observe_all 或 may_intervene 也看不到对话。Ankole 在连接前会读取应用标志，只有应用具备该 intent 时才会请求它。'
+            '在 Bot 页面的 Privileged Gateway Intents 区域开启 Message Content Intent。若未开启，Discord 投递的未 @ 机器人服务器消息正文将为空，Agent 只能读到私信和直接提及它的消息，observe_all 与 may_intervene 均无法感知频道讨论。Ankole 建立连接前会读取应用标志位，仅当应用已具备该 Intent 时才会发起请求。'
           ],
-          caution: '不需要 Server Members Intent 和 Presence Intent。加入超过 100 个服务器的应用需要通过 Discord 验证才能保留消息内容 intent。'
+          caution: '无需开启 Server Members Intent 和 Presence Intent。当机器人加入超过 100 个服务器时，应用须通过 Discord 官方验证才能保留 Message Content Intent。'
         },
         {
-          title: '把机器人邀请进服务器',
+          title: '将机器人邀请进服务器',
           body: [
-            '打开 OAuth2 → URL Generator，选择 bot scope，并添加下列权限。打开生成的 URL 并选择服务器。这组权限只覆盖 Ankole 调用的 Discord API。'
+            '打开 OAuth2 → URL Generator，勾选 bot 范围并勾选下方列出的权限；在浏览器打开生成的邀请链接并选定目标服务器。这组权限仅涵盖 Ankole 实际调用的 Discord 接口。'
           ],
           copyItems: [
             { value: 'View Channels', description: '查看允许机器人进入的频道' },
@@ -2078,9 +2078,9 @@ export const channelTabs = [
           ]
         },
         {
-          title: '保持 Interactions Endpoint URL 为空',
+          title: '保持 Interactions Endpoint URL 留空',
           body: [
-            '在 General Information 页面，不要填写 Interactions Endpoint URL。一旦设置，Discord 会把按钮点击发到该 URL 而不是 Gateway，Agent 回复中的按钮就永远到不了 Ankole。'
+            '在 General Information 页面中，切勿填写 Interactions Endpoint URL——一旦填入地址，Discord 会将按钮点击事件改投至该 HTTP 地址而非 WebSocket Gateway，导致 Agent 回复卡片上的按钮交互永远无法到达 Ankole。'
           ]
         },
         {
@@ -2088,12 +2088,12 @@ export const channelTabs = [
           fields: [
             {
               name: 'botToken',
-              description: 'Bot 页面上的机器人 token。一个 token 只能属于一条已启用的路由规则。'
+              description: 'Bot 页面生成的机器人令牌。一个令牌同一时间只能绑定给一条已启用的路由规则。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '先从这里开始。私信、@ 提及或对机器人的回复都算指名 Agent。'
+              description: '首次测试请选此项。私信、@ 提及以及直接回复机器人消息，均视为明确指向 Agent。'
             }
           ]
         }
@@ -2101,35 +2101,35 @@ export const channelTabs = [
     },
     advanced: {
       title: '身份映射、子区与平台限制',
-      summary: '展开以了解如何把 Discord 用户映射到账号，以及 Agent 无法使用哪些 Discord 功能。',
+      summary: '展开了解如何将 Discord 用户映射为系统主体账号，以及 Discord 平台侧的功能限制。',
       steps: [
         {
           title: '把 Discord 用户映射到账号',
           body: [
-            'Discord 用户没有员工记录，所以每个新发信人的自动映射账号都会失败。把「自动映射账号失败时」保持为「手动审核」：发信人会收到一条固定回复，出现在身份 → 待绑定账号列表中，由管理员把这个 Discord 身份绑定到已有账号，例如一个预建成员档案。之后用户重新发送消息即可。只有在允许任何人与 Agent 对话的开放服务器上，才选择「自动创建独立账号」。'
+            'Discord 用户没有企业员工档案，因此每位新发信人首次发消息时自动账号映射均无法命中。建议将「自动映射账号失败时」保持为「手动审核」：新发信人会收到一条固定引导回复，同时进入 Console 的「身份 → 待绑定账号」队列；待管理员将该 Discord 身份绑定至已有主体（如预建的成员档案）后，用户重新发信即可对话。仅当服务器面向公众开放、允许任何人与 Agent 交互时，才选择「自动创建独立账号」。'
           ]
         },
         {
-          title: '了解平台聊天如何对应对话',
+          title: '了解平台会话与对话的对应关系',
           bullets: [
-            '一个私信和每个服务器频道各自构成一个对话。',
-            '每个子区是一个独立对话。',
-            '来自其他机器人的消息、webhook 帖子、系统通知，以及没有文字和附件的消息会被忽略。',
-            'Agent 的文字永远不会通知某个用户、角色或全体成员。Ankole 对发出的每条消息都禁用提及解析。'
+            '每个私信会话与每个服务器文字频道各自构成一个独立对话。',
+            '每个子区（Thread）各自构成一个独立对话。',
+            '来自其他机器人的消息、Webhook 帖子、系统通知，以及既无正文又无附件的空消息均会被忽略。',
+            'Ankole 对发出的每条消息均禁用提及解析，因此 Agent 回复文本绝不会触发对特定用户、身份组或全体成员（@everyone）的提醒。'
           ]
         },
         {
           title: '注意平台限制',
           bullets: [
-            'Ankole 最多下载 25 MB 的附件。更大的文件，Agent 能看到名称和大小，但读不到内容。',
-            '用户删除消息时 Discord 不发送 Ankole 使用的事件，因此被删除的文字仍留在会话上下文中。',
-            '回复按 2,000 字符拆分。一张卡片最多显示 25 个按钮。',
-            '当 Discord 可能已接受一次发送、但连接随后丢失时，Ankole 不会自动重发，而是走疑似重复流程，不会发出第二条回复。'
+            'Ankole 单次最多下载 25 MB 的入站附件；超出上限的文件，Agent 仅能看到文件名和大小，无法读取内容。',
+            '用户在 Discord 侧删除消息时不会触发 Ankole 监听的事件，已进入会话上下文的历史文本仍会保留。',
+            '长回复按 2,000 个字符自动分段；单张消息卡片最多展示 25 个交互按钮。',
+            '若发送请求发出后连接意外中断、无法确认 Discord 是否已接收，Ankole 会转入疑似重复投递保护流程，不会自动重发第二条回复。'
           ]
         },
         {
-          title: '为每个 Agent 使用独立机器人',
-          body: ['一个机器人 token 只能绑定给一条已启用的路由规则。每多接入一个 Agent，都要再创建一个应用。']
+          title: '为每位 Agent 配备独立机器人',
+          body: ['一个机器人令牌同一时间只能绑定给一条已启用的路由规则；每新增接入一位 Agent，都需在 Discord Developer Portal 中另建一个应用。']
         }
       ]
     }
@@ -2138,36 +2138,36 @@ export const channelTabs = [
     value: 'line',
     label: 'LINE',
     summary:
-      'LINE 通过 Messaging API webhook 把消息推送给 Ankole，必须有带可信证书的公网 HTTPS 地址。LINE 是消费级 IM：它的用户不是通讯录里的员工，所以要在第一条消息到来之前规划好身份映射。',
+      'LINE 通过 Messaging API Webhook 向 Ankole 推送消息，要求实例具备带可信证书的公网 HTTPS 地址。由于 LINE 属于消费级 IM，用户不在企业通讯录中，请在第一条消息到来前先规划好身份映射。',
     alert: {
-      title: 'LINE 限制了部分 Ankole 功能',
+      title: 'LINE 平台限制了部分 Ankole 功能',
       body: [
-        'Agent 的每条回复都是 push 消息，因为 LINE 的 reply token 在 webhook 之后一分钟就会过期，而一个 Agent 回合通常更长。push 消息计入 Official Account 的每月消息套餐，套餐必须覆盖预期流量。LINE 机器人不能编辑、撤回消息或加表情回应，不能发送文件，在最终答案之前也不显示实时进度。',
-        '这些限制全部来自平台本身，Ankole 无法绕过。'
+        '由于 LINE 的免费 reply token 在收到 Webhook 后仅 1 分钟便会失效，而 Agent 回合通常耗时更久，因此 Agent 的每一条回复均通过 Push Message 接口发出。Push 消息会计入 LINE Official Account 的月度消息额度，请确保账号套餐足以覆盖预期流量。此外，LINE 机器人不支持编辑或撤回消息、不支持添加表情回应、无法发送文件附件，且在输出最终回答前不显示实时进度。',
+        '以上限制均来自 LINE 平台本身，Ankole 无法绕过。'
       ]
     },
     prerequisites: [
-      '一个 LINE Developers provider，以及创建 Messaging API channel 的权限',
-      '一个公网 HTTPS 的 Ankole 主机',
-      '一个用于测试的 LINE 账号'
+      '一个 LINE Developers Provider，以及创建 Messaging API Channel 的权限',
+      '具备公网 HTTPS 地址的 Ankole 实例',
+      '一个用于测试的个人 LINE 账号'
     ],
     basic: {
       title: '准备 LINE Official Account',
       steps: [
         {
-          title: '创建 Messaging API channel 并收集凭证',
+          title: '创建 Messaging API Channel 并获取凭证',
           body: [
-            '在 LINE Developers Console 中，在你的 provider 下创建一个 Messaging API channel。从 Basic settings 复制 Channel ID 和 Channel secret，并在 Messaging API 标签页签发一个长期有效的 channel access token。'
+            '登录 LINE Developers Console，在所属 Provider 下新建一个 Messaging API Channel：从 Basic settings 页面复制 Channel ID 与 Channel secret，再切换到 Messaging API 标签页签发一个长期有效的 Channel access token。'
           ]
         },
         {
-          title: '先创建路由规则，再验证 webhook',
+          title: '先创建路由规则，再验证 Webhook',
           body: [
-            '先在 Console 中保存并启用路由规则。对于未知的 Channel ID，Ankole 会用状态码 404 应答 webhook，因此在规则存在之前，LINE Developers Console 的 Verify 按钮会一直失败。'
+            '请先在 Ankole Console 中保存并启用对应的路由规则。面对未知的 Channel ID，Ankole 会对 Webhook 请求返回 404 状态码，因此在路由规则保存生效前，LINE Developers Console 中的 Verify 按钮将始终校验失败。'
           ]
         },
         {
-          title: '设置 webhook URL 并验证',
+          title: '设置 Webhook URL 并完成验证',
           code: [
             {
               language: 'text',
@@ -2175,13 +2175,13 @@ export const channelTabs = [
             }
           ],
           body: [
-            '在 Messaging API 标签页填入此 URL，打开 Use webhook，然后选择 Verify。路径中的 channelId 必须与路由规则里的 Channel ID 一致。Ankole 用 channel secret 检查每个请求的 x-line-signature，签名错误时以状态码 401 拒绝。'
+            '在 Messaging API 标签页填入上述 URL，开启 Use webhook 后点击 Verify。路径中的 channelId 必须与路由规则中填写的 Channel ID 完全一致。Ankole 会用 Channel secret 校验每个请求的 x-line-signature 签名头，签名错误时直接以 401 状态码拒绝。'
           ]
         },
         {
-          title: '只让机器人应答',
+          title: '关闭预设自动回复，仅交由机器人应答',
           body: [
-            '在 LINE Official Account Manager 中打开 Response settings。把应答方式设为 bot，并关闭自动回复和欢迎消息，这样账号不会在 Agent 之外另行回复。群聊需要在 LINE Developers Console 中启用 Allow bot to join group chats。'
+            '在 LINE Official Account Manager 中打开 Response settings，将应答模式设为 Bot，并关闭自动回复与加好友欢迎消息，以免官方账号在 Agent 回复之外另行发送预设话术。若需接入群聊，请在 LINE Developers Console 中开启 Allow bot to join group chats。'
           ]
         },
         {
@@ -2189,20 +2189,20 @@ export const channelTabs = [
           fields: [
             {
               name: 'channelId',
-              description: 'Messaging API 的 Channel ID。一个 channel 只能属于一条已启用的路由规则。'
+              description: 'Messaging API 的 Channel ID。一个 Channel 同一时间只能绑定给一条已启用的路由规则。'
             },
             {
               name: 'channelSecret',
-              description: 'Basic settings 中的 Channel secret。Ankole 用它验证 webhook 签名。'
+              description: 'Basic settings 中的 Channel secret，用于校验入站 Webhook 签名。'
             },
             {
               name: 'channelAccessToken',
-              description: 'Messaging API 标签页签发的长期有效 channel access token。'
+              description: 'Messaging API 标签页签发的长期有效 Channel access token。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '先从这里开始。LINE 会投递每条群消息，因此 observe_all 和 may_intervene 无需额外权限也能工作。'
+              description: '首次测试请选此项。LINE 默认推送群内全部消息，后续切换为 observe_all 或 may_intervene 时无需额外申请权限。'
             }
           ]
         }
@@ -2210,34 +2210,34 @@ export const channelTabs = [
     },
     advanced: {
       title: '身份映射、群聊回复与平台限制',
-      summary: '展开以了解如何把 LINE 用户映射到账号，以及 Agent 在群里的行为。',
+      summary: '展开了解如何将 LINE 用户映射为系统主体账号，以及 Agent 在 LINE 群聊中的交互方式。',
       steps: [
         {
           title: '把 LINE 用户映射到账号',
           body: [
-            'LINE 用户没有员工记录，所以每个新发信人的自动映射账号都会失败。把「自动映射账号失败时」保持为「手动审核」：发信人会收到一条固定回复，并以 LINE 显示名称出现在身份 → 待绑定账号列表中，由管理员把这个 LINE 身份绑定到已有账号，例如一个预建成员档案。之后用户重新发送消息即可。LINE 用户 ID 属于拥有该 channel 的 LINE Developers provider，因此不同 provider 下的 channel 需要分别建立映射。'
+            'LINE 用户没有企业员工档案，因此每位新发信人首次发消息时自动账号映射均无法命中。建议将「自动映射账号失败时」保持为「手动审核」：新发信人会收到一条固定引导回复，并以 LINE 显示名称出现在「身份 → 待绑定账号」列表中，由管理员将其绑定至已有主体（如预建的成员档案），随后用户重发消息即可对话。注意 LINE 用户 ID 按所属 LINE Developers Provider 隔离，分属不同 Provider 的多个 Channel 需分别建立映射。'
           ]
         },
         {
-          title: '了解 Agent 在群里的行为',
+          title: '了解 Agent 在群聊中的行为',
           bullets: [
-            '一个一对一聊天、一个群组和一个多人聊天各自构成一个对话。LINE 没有子区。',
-            '在群里，@ 提及机器人或引用它的某条消息都算指名 Agent。群聊回复会引用提问者。',
-            '用户撤回的消息会从会话上下文中移除。'
+            '每个一对一单聊、群组（Group）与多人聊天室（Room）各自构成一个独立对话；LINE 没有子区概念。',
+            '在群聊中，明确 @ 提及机器人或引用回复机器人的消息均视为指向 Agent；Agent 在群内回信时会自动引用提问者的消息。',
+            '用户在 LINE 侧撤回消息后，对应内容也会从会话上下文中移除。'
           ]
         },
         {
           title: '注意平台限制',
           bullets: [
-            '回复按 5,000 字符拆分，一次请求最多发送五条消息。一次澄清最多显示四个按钮。',
-            'Ankole 最多下载 25 MB 的收到文件。更大的文件，Agent 能看到名称和大小，但读不到内容。',
-            'Agent 不能发送文件，但文字回复仍会送达。',
-            '每月套餐用尽时 LINE 返回状态码 429。只有更换套餐或进入下个月才能解除。'
+            '长回复按 5,000 个字符分段，单次请求最多发送 5 条消息；单次澄清提问最多显示 4 个按钮。',
+            'Ankole 最多下载 25 MB 的入站文件；超出上限的文件，Agent 仅能看到文件名和大小，无法读取内容。',
+            'Agent 无法通过 LINE 发送文件附件，但文字回复仍会正常送达。',
+            '当月消息套餐额度耗尽时，LINE 会返回 429 状态码，只能通过升级套餐或等待次月额度重置来恢复。'
           ]
         },
         {
-          title: '为每个 Agent 使用独立 channel',
-          body: ['一个 Messaging API channel 只能属于一条已启用的路由规则。每多接入一个 Agent，都要再创建一个 channel。']
+          title: '为每位 Agent 配备独立 Channel',
+          body: ['一个 Messaging API Channel 同一时间只能绑定给一条已启用的路由规则；每新增接入一位 Agent，都需新建一个 Channel。']
         }
       ]
     }
@@ -2246,42 +2246,42 @@ export const channelTabs = [
     value: 'whatsapp',
     label: 'WhatsApp',
     summary:
-      'WhatsApp 通过 Cloud API webhook 把消息推送给 Ankole，必须有带可信证书的公网 HTTPS 地址。WhatsApp 是消费级 IM，但如果发信人的手机号已属于某个已知的人，无需管理员操作即可完成映射。',
+      'WhatsApp 通过 Cloud API Webhook 向 Ankole 推送消息，要求实例具备带可信证书的公网 HTTPS 地址。虽然 WhatsApp 属于消费级 IM，但只要发信人的手机号已登记在某个已知主体名下，无需管理员手动操作即可自动完成映射。',
     alert: {
-      title: 'WhatsApp 限制了部分 Ankole 功能',
+      title: 'WhatsApp 平台限制了部分 Ankole 功能',
       body: [
-        'Meta 会在用户最新一条消息或按钮回复之后 24 小时关闭客服窗口。此后的回复（例如定时报告）会以明确的失败停止，不会送达用户；用户再次发信后，操作员可以在信号路由页面重试。群聊、模板消息、编辑消息、删除消息和实时进度预览均不可用。',
-        '这些限制全部来自平台本身，Ankole 无法绕过。'
+        'Meta 会在用户发出最后一条消息或点击交互按钮满 24 小时后关闭客服窗口。窗口关闭后发出的消息（如定时报告）会明确报错停止，无法送达用户；待用户再次发信重开窗口后，运维人员可在信号路由页面点击重试补发。此外，群聊接入、付费模板消息、消息编辑、消息撤回以及实时进度预览均不支持。',
+        '以上限制均来自 Meta 平台本身，Ankole 无法绕过。'
       ]
     },
     prerequisites: [
-      '一个添加了 WhatsApp 产品的 Meta App，以及一个拥有手机号的 WhatsApp Business Account',
-      '一个公网 HTTPS 的 Ankole 主机',
-      '一个用于测试的 WhatsApp 账号'
+      '一个已添加 WhatsApp 产品的 Meta App，以及绑定了发信手机号的 WhatsApp Business Account',
+      '具备公网 HTTPS 地址的 Ankole 实例',
+      '一个用于测试的个人 WhatsApp 账号'
     ],
     basic: {
       title: '准备 WhatsApp Business 手机号',
       steps: [
         {
-          title: '接入 WhatsApp 产品并收集标识',
+          title: '接入 WhatsApp 产品并记录标识',
           body: [
-            '在 Meta App Dashboard 中，为 App 添加 WhatsApp 产品，并连接拥有该手机号的 WhatsApp Business Account。从 App settings → Basic 复制 App ID 和 App secret，从 WhatsApp → API Setup 复制 Phone number ID。'
+            '在 Meta App Dashboard 中为应用添加 WhatsApp 产品，并关联持有目标手机号的 WhatsApp Business Account。从 App settings → Basic 复制 App ID 和 App secret，再从 WhatsApp → API Setup 复制 Phone number ID。'
           ]
         },
         {
-          title: '签发永久的 System User token',
+          title: '签发永久有效的 System User 令牌',
           body: [
-            '在 Meta Business Suite 中创建一个 System User，为其授予该 App 的 whatsapp_business_messaging 权限，并生成一个永不过期的 token。用户 token 会过期并导致 Agent 停止工作。'
+            '在 Meta Business Suite 中新建一名系统用户（System User），授予其对该应用的 whatsapp_business_messaging 权限，并生成永不过期的访问令牌——临时个人令牌一旦过期便会导致 Agent 断联停摆。'
           ]
         },
         {
-          title: '先创建路由规则，再验证回调',
+          title: '先创建路由规则，再验证回调地址',
           body: [
-            '选择一个 verify token，在 Console 中填入它和其他字段，然后保存并启用路由规则。Meta 会向 Ankole 验证回调 URL，因此规则必须先存在。'
+            '自行设定一个校验口令（verify token），连同其余必填字段填入 Ankole Console，保存并启用路由规则。由于 Meta 保存回调配置时会立即向 Ankole 发起握手校验，路由规则必须先行生效。'
           ]
         },
         {
-          title: '设置回调 URL 并订阅消息',
+          title: '配置回调 URL 并订阅消息字段',
           code: [
             {
               language: 'text',
@@ -2289,7 +2289,7 @@ export const channelTabs = [
             }
           ],
           body: [
-            '打开 WhatsApp → Configuration，填入此 URL 和同一个 verify token，然后选择 Verify and save。接着为 App 订阅 messages webhook 字段；其他字段不会被使用。Ankole 用 App secret 检查每个请求的 x-hub-signature-256，签名错误时以状态码 401 拒绝。'
+            '打开 Meta 后台的 WhatsApp → Configuration，填入上述 URL 和相同的 verify token，点击 Verify and save；随后在 Webhook fields 中仅为应用订阅 messages 字段（其余字段不会被使用）。Ankole 会用 App secret 校验每次请求的 x-hub-signature-256 签名，签名错误时直接以 401 状态码拒绝。'
           ]
         },
         {
@@ -2297,62 +2297,62 @@ export const channelTabs = [
           fields: [
             {
               name: 'appId',
-              description: 'Meta App ID。同一个 App 下的多个手机号可以各自服务一个 Agent，它们的规则必须使用相同的 App secret 和 verify token。'
+              description: 'Meta App ID。同一个 Meta App 下的多个手机号可分别服务不同的 Agent，但各条路由规则必须共用相同的 App secret 与 verify token。'
             },
             {
               name: 'appSecret',
-              description: 'App settings → Basic 中的 App secret。Ankole 用它验证 webhook 签名。'
+              description: 'App settings → Basic 中的 App secret，用于校验入站 Webhook 签名。'
             },
             {
               name: 'verifyToken',
-              description: '由你选择的值。在 Meta 的回调配置中填入同一个值。'
+              description: '自定义校验口令，需与 Meta 回调配置中填写的值完全一致。'
             },
             {
               name: 'phoneNumberId',
-              description: 'WhatsApp → API Setup 中的 Phone number ID。一个手机号只能属于一条已启用的路由规则。'
+              description: 'WhatsApp → API Setup 中的 Phone number ID。一个手机号同一时间只能绑定给一条已启用的路由规则。'
             },
             {
               name: 'accessToken',
-              description: '永久的 System User access token。'
+              description: '永久有效的 System User access token。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '唯一可用的模式。WhatsApp 只投递一对一聊天，每条消息都指名 Agent。'
+              description: '唯一可用模式。WhatsApp Cloud API 仅投递一对一单聊，每条消息均直接指向 Agent。'
             }
           ]
         }
       ]
     },
     advanced: {
-      title: '身份映射、回复与平台限制',
-      summary: '展开以了解 WhatsApp 用户如何成为账号，以及 Agent 无法使用哪些 WhatsApp 功能。',
+      title: '身份映射、回复格式与平台限制',
+      summary: '展开了解 WhatsApp 发信人如何映射为主体账号，以及平台侧的窗口与投递限制。',
       steps: [
         {
-          title: '了解 WhatsApp 用户如何成为账号',
+          title: '了解 WhatsApp 用户如何映射为账号',
           body: [
-            '发信人的 WhatsApp ID 是一个经 Meta 验证的手机号。如果某个已有账号（例如来自通讯录同步）拥有该手机号，发信人会立即完成映射。否则自动映射账号会失败：把「自动映射账号失败时」保持为「手动审核」，发信人会收到一条固定回复，并以 WhatsApp 资料名称和手机号出现在身份 → 待绑定账号列表中，由管理员把这个身份绑定到已有账号。只有在允许任何人与 Agent 对话的开放号码上，才选择「自动创建独立账号」。'
+            '发信人的 WhatsApp ID 即经 Meta 验证的真实手机号。若系统中某个已有主体（例如由企业通讯录同步导入的员工）已登记该手机号，发信人会自动匹配到该主体。否则自动映射无法命中：请将「自动映射账号失败时」保持为「手动审核」，新发信人会收到一条固定引导回复，并以 WhatsApp 昵称加手机号出现在「身份 → 待绑定账号」列表中，由管理员手动关联到已有主体。仅在允许任何陌生人与 Agent 对话的公开号码上，才选择「自动创建独立账号」。'
           ]
         },
         {
-          title: '了解 Agent 如何回复',
+          title: '了解 Agent 的回复呈现方式',
           bullets: [
-            '回复会引用用户的消息。长回复按 4,096 字符拆分。',
-            '不超过三个选项的澄清显示为回复按钮；更多选项显示为一个列表。每个选项都以其编号开头。',
-            'Agent 可以在 Meta 对各类型的大小限制内发送图片、视频、音频和文档。Meta 不接受的文件会以明确的错误停止，文字仍会送达。',
-            '用户在 WhatsApp 中删除的消息不会通知 Ankole，因此其文字仍保留在会话上下文中。'
+            '回复默认引用用户的原消息；超长回复按 4,096 个字符自动拆分。',
+            '不超过 3 个选项的澄清问题会渲染为快捷回复按钮，超过 3 个选项则自动转为交互列表（每个选项均带序号前缀）。',
+            'Agent 可在 Meta 规定的各媒体体积上限内发送图片、视频、音频和文档；超出限制或格式不符的附件会明确报错停止，但正文文字仍会正常送达。',
+            '用户在 WhatsApp 客户端撤回或删除消息不会通知 Ankole，已进入会话上下文的历史文本仍会保留。'
           ]
         },
         {
-          title: '遵守客服窗口',
+          title: '遵守 24 小时客服窗口规则',
           body: [
-            'Ankole 在每次发送前检查窗口。距用户最新一条消息或按钮回复超过 24 小时的回复会以 customer_service_window_closed 停止，不会向 Meta 发出任何请求。付费模板消息是打开新窗口的唯一方式，目前不在支持范围内。用户再次发信后，在信号路由页面使用「重试」发送被停止的回复。'
+            'Ankole 在每次发信前都会检查会话窗口状态：若距离用户最后一次发信或点击按钮已超过 24 小时，投递会直接以 customer_service_window_closed 停止，不会向 Meta 发出无效请求（开启新窗口所需的付费模板消息目前不在支持范围内）。待用户再次发来消息重开窗口后，可在信号路由页面点击「重试」补发此前拦下的回复。'
           ]
         },
         {
-          title: '让规则留在原来的手机号上',
+          title: '不要中途更换路由规则绑定的手机号',
           body: [
-            '一个聊天绑定到接收它的手机号。如果把规则改到另一个手机号，对旧聊天的回复会以 binding_phone_number_mismatch 停止，而不会从用户从未联系过的号码发出。恢复原来的手机号即可解除。'
+            '每个外部会话都与最初接收消息的业务手机号强绑定。若事后将路由规则改绑到另一个手机号，针对存量会话的回复会以 binding_phone_number_mismatch 停止，避免用户突然收到陌生号码发来的消息；改回原手机号即可恢复投递。'
           ]
         }
       ]
@@ -2362,81 +2362,81 @@ export const channelTabs = [
     value: 'email',
     label: 'Email',
     summary:
-      'Ankole 通过 IMAP 读取一个专用邮箱，并通过 SMTP 发送 Agent 的回复。每个邮件线程是一个会话。这个邮箱属于 Agent：任何人都不得用其他邮件客户端读取它。',
+      'Ankole 通过 IMAP 轮询读取一个专用邮箱，并通过 SMTP 发出 Agent 的回信；每个邮件往来线程（Thread）构成一个独立会话。该邮箱归属 Agent 独占，切勿在任何其他邮件客户端中登录读取。',
     alert: {
-      title: '电子邮件限制了部分 Ankole 功能',
+      title: '电子邮件渠道限制了部分 Ankole 功能',
       body: [
-        '被其他邮件客户端标记为已读的邮件不会到达 Agent，因此邮箱必须专用。Agent 的回复是一封纯文本邮件，没有实时进度、编辑和按钮；澄清以带编号的文字送达，用户用普通回复作答。只支持密码和应用专用密码登录，因此 Gmail 需要应用专用密码，而要求 OAuth 的 Exchange Online 邮箱无法使用。',
-        '控制平面必须能直接访问 IMAP 和 SMTP 服务器；HTTP 出站代理不覆盖它们。'
+        '已被其他邮件客户端抢先标为“已读”的邮件不会被 Agent 拉取，因此邮箱必须专号专用。Agent 的回信为纯文本邮件，没有实时进度指示、消息编辑或交互按钮；遇到需要澄清的问题时会列出编号选项，收件人直接普通回信作答即可。登录认证仅支持密码或应用专用密码，因此 Gmail 须生成应用专用密码，而强制要求 OAuth 认证的 Exchange Online 邮箱无法接入。',
+        '控制面进程必须能够直接连通 IMAP 与 SMTP 服务器（HTTP/HTTPS 出站代理环境变量不会代理邮件流量）。'
       ]
     },
     prerequisites: [
-      '一个开通了 IMAP 和 SMTP 访问、并有密码或应用专用密码的专用邮箱',
-      '一个会添加带 DMARC 结果的 Authentication-Results 头的邮件服务器，或一个不接收外部邮件的内网邮件服务器'
+      '一个已开启 IMAP 与 SMTP 访问、具备密码或应用专用密码的独立专用邮箱',
+      '一台会写入含 DMARC 校验结果的 Authentication-Results 邮件头的收件服务器，或完全不接收外网来信的纯内网邮件服务器'
     ],
     basic: {
       title: '准备专用邮箱',
       steps: [
         {
-          title: '创建邮箱及其密码',
+          title: '创建专用邮箱与访问密码',
           body: [
-            '创建一个只供 Agent 使用的邮箱，并为它启用 IMAP 和 SMTP。如果服务商要求，为 Ankole 创建一个应用专用密码，而不是使用账号密码。'
+            '新建一个仅供该 Agent 使用的邮箱账号，并开启 IMAP 与 SMTP 服务；若邮件服务商有安全要求，请专门为 Ankole 生成一组应用专用密码，不要直接使用主账号登录密码。'
           ],
-          caution: '不要在任何其他邮件客户端中打开这个邮箱。被其他客户端标记为已读的邮件对 Agent 不可见。'
+          caution: '切勿在手机或桌面等任何其他邮件客户端中挂载该邮箱——一旦新邮件被其他客户端标为已读，Agent 便无法看到该邮件。'
         },
         {
-          title: '收集服务器设置',
+          title: '确认邮件服务器连接参数',
           body: [
-            'Ankole 通过隐式 TLS 连接 IMAP，通常是 993 端口。SMTP 使用 STARTTLS（通常是 587 端口）或隐式 TLS（通常是 465 端口）。Ankole 会根据系统 CA 存储验证服务器证书。'
+            'Ankole 使用隐式 TLS 连接 IMAP（通常为 993 端口），使用 STARTTLS（通常为 587 端口）或隐式 TLS（通常为 465 端口）连接 SMTP，并依据操作系统根证书库校验服务端 TLS 证书。'
           ]
         },
         {
           title: '准备 Console 字段',
           fields: [
-            { name: 'address', value: 'agent@example.com', description: '邮箱地址。回复从这个地址发出。' },
-            { name: 'displayName', value: 'Ankole Agent', description: '出站邮件上的发件人名称。' },
-            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP 服务器主机。' },
-            { name: 'imapPort', value: '993', description: 'IMAP 端口。Ankole 使用隐式 TLS。' },
-            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP 服务器主机。' },
-            { name: 'smtpPort', value: '587', description: 'SMTP 端口。587 配 STARTTLS，465 配 TLS。' },
-            { name: 'smtpSecurity', value: 'starttls', description: 'starttls 或 tls，与 SMTP 端口匹配。' },
-            { name: 'username', description: '登录名，通常就是邮箱地址。一组 IMAP 主机和用户名只能属于一条已启用的路由规则。' },
-            { name: 'password', description: '邮箱密码或应用专用密码。Ankole 加密存储。' },
-            { name: 'senderAuthentication', value: 'dmarc', description: '保持 dmarc。只有不接收外部邮件的内网邮件服务器才设为 none。' }
+            { name: 'address', value: 'agent@example.com', description: '专用邮箱地址，Agent 回信均从该地址发出。' },
+            { name: 'displayName', value: 'Ankole Agent', description: '出站回信显示的发件人名称。' },
+            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP 服务器主机名。' },
+            { name: 'imapPort', value: '993', description: 'IMAP 端口（强制使用隐式 TLS）。' },
+            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP 服务器主机名。' },
+            { name: 'smtpPort', value: '587', description: 'SMTP 端口（587 对应 STARTTLS，465 对应隐式 TLS）。' },
+            { name: 'smtpSecurity', value: 'starttls', description: '填写 starttls 或 tls，须与所选 SMTP 端口匹配。' },
+            { name: 'username', description: '登录用户名（通常即完整邮箱地址）。同一组 IMAP 主机与用户名只能绑定给一条已启用的路由规则。' },
+            { name: 'password', description: '邮箱密码或应用专用密码，由 Ankole 加密存储。' },
+            { name: 'senderAuthentication', value: 'dmarc', description: '建议保持 dmarc；仅在不接收任何外部来信的纯内网邮件服务器上才可设为 none。' }
           ]
         },
         {
-          title: '发送测试邮件',
+          title: '发送一封测试邮件',
           body: [
-            '从你自己的地址给该邮箱写一封邮件。如果你的地址尚未绑定到你的账号，你会收到一封映射提示作为回复；在身份 → 待绑定账号中绑定该地址，然后重新发送邮件。'
+            '用你自己的办公邮箱向该专用地址发送一封测试邮件。若你的发件地址尚未绑定到你的主体账号，系统会回复一封绑定提示邮件；前往 Console 的「身份 → 待绑定账号」完成邮箱关联后，再重新发一封测试邮件即可。'
           ]
         }
       ]
     },
     advanced: {
-      title: '发信人身份、发信人认证与线程',
-      summary: '展开以了解邮件发信人如何成为已知账号，以及 Ankole 如何处理线程和群发邮件。',
+      title: '发件人身份绑定、DMARC 认证与邮件线程',
+      summary: '展开了解邮件发信人如何识别为已知主体，以及 Ankole 如何处理邮件线程与群发邮件。',
       steps: [
         {
-          title: '了解邮件发信人如何成为账号',
+          title: '了解邮件发信人如何映射为主体账号',
           body: [
-            '互联网上的任何人都能给该邮箱写信，而 From 地址本身不能证明任何事情，因此 Ankole 从不仅凭未绑定的资料邮箱或 SiteCredential 登录邮箱匹配邮件发信人。发信人只能通过显式的 Pod 邮箱（email）身份绑定被识别：通讯录同步和企业提供商登录会绑定提供商报告的地址，所以已同步通讯录中的员工无需手动步骤即可接入；其他地址由管理员在身份 → 待绑定账号中绑定。「自动创建独立账号」会创建一个以该地址为标识的账号，只在开放邮箱上使用它。'
+            '公网上的任何人都可能给该邮箱写信，而邮件头中的 From 地址极易伪造，因此 Ankole 绝不会仅凭未绑定的资料邮箱或 SiteCredential 登录邮箱自动匹配发件人。发信人必须命中显式的 Pod 邮箱（email）身份绑定才会被识别：通过企业 IdP 同步通讯录或完成企业 SSO 登录时，系统会自动绑定身份源返回的员工邮箱，因此已同步名册内的员工无需额外操作即可直接写信交互；其余邮箱地址则由管理员在「身份 → 待绑定账号」中审核绑定。「自动创建独立账号」会为任意来信地址自动建立主体，请仅在完全公开的外部服务邮箱上启用。'
           ]
         },
         {
-          title: '理解发信人认证',
+          title: '理解发信人 DMARC 认证',
           body: [
-            'senderAuthentication 设为 dmarc 时，Ankole 读取你的收件邮件服务器添加的 Authentication-Results 头，只有当它对 From 地址所在域报告 dmarc=pass 时才接受这封邮件。未通过的邮件会被静默忽略，不发送任何提示。只有邮件服务器位于内网且不接收外部邮件时才设为 none。'
+            '当 senderAuthentication 设为 dmarc 时，Ankole 会读取收件邮件服务器注入的 Authentication-Results 头，仅当服务器对 From 所在域名明确报告 dmarc=pass 时才接纳邮件；未通过校验的来信会被静默丢弃，不发送任何回执。仅当邮件服务器位于隔离内网且不接收外部邮件时，才可设为 none。'
           ]
         },
         {
-          title: '了解线程和群发邮件的处理方式',
+          title: '了解邮件线程与群发邮件的处理规则',
           bullets: [
-            '线程按 In-Reply-To 和 References 头归位，而不是按主题。Agent 的回复带有邮件客户端使用的线程头。',
-            '参与者只有发信人和该邮箱的线程是一对一会话。有其他收件人时就是群组会话，而只在 Cc 中列出该邮箱的邮件不算指名 Agent。',
-            '已知线程中的邮件会移除回复分隔线以下的引用文字。线程的第一封邮件和转发邮件保留完整正文。',
-            '来自该邮箱自身的邮件、自动邮件和群发邮件，以及邮件列表邮件会被静默忽略，不发送任何提示。',
-            '大于 25 MB 的邮件只会送达邮件头。出站附件限制为每封邮件 20 MB。'
+            '邮件线程严格按照 In-Reply-To 与 References 头归并，不按邮件主题（Subject）拼接；Agent 发出的回信同样会携带标准线程头。',
+            '往来双方仅有发信人与 Agent 邮箱的线程视为一对一会话；只要包含其他收件人即视为群组会话，且仅将 Agent 邮箱列在抄送（Cc）栏的邮件不视为明确点名 Agent。',
+            '对于已知线程中的后续回信，系统会自动裁去回复分隔线以下的引用原文；线程首封邮件与转发邮件则保留完整正文。',
+            '来自该专用邮箱自身的邮件、自动回复与批量群发邮件，以及邮件列表（Mailing List）邮件均会被静默忽略。',
+            '超过 25 MB 的入站邮件仅保留邮件头信息；单封出站回信的附件总大小上限为 20 MB。'
           ]
         }
       ]
@@ -2446,31 +2446,31 @@ export const channelTabs = [
 
 export const signalAdvanced = {
   title: '群聊处理方式和身份映射',
-  summary: '第一次配置时，建议只响应明确 @ Agent 的消息。',
+  summary: '首次接入测试时，建议先只响应明确 @ Agent 的消息。',
   steps: [
     {
-      title: '选择如何处理没有 @ Agent 的群消息',
+      title: '选择如何处理未明确 @ Agent 的群消息',
       fields: [
         {
           name: 'addressed_only',
-          description: '不处理没有明确发给 Agent 的群消息。第一次测试请选这个。'
+          description: '忽略未明确指向 Agent 的普通群消息。首次测试请选此项。'
         },
         {
           name: 'observe_all',
-          description: '把消息记入上下文，但不唤醒 Agent。'
+          description: '将群内普通发言记入会话上下文供后续参考，但不主动唤醒 Agent。'
         },
         {
           name: 'may_intervene',
-          description: '由 Agent 判断要不要参与没有明确发给它的讨论。'
+          description: '允许 Agent 根据讨论内容自行判断是否介入未点名它的群聊讨论。'
         }
       ],
       caution:
-        '聊天平台必须先把群消息发给 Ankole，这些模式才会生效。钉钉和企业微信只支持 addressed_only；Slack 和飞书还要添加额外的事件或权限，才能读取群里所有消息。'
+        '前提是聊天平台本身已将普通群消息推送给 Ankole，上述策略才能生效：钉钉与企业微信平台仅支持 addressed_only；Slack 与飞书则需按上文配置额外事件或群消息读取权限，才能接收群内全部发言。'
     },
     {
-      title: '在聊天绑定中关联身份源',
+      title: '在聊天路由规则中关联身份源',
       body: [
-        '聊天绑定在「身份源提供商」字段中引用同一平台的 IdP。只有一个 IdP 时默认采用，有多个时必须选择，「不关联」选项让绑定保留自己的命名空间。该引用让聊天发信人和通讯录同步的用户成为同一个账号。'
+        '企业聊天路由规则可通过「身份源提供商」字段关联同一平台的 IdP：仅有一个同平台 IdP 时默认自动选用，存在多个时必须显式指定（选择「不关联」则会让该规则使用独立的身份命名空间）。关联后，聊天发信人与通讯录同步的员工会解析为同一个主体账号。'
       ]
     }
   ]
@@ -2478,45 +2478,45 @@ export const signalAdvanced = {
 
 ## Ankole 的部署结构
 
-一套 Ankole 私有化部署实例由一个控制面和每个 Agent 各一个 Agent Computer Worker 组成。控制面拥有持久领域状态与监督，负责管理和调度；Worker 负责实际运行 Agent，相当于 Agent 自己的工作电脑。
+一套 Ankole 私有化部署实例由一个逻辑控制面，以及每位 Agent 各自独占的一个 Agent Computer Worker 组成。控制面持有持久领域状态与监督权，负责全局管理与调度；Worker 则负责承载 Agent 的实际运行，相当于每位 Agent 专属的工作电脑。
 
-Agent 之间从不共用 Worker，就像每位同事都有自己的工作电脑。创建 Agent 时，控制面为它创建 Worker，之后也由控制面自行停止、替换和删除这个 Worker。
+不同 Agent 之间绝不共用 Worker，正如团队中每位同事都有各自独立的工作电脑。创建 Agent 时，控制面会同步为其创建专属 Worker，并在后续运行中自动负责该 Worker 的停止、升级替换与销毁回收。
 
 <DocsKnowledgeNote
   label="💡 你知道吗？"
-  text="Worker 的容器或 Pod 是它唯一的隔离边界。Agent 的命令、Automation 脚本和浏览器直接在其中运行，没有内层沙盒，容器也不需要额外的内核权限。Agent 可以在自己的 Worker 上安装软件，甚至把它弄坏，但不能冒充其他 Agent。Worker 没有及时就绪时，控制面会重建它。"
+  text="Worker 所在的容器或 Pod 就是它唯一的隔离边界：Agent 的命令行执行、Automation 脚本与无头浏览器均直接在其中运行，不设内层沙盒，容器本身也无需任何额外内核特权。Agent 可以在自己的 Worker 上自由安装软件甚至把环境弄坏，但绝无法冒充其他 Agent；一旦某个 Worker 未能按时就绪，控制面会自动将其重建。"
 />
 
-每个部署需要 PostgreSQL、云盘文件存储和每个 Agent 的持久 Home。默认 Kubernetes chart 使用共享 ReadWriteMany Home PVC 与独立的 ReadWriteOnce 缓存 PVC。Home 需要备份，缓存不需要。
+每套部署实例均需要 PostgreSQL 数据库、控制面云盘文件存储，以及每位 Agent 的持久 Home 存储。官方 Kubernetes Helm Chart 默认采用共享的 ReadWriteMany Home PVC 搭配独立的 ReadWriteOnce 缓存 PVC——其中持久 Home 必须纳入定期备份，缓存卷则无需备份。
 
-一个站点可以包含多个租户。站点管理员管理共享基础设施；各租户拥有独立的人员、Agent、Brain 和外部平台连接。管理员控制台默认位于 `/site-admin-console`。需要修改时，在启动前设置 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm 使用 `controlPlane.siteAdminConsolePath`）。
+单个站点可以容纳多个逻辑隔离的租户：站点管理员负责维护底层共享基础设施，各租户各自拥有独立的人员主体、Agent、Brain 知识库与外部平台连接。站点管理台默认位于 `/site-admin-console`；如需修改路径，请在启动前设置环境变量 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm 部署对应配置 `controlPlane.siteAdminConsolePath`）。
 
 <span id="terminology" aria-hidden="true" />
 
 ### 术语表
 
-本页是 Ankole 用户文档和界面用语的准则。括号内保留英文名称，方便对照第三方平台、配置字段和 API；后文只使用简称。
+以下术语表是 Ankole 用户文档与控制台界面的统一用语规范。括号内保留英文原名以便对照第三方平台后台、配置字段与 API；后文统一使用简称。
 
 | 统一名称 | 含义 | 后文简称 |
 |---|---|---|
-| **站点（Site）** | 一套共享基础设施、由站点管理员管理的完整 Ankole 部署 | 站点 |
-| **租户（Tenant）** | 站点内一个组织的人员、Agent、Brain、外部连接和工作 | 租户 |
-| **主体（Principal）** | Ankole 中可以拥有身份和权限的人、Agent 或系统服务 | 主体 |
-| **身份源提供商（Identity Provider，IdP）** | 为 Console 提供单点登录，并向 Ankole 同步员工、通讯录和组织架构的外部身份源 | IdP |
-| **聊天平台** | Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或邮箱等承载对话的外部平台 | 平台 |
-| **聊天渠道（Channel Provider）** | 接入 Ankole 的一套聊天应用或机器人配置，用来接收消息和发送 Agent 回复 | 聊天渠道 |
-| **对话（Conversation）** | 人和 Agent 共享的空间；原生发言以 Ankole 为准，外部发言以宿主平台为准 | 对话 |
-| **消息（Message）** | 在对话中提交、对参与者可见的发言记录 | 消息 |
-| **信号（Signal）** | 由发言、时间、外部事件或任务完成派生并持久接纳的刺激 | 信号 |
-| **执行会话（Session）** | 拥有 signal 队列和可恢复工作进度的执行上下文，不跨对话 | 执行会话 |
-| **投递（Delivery）** | 向外部对话发言的持久意图、尝试和结果 | 投递 |
-| **信号路由规则（Signal Binding）** | 决定把哪个信号源收到的消息或事件交给哪个 Agent | 路由规则 |
-| **大语言模型提供商（LLM Provider）** | 保存模型服务地址、凭证和可用模型的配置 | 模型提供商 |
-| **后台 Agent 任务档案（内部键：`coding`）** | 选择后台 Agent 任务使用的 AIGateway Provider 和模型 | 后台 Agent 任务 |
+| **站点（Site）** | 一套共享底层基础设施、由站点管理员统一运维的完整 Ankole 部署实例 | 站点 |
+| **租户（Tenant）** | 站点内单个组织的人员、Agent、Brain、外部平台连接及业务数据边界 | 租户 |
+| **主体（Principal）** | Ankole 中可拥有身份标识与访问权限的自然人、Agent 或系统服务 | 主体 |
+| **身份源提供商（Identity Provider，IdP）** | 为 Console 提供企业单点登录，并向 Ankole 同步员工、通讯录与组织架构的外部身份源 | IdP |
+| **聊天平台** | Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或电子邮箱等承载对话的外部平台 | 平台 |
+| **聊天渠道（Channel Provider）** | 接入 Ankole 的一套外部聊天应用或机器人凭证配置，用于收取消息并发回 Agent 回复 | 聊天渠道 |
+| **对话（Conversation）** | 人与 Agent 共同参与的交流空间；原生对话发言以 Ankole 为准，外部平台对话发言以宿主平台为准 | 对话 |
+| **消息（Message）** | 在对话中正式提交、对参与者可见的发言记录 | 消息 |
+| **信号（Signal）** | 由对话发言、定时触发、外部事件或子任务完成所生成并持久接纳的输入刺激 | 信号 |
+| **执行会话（Session）** | 持有专属信号队列与可恢复执行进度的运行上下文，严格限定在单个对话内 | 执行会话 |
+| **投递（Delivery）** | 向外部对话发送回复时的持久化投递意图、尝试记录与最终回执 | 投递 |
+| **信号路由规则（Signal Binding）** | 定义将哪个信号源收到的消息或事件转交给哪位 Agent 处理的绑定规则 | 路由规则 |
+| **大语言模型提供商（LLM Provider）** | 保存模型接口地址、访问凭证及可用模型列表的配置 | 模型提供商 |
+| **后台 Agent 任务档案（内部键：`coding`）** | 指定后台 Agent 任务所使用的 AIGateway 提供商与模型 | 后台 Agent 任务 |
 
 ## 让 Agent 帮你完成安装
 
-你也可以把下面这段话直接发给 Codex、Claude Code，或其他能操作终端的 Agent：
+你也可以将下面这段提示词直接发给 Codex、Claude Code 或其他能操作终端的编程 Agent，由它代劳部署与引导检查：
 
 <QuickstartAgentPrompt
   client:visible
@@ -2528,9 +2528,9 @@ Agent 之间从不共用 Worker，就像每位同事都有自己的工作电脑�
 
 ## 1. 部署 Ankole
 
-单机部署推荐 Docker Compose，企业环境推荐 Kubernetes；源码安装适合开发和排错。
+单机部署推荐使用 Docker Compose，企业级集群环境推荐使用 Kubernetes；源码安装仅用于本地功能开发与故障调试。
 
-Worker installation 名称为 1–20 个字符，只接受小写字母、数字和连字符，首尾必须是字母或数字；例如 `e2e-1011b01` 合法。Compose 使用 `ANKOLE_WORKER_INSTALLATION`（默认 `ankole`）；Helm 使用 `worker.installation`，为空时使用 release 名称。首次启动前确定名称，安装后保持不变：Worker 资源和持久 Home 存储使用这个名称。
+Worker 部署标识（installation）长度须为 1–20 个字符，仅支持小写字母、数字和连字符（`-`），且首尾字符必须为字母或数字（例如 `e2e-1011b01`）。Docker Compose 通过 `ANKOLE_WORKER_INSTALLATION` 设置（默认为 `ankole`）；Helm 通过 `worker.installation` 设置（留空时默认采用 Release 名称）。请在首次启动前确定该标识，上线后保持不变——底层 Worker 实例命名与持久 Home 存储路径均与该标识绑定。
 
 <QuickstartTabs
   client:visible
@@ -2545,23 +2545,23 @@ Worker installation 名称为 1–20 个字符，只接受小写字母、数字�
 
 ## 2. 先设置登录与身份源
 
-Ankole 服务企业内部的私有化部署。一套站点可以容纳多个租户；各租户的 Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）管控权限。完成 `/setup` 初始化后，首位管理员会同时获得 `siteadmin`（访问 `/site-admin-console` 站点管理台）与默认 Pod 的 `pod_admin` 权限。配置租户级设置前，先在控制台选择目标租户。
+Ankole 专为企业私有化部署设计。一套站点可承载多个租户；各租户内的 Agent、员工与系统服务均统一建模为主体（Principal），并由权限模块（AuthZ）集中鉴权。完成 `/setup` 初始化后，首位登录的管理员会同时获得站点级 `siteadmin`（可访问 `/site-admin-console` 站点管理台）与默认 Pod 的 `pod_admin` 权限。进入控制台调整租户级设置前，请先在左上角切换至目标租户。
 
-在 `/setup` 中，你可以选择免密**邮箱验证码（Email OTP，`email_otp`）**（通过自有 SMTP 服务发送 6 位验证码），也可以配置**企业 SSO 身份源提供商（IdP）**来同步员工、通讯录和组织架构。请先完成登录设置，再添加聊天渠道。
+在 `/setup` 初始化向导中，你既可以选择免密**邮箱验证码（Email OTP，`email_otp`）**（通过自有 SMTP 服务器发送 6 位验证码），也可以接入**企业 SSO 身份源提供商（IdP）**来同步员工名册、通讯录与部门架构。请务必先完成登录与身份初始化，再去配置外部聊天渠道。
 
 | 设置项 | 负责什么 | 在哪里设置 |
 |---|---|---|
-| **邮箱验证码（`email_otp`）** | 免密 6 位邮箱验证（`authn.email.mail` SMTP 发信与 `SiteCredential` 绑定）及邮件成员邀请 | `/setup`（**邮箱验证码**），或命令行 `mix ankole.authn.mail.put` |
-| **IdP** | 企业 SSO 登录，以及员工、通讯录、组织架构和权限组的同步 | 先在 `/setup`，之后在 **Console → 身份源提供商** |
-| **聊天渠道** | 接收 IM 消息并发送 Agent 回复 | 在 **Console → 信号路由** 中配置 |
+| **邮箱验证码（`email_otp`）** | 免密 6 位邮箱验证码登录（`authn.email.mail` SMTP 发信与 `SiteCredential` 绑定）及邮件邀请成员 | `/setup`（**邮箱验证码**），或命令行 `mix ankole.authn.mail.put` |
+| **IdP** | 企业 SSO 单点登录，以及员工、通讯录、组织架构与权限组的同步 | 首次在 `/setup` 配置，后续在 **Console → 身份源提供商** 管理 |
+| **聊天渠道** | 收取外部 IM 消息并发回 Agent 的回复 | 在 **Console → 信号路由** 中配置 |
 
-登录方式和聊天渠道可以来自不同平台。例如，使用邮箱验证码或 Google Workspace 登录，但在 Slack 中与 Agent 对话；也可以使用 Entra ID 登录，把聊天放在飞书、Slack、钉钉、Teams 或企业微信。
+登录认证方式与日常对话所用的聊天渠道完全解耦，可以来自不同平台：例如用邮箱验证码或 Google Workspace 登录后台，而在 Slack 中与 Agent 对话；或者用 Microsoft Entra ID 登录后台，而将 Agent 接入飞书、Slack、钉钉、Teams 或企业微信。
 
 ### 按所选登录方式完成首次设置
 
-选择**邮箱验证码**或企业实际使用的身份源，照着对应标签页操作。每个企业 SSO 标签页都从第三方后台创建应用开始，一直写到首次登录和通讯录同步。
+在下方切换至**邮箱验证码**或企业实际使用的身份源，按对应标签页的步骤依次操作。每个企业 SSO 标签页均从第三方管理后台创建应用讲起，直至完成首次登录与通讯录全量同步。
 
-如果这次才启用对应的企业适配器，请在首次登录后按当前部署方式重启一次控制面。这样，通讯录长连接、Graph 订阅等插件后台任务才会完整启动。
+若对应的企业平台适配器是在本次操作中刚刚启用的，请在完成首次登录后按当前部署方式重启一次控制面进程，以便通讯录长连接或 Microsoft Graph 订阅等插件后台任务完整启动。
 
 <QuickstartTabs
   client:visible
@@ -2576,21 +2576,21 @@ Ankole 服务企业内部的私有化部署。一套站点可以容纳多个租�
 
 ## 3. 添加模型提供商，并创建 Agent
 
-Agent 的模型档案只保存模型引用，因此要先添加模型提供商。登录 Console，打开 **模型提供商 → 新增提供商**，选择 Provider 类型，填写固定的 Provider ID、服务地址和凭证，然后保存。
+Agent 的模型档案只保存模型引用，因此必须先添加模型提供商。登录 Console 后打开 **模型提供商 → 新增提供商**，选择提供商类型，填写固定的 Provider ID、接口地址与访问凭证并保存。
 
-控制面会加密保存 Provider 凭证。不要再把凭证写进部署环境变量或 Agent 文件。
+控制面会对所有提供商凭证进行加密存储，切勿将模型 API 密钥写入部署环境变量或 Agent 工作区文件中。
 
-打开 **Agents → New Agent**。填写 handle 和显示名称，选择 Worker provider，并在 mission 中写清职责和交付标准。UID 由 Ankole 自动生成。
+随后打开 **Agents → New Agent**，填写唯一标识（handle）和显示名称，选择运行所需的 WorkerProvider，并在职责说明（mission）中写清工作范围与交付要求；Agent 的全局 UID 由 Ankole 自动生成。
 
-接着配置 model profile：
+接着为该 Agent 配置三个核心模型档案（Model Profile）：
 
 | Profile | 建议用途 |
 |---|---|
-| `primary` | 大多数任务使用的模型 |
-| `light` | 简单、高频的任务 |
-| `heavy` | 复杂推理任务 |
+| `primary` | 日常绝大多数对话与工具调用使用的主模型 |
+| `light` | 简单、高频的轻量推理与维护任务 |
+| `heavy` | 高复杂度深度推理任务 |
 
-这三个 profile 缺一不可。第一次配置时，可以让它们共用同一个已经验证可用的 provider 和模型。确认聊天可以正常收发后，再按需要拆分。
+以上三个核心档案缺一不可。首次跑通链路时，可以先让三者共用同一个已验证可用的提供商和模型；待确认 IM 收发对话顺畅后，再按实际负载拆分为不同档位的模型。
 
 <QuickstartDisclosure
   client:visible
@@ -2602,11 +2602,11 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 
 ## 4. 连接聊天渠道并创建信号路由规则
 
-先在 Console 中启用聊天平台对应的 Control Plane Plugin，再去该平台创建机器人或应用。即使 IdP 和聊天渠道来自同一平台，正式使用时也建议分别创建应用。这样，登录和通讯录权限不会与机器人权限混在一起，凭证轮换和应用发布也互不影响。
+请先在 Console 中确认目标聊天平台对应的控制面插件（Control Plane Plugin）已启用，再前往该平台后台创建机器人或应用。即便企业的身份源（IdP）与聊天渠道同属一个平台，生产环境仍建议分别创建独立应用，将登录及通讯录权限与机器人消息权限隔离，后续轮换密钥或发布应用版本时也互不干扰。
 
-一个聊天应用通常对应一个机器人身份。多个 Agent 如果要使用不同的机器人名称、头像或权限，就要在同一平台创建多套应用。准备好应用后，紧接着在 Console 中创建路由规则，把这套应用连接到指定的 Agent。
+一套聊天应用通常对应一个独立的机器人身份；若多位 Agent 需要展示各自不同的机器人名称、头像或权限范围，请在同一聊天平台分别创建多套应用。应用准备就绪后，回到 Console 创建信号路由规则，将该聊天渠道绑定到目标 Agent。
 
-Slack、Teams、飞书 / Lark、钉钉和企业微信是企业平台：它们的用户来自 IdP 同步的通讯录。Telegram、Discord、LINE 和 WhatsApp 是消费级 IM：它们的用户没有员工记录，管理员需要先在**身份 → 待绑定账号**中把每个新发信人映射到账号，Agent 才会为其服务；如果某个已知账号已拥有该手机号，WhatsApp 会自行完成映射。电子邮件接入的是一个专用邮箱，发信人只能通过显式的邮箱身份绑定被识别。
+在账号映射机制上，Slack、Teams、飞书 / Lark、钉钉与企业微信属于企业办公平台，发信人直接对应 IdP 同步的企业通讯录成员；Telegram、Discord、LINE 与 WhatsApp 则属于个人消费级 IM，发信人没有企业员工档案，默认需由管理员先在**身份 → 待绑定账号**中将每位新发信人关联至已有账号后，Agent 才会为其提供服务（WhatsApp 若检测到发信手机号已归属某个已知主体，则会自动完成映射）；电子邮件渠道接入的是单个专用邮箱，仅识别命中显式邮箱身份绑定的发件人。
 
 <QuickstartTabs
   client:visible
@@ -2619,23 +2619,23 @@ Slack、Teams、飞书 / Lark、钉钉和企业微信是企业平台：它们的
 
 ### 在 Console 中完成连接
 
-一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息。多个机器人要分别创建多条路由规则。
+每条信号路由规则负责把一个外部聊天渠道连接到一位目标 Agent，记录所用平台适配器、应用凭证、应答 Agent 以及群聊消息处理模式；接入多个机器人时，请分别创建对应的路由规则。
 
-打开 **Console → 信号路由 → 新增路由规则**，依次设置：
+打开 **Console → 信号路由 → 新增路由规则**，依次填写：
 
 | 字段 | 如何选择 |
 |---|---|
-| **Target Agent** | 第 3 步创建的 Agent |
-| **Adapter** | Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或 Email |
-| **规则名称** | 起一个固定的名称，例如 `slack-main` 或 `lark-main` |
-| **Group message mode** | 第一次测试选择 `addressed_only` |
-| **聊天渠道配置** | 填入对应平台 Tab 中准备好的凭证和字段 |
+| **Target Agent** | 选择第 3 步创建的 Agent |
+| **Adapter** | 选择 Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或 Email |
+| **规则名称** | 填写稳定的标识名称，例如 `slack-main` 或 `lark-main` |
+| **Group message mode** | 首次联调测试请选择 `addressed_only` |
+| **聊天渠道配置** | 填入上方对应平台标签页中准备好的各项凭证与参数 |
 
-保存后，应能在列表中看到启用状态。如果表单提示凭证有误，先改正再去 IM 测试；凭证没有通过检查，adapter 就不会建立连接。
+保存后，确认该规则在列表中显示为启用状态。若保存时提示凭证校验有误，请先修正凭证再去聊天软件测试——在凭证通过检查前，平台适配器不会建立连接。
 
 <DocsKnowledgeNote
   label="💡 你知道吗？"
-  text="信号路由规则把信号源中的消息或事件交给指定的 Agent。聊天适配器先把消息记录到对话，再生成 Signal；CloudEvents 入口也可以接收外部系统事件。多个 Agent 可以共享同一对话的历史，每个 Agent 用自己的 Session 处理这些历史。"
+  text="信号路由规则负责将外部信号源收到的消息或事件转交给指定的 Agent：聊天适配器会先把入站发言写入对话历史，再派生出一条 Signal；CloudEvents 接口同样可以接入外部业务系统事件。多位 Agent 可以共处同一个群聊对话并共享对话历史，同时各自在独立的 Session 中推进自己的任务。"
 />
 
 <QuickstartDisclosure
@@ -2646,26 +2646,26 @@ Slack、Teams、飞书 / Lark、钉钉和企业微信是企业平台：它们的
 
 ## 5. 在 IM 中与 Agent 对话
 
-把机器人加入测试会话。第一次在群里测试时，请明确 @ 它：
+将配置好的机器人拉入测试会话。首次在群聊中测试时，请明确 @ 提及它：
 
 > @Ankole 你能做什么？你现在服务哪个团队？
 
-收到真实模型生成的回复后，就可以继续调整 Agent 的 mission、模型和群聊策略。
+收到由真实大模型生成的回复后，即可继续按业务需求打磨 Agent 的职责说明（mission）、模型档位与群聊介入策略。
 
 <span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent 没有回复时
 
-按下面的顺序逐项检查：
+若迟迟未收到回复，请按以下顺序逐项排查：
 
-1. 聊天平台中的应用已发布最新版本，测试用户也在可用范围内。
-2. 机器人已经加入对应的频道、团队或会话。
-3. 必需的消息事件与权限已经生效。
-4. 路由规则已启用，并指向正确的 Agent。
-5. Agent 已配置 `primary`、`light` 与 `heavy`。
-6. 模型提供商凭证和模型选择器有效。
-7. 在 **Console → 工作节点** 中，该 Agent 的 Worker 显示为“就绪”；否则，该页面会显示后端给出的原因。
+1. 聊天平台后台中的应用已发布最新版本，且当前测试账号在应用可用范围内。
+2. 机器人已被邀请加入测试所在的频道、团队或群聊会话。
+3. 平台要求的消息接收事件与接口权限均已审批生效。
+4. 信号路由规则处于启用状态，且指向正确的目标 Agent。
+5. 目标 Agent 已配齐 `primary`、`light` 与 `heavy` 三个核心模型档案。
+6. 模型提供商的 API 凭证与模型名称真实有效。
+7. 在 **Console → 工作节点** 中，该 Agent 对应的 Worker 状态显示为“就绪”；若未就绪，页面会直接展示底层平台返回的具体原因。
 
-使用 Compose 时，运行 `docker compose logs -f control-plane`；用 `docker ps -a --filter label=ankole.installation=ankole` 列出 Worker 容器，再用 `docker logs CONTAINER_NAME` 查看其中一个。使用 Kubernetes 时，查看控制面和 Worker Pod 的日志。只查看相关错误，不要输出环境变量或 secret。
+使用 Docker Compose 部署时，可运行 `docker compose logs -f control-plane` 查看控制面实时日志；如需查看 Worker 日志，先运行 `docker ps -a --filter label=ankole.installation=ankole` 列出 Worker 容器，再执行 `docker logs CONTAINER_NAME` 查看目标容器。使用 Kubernetes 部署时，分别查看控制面 Pod 与对应 Worker Pod 的日志即可。排查问题时请仅截取相关报错行，切勿打印环境变量或任何敏感密钥。
 
-收到回复后，可以继续阅读 [Agent](../agents/)、[信号路由规则](../signal-bindings/)或 [后台 Agent 任务](../background-jobs/)。
+跑通首条回复后，可继续阅读 [Agent](../agents/)、[信号路由规则](../signal-bindings/)或 [后台 Agent 任务](../background-jobs/)。

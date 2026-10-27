@@ -1,3 +1,4 @@
+import { isRecord, safeJsonParse } from '@agentbull/active-support'
 import { existsSync, realpathSync, rmSync, unlinkSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -326,9 +327,13 @@ async function runProcess(
   }
 }
 
-function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester): SocketLineBridge {
+export function startEmitBridge(
+  request: AutomationJobRunRequest,
+  rpc: RPCRequester,
+  socketRoot = WORKER_SHARE_ROOT
+): SocketLineBridge {
   return startSocketLineBridge({
-    socketPath: join(WORKER_SHARE_ROOT, `ankole-aj-emit-${randomUUID()}.sock`),
+    socketPath: join(socketRoot, `ankole-aj-emit-${randomUUID()}.sock`),
     maxRequestBytes: emitRequestMaxBytes,
     oversizeError: 'Automation request is too large',
     handleLine: line => emitLine(line, request, rpc)
@@ -336,12 +341,9 @@ function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester): S
 }
 
 async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPCRequester): Promise<unknown> {
-  const command = JSON.parse(line) as {
-    operation?: string
-    payload?: unknown
-  }
-  if (command.operation !== undefined) throw new Error('Unknown automation operation')
-  if (!Object.prototype.hasOwnProperty.call(command, 'payload')) {
+  const command = safeJsonParse(line).unwrapOr(undefined)
+  if (!isRecord(command)) throw new Error('Invalid JSON request')
+  if (!Object.hasOwn(command, 'payload')) {
     throw new Error('emitEvent request is missing payload')
   }
 

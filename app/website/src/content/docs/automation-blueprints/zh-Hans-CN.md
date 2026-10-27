@@ -1,42 +1,42 @@
 ---
 title: 自动化蓝图
-description: 把触发器与 Agent session、Automation Job、后台任务和信号路由规则组合成自动化，并区分 Workflow。
+description: 将触发器与 Agent 会话、Automation Job、后台任务和信号路由规则组合成自动化流程，并理清与 Workflow 的边界。
 section: Guides
 order: 309
 ---
 
-Ankole 的自动化由三种触发器之一与两种消费者之一组合。Agent session 处理需要判断、记忆或对话的工作；automation job 用确定性脚本处理机械工作。本页给出常见形态、可以直接套用的蓝图。
+Ankole 的触发式自动化由“三类触发器”与“两类消费者”自由组合而成：需要语义判断、长期记忆或多轮对话的工作交由 Agent 会话（Session）承接；纯粹的机械检查与规则处理则交由 Automation Job 通过确定性脚本完成。本页汇总最常用的落地组合模式与可直接套用的配置蓝图。
 
-Automation Job 不是工作流语言或步骤图。它是 Agent 云盘某个文件夹里普通的 Bun `main.ts`。触发器 owner 继续负责时间或入口，所选消费者处理不变的事件。只有脚本发出事件或失败策略要求唤醒时，Agent 才返回。
+Automation Job 并不是一套专用的工作流编排语言或可视化流程图，它只是存放在 Agent 云盘指定文件夹下的普通 Bun `main.ts` 脚本。定时计划或 Webhook 入口依旧由各自的触发器模块管理，每次触发产生的标准事件直接交由所选消费者处理；只有在脚本主动发出事件，或按失败告警策略需要介入时，系统才会唤醒 Agent。
 
-[Workflow](../workflows/) 是另一种执行方式。主 Agent 在一个回合中启动一次固定、有界的子 Agent 编排。Workflow 不是调度或 Webhook 消费者，也不会轮询外部状态。一次投递或会话请求包含有限数量、可并行执行的独立判断时，才应使用它。
+[Workflow](../workflows/) 则属于另一类完全不同的执行机制：由主 Agent 在单次对话回合内发起一场固定结构、边界明确的子 Agent 并行编排。Workflow 不能订阅定时调度或 Webhook 触发器，也不会在后台轮询外部状态；只有当单次用户请求内部包含若干可并行开展的独立分析判断时，才适合选用 Workflow。
 
 ## 三种触发器
 
-每个蓝图用三种触发器之一。挑蓝图之前先知道自己需要哪种。
+每套自动化蓝图都以以下三种触发器之一作为起点，选型前请先明确触发方式：
 
-| 触发器 | 如何触发 | 载体 | 用什么建 |
+| 触发器 | 触发时机 | 事件载体 | 配置入口 |
 |---|---|---|---|
-| **调度** | 按 cron 节奏（每小时、每天、每周） | cron schedule 上的一个 `task` | [调度](../schedules/) |
-| **自延迟（checkback）** | Agent 在回合里设置一个延迟触发器 | Agent 的 `check_back_later` 工具 | [调度](../schedules/) |
-| **事件驱动（webhook）** | 外部系统 POST 到 capability URL | 一个 `webhook.received` 事件 | [Webhook 委托](../webhook-delegations/) |
+| **定时调度（Schedule）** | 按固定 Cron 节奏触发（每小时、每天、每周等） | Cron 计划上的 `task` 载荷 | [计划任务](../schedules/) |
+| **延迟回查（Checkback）** | Agent 在当前回合内自行设定一次性延后提醒 | Agent 调用内置的 `check_back_later` 工具 | [计划任务](../schedules/) |
+| **事件驱动（Webhook）** | 外部系统向专属 Capability URL 发起 `POST` 请求 | `webhook.received` 事件 | [Webhook 委托](../webhook-delegations/) |
 
-三种触发器无论唤醒 Agent 还是运行脚本，都产生同一个 CloudEvents 信封。消费者选择只改变收件人，不改变触发事实。直接唤醒与脚本发出的事件都通过归属 session 的路由规则返回。
+无论后续是直接唤醒 Agent 还是运行自动化脚本，这三种触发器都会生成格式一致的 CloudEvents 事件信封。切换消费者只会改变事件接收方，不会改变触发事件本身的内容；无论是直接唤醒产生的回复，还是脚本上报事件后触发的回复，最终都通过归属 Session 的信号路由规则向外投递。
 
 ## 选择消费者
 
-| 消费者 | 适用情况 | 触发结果 |
+| 消费者 | 适用场景 | 触发后的行为 |
 |---|---|---|
-| **Agent session** | 每次 delivery 都需要判断、记忆、运行时选择工具或面向用户回复 | 触发器写入 Signal 并唤醒会话 |
-| **Automation job** | 处理只是确定性的获取、比较、解析或预定动作 | 触发器创建持久脚本 run；脚本可以静默结束，也可以向归属 session 发出事件 |
+| **Agent Session** | 每次触发都需要结合记忆推理、动态挑选工具或直接撰写面向用户的回复 | 触发器写入一条 Signal 并唤醒目标会话 |
+| **Automation Job** | 处理逻辑只是确定性的数据拉取、阈值比对、格式解析或预设动作 | 触发器创建一次持久化脚本运行记录；脚本可直接静默退出，也可调用接口向归属会话上报事件 |
 
-处理方式还不清楚时，先直接唤醒 Agent。只有已经证明是机械工作的部分才移入 automation job。这样脚本保持小巧，模型也不会进入空转轮询。
+如果初期还不确定处理逻辑能否写成纯规则，建议先让触发器直接唤醒 Agent；等跑通几轮、确认其中某部分纯粹属于机械巡检后，再将该环节抽离为 Automation Job。这样既能让脚本保持精简，也能避免大模型空转轮询浪费 Token。
 
 ## 蓝图：每日摘要（调度）
 
-计划任务每天触发一次，Agent 根据任务说明收集和整理信息，再把结果发到绑定的聊天渠道。先按 [计划任务](../schedules/) 创建并手动验证，再设置每天运行的 Cron 表达式。
+通过定时任务每天固定触发一次，由 Agent 按任务说明搜集汇总信息，并将摘要发往绑定的聊天群或私聊。配置时建议先按 [计划任务](../schedules/) 创建任务并手动触发验证一遍，确认效果符合预期后再开启每日定时 Cron 表达式。
 
-执行此 Console 请求前，从已登录的浏览器取得会话 cookie 与 `x-csrf-token` 值。
+通过命令行调用以下 Console API 前，请先从已登录的浏览器中获取会话 Cookie 与 `x-csrf-token` 请求头的值：
 
 ```bash
 curl -X POST https://ankole.example.com/api/v2/agents/<agent_uid>/cron-schedules \
@@ -57,73 +57,73 @@ curl -X POST https://ankole.example.com/api/v2/agents/<agent_uid>/cron-schedules
   }'
 ```
 
-可调部分：cron 表达式（节奏）、`timezone`（“9 点”是哪里的）、`task`（做什么）、人设（怎么做）。依赖该 schedule 之前，先手动运行验证。
+常见可调参数包括：Cron 表达式（触发频率）、`timezone`（决定“早上 9 点”按哪个时区换算）、`task`（具体汇总内容）以及 Agent 自身的长期设定（汇报语气与格式）。正式投入日常值守前，请务必先手动触发测试一次。
 
 ## 蓝图：确定性哨兵（调度 + Automation Job）
 
-Schedule 频繁触发、检查过程机械且通常无结果时，使用 automation job。Agent 写入并注册脚本，再把 cron schedule 绑定到它的 `automation_job_id`。
+当巡检频率很高、检查逻辑固定，且绝大多数时候“一切正常无事发生”时，最适合搭配 Automation Job。可让 Agent 编写并注册巡检脚本，再将高频 Cron 计划绑定到该脚本的 `automation_job_id`：
 
 ```json
 { "kind": "cron", "expression": "0 * * * *" }
 ```
 
-条件不成立时，脚本读取来源后直接结束，不调用 `emitEvent`；条件成立时，脚本把有界来源事实发到归属 session，再由 Agent 复核并决定行动。注册前手工验证不调用 SDK 的分支，注册后用真实测试触发器验证每个调用 `context()` 或 `emitEvent` 的分支。
+运行期间，只要监控指标未触发阈值，脚本拉取完外部数据便直接退出，不调用 `emitEvent`；一旦发现异常越界，脚本才将截取好的关键数据上报给归属 Session，唤醒 Agent 复核上下文并决定后续动作。在正式注册前，应先手动运行验证不依赖 SDK 的纯逻辑分支；注册完成后，再通过真实的测试触发器逐一跑通调用 `context()` 与 `emitEvent` 的分支。
 
-每次运行都需要语义判断时，继续使用直接唤醒 Agent 的 schedule。Automation Job 合同见 [Worker CLI 能力](../cli-capabilities/)。
+反之，如果每次触发都离不开语义理解与综合判断，则无需绕道脚本，直接让定时计划唤醒 Agent 即可。Automation Job 的完整运行时契约请参阅 [Worker CLI 能力](../cli-capabilities/)。
 
 ## 蓝图：延迟跟进（checkback）
 
-agent 在回合里被问某事，决定稍后再回来。不是固定 cron，agent 自己用 `check_back_later` 设一次性唤醒。agent 那一侧的形态是"一小时后再看"——agent 调工具；运维界面只读。
+用户在对话中交代了一件事，Agent 判断现在时机未到、需要过一阵子再回来看——这类场景无需配置固定周期的 Cron，Agent 会在回合中自行调用 `check_back_later` 工具设下一次性延迟唤醒。对 Agent 而言，这就像给自己定了一个“一小时后再看一眼”的闹钟；而在 Console 运维界面上，这类待办提醒以只读列表展示。
 
-适合没有固定节奏的工作：”一小时后看部署完成没”、”站会后再读这个 thread”。agent 掌握时机；你通过 `GET /api/v2/checkbacks?agent=<agent_uid>` 查看待执行的 checkback，可用 `DELETE /api/v2/agents/:agent_uid/checkbacks/:scheduled_event_id` 取消某一条。
+这种模式非常适合没有固定周期的临时跟进，例如“一小时后确认发版有没有成功”或“等早会结束后再来汇总这段讨论”。跟进时机完全由 Agent 自主把握；管理员可通过 `GET /api/v2/checkbacks?agent=<agent_uid>` 查看待执行的回查项，或调用 `DELETE /api/v2/agents/:agent_uid/checkbacks/:scheduled_event_id` 取消指定提醒。
 
 ## 蓝图：研究并报告（调度 + 后台任务）
 
-计划任务触发一个回合。若工作需要长时间搜索和交叉验证，Agent 会把它交给 [Deep Research 后台任务](../deep-research-job/)，而不是让当前回合一直等待。
+定时计划唤醒一次会话后，如果任务涉及耗时较长的全网检索与多源交叉印证，Agent 会将其转交为 [Deep Research 后台任务](../deep-research-job/)，而不会卡住当前调度回合干等：
 
-1. cron schedule 触发它的 `task`。
-2. agent 判断工作很长，调 `create_background_job`。
-3. schedule 的回合结束；任务自己跑。
-4. 任务向拥有它的 session 发回 `background_agent_job.completed`，由 binding 投递。
+1. Cron 计划到点触发预设的 `task`。
+2. Agent 评估发现研究体量较大，调用 `create_background_job` 派发后台任务。
+3. 本次调度触发的前台回合随即干净结束，后台任务在独立工作区中持续推进。
+4. 研究完成后，后台任务向归属 Session 发回 `background_agent_job.completed` 信号，最终报告经由信号路由规则投递到目标群聊。
 
-这就是如何得到一个"每周深度研究"，而 schedule 的回合不必跑一小时。schedule 负责启动；任务负责执行。
+借助这一组合，就能轻松实现“每周一自动产出深度行业周报”，而无需让单次定时回合硬跑一个小时：定时计划只管准点发令，长时执行全部交给后台任务。
 
 ## 蓝图：事件驱动（webhook）
 
-外部系统，例如源代码仓库或 CI provider，调用一条短期有效的 Ankole capability URL。Endpoint 接受 delivery 后，先持久提交所选消费者记录，再返回成功。
+代码仓库、CI/CD 平台或告警系统等外部服务，可以直接向一条带时效限制的 Ankole Capability URL 推送事件。Webhook 端点收到请求后，会先将目标消费者的待处理记录持久化落库，确认提交成功后再向调用方返回响应。
 
-Agent 必须检查外部对象当前状态并判断事件时，使用默认的直接消费者。当确定性脚本可以预先过滤或对账回执时，把 endpoint 绑定到 automation job。两条路径都把回执视为不可信输入，有后果的事实仍以外部权威来源为准。Capability 的安全与生命周期规则见 [Webhook 委托](../webhook-delegations/)。
+如果每次收到事件都需要 Agent 实时查询外部系统最新状态并做综合研判，保持默认的 Agent Session 直接消费即可；如果可以先用确定性脚本做一轮签名过滤、噪音剔除或账单核对，则可将 Webhook 端点绑定到 Automation Job。无论走哪条路径，系统都会将外部推送的载荷视为不可信输入——凡涉及有业务后果的关键事实，Agent 都会先向外部权威数据源二次核实，再采取行动或对外答复。关于 Capability URL 的安全机制与生命周期规则，请参阅 [Webhook 委托](../webhook-delegations/)。
 
 ## 蓝图：观察并升级（binding 策略 + schedule）
 
-一个观察频道的团队助理，加一个定期总结它所观察内容的 schedule。binding 策略（`may_intervene` 或 `record_only`）决定 agent 实时看到什么；schedule 决定它何时综合。
+如果你希望在团队频道里配备一名平时安静旁听、定期帮忙梳理重点的群助理，可以将信号路由的群聊观察策略与定时调度结合起来：路由策略（`may_intervene` 或 `record_only`）决定 Agent 平时能看到哪些群消息，定时调度决定它何时开口做阶段性汇总。
 
-- binding：`unaddressed_group_message_policy: record_only`——agent 看到一切、什么不说、构建上下文。
-- schedule：每天或每周的"这个频道发生了什么"摘要。
-- agent 通过 binding 发帖，借助 session 近期上下文。
+- **信号路由策略**：设为 `unaddressed_group_message_policy: record_only`——Agent 静默收录群内全部发言以积累上下文，平时绝不插话。
+- **定时调度**：配置每日下班前或每周五的固定计划，要求汇总“本频道近期讨论的核心进展与待办”。
+- **定期汇报**：到点后 Agent 结合会话近期积累的完整上下文提炼摘要，并通过同一条路由规则发回群内。
 
-这把观察（持续、安静）与综合（定时、发声）分开。适合实时回复会是噪声、但定期摘要有价值的频道。
+这种拆分把“平时持续静默观察”与“定期集中发声汇总”解耦开来，非常适合那些实时插话会干扰讨论、但阶段性纪要又很有价值的业务频道。
 
 ## 选一个蓝图
 
-- **想让它按钟点跑？** 调度。按"每次都发"还是"仅当某事要紧"选摘要或哨兵形态。
-- **想让它中途回来某事？** checkback。agent 掌握时机。
-- **想让长工作被钟点踢一脚？** 调度 + 后台任务。
-- **想做频繁机械检查但不启动模型？** 调度或 Checkback + automation job。
-- **想在一个 Agent 回合中并行执行有界判断？** Workflow。它会向发起会话返回一个汇总结果。
-- **想让外部系统继续工作？** Webhook 委托，消费者选择直接 Agent 或 automation job。
-- **想要安静观察加定期综合？** binding 策略 + schedule。
+- **想按固定钟点定期运行？** 选**定时调度**。每次都要发报告就用“每日摘要”模式；只有出状况才需吭声就用“确定性哨兵”模式。
+- **想让 Agent 过一会儿自己回来看某件事？** 选 **Checkback**，由 Agent 在对话中自主设定唤醒时间。
+- **想按固定周期启动一项耗时很长的深度任务？** 选**定时调度 + 后台任务**。
+- **想高频巡检外部状态，又不想每次都消耗模型调用？** 选**定时调度（或 Checkback）+ Automation Job**。
+- **想在单次对话回合内并行拆解若干独立子问题？** 选 **Workflow**，并行跑完后向当前会话返回一份汇总结论。
+- **想让外部系统主动推送事件来触发后续处理？** 选 **Webhook 委托**，再按需搭配直接唤醒 Agent 或 Automation Job 预筛。
+- **想平时安静旁听群聊、定期输出阶段总结？** 选**信号路由观察策略 + 定时调度**。
 
 ## Ankole 里的自动化不是什么
 
-触发式自动化不是工作流语言，没有 YAML 步骤、平台 DAG、隐藏游标或通用事件总线。Automation Job 可以运行小脚本，但脚本自行拥有状态并保证重复执行安全。投递仍使用归属 session 的路由规则，自动化也不能绕过权限。
+Ankole 的触发式自动化不是重型工作流引擎：没有繁琐的 YAML 步骤编排、平台级 DAG 状态图、隐藏的隐式游标或通用消息总线。Automation Job 虽然支持运行自定义脚本，但需要由脚本自身管理业务状态并保证重跑幂等；所有对外消息依然严格遵循归属 Session 的信号路由规则，任何自动化手段都无法绕过系统的权限边界。
 
-产品中名为 Workflow 的功能也不提供这些合同。它只为一次有界的子 Agent fanout 运行固定 JavaScript，没有触发器订阅，也不能等待后续输入。判断交给 Agent，机械触发处理交给 Automation Job，有界并行判断交给 Workflow。
+产品内名为 Workflow 的特性同样不承担外部触发编排职责：它仅用于在单次任务内运行固定的编排逻辑以并发扇出（fan-out）有界子 Agent，既不能订阅外部触发器，也无法挂起等待后续外部输入。简言之：开放式权衡判断交给 Agent，高频机械巡检交给 Automation Job，单回合内的有界并行核验交给 Workflow。
 
 ## 下一步
 
-- 调度界面，读 [调度](../schedules/)。
-- 确定性脚本消费者，读 [Automation Job](../automation-jobs/)。
-- 有界子 Agent 编排，读 [Workflow](../workflows/)。
-- 后台执行与协作方式，读 [后台 Agent 任务](../background-jobs/)。
-- 外部事件 capability，读 [Webhook 委托](../webhook-delegations/)。
+- 配置定时任务与延迟回查，请参阅 [计划任务](../schedules/)。
+- 了解确定性巡检脚本的使用方式，请参阅 [Automation Job](../automation-jobs/)。
+- 了解单回合内的有界子 Agent 并行编排，请参阅 [Workflow](../workflows/)。
+- 了解长时后台任务的派发与交互协作，请参阅 [后台 Agent 任务](../background-jobs/)。
+- 配置面向外部系统的事件接收地址，请参阅 [Webhook 委托](../webhook-delegations/)。

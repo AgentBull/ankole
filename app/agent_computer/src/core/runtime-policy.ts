@@ -1,5 +1,5 @@
 import type { TurnStart } from '../lanes/session_lane'
-import { isRecord } from '@agentbull/active-support'
+import { objectPath } from '@agentbull/active-support'
 
 /**
  * True when the Agent leaves web search to its language-model Provider.
@@ -13,8 +13,5 @@ import { isRecord } from '@agentbull/active-support'
  * carried by the hosted tool declaration.
  */
 export function webSearchIsProviderHosted(turnStart: TurnStart): boolean {
-  const rawPolicy = turnStart.request_context?.ai_agent
-  const policy = isRecord(rawPolicy) ? rawPolicy : {}
-  const hosted = isRecord(policy.provider_hosted) ? policy.provider_hosted : {}
-  return hosted.web_search === true
+  return objectPath(turnStart.request_context, ['ai_agent', 'provider_hosted']).web_search === true
 }

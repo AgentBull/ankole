@@ -1,4 +1,4 @@
-import { recordValue } from '@agentbull/active-support'
+import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import type {
   ListAiGatewayModelsResponse,
   ListAiGatewayProviderKindsResponse
@@ -145,15 +145,6 @@ export function buildSettingOptions(
   return { ok: true, value: options }
 }
 
-export function buildConnectionOptions(
-  settings: ProviderSetting[],
-  drafts: Record<string, unknown>,
-  validationMessage: (key: string, error: SettingValidationError) => string,
-  labelFor: (key: string) => string = humanizeKey
-): BuildResult {
-  return buildSettingOptions(settings, drafts, validationMessage, labelFor)
-}
-
 function validationError(
   setting: ProviderSetting,
   error: SettingValidationError,
@@ -171,8 +162,8 @@ function parseSettingValue(
     case 'map': {
       if (recordValue(raw)) return { ok: true, value: raw }
       if (typeof raw !== 'string') return { ok: false, error: 'json_object' }
-      const parsed = parseObject(raw)
-      return parsed.ok ? parsed : { ok: false, error: 'json_object' }
+      const value = recordValue(safeJsonParse(raw).unwrapOr(undefined))
+      return value ? { ok: true, value } : { ok: false, error: 'json_object' }
     }
     case 'boolean':
       if (typeof raw === 'boolean') return { ok: true, value: raw }
@@ -198,14 +189,5 @@ function parseSettingValue(
     }
     case 'string':
       return { ok: true, value: typeof raw === 'string' ? raw.trim() : raw }
-  }
-}
-
-function parseObject(text: string): { ok: true; value: Record<string, unknown> } | { ok: false } {
-  try {
-    const value = recordValue(JSON.parse(text))
-    return value ? { ok: true, value } : { ok: false }
-  } catch {
-    return { ok: false }
   }
 }

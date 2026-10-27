@@ -93,10 +93,8 @@ export type ChannelTransportOptions = {
   windows?: Partial<Record<RuntimeFabricStream, StreamWindowLimits>>
 }
 
-/** Cumulative acknowledgement and credit the control plane returns on a reply. */
+/** Credit and error metadata the control plane returns on a reply. */
 export type StreamReply = {
-  stream?: RuntimeFabricStream
-  ackedSeq?: number
   messageCredit?: number
   byteCredit?: number
   reason?: string
@@ -268,10 +266,6 @@ class StreamWindow {
   resetCredit(): void {
     this.credit = undefined
     this.wake()
-  }
-
-  get creditMessages(): number | undefined {
-    return this.credit?.messages
   }
 
   wake(): void {
@@ -947,10 +941,7 @@ function newStreamState(): StreamState {
 function streamReply(response: unknown): StreamReply {
   if (typeof response !== 'object' || response === null) return {}
   const record = response as Record<string, unknown>
-  const stream = record.stream
   return {
-    stream: stream === 'control' || stream === 'durable' || stream === 'telemetry' ? stream : undefined,
-    ackedSeq: optionalNumber(record.acked_seq),
     messageCredit: optionalNumber(record.message_credit),
     byteCredit: optionalNumber(record.byte_credit),
     reason: typeof record.reason === 'string' ? record.reason : undefined,

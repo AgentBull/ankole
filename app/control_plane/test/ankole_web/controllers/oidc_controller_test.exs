@@ -655,6 +655,50 @@ defmodule AnkoleWeb.OIDCControllerTest do
     refute Map.has_key?(claims, "ankole_authentication")
   end
 
+  test "email reauthentication captures the authentication time of each authorization code", %{
+    conn: conn
+  } do
+    human = human_fixture()
+    client = create_client!(%{})
+    {:ok, browser} = Ankole.BrowserSessions.create()
+    scope = "openid offline_access"
+    request = authorization_request(client.id, scope)
+
+    {:ok, first} =
+      Ankole.OIDCFixtures.session(human.principal.uid, client.id, scope, browser: browser)
+
+    ref = %{"id" => first.authentication_id, "revision" => first.authentication_revision}
+    first_auth = Ankole.BrowserSessions.authentication(ref, :oauth)
+    {:ok, first_code} = OIDC.Grants.authorize(request, first_auth)
+    Process.sleep(1_100)
+
+    {:ok, second} =
+      Ankole.OIDCFixtures.session(human.principal.uid, client.id, scope, browser: browser)
+
+    second_auth = Ankole.BrowserSessions.authentication(ref, :oauth)
+    assert second.id == first.id
+    assert second.auth_time == first.auth_time
+    assert second_auth["auth_time"] > first_auth["auth_time"]
+    {:ok, second_code} = OIDC.Grants.authorize(request, second_auth)
+
+    fresh = exchange_public_code(conn, client.id, second_code, pkce_verifier())
+    fresh_claims = verify_id_token!(fresh["id_token"], client.id)
+    assert fresh_claims["auth_time"] == second_auth["auth_time"]
+
+    original = exchange_public_code(conn, client.id, first_code, pkce_verifier())
+    original_claims = verify_id_token!(original["id_token"], client.id)
+    assert original_claims["auth_time"] == first_auth["auth_time"]
+    assert original_claims["sid"] == fresh_claims["sid"]
+
+    times =
+      Ankole.OIDC.RefreshToken
+      |> Repo.all()
+      |> Enum.map(& &1.context["auth_time"])
+      |> Enum.sort()
+
+    assert times == Enum.sort([first_auth["auth_time"], second_auth["auth_time"]])
+  end
+
   test "unknown upstream authentication time is omitted and cannot meet an age request", %{
     conn: conn
   } do

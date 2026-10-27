@@ -5,118 +5,118 @@ section: Reference
 order: 202
 ---
 
-このページは PostgreSQL、Pod Base シャードデータベース、`ankole-function-runtime`、デプロイの秘密情報、オブジェクトストア、プロセス設定の起動変数リファレンスです。Worker provider の設定は PostgreSQL に YAML として保存します。
+このページでは、PostgreSQL、Pod Base シャードデータベース、`ankole-function-runtime`、デプロイ用の秘密情報、オブジェクトストア、およびプロセス設定に関する起動時環境変数をまとめます。なお、Worker provider の構成自体は環境変数ではなく、PostgreSQL 内に YAML として保存されます。
 
-インスタンスの実行中に管理者が変更できるランタイム設定については、[アプリケーション設定](../app-configuration/)を参照してください。それらの設定を `.env` や Kubernetes Secret に入れないでください。
+インスタンス稼働中に管理者が動的に変更できるランタイム設定については、[アプリケーション設定](../app-configuration/)を参照してください。それらのランタイム設定を `.env` や Kubernetes Secret に記述しないでください。
 
 ## ブートストラップと secret（プロセス起動）
 
-これらは control plane が起動する前に存在していなければなりません。Docker Compose では `.env` に、Helm chart が読み取る場合は Secret に設定します。
+以下の変数は、control plane を起動する前に設定しておく必要があります。Docker Compose では `.env` に、Helm chart では参照先の Secret に設定します。
 
 | 変数 | 必須 | 意味 |
 |---|---|---|
 | `DATABASE_URL` | はい（`prod`） | control plane（`Ankole.Repo`）用の PostgreSQL 18+ 接続文字列 |
 | `BASE_DB_URLS` | いいえ | 物理 Pod Base シャード（`Ankole.Pod.BaseRepo`）用の `;` 区切り PostgreSQL 18+ 接続 URL（任意）。クエリパラメータ `ankole_sharding`、`ankole_pool_size`、`ankole_stock_only` に対応します。単一 DB の FOSS 構成で未設定の場合は `DATABASE_URL` を `base_default` として使用し、`sslmode` は拒否します |
 | `ANKOLE_SECRET_BASE` | はい（`prod`） | サイト全体の secret base。暗号化キーや署名キーの導出に使われます |
-| `RELEASE_COOKIE` | はい（`prod`） | Erlang distribution cookie。同じデプロイのすべてのコントロールプレーンノードが同じ値を使います |
+| `RELEASE_COOKIE` | はい（`prod`） | Erlang distribution cookie。同一デプロイ内のすべての control plane ノードで同じ値を共有します |
 | `ANKOLE_FUNCTION_RUNTIME_TOKEN` | はい（`prod`） | control plane と `ankole-function-runtime` が共有する内部 Bearer シークレット |
 | `ANKOLE_FUNCTION_RUNTIME_URL` | はい（`prod`） | `ankole-function-runtime` の内部 HTTP URL（例：Compose では `http://function-runtime:9000`） |
 | `POSTGRES_PASSWORD` | バンドル版 PostgreSQL のみ | PostgreSQL のパスワード（バンドル版 PostgreSQL を有効にした場合に必須。それ以外は `DATABASE_URL` または外部 Secret で指定） |
-| `ANKOLE_HOST` | Compose | デプロイメントが提供される公開 DNS 名 |
-| `ACME_EMAIL` | Compose | Caddy が Let's Encrypt に使うメールアドレス |
-| `ANKOLE_DOCKER_GID` | Compose | Docker socket のグループ ID。control plane は非特権ユーザーとして実行され、このグループを通じて socket を使用します |
+| `ANKOLE_HOST` | Compose | デプロイメントを公開する DNS ホスト名 |
+| `ACME_EMAIL` | Compose | Caddy が Let's Encrypt の証明書発行に使う連絡先メールアドレス |
+| `ANKOLE_DOCKER_GID` | Compose | Docker socket を所有するグループ ID。非特権ユーザーで動作する control plane がこのグループ権限で socket にアクセスします |
 
-これらの値は `.env` または Secret に保管してください。バージョン管理にコミットしてはなりません。Docker Compose の `.env.example` が開始時の構成です。
+これらの値は `.env` または Secret で厳重に管理し、バージョン管理システムには絶対にコミットしないでください。Docker Compose 環境では、付属の `.env.example` を初期テンプレートとして利用できます。
 
-Worker 用のキーを `.env` や Secret に設定する必要はありません。control plane が各 Worker に専用の credential を渡します。
+なお、Worker 用の認証キーを運用者が `.env` や Secret に用意する必要はありません。control plane が Worker ごとに専用の認証情報を発行して渡します。
 
-Helm chart の `values.yaml` では、関連する設定キーとして `secrets.ankoleSecretBase`、`secrets.releaseCookie`、`secrets.functionRuntimeToken`、`secrets.databaseURL`、`secrets.baseDBURLs`、`secrets.postgresqlPassword`、`controlPlane.siteAdminConsolePath`、`functionRuntime.*` が定義されています。
+Helm chart の `values.yaml` では、これらに対応する設定キーとして `secrets.ankoleSecretBase`、`secrets.releaseCookie`、`secrets.functionRuntimeToken`、`secrets.databaseURL`、`secrets.baseDBURLs`、`secrets.postgresqlPassword`、`controlPlane.siteAdminConsolePath`、`functionRuntime.*` が定義されています。
 
 ## ランタイム調整（プロセス環境）
 
-これらは起動時に読み取られ、control plane または `ankole-function-runtime` プロセスを調整します。secret ではありません。
+以下の変数はプロセス起動時に読み取られ、control plane や `ankole-function-runtime` の動作パラメータを調整します。秘密情報ではありません。
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
 | `ANKOLE_ENV` | — | デプロイメント環境のラベル（例：`prod`、`dev`） |
 | `ANKOLE_LOG_LEVEL` | `info` | ログレベル（`debug`、`info`、`warning`、`error`） |
 | `POOL_SIZE` | `10` | control-plane プロセスが直接読み取る `Ankole.Repo` のデータベース接続プールサイズ |
-| `ANKOLE_DATABASE_POOL_SIZE` | `10` | Docker Compose の `.env` 変数（`compose.yaml` が `POOL_SIZE` にマッピング） |
-| `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | バンドル版サーバー用の PostgreSQL の `max_connections` 設定 |
+| `ANKOLE_DATABASE_POOL_SIZE` | `10` | Docker Compose 用の `.env` 変数（`compose.yaml` 内で `POOL_SIZE` にマッピングされます） |
+| `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | バンドル版 PostgreSQL サーバーに設定する `max_connections` の値 |
 | `ANKOLE_SITE_ADMIN_CONSOLE_PATH` | `/site-admin-console` | Site Admin Console の URL パス |
-| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | リリース既定値 | Docker Compose での `ankole-function-runtime` コンテナイメージ |
+| `ANKOLE_FUNCTION_RUNTIME_IMAGE` | リリース既定値 | Docker Compose で使用する `ankole-function-runtime` コンテナイメージ |
 | `ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY` | `32` | `ankole-function-runtime` コンテナあたりの最大同時実行数 |
 | `ANKOLE_LIBRARY_ROOT` | chart のデフォルト | 同梱の Agent Library（`app/library`）へのパス |
 | `ANKOLE_INTERNAL_SKILLS_ROOT` | — | 内部 Skill bundle へのパス |
-| `ANKOLE_AI_GATEWAY_BASE_URL` | — | AIGateway のベース URL の上書き |
+| `ANKOLE_AI_GATEWAY_BASE_URL` | — | AIGateway のベース URL の上書き指定 |
 
 ## ファイルストア（プロセス起動）
 
-`ANKOLE_FILES_STORE` はコントロールプレーンのオブジェクトストア（`Ankole.ObjectStore`）を設定し、各 Agent のドライブ（添付ファイル、生成画像、送信したファイル、インストール済み Skill、Automation Job のスクリプト、Agent が保存したファイル）に加え、Pod の `file` ページ、Pod ドキュメント/Base/Chat 添付ファイル、およびコンパイル済み Applet バンドルを保存します。Worker はストレージの認証情報を受け取らず、ファイルのバイトはコントロールプレーンを経由します。対応するすべての OpenDAL backend については[control plane ドライブ・オブジェクトストレージの設定](../drive-storage/)を参照してください。
+`ANKOLE_FILES_STORE` は control plane のオブジェクトストア（`Ankole.ObjectStore`）を構成します。ここには各 Agent のドライブ（添付ファイル、生成画像、送信ファイル、インストール済み Skill、Automation Job のスクリプト、Agent が保存したファイル）のほか、Pod の `file` ページ、Pod ドキュメント/Base/Chat 添付ファイル、およびコンパイル済み Applet バンドルが保存されます。Worker にはストレージの認証情報を渡さず、ファイルデータの読み書きはすべて control plane を経由します。対応するすべての OpenDAL backend の詳細については、[control plane ドライブ・オブジェクトストレージの設定](../drive-storage/)を参照してください。
 
 | 変数 | 必須 | 意味 |
 |---|---|---|
-| `ANKOLE_FILES_STORE` | はい | `fs` はコントロールプレーンの永続ボリューム上のディレクトリ、`s3` は Amazon S3 または Cloudflare R2 などの S3 互換ストア |
-| `ANKOLE_FILES_FS_ROOT` | `fs` | ストアの絶対パス。Docker Compose は `/var/lib/ankole/files` にマウントした `files_data` ボリュームを使います |
-| `ANKOLE_FILES_S3_BUCKET` | `s3` | バケット |
-| `ANKOLE_FILES_S3_REGION` | `s3` | リージョン。Cloudflare R2 は `auto` |
-| `ANKOLE_FILES_S3_ENDPOINT` | いいえ | S3 互換ストアのエンドポイント |
-| `ANKOLE_FILES_S3_ROOT` | いいえ | バケット内のキー接頭辞 |
-| `ANKOLE_FILES_S3_ACCESS_KEY_ID`、`ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | いいえ | 静的な認証情報。設定しない場合は EKS Pod Identity を含む既定の AWS 認証情報チェーンを使います |
+| `ANKOLE_FILES_STORE` | はい | `fs` は control plane の永続ボリューム上のディレクトリ、`s3` は Amazon S3 または Cloudflare R2 などの S3 互換ストア |
+| `ANKOLE_FILES_FS_ROOT` | `fs` | ストアの絶対パス。Docker Compose では `/var/lib/ankole/files` にマウントされた `files_data` ボリュームを使用します |
+| `ANKOLE_FILES_S3_BUCKET` | `s3` | バケット名 |
+| `ANKOLE_FILES_S3_REGION` | `s3` | リージョン。Cloudflare R2 の場合は `auto` |
+| `ANKOLE_FILES_S3_ENDPOINT` | いいえ | S3 互換ストアのカスタムエンドポイント |
+| `ANKOLE_FILES_S3_ROOT` | いいえ | バケット内のオブジェクトキー接頭辞（prefix） |
+| `ANKOLE_FILES_S3_ACCESS_KEY_ID`、`ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | いいえ | 固定の認証情報。省略時は EKS Pod Identity を含む既定の AWS 認証情報チェーンを使用します |
 
-`fs` ストアではコントロールプレーンのレプリカは 1 つだけです。複数のレプリカを動かす場合は `s3` を使います。
+`fs` ストアを使用できるのは、control plane が 1 レプリカの構成に限られます。複数レプリカで運用する場合は `s3` などの共有リモートストレージを使用してください。
 
-`s3` への大きな書き込みはマルチパートアップロードです。アップロード中にコントロールプレーンが停止するとパートがバケットに残るため、未完了のマルチパートアップロードを中止するライフサイクルルールをバケットに設定してください。
+また、`s3` への大容量ファイルの書き込みにはマルチパートアップロードが使用されます。アップロード途中に control plane が停止すると未完了のパートがバケット内に残るため、未完了のマルチパートアップロードを自動中止するライフサイクルルールをバケットに設定してください。
 
 ## Worker Provider の初期設定
 
-起動時の値はデプロイと対象 Worker イメージを指定します。各 provider は **Console → Workers → Providers** の YAML で設定し、認証情報は別に暗号化して保存します。作成後に種類、配置、永続ストレージは変更できません。インスタンス設定は Agent のアイドル時に適用します。
+起動時に読み取られる以下の変数は、デプロイメントの識別名や起動対象の Worker イメージを指定します。個々の Worker provider は **Console → Workers → Providers** で YAML として設定し、認証情報は別途暗号化して保存されます。provider 作成後に種類・配置・永続ストレージ方式を変更することはできません。インスタンス設定の変更は、対象 Agent がアイドル状態になった時点で反映されます。
 
 | 変数 | 意味 |
 |---|---|
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | control plane のリリースに対応する Worker イメージ |
 | `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 既定の RuntimeFabric WebSocket URL |
-| `ANKOLE_WORKER_INSTALLATION` | デプロイラベル。既定値は `ankole` |
-| `ANKOLE_WORKER_PROVIDERS_FILE` | 任意の provider seed YAML。初回読み込みと既存 Agent の割り当ては同一トランザクション |
+| `ANKOLE_WORKER_INSTALLATION` | デプロイメント識別ラベル（既定値：`ankole`） |
+| `ANKOLE_WORKER_PROVIDERS_FILE` | 任意の provider 初期投入（seed）用 YAML。初回読み込みと既存 Agent への割り当てが同一トランザクションで実行されます |
 
-`bun dev` のソースと内部 Skill のマウントは `config/dev.exs` で設定します。リリースには開発用マウントはありません。
+ローカル開発時（`bun dev`）のソースコードや内部 Skill のマウントは `config/dev.exs` で構成されており、本番リリースイメージには開発用マウントは含まれません。
 
 ## Provider の Egress プロキシ
 
-model provider のトラフィックがアウトバウンドプロキシを経由しなければならない場合は、control-plane プロセスにこれらの標準変数を設定します。`https_proxy` のような小文字形式も機能します。
+model provider への通信をアウトバウンドプロキシ経由にする必要がある場合は、control-plane プロセスに以下の標準プロキシ変数を設定します（`https_proxy` などの小文字表記も使用できます）。
 
 | 変数 | 意味 |
 |---|---|
-| `HTTPS_PROXY` | HTTPS とセキュア WebSocket（`wss`）の provider リクエスト用プロキシ |
-| `HTTP_PROXY` | HTTP と WebSocket（`ws`）の provider リクエスト用プロキシ。`HTTPS_PROXY` や `ALL_PROXY` の値が存在しない場合、セキュアなリクエストもこれを使う |
-| `ALL_PROXY` | プロトコル固有の変数が存在しない場合の provider リクエスト用フォールバックプロキシ |
-| `NO_PROXY` | 直接接続しなければならないホストまたはドメイン接尾辞のカンマ区切りリスト |
+| `HTTPS_PROXY` | HTTPS およびセキュア WebSocket（`wss`）の provider リクエスト用プロキシ |
+| `HTTP_PROXY` | HTTP および WebSocket（`ws`）の provider リクエスト用プロキシ。`HTTPS_PROXY` と `ALL_PROXY` がどちらも未設定の場合、セキュアなリクエストにも使用されます |
+| `ALL_PROXY` | プロトコル固有の変数が未設定の場合に使われるフォールバックプロキシ |
+| `NO_PROXY` | プロキシを経由せず直接接続するホスト名またはドメイン接尾辞のカンマ区切りリスト |
 
-プロキシ URL は `http`、`https`、`socks5`、`socks5h` を使用でき、プロキシが認証を要求する場合は埋め込みの credential も使用できます。`NO_PROXY` が常に優先されます。セキュアなリクエストでは、Ankole は `HTTPS_PROXY`、次に `ALL_PROXY`、その次に `HTTP_PROXY` を試します。通常のリクエストでは `HTTP_PROXY`、次に `ALL_PROXY` を試します。これらの変数を変更したら、control plane を再起動してください。
+プロキシ URL には `http`、`https`、`socks5`、`socks5h` スキームを指定でき、プロキシ認証が必要な場合は URL 内に認証情報を埋め込むことも可能です。判定時は常に `NO_PROXY` が最優先されます。セキュアなリクエストでは `HTTPS_PROXY` → `ALL_PROXY` → `HTTP_PROXY` の順に、平文のリクエストでは `HTTP_PROXY` → `ALL_PROXY` の順に参照されます。これらの変数を変更した後は control plane を再起動してください。
 
 ## Worker 専用の環境（Agent Computer Worker）
 
-control plane は Worker を作成するときにこれらの変数を設定します。運用者は設定しません。Worker は `WORKER_ID` から自分の Agent を知ります。Session と Turn は各 `turn_start` で届き、環境変数では届きません。
+以下の変数は Worker 作成時に control plane が自動設定するものであり、運用者が手動で設定することはありません。Worker は `WORKER_ID` から担当の Agent を識別します。なお、Session や Turn の情報は環境変数ではなく、各 `turn_start` メッセージで渡されます。
 
 | 変数 | 意味 |
 |---|---|
-| `WORKER_ID` | Agent の UID。Worker はこの Agent だけにサービスを提供する |
-| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | Worker が接続する `ws://` または `wss://` の RuntimeFabric URL |
-| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | generation のランダム認証情報。control plane はダイジェストと暗号化した再試行値を保存 |
+| `WORKER_ID` | 担当する Agent の UID。Worker はこの Agent 専用として動作します |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | Worker の接続先となる `ws://` または `wss://` の RuntimeFabric URL |
+| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | generation ごとに発行されるランダム認証情報。control plane 側にはダイジェストと暗号化された再試行用の値が保存されます |
 | `ANKOLE_WORKER_STORAGE` | provider が指定するストレージ準備モード |
 
-Worker 環境は provider YAML の `env` または Kubernetes `podTemplate` に設定します。`ANKOLE_MAX_CONCURRENT_SLOTS` は Worker の環境 workspace と Codex turn を制限し、既定値は 12 です。model turn は Worker slot を使いません。設定変更後はアイドル時に置換します。
+Worker コンテナに追加の環境変数を渡したい場合は、provider YAML の `env` または Kubernetes の `podTemplate` で設定します。`ANKOLE_MAX_CONCURRENT_SLOTS` は Worker 内の環境ワークスペースと Codex turn の同時実行上限を制御します（既定値：`12`、通常の model turn は slot を消費しません）。これらの設定を変更すると、アイドル時に Worker が置き換えられます。
 
-Worker イメージは、ブラウザと Skill のパスを設定します。これには `ANKOLE_BROWSER_*` と `ANKOLE_BUILTIN_SKILLS_ROOT` が含まれます。管理者はこれらのパスを変更できません。
+なお、`ANKOLE_BROWSER_*` や `ANKOLE_BUILTIN_SKILLS_ROOT` などのブラウザ・組み込み Skill 用パスは Worker イメージ側で固定されており、管理者が変更することはできません。
 
-`PATH`、`HOME`、`DATABASE_URL`、`ANKOLE_` で始まる名前は Agent 環境エディターで予約済みです。provider YAML の対応設定は指定できます。[環境変数](../worker-env/)を参照してください。
+また、`PATH`、`HOME`、`DATABASE_URL`、および `ANKOLE_` で始まる変数名は Agent 環境エディターでは予約済みのため指定できません。必要な場合は provider YAML の対応フィールドで設定してください。詳しくは[環境変数](../worker-env/)を参照してください。
 
 ## デプロイメント環境変数を変更する
 
-起動変数は Compose の `.env` または Helm values で変更し、対象プロセスを再起動します。provider は Console で変更します。読み込み済みの seed ファイルは既存設定を上書きしません。イメージやインスタンス設定の変更は Agent のアイドル時に Worker を置換します。
+起動時環境変数を変更する場合は、Docker Compose の `.env` または Helm の values を更新したうえで、対象プロセスを再起動します。Worker provider の設定変更は Console から行ってください（一度読み込まれた seed ファイルが既存のデータベース設定を上書きすることはありません）。Worker イメージやインスタンス設定を変更した場合は、各 Agent がアイドル状態になったタイミングで Worker が順次置き換えられます。
 
 ## 次のステップ
 
-- Agent が使うカスタム値については、[環境変数](../worker-env/)を参照してください。
-- ランタイム設定と AppConfigure キーの完全なリストについては、[AppConfigure](../app-configuration/)を参照してください。
-- デプロイメント変数のコンテキストについては、[Quick start のデプロイメントのセクション](../quickstart/#deployment)を参照してください。
+- Agent が使用するカスタム環境変数については、[環境変数](../worker-env/)を参照してください。
+- ランタイム設定と AppConfigure キーの一覧については、[AppConfigure](../app-configuration/)を参照してください。
+- デプロイメント全体での環境変数の位置づけについては、[Quick start のデプロイメントセクション](../quickstart/#deployment)を参照してください。

@@ -5,15 +5,15 @@ section: User guide
 order: 18
 ---
 
-Brain is a long-term memory system inspired by GBrain that maintains an up-to-date enterprise world model built on an ontology similar to Palantir. It turns durable information from conversations, files, and web pages into traceable organizational knowledge. Agents can recall, revise, and forget that knowledge within explicit disclosure boundaries.
+Brain is Ankole's long-term memory system—inspired by GBrain and structured around an enterprise ontology similar to Palantir—that turns durable facts from conversations, files, and web pages into traceable organizational knowledge. Within explicit disclosure boundaries, Agents can recall, revise, and forget what Brain knows.
 
-Brain does not keep a growing transcript and call it memory. It maintains a current view of people, organizations, events, judgments, and their relationships. New evidence can support an earlier claim, replace it, or expose a contradiction. The evidence and earlier state remain available for review.
+Rather than appending raw transcripts and calling them memory, Brain maintains an up-to-date model of people, organizations, events, judgments, and their relationships. As new evidence arrives, Brain reinforces earlier claims, supersedes outdated ones, or surfaces contradictions—while preserving both the underlying evidence and superseded states for review.
 
-All Agents in one Ankole tenant use the same knowledge space. Content is not copied into a private database for each Agent. Each memory carries its own audience scope, so shared storage does not mean unrestricted disclosure.
+Every Agent within an Ankole tenant shares one knowledge space instead of copying data into isolated per-Agent silos. Because every memory carries its own audience scope, sharing storage never implies unrestricted disclosure.
 
 ## What Brain can learn
 
-Knowledge reaches Brain through three current paths:
+Knowledge enters Brain through three active paths:
 
 | Path | Result | Conditions |
 | --- | --- | --- |
@@ -21,33 +21,33 @@ Knowledge reaches Brain through three current paths:
 | Signals learning processes a conversation | Useful facts, judgments, and open commitments can be learned without an explicit `remember` call | The channel must be a direct message or IM group, and the Brain maintainer Agent must have a usable `light` profile; group learning also needs a synchronized member permission group |
 | An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs the maintainer Agent's `light` profile; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs need the Agent's `web_fetch` profile |
 
-Signals learning runs after an eligible channel becomes idle or its conversation ends. It reads the channel message slice, not the Agent's private model transcript. In a direct message, learned content defaults to the other person's scope. In a group, it defaults to the channel member group's scope.
+Signals learning runs once an eligible channel goes idle or its conversation closes, reading the visible channel message slice rather than the Agent's internal model transcript. Extracted claims default to the other person's scope in direct messages and to the synchronized channel-member group's scope in group chats.
 
-Once `remember` succeeds, its write remains even if the rest of the turn later fails, is cancelled, or is retried. This makes an acknowledged memory a durable result rather than a side effect of a successful final reply.
+Once a `remember` call commits, its write persists even if a later step in the turn fails, is cancelled, or is retried—making an acknowledged memory a durable fact in its own right rather than a side effect of a completed reply.
 
-Each registered Source has a default audience scope. Use the narrowest scope that still serves the intended readers. Archiving a Source stops later learning runs but does not remove knowledge already learned from it.
+Every registered Source carries a default audience scope; pick the narrowest scope that still serves its intended readers. Archiving a Source halts future extraction runs while keeping knowledge already learned from it intact.
 
 ## How Brain represents knowledge
 
-Brain keeps several forms of knowledge because they answer different questions:
+Brain models several distinct record types because each answers a different kind of question:
 
-- A **page** is the current description of one stable subject, such as a person, company, event, project, document, or concept.
-- A **Fact** is one observation that can be checked or updated. It carries confidence, time, source, holder, and audience scope.
-- A **Take** is a judgment, prediction, bet, or hunch held by a person, Agent, or Brain. It carries weight and can later be graded or resolved.
-- A **Timeline** records what happened to a subject and when.
-- A **Link** records a relationship between two pages.
+- A **page** describes one stable subject—a person, company, event, project, document, or concept.
+- A **Fact** records a single verifiable observation with its confidence, timestamp, source, holder, and audience scope.
+- A **Take** captures a judgment, prediction, bet, or hypothesis held by a person, Agent, or Brain, carrying a weight so it can later be graded or resolved.
+- A **Timeline** logs what happened to a subject and when.
+- A **Link** connects two related pages.
 
-The holder is the person or Agent that holds a claim. It is not the subject of the sentence. If Alex says that a supplier is unreliable, the Take is held by Alex; it is not a Fact held by the supplier.
+Note that a claim's **holder** is the person or Agent asserting it rather than the subject of the sentence: if Alex says that a supplier is unreliable, Brain records a Take held by Alex, not a Fact held by the supplier.
 
-One claim must contain one assertion that can change on its own. Brain keeps the source of each claim and retains earlier page versions and superseded claims. A correction changes the current view without erasing how that view formed.
+Each claim must express a single atomic assertion that can change independently. Because Brain retains provenance alongside prior page revisions and superseded claims, correcting a claim updates the current view without erasing how that conclusion formed.
 
 ## How an Agent uses memory
 
-Brain supplies relevant memory in two ways. At the start of a conversation and after context compaction, it prepares a bounded context pack about participants, recently mentioned subjects, important current facts, and open commitments. On each text turn, it can also point the Agent to named pages that match the new message.
+Brain injects relevant memory automatically at two points: when a conversation starts (and again after context compaction), it assembles a bounded context pack covering participants, recently mentioned subjects, key current facts, and open commitments; on each subsequent text turn, it also points the Agent to named pages matching the incoming message.
 
-These injections make no model call of their own. If assembly times out or fails, they return nothing and the turn continues. Recalled text is background data, not an instruction, and can be stale or incomplete.
+Neither automatic injection makes an LLM call—if assembly times out or fails, Brain skips the injection so the turn proceeds normally. Treat recalled text as potentially stale or incomplete background data rather than instructions.
 
-Agents can also use these tools when a task needs an explicit memory operation:
+When a task calls for explicit memory lookup or updates, Agents invoke dedicated Brain tools:
 
 | Tool | Outcome |
 | --- | --- |
@@ -62,17 +62,17 @@ Agents can also use these tools when a task needs an explicit memory operation:
 
 ### Discover recall-only Skills
 
-Some shipped Skills contain an SOP or method that is useful only when the current work matches it. A Skill can declare `brain-recall-only: true` so it stays out of the Skill catalog in every prompt and remains discoverable through Brain.
+Shipped Skills that teach specialized SOPs can declare `brain-recall-only: true` so they stay out of every turn's prompt catalog while remaining discoverable through Brain when relevant.
 
-Brain indexes only the Skill's `name`, `description`, and `tags` in a world-scope discovery record named `lazyload-agent-skills/<skill-name>`. The Skill body, all other Skill files, and Agent-specific lessons stay with their existing owners and are read through `skill_view`. If `recall` returns such a record, the Agent calls `skill_view`, which applies `ankole-runtime`: it loads the instructions on a compatible execution surface, routes the Main Agent to a background-only Skill, and rejects any other incompatible read. `get_page` provides the same result by delegating the request to `skill_view`.
+For each recall-only Skill, Brain indexes only its `name`, `description`, and `tags` into a `world`-scoped discovery record named `lazyload-agent-skills/<skill-name>`, leaving the `SKILL.md` body, bundled files, and Agent-specific lessons in their authoritative stores to be read via `skill_view`. When `recall` surfaces such a record, the Agent calls `skill_view` (and calling `get_page` on that record delegates to `skill_view` automatically), which enforces `ankole-runtime`: loading the instructions on compatible surfaces, guiding the foreground Agent to delegate background-only Skills, and rejecting any other incompatible read.
 
-The current Agent's effective Agent Plugin and Skill settings apply before Brain selects candidates. A disabled Skill is not discoverable and cannot be loaded. Its shared discovery projection remains in storage, so re-enabling it restores access without rebuilding the projection.
+Before returning candidates, Brain filters against the calling Agent's effective Agent Plugin and Skill settings so a disabled Skill can neither be discovered nor loaded. Because the shared discovery projection stays in storage while disabled, re-enabling the Skill restores discovery immediately without rebuilding the index.
 
-Recall combines full-text and vector candidates when an Embedding model is available. It can rerank the result when a Rerank model is configured. Without an Embedding model, full-text recall still works. Without a Rerank model, recall keeps the fused order.
+When an Embedding model is configured, `recall` fuses full-text BM25 and vector candidates (falling back to full-text search alone when unconfigured), and when a Rerank model is configured, Brain re-orders the fused results with a cross-encoder.
 
 ## Knowledge and disclosure boundaries
 
-Each protected paragraph, Fact, Take, and Timeline entry uses one audience scope:
+Every protected paragraph, Fact, Take, and Timeline entry carries an explicit audience scope:
 
 | Scope | Who can reach it |
 | --- | --- |
@@ -80,50 +80,50 @@ Each protected paragraph, Fact, Take, and Timeline entry uses one audience scope
 | `group:<name>` | Current members of that permission group |
 | `principal:<uid>` | Only that Principal |
 
-Permission-group membership is checked when Brain reads or writes the content. A person's later team change therefore affects future recall without rewriting every memory.
+Brain evaluates permission-group membership dynamically on every read and write, so when someone changes teams, future recall reflects their updated access immediately without rewriting historical records.
 
-An author can reach the Claims and Timeline entries that they wrote. An Agent owner can inspect that Agent's private scope and knowledge written or held by the Agent. Ownership does not let the owner read group knowledge through the Agent; the owner must independently belong to the group.
+Authors can always read the Claims and Timeline entries that they wrote, and an Agent's human owner can inspect that Agent's private scope as well as knowledge authored or held by the Agent. Ownership does not grant backdoor access to group-scoped knowledge—the owner must belong to that permission group independently.
 
-Group conversations add a second disclosure check:
+Group conversations enforce an additional disclosure check:
 
-- **Strict**, the default, discloses group-scoped memory only when every member considered present can already reach it.
-- **Relaxed** checks the person who asked and does not let other present members narrow the result.
+- **Strict** (default) discloses group-scoped memory only when every participant considered present in the room already has access to it.
+- **Relaxed** checks only the person who asked the question, without letting other participants in the room narrow the results.
 
-Both modes behave the same in a direct message.
+In one-on-one direct messages, both modes behave identically.
 
-A Source or channel records where evidence came from. It does not grant access to the learned knowledge. Set the audience scope on the learned content itself. Page metadata such as slug, title, type, and existence is visible inside the tenant; protected page sections and structured claims are filtered.
+A Source or chat channel records provenance—where the evidence came from—without granting access to the extracted knowledge; always set the desired audience scope on the learned content itself. Within a tenant, page-level metadata (slug, title, object type, and existence) is visible across Principals, while protected sections and structured claims are filtered per viewer.
 
-An Agent uses its confidentiality guidance to select a scope for an active `remember` call. That classification is a best-effort model judgment. The application enforces the selected scope deterministically, but it cannot prove that the model classified the content correctly. For compliance-grade isolation, restrict who can access the Agent through [Principals and permission groups](../principal-and-groups/) instead of relying only on memory classification.
+When an Agent calls `remember` explicitly, it chooses an audience scope using its `ConfidentialityPolicy.md` guidance. While Ankole enforces the chosen scope deterministically afterward, the initial scope choice is still a best-effort model judgment. Whenever you need compliance-grade isolation, restrict who can access the Agent through [Principals and permission groups](../principal-and-groups/) rather than relying solely on model classification.
 
 ## How knowledge stays current
 
-Dreaming is the scheduled maintenance window for knowledge that needs judgment. It can:
+Scheduled **Dreaming** runs perform the maintenance tasks that require model judgment:
 
-- consolidate related facts into a cautious Brain-held Take;
-- find patterns across pages and write evidence-linked analysis;
-- extract relationships and timeline events;
-- grade due Takes and update calibration summaries;
-- detect possible contradictions.
+- consolidating related Facts into a cautious Brain-held Take;
+- spotting cross-page patterns and writing evidence-linked synthesis;
+- extracting entity links and timeline events;
+- grading due Takes and updating calibration summaries;
+- flagging potential contradictions.
 
-Dreaming does not silently resolve a contradiction or rewrite its Claims. It records the finding for a person to resolve or dismiss in the Console.
+Dreaming never resolves a contradiction or overwrites conflicting Claims silently; instead, it logs the contradiction so a human operator can resolve or dismiss it in the Console.
 
-Facts lose ranking weight as they age according to their kind. This decay changes recall order, not the stored confidence or history. Explicit forgetting changes the current state: a Fact expires, a Take becomes inactive, or a page becomes soft-deleted. Soft-deleted pages can be restored before the configured purge window ends. Expired and superseded claims remain as audit and calibration history.
+As Facts age, Brain decays their retrieval ranking weight according to their kind—adjusting search order without altering stored confidence scores or audit history. Only an explicit `forget` call or operator action changes active validity: expiring a Fact, deactivating a Take, or soft-deleting a page (which remains restorable until the purge window expires), while keeping expired and superseded claims for audit and calibration.
 
-Self-healing maintains the searchable projections. It repairs stale chunks and embeddings, checks search indexes, and finds eligible channel slices that still need learning. This work does not call a reasoning model.
+Alongside Dreaming, scheduled **self-healing** maintains searchable projections without calling a reasoning model—repairing stale chunks and embeddings, verifying search indexes, and queueing eligible idle channel slices that still need learning.
 
 ## Operate Brain in the Console
 
-The **Brain** area gives operators a result-focused view of the knowledge space:
+In the Console, **Brain** gives operators direct visibility and control over the tenant's knowledge space:
 
-- **Objects** shows pages, their rendered content, facts, timelines, links, versions, rollback, deletion, and restore actions.
-- **Claims** shows Facts and Takes, their sources and current state, and actions to correct, forget, or resolve them.
-- **Contradictions** holds findings for human review.
-- **Sources** registers files and URLs, starts learning, and archives sources.
-- **Search preview** runs recall as a selected Principal and disclosure mode.
-- **Principal audit** lists knowledge where one Principal is the holder, author, or audience.
-- **Health** shows model readiness, learning backlog, embedding failures, channel prerequisites, and projection status.
+- **Objects** inspects pages, rendered sections, facts, timelines, links, and revision history, with rollback, soft-delete, and restore actions.
+- **Claims** lists Facts and Takes with their provenance and current status, plus controls to correct, forget, or resolve them.
+- **Contradictions** queues detected conflicts for human resolution.
+- **Sources** registers files and URLs, triggers extraction runs, and archives sources.
+- **Search preview** tests `recall` as any chosen Principal and disclosure mode.
+- **Principal audit** lists every record where a given Principal is the holder, author, or target audience.
+- **Health** reports model readiness, learning backlogs, embedding errors, channel prerequisites, and index status.
 
-Tenant Brain settings select the maintainer Agent and the rerank model. Site settings select the embedding model and its dimensions. Every Brain model call runs as the selected Agent and attributes usage to it. The Agent must remain active. Disabling it makes Brain unhealthy and stops all Brain model calls and URL Source learning until it is enabled or replaced; stored knowledge and pure-text recall remain available.
+Tenant settings select the Brain maintainer Agent and optional rerank model, while site settings select the embedding model and vector dimensions. Because every Brain model call executes as the maintainer Agent and attributes usage to it, keep that Agent enabled—disabling it marks Brain unhealthy and halts Brain model calls and URL Source fetching until you re-enable or replace it, though existing knowledge and full-text recall remain available.
 
 | Owner and setting | What it enables |
 | --- | --- |
@@ -133,14 +133,14 @@ Tenant Brain settings select the maintainer Agent and the rerank model. Site set
 | Brain Embedding model | Vector recall and semantic Fact deduplication |
 | Brain Rerank model | Cross-encoder ordering after retrieval fusion |
 
-A missing optional model narrows the related capability instead of hiding the state. The Health page reports what is unavailable. Disabling Brain removes its tools and context injection and stops its background tasks; stored knowledge stays unchanged.
+Leaving an optional model unconfigured narrows only that capability and surfaces clearly on **Brain → Health** instead of failing silently. Turning off `brain.enabled` removes Brain tools and automatic context injection and stops background jobs while leaving all stored knowledge intact.
 
-The `general` schema pack supplies a common vocabulary for every tenant. Setup can also add packs for private equity and venture capital, public markets, consumer businesses, legal work, software, and consulting. All Agents share the installed vocabulary.
+Every tenant starts with the `general` schema pack, and during setup you can add domain packs for private equity and venture capital, public markets, consumer businesses, legal work, software, and consulting. All Agents in the tenant share the installed vocabulary.
 
 ## Current limits
 
-Brain currently learns conversation slices only from direct-message and IM-group channels. Registered Sources currently support files and URLs. It does not directly learn from connector, webhook, or alert Sources.
+Brain currently extracts conversation slices only from direct-message and IM-group channels, and registered Sources support files and web URLs—connector, webhook, and alert streams are not ingested directly.
 
-Brain is an evidence system, not a guarantee that every stored statement is true or complete. Use source, time, confidence, holder, and contradiction status when a decision needs stronger support.
+Treat Brain as an evidence ledger rather than an infallible oracle: when a consequential decision depends on a stored claim, check its provenance source, timestamp, confidence, holder, and contradiction status.
 
-For the system boundary around Brain, read [Architecture](../architecture/). For runtime settings, read [AppConfigure](../app-configuration/). For process guardrails learned from work trajectories, read [Skill Lessons](../skill-lessons/).
+For Brain's architectural boundaries, read [Architecture](../architecture/); for runtime keys, read [AppConfigure](../app-configuration/); and for procedural guardrails distilled from execution trajectories, read [Skill Lessons](../skill-lessons/).

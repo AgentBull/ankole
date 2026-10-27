@@ -1,222 +1,237 @@
 # Principal
 
-`Ankole.Principals` is the Ash domain of the typed persistence actions for
-Principals, Agent and Human profiles, external identities, site credentials, invitations,
-access restrictions, audit events, and pending identity mappings. These
-resources use the PostgreSQL tables and constraints. The Principal UID
-codec and tenant-qualified ActorRef codec are the identity and attribution
-contracts.
+`Ankole.Principals` is the root Ash domain for Principals, Agent and Human
+profiles, external identities, site credentials, Pod invitations, access
+restrictions, audit events, and pending identity-mapping requests, backed by
+PostgreSQL tables and native constraints. Across the platform, the Principal UID
+codec and the tenant-qualified `ActorRef` codec serve as the single contract for
+identity and attribution.
 
-Each aggregate operation (create, enable, delete, or update an Agent; create
-or update a Human; bind a site credential; platform subject upserts; Human
-access changes; mapping observations and reviews; work classification and
-cleanup; invitation acceptance) runs in `Repo.transact_top_level/2`, which owns
-the transaction and the lock order while the resource actions run inside it.
-Console `/api/v2` routes use generic actions on `Principal` and
-`MappingRequest`. Another domain runs the same steps in its own transaction
-through the `_in_tx` functions, for example `Principals.create_human_in_tx/1`
-and `Principals.lock_principal_in_tx/2`; it cannot call a top-level operation
-there.
-A read of a Principal in any tenant uses the `allow_global` read action through
-`Principals.get_principal_across_tenants/1` in a `Repo.across_tenants` block.
-Profile actions accept only profile fields;
-they cannot change identity, status, or access versions. Human revocation
-changes status and the access version in one Principal action. Audit events
-have no update or delete action. The cleanup audit action keeps the first
-event on a repeated operation. Its JSON fields use the durable JSON object
-contract, and a system operation can have no actor.
+Every aggregate write in `Ankole.Principals` runs inside
+`Repo.transact_top_level/2`, which opens the transaction and enforces lock order
+while individual Ash resource actions run inside it. Aggregate operations cover:
 
-A Principal identifies the human or Agent responsible for an action. Work,
-permissions, and audit records all use that same identity.
+- Creating, enabling, updating, or deleting an Agent
+- Creating or updating a Human
+- Binding a personal site credential
+- Upserting a platform subject
+- Changing Human access or offboarding state
+- Recording and reviewing identity-mapping requests
+- Classifying and cleaning up affected work
+- Accepting a Pod invitation
 
-Current Principal types are `human`, `agent`, and `system`.
-Human membership controls tenant collaboration. Members receive the computed
-`all_humans` group. Guests require explicit Pod shares and Agent grants. Guests
-cannot join built-in administrator groups or use Private space. They do not
-receive the Brain `world` scope. `pod.allow_external_guests` controls guest admission and Pod
-access. A membership change increments `access_version`. Identity-provider
-sign-in and directory synchronization preserve the stored membership.
+Console `/api/v2` endpoints call generic actions on `Principal` and
+`MappingRequest`. When another domain needs to compose Principal steps inside
+its own open transaction, it calls `*_in_tx` helpers—such as
+`Principals.create_human_in_tx/1` and `Principals.lock_principal_in_tx/2`—rather
+than nesting a top-level operation. To look up a Principal across tenants,
+callers invoke `Principals.get_principal_across_tenants/1` inside a
+`Repo.across_tenants` block, backed by the `allow_global` read action.
 
-One opaque UID identifies a Principal across the site. Every Principal belongs
-to exactly one tenant. The same person in two tenants has two Principal rows.
+Resource actions enforce strict field boundaries: profile actions accept only
+profile attributes and cannot modify identity, status, or `access_version`,
+whereas Human revocation updates both `status` and `access_version` atomically
+in one `Principal` action. Audit events expose neither update nor delete
+actions; repeating a cleanup operation retains the original audit event, JSON
+payloads use the durable JSON-object schema, and system-initiated operations
+may record `nil` as the actor.
+
+A Principal identifies the human, Agent, or system service accountable for an
+action; work execution, authorization, and audit logs all share that identity.
+Supported Principal types are `human`, `agent`, and `system`. For `human`
+Principals, tenant collaboration depends on `membership`:
+
+- **Members (`member`)** automatically join the computed `all_humans` group.
+- **Guests (`guest`)** receive access only through explicit Pod shares and Agent
+  grants; they cannot join built-in administrator groups, enter Private space,
+  or access the Brain `world` scope, and `pod.allow_external_guests` gates guest
+  admission and Pod access.
+
+Changing a Human's `membership` increments `access_version`, whereas
+identity-provider sign-ins and directory syncs preserve the stored membership.
+Although each Principal has one site-wide opaque UID, every Principal belongs to
+exactly one tenant—the same person participating in two tenants has two distinct
+`principals` rows.
 
 ## What the Principal Subsystem Stores
 
-`Ankole.Principals` stores:
+`Ankole.Principals` owns:
 
-- stable rows for humans, Agents, and system services
-- whether each Principal is active or disabled
-- human profiles and verified personal site credentials (`principal_site_credentials`)
+- Canonical rows for humans, Agents, and system services, along with their
+  `active` or `disabled` status
+- Human contact profiles and verified personal site credentials
+  (`principal_site_credentials`)
 - Pod invitations (`pod_invitations`)
-- Agent subtype, owner, and creator information
-- links to identities from external providers (`principal_external_identities`)
-- rules that link the same human across providers
+- Agent subtype, owner, and creator metadata
+- Bindings to external provider subjects (`principal_external_identities`) and
+  rules for linking the same human across providers
 
-It does not store:
+`Ankole.Principals` does *not* store:
 
-- AuthZ groups, grants, or decisions
-- Conversation Messages, external references, Signals, or Delivery intents
-- conversations, model profiles, or schedules
-- AppConfigure values or Plugin settings
-- startup variables, setup sessions, or web sessions
+- AuthZ groups, permission grants, or policy decisions
+- Conversation Messages, external message references, Signals, or Delivery
+  intents
+- AI Gateway conversations, model profiles, or schedules
+- AppConfigure settings or Plugin configurations
+- Bootstrap environment variables, setup sessions, or browser sessions
 
-The Elixir control plane stores Principals in PostgreSQL. Bun code receives UIDs
-from control-plane APIs and does not create another identity model.
+The Elixir control plane persists all Principal state in PostgreSQL; Bun Worker
+processes consume UIDs supplied by control-plane contracts without introducing a
+second identity model.
 
 ## Use One UID throughout the Deployment Instance
 
-`principals.uid` is the primary key. The table has no second internal Principal
-ID.
+`principals.uid` is the sole primary key—there is no separate numeric or
+internal Principal ID. Control-plane APIs trim surrounding whitespace and
+lowercase every UID, and a PostgreSQL `CHECK` constraint enforces lowercase
+storage.
 
-APIs remove surrounding spaces and lowercase every UID. PostgreSQL requires the
-stored value to be lowercase.
-
-Principal UIDs are server-generated UUIDv7 text. An Agent has a separate,
-editable `handle`, unique within its tenant, with this pattern:
+Each Principal UID is server-generated UUIDv7 text. Every Agent also has an
+editable `handle`, unique within its tenant, matching:
 
 ```text
 ^[a-z0-9][a-z0-9._-]{0,95}$
 ```
 
-API paths, tokens, Worker IDs and Brain page slugs use the stable
-UID. The console displays the handle. New Agent requests supply `handle`, not
-`uid`. Names never establish identity.
+API routes, bearer tokens, Worker IDs, and Brain page slugs always address the
+immutable `uid`, while the Console displays `handle` for humans. Agent creation
+requests supply `handle` rather than `uid`, and mutable display names or handles
+never establish identity.
 
 ## Stored Rows
 
 ### `principals`
 
-The table stores these fields:
+`principals` stores the shared base identity columns:
 
-- `uid` as the text primary key.
-- `tenant_id` as the required tenant foreign key.
-- `type` as `human`, `agent`, or `system`.
-- `status` as `active` or `disabled`.
-- Human `membership` as `member` or `guest`. Agents and System Principals use null.
-- `access_version`, a positive generation for Human credential and work revocation.
-- Optional `display_name` and `avatar_url`.
+- `uid`: text primary key.
+- `tenant_id`: required foreign key to the owning tenant.
+- `type`: `human`, `agent`, or `system`.
+- `status`: `active` or `disabled`.
+- `membership`: `member` or `guest` for `human` rows; `NULL` for `agent` and
+  `system` rows.
+- `access_version`: positive integer generation counter bumped to revoke Human
+  credentials and scheduled/background work.
+- `display_name` and `avatar_url`: optional profile presentation fields.
 - `inserted_at` and `updated_at`.
 
-Disabling a Principal keeps the row. Human disablement uses `HumanAccess` to
-commit restrictions, a new access version, audit history, OIDC revocation, and
-future-work cleanup together. See [Human Offboarding](HumanOffboarding.md).
+Disabling a Principal keeps its row intact. Disabling a Human runs through
+`HumanAccess`, which commits access restrictions, an incremented
+`access_version`, audit events, OIDC session revocation, and future-work cleanup
+together; see [Human Offboarding](HumanOffboarding.md).
 
 ### `human_users`
 
-The table extends a human Principal with these fields:
+`human_users` extends a `human` Principal with contact and directory fields:
 
-- `principal_uid` as the primary and foreign key.
-- Optional `email`.
-- Optional `mobile`.
-- Optional `job_title`.
+- `principal_uid`: primary key and foreign key to `principals`.
+- `email`, `mobile`, and `job_title`: optional profile fields.
 - `inserted_at` and `updated_at`.
 
-The Human profile action lowercases email addresses.
-It validates mobile numbers as E.164 values through the native kernel.
-
-DingTalk, Lark, WeCom, and Slack normalize observed phone numbers through
-`Ankole.IdentityProviders.Phone.normalize_china_mobile/1` before E.164
-validation. That helper tries the supplied number first, then a +86 candidate
-for an 11-digit number that starts with 1. Other providers use their own input
-rules.
-
-Unique indexes protect non-null email and mobile values.
+The Human profile action lowercases `email` and validates `mobile` as E.164 via
+the native Rust kernel, with partial unique indexes guarding non-null `email`
+and `mobile` values. Before E.164 validation, the DingTalk, Lark, WeCom, and
+Slack adapters normalize observed phone numbers with
+`Ankole.IdentityProviders.Phone.normalize_china_mobile/1`, which tests the raw
+string first and then tries prepending `+86` for 11-digit numbers starting with
+`1`; other providers apply their own normalization rules.
 
 ### `principal_site_credentials`
 
-A verified site credential binds one identifier and provider to one Human in
-one tenant. Account providers permit one binding per Human; WebAuthn permits
-multiple keys. The provider/identifier index supports a proved site's Pod list.
-See [Authentication](Authentication.md) for ceremonies, admission, invitations,
-login policy, and recyclable identifier release.
+Each row in `principal_site_credentials` binds a verified `(provider,
+identifier)` credential to one Human in one tenant. Account-based providers
+allow at most one binding per Human, while WebAuthn allows multiple passkeys. A
+composite index on `(provider, identifier)` backs Pod discovery once a user
+verifies their site credential. See [Authentication](Authentication.md) for
+verification ceremonies, admission, invitations, login policy, and releasing
+identifiers for reuse.
 
 ### `agents`
 
-The table extends an agent Principal with these fields:
+`agents` extends an `agent` Principal with colleague metadata:
 
-- `uid` as the primary and foreign key.
-- `type` as the `ai_colleague` enum.
-- Required `handle`, unique within its tenant.
-- Required nonempty `role`.
-- `group_memory_disclosure_mode` as `strict` or `relaxed`.
-- `options` as a JSON object.
-- Required `owner_principal_uid` foreign key.
-- Optional `created_by` typed actor reference.
+- `uid`: primary key and foreign key to `principals`.
+- `type`: `ai_colleague` enum.
+- `handle`: required handle, unique within the tenant.
+- `role`: required non-empty role description.
+- `group_memory_disclosure_mode`: `strict` or `relaxed`.
+- `options`: JSON object.
+- `owner_principal_uid`: required foreign key to the owning Principal.
+- `created_by`: optional typed `ActorRef`.
 - `inserted_at` and `updated_at`.
 
-Agent mission, soul, design, memory, model profiles, and token quota belong to
-their own subsystems. They do not belong in the Principal row.
+Runtime documents and settings—mission, soul, design, Brain memory, model
+profiles, and token quotas—live in their respective subsystems rather than on
+the `agents` or `principals` row.
 
 ### System Principals
 
-A system Principal identifies a system service that must own durable
-state. It has no `human_users` or `agents` row. It cannot sign in, own an Agent
-runtime, or act as a human through an external identity.
-
-The owning subsystem creates and manages each system Principal. The Principal
-subsystem does not provide a general public creation API for this type.
+A `system` Principal represents an internal service that needs to own durable
+database rows. It has neither a `human_users` row nor an `agents` row, and it
+cannot sign in, host an Agent Worker, or act as a human via an external
+identity. Each owning subsystem creates and manages its own `system` Principal;
+`Ankole.Principals` exposes no public API for creating arbitrary system
+Principals.
 
 ### `principal_external_identities`
 
-The table binds one provider-scoped external subject to one Principal.
-It stores these fields:
-
-- A UUIDv7 binding `id`.
-- `principal_uid`.
-- `provider` as the platform-subject namespace. Directory sync writes the
-  identity-provider `provider_id`; a chat binding writes the `provider_id` of
-  the identity provider it references, or adopts the single configured
-  provider of its adapter, so one person resolves to one Principal from both
-  paths (see `Ankole.Signals.SubjectNamespace`). A binding without a
-  provider, or one that chose the standalone value, writes the adapter
-  default, such as `lark-main`. The `email` namespace holds mailbox
-  addresses: a row there says that the Principal owns that address, and the
-  Email adapter identifies a sender only through such a row.
-- `external_id` as the provider-scoped subject id.
-- A JSON `metadata` object. Alternate provider ids for the same subject, for
-  example a Lark `open_id` next to a `union_id`, live here.
-- Timestamps.
-
-Its uniqueness key is:
+`principal_external_identities` links one provider-scoped external subject to
+one Principal, keyed uniquely on:
 
 ```text
 tenant_id + provider + external_id
 ```
 
-The binding ID identifies only that external link. The Principal UID still
-identifies the responsible human or Agent.
+Each row contains:
 
-Provider IDs and external subjects are tenant-local. Enterprise admission uses
-immutable provider IDs. Contact data can discover a pending member for a
-separately verified personal credential.
-A UID is opaque and is never evidence that two subjects are the same person.
+- `id`: UUIDv7 binding ID (identifying only this link, whereas `principal_uid`
+  identifies the accountable Principal).
+- `principal_uid`: bound Principal.
+- `provider`: platform-subject namespace (see `Ankole.Signals.SubjectNamespace`).
+  Directory sync writes the identity provider's `provider_id`; a chat Binding
+  writes the `provider_id` of its referenced identity provider—or adopts the
+  sole configured provider for that adapter—so one employee resolves to the same
+  Principal across login and chat, falling back to the adapter default (such as
+  `lark-main`) when unlinked or explicitly standalone. The reserved `email`
+  namespace stores mailbox addresses: a row there attests that the Principal
+  owns that email address, and the Email channel adapter resolves senders
+  exclusively through `email` rows.
+- `external_id`: provider-scoped subject identifier.
+- `metadata`: JSON object holding auxiliary subject attributes such as alternate
+  provider IDs (for example, a Lark `open_id` alongside a `union_id`).
+- `inserted_at` and `updated_at`.
 
-There is one identity shape. Login, directory sync, Signals identity admission,
-and manual console mappings all write this same row.
+Provider namespaces and `external_id` values are strictly tenant-local:
+enterprise admission relies on immutable provider IDs, attested contact emails
+help match pending members when verifying personal credentials, and an opaque
+`uid` is never evidence that two external subjects represent the same person.
+Sign-in, directory sync, Signals identity admission, and manual Console reviews
+all write to this single table.
 
 ### Build-declared site sources
 
-`IdentityProviders.SiteSources` declares the built-in email OTP source and
-trusted build-selected sources. A verified site source addresses
-`principal_site_credentials` by provider and identifier. It discovers available
-Pods and pending memberships. Tenant enterprise configuration uses a separate
-provider namespace and a fixed target tenant.
+`IdentityProviders.SiteSources` registers the built-in email OTP source alongside
+trusted build-selected site login sources. Once a user proves a site credential,
+Ankole queries `principal_site_credentials` by `(provider, identifier)` to list
+accessible Pods and pending memberships; tenant enterprise providers use a
+separate namespace bound to a single tenant.
 
-BrowserSessions records the current Human access version for each Pod proof.
-Pending claims require the current Pod login policy and identifier release
-waterline. Directory contacts and personal login credentials have separate
-owners.
+For every Pod session proof, BrowserSessions stamps the Human's current
+`access_version`. Claiming a pending membership requires satisfying both the
+current `PodLoginPolicy` and the identifier-release waterline, keeping
+directory-synced contact data separate from verified personal login credentials.
 
 ### `pod_invitations`
 
-`Ankole.Principals.Invitation` stores tenant-scoped Pod invitations with these
-fields:
+`Ankole.Principals.Invitation` persists tenant-scoped Pod invitations in
+`pod_invitations`:
 
-- A UUIDv7 `id`.
-- `kind` as `link` or `email`.
-- Optional normalized `invited_email`.
-- `membership` as `member` or `guest`.
-- `token_digest` and optional `code_digest` (raw tokens and codes are never stored).
+- `id`: UUIDv7 primary key.
+- `kind`: `link` or `email`.
+- `invited_email`: optional normalized email address.
+- `membership`: `member` or `guest`.
+- `token_digest` and optional `code_digest`: SHA-256 digests (plaintext tokens
+  and codes are never persisted).
 - `max_uses` and `used_count`.
 - `created_by_principal_uid`.
 - `expires_at` and optional `revoked_at`.
@@ -224,202 +239,207 @@ fields:
 
 ### `identity_mapping_requests`
 
-The table holds signal senders that resolved to no Principal while their
-binding uses the `manual_review` policy. One row exists per
-`tenant_id + provider + external_id`. It stores the sender display name, email, and
-mobile when the platform reveals them, plus observation metadata such as
-alternate ids and the binding that saw the sender. The operator console lists
-these rows; binding one to a Principal writes the identity row and deletes the
-request. Any automatic or proactive identity write deletes requests for all
-provider subject candidates in that write, so a mapped alias cannot remain
-pending.
+When a message arrives on a Binding configured with the `manual_review` policy
+and its sender matches no Principal, Ankole upserts a pending row in
+`identity_mapping_requests` keyed by `tenant_id + provider + external_id`. Each
+row captures any platform-supplied display name, email, and mobile number plus
+observation metadata (alternate IDs and the observing Binding). Operators review
+these rows in the Console: linking a request to a Principal inserts the
+`principal_external_identities` row and deletes the request. Likewise, any
+automatic or operator-driven identity write purges pending mapping requests for
+every candidate subject in that write so mapped aliases never linger in the
+review queue.
 
 ## Link First-Seen Provider Users to Existing Humans
 
-`upsert_platform_subject_human` selects an existing binding for an immutable
-provider subject candidate. An explicit reviewed mapping can select an existing
-Human UID in the same tenant. For a first binding to a provider, an attested
-contact email can select an active Human who has no binding to that provider.
-The match includes the Human profile email, a verified personal login email, and
-directory contact aliases whose metadata has `origin: "directory"`. An Email
-channel sender binding alone does not register a contact email for admission.
-The Human keeps their UID, roles, files, and conversations. A provider binding
-or a completed offboarding prevents email-based reassignment to that Human.
-If no eligible Human matches, the server creates a new opaque UID.
+`upsert_platform_subject_human` resolves or creates a Human for an immutable
+provider subject:
 
-The transaction locks subject candidates, contact keys, and the selected
-Principal. It writes the supplied stable aliases atomically. A conflicting alias
-rolls back the observation. A binding stays with its Human when contact data
-changes.
+1. If an immutable subject candidate is already bound, Ankole selects that
+   Principal; an explicit operator-reviewed mapping may also target an existing
+   Human UID in the same tenant.
+2. Otherwise, on a Human's first binding to that provider, an attested contact
+   email can link to an active Human in the tenant who has no existing binding
+   to that provider and has not completed offboarding—matching against the
+   Human's profile `email`, verified personal login email, or directory contact
+   aliases tagged with `origin: "directory"` (an Email channel sender binding
+   alone never qualifies as an admission contact). Linking preserves the Human's
+   existing UID, roles, files, and conversations.
+3. If no eligible Human matches, Ankole creates a fresh Human Principal with a
+   new UUIDv7 UID.
 
-Directory sync and provider login can bind attested contact email addresses in
-the `email` namespace. Lark supplies both enterprise and member email. These
-contacts support Email adapter identity and pending member discovery. A contact
-conflict preserves the current owner and emits an observation warning.
+Inside the transaction, Ankole locks all candidate subjects, contact keys, and
+the target Principal before writing stable aliases atomically; any alias
+conflict rolls back the observation, and once bound, a provider subject stays
+with its Human even if contact details change later.
 
-A current local offboarding cycle suppresses contact writes from healthy
-upstream observations. A departure observation releases contacts before another
-employee can claim them. Immutable provider IDs keep historical attribution.
+Directory sync and upstream sign-in can also bind attested mailbox rows under
+the `email` namespace (for example, Lark syncs both enterprise and personal
+member emails) to support Email adapter sender matching and pending-member
+discovery. If an observed email already belongs to another Principal, Ankole
+leaves the current owner unchanged and logs an observation warning. While a
+Human is under an active local offboarding restriction, Ankole suppresses
+contact-email writes from routine healthy upstream syncs; conversely, an
+upstream departure event releases that Human's contact emails so a new hire can
+claim a recycled address while immutable provider IDs retain historical
+attribution.
 
-`IdentityProviders.Directory.sync_users/3` traverses users for the adapters that
-use its shared loop. Adapters own pagination, selection, and profile mapping.
-Each observed user has its own transaction.
+For batch directory synchronization, `IdentityProviders.Directory.sync_users/3`
+drives the shared per-user loop—committing each observed user in an independent
+transaction—while individual provider adapters handle pagination, filtering, and
+attribute mapping.
 
 ## Match Without Creating
 
-`match_platform_subject_human` matches a bound provider subject and returns
-an active Human. The `email` provider matches its email identity row or the
-Human's recorded contact address, using the sender address as its subject.
-Enterprise providers match stable subjects. A supplied UID is a reviewed mapping
-target, not identity evidence. [Authentication](Authentication.md) owns the
-separate verified personal-credential pending claim.
+`match_platform_subject_human` looks up an already bound provider subject and
+returns it only if the Human is `active`. Under the `email` namespace, it
+matches an `email` external-identity row or the Human's recorded contact email
+using the sender address as subject; under enterprise providers, it matches
+immutable subject IDs. Passing an explicit UID designates a manual review target
+rather than identity proof; claiming a pending membership with a verified
+personal credential is owned separately by [Authentication](Authentication.md).
 
 ## Verify Upstream Login
 
-`IdentityProviders.Login.complete_oidc_login/3` is the only place that accepts
-the proof of an identity-provider login. The adapter exchanges the code and
-returns the token, the claims of the provider's user endpoint, and the
-normalized user. The adapter declares the expected ID token with
-`id_token_verification/1`: the issuer, the client ID, and the claim that names
-the user (`sub` for Google and Slack, `oid` for Entra ID). The login boundary
-verifies the signature, issuer, audience, nonce, and authentication time with
-`IdentityProviders.OIDC.verify_login/3`. The user endpoint claim must equal the
-signed claim. Then the adapter writes the user.
+`IdentityProviders.Login.complete_oidc_login/3` is the sole boundary that
+accepts upstream OIDC login proofs:
 
-Lark, WeCom, and DingTalk login use OAuth 2.0 without an ID token. Their
-adapters declare `:none`, so their logins have no authentication time and
-cannot serve a fresh-authentication request. The plugin registry rejects an
-adapter with the `oidc_code_exchange` capability that does not export
+1. The adapter exchanges the authorization code and returns the token response,
+   user-endpoint claims, and normalized user attributes, declaring expected ID
+   token rules via `id_token_verification/1`—issuer, client ID, and subject
+   claim (`sub` for Google and Slack, `oid` for Microsoft Entra ID).
+2. `IdentityProviders.OIDC.verify_login/3` verifies the ID token signature,
+   issuer, audience, nonce, and `auth_time`, and confirms that the user-endpoint
+   identifier matches the signed ID token claim.
+3. Only after verification succeeds does the adapter persist the Human.
+
+Lark, WeCom, and DingTalk sign-ins use OAuth 2.0 without OIDC ID tokens; their
+adapters return `:none` from `id_token_verification/1`, record no `auth_time`,
+and cannot satisfy fresh-authentication OIDC requests. At startup, the Plugin
+Registry rejects any adapter declaring `oidc_code_exchange` without exporting
 `id_token_verification/1`.
 
 ## Create and Update Humans
 
-`create_human` inserts the Principal and human profile in one transaction.
-`update_human` changes only mutable Principal and human profile fields.
+`create_human` inserts the `principals` and `human_users` rows in one
+transaction, and `update_human` modifies only mutable profile and display
+columns (attempting to convert an Agent UID into a Human always fails).
 
-An external identity can create or update a human. An omitted profile field
-keeps its current value. An explicit blank clears it. Lark, DingTalk, and
-WeCom preserve this distinction when contact hydration is unavailable during
-login. An absent department list preserves memberships; an observed empty list
-clears this provider's managed department memberships. The identity metadata
-records the same observed list, including an empty list. An identifier-only
-name can label a new account but does not replace an existing human name.
+When syncing from an external identity provider, omitting a profile field
+preserves the stored value whereas passing an explicit blank clears it—a
+distinction that Lark, DingTalk, and WeCom maintain when contact hydration is
+unavailable at login. Similarly, omitting the department list keeps existing
+department memberships, while observing an explicit `[]` removes that provider's
+managed department memberships and records `[]` in identity metadata. An
+identifier-derived fallback name may label a newly created Human but never
+overwrites an existing Human's display name.
 
-A UID that belongs to an agent cannot become a human.
-
-`resolve_platform_subject` returns only an active human Principal.
-`resolve_platform_subject_uid` also supports cleanup for a disabled Principal.
+For lookups, `resolve_platform_subject` returns only `active` Human Principals,
+whereas `resolve_platform_subject_uid` also resolves `disabled` Principals to
+support offboarding and cleanup workflows.
 
 ## Create and Update Agents
 
-`create_agent` does the following in one transaction:
+`create_agent` executes six steps inside one transaction:
 
-1. Require the Agent handle and generate its opaque UUIDv7 UID.
-2. Select the Worker provider: the `worker_provider_id` of the request, or the
-   default provider. Without either, creation fails with
-   `worker_provider_required`.
-3. Insert the `principals` row.
-4. Insert the `agents` row.
-5. Seed Agent Library state.
-6. Insert the Agent's `agent_workers` row in state `absent`, with the selected
-   provider. New Agents do not reuse deleted UIDs.
+1. Validates the requested `handle` and mints a fresh UUIDv7 `uid` (never
+   reusing deleted UIDs).
+2. Selects `worker_provider_id` from the request or falls back to the default
+   Worker provider, failing with `worker_provider_required` if neither exists.
+3. Inserts the `principals` row.
+4. Inserts the `agents` row.
+5. Seeds initial Agent Library documents and state.
+6. Inserts the `agent_workers` row in state `absent` bound permanently to the
+   selected Worker provider (an Agent's Worker provider cannot change later).
 
-After the commit, it requests the Agent's Worker, so the control plane creates
-the Worker at once (see [Agent Workers](AgentWorkers.md)). The provider of an
-Agent cannot change.
+Immediately after commit, `create_agent` requests Worker provisioning so the
+control plane starts the Worker right away (see [Agent Workers](AgentWorkers.md)).
+`update_agent` edits mutable display and colleague fields without altering `uid`
+or Principal `type`.
 
-`update_agent` changes mutable display and subtype fields.
-It cannot change the UID or Principal type.
+Enabling or deleting an Agent snapshots affected Conversation IDs inside the
+transaction. Deleting an `active` Agent first transitions it to `disabled`;
+sending a second delete for a `disabled` Agent physically removes its durable
+rows—acquiring the Pod tree lock first to strip Page grants and recompute
+affected ACL anchors and pass-through descendants before deleting the
+`principals` row. After commit, `Principals.publish_agent_changes/1` broadcasts
+status updates within the Agent's tenant (including Conversations removed in
+that transaction), and `Principals.publish_agent_deletion/1` triggers Worker
+teardown. Both domain callers and Console endpoints share these publication
+helpers while keeping `Principal` and `Agent` return structs distinct.
 
-Enable and delete transactions capture the affected Conversation IDs. The first
-delete request disables an active Agent; a delete request for a disabled Agent
-removes its durable rows. Physical deletion holds the Pod tree lock and removes
-Page grants through Pod access maintenance before it removes the Principal.
-This updates affected anchors and pass-through descendants.
-`Principals.publish_agent_changes/1` publishes status
-notifications in the Agent's tenant after commit, including for Conversations
-removed by that transaction. `Principals.publish_agent_deletion/1` then requests
-Worker reconciliation. Domain operations and the Console use these same
-publication functions. Their Principal and Agent return values stay distinct.
+In the Console, each Agent Library document maintains its own local draft and
+content hash, backed by TanStack Query for fetching/caching and the Signal model
+for completion checks. On a version conflict, reloading overwrites the local
+draft only if the operator has not typed further edits, canceled, triggered a
+newer reload, or navigated away; failed reload reads preserve both draft and
+hash for retry.
 
-The Console keeps an independent draft and content hash for each Agent Library
-document. A conflict reload replaces the draft only if the operator has not
-edited it, canceled it, started another reload, or left that source. A failed
-read keeps the draft and its hash, and permits another reload. The Signal model
-checks completion; TanStack Query owns the request and cache.
-
-`HumanAccess.disable/4` records a Human restriction and revokes its credentials.
-AuthZ protects the last active human administrator.
+For Human offboarding, `HumanAccess.disable/4` records the restriction and
+revokes credentials while AuthZ blocks disabling the last active human
+administrator.
 
 ## Console Identity and Access API
 
-The Site Console uses `/api/v2/identity-provider-adapters` and
-`/api/v2/identity-providers` for provider configuration and directory review
-(while Pod settings uses `/api/v2/pod/admin/identity-providers`).
-Configuration responses redact stored secrets. A blank secret input keeps the
-stored value. Directory approval requires the current snapshot fingerprint and
-explicit removal approval. Event review checks both the provider and event ID.
+Provider configuration and directory sync reviews run through `/api/v2/identity-provider-adapters`
+and `/api/v2/identity-providers` in the Site Console (and
+`/api/v2/pod/admin/identity-providers` in Pod settings):
 
-`Ankole.IdentityProviders.Console` and `Ankole.Principals.Access` are typed,
-stateless Ash transport resources. Their actions call the owning domain's
-public operations. They keep no rows and open no transaction. Each durable
-write belongs to its domain action and PostgreSQL adapter.
-`AnkoleWeb.JSONAPI.Context` resolves decoded route targets to canonical identifiers
-and passes the full Actor and selected data tenant to the Ash action.
-`Ankole.AuthZ.Authorizer` enforces the resource action declaration.
+- Read responses redact stored secrets, and submitting a blank secret field
+  keeps the existing stored secret.
+- Approving a directory sync requires matching the current snapshot fingerprint
+  and explicitly confirming user removals; reviewing a sync event checks both
+  the provider ID and event ID.
 
-The Human access view at `/api/v2/principals/:uid/access` includes restrictions,
-permission review, history, affected work, and cleanup results. Access changes
-require a reason and an operation ID. Restoration requires verified identity,
-the current permission fingerprint, and cleared restrictions. The review includes
-Userset grants whose source permissions are reachable by the restored member.
-It includes potential conditional and computed-group permissions. Unrelated
-private Page grants do not affect the review fingerprint. The work review
-routes at `/api/v2/work-access-reviews` record explicit Human or service
-authority without replaying stopped work.
+`Ankole.IdentityProviders.Console` and `Ankole.Principals.Access` are stateless
+Ash transport resources (`Ash.DataLayer.Simple`) that hold no rows and open no
+transactions of their own, delegating every durable mutation to the owning
+domain's top-level operations. Before dispatch, `AnkoleWeb.JSONAPI.Context`
+canonicalizes route parameters and binds the full Actor and target data tenant,
+and `Ankole.AuthZ.Authorizer` enforces each action's permission declaration.
+
+Operators inspect and manage Human offboarding at `/api/v2/principals/:uid/access`—covering
+active restrictions, permission review, audit history, affected scheduled/background
+work, and cleanup outcomes. Mutating access requires a reason and an idempotent
+operation ID; restoring a disabled Human requires verified identity, cleared
+restrictions, and a matching permission-review fingerprint (which covers
+reachable Userset grants alongside potential conditional and computed-group
+permissions, while ignoring unrelated Private Page grants). Finally,
+`/api/v2/work-access-reviews` records explicit Human or service reauthorization
+for stopped work without automatically replaying it.
 
 ## Divide Setup from Principal Data
 
-Principals can create the first active human. AuthZ creates the administrator
-group, membership, and grants.
-
-Activation codes, OIDC state, setup sessions, and admin sessions are not Principal records.
-
-Root setup finishes only after AuthZ creates a valid active human administrator.
+During initial bootstrap, `Ankole.Principals` creates the first active Human,
+while AuthZ creates the built-in administrator group, membership, and grants;
+root setup marks itself complete only once AuthZ confirms a valid active human
+administrator. Ephemeral bootstrap artifacts—activation codes, outbound OIDC
+state, setup sessions, and admin browser sessions—live outside `Ankole.Principals`.
 
 ## Let AuthZ Decide Permissions
 
-AuthZ stores groups, memberships, grants, conditions, and decisions.
-`Ankole.Principals` supplies identity, active or disabled status, and the Human
-revocation generation. AuthZ owns permissions.
-
-Authorization fails closed for these cases:
-
-- A missing or disabled Principal.
-- A wrong Principal type.
-- Invalid group conditions.
-- Malformed resource or action input.
-
-See [AuthZ](AuthZ.md) for the decision contract.
+`Ankole.Principals` supplies subject identity, `active`/`disabled` status, and
+Human `access_version`, whereas AuthZ owns groups, group memberships, grants,
+conditions, and policy evaluation. Authorization fails closed whenever a
+Principal is missing or `disabled`, has the wrong Principal `type`, carries
+invalid group conditions, or passes malformed resource/action inputs; see
+[AuthZ](AuthZ.md).
 
 ## Audit Actors
 
-The Console API projects an audit actor as an object with `tenant_id` and `uid`.
-
-Ownership is a real Principal foreign key when it controls permission or
-work authorization. Audit-only actor fields use `Ankole.ActorRef`, stored as
-`ankole:<tenant_id>:principal/<uid>`. For example, Agent `created_by` and Brain
-`author` keep the original actor's tenant when a site administrator works in
-another tenant. Removing the actor does not remove the historical reference.
+In Console API responses, audit actors serialize as `{ tenant_id, uid }`. Where
+ownership governs live permissions or work authorization, tables use a true
+`principals` foreign key; where a column records historical attribution only—such
+as `agents.created_by` or Brain `author`—it stores an `Ankole.ActorRef` string
+(`ankole:<tenant_id>:principal/<uid>`), preserving the actor's home tenant when
+a site administrator acts across tenants and surviving even if that Principal is
+later deleted.
 
 ## Rules
 
-- Use `principals.uid` to identify the responsible subject.
-- Store Principal UIDs in lowercase.
-- Use `system` only for a system service that owns durable state.
-- Disable a Human through `HumanAccess`; keep its identity and audit history.
-- Keep Agent runtime facts outside the common Principal row.
-- Require a nonempty Agent role and a JSON options object.
-- Prefer `platform_subject` when provider records refer to the same human.
-- Verify a channel identity before Ankole trusts it to act for a Principal.
-- Keep groups and grants inside AuthZ.
+- Address every accountable human, Agent, or service by `principals.uid`, stored in lowercase.
+- Reserve `system` Principals strictly for internal services that own durable database state.
+- Disable Humans through `HumanAccess` so restrictions, `access_version`, OIDC revocation, work cleanup, and audit history commit together.
+- Keep Agent runtime documents, model profiles, memory, and quotas in their owning subsystems rather than on `principals`, and require a non-empty `role` and JSON `options` on `agents`.
+- Link external provider records for the same person through `platform_subject` bindings in `principal_external_identities`, and verify any channel identity before trusting it to act as a Principal.
+- Keep all group definitions and permission grants inside AuthZ.

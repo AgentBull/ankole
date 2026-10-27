@@ -5,26 +5,26 @@ section: Developer guide
 order: 101
 ---
 
-AIGateway is the unified AI boundary of an Ankole deployment instance. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API; internal agents call the same surface for their model turns. Every call resolves a model selector against the provider bindings the operator configured, and the upstream credentials never leave the control plane.
+AIGateway is the unified AI boundary of an Ankole deployment instance. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API, while internal Agents call the same surface for their model turns. On every call, AIGateway resolves a model selector against the provider bindings that the operator configured, keeping upstream credentials strictly inside the control plane.
 
-This page documents the real routes, request shapes, and the boundary between stateless and stateful calls. The source of truth is the control-plane router and the `Ankole.AIGateway` module; treat this page as the map, not the contract.
+This page maps the routes, request shapes, and boundary between stateless and stateful calls against the control-plane router and `Ankole.AIGateway`.
 
 ## Where it fits
 
-AIGateway sits between callers and providers. A caller — an agent's model loop, an OIDC Human, or an external integration — presents a bearer token and sends an OpenResponses-shaped request. AIGateway resolves the selector, prepares the request, fans it out to the bound provider, and returns either a single JSON body or a stream. LLM, embedding, rerank, web-search, and web-fetch capabilities all flow through the same boundary. When a response turn uses `programmatic_tool_calling`, AIGateway executes each `programmatic_tool_call` TypeScript program in a stateless isolate on `ankole-function-runtime` (`Ankole.FunctionRuntime.ProgramRunner`).
+AIGateway sits between callers and upstream providers. A caller—an Agent's model loop, an OIDC Human, or an external integration—presents a bearer token and sends an OpenResponses-shaped request. AIGateway resolves the selector, prepares the upstream request, dispatches it to the bound provider, and returns either a single JSON body or a live event stream. LLM, embedding, rerank, web-search, and web-fetch capabilities all flow through this boundary. When a response turn uses `programmatic_tool_calling`, AIGateway executes each `programmatic_tool_call` TypeScript program inside a stateless isolate on `ankole-function-runtime` (`Ankole.FunctionRuntime.ProgramRunner`).
 
-The decisive property: a caller never sees a provider credential. The control plane owns the credentials and the routing policy; the caller owns only its token and its selector.
+Callers never see upstream provider credentials: the control plane owns all credentials and routing policies, while each caller supplies only its bearer token and model selector.
 
 ## Authentication
 
-Every endpoint under `/api/v1/ai-gateway` runs through the `:ai_gateway_api` pipeline and the `RequireAIGatewayAccessToken` plug. A request must present a bearer token in the `Authorization` header, and the plug accepts exactly two kinds:
+Every endpoint under `/api/v1/ai-gateway` runs through the `:ai_gateway_api` pipeline and the `RequireAIGatewayAccessToken` plug. Every request must present a bearer token in the `Authorization` header, and the plug accepts exactly two token kinds:
 
-- **an agent token** — an AIGateway API key whose subject is an active agent Principal; the call is scoped to that agent's model bindings and selectors, with `subject_type = "agent"`;
-- **OIDC Human token** — issued to an active Human by an OIDC Client with `ai_gateway.write`; the request uses that Client's model aliases, with `subject_type = "oidc_human"`.
+- **Agent token** — an AIGateway API key whose subject is an active Agent Principal; calls are scoped to that Agent's model bindings and selectors, with `subject_type = "agent"`.
+- **OIDC Human token** — issued to an active Human by an OIDC Client granted `ai_gateway.write`; calls resolve against that Client's model aliases, with `subject_type = "oidc_human"`.
 
-To get an OIDC Human token, create an OIDC Client in the Console with the `ai_gateway.write` scope. Configure its allowed groups and model aliases, then sign in with Authorization Code and PKCE. For long sessions, request `offline_access` and use the rotating Refresh Token. The Human must belong to an allowed group and can use only the Client's model aliases; raw `provider_id/model` selectors are not accepted.
+To obtain an OIDC Human token, create an OIDC Client in the Console with the `ai_gateway.write` scope, configure its allowed groups and model aliases, and sign in using Authorization Code with PKCE (request `offline_access` to receive a rotating Refresh Token for long-lived sessions). The Human must belong to an allowed group and may use only the Client's configured model aliases; raw `provider_id/model` selectors are rejected.
 
-A missing or unverifiable token returns `401` with `code: "invalid_token"`. There is no anonymous path.
+If a request omits the token or presents one that cannot be verified, the plug returns `401` with `code: "invalid_token"`. AIGateway has no anonymous access path.
 
 ```bash
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -35,7 +35,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 
 ## The endpoints
 
-All routes live under `/api/v1/ai-gateway`. The transport an endpoint uses is part of its contract, not a preference.
+All routes live under `/api/v1/ai-gateway`, and the transport that each endpoint uses is part of its contract rather than a caller preference:
 
 | Method | Path | Transport | Purpose |
 |---|---|---|---|
@@ -49,11 +49,11 @@ All routes live under `/api/v1/ai-gateway`. The transport an endpoint uses is pa
 | `POST` | `/web_fetch` | HTTP | Fetch web pages |
 | `GET/POST/DELETE` | `/files`, `/files/:id`, `/files/:id/content` | HTTP | Upload, read, and delete files |
 
-`POST /responses` is the center of the surface. It carries the model turn and is the only endpoint that branches on transport and on state.
+`POST /responses` sits at the center of the surface: it drives model turns and is the only endpoint that branches on both transport and statefulness.
 
 ## Stateless responses over HTTP and SSE
 
-A stateless call is one request, one response. The caller sends the full input, AIGateway resolves the selector, calls the provider, and returns the complete body. Set `"stream": true` and the same endpoint switches to Server-Sent Events: AIGateway opens an SSE stream, writes typed events as `event: <type>\ndata: <json>\n\n`, and ends with `data: [DONE]`.
+A stateless call follows a single request/response cycle: the caller sends the complete input, AIGateway resolves the selector and calls the upstream provider, and the endpoint returns the full JSON body. Pass `"stream": true` and the same endpoint switches to Server-Sent Events, opening an SSE stream that emits typed events as `event: <type>\ndata: <json>\n\n` and finishes with `data: [DONE]`.
 
 ```bash
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -62,74 +62,74 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{"model":"main","input":"Draft a release note.","stream":true}'
 ```
 
-Stateless HTTP and SSE share one hard rule: they reject the stateful fields `previous_response_id`, `conversation`, and `store`. If a request needs continuation across turns, it must use the WebSocket path. A request that sends a stateful field over HTTP or SSE gets `400` with `code: "stateful_responses_require_websocket"` and a message naming the offending field.
+Stateless HTTP and SSE share one strict rule: neither accepts the stateful fields `previous_response_id`, `conversation`, or `store`. Any caller that needs multi-turn state continuation must use the WebSocket endpoint instead; sending a stateful field over HTTP or SSE returns `400` with `code: "stateful_responses_require_websocket"` and a message naming the offending field.
 
 ## Stateful responses over WebSocket
 
-Stateful responses live on `GET /responses` upgraded to WebSocket. The upgrade hands the connection to `AIGatewayResponsesSocket` with the subject's identity, a 30-minute idle timeout, compression, and a 128 MiB frame ceiling. The client sends no frame while it waits for a response, so the idle timeout is also the longest time one response can take; it matches the upstream model first-byte and idle budget. Over this transport a call may set `store: true` and continue an existing conversation with `previous_response_id` or `conversation`.
+Stateful responses run on `GET /responses` via a WebSocket upgrade, which hands the connection to `AIGatewayResponsesSocket` with the subject's identity, a 30-minute idle timeout, compression, and a 128 MiB frame ceiling. Because the client sends no frames while waiting for a model response, that 30-minute idle timeout also bounds the maximum duration of a single turn, matching the upstream first-byte and idle budgets. Over WebSocket, callers may set `store: true` and continue an existing thread via `previous_response_id` or `conversation`.
 
-This is where the durable lifecycle lives. A stored response gets an id of the form `resp_{uuid}`. Subsequent turns reference it with `previous_response_id`; a stored conversation is referenced by `conversation`. The control plane owns the continuation rules, the durable history, compaction, response projection, and recovery — none of that is the caller's job.
+This WebSocket path hosts the durable response lifecycle. Each stored response receives an ID formatted as `resp_{uuid}` so later turns can continue from `previous_response_id` or reference a stored `conversation`. The control plane manages continuation rules, durable history, compaction, response projection, and crash recovery—none of that burden falls on the caller.
 
-Retrieve a stored response later, stateless and over plain HTTP:
+You can retrieve any stored response later over plain stateless HTTP:
 
 ```bash
 curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN"
 ```
 
-Compaction is the one tool that trades a long stored history for a shorter one without losing the thread. It has no endpoint of its own: send a request whose input carries a `{"type": "compaction_trigger"}` item, and AIGateway answers with one `compaction` output item. Every transport works — `POST /responses` returns the body, the same call with `"stream": true` returns the reply as SSE events, and the WebSocket returns the same events. Send only the trigger and it compacts the stored conversation named by `previous_response_id` or `conversation`, and the reply carries the checkpoint id to continue from. Send history alongside the trigger and it compacts what you sent.
+Compaction replaces a long stored history with a compact checkpoint without losing thread continuity. Rather than exposing a separate endpoint, AIGateway accepts a `{"type": "compaction_trigger"}` item in `input` and responds with a single `compaction` output item across any transport (`POST /responses` for JSON, `"stream": true` for SSE, or WebSocket). If you send only the trigger alongside `previous_response_id` or `conversation`, AIGateway compacts the stored conversation and returns the new checkpoint ID to continue from; if you include history items alongside the trigger, AIGateway compacts the history that you sent.
 
 ## Provider routing
 
-AIGateway resolves a model selector to a real provider binding before any upstream call. An Agent has eight built-in profiles: `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. The first five select language models. The last three select separate capabilities. An Agent can also have custom language-model profiles. An admin uses explicit provider entries. `GET /models` lists what the current subject can resolve, with optional OpenRouter-style filters (`q`, `context`, `min_price`, `max_price`, `sort`, modality filters).
+Before making any upstream call, AIGateway resolves the model selector to a concrete provider binding. Every Agent has eight built-in profiles: five language-model profiles (`primary`, `light`, `heavy`, `coding`, and `vision_fallback`) and three capability profiles (`web_search`, `web_fetch`, and `image_generate`), plus any custom language-model profiles configured on the Agent. Administrators instead use explicit provider entries. Call `GET /models` to list every selector that the current subject can resolve, with optional OpenRouter-style query filters (`q`, `context`, `min_price`, `max_price`, `sort`, and modality filters).
 
-Each provider row owns a credential pool. Provider kind, base URL, headers, settings, and capability declarations are shared by all members. A model profile points to the row and never names a pool member. AIGateway selects a healthy member by the configured `fill_first`, `round_robin`, `least_used`, or `random` strategy. The Console translates these strategy names for the selected UI language, while the API and storage use the canonical key. A stateful thread stays on the same member when possible.
+Each provider row manages a credential pool whose members share the row's provider kind, base URL, headers, settings, and capability declarations. Model profiles point to the provider row as a whole rather than to a specific pool member, and AIGateway picks a healthy credential using the configured `fill_first`, `round_robin`, `least_used`, or `random` strategy (translated in the Console UI for the active locale, while the API and database always use those canonical keys). Whenever possible, AIGateway keeps a stateful thread on the same pool member across turns.
 
-An attributed `429`, `5xx`, or transport failure cools down only the credential that made the request. AIGateway selects another member, rebuilds the provider request, and performs a bounded retry with exponential backoff and jitter. The Rust kernel performs one transport attempt at a time. AIGateway does not switch to another provider when the pool is empty.
+When an upstream call fails with an attributed `429`, `5xx`, or transport error, AIGateway places only that specific credential on cooldown, selects another healthy member from the pool, rebuilds the upstream request, and retries with bounded exponential backoff and jitter. The Rust kernel executes one transport attempt at a time, and AIGateway never crosses over to a different provider if the bound pool is exhausted.
 
-`chatgpt_subscription` is an ordinary provider kind. Its OAuth credentials stay in the control plane, where token refresh runs under a row lock. The Agent Computer and external callers never receive those tokens.
+`chatgpt_subscription` works like any other provider kind: its OAuth credentials remain encrypted in the control plane, where token refresh runs under a database row lock, so neither the Agent Computer nor external callers ever receive those tokens.
 
-`agentbull_cloud` (**AgentBull Cloud**, default base URL `https://cloudapis.agentbull.com`) is a built-in aggregated upstream provider kind that supplies language models, embeddings, reranking, `web_search`, `web_fetch`, and `image_generate` with one API key. Its credentials stay in the control plane; external credentials that Worker MCP skills read directly still use `WorkerEnv`.
+`agentbull_cloud` (**AgentBull Cloud**, default base URL `https://cloudapis.agentbull.com`) is a built-in aggregated upstream provider kind that serves language models, embeddings, reranking, `web_search`, `web_fetch`, and `image_generate` with a single API key. Its credentials likewise stay in the control plane, whereas external API keys read directly by Worker MCP skills continue to live in `WorkerEnv`.
 
-Resolution can fail in two ways the caller should handle:
+Callers should handle two selector-resolution errors:
 
 - `422 unknown_model_selector` — the selector is not bound for this subject.
-- `422 model_binding_not_configured` — the capability and name are bound but the provider binding is incomplete.
+- `422 model_binding_not_configured` — the capability and profile name are bound, but the underlying provider binding is incomplete.
 
-A capability the bound provider does not offer surfaces as `422 unsupported_capability`. A provider the operator disabled surfaces as `422 provider_disabled`. These are configuration problems, not transient ones; retrying without changing the configuration will not help.
+Requesting a capability that the bound provider does not support returns `422 unsupported_capability`, and calling a provider that an operator disabled returns `422 provider_disabled`. All four `422` codes reflect configuration state rather than transient failures, so retrying without updating configuration will not succeed.
 
 ## Error shapes
 
-Errors use an OpenAI-compatible envelope. The body is `{"error": {"code", "message"}}`, and the HTTP status matches the failure class. The classes worth planning for:
+Errors return an OpenAI-compatible JSON envelope (`{"error": {"code", "message"}}`) paired with an HTTP status matching the failure class:
 
-- `400` — the request body failed validation: missing `model`, missing `input`, an invalid `limit` or `top_n`, a stateful field over HTTP, a malformed compaction input. The `code` names the field.
-- `401` — the bearer token is missing or unverifiable.
-- `429` — the selected provider's credential pool is exhausted. The error code is `credential_pool_exhausted`; `retry_at` is present when AIGateway knows the earliest recovery time.
-- `404` — a stored response, conversation, agent, or file was not found for this subject.
-- `422` — the request is well-formed but the control plane cannot serve it: unknown selector, unconfigured binding, unsupported capability, disabled provider.
-- `502` / `504` — the upstream provider failed. `502` covers transport and invalid-response failures (`upstream_transport_failed`, `invalid_upstream_response`, `ai_gateway_request_failed`); `504` is `upstream_timeout`. A client `4xx` from the provider is passed through at its own status.
+- `400` — request validation failed (missing `model` or `input`, invalid `limit` or `top_n`, a stateful field sent over HTTP, or malformed compaction input); `code` identifies the offending field or rule.
+- `401` — the bearer token is missing or cannot be verified.
+- `429` — every credential in the selected provider's pool is cooling down (`code: "credential_pool_exhausted"`, with `retry_at` included whenever AIGateway knows the earliest recovery timestamp).
+- `404` — the requested stored response, conversation, Agent, or file does not exist for this subject.
+- `422` — the request is well-formed, but configuration prevents serving it (unknown selector, incomplete binding, unsupported capability, or disabled provider).
+- `502` / `504` — the upstream provider failed: `502` covers transport and malformed-response errors (`upstream_transport_failed`, `invalid_upstream_response`, `ai_gateway_request_failed`), while `504` signals `upstream_timeout`. Upstream `4xx` client errors pass through with their original HTTP status.
 
-When an upstream returns an `error.message`, AIGateway forwards that message; otherwise it reports the upstream HTTP status plainly.
+When the upstream response includes an `error.message`, AIGateway forwards that message; otherwise, it reports the upstream HTTP status directly.
 
 ## Programmatic tool calling and image generation
 
-When a `/responses` request declares the `programmatic_tool_calling` tool, AIGateway synthesizes the `program` tool from eligible tool descriptors. Each `programmatic_tool_call` executes its deterministic TypeScript program in a stateless isolate on `ankole-function-runtime` through `Ankole.FunctionRuntime.ProgramRunner`, suspending at nested tool boundaries while AIGateway owns history, ordering, and cancellation.
+When a `/responses` request enables the `programmatic_tool_calling` tool, AIGateway synthesizes a `program` tool from eligible tool descriptors. It executes each `programmatic_tool_call` as a deterministic TypeScript program inside a stateless isolate on `ankole-function-runtime` via `Ankole.FunctionRuntime.ProgramRunner`, suspending at nested tool boundaries while AIGateway retains ownership of history, ordering, and cancellation.
 
-`image_generation` is a public Responses tool with two execution paths. When the subject has an `image_generate` profile, AIGateway runs the tool with that separate provider and model. Without the profile, AIGateway passes the tool to the main provider only when its capability declares native image generation. If neither path exists, request preparation fails instead of simulating the tool.
+`image_generation` is a public Responses tool with two execution paths. When the subject has an `image_generate` profile configured, AIGateway runs the tool through that dedicated provider and model. Otherwise, AIGateway forwards the tool to the main language-model provider only when its capability declares native image generation; if neither path is available, AIGateway fails request preparation instead of simulating the tool.
 
-Both paths use the same public stream events and generated-image persistence. Model usage and image usage stay attributed to the credential that produced each part.
+Both execution paths emit identical stream events and persist generated images in the same way, attributing model usage and image usage separately to whichever credential produced each output.
 
 ## Web tools, files, and the other capabilities
 
-The same subject and token drive the adjacent capabilities. `POST /web_search` takes a length-bounded `query` and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. These calls can use `web_search.default` and `web_fetch.default`, which resolve the current Agent profiles.
+The same Principal identity and bearer token authorize AIGateway's remaining endpoints. `POST /web_search` accepts a length-bounded `query` and returns provider-backed search results, while `POST /web_fetch` fetches content from one to five public HTTPS URLs; both accept `web_search.default` and `web_fetch.default` to resolve the calling Agent's configured profiles.
 
-`POST /embeddings` accepts text, token arrays, or input blocks. `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. These two endpoints require an explicit `provider_id/model` selector; they do not resolve Agent profiles. Brain uses the site `brain.embedding_model` setting and the tenant `brain.rerank_model` setting from [AppConfigure](../app-configuration/) when it calls these capabilities. Pod Applet `ctx.ai` calls route statelessly through AIGateway as the active Agent that created the Applet, using that Agent's language-model profiles, quota, and usage attribution. See [Brain](../brain/) for the retrieval behavior.
+`POST /embeddings` accepts strings, token arrays, or structured input blocks, and `POST /rerank` reranks a non-empty document array using a positive integer `top_n`. Unlike `/responses`, both endpoints require an explicit `provider_id/model` selector rather than an Agent profile name—for example, Brain reads the site `brain.embedding_model` key and the tenant `brain.rerank_model` key from [AppConfigure](../app-configuration/) when calling them (see [Brain](../brain/) for retrieval details). Meanwhile, Pod Applet `ctx.ai` calls route statelessly through AIGateway under the active Agent that created the Applet, drawing on that Agent's language-model profiles, token quota, and usage attribution.
 
-Files are first-class: `POST /files` uploads, `GET /files` lists, `GET /files/:id` and `GET /files/:id/content` read metadata and bytes, and `DELETE /files/:id` removes one. All are scoped to the subject.
+File endpoints are likewise scoped to the authenticated subject: `POST /files` uploads a file, `GET /files` lists uploaded files, `GET /files/:id` and `GET /files/:id/content` fetch metadata and raw bytes, and `DELETE /files/:id` deletes a file.
 
 ## What AIGateway is not
 
-It is not a public, unauthenticated proxy. It is not a place to send provider credentials — those live in the control plane. And it is not a queue or a job runner; long-running agent work belongs to Sessions and Background Agent Jobs. AIGateway is the request/response boundary: one call in, one response or one stream out, with selectors resolved and credentials kept inside.
+AIGateway is not an open, unauthenticated proxy, nor do callers pass upstream provider keys in requests—all provider credentials stay inside the control plane. It is also not a background queue or job runner; multi-step autonomous execution belongs to Sessions and Background Agent Jobs. AIGateway is strictly the synchronous and streaming request/response boundary: one authenticated request in, one response or stream out, with selectors resolved and credentials kept server-side.
 
 ## Next steps
 

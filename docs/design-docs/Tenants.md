@@ -1,41 +1,56 @@
 # Tenants
 
-A site is one Ankole deployment with shared infrastructure and trusted site
-operators. A tenant owns its people, Agents, Brain, integrations, conversations,
-and work. Every Principal belongs to one tenant. A site administrator can select
-another tenant's data without changing their own identity or authorization.
+A site is a single Ankole deployment with shared infrastructure and trusted site
+operators. Within a site, each tenant owns its people, Agents, Brain,
+integrations, conversations, and work, and every Principal belongs to exactly
+one tenant. A site administrator can inspect or manage another tenant's data
+without changing their own identity or authorization.
 
 Each standard tenant (`hybrid_tenant = false`) owns one Pod workspace. The
-`tenants` table also carries `hybrid_tenant` (`boolean NOT NULL DEFAULT false`,
-and a `false` to `true` transition is forbidden). When `hybrid_tenant` is
+`tenants` table also defines `hybrid_tenant` (`boolean NOT NULL DEFAULT false`,
+with transitions from `false` to `true` forbidden). When `hybrid_tenant` is
 `true`, tenant creation skips default Agent and welcome Page scaffolding, and
 workspace domains (`Pod`, `Files`, `Conversations`, `AgentWorkers`,
 `FunctionRuntime`, `Signals`, and external `IdentityProviders`) reject
 operations for that tenant while organization profile, member, invitation, and
-personal account settings remain available. Site administration assignment and
-AuthZ roles belong to their domain owners, and slug validation enforces format
-rules plus the build's reserved-slug list. A build can set
-`tenant_slug_blacklist` to a local TOML file with a `slugs` array. Compilation
-embeds the list in the Tenant resource and tracks the file as an external
-resource. Tenant creation and slug changes use the same resource validation.
+personal account settings remain available.
+
+Assigning site administrators and managing AuthZ roles belong to their
+respective domain owners. Tenant creation and slug updates share the same
+resource validation, enforcing format rules alongside the build's reserved-slug
+list: a build can point `tenant_slug_blacklist` at a local TOML file containing
+a `slugs` array, which compilation embeds into the `Tenant` resource and tracks
+as an external dependency.
+
+During initial setup, the company and business step updates the privileged
+tenant's display name and slug through this same profile contract. The browser
+setup session holds the selected industry packs until setup completion installs
+them in the completion transaction.
 
 ## Base storage placement
 
-A site has one control-plane PostgreSQL database. Each tenant has an immutable
-`base_db_id` for its physical Base tables. `Tenants.create_in_tx/1` hashes the
-tenant UUID across open shards with `:erlang.phash2/2`; an explicit configured
-shard ID supports dedicated tenants. A stock-only shard serves its assigned
-tenants and explicit assignments. If no shard is open, automatic creation
-returns `no_allocatable_base_db`. Requests read the tenant's assignment inside
-the control-plane transaction.
+A site uses one control-plane PostgreSQL database, while each tenant holds an
+immutable `base_db_id` that locates its physical Base tables.
+`Tenants.create_in_tx/1` hashes the tenant UUID across open shards with
+`:erlang.phash2/2`, and callers can also pass an explicit configured shard ID
+for dedicated tenants. A shard marked stock-only serves only tenants already
+assigned to it plus new explicit assignments; if no shard is open for automatic
+placement, creation fails with `no_allocatable_base_db`. Requests read the
+tenant's shard assignment inside the control-plane transaction.
 
-`BASE_DB_URLS` is a semicolon-separated list of `postgres://`, `postgresql://`,
-or `ecto://` URLs. Whitespace around entries is allowed. `ankole_sharding`
-is a unique ID with one to 32 lowercase letters, digits, or underscores. One
-URL may omit the ID and use `base_default`. Multiple URLs must specify every ID.
-`ankole_stock_only` is `true` or `false` (default `false`);
-`ankole_pool_size` is a positive integer. Startup rejects duplicate or unknown
-`ankole_*` keys and `sslmode`. Connections use the internal PostgreSQL network.
+`BASE_DB_URLS` configures shards as a semicolon-separated list of `postgres://`,
+`postgresql://`, or `ecto://` URLs (surrounding whitespace is trimmed). Each URL
+carries query options for shard routing and pooling:
+
+- `ankole_sharding`: a unique ID of 1 to 32 lowercase ASCII letters, digits, or
+  underscores. A single-URL configuration may omit this parameter to use
+  `base_default`, whereas multi-URL configurations must name every shard ID.
+- `ankole_stock_only`: `true` or `false` (default `false`).
+- `ankole_pool_size`: a positive integer.
+
+On startup, Ankole rejects URLs that specify `sslmode` or contain duplicate or
+unknown `ankole_*` keys. All shard connections run over the internal PostgreSQL
+network.
 
 | Environment | Default topology when `BASE_DB_URLS` is unset | Pool per shard |
 | --- | --- | --- |
@@ -44,326 +59,344 @@ URL may omit the ID and use `base_default`. Multiple URLs must specify every ID.
 | Test | Four databases with `_test_<partition>` suffix | 2 |
 | Multi-shard edition default | `ankole_base_00` through `ankole_base_07` | 5 |
 
-Only development and test create missing databases. They use `template0` and
-the control-plane locale provider, collation, and character rules. Production
-operators provision independent databases. A single-database deployment needs no
-`CREATEDB` permission when it uses the control-plane database. The Base pool is
-separate even when both repos connect to the same database.
+Only development and test environments create missing databases automatically,
+cloning `template0` with the control-plane locale provider, collation, and
+character rules. Production operators provision independent databases up front;
+a single-database deployment that shares `DATABASE_URL` needs no `CREATEDB`
+privilege, and `BaseRepo` still maintains its own connection pool separate from
+`Ankole.Repo`.
 
-All databases require PostgreSQL 18. Startup checks each reachable shard's
-locale against the control plane and initializes `public._ankole_shard`, a
-singleton identity row. An unavailable shard's pool reconnects independently;
-healthy shards remain available. Each connection checks the version, locale,
-and identity in `after_connect`. A shard first reached on reconnect initializes
-its identity in a transaction. Reachable identity or locale mismatches, and a
-topology that omits any assigned shard, including a deleting tenant's shard,
-prevent startup. BaseRepo uses unnamed prepared statements for PgBouncer transaction pooling. Operators
-can set PgBouncer `server_lifetime` to recycle backend catalog caches and raise
-PostgreSQL `max_locks_per_transaction` for large tenants.
+Every database requires PostgreSQL 18. At startup, Ankole verifies each
+reachable shard's locale against the control plane and initializes the singleton
+identity row in `public._ankole_shard`. If a shard is temporarily unreachable,
+its pool reconnects independently while healthy shards continue serving traffic;
+each new connection re-checks PostgreSQL version, locale, and shard identity in
+`after_connect`, initializing `public._ankole_shard` transactionally if the
+shard was first reached on reconnect. Startup fails if any reachable shard
+mismatches its expected identity or locale, or if the configured topology omits
+any assigned shard—even for a tenant that is currently being deleted. `BaseRepo`
+uses unnamed prepared statements so it works cleanly behind PgBouncer
+transaction pooling; for large tenants, operators can tune PgBouncer
+`server_lifetime` to recycle backend catalog caches and raise PostgreSQL
+`max_locks_per_transaction`.
 
-Physical objects live in `t_<tenant_hex>`. `BaseRepo.tenant_schema!/0` derives
-this name only from the active Repo tenant; a missing context fails. Reviewed
-physical SQL modules declare `@raw_sql_scope :tenant_schema`. Static boundary
-checks require each statement to use a context-derived schema helper. A helper
-in another statement cannot exempt a query. The query-escape inventory records
-these calls. Tenant deletion drops tables in batches of 100, then drops the
-schema with a 15-second lock timeout, before removing the tenant row.
+Physical Base objects live in the per-tenant schema `t_<tenant_hex>`.
+`BaseRepo.tenant_schema!/0` derives this schema name exclusively from the active
+Repo tenant, so queries without a tenant context fail. Reviewed modules that
+issue physical SQL declare `@raw_sql_scope :tenant_schema`, and static boundary
+checks require every SQL statement in those modules to call a context-derived
+schema helper—using a schema helper in one statement does not exempt other
+queries in the same module. The query-escape inventory tracks all such calls.
+During tenant deletion, Ankole drops physical tables in batches of 100 and then
+drops the schema with a 15-second lock timeout before deleting the tenant row.
 
-A single-database deployment can use one atomic `pg_dump`. With independent
-shards, every shard's point-in-time recovery target must be at or later than
-the control-plane recovery target. A newer shard can rebuild interrupted
-promotions on retry. A schema-version mismatch requires operator repair and
-rejects affected table operations.
+A single-database deployment can take one atomic `pg_dump`. When Base shards run
+on independent PostgreSQL instances, every shard's point-in-time recovery target
+must be at or ahead of the control-plane recovery target; a shard recovered to a
+slightly newer timestamp can rebuild interrupted promotions on retry. If a
+shard's schema version mismatches the application, Ankole rejects operations on
+the affected tables until an operator repairs the shard.
 
 ## Durable ownership
 
-`Ankole.Tenants` owns tenant lifecycle. PostgreSQL owns tenant membership and
-lifecycle state. Tenant-owned schemas declare that ownership through
-`Ankole.Ash.Resource`; `Ankole.Repo` requires a tenant context and adds its SQL
-predicate before executing queries. A missing context fails. Site-owned schemas
-and deliberate `Repo.across_tenants` operations are explicit.
+`Ankole.Tenants` owns the tenant lifecycle, and PostgreSQL stores all tenant
+membership and lifecycle state. Tenant-owned schemas declare their scope through
+`Ankole.Ash.Resource`, and `Ankole.Repo` requires an active tenant context and
+injects the `tenant_id` predicate before running any query; queries without a
+tenant context fail. Site-owned schemas and deliberate `Repo.across_tenants`
+blocks opt out explicitly.
 
-The site-owned `Tenant` resource belongs to the `Ankole.Tenants` domain. Its
-typed actions own profile validation and persistence. Profile writes cannot set
-suspension or deletion markers. Dedicated lifecycle actions set those markers;
-repeated deletion preserves the first deletion time. The final destroy action
-requires a deletion marker. `Ankole.Tenants` runs each lifecycle operation
-(create, scaffold, profile change, suspend, resume, begin deletion,
-site-administration transfer) in `Repo.transact_top_level/2`. Each lifecycle
-write locks the site-administration row and then the tenant row, and checks the
-protected tenant. Another domain or build extension runs the same steps in its transaction through
-the `_in_tx` functions, such as `Tenants.create_in_tx/1`. `Tenant` declares generic actions for the site JSON:API at
-`/api/v2/site/tenants` (list, Brain pack names, create, profile change,
-suspension as `POST`/`DELETE …/suspension`, begin deletion) and
-`/api/v2/site/privileged-tenant` (read, transfer). The
-deletion job is a registered set maintenance module: it removes external
-resources and durable child rows in dependency order with tenant-scoped SQL
-before it calls the final destroy action. No generic cascade replaces that
-lifecycle.
+The site-owned `Tenant` resource in `Ankole.Tenants` handles profile validation
+and persistence through typed actions. Profile updates cannot set suspension or
+deletion markers; dedicated lifecycle actions manage those markers instead,
+preserving the original timestamp on repeated deletion requests and requiring a
+deletion marker before the final destroy action can run. Each multi-step
+lifecycle operation—create, scaffold, profile update, suspend, resume, begin
+deletion, and privilege transfer—runs inside `Repo.transact_top_level/2`,
+locking the site-administration row before the tenant row and enforcing
+protected-tenant guards. Other domains and build extensions compose the same
+steps inside an open transaction through `*_in_tx` helpers such as
+`Tenants.create_in_tx/1`.
 
-Oban job and peer tables are site-owned. The `oban` query option does not skip
-tenant checks on business tables, subqueries or CTEs. Struct writes validate
-their tenant; updates and deletes include ownership in their row filters.
-List-form `insert_all` requires an explicit matching `tenant_id` on every row.
-An explicit `Repo.across_tenants` context permits deliberate cross-tenant writes.
+For Console management, `Tenant` exposes generic JSON:API actions at
+`/api/v2/site/tenants` (list, Brain pack catalog, create, profile update,
+`POST`/`DELETE …/suspension`, and begin deletion) and
+`/api/v2/site/privileged-tenant` (read and transfer). Actual data removal runs
+in a registered maintenance job that deletes external resources and durable
+child rows in dependency order using tenant-scoped SQL before invoking the final
+destroy action—never relying on an unbounded `ON DELETE CASCADE`.
 
-Raw SQL and SQL fragments do not receive tenant predicates from the Repo. Their
-domain owner supplies the predicates or declares the operation as site-wide.
+Oban job and peer tables are site-owned, and passing the `oban` query option
+never bypasses tenant checks on business tables, subqueries, or CTEs. Struct
+writes validate their `tenant_id`, updates and deletes include `tenant_id` in
+their `WHERE` filters, and list-form `insert_all` calls require an explicit,
+matching `tenant_id` on every map unless wrapped in an explicit
+`Repo.across_tenants` block. Likewise, `Ankole.Repo` does not rewrite raw SQL
+strings or Ecto SQL fragments: the owning domain must supply explicit tenant
+predicates or declare the statement as site-wide.
 
-Repo applies ownership to every tenant-owned query source. The root receives
-a tenant predicate; tenant joins receive it in their `ON` condition, so an outer
-join keeps its meaning. Subqueries, CTEs, unions, updates, and deletes use the
-same context. A tenant join from a site root also requires that context. Struct,
-bulk, and conflict writes validate ownership and cannot change a row's tenant.
-Nested Ecto queries receive the same recursive checks whether the source is a
-direct query or an `Ecto.SubQuery`. This includes the direct query sources that
-Ash uses for related resources and aggregates. Their declared schemas define
-their site or tenant ownership.
+For Ecto queries, `Ankole.Repo` attaches tenant ownership to every tenant-owned
+query source recursively:
 
-Tenant-owned Ash resources use attribute tenancy with `global? false`.
-`Ankole.Repo` owns the tenant context. `Ankole.Ash` and each domain code
-interface (`Ankole.Ash.default_options/0`) give Ash the tenant of the calling
-process. Site-owned resources have site scope and need no process tenant. Ash
-assigns the tenant attribute. The Repo scopes each Ash read and write, so a
-forged tenant option cannot read or write the rows of another tenant. A
-dedicated global read action reads all tenants only in an explicit
-`Repo.across_tenants` block, which `Ankole.Ash.read_across_tenants!/2` opens;
-in a tenant context, the Repo limits it to that tenant. UUID and Principal
-attributes use their domain codecs. Ash state fields use the transition list to
-configure the Ecto enum codec, so Ecto callers also receive canonical atoms and
-a query rejects a state value outside the list.
+- Root tables receive a `WHERE` predicate, while tenant-owned joins receive the
+  predicate in their `ON` clause so `LEFT JOIN` semantics stay intact (joining a
+  tenant table from a site-owned root also requires an active tenant context).
+- Subqueries (`Ecto.SubQuery` and direct query sources, including those generated
+  by Ash for relationships and aggregates), CTEs, unions, updates, and deletes
+  all inherit and enforce the same tenant context based on each schema's
+  declared ownership.
+- Struct, bulk, and `ON CONFLICT` writes validate tenant ownership and forbid
+  changing an existing row's `tenant_id`.
 
-The resource transformer adds a tenant condition to each tenant resource upsert.
-`create_if_absent` keeps the first row and returns it on a repeated creation
-in the same tenant. It never returns a conflicting row from another tenant.
-Creates that must reject a conflict declare their explicit action condition.
-For tenant resources, compilation rejects writable or accepted `tenant_id`,
-upserts without explicit fields, tenant ownership in those fields, and atomic
-upserts. Resource policies are forbidden for both site and tenant resources.
-`Ankole.Ash.DeclaredUpsert` rejects runtime overrides of the upsert contract.
-Ash tenant upserts enforce the action's declared tenant condition. A caller can
-select a nonempty subset of that action's declared update fields; it cannot add
-fields, change tenant ownership, or add atomics. An action that declares no
-update fields permits only that empty set, and a caller cannot replace a
-nonempty declaration with an empty override. Global identities of tenant
-resources set `all_tenants? true` and use their PostgreSQL index names.
-The Repo scopes scalar queries inside batch rows and conflict queries. A CTE
-join uses its scoped inner query rather than a tenant column on its projection.
+Tenant-owned Ash resources configure attribute tenancy with `global? false`,
+while site-owned resources operate at site scope without a process tenant.
+`Ankole.Ash` and domain code interfaces (`Ankole.Ash.default_options/0`) pass
+the calling process's `Ankole.Repo` tenant into Ash, which populates the tenant
+attribute; because `Ankole.Repo` independently scopes every SQL read and write,
+a forged Ash `:tenant` option can never read or mutate another tenant's rows.
+Cross-tenant Ash reads use dedicated global read actions inside an explicit
+`Repo.across_tenants` block opened by `Ankole.Ash.read_across_tenants!/2` (if
+invoked inside a tenant context, `Ankole.Repo` still restricts results to that
+tenant). UUID and Principal attributes use domain codecs, and Ash state-machine
+attributes wire their transition list into the Ecto enum codec so direct Ecto
+callers also receive canonical atoms and invalid state strings fail at query
+time.
 
-Ash runs synchronously. All bulk actions use `Ankole.Ash`, which fixes their
-concurrency at one. `Repo.transact_top_level/2` and resource generic actions own
-top-level transactions, and their `after_commit` functions run only after
-commit. A create, update, or destroy action runs in the caller's transaction,
-or alone as one statement. It does not upgrade itself to an atomic write; an
-action that must be atomic declares `require_atomic? true`. Rejection occurs in
-changes or validations before database execution, so the enclosing transaction
-can commit compensation. Transaction hooks and action hooks are rejected on
-resource actions. The default error handler of each resource action gives the
-declared exceptions of `Ankole.Errors`.
-Ecto migrations own the database tables through `migrate? false` and
-install the SQL expression functions that Ash requires. The schema test checks
-resource constraint and index mappings against the selected edition's database.
+Compile-time Ash verifiers and transformers enforce strict upsert rules on
+tenant resources:
 
-Work lock functions declare the table and row key with `lock_identity`;
-`Ankole.Ash.read/2` gives it for an Ash read with a lock. The test
-checker does not infer keys from query predicates. `Repo.lock_all` checks the
-actual returned keys for a selection after its single locking query. It preserves
-query limits and `SKIP LOCKED` behavior. An application transaction with a tracked
-row lock and no declared identity fails in tests.
+- Compilation rejects writable or accepted `tenant_id` attributes, upserts
+  without explicit update fields, `tenant_id` inside update fields, atomic
+  upserts, and Ash resource policies (on both site and tenant resources).
+- The resource transformer injects a tenant condition into every tenant upsert,
+  and `Ankole.Ash.DeclaredUpsert` forbids runtime overrides of the upsert
+  contract: callers may choose a nonempty subset of an action's declared update
+  fields (or the empty set when the action declares none), and may never add
+  undeclared fields, replace a nonempty declaration with an empty list, alter
+  tenancy, or attach atomics.
+- `create_if_absent` retains and returns the existing row when repeated within
+  the same tenant and never returns a colliding row from another tenant; creates
+  that must fail on duplicates declare an explicit action condition.
+- Global identities on tenant resources set `all_tenants? true` mapped to their
+  PostgreSQL index names, and `Ankole.Repo` scopes scalar subqueries inside
+  batch rows and conflict targets while scoping CTE joins inside the CTE body
+  rather than projecting an outer `tenant_id` column.
 
-Native constraints can reject a write after validation. They roll back the
-current transaction with the Ash changeset. `Repo.transact` and
-`Repo.transaction` give that rollback as its Ash error class
-(`Ankole.Errors.rollback_result/1`) and give other rollback reasons without
-change.
+Ash executes synchronously, and `Ankole.Ash` pins bulk-action concurrency to `1`.
+Top-level transactions belong to `Repo.transact_top_level/2` and stateless
+generic actions, firing `after_commit` callbacks only after the outer commit.
+Resource `create`, `update`, and `destroy` actions compose inside the caller's
+transaction (or run as a single statement when called standalone) without
+auto-upgrading to atomic SQL unless they declare `require_atomic? true`, and
+without transaction or action hooks. Validations and changes reject invalid
+inputs before touching PostgreSQL so the enclosing transaction can still commit
+compensation writes, mapping errors through `Ankole.Errors`. Database schema DDL
+lives exclusively in Ecto migrations (`migrate? false`), which also install
+required Ash SQL helper functions, and schema tests verify Ash constraint and
+index names against the active edition's database.
 
-PostgreSQL RLS is not enabled. Repo isolation tests cover every tenant schema,
-query forms, joins, bulk writes, upserts, and stale or foreign-tenant structs.
-Raw SQL is an explicit domain-owned boundary. Site-wide scans select only
-the required identities, then enter each tenant before running domain work.
-WorkAccess explicitly bounds the cross-tenant authorizer lookup by the selected
-work tenant; this exception relies on globally unique Principal UIDs.
+Row-locking helpers register their table and row key via `lock_identity`
+(populated automatically by `Ankole.Ash.read/2` for locked Ash reads) rather
+than relying on the test harness to parse SQL predicates. `Repo.lock_all`
+executes a single locking query—preserving `LIMIT` and `SKIP LOCKED`—and then
+registers the returned keys; in tests, any application transaction that acquires
+a tracked row lock without declaring `lock_identity` fails. If a native
+PostgreSQL constraint rejects a write after Ash validation, the transaction
+rolls back with the Ash changeset, and `Repo.transact` / `Repo.transaction`
+unwrap that rollback into its `Ankole.Errors` class via
+`Ankole.Errors.rollback_result/1` while passing non-Ash rollback values through
+unchanged.
 
-`Repo.with_tenant/2` restores the caller's context after success or failure.
-Processes do not inherit it implicitly: authenticated HTTP and Worker entry
-points establish it, long-lived processes set it during initialization, and
-`Ankole.Job` records it in durable job arguments. A job whose tenant was deleted
-is cancelled. Site jobs use explicit cross-tenant reads and enter each tenant
-before calling tenant-owned work. RuntimeFabric uses the fixed
-`installation` namespace; globally unique Agent UIDs separate its routes.
+Ankole enforces tenant isolation in `Ankole.Repo` rather than PostgreSQL RLS,
+backed by comprehensive Repo isolation tests across all tenant schemas, query
+shapes, joins, bulk operations, upserts, and stale or cross-tenant structs.
+Site-wide background scans read only minimal target IDs across tenants and then
+enter each tenant's context before running domain logic. As one explicit
+exception grounded in globally unique Principal UIDs, `WorkAccess` bounds its
+cross-tenant authorizer lookup by the selected work tenant.
 
-Release and Mix entry points must enter each target tenant's context before
-they write tenant data. Tests of these entry points must start without a tenant
-context; test setup must not supply the context that the entry point must set.
+Process tenant context is always explicit: `Repo.with_tenant/2` restores the
+previous context on exit or raise, and spawned processes never inherit tenancy
+implicitly. Authenticated HTTP plugs and Worker endpoints set the context per
+request, long-lived processes bind it during `init`, and `Ankole.Job` persists
+`tenant_id` in durable job args (cancelling jobs whose tenant has been deleted,
+while site-wide jobs scan across tenants and enter each tenant individually).
+`RuntimeFabric` routes over the single `installation` namespace, relying on
+globally unique `agent_uid` values to separate Agents. Release tasks and Mix
+entry points must likewise enter each target tenant before writing tenant rows,
+and their tests must start with no ambient tenant set in setup.
 
-Natural names, email addresses, external identities and Agent handles are unique
-inside a tenant. Principal UIDs are opaque and globally unique. Attribution uses
-`ankole:<tenant-id>:principal/<uid>` text without a foreign key, so the original
-reference remains readable after deletion. A work authorization's `human_uid`
-is also text without a foreign key; WorkAccess checks its current existence,
-status and access version before admitting work.
-
-Every foreign key between tenant-owned tables includes the child and parent
-`tenant_id`. A globally unique row ID does not replace that ownership check.
-PostgreSQL rejects a foreign parent on direct resource actions, upserts, and raw
-SQL. Parent composite unique indexes support these foreign keys. The constraints
-enforce their declared delete and update actions; `SET NULL` clears only the
-optional reference and preserves the child's tenant. Site-owned browser proofs
-are shared across Pods. Work authorizer references and historical attribution
-use their explicit contracts without a foreign key.
+Within a tenant, natural names, email addresses, external subject bindings, and
+Agent handles are unique, whereas Principal UIDs are globally unique opaque
+identifiers. Historical attribution (`ankole:<tenant-id>:principal/<uid>`) and
+work authorization (`human_uid`) are stored as plain text without foreign keys
+so audit trails remain readable after Principal deletion, while `WorkAccess`
+verifies live existence, status, and `access_version` before admitting work. By
+contrast, every foreign key between tenant-owned tables is composite and
+includes `tenant_id` on both child and parent—even when the row ID is globally
+unique—backed by composite parent unique indexes so PostgreSQL blocks
+cross-tenant references across Ash actions, upserts, and raw SQL (`ON DELETE SET NULL`
+clears only the nullable reference column while keeping the child's
+`tenant_id`). Site-owned browser proofs are shared across Pods.
 
 ## Site administration
 
-Exactly one tenant is privileged. Its built-in `siteadmin` group controls site
-administration through AuthZRoot. Console entry and site APIs use that same
-owner. The private global AppConfigure key `tenants.privileged_tenant_id` stores
-its stable ID. A slug change does not change this assignment. AuthZ loads
-permissions from the operator's own tenant. Selecting
-a data tenant neither grants that tenant's groups to the operator nor changes
-the author recorded on writes. Brain writes use the operator as writer inside
-their own tenant, preserving group and private-claim write checks. Cross-tenant
-site administration uses the system writer with the operator's full attribution.
+Exactly one tenant holds site-administration privilege, stored under the private
+global AppConfigure key `tenants.privileged_tenant_id` (unaffected by slug
+renames). Its built-in `siteadmin` group governs Console access and site APIs
+through `AuthZRoot`. Permissions always load from the operator's home tenant:
+selecting another data tenant in the Console neither grants that tenant's group
+memberships nor alters write attribution. When an operator edits Brain records
+inside their own tenant, they act as the direct writer so group and
+private-claim checks apply; cross-tenant administrative writes use the system
+writer paired with full operator attribution.
 
-The site administration Console is served at the configured
-`ANKOLE_SITE_ADMIN_CONSOLE_PATH` (default `/site-admin-console`); invalid or
-occupied paths fail startup. The configured path is sent only with an
-authenticated administrator response, rather than bundled into public assets.
-Sign-in without a return path opens the Pod at `/` on its canonical Pod host. The Pod
-session response includes the Console URL only when the current Pod Human is a
-siteadmin. The Pod sidebar then shows a Console link. The Console
-requires its own Console login.
+Ankole serves the site administration Console at
+`ANKOLE_SITE_ADMIN_CONSOLE_PATH` (default `/site-admin-console`), failing
+startup if the path is invalid or collides with another route. Rather than
+embedding that path in public frontend bundles, the server discloses it only in
+authenticated siteadmin responses: signing in without a return URL opens `/` on
+the canonical Pod host, and if the signed-in Human belongs to `siteadmin`, the
+Pod session payload includes the Console URL so the Pod sidebar renders a
+Console link (which still requires its own dedicated Console login).
 
-Console operations under `/api/v2` and native Agent file transfers accept
-`x-ankole-tenant`; without it they use the operator's tenant. `/api/v2/site`
-operations manage site resources and ignore that header. The v2 routers give
-the selected tenant of `Ankole.Repo` to the Ash action
-(`AnkoleWeb.JSONAPI.Context`); a v2 site route gets no tenant. An
-unknown or deleting selected tenant returns `data_tenant_unavailable`. The
-Console clears an obsolete selection and reloads. Switching tenants reloads the
-Console so drafts and cached results cannot move to another tenant. The URL
-hands the selection to the new document, which commits it to sessionStorage.
-A cancelled tenant-switch navigation leaves the old document and its selection
-unchanged.
-Console data selection is stored under the document's authentication reference.
-Sign-out clears that selection. Confirming OIDC sign-out also clears the current
-selection; cancelling keeps it. Another authentication cannot inherit it.
+Console `/api/v2` endpoints and native Agent file transfers honor the
+`x-ankole-tenant` header—defaulting to the operator's own tenant when
+omitted—and `AnkoleWeb.JSONAPI.Context` binds that tenant on `Ankole.Repo` for
+the Ash action. Site-scoped `/api/v2/site` endpoints ignore `x-ankole-tenant`
+and run without a Repo tenant. If `x-ankole-tenant` names an unknown or deleting
+tenant, the server responds with `data_tenant_unavailable`, prompting the
+Console to clear its stale selection and reload. Switching tenants in the UI
+triggers a full document reload so unsaved drafts and cached query results never
+bleed across tenants: the navigation URL passes the chosen tenant to the new
+document, which persists it to `sessionStorage` keyed by the active
+authentication reference (if navigation is cancelled, the current document and
+selection stay intact). Signing out—or confirming an OIDC sign-out—clears the
+stored selection, cancelling OIDC sign-out keeps it, and another login session
+never inherits it.
 
-Creation installs the tenant scaffold and chosen Brain schema packs in
-one transaction. Privilege transfer requires an active target Human, moves the
-built-in group and grants, and leaves one privileged tenant. The transfer locks
-the assignment row and target tenant in the same order as other administration
-operations. It deletes the old site administrator group's grants and refreshes
-the affected Page anchors and inheriting descendants in the same transaction.
-The privileged tenant cannot be suspended or deleted; transfer its role first.
+Creating a tenant installs its workspace scaffold and selected Brain schema
+packs in one transaction. Transferring site privilege requires an active Human
+in the target tenant and runs under the standard administration lock order: in a
+single transaction, Ankole updates `tenants.privileged_tenant_id`, moves the
+built-in group and grants, removes the former `siteadmin` group's grants, and
+refreshes affected Page permission anchors and inheriting descendants, leaving
+exactly one privileged tenant. Operators cannot suspend or delete the privileged
+tenant without transferring its role first.
 
 ## Pod administration
 
-Each tenant has a built-in `pod_admin` group. It grants `tenant_console:**`
-operations in that Pod. Its members must be active human members. Guest and
-Agent Principals cannot join it. A manual removal, membership change, or exit
-must preserve one active human administrator. First-run site setup adds the
-initial administrator to both `siteadmin` and `pod_admin`; creating an
-additional tenant adds its initial administrator to that tenant's `pod_admin`.
+Every tenant includes a built-in `pod_admin` group that grants
+`tenant_console:**` permissions within that Pod. Only active Human members may
+belong to `pod_admin`—Guests and Agents are excluded—and Ankole rejects any
+removal, role edit, or member exit that would leave zero active human Pod
+administrators. Initial site bootstrap places the first administrator in both
+`siteadmin` and `pod_admin`, while creating an additional tenant places its
+initial administrator in that tenant's `pod_admin`.
 
-Pod settings owns the display name, Guest admission, login policy, members,
-credential assistance, invitations, and enterprise provider configuration.
-Personal account settings owns verified login method changes and unmanaged
-member exit. A directory-managed member uses organization offboarding.
-[Authentication](Authentication.md) defines those admission and policy checks.
+Pod settings govern the workspace display name, Guest admission, login policies,
+member directory, credential assistance, invitations, and enterprise identity
+providers, whereas personal account settings cover verified login-method updates
+and self-service exit for unmanaged members (directory-synced members leave
+through organization offboarding); see [Authentication](Authentication.md).
 
 ## Pod work entry
 
-The work shell belongs to the tenant's slug host: locally,
-`http://<tenant-slug>.ankole.localhost:4000/`; production uses the configured Pod
-subdomain. Pages and Conversations use `/pages/<short-uuid>` and
-`/conversations/<short-uuid>`. Kernel encodes each UUID's 16 bytes as canonical,
-unpadded base64url (22 characters). Durable storage, internal `ankole:page`
-references and the private browser API at `/api/v2/pod` keep full UUIDs.
+Each Pod workspace is served from its tenant slug host—`http://<tenant-slug>.ankole.localhost:4000/`
+in local development and the configured Pod subdomain in production. Browser
+URLs address Pages and Conversations as `/pages/<short-uuid>` and
+`/conversations/<short-uuid>`, where the Rust kernel encodes the 16-byte UUID as
+22-character unpadded base64url, while database columns, internal `ankole:page`
+links, and `/api/v2/pod` payloads continue to use canonical hyphenated UUIDs.
 
-The Host selects the tenant. Normal navigation does not carry `tenant_id` or
-use a `/pod` prefix. Requests that carry a `/pod` prefix, a `tenant_id` query
-parameter, or a full UUID in `/pages/:id` or `/conversations/:id` redirect to
-the canonical Pod host and short-UUID path. Unknown or unavailable tenant hosts
-fail closed. Open documents
-pin their authentication and tenant on API requests; a conflicting tenant hint
-cannot override the Host. The site shares its browser group and independent
-account proof cookies across Pod subdomains. Login flows, API authorization and
-the realtime socket check the target tenant. A page keeps its pinned
-authentication after another tab selects an account. A Pod entry starts its core login ceremony directly on that Pod host.
+The HTTP `Host` header alone selects the tenant: normal Pod URLs carry neither a
+`/pod` prefix nor a `tenant_id` query parameter, and legacy-shaped requests
+containing `/pod`, `?tenant_id=…`, or a full UUID in `/pages/:id` or
+`/conversations/:id` redirect to the canonical Pod host and short-UUID URL.
+Requests to unknown or unavailable tenant hosts fail closed. Once loaded, an
+open browser tab pins both its authentication reference and tenant on API calls
+and realtime sockets—ignoring conflicting tenant hints and keeping its pinned
+account even if another tab switches the default browser account. Browser-group
+and account-proof cookies are shared across Pod subdomains, while login ceremonies
+start directly on the target Pod host.
 
-Any active Human can sign in through their tenant's configured providers and use
-the Conversation participant contract. No siteadmin gate applies to work entry,
-and work login does not open management APIs. Pod login adds the new work
-authentication to the browser's account collection. The sidebar account
-menu lists each proved Pod identity with its tenant. Selecting one makes it the
-browser default and opens its Pod. The menu also opens the account
-chooser without signing out and preserves the return path. See
-[Browser Sessions](BrowserSessions.md).
+Any active Human in a tenant can sign in via that tenant's enabled identity
+providers and participate in Conversations without needing `siteadmin`, and a
+Pod work session never unlocks Console management APIs. Signing into a Pod adds
+that proved identity to the browser's multi-account keyring: the sidebar account
+switcher lists every proved `(identity, tenant)` pair, lets the user switch Pods
+and update the browser default, or opens the account chooser without signing out
+while preserving the return path; see [Browser Sessions](BrowserSessions.md).
 
 ## Configuration and integrations
 
-AppConfigure and WorkerEnv keep one inheritance order: site `global`, then
-`tenant:<id>`, then `agent:<uid>` where the declaration permits it. Global rows
-use `site_app_configurations` and `site_worker_envs`. Tenant and Agent rows use
-tenant-owned `app_configurations` and `agent_computer_worker_envs`, with a
-required `tenant_id`; a scope string does not replace Repo isolation. Infrastructure
-providers and plugins are site-owned. Identity providers and directory state
-belong to a tenant. See [AppConfiguration](AppConfiguration.md).
+`AppConfigure` and `WorkerEnv` resolve settings in one fixed precedence order:
+site `global`, then `tenant:<id>`, then `agent:<uid>` (for keys whose schema
+permits tenant or Agent overrides). Site-global values live in
+`site_app_configurations` and `site_worker_envs`, whereas tenant and Agent
+overrides live in tenant-owned `app_configurations` and
+`agent_computer_worker_envs` with a mandatory `tenant_id` enforced by
+`Ankole.Repo` rather than trusting scope strings alone. Infrastructure providers
+and plugins are site-owned, while identity providers and directory-sync state
+are tenant-owned; see [AppConfiguration](AppConfiguration.md).
 
-A credential-bearing platform application can serve only one tenant. Bindings
-and identity providers with directory synchronization participate, including
-disabled configurations. Login-only identity providers do not. Saving an
-unverifiable identity fails without writing. Slack resolves `auth.test.bot_id`
-through `bots.info` to `app_id`; Discord and Telegram resolve their stable bot
-IDs. Resolution happens before database transactions; the encrypted config row
-also stores its public application ID. Transaction locks compare these stored
-IDs, without decrypting other tenants' credentials or contacting their platforms.
-See [Signals](Signals.md) for event routing and [Conversations](Conversations.md)
-for shared history and provider Delivery.
+Credential-bearing external platform applications—across messaging Bindings and
+directory-syncing identity providers, even when disabled—belong to at most one
+tenant (login-only OIDC providers are excluded). Before starting a write
+transaction, Ankole verifies the credential with the platform to resolve a
+stable application identifier: Slack maps `auth.test.bot_id` via `bots.info` to
+`app_id`, and Discord and Telegram query their bot endpoints for stable bot IDs;
+if verification fails, the save aborts before writing. Encrypted config rows
+also store that public application ID in plaintext so transactional assignment
+locks can detect cross-tenant conflicts without decrypting another tenant's
+secrets or calling external APIs inside the transaction. See
+[Signals](Signals.md) for inbound routing and [Conversations](Conversations.md)
+for shared rooms and outbound Delivery.
 
 ## Suspension, deletion and recovery
 
-`Tenants.accepting_work?/1` owns the new-work state check. It accepts a loaded
-tenant or reads the current state by ID. `Tenants.active_by_slug/1` applies that
-check to an exact slug lookup without selecting a tenant context. Pod hosts and
-login use this lookup; existence checks and maintenance use their own readers.
+`Tenants.accepting_work?/1` checks whether a loaded tenant struct or tenant ID
+can admit new work, and `Tenants.active_by_slug/1` applies the same check to an
+exact slug lookup without entering a Repo tenant context (used by Pod host
+routing and login, while existence checks and maintenance jobs use dedicated
+readers).
 
-Suspension blocks new work and Human OIDC access while preserving data. Already
-admitted attempts can finish, including recovery after a process exit. Workflow
-and Codex attempt admission hold a shared tenant lock before work locks. A claim
-that waits behind suspension checks the committed tenant state. Cleanup,
-Worker release and durable delivery continue. Recovery scanners do not turn a
-suspended tenant into an active one; admission checks the durable tenant
-state before starting new work. Stopping work, repairing configuration and
-reviewing authorization are available while suspended. Site maintenance
-handles tenants independently. A missing Brain maintainer does not prevent
-mechanical maintenance; shared search indexes are maintained once per site.
+Suspending a tenant blocks new work intake and Human OIDC sign-in while
+keeping stored data intact:
 
-Deletion first marks the tenant as deleting, then uses HumanOffboarding to
-revoke its people and stop their future work across tenants. Work in another
-tenant stays stopped with its original authorizer; it cannot prevent deletion.
-The work-review list shows missing or revoked Human authority in the
-selected tenant. A paused cron rule can receive explicit new authority, then
-resume through Cron. Other terminal work must be replaced through its owner.
-Reauthorization records the previous UID and access version and does not
-restart work. Already admitted attempts follow their
-completion contract. Agent cleanup releases Workers and persistent storage.
-The deletion job processes bounded, idempotent batches; PostgreSQL constraints
-and the final transaction prevent a concurrent write from leaving orphan rows.
-Its table list names child rows before their parents, so each batch deletes rows
-of one table and the cascade foreign keys do not carry bulk data. The Pod content
-tables enter the list as `base_records`, `base_views`,
-`base_fields`, `base_tables`, `page_user_states`, `page_changes`, `page_contents`,
-then `pages`.
-Page batches delete leaves first, so a parent cannot cascade through a large
-subtree in one batch.
-Unreferenced blob bytes belong to the file garbage collector.
+- Runs and tasks that were already admitted finish normally—even across process
+  restarts—along with Worker release, cleanup, and durable outbound Delivery.
+- Workflow and Codex attempt admission acquire a shared lock on the tenant row
+  before acquiring work locks, so any claim queued behind a concurrent
+  suspension observes the committed suspended state and stops.
+- Recovery scanners check durable tenant state before admitting fresh work and
+  never reactivate a suspended tenant, while operators can still cancel work,
+  repair configurations, and review authorization.
+- Site maintenance processes each tenant independently so a missing Brain
+  maintainer in one tenant does not block mechanical maintenance, and shared
+  search indexes run once per site.
 
-A failed batch can retry from durable facts. Deletion is not an export or an
-undo operation.
+Deleting a tenant first sets its deletion marker and invokes `HumanOffboarding`
+to revoke its Human Principals and halt their unstarted work across all tenants
+(stopped cross-tenant work keeps its historical authorizer text without blocking
+deletion; in the surviving tenant's work-review queue, operators can reauthorize
+and resume a paused cron rule—recording the prior UID and `access_version`—or
+replace terminal work through its owning domain, while already admitted attempts
+run to completion). Agent teardown releases Workers and persistent disks, and
+the background deletion job removes database rows in bounded, idempotent
+single-table batches ordered from leaves to parents so foreign-key cascades
+never delete bulk subtrees at once. For Pod content, batches delete
+`base_records`, `base_views`, `base_fields`, `base_tables`, `page_user_states`,
+`page_changes`, `page_contents`, and finally `pages` (deleting leaf pages before
+parent pages), while PostgreSQL constraints and the final destroy transaction
+prevent concurrent stragglers from leaving orphan rows, and the file garbage
+collector reclaims unreferenced blobs.
 
-This boundary provides tenant storage, scaffold creation, lifecycle, and work
-entry. An extension can compose `Tenants.create_in_tx/1`, Human creation, site
-credential binding, `pod_admin` assignment, and browser session activation in
-one top-level transaction without creating a second Principal model. Trusted
-site operators and control-plane plugins hold infrastructure authority.
+Interrupted deletion batches resume safely from PostgreSQL state; tenant
+deletion is irreversible and is neither a data export nor an undoable archive.
+
+Together, these contracts let higher-level provisioning flows compose
+`Tenants.create_in_tx/1`, Human creation, site credential binding, `pod_admin`
+membership, and browser session activation inside one top-level transaction
+without introducing a parallel Principal model, while keeping infrastructure
+authority strictly with site operators and control-plane plugins.

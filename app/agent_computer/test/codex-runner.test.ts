@@ -1112,8 +1112,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
-  it('migrates a pre-upgrade Job to skill_view and rejects its now-disabled Skill', async () => {
-    const fixture = prepareFixture('done after legacy Skill migration', {
+  it('rejects a now-disabled Skill on a resumed Job', async () => {
+    const fixture = prepareFixture('done after disabled Skill check', {
       dynamicToolCall: { tool: 'skill_view', arguments: { name: 'pdf' } }
     })
     const statusUpdates: RecordedStatusUpdate[] = []
@@ -1134,10 +1134,6 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const jobProject = jobProjectFor(fixture.root)
     const originalAgents = '# Existing Job guidance\n\nKeep this operator constraint.\n'
     writeFileSync(join(jobProject, 'AGENTS.md'), originalAgents)
-    mkdirSync(join(jobProject, '.agents', 'skills', 'pdf'), { recursive: true })
-    writeFileSync(join(jobProject, '.agents', 'skills', 'pdf', 'SKILL.md'), '# Stale PDF Skill\n')
-    mkdirSync(join(jobProject, '.ankole', 'agent-plugins', 'legacy'), { recursive: true })
-    writeFileSync(join(jobProject, '.ankole', 'agent-plugins', 'legacy', 'plugin.json'), '{}\n')
     const ordinaryRoot = join(fixture.root, 'builtin-skills', 'ordinary')
     mkdirSync(ordinaryRoot, { recursive: true })
     writeFileSync(join(ordinaryRoot, 'SKILL.md'), '# Ordinary Skill\n')
@@ -1145,23 +1141,15 @@ describe('@ankole/agent-computer Codex job runner', () => {
       ...response([pdf, ordinary]),
       status: 'running',
       attempts: 2,
-      runtimeThreadId: 'legacy-thread'
+      runtimeThreadId: 'thread-1'
     })
     const opts = options(fixture.root, statusUpdates, [], () => persisted, undefined, undefined, [ordinary])
 
     try {
       await runCodexJob(turnStart([ordinary]), opts)
 
-      const agents = readFileSync(join(jobProject, 'AGENTS.md'), 'utf8')
-      expect(agents.startsWith(originalAgents)).toBe(true)
-      expect(agents).toContain('ankole-background-job-skill-view-v1=legacy-thread')
-      expect(agents).toContain('    - ordinary:')
-      expect(agents).toContain('Current Background Job Skill.')
-      expect(agents).not.toContain('Disabled PDF Skill.')
-      expect(existsSync(join(jobProject, '.agents', 'skills'))).toBe(false)
-      expect(existsSync(join(jobProject, '.ankole', 'agent-plugins'))).toBe(false)
-      expect(existsSync(join(codexHomeFor(fixture.root), 'thread-start.json'))).toBe(true)
-      expect(parsedJSON(statusUpdates[0]?.metadataJson)?.runtime_checkpoint_recreated).toBe(true)
+      expect(readFileSync(join(jobProject, 'AGENTS.md'), 'utf8')).toBe(originalAgents)
+      expect(existsSync(join(codexHomeFor(fixture.root), 'thread-resume.json'))).toBe(true)
       expect(statusUpdates[0]?.runtimeThreadId).toBe('thread-1')
       const toolResponse = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'tool-response.json'), 'utf8')) as {
         result?: { success?: boolean; contentItems?: Array<{ text?: string }> }

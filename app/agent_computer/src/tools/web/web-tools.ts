@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isRecord } from '@agentbull/active-support'
+import { arrayPath, isRecord, objectPath, recordValue, stringArg } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { defineWorkerTool, type ActivityDescription, type WorkerAgentTool } from '../../core'
 import { readTool } from '../../core/read-tools'
@@ -15,7 +15,6 @@ export interface CreateWebToolsOptions {
   renderedFallback?: RenderedWebFetchOptions
 }
 export interface RenderedWebFetchOptions {
-  ssrfFilter?: boolean
   fetchBatch: RenderedWebFetchBatch
 }
 export type RenderedWebFetchBatch = (urls: string[], signal?: AbortSignal) => Promise<unknown>
@@ -79,8 +78,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Worke
 export async function renderedFallbackFetch(
   urls: string[],
   config: RenderedWebFetchOptions,
-  signal?: AbortSignal,
-  fallbackReason?: string
+  signal?: AbortSignal
 ): Promise<JSONObject> {
   const results: Array<JSONObject | undefined> = Array.from({ length: urls.length })
   const accepted: Array<{ url: string; index: number }> = []
@@ -108,9 +106,7 @@ export async function renderedFallbackFetch(
         accepted.map(item => item.url),
         signal
       )
-      const fetched = Array.isArray(isRecord(body) ? body.results : undefined)
-        ? (body as { results: unknown[] }).results
-        : []
+      const fetched = arrayPath(body, ['results'])
       for (const [offset, item] of accepted.entries()) {
         results[item.index] = normalizeRenderedFetchResult(item.url, fetched[offset])
       }
@@ -125,7 +121,6 @@ export async function renderedFallbackFetch(
   return {
     success: normalizedResults.every(result => typeof result.error !== 'string'),
     source: RenderedFallbackSource,
-    ...(fallbackReason ? { fallback_from: 'aigateway', fallback_reason: fallbackReason } : {}),
     results: normalizedResults
   }
 }
@@ -143,19 +138,19 @@ function renderedFetchError(url: string, error: unknown): JSONObject {
  * provider web_fetch.
  */
 function normalizeRenderedFetchResult(url: string, value: unknown): JSONObject {
-  const record = isRecord(value) ? value : { text: String(value ?? '') }
-  const metadata = isRecord(record.metadata) ? record.metadata : {}
+  const record = recordValue(value) ?? { text: String(value ?? '') }
+  const metadata = objectPath(record, ['metadata'])
   const result: JSONObject = {
-    url: stringField(record, 'url') || url,
-    title: stringField(record, 'title'),
-    text: stringField(record, 'text') || '',
+    url: stringArg(record, 'url') || url,
+    title: stringArg(record, 'title'),
+    text: stringArg(record, 'text') || '',
     metadata: {
       ...metadata,
       source: RenderedFallbackSource
     }
   }
 
-  const error = stringField(record, 'error')
+  const error = stringArg(record, 'error')
   if (error) result.error = error
   return result
 }
@@ -178,12 +173,11 @@ function webFetchActivity(urls: string[]): ActivityDescription {
 
 /** Adds a returned page title without exposing fetched body text or URL parameters. */
 function completedWebFetchActivity(urls: string[], details: WebToolDetails): ActivityDescription {
-  const results = Array.isArray(details.results) ? details.results : []
-  const firstTitled = results.find(result => isRecord(result) && stringField(result, 'title'))
-  const firstResult = firstTitled ?? results.find(isRecord)
-  const record = isRecord(firstResult) ? firstResult : undefined
-  const title = record ? stringField(record, 'title') : undefined
-  const domain = fetchedPageHost(record ? stringField(record, 'url') : undefined) || fetchedPageHost(urls[0])
+  const results = arrayPath(details, ['results'])
+  const firstTitled = results.find(result => isRecord(result) && stringArg(result, 'title'))
+  const record = recordValue(firstTitled ?? results.find(isRecord))
+  const title = stringArg(record, 'title')
+  const domain = fetchedPageHost(stringArg(record, 'url')) || fetchedPageHost(urls[0])
   const titlePart = title ? `《${activityExcerpt(title, 40)}》` : undefined
   const target = [titlePart, domain].filter(Boolean).join(' · ') || undefined
 
@@ -220,9 +214,6 @@ function isHTTPSURL(value: string): boolean {
   }
 }
 
-function stringField(record: Record<string, unknown>, key: string): string | undefined {
-  return typeof record[key] === 'string' ? (record[key] as string) : undefined
-}
 function fetchedPageHost(url: string | undefined): string | undefined {
   try {
     return url ? new URL(url).hostname : undefined

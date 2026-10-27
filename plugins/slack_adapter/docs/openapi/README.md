@@ -1,8 +1,9 @@
 # SlackOpenAPI
 
-`SlackOpenAPI` is Ankole's thin Elixir client for Slack Web API, Socket Mode,
-Sign in with Slack, cursor pagination, private-file downloads, and the external
-file-upload flow. It intentionally contains no Ankole domain policy.
+`SlackOpenAPI` is Ankole's thin Elixir client for the Slack Web API, Socket
+Mode, Sign in with Slack, cursor pagination, private-file downloads, and Slack's
+three-step external file upload flow. By design, it contains no Ankole domain
+policy.
 
 ```elixir
 client =
@@ -14,11 +15,13 @@ client =
 {:ok, auth} = SlackOpenAPI.post(client, "auth.test", body: %{})
 ```
 
-Socket Mode handlers run in `SlackOpenAPI.EventTaskSupervisor`; an envelope is
-acknowledged only after dispatch succeeds — a committed result (including a
-terminal policy decision such as filtered or ignored) is acked, while an error
-or a handler crash withholds the ack so Slack redelivers the envelope. Regular
-Slack disconnect refreshes reconnect immediately, while credential failures
-stop the client.
+Socket Mode handlers execute under `SlackOpenAPI.EventTaskSupervisor`, and the
+client acknowledges an envelope only after dispatch commits: any committed
+outcome (including terminal policy decisions such as filtered or ignored events)
+is acknowledged, whereas if a handler returns an error or crashes, the client
+withholds the acknowledgement so Slack redelivers the envelope. When Slack asks
+the connection to refresh via a routine `disconnect` frame, the client
+reconnects immediately; if authentication fails because of invalid credentials,
+the client stops instead of retrying in a loop.
 
-Run tests with `bun run control-plane:test:plugins slack_adapter` from the repository root.
+Run tests from the repository root with `bun run control-plane:test:plugins slack_adapter`.

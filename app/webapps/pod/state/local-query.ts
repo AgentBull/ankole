@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@agentbull/active-support'
 import type { AggregateQuery, BaseField, RecordQuery, TableSchema } from '@ankole/applet-sdk/types'
 
 const numeric = (field?: BaseField) =>
@@ -26,13 +27,11 @@ export function canQueryLocally(schema: TableSchema, query: RecordQuery): boolea
     const definition = field(query.group.field_id)
     if (numeric(definition)) return false
     if (datetime(definition)) {
-      let value = query.group.value_json === null ? null : (query.group.value ?? null)
+      let value: unknown = query.group.value_json === null ? null : (query.group.value ?? null)
       if (query.group.value_json !== undefined && query.group.value_json !== null) {
-        try {
-          value = JSON.parse(query.group.value_json)
-        } catch {
-          return false
-        }
+        const parsed = safeJsonParse(query.group.value_json)
+        if (parsed.isErr()) return false
+        value = parsed.value
       }
       if (!canonicalDatetime(value)) return false
     }

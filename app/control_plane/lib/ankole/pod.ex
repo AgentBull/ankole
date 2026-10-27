@@ -20,7 +20,6 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Bases.Browser)
     resource(Ankole.Pod.Files.Browser)
     resource(Ankole.Pod.Chat.Browser)
-    resource(AnkoleWeb.JSONAPI.PodRealtime)
     resource(Ankole.Pod.Page)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)
@@ -124,10 +123,6 @@ defmodule Ankole.Pod do
         route(:put, "/conversations/:id/model-profile", :set_model_selection,
           name: "setPodModelSelection"
         )
-      end
-
-      base_route "/", AnkoleWeb.JSONAPI.PodRealtime do
-        route(:get, "/realtime-token", :token, name: "podRealtimeToken")
       end
 
       base_route "/", Ankole.Pod.Files.Browser do

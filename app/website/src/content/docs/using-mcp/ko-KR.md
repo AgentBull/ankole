@@ -5,36 +5,36 @@ section: Developer guide
 order: 123
 ---
 
-Ankole은 Skill 뒤에서 MCP를 사용합니다. Skill이 도메인 라우팅과 결과 규칙을 소유합니다. 고정된 mcporter CLI는 Skill이 선택한 하나의 도구에 대한 프로토콜 탐색과 호출을 소유합니다.
+Ankole에서는 MCP 서버를 모델 앞에 직접 노출하지 않고 Skill 내부를 통해서만 사용합니다. 도메인 라우팅과 결과 해석 규칙은 Skill이 소유하며, 버전이 고정된 mcporter CLI는 Skill이 고른 단일 도구의 스키마 조회와 호출만 담당합니다.
 
-Agent별 도메인 통합에는 MCP 서버를 Agent에 직접 등록하지 마세요. 이를 선언하는 Skill을 활성화하세요. 해당 Skill을 비활성화하면 다음 실행에서 의존성이 제거됩니다.
+따라서 Agent별로 외부 도메인을 연동할 때는 MCP 서버를 Agent에 직접 등록하려 하지 말고, 해당 의존성을 선언한 Skill을 활성화하세요. 나중에 그 Skill을 비활성화하면 다음 실행부터 해당 MCP 의존성도 함께 빠집니다.
 
 ## 메인 Agent와 Background Agent Job
 
-Agent에게 MCP 도구 이름이 아니라 비즈니스 결과를 요청하세요. Agent는 일치하는 Skill을 읽고 도구 하나를 선택하며, 필요할 때 그 도구의 현재 스키마만 검사합니다. 그런 다음 JSON 인수 객체를 stdin으로 mcporter를 호출합니다.
+사용자는 구체적인 MCP 도구 이름을 지정할 필요 없이 원하는 업무 결과만 요청하면 됩니다. 요청을 받은 Agent는 조건에 맞는 Skill 지침을 읽고 사용할 도구 하나를 고른 뒤, 필요한 경우에만 그 도구의 현재 스키마를 조회하고 JSON 인수 객체를 표준 입력(stdin)으로 넘겨 mcporter를 실행합니다.
 
-메인 Agent는 자신의 command 도구를 사용합니다. Background Agent Job은 자신의 Codex 터미널을 사용합니다. 어느 경로도 완전한 MCP 카탈로그를 네이티브 모델 도구로 노출하지 않습니다.
+이때 메인 Agent는 `command` 도구를 사용하고 Background Agent Job은 Codex 터미널을 사용하며, 어느 실행 경로에서도 전체 MCP 도구 카탈로그가 네이티브 모델 도구로 등록되지는 않습니다.
 
 ## Automation Job
 
-Automation Job은 Skill 지침을 읽지 않습니다. `main.ts`를 작성하는 Agent는 선택한 도구, 인수, 범위, 결과 검사를 스크립트에 인코딩해야 합니다.
+Automation Job은 모델을 실행하지 않으므로 런타임에 Skill 문서를 읽지 않습니다. 따라서 `main.ts` 스크립트를 작성하는 Agent가 처음부터 호출할 도구 이름, 전달 인수, 조회 범위, 응답 검증 로직을 코드 안에 직접 구현해 넣어야 합니다.
 
-각 Automation 시도는 `MCPORTER_CONFIG`를 통해 현재 활성화된 Skill 의존성을 받고, 최신 Agent WorkerEnv도 받습니다. `Bun.spawn`으로 mcporter를 호출하고, stdin에 JSON을 쓰고, 종료 코드를 확인하고, stdout을 파싱하세요. `~/.mcporter/mcporter.json`을 만들지 마세요.
+각 Automation 실행 시도에는 현재 활성화된 모든 Skill의 MCP 의존성이 `MCPORTER_CONFIG` 환경 변수로 주입되며 최신 Agent WorkerEnv도 함께 전달됩니다. 스크립트에서는 `Bun.spawn`으로 mcporter를 실행해 stdin에 JSON을 쓰고, 종료 코드를 확인한 뒤 stdout을 파싱하세요. 별도로 `~/.mcporter/mcporter.json` 파일을 직접 생성해서는 안 됩니다.
 
 ## 자격 증명
 
-Skill은 `MCP_HTTP_TOKEN` 같은 자격 증명 변수 이름을 저장합니다. 그 값을 [Environment variables](../worker-env/)에서 구성하세요. 생성된 config는 값이 아니라 변수 이름을 포함합니다.
+Skill 선언 파일에는 실제 토큰 대신 `MCP_HTTP_TOKEN` 같은 환경 변수 이름만 적고, 실제 시크릿 값은 [Environment variables](../worker-env/) 화면에서 등록하세요. 런타임이 생성하는 임시 mcporter 설정 파일에도 값 원문이 아니라 변수 이름만 기록됩니다.
 
-변수가 없으면 호출이 실패합니다. 토큰을 채팅, Skill, 스크립트, 인수 파일, 셸 명령에 붙여 넣지 마세요.
+지정한 환경 변수가 설정되어 있지 않으면 호출은 즉시 실패합니다. 채팅 메시지나 Skill 본문, 스크립트 코드, 인수 JSON 파일, 셸 명령줄에 토큰 문자열을 직접 붙여 넣지 마세요.
 
 ## 실패와 결과 범위
 
-잘못된 선언이나 충돌하는 서버 정의는 모델 명령이나 Automation 스크립트가 시작되기 전에 실패합니다. 전송, 프로토콜, 인수, 서버 오류는 0이 아닌 mcporter 종료를 만듭니다.
+선언 형식이 잘못되었거나 활성 Skill 간 서버 정의가 충돌하면, 모델 명령이나 Automation 스크립트가 시작되기도 전에 실행 준비 단계에서 실패합니다. 실행 중 전송 오류, 프로토콜 불일치, 잘못된 인수, 원격 서버 오류가 발생하면 mcporter 프로세스가 `0`이 아닌 종료 코드로 끝납니다.
 
-Command와 Automation 로그는 범위가 제한됩니다(bounded). Skill의 페이지네이션, 신선도, 경고, 부분 결과 규칙을 따르세요. 프로세스가 성공적으로 종료되었다 해도 비즈니스 결과가 완료되었음을 증명하지는 않습니다.
+`command` 도구와 Automation 실행 로그는 일정 크기로 잘리므로(bounded), Skill에 정의된 페이지네이션, 데이터 최신성 확인, 경고 처리, 부분 결과 검증 규칙을 그대로 따르세요. 단순히 mcporter 프로세스의 종료 코드가 `0`이라고 해서 원격 비즈니스 작업이 의도대로 완료되었다고 단정해서는 안 됩니다.
 
 ## 참조
 
-- [MCP 서버 참조](../mcp/)가 선언과 런타임 동작을 정의합니다.
-- [Writing a Skill](../writing-a-skill/)이 작성 형태를 보여 줍니다.
-- [Environment variables](../worker-env/)가 자격 증명 저장을 정의합니다.
+- 선언 문법과 런타임 동작 명세는 [MCP 서버 참조](../mcp/)를 확인하세요.
+- Skill 파일 작성 구조는 [Writing a Skill](../writing-a-skill/)을 확인하세요.
+- 자격 증명 환경 변수 보관은 [Environment variables](../worker-env/)를 확인하세요.

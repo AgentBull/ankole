@@ -1,56 +1,114 @@
 # Core
 
-This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit 91c8e86 (2026-10-23), under the MIT license in [LICENSE](LICENSE).
+This directory contains the editing engine, forked from
+[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `91c8e86`
+(2026-10-23) under the MIT license in [LICENSE](LICENSE).
 
-The fork is part of the package source. It uses the package's TypeScript settings, formatting and test runners. It does not follow upstream mechanically: to take an upstream change, apply it by hand and add a test.
+The fork lives inside `@ankole/block-editor` and shares the package's TypeScript
+compiler settings, formatter, and test runners. Upstream changes are never
+merged automatically; port individual changes by hand and accompany each one
+with a regression test.
 
 ## Changes from upstream
 
-Source form:
+Source layout and toolchain:
 
-- Imports between modules use relative paths. The `highlight-code` and `placeholder` modules are removed; the page draws its own empty-page hint. `decoratePlots` is not included, so upstream's fix for repeated replacements in that helper does not apply.
-- Vite (Oxc) and Bun compile the source directly:
-  - `Transaction.extender` and `Transaction.appender` are static fields, not mutable namespace exports.
-  - Enums are plain `enum`, not `const enum`.
-  - No method of a class inside a namespace uses `this` in a default parameter.
-- Indexed access that the code knows is in range has a non-null assertion (`noUncheckedIndexedAccess`).
-- The `Shape` namespace is a type-only export, because the package enables `isolatedModules`.
-- Documentation comments use JSDoc, not `///`.
-- The code passes the repository lint rules in `.oxlintrc.json`: for example `const` for bindings that are not reassigned, no assignments in conditions, no aliases of `this`, and no unused variables or parameters. Debug logging switches and FIXME notes are removed.
+- Internal imports use relative paths. The `highlight-code` and `placeholder`
+  modules are omitted because `BlockEditor` renders its own empty-page prompt;
+  `decoratePlots` is also omitted, so upstream's repeated-replacement fix for
+  that helper does not apply.
+- Source files compile directly under Vite (Oxc) and Bun:
+  - `Transaction.extender` and `Transaction.appender` are static class fields
+    rather than mutable namespace exports.
+  - Enums are standard `enum` declarations rather than `const enum`.
+  - Methods on classes declared inside namespaces avoid referencing `this` in
+    default parameter initializers.
+- In-bounds array lookups carry explicit non-null assertions to satisfy
+  `noUncheckedIndexedAccess`.
+- Because `isolatedModules` is enabled, the `Shape` namespace is exported with
+  `export type`.
+- Doc comments use JSDoc (`/** … */`) instead of `///`.
+- All files conform to `.oxlintrc.json`: non-reassigned bindings use `const`,
+  conditions contain no assignments, `this` is never aliased, unused variables
+  and parameters are removed, and upstream debug switches and `FIXME` comments
+  are stripped.
 
-Input:
+Input handling:
 
-- Between a `beforeinput` event that the browser applies itself and its `input` event, `flush()` does nothing and `focus()` does not move the DOM selection. A redraw in that time put the browser's change next to the drawn one, and later typing went between them.
-- Keydown and `beforeinput` read a DOM selection that the editor has not read yet, without a flush (`InputState.readNewSelection`). A selection that the editor set and has not drawn yet wins (`DOMObserver.editorSelectionPending`; selections read from the DOM carry `selectionFromDOM`).
-- Plain typing uses that current selection and its active marks. Chromium can report the previous input target range after a keyboard command has moved the caret; replacement and composition events retain their own target ranges.
-- Safari commits a composition with `deleteCompositionText` and `insertFromComposition`. Both apply to the document. On desktop Safari, the key event that follows the end of a composition (for example Enter) does not run as a command.
-- When a composition starts, the editor first draws a selection that it set and has not drawn yet, so that the browser composes there. A composition that starts between blocks first gets an empty paragraph.
-- `insertReplacementText` and `insertFromYank` accept `data` as well as `dataTransfer`. A non-cancelable replacement, or an `input` event without a matching `beforeinput`, is read from the DOM when it changes text inside existing text nodes.
-- Backspace takes the last combining mark off a character without emoji, as Chromium and Firefox do.
-- Word selection and word motion use `Intl.Segmenter` without a fallback. Every supported browser has it.
-- A key binding uses the canonical modifier names `Shift`, `Alt`, `Ctrl`, `Cmd`, `Meta`, and `Mod`. The name stored for the meta key matches the name read from the key event. On macOS that name is `Meta-`. On other systems it is `Cmd-`. Upstream stores `Cmd-` on macOS and `Meta-` on other systems.
+- Between a browser-handled `beforeinput` event and its matching `input` event,
+  `flush()` is a no-op and `focus()` leaves the DOM selection untouched;
+  re-rendering during that window would place the browser's mutation beside the
+  rendered node and drop subsequent keystrokes between them.
+- `keydown` and `beforeinput` read any unconsumed DOM selection without flushing
+  (`InputState.readNewSelection`), unless the editor has queued a programmatic
+  selection that is not yet drawn (`DOMObserver.editorSelectionPending` takes
+  precedence over selections tagged with `selectionFromDOM`).
+- Plain character typing inserts at that current selection with its active
+  marks, because Chromium can report a stale `getTargetRanges()` span after a
+  keyboard command moves the caret; replacement and IME composition events still
+  honor their own target ranges.
+- On Safari, committing an IME composition fires `deleteCompositionText`
+  followed by `insertFromComposition`; both apply to the document, and on
+  desktop Safari the trailing `keydown` (such as Enter) is suppressed as an
+  editor command.
+- Starting an IME composition flushes any pending programmatic selection first
+  so the browser composes at the intended position, and inserts an empty
+  paragraph if composition begins between blocks.
+- `insertReplacementText` and `insertFromYank` read text from `data` when
+  `dataTransfer` is absent. Non-cancelable replacements—and `input` events that
+  arrive without a preceding `beforeinput`—are reconciled from the DOM whenever
+  the mutation stays within existing text nodes.
+- For non-emoji characters with combining marks, Backspace removes only the
+  final combining mark, matching Chromium and Firefox behavior.
+- Word selection and word motion rely directly on `Intl.Segmenter` without a
+  fallback, as every supported browser implements it.
+- Key bindings normalize modifier names to `Shift`, `Alt`, `Ctrl`, `Cmd`,
+  `Meta`, and `Mod` so the stored Meta modifier matches `KeyboardEvent` on each
+  OS (`Meta-` on macOS and `Cmd-` elsewhere, whereas upstream inverts the two).
 
 Clipboard:
 
-- A `paste` event handler shares its code with `insertFromPaste`. Copy and paste read a DOM selection that the editor has not read yet.
-- Copied HTML carries the exact slice as JSON in a `wg-slice` attribute, which a paste reads first. Text-only copies get a wrapping span to carry it.
-- In code, pasted text is literal, with line breaks as line break nodes. HTML without a text form pastes into code as its text.
-- A cut deletes through the `deleteCut` command, so that extensions can change how a cut deletes.
-- HTML parsing: each kind of child counts once when the parser guesses the parent of a slice; `display: inline` elements do not start a block; nested blocks lose stray spaces at the slice edges; a `<br>` that only keeps an empty line visible is dropped. The default schema reads `<b>`, `<i>`, `<del>`, `<strike>`, bold only from `bold` and weight 700, multi-value `text-decoration`, and `vertical-align` for subscript and superscript.
+- The `paste` listener shares its implementation with `insertFromPaste`, and
+  both `copy` and `paste` read any unconsumed DOM selection first.
+- Copied HTML embeds the exact serialized slice as JSON in a `wg-slice`
+  attribute (wrapping plain-text copies in a `<span>` so they can carry it), and
+  paste prefers `wg-slice` before falling back to HTML parsing.
+- Inside code blocks, pasted content is inserted as literal text with line
+  breaks converted to line-break nodes; HTML-only clipboards fall back to
+  extracted text.
+- Cut delegates deletion to the `deleteCut` command so extensions can customize
+  cut behavior.
+- HTML paste normalization counts each child node kind once when inferring a
+  slice wrapper, keeps `display: inline` elements inline, trims stray edge
+  spaces on nested blocks, and drops trailing placeholder `<br>` elements on
+  empty lines. The default schema recognizes `<b>`, `<i>`, `<del>`, and
+  `<strike>`, maps CSS `font-weight` to bold only for `bold` and `700`, parses
+  multi-token `text-decoration` values, and maps `vertical-align` to subscript
+  and superscript.
 
-Fixes:
+Bug fixes:
 
-- `Wordgard.logException` called itself and overflowed the stack. It now reports to the exception sink.
-- A state with no key-binding providers still applies the default keymap. The keymap field is read without requiring it in the state.
+- `Wordgard.logException` forwards errors to the configured exception sink
+  instead of recursing into itself and overflowing the call stack.
+- States without custom key-binding providers still apply the default keymap,
+  reading the keymap facet optionally rather than requiring it on the state.
 
 Document and selection:
 
-- `cursorBarrier: 'empty'` makes a container a cursor barrier only while it is empty, so that an empty container holds a caret and two filled containers have no position between them. Such an empty container that can hold a text block directly gets a trailing `<br>`, and Up and Down stop in it.
-- `GardSelection.Text.map` keeps a backward selection backward.
-- `CodeBlockLanguage` stays on both parts of a split code block.
-- Tables: `Node.Role.Table` and `Node.Role.TableRow` mark table and row types. Cell selection and the table map use these roles, accept rows of different lengths and empty tables, and keep a cursor in an empty row or table.
+- `cursorBarrier: 'empty'` treats a container as a cursor barrier only while
+  empty—allowing an empty container to hold the caret while avoiding dead cursor
+  positions between adjacent non-empty containers. Empty containers that can
+  hold a text block directly render a trailing `<br>` and stop Up/Down arrow
+  navigation.
+- `GardSelection.Text.map` preserves backward selection direction across
+  position mapping.
+- Splitting a code block preserves `CodeBlockLanguage` on both halves.
+- Table support introduces `Node.Role.Table` and `Node.Role.TableRow` so cell
+  selections and table geometry handle ragged rows and empty tables and keep a
+  valid cursor position inside an empty row or table.
 
 ## Tests
 
-- `test/core`: unit tests, run by `bun run test`.
-- `test/core/browser`: browser tests, run in Chromium, Firefox and WebKit by `e2e/core.spec.ts`.
+- `test/core`: fast unit tests run via `bun run test`.
+- `test/core/browser`: real-DOM browser tests executed across Chromium, Firefox,
+  and WebKit by `e2e/core.spec.ts`.

@@ -5,9 +5,9 @@ section: User guide
 order: 41
 ---
 
-A ChatGPT subscription is an ordinary AIGateway provider. Any model profile can point to it, including normal conversations and Background Agent Jobs. A profile selects the provider row and model.
+A ChatGPT subscription integrates into AIGateway as a standard provider, so any model profile—including interactive conversations and Background Agent Jobs—can point to it by selecting the provider row and an entitled model.
 
-The provider row owns a credential pool. The control plane encrypts each account token, refreshes OAuth tokens, and selects a usable pool member for each request. An Agent Computer receives only its AIGateway endpoint and AIGateway key. It never receives a ChatGPT refresh token.
+Each provider row manages an encrypted credential pool inside the control plane, automatically refreshing OAuth tokens and selecting a healthy account for each request. An Agent Computer Worker receives only its AIGateway endpoint and AIGateway key—never a ChatGPT refresh token.
 
 ## Create the provider
 
@@ -16,23 +16,23 @@ The provider row owns a credential pool. The control plane encrypts each account
 3. Enter a stable provider ID, such as `chatgpt-main`.
 4. Save the provider.
 
-The default endpoint and identity headers match the Codex protocol. Change the advanced endpoint or headers only when your deployment has a specific requirement.
+By default, the endpoint and identity headers match the Codex protocol; adjust advanced endpoint or header fields only if your network environment requires it.
 
 ## Add accounts with device login
 
 1. Open the ChatGPT subscription provider.
 2. Select **Add ChatGPT account**.
-3. Open the verification link and enter the one-time code that the Console shows.
-4. Wait for the Console to finish the login and add the pool member.
-5. Repeat the process to add more accounts to the same provider.
+3. Open the verification link and enter the one-time code displayed in the Console.
+4. Wait for the Console to complete sign-in and add the account to the pool.
+5. Repeat these steps to pool additional ChatGPT accounts under the same provider.
 
-The Console uses the official device login when it is available. If that route is unavailable, the Console shows a browser sign-in URL and asks you to paste the complete callback URL. An Enterprise operator can instead add a trusted access token and its ChatGPT account ID.
+Whenever available, the Console uses OpenAI's device-code login flow; if that flow is unavailable, the Console displays a browser sign-in URL and prompts you to paste back the full callback URL. Enterprise operators can alternatively supply a trusted access token along with its ChatGPT account ID.
 
 ## Configure the credential pool
 
-Each member has a label, priority, source, health state, request count, rate-limit data, and model or image usage. Secret tokens are never shown.
+For each pool member, the Console displays its label, priority, login source, health status, request count, rate-limit state, and model or image usage, while keeping raw secret tokens hidden.
 
-Choose one selection strategy. The Console translates the display name, while the API and storage use the canonical key:
+Choose a pool selection strategy (localized in the Console UI, stored and returned via API under its canonical key):
 
 | Console label | API value | Behavior |
 | --- | --- | --- |
@@ -41,16 +41,16 @@ Choose one selection strategy. The Console translates the display name, while th
 | Least used | `least_used` | Select the member with the smallest request count. |
 | Random | `random` | Select any healthy member. |
 
-An `exhausted` member returns automatically after its cooldown. A `dead` member needs a new login or a replacement credential. You can also disable or delete a member. Changing only its label does not clear a `dead` state.
+When an account hits rate limits and enters `exhausted`, AIGateway automatically returns it to rotation once its cooldown elapses. If an account enters `dead`, re-authenticate it or replace its credential (renaming the label alone does not clear `dead`), or disable or delete the member from the pool.
 
 ## Assign the provider to an Agent
 
 1. Open **Console → Agents** and select the Agent.
-2. Open the required model profile. Use **Background Agent Jobs** for durable Jobs, or another profile for normal model turns.
+2. Open the target model profile—use **Background Agent Jobs** for durable Jobs, or another profile for foreground turns.
 3. Select the ChatGPT subscription provider and an entitled model.
-4. Set reasoning effort and Fast Mode as necessary.
+4. Configure reasoning effort and Fast Mode as needed.
 5. Save the profile.
 
-All calls continue through AIGateway. The gateway keeps a stateful thread on the same account when possible, rotates on a retryable provider failure, and does not fall back to a different provider. If all members are unavailable, an interactive call returns a rate-limit error with the next recovery time. A Background Agent Job returns to `queued` until the earliest pool member can recover.
+All requests flow through AIGateway, which pins a stateful thread to the same account when possible, rotates to another healthy pool member on retryable upstream errors, and never crosses over to a different provider. If every member in the pool is cooling down, interactive calls return a rate-limit error with the earliest recovery timestamp, while Background Agent Jobs return to `queued` until the earliest pool member recovers.
 
 See [Background Agent Jobs](../background-jobs/) for Job creation, control, and troubleshooting.

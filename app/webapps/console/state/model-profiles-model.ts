@@ -1,5 +1,5 @@
 import type { PutAgentModelProfileData, ListAgentModelProfilesResponse } from '../api/v2/generated/types.gen'
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { equal, recordValue, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 // Embedding and rerank are not Agent profile slots: Brain owns those models
@@ -50,9 +50,9 @@ export function emptyProfileDraft(): ProfileDraft {
 /** Converts one persisted model-profile object into the editor draft shape. */
 export function draftFromProfile(profile: JSONObject): ProfileDraft {
   return {
-    description: stringValue(profile.description),
-    providerID: stringValue(profile.provider_id),
-    model: stringValue(profile.model),
+    description: stringArg(profile, 'description') ?? '',
+    providerID: stringArg(profile, 'provider_id') ?? '',
+    model: stringArg(profile, 'model') ?? '',
     contextLength: profile.context_length ? String(profile.context_length) : '',
     providerOptions: recordValue(profile.provider_options) ?? {}
   }
@@ -234,10 +234,6 @@ function markProfileSaved(
   return { hasUnsavedChanges }
 }
 
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
-
 function normalizedProfileDraft(input: ProfileDraftInput): ProfileDraft {
   return { ...emptyProfileDraft(), ...input, error: input.error }
 }
@@ -257,7 +253,7 @@ function sameProfileValues(left: ProfileDraft, right: ProfileDraft): boolean {
     left.providerID === right.providerID &&
     left.model === right.model &&
     left.contextLength === right.contextLength &&
-    JSON.stringify(left.providerOptions) === JSON.stringify(right.providerOptions)
+    equal(left.providerOptions, right.providerOptions)
   )
 }
 

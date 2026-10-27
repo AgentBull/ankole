@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createContainerComputer } from '../../../src/tools/computer/computer'
 import { createApplyPatchTool } from '../../../src/tools/computer/apply-patch-tool'
-import { FakeDrive } from '../../support/fake-drive'
 
 it('edits files through the native apply_patch binary', async () => {
   const agentHome = mkdtempSync(join(tmpdir(), 'ankole-native-apply-patch-'))
@@ -22,8 +21,7 @@ it('edits files through the native apply_patch binary', async () => {
     const tool = createApplyPatchTool({
       agentHome,
       workspaceRoot,
-      computer,
-      drive: new FakeDrive(agentHome).drive()
+      computer
     })
 
     await tool.execute(

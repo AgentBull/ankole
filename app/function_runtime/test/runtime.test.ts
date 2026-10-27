@@ -289,10 +289,10 @@ describe('real edge-runtime protocol', () => {
     const memo = [{ namespace: 'test', name: 'lookup', arguments: { x: 1 }, output: {} }]
     expect(await run('await tools.lookup({x:2});', memo)).toMatchObject({ error_code: 'program_replay_diverged' })
     expect(await run('text("done")', memo)).toMatchObject({ error_code: 'program_replay_memo_unused' })
-    expect(await run('text("long")', [], { max_output_bytes: 1 })).toMatchObject({
+    expect(await run('for (let i = 0; i < 17; i++) text("x".repeat(65536))')).toMatchObject({
       error_code: 'program_output_limit_exceeded'
     })
-    expect(await run('text("long")', [], { max_program_bytes: 1 })).toMatchObject({
+    expect(await run(`text("${'x'.repeat(256 * 1024)}")`)).toMatchObject({
       error_code: 'program_source_limit_exceeded'
     })
     expect(

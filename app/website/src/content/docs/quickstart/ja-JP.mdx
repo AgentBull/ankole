@@ -1,6 +1,6 @@
 ---
 title: クイックスタート
-description: Ankole をデプロイし、エンタープライズの identity とモデルを設定し、IM チャンネルを接続して、実際の Agent との会話を完了させます。
+description: Ankole をデプロイし、エンタープライズの identity とモデルを設定し、IM チャンネルを接続して、Agent との最初の会話を完了させます。
 section: Getting started
 order: 2
 ---
@@ -23,9 +23,9 @@ export const quickstartLabels = {
 }
 
 export const agentInstallPrompt = [
-  'https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankole のプライベートデプロイメントインスタンスのデプロイと設定を手伝ってください。',
-  'まず、私の環境を調査し、Docker Compose、Kubernetes、またはソースからのインストールのいずれかを推奨してください。次に、パスワードレスのメール認証（Email OTP）またはエンタープライズ SSO の Identity Provider（IdP）によるサインインと、LLM Provider、Agent、Channel Provider、Signal Routing Rule（Signal Binding）のセットアップを手伝ってください。サインイン方式と IM プラットフォームを指定していない場合は、使用したいサインイン方式（SMTP メール認証またはエンタープライズ IdP）とチャットプラットフォームを尋ねてください。勝手に選択しないでください。',
-  'chat やコマンドの出力に secret を露出しないでください。選択した IM で実際の Agent の返信を受け取ったときにだけ、作業は完了とみなします。'
+  'https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を参照して、Ankole のプライベートデプロイメントインスタンスの構築と初期設定を手伝ってください。',
+  'まず現在の環境を確認し、Docker Compose、Kubernetes、またはソースからのインストールのうち最適な方式を提案してください。次に、パスワードレスのメール認証（Email OTP）またはエンタープライズ SSO の Identity Provider（IdP）によるサインインと、LLM Provider、Agent、Channel Provider、Signal Routing Rule（Signal Binding）のセットアップを順番に進めてください。サインイン方式や IM プラットフォームをまだ伝えていない場合は、勝手に決めず、利用したいサインイン方式（SMTP メール認証またはエンタープライズ IdP）とチャットプラットフォームを確認してください。',
+  'チャットやコマンド出力に secret を一切表示しないでください。選択した IM 上で Agent から実際の返信を受け取れた時点で完了とします。'
 ].join(' ')
 
 export const deploymentTabs = [
@@ -34,15 +34,15 @@ export const deploymentTabs = [
     label: 'Docker Compose',
     badge: 'シングルホスト推奨',
     summary:
-      "1 台のホストで PostgreSQL 18、ankole-function-runtime、control plane、Caddy を実行し、選択した provider が Agent ごとに Worker を作成します。",
+      "1 台のホスト上で PostgreSQL 18、ankole-function-runtime、control plane、Caddy を稼働させ、選択した provider を通じて Agent ごとに Worker を作成します。",
     prerequisites: [
-      'Linux amd64 または arm64 のコンテナを実行できる Linux、macOS、または Windows ホスト',
+      'Linux amd64 または arm64 コンテナを実行できる Linux、macOS、または Windows ホスト',
       'Compose プラグイン付きの Docker Engine、または Docker Desktop',
-      '永続ディスク、DNS 名、そして 80 と 443 のポート'
+      '永続ディスク、DNS 名、およびポート 80・443 の開放'
     ],
     basic: {
       title: 'Docker Compose でインストールする',
-      intro: 'provider の API key はこのデプロイメントファイルに含めないでください。サインイン後に Console で追加します。',
+      intro: 'provider の API key はデプロイ設定ファイルには記述せず、サインイン後に Console から登録します。',
       steps: [
         {
           title: 'デプロイメントパッケージを入手する',
@@ -60,7 +60,7 @@ export const deploymentTabs = [
         },
         {
           title: '4 つの独立した secret を生成する',
-          body: ['このコマンドをコピーして実行してください。その完全な出力を .env に貼り付けます。'],
+          body: ['以下のコマンドをコピーして実行し、出力された内容をそのまま .env に貼り付けてください。'],
           code: [
             {
               language: 'bash',
@@ -84,8 +84,8 @@ export const deploymentTabs = [
         {
           title: 'Docker socket のグループを設定する',
           body: [
-            'control plane は Docker socket を通じて Worker コンテナを作成します。control plane は非特権ユーザーとして実行され、コンテナ内で socket を所有するグループを通じて socket を使用します。',
-            'Linux では、.env の ANKOLE_DOCKER_GID に、このコマンドが出力するグループ ID を設定してください。macOS の Docker Desktop では、ANKOLE_DOCKER_GID=0 を設定してください。Docker Desktop は、ホストの表示に関係なく、グループ 0 の socket をコンテナに渡します。ANKOLE_DOCKER_SOCKET は、socket が /var/run/docker.sock でない場合にのみ設定してください。'
+            'control plane は非特権ユーザーで動作し、Docker socket を所有するグループの権限を使って Worker コンテナを作成します。',
+            'Linux 環境では、下記コマンドが出力するグループ ID を .env の ANKOLE_DOCKER_GID に設定してください。macOS の Docker Desktop 環境では、ホスト側の表示にかかわらずコンテナ内にはグループ 0 の socket が渡されるため、ANKOLE_DOCKER_GID=0 を設定します。なお、ANKOLE_DOCKER_SOCKET は socket のパスが /var/run/docker.sock 以外の場合にのみ設定してください。'
           ],
           code: [
             {
@@ -94,23 +94,23 @@ export const deploymentTabs = [
             }
           ],
           caution:
-            'Docker socket へのアクセスは、ホストの root アクセスと同等です。ホストは、信頼できるファーストパーティのコンピュート境界として扱ってください。'
+            'Docker socket へのアクセス権はホストの root 権限と同等です。このホストは信頼されたファーストパーティのコンピュート境界として管理してください。'
         },
         {
           title: '公開ホストを設定する',
           body: [
-            'ANKOLE_HOST に、このホストを指す DNS 名を設定してください。ACME_EMAIL には、証明書の通知を受信できるアドレスを設定してください。'
+            'ANKOLE_HOST にこのホストを指す DNS 名を設定し、ACME_EMAIL には証明書の通知を受け取れるメールアドレスを設定してください。'
           ],
           fields: [
             {
               name: 'ANKOLE_HOST',
               value: 'ankole.example.com',
-              description: 'ユーザーと provider の callback が使用する HTTPS ホスト。'
+              description: 'ユーザーアクセスおよび provider の callback に使用する HTTPS ホスト名。'
             },
             {
               name: 'ACME_EMAIL',
               value: 'ops@example.com',
-              description: 'Caddy の証明書管理用の連絡先アドレス。'
+              description: 'Caddy の TLS 証明書管理に使用する連絡先メールアドレス。'
             }
           ]
         },
@@ -123,7 +123,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose は PostgreSQL 18 と ankole-function-runtime を起動し、データベース移行を完了してから control plane と Caddy を起動します。"
+            "Compose により PostgreSQL 18 と ankole-function-runtime が起動し、データベースのマイグレーション完了後に control plane と Caddy が起動します。"
           ]
         },
         {
@@ -134,31 +134,31 @@ export const deploymentTabs = [
               code: 'docker compose logs control-plane | grep "SETUP ACTIVATION CODE"'
             }
           ],
-          body: ['https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。']
+          body: ['https://<ANKOLE_HOST>/setup を開き、出力された activation code を入力してください。']
         }
       ]
     },
     advanced: {
       title: '本番運用の制御、バックアップ、ローカル証明書',
-      summary: '最初のデプロイメントを本番に移す前に、これらの設定を使用してください。',
+      summary: '初期デプロイを本番運用へ移行する前に、以下の設定を確認してください。',
       steps: [
         {
           title: '検証済みのイメージを固定する',
           body: [
-            'control plane のイメージは同じソースリビジョンの Worker イメージを指定し、control plane はそのイメージですべての Worker を作成します。管理された rollout のためには、同じリリースの control plane イメージと ankole-function-runtime イメージの両方を不変の digest に固定してください。'
+            'control plane イメージには同一ソースリビジョンの Worker イメージが紐付いており、すべての Worker はそのイメージから作成されます。計画的なロールアウトを行うため、同一リリースの control plane イメージと ankole-function-runtime イメージの両方を不変の digest で固定してください。'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
-              description: 'control plane のイメージ、または不変の digest。Worker イメージも指定します。'
+              description: 'control plane のイメージまたは不変の digest（使用する Worker イメージもこれにより決まります）。'
             },
             {
               name: 'ANKOLE_FUNCTION_RUNTIME_IMAGE',
-              description: '同じリリースの Function Runtime イメージ、または不変の digest。'
+              description: '同一リリースの Function Runtime イメージまたは不変の digest。'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
-              description: '同梱のデータベースイメージ用の、任意の不変 digest。'
+              description: '同梱データベースイメージ用の不変 digest（任意）。'
             }
           ]
         },
@@ -175,7 +175,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "全書き込みを停止し、PostgreSQL（および専用の BASE_DB_URLS シャードデータベースがある場合はそれらもすべて）、ankole_files_data、全 Home、デプロイメント secret（ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を保存します。control plane を停止しただけでは Worker は停止しません。隔離リソースで完全復元を検証してください。手順はバックアップガイドを参照してください。"
+            "すべての書き込みを停止したうえで、PostgreSQL（専用の BASE_DB_URLS シャードデータベースを構成している場合はそれらもすべて）、ankole_files_data、全 Agent Home、およびデプロイ用 secret（ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を保全します。control plane を止めただけでは Worker は停止しない点に注意し、隔離されたリソース上で完全復元の手順を検証してください。詳細はバックアップガイドを参照してください。"
           ]
         },
         {
@@ -192,15 +192,15 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'docker compose stop は、Worker コンテナが使い続ける ankole_workers ネットワークを残します。Worker コンテナは実行を続け、新しい control plane に接続します。control plane は、古いイメージの Worker を、その Agent がアイドルのときに置き換えます。'
+            'docker compose stop を実行しても Worker コンテナが使用中の ankole_workers ネットワークは残るため、Worker コンテナは稼働を続け、起動した新しい control plane に再接続します。古いイメージの Worker は、各 Agent がアイドル状態になったタイミングで順次置き換えられます。'
           ],
           caution:
-            "docker compose down -v は Compose 管理のデータベースとファイルストア volume を削除します。独立した Home volume の lifecycle は別です。永続ストレージ削除前に完全バックアップを検証してください。"
+            "docker compose down -v を実行すると、Compose 管理下のデータベースとファイルストア volume が削除されます（独立した Home volume のライフサイクルは別管理です）。永続ストレージを削除する前に、完全なバックアップから復元できることを確認してください。"
         },
         {
           title: 'ローカル専用の HTTPS ホストを使用する',
           body: [
-            'ローカルのテストには ANKOLE_HOST=ankole.localhost を設定してください。初回起動の後、Caddy のルート証明書をコピーし、すべてのクライアントで信頼してください。'
+            'ローカル環境で検証する場合は ANKOLE_HOST=ankole.localhost を設定します。初回起動後に Caddy のルート証明書を取り出し、アクセス元の各クライアント端末に信頼済み証明書として登録してください。'
           ],
           code: [
             {
@@ -227,15 +227,15 @@ export const deploymentTabs = [
     label: 'Kubernetes',
     badge: 'エンタープライズ推奨',
     summary:
-      '既に Kubernetes を運用していて、クラスタスケジューリングと HTTPS Ingress が必要な場合は、Helm chart を使用してください。control plane は、Agent ごとに 1 つの Worker Pod を Kubernetes API 経由で作成します。',
+      '既存の Kubernetes クラスタでスケジューリングと HTTPS Ingress を活用したい場合は Helm chart を使用します。control plane は Kubernetes API を通じて Agent ごとに 1 つの Worker Pod を作成します。',
     prerequisites: [
-      'Kubernetes 1.27 以降と Helm 3 以降',
-      'Linux amd64 または arm64 のノード',
-      "HTTPS Ingress と、共有 ReadWriteMany Home PVC および ReadWriteOnce キャッシュ PVC 用のストレージ"
+      'Kubernetes 1.27 以降および Helm 3 以降',
+      'Linux amd64 または arm64 ノード',
+      "HTTPS Ingress と、共有 ReadWriteMany Home PVC および ReadWriteOnce キャッシュ PVC 用のストレージクラス"
     ],
     basic: {
       title: 'Helm chart をインストールする',
-      intro: '最短経路は、pg_search と vector を含む同梱の PostgreSQL 18 イメージを使用します。',
+      intro: '最も手軽な構成では、pg_search と vector を備えた同梱の PostgreSQL 18 イメージを使用します。',
       steps: [
         {
           title: 'chart を取得して namespace を作成する',
@@ -319,7 +319,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'ホスト、Ingress の詳細、両方の StorageClass 名を置き換えてください。上記の DATABASE_URL を使用する場合は、fullnameOverride を維持してください。'
+            '公開ホスト名、Ingress の設定、および各 StorageClass 名を実環境に合わせて書き換えてください。上記の DATABASE_URL をそのまま使う場合は fullnameOverride を変更しないでください。'
           ]
         },
         {
@@ -349,7 +349,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'この時点では Worker Pod はありません。control plane は、Agent の作成時にその Agent の Worker を作成します。'
+            'この時点ではまだ Worker Pod は存在しません。Agent を作成して環境が必要になった時点で、control plane が対応する Worker Pod を起動します。'
           ]
         },
         {
@@ -363,18 +363,18 @@ export const deploymentTabs = [
               ].join('\n')
             }
           ],
-          body: ['https://ankole.example.com/setup を開き、activation code を入力してください。']
+          body: ['https://ankole.example.com/setup を開き、出力された activation code を入力してください。']
         }
       ]
     },
     advanced: {
       title: '外部 PostgreSQL、イメージポリシー、クラスタセキュリティ',
-      summary: '管理された本番 rollout の前に、これらの項目を確認してください。',
+      summary: '本番環境へ計画的にロールアウトする前に、以下の項目を確認してください。',
       steps: [
         {
           title: '外部 PostgreSQL サーバーを使用する',
           body: [
-            'そのサーバーは PostgreSQL 18 以降を実行し、pg_search を preload し、アプリケーションデータベースの所有者が pg_search と vector を使用できる必要があります。'
+            '外部サーバーで PostgreSQL 18 以降が稼働していること、pg_search が preload されていること、およびアプリケーション用データベースの所有者が pg_search と vector 拡張を利用できることを確認してください。'
           ],
           code: [
             {
@@ -394,40 +394,40 @@ export const deploymentTabs = [
             {
               name: 'postgresql.enabled',
               value: 'false',
-              description: '同梱のデータベースを無効にします。'
+              description: '同梱の PostgreSQL を無効にします。'
             },
             {
               name: 'DATABASE_URL',
-              description: '外部データベースの URL（および ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を ankole-bootstrap に保存します。'
+              description: '外部データベースの接続 URL（あわせて ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN も ankole-bootstrap Secret に格納します）。'
             }
           ]
         },
         {
           title: 'Worker と Function Runtime のセキュリティプロファイルを確認する',
           body: [
-            'Worker Pod に追加のカーネル権限は必要ありません。コンテナが各 Agent の分離境界です。chart は control plane に Pod、Secret、PVC を作成・削除する namespace の Role を与え、Worker Pod には権限を持たない専用の ServiceAccount を与え、ankole-function-runtime はデータベース認証情報や ServiceAccount トークンなしで実行します。'
+            'Worker Pod に特権的なカーネルケーパビリティは不要であり、コンテナ境界がそのまま各 Agent の分離境界となります。Helm chart は control plane に Pod・Secret・PVC を作成・削除できる namespace スコープの Role を付与する一方、Worker Pod には権限を持たない専用 ServiceAccount を割り当て、ankole-function-runtime はデータベース認証情報も ServiceAccount トークンも持たない状態で実行します。'
           ],
           fields: [
             {
               name: 'worker.runtimeClassName',
-              description: '任意。Worker Pod の RuntimeClass。例：gvisor。'
+              description: '任意。Worker Pod に適用する RuntimeClass（例：gvisor）。'
             },
             {
               name: 'networkPolicy.enabled',
               value: 'true',
-              description: '任意。有効にすると、Worker Pod は接続を受け付けず control plane、DNS、公開アドレスにだけ到達でき、ankole-function-runtime は functionRuntime.deniedCIDRs を遮断します。'
+              description: '任意。有効化すると、Worker Pod へのインバウンド接続を遮断して通信先を control plane・DNS・パブリックアドレスのみに制限し、ankole-function-runtime から functionRuntime.deniedCIDRs への通信も遮断します。'
             }
           ],
           caution:
-            'Worker コンテナは、信頼できるファーストパーティのコンポーネントです。control plane は Pod と Secret を作成できる namespace の Role を持つため、root と同等のコンポーネントとして保護してください。'
+            'Worker コンテナは信頼されたファーストパーティのコンポーネントとして動作します。また、control plane は namespace 内で Pod や Secret を作成できる権限を持つため、特権基盤と同等に保護してください。'
         },
         {
           title: '一致するイメージを固定してアップグレードする',
           body: [
-            "同じ検証済みリビジョンの controlPlane.image、functionRuntime.image、および（個別指定する場合は）worker.image を固定します。helm upgrade の前に PostgreSQL（および専用の BASE_DB_URLS シャードデータベース）、ファイルストア、全 Home、bootstrap secret（ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）を保存します。"
+            "検証済みの同一リビジョンで controlPlane.image、functionRuntime.image、および（個別に指定する場合は）worker.image を固定します。helm upgrade を実行する前に、PostgreSQL（および専用の BASE_DB_URLS シャードデータベース）、ファイルストア、全 Agent Home、bootstrap secret（ANKOLE_SECRET_BASE、RELEASE_COOKIE、ANKOLE_FUNCTION_RUNTIME_TOKEN）のバックアップを取得してください。"
           ],
           caution:
-            'Helm の rollback はデータベースの migration を元に戻しません。アプリケーションの rollback が古いスキーマも必要とする場合は、データベースのバックアップを復元してください。'
+            'helm rollback を実行しても、適用済みのデータベース migration は巻き戻りません。ロールバック先の旧バージョンが以前のスキーマを前提としている場合は、データベースのバックアップもあわせて復元してください。'
         },
         {
           title: '完全な chart 契約を読む',
@@ -445,10 +445,10 @@ export const deploymentTabs = [
     value: 'source',
     label: 'ソースからインストールする',
     summary:
-      "ソースからの開発は PostgreSQL 18、ankole-function-runtime、Phoenix、Console、フロントエンドを起動します。control plane が Agent ごとに Docker Worker を作成します。",
+      "ソースコードからの開発環境では、PostgreSQL 18、ankole-function-runtime、Phoenix、Console、およびフロントエンドを起動し、control plane が Agent ごとに Docker Worker を作成します。",
     prerequisites: [
-      'macOS または Linux。Windows では WSL2 を使用してください',
-      'システムパッケージをインストールできるアカウント',
+      'macOS または Linux（Windows の場合は WSL2 を使用）',
+      'システムパッケージをインストールできるユーザー権限',
       'Docker Desktop または Docker Engine'
     ],
     basic: {
@@ -466,7 +466,7 @@ export const deploymentTabs = [
               ].join('\n')
             }
           ],
-          body: ['残りのコマンドはリポジトリのルートから実行してください。']
+          body: ['以降のコマンドはすべてリポジトリのルートディレクトリで実行してください。']
         },
         {
           title: '固定されたツールチェーンをインストールする',
@@ -477,7 +477,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'このスクリプトは、ビルドパッケージ、Docker、Rust、Elixir と Erlang、そしてリポジトリが固定する Bun バージョンをインストールします。'
+            'このスクリプトを実行すると、ビルド用パッケージ、Docker、Rust、Elixir/Erlang、およびリポジトリでバージョン固定された Bun が一括でセットアップされます。'
           ]
         },
         {
@@ -496,7 +496,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'macOS では、先に Docker Desktop を起動してください。Linux では、インストーラがあなたのユーザーを docker グループに追加した場合は、サインアウトして再サインインしてください。'
+            'macOS では事前に Docker Desktop を起動してください。Linux でスクリプトによって現在のユーザーが docker グループに追加された場合は、一度サインアウトしてサインインし直してください。'
           ]
         },
         {
@@ -513,7 +513,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'bun run services:start は Docker 上で PostgreSQL 18 と ankole-function-runtime を起動し、その後 control-plane:setup がデータベースを初期化します。'
+            'bun run services:start で Docker 上に PostgreSQL 18 と ankole-function-runtime が起動し、続く control-plane:setup でデータベースが初期化されます。'
           ]
         },
         {
@@ -525,14 +525,14 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'このターミナルは開いたままにしてください。http://localhost:4000 を開き、開発サーバーが出力した activation code を使用してください。'
+            'このターミナルは開いたままにしておきます。ブラウザで http://localhost:4000 を開き、開発サーバーのログに出力された activation code を入力してください。'
           ]
         }
       ]
     },
     advanced: {
       title: 'ローカルチェック、シャットダウン、転送された origin',
-      summary: 'これらのコントロールは、完全な runtime に対応して開発する場合や、リモートワークスペースを使用する場合に役立ちます。',
+      summary: '実ランタイム一式を動かして開発する場合や、リモート開発環境を利用する場合に役立つ操作です。',
       steps: [
         {
           title: '別のターミナルで activation code を読む',
@@ -560,16 +560,16 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'Agent を作成するまで、Worker コンテナはありません。各 Worker コンテナは、ローカルの Agent Computer ソースを watch モードで実行します。',
-            'bun dev ターミナルで Ctrl+C を使い、control plane と Worker を停止してください。終了時は bun run services:stop で PostgreSQL 18 と ankole-function-runtime を停止してください。'
+            'Agent を作成するまでは Worker コンテナは起動しません。起動した各 Worker コンテナは、ローカルの Agent Computer ソースコードを watch モードで実行します。',
+            'control plane と Worker を止めるには bun dev のターミナルで Ctrl+C を押し、作業を終える際は bun run services:stop で PostgreSQL 18 と ankole-function-runtime も停止してください。'
           ]
         },
         {
           title: 'Codespaces または別の転送された origin を使用する',
           body: [
-            '転送された HTTPS origin を IdP に登録してください。localhost の callback と転送された callback は異なる URL なので、ブラウザが使用する URL に対してサインインを確認してください。'
+            'ポート転送された HTTPS origin を IdP 側に登録してください。localhost の callback URL と転送先 origin の callback URL は別物として扱われるため、実際にブラウザで開く URL に合わせてサインインを確認してください。'
           ],
-          caution: 'このパスは開発用です。本番デプロイメントには Docker Compose または Kubernetes を使用してください。'
+          caution: 'ソースからの起動は開発専用です。本番環境のデプロイには Docker Compose または Kubernetes を使用してください。'
         }
       ]
     }
@@ -581,7 +581,7 @@ export const identityTabs = [
     value: 'email_otp',
     label: 'メール認証',
     summary:
-      '自社の SMTP サーバーと 6 桁の確認コードでパスワードレスサインインを初期設定します。メール認証単独で運用することも、後からエンタープライズ SSO の Identity Provider を追加することもできます。',
+      '自社の SMTP サーバーと 6 桁の確認コードを使ってパスワードレスサインインを初期設定します。メール認証単独で運用することも、後からエンタープライズ SSO の Identity Provider を追加することもできます。',
     prerequisites: [
       '有効な TLS 証明書を持ち、最初の管理者にメールを送信できる SMTP サーバー',
       '6 桁の確認コードを受信できる最初の管理者のメールボックス'
@@ -592,34 +592,34 @@ export const identityTabs = [
         {
           title: '/setup で「メール認証」を選択する',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力し、Plugins と業種のステップを確認して、ユーザーサインインで メール認証 を選択してください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力し、Plugins と業種のステップを確認したうえで、ユーザーサインイン方式として メール認証 を選択してください。'
           ]
         },
         {
           title: 'SMTP と管理者の情報を入力する',
           bullets: [
-            'SMTP サーバー と ポート: 送信メールホストとポート（通常は STARTTLS の 587 または暗黙 TLS の 465）',
+            'SMTP サーバー と ポート: 送信メールサーバーのホスト名とポート（通常は STARTTLS の 587 または暗黙 TLS の 465）',
             '送信元メール: 確認コードや招待メールの From アドレス',
-            'SMTP ユーザー名 と SMTP パスワード: リレーが認証を求める場合の任意設定',
-            '暗黙 TLS を使用（通常はポート 465）: 暗黙 TLS の場合のみオンにする',
+            'SMTP ユーザー名 と SMTP パスワード: リレーサーバーが認証を要求する場合に指定（任意）',
+            '暗黙 TLS を使用（通常はポート 465）: 暗黙 TLS を使う場合のみオンにする',
             '管理者の表示名 と 管理者メール: 最初の管理者の表示名と受信メールアドレス'
           ],
           body: [
-            'コードを送信 を選択してください。Ankole は初期設定を確定する前に、指定された SMTP サーバー経由で 6 桁の確認コードを送信します。'
+            'コードを送信 を選択すると、初期設定を確定する前に指定の SMTP サーバー経由で 6 桁の確認コードが送信されます。'
           ]
         },
         {
           title: '6 桁のコードを確認して初期設定を完了する',
           body: [
-            '受信トレイに届いた 6 桁の確認コード を入力し、確認して初期設定を完了 を選択してください。',
-            '確認が成功すると、暗号化された authn.email.mail 設定が保存され、検証済みの email_otp SiteCredential が紐付けられ、最初のユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。'
+            '受信トレイに届いた 6 桁の確認コードを入力し、確認して初期設定を完了 を選択してください。',
+            '確認が完了すると、暗号化された authn.email.mail 設定が保存されて検証済みの email_otp SiteCredential が紐付けられ、最初のユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。'
           ]
         }
       ]
     },
     advanced: {
       title: 'SMTP の CLI 修復と Pod 招待',
-      summary: 'CLI から SMTP 設定を修復したり、エンタープライズ SSO なしでメンバーを招待したりできます。',
+      summary: 'CLI から SMTP 設定を更新・修復したり、エンタープライズ SSO を使わずにメンバーを招待したりできます。',
       steps: [
         {
           title: 'CLI から SMTP 設定を修復する',
@@ -630,13 +630,13 @@ export const identityTabs = [
             }
           ],
           body: [
-            'リリースコンテナ内では Ankole.Release.put_authn_mail(json) を呼び出します。JSON の内容は secret として保護してください。'
+            'リリースコンテナ内では Ankole.Release.put_authn_mail(json) を呼び出します。JSON ファイルには認証情報が含まれるため、secret として厳重に保護してください。'
           ]
         },
         {
           title: 'メンバーを招待するか後からエンタープライズ SSO を追加する',
           body: [
-            'Pod 管理者は Pod 設定からメール招待を送信でき、後から Console → Identity Providers でエンタープライズ SSO を追加することもできます。'
+            'Pod 管理者は Pod 設定画面からメールでメンバーを招待できるほか、後から Console → Identity Providers でエンタープライズ SSO を追加することもできます。'
           ]
         }
       ]
@@ -646,11 +646,11 @@ export const identityTabs = [
     value: 'slack',
     label: 'Slack',
     summary:
-      'Console へのサインイン、ワークスペースメンバーとユーザーグループの同期に 1 つの Slack app を使用します。デフォルトのセットアップには、OAuth client、Bot Token、App Token が必要です。',
+      'Console へのサインインおよびワークスペースメンバー・ユーザーグループの同期に 1 つの Slack app を使用します。標準セットアップでは、OAuth client、Bot Token、App Token の 3 つを用意します。',
     prerequisites: [
-      'Slack app を作成してインストールできるワークスペース管理者',
+      'Slack app の作成・インストール権限を持つワークスペース管理者',
       'Ankole の公開 HTTPS アドレス',
-      '最初のサインイン用のワークスペースメンバーアカウント'
+      '初回サインインに使用するワークスペースメンバーアカウント'
     ],
     basic: {
       title: 'Slack IdP をセットアップする',
@@ -658,15 +658,15 @@ export const identityTabs = [
         {
           title: 'Ankole から callback URL をコピーする',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。プラグインページで Slack Adapter を選択し、選択を保存してから Slack を選択してください。',
-            'Configuration ID（Provider ID）は slack-main のままにしてください。Copy を使ってログイン callback URL をコピーしてください。この URL を手で入力したり変更したりしないでください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力します。プラグイン画面で Slack Adapter を選んで保存し、続けて Slack を選択してください。',
+            'Configuration ID（Provider ID）は slack-main のまま変更せず、Copy ボタンでログイン callback URL をコピーしてください（手入力や書き換えは行わないでください）。'
           ]
         },
         {
           title: 'Slack app を作成する',
           body: [
-            'Slack API の Your Apps を開き、Create New App → From scratch を選択してください。アプリ名を入力し、社員が所属するワークスペースを選択してください。',
-            'Basic Information → App Credentials を開いてください。Client ID と Client Secret をコピーしてください。'
+            'Slack API の Your Apps を開き、Create New App → From scratch を選択します。アプリ名を入力し、社員が所属しているワークスペースを選択してください。',
+            '続いて Basic Information → App Credentials を開き、Client ID と Client Secret を控えておきます。'
           ],
           links: [
             {
@@ -678,8 +678,8 @@ export const identityTabs = [
         {
           title: 'ログイン callback を登録する',
           body: [
-            'OAuth & Permissions → Redirect URLs を開いてください。Add New Redirect URL を選択し、Ankole の完全な URL を貼り付けて保存してください。',
-            'Ankole はデフォルトで openid、profile、email のサインイン scope を要求します。それらを chat bot の scope に置き換えないでください。'
+            'OAuth & Permissions → Redirect URLs を開き、Add New Redirect URL から Ankole の完全な callback URL を貼り付けて保存します。',
+            'Ankole は既定で openid、profile、email のサインイン用 scope を要求します。これらをチャット bot 用の scope に差し替えないでください。'
           ],
           links: [
             {
@@ -691,35 +691,35 @@ export const identityTabs = [
         {
           title: 'ディレクトリアクセスを許可して Bot Token を取得する',
           body: [
-            'OAuth & Permissions で、下記の 3 つの scope を Bot Token Scopes に追加してください。その後、Install to Workspace を選択してインストールを承認してください。'
+            'OAuth & Permissions の Bot Token Scopes に下記の 3 つの scope を追加し、Install to Workspace を選択してインストールを認可してください。'
           ],
           copyItems: [
             { value: 'users:read', description: 'メンバープロファイルを読み取ります' },
             { value: 'users:read.email', description: 'メンバーのメールアドレスを読み取ります' },
             { value: 'usergroups:read', description: 'ユーザーグループとそのメンバーを読み取ります' }
           ],
-          caution: 'インストール後に Bot User OAuth Token をコピーしてください。xoxb- で始まる必要があります。scope を変更するたびにアプリを再インストールしてください。'
+          caution: 'インストール完了後に xoxb- で始まる Bot User OAuth Token をコピーしてください。なお、scope を変更した際は毎回アプリの再インストールが必要です。'
         },
         {
           title: 'App Token を取得して Socket Mode を有効にする',
           body: [
-            'Basic Information → App-Level Tokens を開いてください。Generate Token and Scopes を選択し、下記の scope を追加して、生成された xapp- token をコピーしてください。その後、Socket Mode を開き、Enable Socket Mode をオンにしてください。'
+            'Basic Information → App-Level Tokens で Generate Token and Scopes を選択し、下記の scope を付与して生成された xapp- トークンをコピーします。その後、Socket Mode 画面を開いて Enable Socket Mode をオンにしてください。'
           ],
           copyItems: [
-            { value: 'connections:write', description: 'App Token が Socket Mode 接続を開けるようにします' }
+            { value: 'connections:write', description: 'Socket Mode 接続の確立を許可します' }
           ]
         },
         {
           title: 'ディレクトリイベントを購読する',
           body: [
-            'Event Subscriptions を開いてイベントを有効にしてください。Subscribe to bot events で、下記の 5 つのイベントをすべて追加してください。'
+            'Event Subscriptions を開いてイベント購読を有効にし、Subscribe to bot events に下記の 5 つのイベントをすべて追加してください。'
           ],
           copyItems: [
-            { value: 'team_join', description: 'メンバーがワークスペースに参加します' },
-            { value: 'user_change', description: 'メンバーのプロファイルが変更されます' },
-            { value: 'subteam_created', description: 'ユーザーグループが作成されます' },
-            { value: 'subteam_updated', description: 'ユーザーグループが変更されます' },
-            { value: 'subteam_members_changed', description: 'ユーザーグループのメンバーシップが変更されます' }
+            { value: 'team_join', description: 'メンバーがワークスペースに参加したとき' },
+            { value: 'user_change', description: 'メンバーのプロファイルが変更されたとき' },
+            { value: 'subteam_created', description: 'ユーザーグループが作成されたとき' },
+            { value: 'subteam_updated', description: 'ユーザーグループが更新されたとき' },
+            { value: 'subteam_members_changed', description: 'ユーザーグループのメンバー構成が変更されたとき' }
           ],
           links: [
             {
@@ -733,43 +733,43 @@ export const identityTabs = [
           bullets: [
             'Client ID: Basic Information の Client ID',
             'Client Secret: 同じページの Client Secret',
-            'Workspace ID: 任意。Slack の Web URL の /client/ の後に続く T… の値を入力すると、サインインするワークスペースを事前選択できます。ディレクトリ同期は制限されません',
-            'Bot User OAuth Token: xoxb- token',
-            'App-Level Token: xapp- token'
+            'Workspace ID: 任意。Slack Web URL の /client/ 直後にある T… の ID を指定すると、サインイン時のワークスペースを事前選択できます（ディレクトリ同期の対象自体は制限されません）',
+            'Bot User OAuth Token: xoxb- トークン',
+            'App-Level Token: xapp- トークン'
           ],
           body: [
-            'Sync directory と Sync directory changes をオンにしたままにしてください。Validate configuration を選択してサインインしてください。その後、Slack の認可を完了してください。'
+            'Sync directory と Sync directory changes をオンのままにして Validate configuration を選択し、Slack の認可画面でサインインを完了してください。'
           ]
         },
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            'Slack が Ankole に戻ると、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、slack-main を選択して Run full sync を選択してください。',
-            '同期が終わったら、Console → Principals と Principal groups で、ワークスペースのメンバーと Slack のユーザーグループを確認してください。'
+            'Slack から Ankole にリダイレクトされると、最初のユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。続いて Console → Identity Providers で slack-main を開き、Run full sync を実行してください。',
+            '同期が完了したら、Console → Principals と Principal groups にワークスペースメンバーとユーザーグループが取り込まれていることを確認します。'
           ]
         }
       ]
     },
     advanced: {
       title: 'サインインのみ、リアルタイム同期、credential の更新',
-      summary: 'Slack のディレクトリが必要ない場合のみ、デフォルトのディレクトリ同期をオフにしてください。',
+      summary: 'Slack の組織ディレクトリ同期が不要な場合にのみ、既定のディレクトリ同期をオフにします。',
       steps: [
         {
           title: 'Slack をサインイン専用にする',
           body: [
-            'Sync directory をオフにすると、Bot User OAuth Token は不要になり、リアルタイム同期もオフになります。Client ID と Client Secret は引き続き必要です。'
+            'Sync directory をオフにすると、Bot User OAuth Token が不要になり、リアルタイム同期も無効になります（Client ID と Client Secret は引き続き必要です）。'
           ]
         },
         {
           title: 'リアルタイムイベントなしでフル同期を使用する',
           body: [
-            'Sync directory をオンにしたまま、Sync directory changes をオフにしてください。この設定には Bot User OAuth Token が必要ですが、App-Level Token は不要です。メンバーの変更は次のフル同期後に反映されます。'
+            'Sync directory をオンのまま Sync directory changes だけをオフにします。この場合、Bot User OAuth Token は必要ですが App-Level Token は不要となり、メンバー変更は次回のフル同期時に反映されます。'
           ]
         },
         {
           title: 'scope または token を更新する',
           body: [
-            'Slack の scope または Bot Token を変更した後は、アプリを再インストールし、Identity の token を更新してください。App Token はローテーション後に更新してください。更新しないと Socket Mode が接続できません。'
+            'Slack の scope や Bot Token を変更した後は、アプリを再インストールして IdP 設定のトークンを更新してください。App Token をローテーションした際も忘れずに更新してください（古いままでは Socket Mode に接続できません）。'
           ]
         }
       ]
@@ -779,11 +779,11 @@ export const identityTabs = [
     value: 'entra-id',
     label: 'Microsoft Entra ID',
     summary:
-      'シングルテナントの Entra アプリを登録します。ユーザーを Console にサインインさせ、ユーザーとグループを読み取り、Microsoft Graph 経由でディレクトリの変更を受け取ります。',
+      'シングルテナントの Entra アプリを登録し、Console への SSO サインイン、ユーザー・グループの同期、および Microsoft Graph 経由のディレクトリ変更通知を構成します。',
     prerequisites: [
-      'アプリを登録して管理者同意を付与できる Entra 管理者',
+      'アプリの登録と管理者同意の付与を行える Entra 管理者',
       'Ankole の公開 HTTPS アドレス',
-      '最初のサインイン用のテナントメンバーアカウント'
+      '初回サインインに使用するテナント内メンバーアカウント'
     ],
     basic: {
       title: 'Microsoft Entra ID をセットアップする',
@@ -791,15 +791,15 @@ export const identityTabs = [
         {
           title: 'Ankole から callback URL をコピーする',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。プラグインページで Microsoft 365 Adapter を選択し、選択を保存してから Entra ID を選択してください。',
-            'Configuration ID（Provider ID）は entra-id-main のままにしてください。Copy を使ってログイン callback URL をコピーしてください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力します。プラグイン画面で Microsoft 365 Adapter を選んで保存し、続けて Entra ID を選択してください。',
+            'Configuration ID（Provider ID）は entra-id-main のまま変更せず、Copy ボタンでログイン callback URL をコピーします。'
           ]
         },
         {
           title: 'シングルテナントのアプリを登録する',
           body: [
-            'Microsoft Entra 管理センターを開いてください。Entra ID → App registrations → New registration に進み、名前を入力し、Accounts in this organizational directory only を選択してください。',
-            'Redirect URI で Web を選択し、Ankole の完全な callback URL を貼り付けてください。その後、Register を選択してください。'
+            'Microsoft Entra 管理センターを開き、Entra ID → App registrations → New registration に進んで名前を入力し、Accounts in this organizational directory only を選択します。',
+            'Redirect URI でプラットフォームに Web を選び、コピーした Ankole の完全な callback URL を貼り付けて Register を選択してください。'
           ],
           links: [
             {
@@ -811,19 +811,19 @@ export const identityTabs = [
         {
           title: 'アプリの 3 つの値をコピーする',
           body: [
-            'アプリの Overview ページで、Application (client) ID と Directory (tenant) ID をコピーしてください。',
-            'Certificates & secrets → Client secrets → New client secret を開いてください。作成したらすぐに Value をコピーしてください。Secret ID はコピーしないでください。ページを離れると Value は非表示になります。'
+            'アプリの Overview ページから、Application (client) ID と Directory (tenant) ID をコピーします。',
+            '次に Certificates & secrets → Client secrets → New client secret でシークレットを作成し、表示された Value をその場でコピーしてください（Secret ID ではなく Value を使用します。ページを離れると再表示できません）。'
           ]
         },
         {
           title: 'Microsoft Graph の権限を付与する',
           body: [
-            'API permissions → Add a permission → Microsoft Graph を開いてください。下記の 3 つの権限を追加してください。その後、<organization> の Grant admin consent を選択してください。3 つすべてが granted ステータスになっていることを確認してください。'
+            'API permissions → Add a permission → Microsoft Graph を開き、下記の 3 つの権限を追加します。追加後、必ず Grant admin consent for <organization> を実行し、3 つすべてが Granted 状態になったことを確認してください。'
           ],
           copyItems: [
-            { value: 'User.Read', description: '委任された権限' },
-            { value: 'User.Read.All', description: 'アプリケーション権限' },
-            { value: 'Group.Read.All', description: 'アプリケーション権限' }
+            { value: 'User.Read', description: '委任されたアクセス許可（Delegated）' },
+            { value: 'User.Read.All', description: 'アプリケーションのアクセス許可（Application）' },
+            { value: 'Group.Read.All', description: 'アプリケーションのアクセス許可（Application）' }
           ],
           links: [
             {
@@ -835,32 +835,32 @@ export const identityTabs = [
         {
           title: 'Entra の値を Ankole に入力する',
           bullets: [
-            'Directory (tenant) ID: アプリの Overview ページの値',
-            'Application (client) ID: アプリの Overview ページの値',
-            'Client secret value: secret の Value',
-            'Ankole public URL: https://<ANKOLE_HOST>。内部のコンテナやクラスタのアドレスではない'
+            'Directory (tenant) ID: アプリ Overview ページの値',
+            'Application (client) ID: アプリ Overview ページの値',
+            'Client secret value: 作成した client secret の Value',
+            'Ankole public URL: https://<ANKOLE_HOST>（コンテナ内部やクラスタ内部のアドレスは指定しないでください）'
           ],
           body: [
-            'Sync directory と Sync directory changes をオンにしたままにしてください。Validate configuration を選択してサインインしてください。このテナントのアカウントを使用してください。'
+            'Sync directory と Sync directory changes をオンのまま Validate configuration を選択し、対象テナントのアカウントでサインインしてください。'
           ]
         },
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            'サインインの後、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、entra-id-main を選択して Run full sync を選択してください。',
-            '同期が終わったら、Principals と Principal groups で、テナントのユーザーとグループを確認してください。'
+            'サインインが完了すると、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers で entra-id-main を選択し、Run full sync を実行してください。',
+            '同期が完了したら、Principals と Principal groups にテナントのユーザーとグループが入っていることを確認します。'
           ]
         }
       ]
     },
     advanced: {
       title: 'Graph 通知、ゲスト、グループフィルタ',
-      summary: 'リアルタイム同期のためには、Microsoft Graph がパブリックインターネットから Ankole に到達できる必要があります。',
+      summary: 'リアルタイム同期を利用するには、Microsoft Graph からパブリックインターネット経由で Ankole に到達できる必要があります。',
       steps: [
         {
           title: '通知エンドポイントに到達できるようにする',
           body: [
-            'Sync directory changes がオンの場合、Ankole public URL は有効な公開 HTTPS アドレスでなければなりません。Ankole はその配下に /webhooks/v1/entra-id/entra-id-main/directory を作成し、Graph のサブスクリプションを管理します。'
+            'Sync directory changes がオンの場合、Ankole public URL には外部から到達可能な公開 HTTPS アドレスを指定してください。Ankole はその配下の /webhooks/v1/entra-id/entra-id-main/directory で通知を受け取り、Graph サブスクリプションを自動管理します。'
           ],
           links: [
             {
@@ -872,13 +872,13 @@ export const identityTabs = [
         {
           title: '公開の ingress なしでリアルタイム同期をオフにする',
           body: [
-            'Graph がこのインスタンスに到達できない場合は、保存する前に Sync directory changes をオフにしてください。フル同期は引き続き動作し、Ankole public URL は不要になります。'
+            'Microsoft Graph からインスタンスへ到達できない環境では、保存前に Sync directory changes をオフにしてください。その場合もフル同期は引き続き利用でき、Ankole public URL の入力は不要になります。'
           ]
         },
         {
           title: '必要な場合のみゲストを含めるかグループをフィルタする',
           body: [
-            'Include guest users はデフォルトでオフです。Synced groups filter は Microsoft Graph の OData $filter を受け入れます。フィルタの結果を権限の失敗と誤認しないように、先にフィルタなしのフル同期を完了してください。'
+            'Include guest users は既定でオフです。また、Synced groups filter には Microsoft Graph の OData $filter 式を指定できます。フィルタ条件の不一致を権限エラーと取り違えないよう、まずはフィルタなしでフル同期が通ることを確認してから設定してください。'
           ]
         }
       ]
@@ -888,9 +888,9 @@ export const identityTabs = [
     value: 'google-workspace',
     label: 'Google Workspace',
     summary:
-      'Google のサインインとディレクトリアクセスは別々の credential を使用します。OAuth client がサインインを処理し、domain-wide delegation を持つサービスアカウントがユーザーとグループを同期します。',
+      'Google Workspace ではサインインとディレクトリ同期に別々の認証情報を使います。サインインは OAuth client が処理し、ユーザーとグループの同期は domain-wide delegation を有効にしたサービスアカウントが担います。',
     prerequisites: [
-      'Google Workspace のスーパー管理者',
+      'Google Workspace の特権管理者（スーパー管理者）',
       'Google Cloud プロジェクトを管理できるアカウント',
       'Ankole の公開 HTTPS アドレス'
     ],
@@ -900,15 +900,15 @@ export const identityTabs = [
         {
           title: 'Ankole から callback URL をコピーする',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。プラグインページで Google Workspace Adapter を選択し、選択を保存してから Google Workspace を選択してください。',
-            'Configuration ID（Provider ID）は google-workspace-main のままにしてください。Copy を使ってログイン callback URL をコピーしてください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力します。プラグイン画面で Google Workspace Adapter を選んで保存し、続けて Google Workspace を選択してください。',
+            'Configuration ID（Provider ID）は google-workspace-main のまま変更せず、Copy ボタンでログイン callback URL をコピーします。'
           ]
         },
         {
           title: 'Google Cloud プロジェクトを準備する',
           body: [
-            'Google Cloud Console を開き、組織が所有するプロジェクトを選択または作成してください。API Library で Admin SDK API を見つけて有効にしてください。',
-            'Google Auth platform を開いて、アプリ情報を完成させてください。Audience を Internal に設定すると、このアプリはこの Workspace の社員向けになります。'
+            'Google Cloud Console で組織管理下のプロジェクトを選択（または新規作成）し、API Library から Admin SDK API を検索して有効化します。',
+            '続いて Google Auth platform でアプリの基本情報を設定します。Audience を Internal に設定すると、対象がこの Workspace 内のメンバーに限定されます。'
           ],
           links: [
             {
@@ -920,8 +920,8 @@ export const identityTabs = [
         {
           title: 'サインイン用の OAuth client を作成する',
           body: [
-            'Google Auth platform → Clients → Create client を開いてください。アプリケーションタイプとして Web application を選択してください。',
-            'Authorized redirect URIs で、Ankole の完全な callback URL を貼り付けてください。client を作成し、Client ID と Client Secret をコピーしてください。'
+            'Google Auth platform → Clients → Create client を開き、アプリケーションの種類に Web application を選択します。',
+            'Authorized redirect URIs に Ankole の完全な callback URL を貼り付けて作成し、発行された Client ID と Client Secret をコピーしてください。'
           ],
           links: [
             {
@@ -933,8 +933,8 @@ export const identityTabs = [
         {
           title: 'ディレクトリ同期用のサービスアカウントを作成する',
           body: [
-            'IAM & Admin → Service Accounts を開き、サービスアカウントを作成してください。その詳細を開いて、Google Workspace の domain-wide delegation を有効にし、数値の Client ID を記録してください。',
-            'Keys → Add key → Create new key を開き、JSON を選択してください。JSON ファイルの完全な内容を Ankole に貼り付けます。このファイルをリポジトリにコミットしないでください。'
+            'IAM & Admin → Service Accounts でサービスアカウントを作成し、詳細画面から Google Workspace の domain-wide delegation を有効にして、数値の Client ID を控えます。',
+            'さらに Keys → Add key → Create new key で JSON キーを発行します。ダウンロードされた JSON ファイルの中身全体を後ほど Ankole に貼り付けます（このキーファイルはリポジトリにコミットしないでください）。'
           ],
           links: [
             {
@@ -946,8 +946,8 @@ export const identityTabs = [
         {
           title: 'Workspace で domain-wide delegation を承認する',
           body: [
-            'admin.google.com を開いてください。Security → Access and data control → API Controls → Manage Domain Wide Delegation に進み、Add new を選択してください。',
-            'サービスの数値 Client ID を入力してください。OAuth scopes は 1 つのフィールドなので、下記の完全な行をコピーして貼り付け、承認してください。'
+            'admin.google.com を開き、Security → Access and data control → API Controls → Manage Domain Wide Delegation に進んで Add new を選択します。',
+            'サービスアカウントの数値 Client ID を入力し、OAuth scopes 欄（カンマ区切り 1 行）に下記の文字列をそのままコピー＆ペーストして認可してください。'
           ],
           batchImport: {
             label: 'OAuth scope をすべてコピー',
@@ -964,44 +964,44 @@ export const identityTabs = [
         {
           title: 'Google の値を Ankole に入力する',
           bullets: [
-            'OAuth client ID と OAuth client secret: Web application の OAuth client の credential',
-            'Allowed Workspace domains: @ なしの Workspace ドメイン（例：example.com）',
-            'Service account JSON key: JSON key ファイルの完全な内容',
-            'Delegated administrator email: ユーザーとグループを読み取れる Workspace 管理者'
+            'OAuth client ID と OAuth client secret: Web application 用 OAuth client の認証情報',
+            'Allowed Workspace domains: @ を除いた Workspace ドメイン名（例：example.com）',
+            'Service account JSON key: ダウンロードした JSON キーファイルの全文',
+            'Delegated administrator email: ユーザーとグループの読み取り権限を持つ Workspace 管理者のメールアドレス'
           ],
           body: [
-            'Sync directory をオンにしたままにしてください。Validate configuration を選択してサインインしてください。許可されたドメインの Workspace アカウントを使用してください。'
+            'Sync directory をオンのまま Validate configuration を選択し、許可ドメイン内の Workspace アカウントでサインインしてください。'
           ]
         },
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            'サインインの後、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、google-workspace-main を選択して Run full sync を選択してください。',
-            '同期が終わったら、Principals と Principal groups で、Workspace のユーザー、グループ、メンバーシップを確認してください。'
+            'サインインが完了すると、このユーザーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers で google-workspace-main を選択し、Run full sync を実行してください。',
+            '同期が完了したら、Principals と Principal groups に Workspace のユーザー・グループ・メンバーシップが反映されていることを確認します。'
           ]
         }
       ]
     },
     advanced: {
       title: 'ドメイン境界、同期タイミング、サービスアカウント',
-      summary: 'Google Workspace はフル同期のみをサポートします。リアルタイムのディレクトリイベントをこのアダプタに送信しません。',
+      summary: 'Google Workspace アダプターはフル同期のみに対応しており、リアルタイムのディレクトリ変更イベントは受信しません。',
       steps: [
         {
           title: 'Allowed Workspace domains を狭く保つ',
           body: [
-            'エンタープライズが使用する Workspace ドメインのみを入力してください。Ankole は Google 検証済みのメールと Workspace の hosted-domain claim も要求します。一般の gmail.com アカウントにはそのような claim がないため、Google が認証しても Ankole はそれを拒否します。'
+            '自社で実際に運用している Workspace ドメインのみを登録してください。Ankole は Google 側で確認済みのメールアドレスと Workspace の hosted-domain（hd）クレームも検証するため、一般の gmail.com アカウントは Google 認証を通過しても Ankole 側で拒否されます。'
           ]
         },
         {
           title: 'ディレクトリの変更後に別のフル同期を実行する',
           body: [
-            'Google Workspace アダプタはリアルタイム同期をサポートしていません。社員を追加した後、グループを変更した後、またはアカウントを停止した後は、Console → Identity Providers でフル同期を再度実行してください。'
+            'リアルタイム同期には対応していないため、メンバーの追加・グループ変更・アカウント停止を行った後は、Console → Identity Providers から手動でフル同期を実行するか次回の定期同期を待ってください。'
           ]
         },
         {
           title: 'サービスアカウントのアクセスを減らしてローテーションする',
           body: [
-            '最初の検証の後、ユーザーとグループの読み取りアクセスを持つ専用の管理者を Delegated administrator email として使用できます。JSON key をローテーションするときは、Ankole の Service account JSON key を更新してください。'
+            '初回の疎通確認が完了したら、Delegated administrator email をユーザー・グループ読み取り権限のみを持つ専用管理者アカウントへ絞ることができます。JSON キーをローテーションした際は、Ankole 側の Service account JSON key もあわせて更新してください。'
           ]
         }
       ]
@@ -1011,11 +1011,11 @@ export const identityTabs = [
     value: 'lark',
     label: 'Lark / Feishu',
     summary:
-      'カスタムの企業アプリを作成します。その App ID と App Secret が、サインイン、社員と部門の同期、そして長い接続経由のリアルタイムのディレクトリイベントを提供します。',
+      'カスタム企業アプリを作成し、その App ID と App Secret を使ってサインイン、社員・部門の同期、および常時接続（long connection）経由のリアルタイムディレクトリイベント購読を行います。',
     prerequisites: [
-      'カスタムの企業アプリを作成して公開できる管理者',
-      'ディレクトリの権限を承認できるエンタープライズ管理者',
-      '最初のサインイン用の Lark または Feishu の社員アカウント'
+      'カスタム企業アプリを作成・公開できる管理者',
+      'ディレクトリ権限を承認できるテナント管理者',
+      '初回サインインに使用する Lark または Feishu の社員アカウント'
     ],
     basic: {
       title: 'Lark または Feishu IdP をセットアップする',
@@ -1023,15 +1023,15 @@ export const identityTabs = [
         {
           title: 'Ankole から callback URL をコピーする',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。プラグインページで Lark Adapter を選択し、選択を保存してから Lark or Feishu を選択してください。',
-            'Configuration ID（Provider ID）は lark-main のままにしてください。Copy を使ってログイン callback URL をコピーしてください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力します。プラグイン画面で Lark Adapter を選んで保存し、続けて Lark or Feishu を選択してください。',
+            'Configuration ID（Provider ID）は lark-main のまま変更せず、Copy ボタンでログイン callback URL をコピーします。'
           ]
         },
         {
           title: 'カスタムの企業アプリを作成する',
           body: [
-            'Feishu テナントには Feishu Open Platform を、国際的な Lark テナントには Lark Developer を使用してください。カスタムの企業アプリを作成してください。',
-            'Credentials & Basic Info を開き、App ID と App Secret をコピーしてください。'
+            'Feishu テナントの場合は Feishu Open Platform、グローバル版 Lark テナントの場合は Lark Developer を開き、カスタム企業アプリを作成します。',
+            'Credentials & Basic Info ページを開き、App ID と App Secret をコピーしてください。'
           ],
           links: [
             {
@@ -1047,8 +1047,8 @@ export const identityTabs = [
         {
           title: 'ログイン callback を登録する',
           body: [
-            'Development Configuration → Security Settings → Redirect URLs を開き、Ankole の完全な URL を追加してください。',
-            'callback は正確に一致する必要があります。scheme、host、port、または provider ID が異なると、サインインは失敗します。'
+            'Development Configuration → Security Settings → Redirect URLs を開き、Ankole の完全な callback URL を追加します。',
+            'URL は 1 文字単位で完全一致している必要があります。スキーム、ホスト、ポート、Provider ID のいずれか 1 つでも異なるとサインインに失敗します。'
           ],
           links: [
             {
@@ -1060,7 +1060,7 @@ export const identityTabs = [
         {
           title: 'サインインとディレクトリの権限をインポートする',
           body: [
-            'Permissions を開き、一括インポートまたはエクスポートのアクションを選択してください。下記の JSON を貼り付けて、インポートを確認してください。権限がエンタープライズの承認を必要とする場合は、そのステータスが active になるまで待ってください。'
+            'Permissions 画面で一括インポート／エクスポートを開き、下記の JSON を貼り付けてインポートを実行します。テナント管理者の承認が必要な権限については、ステータスが有効（active）になるまで待ってください。'
           ],
           batchImport: {
             label: 'JSON を一括インポート',
@@ -1083,9 +1083,9 @@ export const identityTabs = [
           }
         },
         {
-          title: '長い接続のディレクトリイベントを設定する',
+          title: '常時接続のディレクトリイベントを設定する',
           body: [
-            'Events & Callbacks → Event Configuration を開き、long-connection または WebSocket の配信オプションを選択してください。下記の 7 つのイベントを追加してください。'
+            'Events & Callbacks → Event Configuration を開き、配信方式として常時接続（long connection / WebSocket）を選択したうえで、下記の 7 つのイベントを追加してください。'
           ],
           copyItems: [
             { value: 'contact.user.created_v3' },
@@ -1100,42 +1100,42 @@ export const identityTabs = [
         {
           title: '利用範囲を設定して公開する',
           body: [
-            '最初の管理者と、同期する必要があるすべての部門をアプリの利用範囲に追加してください。アプリのバージョンを作成して公開してください。公開されていない callback、権限、イベントの変更は社員に適用されません。'
+            '最初の管理者と、同期対象にしたいすべての部門をアプリの公開範囲（利用範囲）に含めます。その後、アプリのバージョンを作成して公開してください（未公開のままでは callback・権限・イベントの変更が反映されません）。'
           ]
         },
         {
           title: 'Lark または Feishu の値を Ankole に入力する',
           bullets: [
-            'App ID と App Secret: Credentials & Basic Info の値',
-            'Service region: Feishu には Feishu (Mainland China)、Lark には Lark (Global) を選択'
+            'App ID と App Secret: Credentials & Basic Info で取得した値',
+            'Service region: Feishu なら Feishu (Mainland China)、Lark なら Lark (Global) を選択'
           ],
           body: [
-            'デフォルトのディレクトリ同期設定は、通常は変更する必要がありません。Validate configuration を選択してサインインしてください。その後、Console → Identity Providers を開き、lark-main のフル同期を実行してください。',
-            'Principals と Principal groups で、社員、部門、メンバーシップを確認してください。'
+            'ディレクトリ同期の既定設定は通常そのままで構いません。Validate configuration を選択してサインインし、完了後に Console → Identity Providers から lark-main のフル同期を実行してください。',
+            'Principals と Principal groups に社員・部門・メンバーシップが反映されていることを確認します。'
           ]
         }
       ]
     },
     advanced: {
-      title: '長い接続、アプリの利用範囲、チャットアプリ',
-      summary: 'control plane が長い接続を開きます。公開の Feishu webhook は不要です。',
+      title: '常時接続、アプリの利用範囲、チャットアプリ',
+      summary: 'control plane 側からアウトバウンドで常時接続を確立するため、公開受信用 webhook は不要です。',
       steps: [
         {
           title: 'リアルタイムイベントなしでフル同期を使用する',
           body: [
-            '詳細設定（通常は変更不要）で、ディレクトリイベントが必要ない場合は Sync directory changes をオフにしてください。社員と部門の変更は、次のフル同期後に反映されます。'
+            'リアルタイムのディレクトリ変更購読が不要な場合は、詳細設定で Sync directory changes をオフにしてください。社員や部門の変更は次回のフル同期時に反映されます。'
           ]
         },
         {
           title: 'アプリの利用範囲をサインインの境界として使用する',
           body: [
-            'アプリの利用範囲が、誰がサインインできるかを制御します。部門または社員を追加したら、範囲を更新して新しいバージョンを公開してください。'
+            'サインインできるメンバーは、アプリの公開範囲（利用範囲）によって決まります。対象の部門や社員を追加した際は、範囲を更新して新しいバージョンを公開してください。'
           ]
         },
         {
           title: 'identity 用とチャット用に別々のアプリを使用する',
           body: [
-            '1 つのカスタムアプリを両方の役割に使用できますが、通常の運用では別々のアプリの方が優れています。サインインとディレクトリの権限は IdP アプリに置いてください。bot の権限はチャットアプリに置いてください。チャット binding の「Identity provider」フィールドでその IdP レコードを選択すると、両方のアプリが送信者を同じアカウントにマッピングします。'
+            '1 つのカスタムアプリで両方を兼ねることも可能ですが、本番運用では用途ごとにアプリを分ける構成を推奨します。サインインとディレクトリの権限は IdP 用アプリに、bot 関連の権限はチャット用アプリにそれぞれ付与し、チャット binding の「Identity provider」欄でその IdP レコードを選択すれば、両アプリ間で同一アカウントとして紐付けられます。'
           ]
         }
       ]
@@ -1145,11 +1145,11 @@ export const identityTabs = [
     value: 'dingtalk',
     label: 'DingTalk',
     summary:
-      '内部のエンタープライズアプリを作成します。同じ Client ID と Client Secret が、サインイン、組織ディレクトリへのアクセス、Stream 経由のリアルタイム変更を提供します。',
+      '企業内部アプリを作成し、1 組の Client ID と Client Secret でサインイン、組織ディレクトリの同期、および Stream モード経由のリアルタイム変更取得を行います。',
     prerequisites: [
-      '内部アプリを作成して公開できる DingTalk 管理者',
-      'ディレクトリ API へのアクセスを承認できる管理者',
-      '最初のサインイン用の組織内の社員アカウント'
+      '企業内部アプリを作成・公開できる DingTalk 管理者',
+      'ディレクトリ API 権限を承認できる管理者',
+      '初回サインインに使用する組織内の社員アカウント'
     ],
     basic: {
       title: 'DingTalk IdP をセットアップする',
@@ -1157,15 +1157,15 @@ export const identityTabs = [
         {
           title: 'Ankole から callback URL をコピーする',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。プラグインページで DingTalk Adapter を選択し、選択を保存してから DingTalk を選択してください。',
-            'Configuration ID（Provider ID）は dingtalk-main のままにしてください。Copy を使ってログイン callback URL をコピーしてください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力します。プラグイン画面で DingTalk Adapter を選んで保存し、続けて DingTalk を選択してください。',
+            'Configuration ID（Provider ID）は dingtalk-main のまま変更せず、Copy ボタンでログイン callback URL をコピーします。'
           ]
         },
         {
           title: '内部のエンタープライズアプリを作成する',
           body: [
-            'DingTalk 開発者コンソールを開いてください。App Development → Internal Enterprise Apps に進み、アプリを作成してください。',
-            'Basic Information → Credentials を開いてください。以前は AppKey と呼ばれていた Client ID と、以前は AppSecret と呼ばれていた Client Secret をコピーしてください。'
+            'DingTalk 開発者コンソールを開き、App Development → Internal Enterprise Apps から新規アプリを作成します。',
+            'Basic Information → Credentials を開き、Client ID（AppKey）と Client Secret（AppSecret）をコピーしてください。'
           ],
           links: [
             {
@@ -1177,14 +1177,14 @@ export const identityTabs = [
         {
           title: 'ログイン callback を登録する',
           body: [
-            'Development Configuration → Security Settings → Redirect URL を開いてください。Ankole の完全な URL を貼り付けて保存してください。',
-            'サインイン scope は openid corpid のままにしてください。corpid の claim により、サインインが選択した DingTalk 組織に制限されます。'
+            'Development Configuration → Security Settings → Redirect URL を開き、Ankole の完全な callback URL を貼り付けて保存します。',
+            'サインイン scope は openid corpid のまま維持してください。corpid クレームによって、サインイン対象が自社の DingTalk 組織メンバーに限定されます。'
           ]
         },
         {
           title: 'サインインとディレクトリ API の権限をリクエストする',
           body: [
-            'Permission Management → Contacts Management を開いてください。下記の操作の読み取りアクセスをリクエストしてください。ディレクトリの範囲を全社員に設定するか、サインインと同期が必要なすべての部門を含めてください。'
+            'Permission Management → Contacts Management を開き、下記の各操作に対する読み取り権限を申請します。ディレクトリの権限範囲は全社員にするか、サインインおよび同期が必要なすべての部門を含めてください。'
           ],
           copyItems: [
             { value: 'Contact.User.Read', description: '個人の連絡先情報を読み取ります' },
@@ -1198,7 +1198,7 @@ export const identityTabs = [
         {
           title: 'Stream 経由でディレクトリの変更を購読する',
           body: [
-            'Events & Callbacks を開き、Stream モードを選択してください。下記の 10 のイベントを追加してください。これらは社員、部門、管理者、組織の変更をカバーします。'
+            'Events & Callbacks を開いて Stream モードを選択し、社員・部門・管理者・組織の変更をカバーする下記 10 個のイベントを追加してください。'
           ],
           copyItems: [
             { value: 'user_add_org' },
@@ -1222,42 +1222,42 @@ export const identityTabs = [
         {
           title: '利用範囲を設定して公開する',
           body: [
-            '最初の管理者と、同期する必要がある部門をアプリの利用範囲に追加してください。callback、権限、イベント設定を含むバージョンを作成して公開してください。'
+            '最初の管理者と同期対象の部門をアプリの公開範囲（利用範囲）に追加し、callback・権限・イベント設定を反映した新しいバージョンを作成して公開します。'
           ]
         },
         {
           title: 'DingTalk の値を Ankole に入力する',
           bullets: [
-            'Client ID (AppKey): credential ページの Client ID',
+            'Client ID (AppKey): Credentials ページの Client ID',
             'Client Secret (AppSecret): 同じページの Client Secret'
           ],
           body: [
-            'Sync directory と Sync directory changes をオンにしたままにしてください。Validate configuration を選択してサインインしてください。Ankole は DingTalk のサインインを開く前に credential を確認します。',
-            'サインインの後、Console → Identity Providers を開き、dingtalk-main のフル同期を実行してください。Principals と Principal groups で、社員と部門を確認してください。'
+            'Sync directory と Sync directory changes をオンのまま Validate configuration を選択してサインインします（Ankole は DingTalk の認可画面へ遷移する前に認証情報を検証します）。',
+            'サインイン完了後、Console → Identity Providers で dingtalk-main のフル同期を実行し、Principals と Principal groups に社員と部門が入っていることを確認してください。'
           ]
         }
       ]
     },
     advanced: {
       title: 'Stream、ディレクトリの範囲、ページサイズ',
-      summary: 'control plane が Stream 接続を開きます。公開の webhook は不要です。',
+      summary: 'control plane 側から Stream 接続を張るため、公開 webhook は不要です。',
       steps: [
         {
           title: 'Stream イベントなしでフル同期を使用する',
           body: [
-            'ディレクトリイベントが必要ない場合は Sync directory changes をオフにしてください。社員と部門の変更は、次のフル同期後に反映されます。'
+            'リアルタイムのディレクトリ変更イベントが不要な場合は Sync directory changes をオフにします。社員や部門の変更は次回のフル同期後に反映されます。'
           ]
         },
         {
           title: 'ディレクトリの権限範囲を確認する',
           body: [
-            '同期で人や部門が欠ける場合は、Permission Management のディレクトリ範囲を確認してください。承認された API 権限でも、範囲がそれを除外していると不完全なデータを返すことがあります。'
+            '同期結果から一部のメンバーや部門が抜け落ちる場合は、Permission Management のディレクトリ権限範囲を確認してください。API 権限自体が承認済みでも、権限範囲から外れている対象は取得されません。'
           ]
         },
         {
           title: '最初はデフォルトのページサイズを維持する',
           body: [
-            'デフォルトのページサイズは 50 で、許可される範囲は 1〜100 です。デフォルトでフル同期を 1 回完了させてください。測定されたレート制限またはレスポンスサイズの問題がある場合のみ変更してください。'
+            '既定のページサイズは 50（指定可能範囲は 1〜100）です。まずは既定値のままフル同期を 1 回完了させ、実際にレート制限やレスポンスサイズの問題が観測された場合にのみ調整してください。'
           ]
         }
       ]
@@ -1267,11 +1267,11 @@ export const identityTabs = [
     value: 'wecom',
     label: 'WeCom',
     summary:
-      '自建アプリが QR サインインを担い、専用の Contacts 同期 secret が定期的なフル同期でメンバーと部門をインポートします。サインインとディレクトリ API の呼び出しは、どちらも固定の出口 IP を必要とします。',
+      '自社開発（自建）アプリで QR サインインを行い、Contacts 同期用の専用 secret でメンバーと部門を定期フル同期します。サインインとディレクトリ API 呼び出しのどちらにも、固定の送信元（egress）IP が必要です。',
     prerequisites: [
       'WeCom 企業のスーパー管理者アカウント',
-      '固定の出口 IP を持つ Ankole デプロイメント',
-      '最初のサインイン用の企業内のメンバーアカウント'
+      '固定の送信元（egress）IP を持つ Ankole デプロイメント',
+      '初回サインインに使用する企業内メンバーアカウント'
     ],
     basic: {
       title: 'WeCom IdP をセットアップする',
@@ -1279,13 +1279,13 @@ export const identityTabs = [
         {
           title: 'Ankole から callback URL をコピーする',
           body: [
-            'https://<ANKOLE_HOST>/setup を開き、activation code を入力してください。プラグインページで WeCom Adapter を選択し、選択を保存してから WeCom を選択してください。',
-            'Configuration ID（Provider ID）は wecom-main のままにしてください。Copy を使ってログイン callback URL をコピーしてください。'
+            'https://<ANKOLE_HOST>/setup を開いて activation code を入力します。プラグイン画面で WeCom Adapter を選んで保存し、続けて WeCom を選択してください。',
+            'Configuration ID（Provider ID）は wecom-main のまま変更せず、Copy ボタンでログイン callback URL をコピーします。'
           ]
         },
         {
           title: 'Corp ID を記録する',
-          body: ['WeCom 管理コンソールを開いてください。My Company → Company information に進み、Corp ID をコピーしてください。'],
+          body: ['WeCom 管理コンソールを開き、My Company → Company information から Corp ID をコピーしてください。'],
           links: [
             {
               label: 'WeCom 管理コンソールを開く',
@@ -1296,59 +1296,59 @@ export const identityTabs = [
         {
           title: '信頼ドメインと信頼 IP を持つ自建アプリを作成する',
           body: [
-            'App Management → Self-built → Create app に進みます。アプリの詳細を開き、AgentId と Secret をコピーしてください。',
-            '同じページで 2 つの値を設定してください。Web 認可の信頼ドメインとして Ankole のドメインを追加し、デプロイメントの出口 IP を信頼 IP リストに追加してください。'
+            'App Management → Self-built → Create app で自社開発（自建）アプリを作成し、詳細ページから AgentId と Secret をコピーします。',
+            'あわせて同じページで、Web 認可の信頼ドメインに Ankole のドメインを設定し、信頼 IP リストにデプロイメントの固定送信元（egress）IP を登録してください。'
           ],
           caution:
-            '信頼 IP のエントリが欠けていると、サインインと API 呼び出しがエラー 60020 で失敗します。信頼ドメインが欠けていると、QR スキャン後のリダイレクトがブロックされます。'
+            '信頼 IP が未登録だとサインインおよび API 呼び出しがエラー 60020 で失敗し、信頼ドメインが未設定だと QR スキャン後のリダイレクトがブロックされます。'
         },
         {
           title: 'Contacts 同期を有効にして専用の secret を記録する',
           body: [
-            'Security & Administration → Management tools → Contacts sync に進みます。API 同期を有効にし、専用の secret をコピーし、それ専用の信頼 IP を登録してください。',
-            '2022 年 6 月以降、通常のアプリ secret はメンバー名などのプロファイルフィールドを返さなくなりました。この専用の secret がないと、ディレクトリ同期は利用できず、サインインしたユーザーは素の user ID のままになります。'
+            'Security & Administration → Management tools → Contacts sync に進み、API 同期を有効化して専用 secret をコピーしたうえで、こちらにも同じ固定送信元 IP を信頼 IP として登録します。',
+            '2022 年 6 月以降の WeCom 仕様により、通常のアプリ secret ではメンバー氏名などのプロファイル項目を取得できません。Contacts 同期の専用 secret がないとディレクトリ同期は行えず、サインインしたユーザーも素の user ID のまま表示されます。'
           ]
         },
         {
           title: 'WeCom の値を Ankole に入力する',
           bullets: [
             'Corp ID: Company information の値',
-            '自建アプリの AgentId / Secret: アプリ詳細の 2 つの値',
-            'Contacts 同期 Secret: Contacts 同期ページの専用の secret'
+            '自建アプリの AgentId / Secret: アプリ詳細ページの 2 つの値',
+            'Contacts 同期 Secret: Contacts sync ページの専用 secret'
           ],
           body: [
-            'Enable login と Sync directory をオンにしたままにしてください。Validate configuration を選択してサインインし、WeCom の QR サインインを完了してください。'
+            'Enable login と Sync directory をオンのまま Validate configuration を選択し、WeCom の QR コードスキャンでサインインを完了してください。'
           ]
         },
         {
           title: 'サインインと最初の同期を確認する',
           body: [
-            '最初にサインインしたメンバーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers を開き、wecom-main を選択してフル同期を実行してください。',
-            'Principals と Principal groups で、メンバーと部門を確認してください。'
+            '最初にサインインしたメンバーに siteadmin（/site-admin-console の Site Admin Console）とデフォルト Pod の pod_admin の両方が付与されます。Console → Identity Providers で wecom-main を選択し、フル同期を実行してください。',
+            'Principals と Principal groups にメンバーと部門が取り込まれていることを確認します。'
           ]
         }
       ]
     },
     advanced: {
       title: '同期の頻度、信頼 IP、サインインのみ',
-      summary: 'WeCom はリアルタイムのディレクトリイベントを送信しません。変更は定期的なフル同期で収束します。',
+      summary: 'WeCom はリアルタイムのディレクトリ変更イベントを配信しないため、組織の変更は定期的なフル同期によって反映されます。',
       steps: [
         {
           title: 'ディレクトリの変更後にフル同期を実行する',
           body: [
-            'WeCom はディレクトリの変更を Ankole にプッシュしません。メンバーを追加した後や部門を変更した後は、Console → Identity Providers でフル同期を実行するか、次の定期的な同期を待ってください。'
+            'WeCom 側からディレクトリの変更がプッシュ通知されることはありません。メンバーの追加や部門変更を行った際は、Console → Identity Providers から手動でフル同期を実行するか、次回の定期同期を待ってください。'
           ]
         },
         {
           title: '出口 IP が変わったら両方の信頼 IP リストを更新する',
           body: [
-            '自建アプリと Contacts 同期は、それぞれ独自の信頼 IP リストを持っています。移行または出口 IP の変更の後は、両方のリストを更新してください。更新しないと、サインインと同期の両方がエラー 60020 で失敗します。'
+            '自社開発（自建）アプリと Contacts 同期は、それぞれ独立した信頼 IP リストを持っています。環境移行などで送信元（egress）IP が変わった場合は必ず両方のリストを更新してください（片方でも漏れるとエラー 60020 で失敗します）。'
           ]
         },
         {
           title: 'ディレクトリ同期なしでサインインを使用する',
           body: [
-            'Sync directory をオフにすると、Contacts 同期の secret は任意になります。サインインした Principal は、名前や部門グループのない素の WeCom アカウント ID のままになります。'
+            'Sync directory をオフにすると Contacts 同期用の secret は省略できますが、サインインした Principal には氏名や部門グループが入らず、WeCom のアカウント ID のままとなります。'
           ]
         }
       ]
@@ -1358,7 +1358,7 @@ export const identityTabs = [
 
 export const modelAdvanced = {
   title: '任意の Agent profile と Brain メンテナンス',
-  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain はサイト単位の embedding モデルとテナント単位の rerank モデルを使います。',
+  summary: '追加の能力 profile は必要な機能に応じて設定します。Brain の検索にはサイト単位の embedding モデルとテナント単位の rerank モデルが使われます。',
   steps: [
     {
       title: '任意の Agent 能力 profile を追加する',
@@ -1366,40 +1366,40 @@ export const modelAdvanced = {
         {
           name: 'Background Agent Jobs',
           description:
-            '永続的な Background Agent Jobs 用の provider とモデルを選択します（内部では coding profile として保存されます）。'
+            '永続的な Background Agent Jobs で使用する provider とモデルを選択します（内部では coding profile として保存されます）。'
         },
         {
           name: 'vision_fallback',
-          description: 'プライマリモデルが画像を検査できないときのフォールバック。'
+          description: 'primary モデルが画像を直接扱えない場合に使われる画像認識用フォールバックモデル。'
         },
         {
           name: 'web_search / web_fetch',
-          description: 'Web の発見とページ取得用の provider。'
+          description: 'Web 検索および Web ページ取得に使用する provider。'
         },
         {
           name: 'image_generate',
-          description: '画像生成用のモデル。'
+          description: '画像生成に使用するモデル。'
         }
       ]
     },
     {
       title: 'Brain メンテナンス Agent と検索モデルを選択する',
       body: [
-        'Console → AppConfigure → Brain を開きます。テナントと、その Brain を管理する有効な Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得を停止します。リンク先の Agent ページでモデル profile を編集します。'
+        'Console → AppConfigure → Brain を開き、対象テナントとその Brain の保守を担う有効な Agent を選択します。Brain によるすべてのモデル呼び出しはこの Agent の ID で実行され、トークン使用量もこの Agent に計上されます。この Agent を無効化すると、再度有効化するか別の Agent に切り替えるまで、Brain のモデル呼び出しと URL Source の取得が停止します。モデル profile 自体はリンク先の Agent 詳細ページで編集してください。'
       ],
       fields: [
         {
           name: 'brain.maintainer_agent_uid',
           description:
-            '選択した Agent の light profile で知識を抽出し、heavy profile で Dreaming を実行し、web_fetch profile で URL Source を取得します。web_fetch が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。'
+            '指定された Agent の light profile で知識抽出、heavy profile で Dreaming、web_fetch profile で URL Source の取得を行います。web_fetch が未設定の場合や Provider リクエストが失敗した場合は、URL Source の取得も失敗します。'
         },
         {
           name: 'brain.embedding_model',
-          description: 'サイト単位の設定です。ベクトル検索を有効にします。Provider とモデルを選び、embedding の次元数を入力します。'
+          description: 'サイト単位の設定です。ベクトル検索を有効化するため、Provider とモデルを選択して embedding の次元数を入力します。'
         },
         {
           name: 'brain.rerank_model',
-          description: 'テナント単位の設定です。融合した検索結果を rerank します。空の場合は融合後の順序を保ちます。'
+          description: 'テナント単位の設定です。統合された検索候補を再ランキングします（未設定の場合は統合時のスコア順をそのまま維持します）。'
         }
       ],
       links: [
@@ -1415,37 +1415,37 @@ export const channelTabs = [
     label: 'Slack',
     badge: 'デフォルト',
     summary:
-      'Slack は Socket Mode を使用します。Ankole はアウトバウンドの WebSocket を開くため、チャットの経路に公開の Slack webhook は不要です。',
-    prerequisites: ['Slack app を作成してインストールする権限', 'テスト用のチャンネルまたはダイレクトメッセージ'],
+      'Slack は Socket Mode を使用します。Ankole 側からアウトバウンドの WebSocket を開くため、チャット受信用に公開の Slack webhook を用意する必要はありません。',
+    prerequisites: ['Slack app の作成・インストール権限', 'テスト用のチャンネルまたはダイレクトメッセージ'],
     basic: {
       title: 'Slack app を準備する',
       steps: [
         {
           title: 'アプリを作成して Socket Mode を有効にする',
           body: [
-            'Slack app をゼロから作成してください。Basic Information で App-Level Token を作成し、下記の scope を追加してから Socket Mode を有効にしてください。'
+            'Slack app を From scratch で新規作成します。Basic Information で下記の scope を持つ App-Level Token を発行し、その後 Socket Mode を有効にしてください。'
           ],
           copyItems: [
-            { value: 'connections:write', description: 'App Token が Socket Mode 接続を開けるようにします' }
+            { value: 'connections:write', description: 'Socket Mode 接続の確立を許可します' }
           ]
         },
         {
           title: 'チャットとチャンネル状態のイベントを購読する',
           body: [
-            'Event Subscriptions → Subscribe to bot events を開いてください。下記の各イベントを追加してください。このセットは、Slack アダプタが実装するメッセージ、リアクション、チャンネル状態の機能に一致します。'
+            'Event Subscriptions → Subscribe to bot events を開き、下記の各イベントを追加します。これらは Slack アダプターが扱うメッセージ・リアクション・チャンネル状態同期に対応するイベント一式です。'
           ],
           copyItems: [
-            { value: 'app_mention', description: 'チャンネルの @ メンションを受信します' },
+            { value: 'app_mention', description: 'チャンネルでの @メンションを受信します' },
             { value: 'message.channels', description: 'パブリックチャンネルのメッセージを受信します' },
             { value: 'message.groups', description: 'プライベートチャンネルのメッセージを受信します' },
             { value: 'message.im', description: 'ダイレクトメッセージを受信します' },
             { value: 'message.mpim', description: '複数人ダイレクトメッセージを受信します' },
-            { value: 'reaction_added', description: '追加されたリアクションを受信します' },
-            { value: 'reaction_removed', description: '削除されたリアクションを受信します' },
-            { value: 'member_joined_channel', description: 'チャンネルに参加したメンバーを同期します' },
-            { value: 'member_left_channel', description: 'チャンネルを離れたメンバーを同期します' },
-            { value: 'channel_rename', description: 'チャンネルの名称変更を同期します' },
-            { value: 'group_rename', description: 'プライベートチャンネルの名称変更を同期します' },
+            { value: 'reaction_added', description: 'リアクションの追加を受信します' },
+            { value: 'reaction_removed', description: 'リアクションの削除を受信します' },
+            { value: 'member_joined_channel', description: 'チャンネルへのメンバー参加を同期します' },
+            { value: 'member_left_channel', description: 'チャンネルからのメンバー退出を同期します' },
+            { value: 'channel_rename', description: 'チャンネル名の変更を同期します' },
+            { value: 'group_rename', description: 'プライベートチャンネル名の変更を同期します' },
             { value: 'channel_deleted', description: 'チャンネルの削除を同期します' },
             { value: 'channel_archive', description: 'チャンネルのアーカイブを同期します' }
           ]
@@ -1453,38 +1453,38 @@ export const channelTabs = [
         {
           title: 'ダイレクトメッセージを有効にする',
           body: [
-            'App Home → Show Tabs を開いてください。Display Messages tab をオンにし、Allow users to send Slash commands and messages from the messages tab を選択してください。Messages タブだけでは表示領域が現れるだけで、ユーザーは Agent にダイレクトメッセージを送れません。'
+            'App Home → Show Tabs を開き、Display Messages tab をオンにしたうえで、Allow users to send Slash commands and messages from the messages tab にチェックを入れてください。Messages タブを表示するだけでは、ユーザーから Agent へダイレクトメッセージを送ることはできません。'
           ]
         },
         {
           title: 'Slack ネイティブの対話性を有効にする',
           body: [
-            'Interactivity & Shortcuts を開き、Interactivity を有効にしてください。Socket Mode は既存の WebSocket 経由で Block Kit のボタンアクションを配信するため、公開の Request URL は不要です。'
+            'Interactivity & Shortcuts を開いて Interactivity を有効にします。Block Kit のボタン操作も既存の Socket Mode WebSocket 経由で配信されるため、公開 Request URL の設定は不要です。'
           ]
         },
         {
           title: '完全なチャット scope を付与してアプリをインストールする',
           body: [
-            'OAuth & Permissions → Bot Token Scopes で、下記の各 scope を追加してください。このセットは Ankole が呼び出す Slack API のみをカバーします。未使用の assistant、workflow、document、meeting の scope は付与しないでください。'
+            'OAuth & Permissions → Bot Token Scopes に下記の各 scope を追加します。これらは Ankole が実際に呼び出す Slack API のみを対象としています。不要な assistant・workflow・document・meeting 系の scope は付与しないでください。'
           ],
           copyItems: [
-            { value: 'app_mentions:read', description: 'bot に言及したメッセージを読み取ります' },
+            { value: 'app_mentions:read', description: 'bot 宛てのメンションメッセージを読み取ります' },
             { value: 'channels:read', description: 'パブリックチャンネルとそのメンバーを同期します' },
-            { value: 'channels:history', description: 'パブリックチャンネルのメッセージを読み取り、返信を調整します' },
+            { value: 'channels:history', description: 'パブリックチャンネルの履歴読み取りと返信調整を行います' },
             { value: 'groups:read', description: 'プライベートチャンネルとそのメンバーを同期します' },
-            { value: 'groups:history', description: 'プライベートチャンネルのメッセージを読み取り、返信を調整します' },
+            { value: 'groups:history', description: 'プライベートチャンネルの履歴読み取りと返信調整を行います' },
             { value: 'im:read', description: 'ダイレクトメッセージの会話を同期します' },
-            { value: 'im:history', description: 'ダイレクトメッセージを読み取り、返信を調整します' },
+            { value: 'im:history', description: 'ダイレクトメッセージの読み取りと返信調整を行います' },
             { value: 'mpim:read', description: '複数人ダイレクトメッセージとそのメンバーを同期します' },
-            { value: 'mpim:history', description: '複数人ダイレクトメッセージを読み取り、返信を調整します' },
-            { value: 'chat:write', description: 'bot メッセージを送信、更新、削除します' },
+            { value: 'mpim:history', description: '複数人ダイレクトメッセージの読み取りと返信調整を行います' },
+            { value: 'chat:write', description: 'bot メッセージの送信・更新・削除を行います' },
             { value: 'reactions:read', description: 'リアクションの変更を受信します' },
-            { value: 'reactions:write', description: 'リアクションを追加および削除します' },
-            { value: 'files:read', description: 'メッセージに添付されたファイルを読み取ります' },
-            { value: 'files:write', description: 'Agent が送信するファイルをアップロードします' },
-            { value: 'users:read', description: 'チャンネルメンバーを特定し、bot アカウントを除外します' }
+            { value: 'reactions:write', description: 'リアクションの追加と削除を行います' },
+            { value: 'files:read', description: 'メッセージの添付ファイルを読み取ります' },
+            { value: 'files:write', description: 'Agent から送信するファイルをアップロードします' },
+            { value: 'users:read', description: 'チャンネルメンバーの識別と bot アカウントの除外を行います' }
           ],
-          caution: 'scope を変更した後は、アプリをワークスペースに再インストールし、新しい Bot Token を Ankole に書き込んでください。'
+          caution: 'scope を変更した後は、必ずアプリをワークスペースへ再インストールし、新しい Bot Token で Ankole 側の設定を更新してください。'
         },
         {
           title: 'Console のフィールドを収集する',
@@ -1492,12 +1492,12 @@ export const channelTabs = [
             {
               name: 'botToken',
               value: 'xoxb-…',
-              description: 'Bot User OAuth Token。xoxb- プレフィックスが必要です。'
+              description: 'Bot User OAuth Token（xoxb- で始まる必要があります）。'
             },
             {
               name: 'appToken',
               value: 'xapp-…',
-              description: 'Socket Mode 用の App-Level Token。xapp- プレフィックスが必要です。'
+              description: 'Socket Mode 用の App-Level Token（xapp- で始まる必要があります）。'
             }
           ]
         }
@@ -1505,17 +1505,17 @@ export const channelTabs = [
     },
     advanced: {
       title: 'メッセージポリシー、主体マッピング、Slack を IdP として使用',
-      summary: 'Slack はイベントを配信しますが、アドレス指定されていないメッセージを Ankole がどう処理するかは、やはり signal routing ルールが決定します。',
+      summary: 'Slack からイベントが配信されても、メンションのないメッセージをどう扱うかは Ankole の signal routing ルールによって決まります。',
       steps: [
         {
           title: 'Agent に言及しないメッセージのポリシーを選択する',
           body: [
-            '上記のイベントと scope により、Slack は完全な会話を配信できますが、Ankole の signal routing ポリシーを置き換えるわけではありません。最初は addressed_only から始めてください。Agent が直接の言及なしで観察または介入する必要がある場合のみ、observe_all または may_intervene を選択してください。'
+            '上記のイベントと scope によって Slack から会話全体を受信できるようになりますが、Ankole 側の signal routing ポリシー自体は別途選択します。まずは addressed_only から始め、直接のメンションなしでも会話を把握・介入させたい場合にのみ observe_all または may_intervene へ切り替えてください。'
           ]
         },
         {
           title: '1 つのアプリが Slack IdP も兼ねる場合に identity の権限を追加する',
-          body: ['本番では別の IdP アプリを使用してください。1 つのアプリが両方の役割を担う必要がある場合のみ、下記の Bot scope とディレクトリイベントを追加してください。'],
+          body: ['本番環境では IdP 用とチャット用でアプリを分けることを推奨します。1 つのアプリに両方の役割を持たせる必要がある場合にのみ、下記の Bot scope とディレクトリイベントを追加してください。'],
           copyItems: [
             { value: 'users:read.email', description: 'メンバーのメールアドレスを同期します' },
             { value: 'usergroups:read', description: 'ユーザーグループとそのメンバーを同期します' },
@@ -1523,7 +1523,7 @@ export const channelTabs = [
             { value: 'user_change', description: 'メンバープロファイルの変更を受信します' },
             { value: 'subteam_created', description: 'ユーザーグループの作成を受信します' },
             { value: 'subteam_updated', description: 'ユーザーグループの更新を受信します' },
-            { value: 'subteam_members_changed', description: 'ユーザーグループのメンバーシップ変更を受信します' }
+            { value: 'subteam_members_changed', description: 'ユーザーグループのメンバー構成変更を受信します' }
           ]
         },
         {
@@ -1532,19 +1532,19 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: 'Slack IdP を選択',
-              description: 'Slack IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要で、独立した namespace を選ぶこともできます。この binding の送信者はその IdP のユーザーとして解決されるため、1 つのワークスペースは 1 組のアカウントに対応します。'
+              description: 'Slack IdP が 1 つだけの場合は自動で選択されます。複数ある場合は明示的に選択するか、独立した namespace として扱うこともできます。IdP を参照すると、チャットの発言者がその IdP のユーザーと統合され、ワークスペース全体で同一アカウントとして扱われます。'
             },
             {
               name: 'userName',
               value: 'Slack',
-              description: 'アウトバウンドメッセージに使用する表示名。'
+              description: 'アウトバウンド送信メッセージで使用する表示名。'
             }
           ]
         },
         {
           title: '別の Slack IdP アプリを作成する',
           body: [
-            '通常の運用では、SSO とディレクトリ同期用に別の Slack app を作成してください。identity の権限は IdP アプリに、bot の権限はチャットアプリに置いてください。チャット binding の「Identity provider」フィールドでその IdP レコードを選択してください。'
+            '通常運用では、SSO・ディレクトリ同期用とチャット bot 用で別々の Slack app を作成してください。identity 関連の権限は IdP アプリに、bot 関連の権限はチャットアプリに分離し、チャット binding の「Identity provider」欄で対象の IdP レコードを選択します。'
           ]
         }
       ]
@@ -1554,15 +1554,15 @@ export const channelTabs = [
     value: 'teams',
     label: 'Microsoft Teams',
     summary:
-      'Teams は Bot Framework の webhook を送信します。信頼された証明書を持つ公開の HTTPS エンドポイントが必須です。',
-    prerequisites: ['Entra ID テナント', '公開 HTTPS の Ankole ホスト', 'Teams bot を登録してインストールする権限'],
+      'Teams は Bot Framework の webhook 経由でメッセージを送信するため、信頼された TLS 証明書を持つ公開 HTTPS エンドポイントが必須です。',
+    prerequisites: ['Entra ID テナント', '公開 HTTPS の Ankole ホスト', 'Teams bot を登録・インストールできる権限'],
     basic: {
       title: 'Teams bot を準備する',
       steps: [
         {
           title: 'アプリと bot を登録する',
           body: [
-            'Entra のアプリ登録と Azure Bot リソースを作成してください。アプリケーションの client ID が appID になります。appPassword 用の client secret を作成してください。'
+            'Entra のアプリ登録と Azure Bot リソースを作成します。アプリケーションの client ID が appID になるため、あわせて appPassword 用の client secret を発行してください。'
           ]
         },
         {
@@ -1573,7 +1573,7 @@ export const channelTabs = [
               code: 'https://<ANKOLE_HOST>/webhooks/v1/teams/<appID>/messages'
             }
           ],
-          body: ['appID のパスセグメントは、signal routing ルールの App ID と一致する必要があります。']
+          body: ['URL パス内の appID は、signal routing ルールに設定する App ID と一致させる必要があります。']
         },
         {
           title: 'テナントモードを選択する',
@@ -1581,11 +1581,11 @@ export const channelTabs = [
             {
               name: 'botTenancy',
               value: 'single_tenant',
-              description: '1 つのエンタープライズテナント向けの推奨開始モード。'
+              description: '単一の企業テナントで運用する場合の推奨モード。'
             },
             {
               name: 'tenantID',
-              description: 'Entra テナントの GUID。シングルテナントの bot に必要です。'
+              description: 'Entra テナントの GUID（シングルテナント構成では必須）。'
             }
           ]
         },
@@ -1594,11 +1594,11 @@ export const channelTabs = [
           fields: [
             {
               name: 'appID',
-              description: 'Azure Bot 登録の Microsoft App ID。GUID である必要があります。'
+              description: 'Azure Bot 登録の Microsoft App ID（GUID 形式）。'
             },
             {
               name: 'appPassword',
-              description: 'Microsoft App の client secret。'
+              description: 'Microsoft App の client secret 値。'
             }
           ]
         }
@@ -1606,12 +1606,12 @@ export const channelTabs = [
     },
     advanced: {
       title: 'クロステナント bot、Entra identity、ディレクトリ webhook',
-      summary: 'bot が複数の Entra テナントにサービスを提供する場合、または Entra ID が SSO も供給する場合に拡張します。',
+      summary: '1 つの bot で複数の Entra テナントに対応する場合や、Entra ID で SSO もあわせて提供する場合の設定です。',
       steps: [
         {
           title: '1 つの Bot Framework アプリで複数の Entra テナントにサービスを提供する',
           body: [
-            'Azure Bot の登録が複数の Entra テナントを許可する場合のみ、botTenancy を multi_tenant に設定してください。アダプタは bot の token テナントに botframework.com を使用します。この Microsoft のアプリ登録モードは、Ankole デプロイメントインスタンスの境界を変更しません。'
+            'Azure Bot 側がマルチテナント登録になっている場合にのみ、botTenancy を multi_tenant に設定してください（トークン取得先テナントとして botframework.com が使われます）。なお、Microsoft 側のアプリ登録モードを変更しても、Ankole デプロイメントインスタンス自体のテナント境界が変わるわけではありません。'
           ]
         },
         {
@@ -1620,19 +1620,19 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: 'Entra ID IdP を選択',
-              description: 'Entra ID IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要です。Teams の送信者は、ディレクトリ同期とサインインが使うのと同じアカウントとして解決されます。'
+              description: 'Entra ID IdP が 1 つだけの場合は自動で選択されます。複数ある場合は対象を選択してください。Teams の発言者がディレクトリ同期およびサインインと同じアカウントに紐付けられます。'
             },
             {
               name: 'userName',
               value: 'Teams',
-              description: 'アウトバウンドメッセージに使用する表示名。'
+              description: 'アウトバウンド送信メッセージで使用する表示名。'
             }
           ]
         },
         {
           title: 'Graph のディレクトリ同期を IdP に保持する',
           body: [
-            'Entra のフル同期とリアルタイムのディレクトリ同期は IdP レコードに属します。Graph 通知は別のディレクトリ webhook を使用し、公開の HTTPS ホストが依然として必要です。'
+            'Entra のフル同期およびリアルタイムのディレクトリ同期は、チャット binding ではなく IdP レコード側で管理されます。Graph からの変更通知には別途ディレクトリ用 webhook が使われるため、引き続き公開 HTTPS ホストが必要です。'
           ]
         }
       ]
@@ -1642,21 +1642,21 @@ export const channelTabs = [
     value: 'lark',
     label: 'Lark / Feishu',
     summary:
-      'Lark と Feishu はアウトバウンドの長い接続を使用します。チャットの経路にはインターネットアクセスが必要ですが、公開のインバウンド webhook は不要です。',
-    prerequisites: ['エンタープライズのカスタムアプリを作成する権限', 'アプリの利用範囲内のテストユーザー'],
+      'Lark / Feishu はアウトバウンドの常時接続（long connection）を使用します。インターネットへの送信通信は必要ですが、公開の受信用 webhook は不要です。',
+    prerequisites: ['カスタム企業アプリを作成する権限', 'アプリの公開範囲に含まれるテストユーザー'],
     basic: {
       title: 'Lark または Feishu アプリを準備する',
       steps: [
         {
           title: 'アプリを作成して bot 機能を有効にする',
           body: [
-            'エンタープライズのカスタムアプリを作成し、bot 機能を有効にし、テストユーザーを利用範囲に追加してください。'
+            'カスタム企業アプリを作成して bot 機能を有効にし、テストユーザーをアプリの公開範囲（利用範囲）に追加してください。'
           ]
         },
         {
           title: '完全なチャット scope をインポートする',
           body: [
-            'Permissions を開き、一括インポートまたはエクスポートのアクションを選択し、下記の JSON を貼り付けて、インポートを確認してください。このセットは、アダプタが呼び出す bot、メッセージ、リアクション、ファイル、カード、ルーム、メンバーシップの API に一致します。ディレクトリ書き込み、ドキュメント、ミーティング、緊急メッセージの権限をチャットアプリに追加しないでください。'
+            'Permissions 画面で一括インポート／エクスポートを選択し、下記の JSON を貼り付けてインポートを実行します。これらはアダプターが呼び出す bot・メッセージ・リアクション・ファイル・カード・ルーム・メンバーシップ API に対応する権限一式です。ディレクトリ書き込みやドキュメント・会議・緊急通知の権限はチャット用アプリに付与しないでください。'
           ],
           batchImport: {
             label: 'JSON を一括インポート',
@@ -1684,22 +1684,22 @@ export const channelTabs = [
           }
         },
         {
-          title: '長い接続を選択して実装済みのイベントを追加する',
+          title: '常時接続を選択して実装済みのイベントを追加する',
           body: [
-            'Events and Callbacks で、long connection を選択し、下記の各イベントを追加してください。プラットフォームがクライアントを検出する間、Ankole の control plane を起動したままにしてください。'
+            'Events and Callbacks で常時接続（long connection）を選択し、下記の各イベントを追加します。プラットフォーム側が接続クライアントを検出できるよう、Ankole の control plane を起動した状態で設定してください。'
           ],
           copyItems: [
-            { value: 'im.message.receive_v1', description: 'bot に送信されたメッセージを受信します' },
-            { value: 'im.message.recalled_v1', description: 'メッセージの撤回イベントを受信します' },
-            { value: 'im.message.reaction.created_v1', description: '追加されたリアクションを受信します' },
-            { value: 'im.message.reaction.deleted_v1', description: '削除されたリアクションを受信します' },
+            { value: 'im.message.receive_v1', description: 'bot 宛てのメッセージを受信します' },
+            { value: 'im.message.recalled_v1', description: 'メッセージの送信取り消しイベントを受信します' },
+            { value: 'im.message.reaction.created_v1', description: 'リアクションの追加を受信します' },
+            { value: 'im.message.reaction.deleted_v1', description: 'リアクションの削除を受信します' },
             { value: 'im.chat.member.bot.added_v1', description: 'bot が追加されたルームを同期します' },
-            { value: 'im.chat.member.bot.deleted_v1', description: 'bot が削除されたルームを同期します' },
-            { value: 'im.chat.member.user.added_v1', description: 'ルームに参加したメンバーを同期します' },
-            { value: 'im.chat.member.user.deleted_v1', description: 'ルームを離れたメンバーを同期します' },
-            { value: 'im.chat.updated_v1', description: 'ルームの変更を同期します' },
-            { value: 'im.chat.disbanded_v1', description: 'ルームの削除を同期します' },
-            { value: 'card.action.trigger', description: 'インタラクティブカードのアクションを受信します' }
+            { value: 'im.chat.member.bot.deleted_v1', description: 'bot が退出したルームを同期します' },
+            { value: 'im.chat.member.user.added_v1', description: 'ルームへのメンバー参加を同期します' },
+            { value: 'im.chat.member.user.deleted_v1', description: 'ルームからのメンバー退出を同期します' },
+            { value: 'im.chat.updated_v1', description: 'ルーム情報の変更を同期します' },
+            { value: 'im.chat.disbanded_v1', description: 'ルームの解散を同期します' },
+            { value: 'card.action.trigger', description: 'インタラクティブカードのボタン操作を受信します' }
           ]
         },
         {
@@ -1707,16 +1707,16 @@ export const channelTabs = [
           fields: [
             {
               name: 'appID',
-              description: 'エンタープライズのカスタムアプリ ID。'
+              description: 'カスタム企業アプリの App ID。'
             },
             {
               name: 'appSecret',
-              description: 'エンタープライズのカスタムアプリの secret。'
+              description: 'カスタム企業アプリの App Secret。'
             },
             {
               name: 'domain',
               value: 'feishu or lark',
-              description: 'Feishu.cn には feishu、Larksuite.com には lark を使用してください。'
+              description: 'Feishu.cn の場合は feishu、Larksuite.com の場合は lark を指定します。'
             }
           ]
         }
@@ -1724,21 +1724,21 @@ export const channelTabs = [
     },
     advanced: {
       title: 'フルルームの context、別の identity、主体マッピング',
-      summary: 'Agent がルームを観察する必要がある場合、または Lark が SSO も供給する場合に拡張します。',
+      summary: 'ルーム内の通常発言も Agent に把握させたい場合や、Lark を SSO にも利用する場合の設定です。',
       steps: [
         {
           title: 'Agent にアドレス指定されていないグループメッセージを観察させる',
           body: [
-            'observe_all または may_intervene を使用する前に、下記の権限を追加してください。最初の会話を確認している間は addressed_only から始めてください。'
+            'observe_all や may_intervene を利用する場合は、事前に下記の権限を追加してアプリを再公開してください。初回の疎通確認は addressed_only のまま行うことを推奨します。'
           ],
           copyItems: [
-            { value: 'im:message.group_msg', description: 'bot に言及しないグループメッセージを読み取ります' }
+            { value: 'im:message.group_msg', description: 'bot へのメンションがないグループメッセージも読み取ります' }
           ]
         },
         {
           title: '別の Lark IdP アプリを作成する',
           body: [
-            '通常の運用では、SSO とディレクトリ同期用に別のカスタムアプリを作成してください。サインインとディレクトリの権限は IdP アプリに、bot の権限はチャットアプリに置いてください。チャット binding の「Identity provider」フィールドでその IdP レコードを選択してください。'
+            '通常運用では、SSO・ディレクトリ同期用とチャット bot 用で別々のカスタムアプリを作成してください。サインインとディレクトリの権限は IdP アプリに、bot の権限はチャットアプリに分け、チャット binding の「Identity provider」欄で対象の IdP レコードを選択します。'
           ]
         },
         {
@@ -1747,22 +1747,22 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: 'Lark IdP を選択',
-              description: 'Lark IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要で、独立した namespace を選ぶこともできます。この binding の送信者は IdP が同期したユーザーとして解決されるため、1 人は 1 つのアカウントを持ちます。'
+              description: 'Lark IdP が 1 つだけの場合は自動で選択されます。複数ある場合は対象を選択するか、独立した namespace を選ぶこともできます。IdP を参照すると、チャットの発言者が同期済みユーザーに紐付けられ、1 人の社員が単一のアカウントに統合されます。'
             },
             {
               name: 'userName',
               value: 'Lark / Feishu',
-              description: 'アウトバウンドメッセージに使用する表示名。'
+              description: 'アウトバウンド送信メッセージで使用する表示名。'
             }
           ]
         },
         {
           title: '有効な binding ごとに 1 つの Lark アプリを使う',
           bullets: [
-            '1 つの Agent で複数の Lark binding を有効にできます。',
-            '有効な binding ごとに異なる domain と appID の組み合わせが必要です。'
+            '1 つの Agent に対して複数の Lark binding を有効にできます。',
+            'ただし、有効な各 binding にはそれぞれ異なる domain と appID の組み合わせが必要です。'
           ],
-          body: ['binding ごとに別の Lark または Feishu アプリを作成してください。無効な binding はそのアプリを解放します。']
+          body: ['binding ごとに別個の Lark / Feishu アプリを作成してください。既存の binding を無効化すると、そのアプリを別の binding で再利用できます。']
         }
       ]
     }
@@ -1771,28 +1771,28 @@ export const channelTabs = [
     value: 'dingtalk',
     label: 'DingTalk',
     summary:
-      'DingTalk は Stream モードを使用します。1 組の AppKey と AppSecret が robot を認証し、イベント接続を開きます。',
+      'DingTalk は Stream モードを使用します。1 組の AppKey と AppSecret で robot の認証とイベント接続の確立を行います。',
     alert: {
-      title: 'DingTalk は Ankole の一部の機能を制限します',
+      title: 'DingTalk では Ankole の一部機能に制約があります',
       body: [
-        'グループチャットでは、Agent は完全な会話履歴を読み取れません。明示的に @ メンションされたメッセージのみを受信します。DingTalk のカードはテンプレートでホストされるため、ストリーミングのカード返信にはカードプラットフォーム上で構築する AI カードテンプレートが 1 つ必要です。それがなければ、返信はプレーンな Markdown のままです。',
-        'これらの制限は Ankole の機能とユーザーエクスペリエンスを低下させます。また、長期 memory システムに不完全な context を残します。可能であれば、別のチャットチャンネルを優先してください。'
+        'グループチャットでは会話履歴全体を読み取ることができず、明示的に @メンションされたメッセージのみを受信します。また、DingTalk のカードはプラットフォーム側のテンプレートで管理されるため、ストリーミングカードで返信するには DingTalk カードプラットフォーム上で AI カードテンプレートを 1 つ作成する必要があります（未設定の場合はプレーンな Markdown 返信になります）。',
+        'これらの制約により Ankole の機能やユーザー体験が一部制限されるほか、長期 memory システムにも断片的な context しか残りません。可能であれば、他のチャットチャンネルの利用を優先してください。'
       ]
     },
-    prerequisites: ['エンタープライズ内部の DingTalk アプリと robot を作成する権限', 'テスト用の会話'],
+    prerequisites: ['企業内部の DingTalk アプリと robot を作成する権限', 'テスト用の会話'],
     basic: {
       title: 'DingTalk robot を準備する',
       steps: [
         {
           title: 'エンタープライズ内部のアプリと robot を作成する',
           body: [
-            'robot 機能を有効にし、アプリをテストユーザーが利用できるようにしてください。DingTalk は、ダイレクトメッセージと robot に @ するグループメッセージを配信します。'
+            '企業内部アプリで robot 機能を有効にし、テストユーザーが利用できる公開範囲に設定します。DingTalk からはダイレクトメッセージと、グループ内で robot に @メンションしたメッセージが配信されます。'
           ]
         },
         {
           title: 'Stream モードを有効にしてアプリを公開する',
           body: [
-            '同じアプリケーションの credential が Stream 接続を開くため、公開のメッセージ webhook は不要です。'
+            '同じアプリの認証情報を使って Ankole から Stream 接続を開くため、公開受信用 webhook は不要です。'
           ]
         },
         {
@@ -1800,21 +1800,21 @@ export const channelTabs = [
           fields: [
             {
               name: 'clientId',
-              description: 'エンタープライズアプリの Client ID。AppKey とも呼ばれ、Stream の clientId として使用されます。'
+              description: '企業内部アプリの Client ID（AppKey。Stream 接続の clientId として使用されます）。'
             },
             {
               name: 'clientSecret',
-              description: 'エンタープライズアプリの Client Secret。AppSecret とも呼ばれ、Stream の clientSecret として使用されます。'
+              description: '企業内部アプリの Client Secret（AppSecret。Stream 接続の clientSecret として使用されます）。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: 'DingTalk がグループメッセージで配信できる唯一のモード。'
+              description: 'DingTalk のグループチャットで利用できる唯一のモード。'
             },
             {
               name: 'cardTemplateId',
               description:
-                'ストリーミングのカード返信用の AI カードテンプレート ID。最初のテストでは空のままにしてください。テンプレートの構築方法は、下記の詳細セクションで説明します。'
+                'ストリーミングカード返信用の AI カードテンプレート ID。初回テストでは空欄のままにし、後から下記の詳細設定手順で作成してください。'
             }
           ]
         }
@@ -1823,68 +1823,68 @@ export const channelTabs = [
     advanced: {
       title: 'AI カードテンプレート、複数の Agent、identity 設定',
       summary:
-        'ストリーミングの AI カード返信が必要な場合、複数の DingTalk Agent を計画している場合、または DingTalk を identity ソースとしても使用する場合に拡張します。',
+        'ストリーミング AI カード返信を使う場合、複数の DingTalk Agent を運用する場合、または DingTalk を IdP としても使う場合の設定です。',
       steps: [
         {
           title: 'AI カードテンプレートを作成して変数を追加する',
           body: [
-            'DingTalk のカードはテンプレートでホストされます。レイアウトは DingTalk カードプラットフォーム上にあり、Ankole は固定された一連の変数に値を書き込むだけです。DingTalk 組織ごとに 1 つテンプレートを構築してください。最初の 1 つには約 20 分を想定してください。始める前に、Agent がプレーンテキストで返信できる状態であり、アプリがインタラクティブカードインスタンスの書き込みと AI カードのストリーミング更新の権限を持つ必要があります。',
-            'DingTalk 開発者コンソール → Card Platform → New template を開き、AI カードのカテゴリを選択してください。このカテゴリだけが AI カードコンテナを持ちます。これは入力中インジケータと完了・失敗の状態を描画します。下記の各変数を、まさにこの名前で追加してください。名前が一致しないと、その領域はすべての返信で空のままになります。'
+            'DingTalk のカードレイアウトは DingTalk カードプラットフォーム側で保持され、Ankole は決められた変数名に値を流し込みます。DingTalk 組織ごとにテンプレートを 1 つ作成してください（初回作成の目安は約 20 分です）。作業を始める前に、プレーンテキストでの返信がすでに動作していることと、アプリにインタラクティブカードインスタンスの書き込み権限および AI カードのストリーミング更新権限が付与されていることを確認してください。',
+            'DingTalk 開発者コンソール → Card Platform → New template を開き、AI カードカテゴリを選択します（入力中インジケータや完了・失敗状態の描画に対応する AI カードコンテナはこのカテゴリにのみ用意されています）。続いて下記の変数を、記載どおりの正確な名前で追加してください。変数名が異なると、その領域は常に空欄になります。'
           ],
           fields: [
-            { name: 'state', description: 'テキスト。実行中の tool のラベルなどの 1 行のステータス。' },
-            { name: 'answer', description: 'Markdown（ストリーミング）。返信本文。各フレームで完全に書き換えられます。' },
-            { name: 'thought', description: 'Markdown。一時的な思考の下書き。返信が終わると消えます。' },
-            { name: 'plan', description: 'テキスト。計画と、その完了数／総数。' },
-            { name: 'activity', description: 'テキスト。実行中の tool 呼び出し。返信が終わると消えます。' },
-            { name: 'results', description: 'テキスト。構造化された結果ごとに 1 行。' },
-            { name: 'receipts', description: 'テキスト。記録された side effect ごとに 1 行。' },
-            { name: 'actions', description: 'テキスト。ボタンの JSON リスト。Agent が何も尋ねないときは空。' },
-            { name: 'meta', description: 'テキスト。トリガー、カード番号、カウント、経過時間。' }
+            { name: 'state', description: 'テキスト。実行中の tool ラベルなど 1 行のステータス表示。' },
+            { name: 'answer', description: 'Markdown（ストリーミング）。返信本文（フレームごとに全文更新されます）。' },
+            { name: 'thought', description: 'Markdown。一時的な思考メモ（返信完了時に非表示になります）。' },
+            { name: 'plan', description: 'テキスト。計画ステップと完了数／総数。' },
+            { name: 'activity', description: 'テキスト。実行中の tool 呼び出し（返信完了時に非表示になります）。' },
+            { name: 'results', description: 'テキスト。構造化された結果を 1 行ずつ表示。' },
+            { name: 'receipts', description: 'テキスト。記録された side effect を 1 行ずつ表示。' },
+            { name: 'actions', description: 'テキスト。選択ボタンの JSON リスト（確認事項がない場合は空）。' },
+            { name: 'meta', description: 'テキスト。トリガー種別、カード番号、カウント、経過時間。' }
           ]
         },
         {
           title: '各カード状態にコンポーネントを配置する',
           body: [
-            'AI カードコンポーネントで入力中、完了、失敗のレイアウトを設定してください。返信を表示する各レイアウトに answer にバインドした Markdown コンポーネントを置き、入力中レイアウトではストリーミングを有効にしてください。meta と state は上部に、plan はテキストに、thought と activity は折りたたみ領域に、results と receipts はテキストに配置できます。決定ボタンを表示し続ける場合は、入力中と完了の両方のレイアウトに actions にバインドしたアクション領域を置き、各ボタンの値をそのまま渡してください。',
-            'DingTalk はネイティブの AI カードライフサイクルからレイアウトを選択します。Ankole は isFinalize で完了状態へ、isError で失敗状態へ移します。flowStatus や flowStatusVar を作成またはバインドしないでください。'
+            'AI カードコンポーネント上で「入力中」「完了」「失敗」の各レイアウトを構成します。返信本文を表示するすべてのレイアウトに answer へバインドした Markdown コンポーネントを配置し、「入力中」レイアウトではストリーミング設定をオンにしてください。あわせて meta と state を上部に、plan をテキストに、thought と activity を折りたたみ領域に、results と receipts をテキストに配置します。確認ボタンを表示させる場合は、「入力中」と「完了」の両レイアウトに actions へバインドしたアクション領域を配置し、各ボタンの値がそのまま渡されるようにしてください。',
+            'レイアウトの切り替えは DingTalk ネイティブの AI カードライフサイクルによって行われます（Ankole は完了時に isFinalize、失敗時に isError を送信します）。flowStatus や flowStatusVar は作成・バインドしないでください。'
           ],
           caution:
-            '現在の状態レイアウトに answer にバインドした Markdown コンポーネントがないと、カードは空白になります。レイアウトを変更するたびにテンプレートを再公開してください。'
+            '表示中の状態レイアウトに answer へバインドされた Markdown コンポーネントがないと、カードが真っ白になります。レイアウトを編集した後は毎回テンプレートを再公開してください。'
         },
         {
           title: 'テンプレートを公開し、ID を入力して確認する',
           body: [
-            'テンプレートを robot が所有するエンタープライズ内部のアプリに関連付け、公開し、テンプレート ID をコピーして、ルーティングルールの cardTemplateId に貼り付けてください。この変更は次の返信に適用され、再起動するものはありません。',
-            '確認するには、複数の文を生成するメッセージを送信してください。Agent が書いている間にカードが表示されて成長し、返信が終わるとインジケータが止まり、思考とアクティビティの領域が消えるはずです。その後、意思決定が必要なことを尋ねてください。ボタンが表示され、押すと Turn が続行されます。もはや保留中の質問に答えられない古いボタンは無視されます。長い返信は約 2.5 KB でカードを封じ、新しいカードで続きます。各カードは会話の中の新しいメッセージであり、テーブルなどのリッチな構造はテキストとして描画されます。これらはすべてプラットフォームの制限下で期待される動作です。'
+            '作成したテンプレートを robot 所属の企業内部アプリに関連付けて公開し、テンプレート ID をコピーしてルーティングルールの cardTemplateId に貼り付けます。変更は次の返信から即座に反映され、再起動は不要です。',
+            '動作確認として、数文程度の回答が返るメッセージを送ってみてください。生成中にカードがストリーミング更新され、完了すると入力中インジケータが止まって思考・アクティビティ領域が閉じます。続けて選択確認を伴う質問を送り、ボタンが表示されてクリックで Turn が再開することを確認してください（すでに回答済みの古いボタンは無視されます）。なお、長文の返信は約 2.5 KB ごとに現在のカードを確定して新しいカードへ分割され、表などのリッチ要素はテキストとして描画されます。これらはいずれもプラットフォーム仕様に準じた正常な動作です。'
           ],
           bullets: [
-            'カードが空白： 現在の入力中、完了、または失敗レイアウトが answer にバインドされていないか、変更したテンプレートが公開されていません。',
-            'ある領域が常に空： その変数名が表と一致していないか、コンポーネントがバインドされていません。',
-            'answer が最後にだけ表示されるか、まったく表示されない： answer ブロックが Markdown のストリーミングブロックではありません。',
-            '返信終了後も入力中インジケータが残る： control plane のログを確認し、DingTalk が isFinalize または isError を含むストリーミング更新を受け入れたことを確認してください。',
-            '返信がプレーンな Markdown メッセージのまま： テンプレート ID が空か、テンプレートがこのアプリに公開されていないか、DingTalk がカードコンテンツを拒否しています。param.contentUnsafe または param.cardNotExist を control plane のログで確認してください。カードの経路が恒久的に失敗すると、返信は 1 回だけプレーンな Markdown に劣化しますが、それでも配信されます。',
-            'ボタンは表示されるが押しても何も起きない： アクション領域が各ボタンの値をそのまま渡していません。'
+            'カードが真っ白になる： 現在の状態（入力中・完了・失敗）のレイアウトに answer がバインドされていないか、編集後にテンプレートを再公開していません。',
+            '特定の領域だけ常に空になる： 変数名が上の表と一致していないか、コンポーネントにバインドされていません。',
+            'answer が完了時しか出ない、または全く出ない： answer のブロックがストリーミング有効の Markdown コンポーネントになっていません。',
+            '返信完了後も入力中インジケータが消えない： control plane のログを確認し、isFinalize または isError を含むストリーミング更新が DingTalk 側に受理されているか確認してください。',
+            'プレーンな Markdown メッセージのまま届く： テンプレート ID が空欄か、このアプリ向けにテンプレートが公開されていないか、カード内容が DingTalk に拒否されています。control plane のログで param.contentUnsafe や param.cardNotExist を確認してください（カード経路が恒久エラーになった場合、返信本文を届けるため自動的にプレーンな Markdown へフォールバックします）。',
+            'ボタンは出るが押しても反応しない： アクション領域が各ボタンの値をそのまま渡す設定になっていません。'
           ]
         },
         {
           title: '接続の所有権ルールを尊重する',
           bullets: [
-            '1 つの Agent は、有効な DingTalk binding を最大 1 つ持てます。',
-            '1 つの clientId は 1 つの Agent にのみバインドできます。'
+            '1 つの Agent が持てる有効な DingTalk binding は最大 1 つです。',
+            '1 つの clientId は 1 つの Agent にしかバインドできません。'
           ],
-          body: ['追加の Agent ごとに、別の robot と credential のペアを作成してください。']
+          body: ['Agent を増やす場合は、Agent ごとに別の robot と認証情報ペアを作成してください。']
         },
         {
           title: 'DingTalk の identity を分離したままにする',
           body: [
-            'DingTalk は OIDC とディレクトリ同期も供給できますが、それは IdP レコードです。チャットの binding は DingTalk を Console のログイン provider にするわけではありません。'
+            'DingTalk を OIDC サインインとディレクトリ同期にも利用する場合は、別途 IdP レコードとして設定します（チャット binding を作成しただけでは Console のログイン provider にはなりません）。'
           ],
           fields: [
             {
               name: 'identityProvider',
               value: 'DingTalk IdP を選択',
-              description: 'DingTalk IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要です。この binding の送信者はその IdP のユーザーとして解決されます。'
+              description: 'DingTalk IdP が 1 つだけの場合は自動で選択されます。複数ある場合は対象を選択してください。チャットの発言者がその IdP のユーザーとして紐付けられます。'
             }
           ]
         }
@@ -1895,12 +1895,12 @@ export const channelTabs = [
     value: 'wecom',
     label: 'WeCom',
     summary:
-      'WeCom の AI bot は 1 つのアウトバウンドの長い接続でメッセージを送受信するため、公開のメッセージ webhook は不要です。プラットフォームは bot ごとに正確に 1 つの長い接続を許可します。',
+      'WeCom の AI bot は 1 本のアウトバウンド常時接続（long connection）でメッセージを送受信するため、公開のメッセージ webhook は不要です。プラットフォーム仕様により、1 つの bot につき常時接続は 1 本のみ許可されます。',
     alert: {
-      title: 'WeCom は最も制限が多いチャットチャンネルです',
+      title: 'WeCom は最も制約の多いチャットチャンネルです',
       body: [
-        'グループでは、Agent は明示的に bot に @ するメッセージのみを受信します。画像、音声、ファイル、ビデオはダイレクトメッセージでのみ届き、音声メッセージはプラットフォームの文字起こしとしてのみ届きます。送信済みのメッセージは、撤回、編集、絵文字リアクションができません。Agent は新しい会話を開始できません。ユーザーが先に bot にメッセージを送る必要があり、インバウンドメッセージ後の返信ウィンドウは 24 時間です。ストリーミングの返信はユーザーへの返信時のみ機能し、1 つのストリーミングメッセージは 10 分以内に終了する必要があるため長い回答は分割され、送信は会話ごとに 1 分あたり約 30 メッセージに制限されます。カードボタンはクリック後 5 秒以内にのみ変更できます。リアルタイムのディレクトリ同期はありません。',
-        'すべての制限はプラットフォーム自体に由来し、Ankole は回避できません。長期 memory システムも、Agent が受信するメッセージ断片からのみ context を構築します。可能であれば Lark/Feishu、Slack、Teams、または DingTalk を優先してください。'
+        'グループチャットでは bot へ明示的に @メンションしたメッセージしか届きません。画像・音声・ファイル・動画を受信できるのはダイレクトメッセージのみで、音声はプラットフォーム側の文字起こしテキストとしてのみ届きます。送信済みメッセージの取り消し・編集・絵文字リアクションには非対応です。また、Agent から新規会話を開始することはできず、ユーザーが先にメッセージを送ってから 24 時間以内が通常の返信ウィンドウとなります。ストリーミング返信はユーザー発言への応答時のみ利用でき、1 メッセージあたり 10 分の制限があるため長時間の応答は分割され、送信レートも 1 会話あたり毎分約 30 件に制限されます。カードボタンの状態変更はクリック後 5 秒以内のみ可能で、リアルタイムのディレクトリ同期もありません。',
+        'これらはすべて WeCom プラットフォーム自体の仕様による制約であり、Ankole 側で回避することはできません。長期 memory システムも受信できたメッセージ断片からのみ context を構築します。可能な限り Lark/Feishu、Slack、Teams、または DingTalk の利用を優先してください。'
       ]
     },
     prerequisites: [
@@ -1913,15 +1913,15 @@ export const channelTabs = [
         {
           title: '企業のスーパー管理者として AI bot を作成する',
           body: [
-            'WeCom 管理コンソールを開き、API モードで AI bot を作成し、その隣に表示される Bot ID と Secret を記録してください。'
+            'WeCom 管理コンソールを開き、API モードで AI bot を作成して、表示される Bot ID と Secret を控えてください。'
           ],
           caution:
-            'bot は企業のスーパー管理者が作成する必要があります。そうしないと、メッセージ内の user ID が暗号化され、ディレクトリやサインインの identity に決して参加できません。'
+            'AI bot は必ず企業のスーパー管理者アカウントで作成してください。他のアカウントで作成するとメッセージ内の user ID が暗号化され、ディレクトリ同期やサインインのアカウントと統合できなくなります。'
         },
         {
           title: 'bot を他のプログラムと共有しない',
           body: [
-            'プラットフォームは bot ごとに正確に 1 つの長い接続を許可します。別のプログラムが同じ Bot ID で接続すると、各接続がもう一方を切断します。Ankole が切断された場合、Ankole は回線を奪い合わずに待機します。'
+            'WeCom では 1 つの bot につき常時接続が 1 本しか許可されません。別のプログラムが同じ Bot ID で接続すると互いの接続を切断してしまうため、Ankole 側は切断を検知した際に奪い合いを避けて待機状態に入ります。'
           ]
         },
         {
@@ -1933,12 +1933,12 @@ export const channelTabs = [
             },
             {
               name: 'secret',
-              description: 'Bot ID の隣に表示される長い接続の secret。'
+              description: 'Bot ID の横に表示される常時接続用の Secret。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: 'WeCom がグループメッセージで配信できる唯一のモード。'
+              description: 'WeCom のグループチャットで利用できる唯一のモード。'
             }
           ]
         }
@@ -1946,12 +1946,12 @@ export const channelTabs = [
     },
     advanced: {
       title: 'プロアクティブ配信、identity マッピング、複数の Agent',
-      summary: 'Agent が先に話す前に、ユーザーがその会話で 1 回は bot にメッセージを送る必要があります。',
+      summary: 'Agent から能動的に通知を送るには、先にユーザー側からその会話で 1 度メッセージを送っておく必要があります。',
       steps: [
         {
           title: 'プロアクティブ配信を有効にする',
           body: [
-            'スケジュールされた Job の結果などのプロアクティブメッセージは、ユーザーがアクティブにした会話にのみ到達します。各ユーザーに先に bot へメッセージを 1 つ送らせてください。Agent は新しい会話を開始できません。プロアクティブ送信では、ストリーミングなしで 1 つの完全な Markdown メッセージを配信します。'
+            'スケジュールされた Job の結果など、Agent からのプロアクティブメッセージは、ユーザーがすでに開始した会話にのみ送信できます（Agent から新規の会話スレッドを開くことはできません）。受信対象の各ユーザーに、あらかじめ bot へ 1 通メッセージを送ってもらってください。なお、プロアクティブ送信ではストリーミングは使われず、完成した 1 通の Markdown メッセージとして配信されます。'
           ]
         },
         {
@@ -1960,22 +1960,22 @@ export const channelTabs = [
             {
               name: 'identityProvider',
               value: 'WeCom IdP を選択',
-              description: 'WeCom IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要です。この binding の送信者はその IdP のユーザーとして解決されます。'
+              description: 'WeCom IdP が 1 つだけの場合は自動で選択されます。複数ある場合は対象を選択してください。チャットの発言者がその IdP のユーザーとして紐付けられます。'
             },
             {
               name: 'userName',
               value: '企业微信 / WeCom',
-              description: 'アウトバウンドの bot メッセージに表示される名前。'
+              description: 'アウトバウンドの bot メッセージで使用される表示名。'
             }
           ]
         },
         {
           title: 'Agent ごとに別の bot を使用する',
           bullets: [
-            '1 つの Agent は、有効な WeCom binding を最大 1 つ持てます。',
-            '1 つの Bot ID は 1 つの Agent にのみバインドできます。'
+            '1 つの Agent が持てる有効な WeCom binding は最大 1 つです。',
+            '1 つの Bot ID は 1 つの Agent にしかバインドできません。'
           ],
-          body: ['追加の Agent ごとに、別の AI bot を作成してください。']
+          body: ['Agent を追加するごとに、別の AI bot を作成してください。']
         }
       ]
     }
@@ -1984,27 +1984,27 @@ export const channelTabs = [
     value: 'telegram',
     label: 'Telegram',
     summary:
-      'Telegram は Bot API のロングポーリングを使用します。Ankole はアウトバウンド接続で getUpdates を呼び出すため、チャット経路に公開 webhook は不要です。Telegram はコンシューマー向け IM です。そのユーザーはディレクトリの従業員ではないため、最初のメッセージの前に identity マッピングを計画してください。',
-    prerequisites: ['@BotFather と会話できる Telegram アカウント', 'テスト用のプライベートチャットまたはグループ'],
+      'Telegram は Bot API のロングポーリングを使用します。Ankole 側からアウトバウンド通信で getUpdates を呼び出すため、公開 webhook は不要です。なお、Telegram はコンシューマー向け IM であり企業ディレクトリの社員情報を持たないため、利用開始前にアカウントのマッピング方針を決めておく必要があります。',
+    prerequisites: ['@BotFather を操作できる Telegram アカウント', 'テスト用のプライベートチャットまたはグループ'],
     basic: {
       title: 'Telegram bot を準備する',
       steps: [
         {
           title: '@BotFather で bot を作成する',
           body: [
-            '@BotFather に /newbot を送信し、表示名と bot で終わるユーザー名を選び、BotFather が返す token をコピーしてください。この token は routing ルールに必要な唯一の credential です。'
+            '@BotFather に /newbot を送り、表示名と bot で終わるユーザー名を指定して、発行されたトークンをコピーします。ルーティングルールに必要な認証情報はこのトークンだけです。'
           ]
         },
         {
           title: 'bot にグループメッセージを読ませる',
           body: [
-            '@BotFather で Bot Settings → Group Privacy を開き、プライバシーモードをオフにしてください。プライバシーモードがオンの場合、グループは /command@bot 形式のコマンドと bot への返信だけを配信するため、@ メンションが Agent に届かず、observe_all や may_intervene は他のメッセージを一切見られません。この設定の変更は、bot をグループから削除して再度追加した後に有効になります。'
+            '@BotFather の Bot Settings → Group Privacy でプライバシーモードをオフにします。オンのままだと、グループ内では /command@bot 形式のコマンドと bot への返信しか配信されないため、通常の @メンションが Agent に届かず、observe_all や may_intervene でも周囲の会話を読み取れません。なお、すでにグループへ参加済みの bot は、一度グループから退出させて再追加した時点で設定変更が反映されます。'
           ]
         },
         {
           title: '古い webhook を削除する',
           body: [
-            'Ankole は Bot API をポーリングしますが、その token に webhook が設定されている間、Telegram はポーリングを拒否します。別のプログラムがこの token を webhook で使用していた場合は、ルールを有効にする前に削除してください。Ankole は webhook_configured を報告し、他のシステムが所有する webhook を削除しません。'
+            'Ankole はロングポーリングを使用しますが、同じトークンに webhook が残っていると Telegram 側でポーリングが拒否されます。以前別のシステムで webhook を設定していた場合は、ルールを有効化する前に下記コマンドで削除してください（Ankole は webhook_configured エラーを報告するだけで、他システムが設定した webhook を勝手に削除することはありません）。'
           ],
           code: [
             {
@@ -2019,12 +2019,12 @@ export const channelTabs = [
             {
               name: 'botToken',
               value: '123456789:AA…',
-              description: '@BotFather から取得した bot token。1 つの token は有効な routing ルール 1 つにのみ属せます。'
+              description: '@BotFather で発行した bot token（1 つのトークンは有効なルーティングルール 1 つにのみ割り当て可能）。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: 'ここから始めてください。ダイレクトメッセージ、@ メンション、/command@bot、または bot への返信が Agent 宛になります。'
+              description: '初回はこのモードから始めてください。ダイレクトメッセージ、@メンション、/command@bot、および bot への返信が Agent 宛てとして扱われます。'
             }
           ]
         }
@@ -2032,33 +2032,33 @@ export const channelTabs = [
     },
     advanced: {
       title: 'identity マッピング、フォーラムトピック、プラットフォームの制限',
-      summary: '展開すると、Telegram ユーザーをアカウントにマッピングする方法と、Agent が使えない Telegram の機能を確認できます。',
+      summary: 'Telegram ユーザーを Ankole アカウントへ紐付ける方法と、Telegram 上での制限事項を確認できます。',
       steps: [
         {
           title: 'Telegram ユーザーをアカウントにマッピングする',
           body: [
-            'Telegram ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Telegram の identity を既存のアカウント（たとえば事前作成したメンバー）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンな bot の場合にだけ選択してください。'
+            'Telegram ユーザーには社員ディレクトリのレコードがないため、初回の発言時は自動マッピングが成立しません。「アカウントの自動マッピングに失敗した場合」は「手動レビュー」のままにしてください。未紐付けの発言者には案内メッセージが 1 回だけ返され、Console の「アイデンティティ → 保留中のマッピング」に登録されます。管理者がその Telegram ID を既存アカウント（事前作成したメンバーなど）に紐付けた後、ユーザーからメッセージを再送してもらいます。「独立アカウントを自動作成」は、不特定多数に公開するオープンな bot の場合にのみ選択してください。'
           ]
         },
         {
           title: '会話がセッションにどう対応するかを知る',
           bullets: [
-            'プライベートチャット、グループ、スーパーグループは、それぞれ 1 つの Conversation を形成します。',
-            'スーパーグループ内の各フォーラムトピックは、別の Conversation です。',
-            'チャンネル投稿、他の bot からのメッセージ、匿名またはゲストの送信者は無視されます。'
+            'プライベートチャット、グループ、スーパーグループはそれぞれ 1 つの Conversation になります。',
+            'スーパーグループ内のフォーラムトピックは、トピックごとに独立した Conversation として扱われます。',
+            'チャンネル投稿、他の bot からの発言、および匿名・ゲスト送信者のメッセージは無視されます。'
           ]
         },
         {
           title: 'プラットフォームの制限を守る',
           bullets: [
-            'Bot API は 20 MB を超えるファイルをダウンロードできません。Agent はファイル名とサイズを見られますが、内容は読めません。',
-            'ユーザーがメッセージを削除しても Telegram はイベントを送信しないため、削除されたテキストはセッションの context に残ります。',
-            '接続が失われた送信を Telegram が受け付けた可能性がある場合、Ankole は送信を自動的に繰り返しません。2 つ目の返信を投稿する代わりに、重複の可能性のフローを適用します。'
+            'Bot API の制限により、20 MB を超える添付ファイルはダウンロードできません（Agent からはファイル名とサイズのみ見え、中身は読み取れません）。',
+            'ユーザーがメッセージを削除しても Telegram から削除イベントは通知されないため、削除前のテキストはセッションの context に残ります。',
+            '返信送信中に通信が切れ、Telegram 側で受理済みかどうか判別できない場合、Ankole は二重投稿を防ぐため自動再送を行わず、重複の可能性がある送信として処理します。'
           ]
         },
         {
           title: 'Agent ごとに別の bot を使用する',
-          body: ['1 つの bot token は有効な routing ルール 1 つにのみバインドできます。追加の Agent ごとに @BotFather で別の bot を作成してください。']
+          body: ['1 つの bot token は有効なルーティングルール 1 つにしかバインドできません。Agent を増やす場合は、@BotFather で別の bot を作成してください。']
         }
       ]
     }
@@ -2067,7 +2067,7 @@ export const channelTabs = [
     value: 'discord',
     label: 'Discord',
     summary:
-      'Discord はアウトバウンドの WebSocket 経由で bot Gateway を使用するため、チャット経路に公開 webhook は不要です。Discord はコンシューマー向け IM です。そのユーザーはディレクトリの従業員ではないため、最初のメッセージの前に identity マッピングを計画してください。',
+      'Discord はアウトバウンドの WebSocket 経由で bot Gateway に接続するため、公開 webhook は不要です。なお、Discord はコンシューマー向け IM であり企業ディレクトリの社員情報を持たないため、利用開始前にアカウントのマッピング方針を決めておく必要があります。',
     prerequisites: [
       'Developer Portal でアプリケーションを作成できる Discord アカウント',
       'bot を招待できるサーバー、またはテスト用のダイレクトメッセージ'
@@ -2078,34 +2078,34 @@ export const channelTabs = [
         {
           title: 'アプリケーションとその bot を作成する',
           body: [
-            'Discord Developer Portal を開き、New Application を作成し、Bot ページを開いて Reset Token を選択してください。token はすぐにコピーしてください。Discord はそれを 1 回しか表示しません。'
+            'Discord Developer Portal を開いて New Application を作成し、Bot ページで Reset Token を選択します。発行されたトークンは 1 度しか表示されないため、その場でコピーしてください。'
           ]
         },
         {
           title: 'メッセージ内容の intent を有効にする',
           body: [
-            'Bot ページの Privileged Gateway Intents で Message Content Intent をオンにしてください。これがないと、Discord は bot にメンションしないサーバーメッセージを空の内容で配信するため、Agent はダイレクトメッセージと自分にメンションするメッセージだけを読み、observe_all や may_intervene は会話を見られません。Ankole は接続前にアプリケーションのフラグを読み取り、アプリケーションがこの intent を持つ場合にだけ要求します。'
+            'Bot ページの Privileged Gateway Intents で Message Content Intent をオンにします。オフのままだと、bot へのメンションがないサーバーメッセージの本文が空で配信されるため、ダイレクトメッセージと @メンションしか読めなくなり、observe_all や may_intervene でも会話を把握できません。Ankole は接続前にアプリケーションのフラグを確認し、この intent が有効な場合にのみ要求します。'
           ],
-          caution: 'Server Members Intent と Presence Intent は不要です。100 を超えるサーバーに参加しているアプリケーションは、メッセージ内容の intent を維持するために Discord の認証が必要です。'
+          caution: 'Server Members Intent と Presence Intent は不要です。なお、参加サーバー数が 100 を超えるアプリケーションでは、Message Content Intent を維持するために Discord 側の審査・認証が必要になります。'
         },
         {
           title: 'bot をサーバーに招待する',
           body: [
-            'OAuth2 → URL Generator を開き、bot scope を選択し、以下の権限を追加してください。生成された URL を開いてサーバーを選択します。このセットは、Ankole が呼び出す Discord API だけをカバーします。'
+            'OAuth2 → URL Generator を開いて bot スコープを選択し、下記の権限を追加したうえで、生成された招待 URL から対象サーバーへ追加します。これらは Ankole が実際に呼び出す Discord API のみをカバーしています。'
           ],
           copyItems: [
-            { value: 'View Channels', description: 'bot が許可されたチャンネルを見る' },
-            { value: 'Send Messages', description: 'Agent の返信を投稿する' },
-            { value: 'Send Messages in Threads', description: 'スレッド内で返信する' },
-            { value: 'Read Message History', description: '以前のメッセージに返信し、編集する' },
-            { value: 'Attach Files', description: 'Agent が送信するファイルをアップロードする' },
-            { value: 'Add Reactions', description: 'リアクションを追加および削除する' }
+            { value: 'View Channels', description: '許可されたチャンネルを bot から参照します' },
+            { value: 'Send Messages', description: 'Agent の返信を投稿します' },
+            { value: 'Send Messages in Threads', description: 'スレッド内で返信します' },
+            { value: 'Read Message History', description: '過去メッセージへの返信や編集を行います' },
+            { value: 'Attach Files', description: 'Agent から送信するファイルをアップロードします' },
+            { value: 'Add Reactions', description: 'リアクションの追加と削除を行います' }
           ]
         },
         {
           title: 'Interactions Endpoint URL を空のままにする',
           body: [
-            'General Information ページで、Interactions Endpoint URL を空のままにしてください。設定されていると、Discord はボタンのクリックを Gateway ではなくその URL に投稿するため、Agent の返信にあるボタンが Ankole に届きません。'
+            'General Information ページの Interactions Endpoint URL は空欄のままにしてください。ここに URL が設定されていると、ボタンのクリックイベントが Gateway ではなくその URL へ POST されてしまい、Agent の確認ボタン操作が Ankole に届かなくなります。'
           ]
         },
         {
@@ -2113,12 +2113,12 @@ export const channelTabs = [
           fields: [
             {
               name: 'botToken',
-              description: 'Bot ページから取得した bot token。1 つの token は有効な routing ルール 1 つにのみ属せます。'
+              description: 'Bot ページで取得した bot token（1 つのトークンは有効なルーティングルール 1 つにのみ割り当て可能）。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: 'ここから始めてください。ダイレクトメッセージ、@ メンション、または bot への返信が Agent 宛になります。'
+              description: '初回はこのモードから始めてください。ダイレクトメッセージ、@メンション、および bot への返信が Agent 宛てとして扱われます。'
             }
           ]
         }
@@ -2126,35 +2126,35 @@ export const channelTabs = [
     },
     advanced: {
       title: 'identity マッピング、スレッド、プラットフォームの制限',
-      summary: '展開すると、Discord ユーザーをアカウントにマッピングする方法と、Agent が使えない Discord の機能を確認できます。',
+      summary: 'Discord ユーザーを Ankole アカウントへ紐付ける方法と、Discord 上での制限事項を確認できます。',
       steps: [
         {
           title: 'Discord ユーザーをアカウントにマッピングする',
           body: [
-            'Discord ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Discord の identity を既存のアカウント（たとえば事前作成したメンバー）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンなサーバーの場合にだけ選択してください。'
+            'Discord ユーザーには社員ディレクトリのレコードがないため、初回の発言時は自動マッピングが成立しません。「アカウントの自動マッピングに失敗した場合」は「手動レビュー」のままにしてください。未紐付けの発言者には案内メッセージが 1 回だけ返され、「アイデンティティ → 保留中のマッピング」に表示されます。管理者がその Discord ID を既存アカウント（事前作成したメンバーなど）に紐付けた後、ユーザーからメッセージを再送してもらいます。「独立アカウントを自動作成」は、誰でも Agent と会話できるオープンなサーバーの場合にのみ選択してください。'
           ]
         },
         {
           title: '会話がセッションにどう対応するかを知る',
           bullets: [
-            'ダイレクトメッセージと各サーバーチャンネルは、それぞれ 1 つの Conversation を形成します。',
-            '各スレッドは別の Conversation です。',
-            '他の bot からのメッセージ、webhook の投稿、システム通知、テキストも添付ファイルもないメッセージは無視されます。',
-            'Agent のテキストがユーザー、ロール、または everyone に通知することはありません。Ankole は送信するすべてのメッセージでメンションの解析を無効にします。'
+            'ダイレクトメッセージと各サーバーチャンネルは、それぞれ 1 つの Conversation になります。',
+            '各スレッドは独立した別の Conversation として扱われます。',
+            '他の bot の発言、webhook 投稿、システム通知、および本文も添付もないメッセージは無視されます。',
+            'Ankole は送信するすべてのメッセージでメンション展開を無効化するため、Agent の返信テキストによってユーザー・ロール・everyone へ通知が飛ぶことはありません。'
           ]
         },
         {
           title: 'プラットフォームの制限を守る',
           bullets: [
-            'Ankole がダウンロードする添付ファイルは最大 25 MB です。それより大きいファイルは、Agent が名前とサイズを見られますが、内容は読めません。',
-            'ユーザーがメッセージを削除しても、Discord は Ankole が使用するイベントを送信しないため、削除されたテキストはセッションの context に残ります。',
-            '返信は 2,000 文字で分割されます。1 つのカードに表示できるボタンは最大 25 個です。',
-            '接続が失われた送信を Discord が受け付けた可能性がある場合、Ankole は送信を自動的に繰り返しません。2 つ目の返信を投稿する代わりに、重複の可能性のフローを適用します。'
+            'Ankole がダウンロードする添付ファイルは最大 25 MB です（それを超えるファイルは名前とサイズのみ見え、中身は読み取れません）。',
+            'ユーザーがメッセージを削除しても Ankole 側では削除イベントを取り込まないため、削除前のテキストはセッションの context に残ります。',
+            '返信テキストは 2,000 文字ごとに分割されます。また、1 つのカードに表示できるボタンは最大 25 個です。',
+            '返信送信中に通信が切れ、Discord 側で受理済みかどうか判別できない場合、Ankole は二重投稿を防ぐため自動再送を行わず、重複の可能性がある送信として処理します。'
           ]
         },
         {
           title: 'Agent ごとに別の bot を使用する',
-          body: ['1 つの bot token は有効な routing ルール 1 つにのみバインドできます。追加の Agent ごとに別のアプリケーションを作成してください。']
+          body: ['1 つの bot token は有効なルーティングルール 1 つにしかバインドできません。Agent を増やす場合は、別の Discord アプリケーションを作成してください。']
         }
       ]
     }
@@ -2163,16 +2163,16 @@ export const channelTabs = [
     value: 'line',
     label: 'LINE',
     summary:
-      'LINE は Messaging API の webhook を Ankole に投稿します。信頼された証明書を持つ公開 HTTPS エンドポイントが必須です。LINE はコンシューマー向け IM です。そのユーザーはディレクトリの従業員ではないため、最初のメッセージの前に identity マッピングを計画してください。',
+      'LINE は Messaging API の webhook を Ankole に送信するため、信頼された TLS 証明書を持つ公開 HTTPS エンドポイントが必須です。なお、LINE はコンシューマー向け IM であり企業ディレクトリの社員情報を持たないため、利用開始前にアカウントのマッピング方針を決めておく必要があります。',
     alert: {
-      title: 'LINE は Ankole の一部の機能を制限します',
+      title: 'LINE では Ankole の一部機能に制約があります',
       body: [
-        'LINE の reply token は webhook の 1 分後に期限切れになり、Agent の Turn は通常それより長いため、Agent のすべての返信はプッシュメッセージです。プッシュメッセージは Official Account の月間メッセージプランに計上されるため、プランは想定されるトラフィックをカバーする必要があります。LINE bot はメッセージの編集、送信取消、リアクションができず、ファイルを送信できず、最終回答の前にリアルタイムの進行状況を表示しません。',
-        'すべての制限はプラットフォーム自体に由来し、Ankole は回避できません。'
+        'LINE の reply token は webhook 受信から 1 分で失効する一方、Agent の Turn はそれ以上かかる場合があるため、Agent からの返信はすべてプッシュメッセージとして送信されます。プッシュメッセージは LINE 公式アカウントの月間メッセージ通数にカウントされるため、想定トラフィックに見合った料金プランが必要です。また、LINE bot ではメッセージの編集・送信取消・リアクション・ファイル送信が行えず、最終回答前のリアルタイム進捗表示もサポートされません。',
+        'これらはすべて LINE プラットフォーム自体の仕様による制約であり、Ankole 側で回避することはできません。'
       ]
     },
     prerequisites: [
-      'LINE Developers の provider と、Messaging API channel を作成する権限',
+      'LINE Developers のプロバイダーと Messaging API チャネルを作成する権限',
       '公開 HTTPS の Ankole ホスト',
       'テスト用の LINE アカウント'
     ],
@@ -2182,13 +2182,13 @@ export const channelTabs = [
         {
           title: 'Messaging API channel を作成し、その credential を収集する',
           body: [
-            'LINE Developers Console で、自分の provider の下に Messaging API channel を作成してください。Basic settings から Channel ID と Channel secret をコピーし、Messaging API タブで長期の channel access token を発行してください。'
+            'LINE Developers Console で対象プロバイダー配下に Messaging API チャネルを作成します。チャネル基本設定（Basic settings）から Channel ID と Channel secret をコピーし、Messaging API タブで長期のチャネルアクセストークン（channel access token）を発行してください。'
           ]
         },
         {
           title: 'webhook を検証する前に routing ルールを作成する',
           body: [
-            'まず Console で routing ルールを保存して有効にしてください。Ankole は不明な Channel ID への webhook にステータス 404 で応答するため、ルールが存在するまで LINE Developers Console の Verify ボタンは失敗します。'
+            '先に Ankole の Console 上でルーティングルールを保存して有効化してください。未登録の Channel ID に対する webhook にはステータス 404 が返るため、ルール作成前に LINE Developers Console で Verify ボタンを押しても失敗します。'
           ]
         },
         {
@@ -2200,13 +2200,13 @@ export const channelTabs = [
             }
           ],
           body: [
-            'Messaging API タブでこの URL を入力し、Use webhook をオンにして Verify を選択してください。パスの channelId セグメントは、routing ルールの Channel ID と一致する必要があります。Ankole はすべてのリクエストの x-line-signature を channel secret で検査し、誤った署名をステータス 401 で拒否します。'
+            'Messaging API タブに上記の URL を入力し、Use webhook をオンにして Verify を実行します。パス内の channelId はルーティングルールの Channel ID と一致させてください。Ankole は全リクエストの x-line-signature ヘッダーを channel secret で検証し、不正な署名はステータス 401 で拒否します。'
           ]
         },
         {
           title: 'bot だけが応答するようにする',
           body: [
-            'LINE Official Account Manager で Response settings を開いてください。応答方法を bot に設定し、自動応答とあいさつメッセージをオフにして、アカウントが Agent と並んで応答しないようにします。グループチャットの場合は、LINE Developers Console で Allow bot to join group chats を有効にしてください。'
+            'LINE Official Account Manager の応答設定（Response settings）を開き、応答モードを Bot に設定したうえで、自動応答メッセージとあいさつメッセージをオフにします（Agent の返信と公式アカウントの定型応答が重複するのを防ぐためです）。グループチャットで利用する場合は、LINE Developers Console でグループ・複数人トークへの参加を許可（Allow bot to join group chats）をオンにしてください。'
           ]
         },
         {
@@ -2214,11 +2214,11 @@ export const channelTabs = [
           fields: [
             {
               name: 'channelId',
-              description: 'Messaging API の Channel ID。1 つの channel は有効な routing ルール 1 つにのみ属せます。'
+              description: 'Messaging API の Channel ID（1 つのチャネルは有効なルーティングルール 1 つにのみ割り当て可能）。'
             },
             {
               name: 'channelSecret',
-              description: 'Basic settings の Channel secret。Ankole は webhook の署名検証に使用します。'
+              description: 'Basic settings の Channel secret（webhook 署名の検証に使用します）。'
             },
             {
               name: 'channelAccessToken',
@@ -2227,7 +2227,7 @@ export const channelTabs = [
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: 'ここから始めてください。LINE はすべてのグループメッセージを配信するため、observe_all と may_intervene も追加の権限なしで機能します。'
+              description: '初回はこのモードから始めてください。LINE はグループ内の全メッセージを配信するため、追加権限なしで observe_all や may_intervene も利用できます。'
             }
           ]
         }
@@ -2235,34 +2235,34 @@ export const channelTabs = [
     },
     advanced: {
       title: 'identity マッピング、グループでの返信、プラットフォームの制限',
-      summary: '展開すると、LINE ユーザーをアカウントにマッピングする方法と、グループでの Agent の動作を確認できます。',
+      summary: 'LINE ユーザーを Ankole アカウントへ紐付ける方法と、グループトークでの挙動を確認できます。',
       steps: [
         {
           title: 'LINE ユーザーをアカウントにマッピングする',
           body: [
-            'LINE ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、LINE の表示名とともに アイデンティティ → 保留中のマッピング に表示され、管理者が LINE の identity を既存のアカウント（たとえば事前作成したメンバー）に紐付けます。その後、ユーザーはメッセージを再送信します。LINE のユーザー ID は channel を所有する LINE Developers の provider に属するため、異なる provider の下にある channel には別々のマッピングが必要です。'
+            'LINE ユーザーには社員ディレクトリのレコードがないため、初回の発言時は自動マッピングが成立しません。「アカウントの自動マッピングに失敗した場合」は「手動レビュー」のままにしてください。未紐付けの発言者には案内メッセージが 1 回だけ返され、LINE の表示名とともに「アイデンティティ → 保留中のマッピング」に表示されます。管理者がその LINE ID を既存アカウント（事前作成したメンバーなど）に紐付けた後、ユーザーからメッセージを再送してもらいます。なお、LINE のユーザー ID はチャネルが属する LINE Developers プロバイダーごとに異なるため、別プロバイダー配下のチャネルを使う場合はそれぞれ個別にマッピングが必要です。'
           ]
         },
         {
           title: 'グループでの Agent の動作を知る',
           bullets: [
-            '1 対 1 のチャット、グループ、複数人チャットは、それぞれ 1 つの Conversation を形成します。LINE にはスレッドがありません。',
-            'グループでは、bot への @ メンション、または bot のメッセージの引用が Agent 宛になります。グループでの返信は質問者を引用します。',
-            'ユーザーが送信取消したメッセージは、セッションの context から削除されます。'
+            '1 対 1 トーク、グループトーク、複数人トークはそれぞれ 1 つの Conversation になります（LINE にはスレッド機能はありません）。',
+            'グループ内では、bot への @メンションまたは bot の発言に対するリプライ（引用返信）が Agent 宛てと判定され、Agent からの返信も質問元の発言を引用します。',
+            'ユーザーが送信取消を行ったメッセージは、セッションの context からも削除されます。'
           ]
         },
         {
           title: 'プラットフォームの制限を守る',
           bullets: [
-            '返信は 5,000 文字で分割され、1 つのリクエストで送信できるメッセージは最大 5 件です。確認の質問に表示できるボタンは最大 4 個です。',
-            'Ankole がダウンロードする受信ファイルは最大 25 MB です。それより大きいファイルは、Agent が名前とサイズを見られますが、内容は読めません。',
-            'Agent はファイルを送信できません。テキストの返信は引き続き配信されます。',
-            '月間プランを使い切ると、LINE はステータス 429 で応答します。プランの変更または翌月になるまで解消されません。'
+            '返信は 5,000 文字ごとに分割され、1 リクエストあたり最大 5 吹き出しまで送信されます。また、確認の質問に表示できるボタンは最大 4 個です。',
+            'Ankole がダウンロードする受信ファイルは最大 25 MB です（それを超えるファイルは名前とサイズのみ見え、中身は読み取れません）。',
+            'Agent からファイルを送信することはできません（テキスト本文は通常どおり配信されます）。',
+            '月間の無料・契約メッセージ通数を使い切ると LINE API からステータス 429 が返り、プラン変更または翌月のリセットまで送信できなくなります。'
           ]
         },
         {
           title: 'Agent ごとに別の channel を使用する',
-          body: ['1 つの Messaging API channel は有効な routing ルール 1 つにのみ属せます。追加の Agent ごとに別の channel を作成してください。']
+          body: ['1 つの Messaging API チャネルは有効なルーティングルール 1 つにしかバインドできません。Agent を増やす場合は、別のチャネルを作成してください。']
         }
       ]
     }
@@ -2271,16 +2271,16 @@ export const channelTabs = [
     value: 'whatsapp',
     label: 'WhatsApp',
     summary:
-      'WhatsApp は Cloud API の webhook を Ankole に投稿します。信頼された証明書を持つ公開 HTTPS エンドポイントが必須です。WhatsApp はコンシューマー向け IM ですが、電話番号がすでに既知の人物に属している送信者は、管理者の操作なしにマッピングされます。',
+      'WhatsApp は Cloud API の webhook を Ankole に送信するため、信頼された TLS 証明書を持つ公開 HTTPS エンドポイントが必須です。コンシューマー向け IM ですが、送信元の電話番号が既存の登録済みメンバーと一致する場合は管理者の操作なしで自動的に紐付けられます。',
     alert: {
-      title: 'WhatsApp は Ankole の一部の機能を制限します',
+      title: 'WhatsApp では Ankole の一部機能に制約があります',
       body: [
-        'Meta は、ユーザーの最新のメッセージまたはボタン応答から 24 時間後にカスタマーサービスウィンドウを閉じます。その後の返信（たとえばスケジュールされたレポート）は明確な失敗で停止し、ユーザーには届きません。ユーザーが再度メッセージを送った後、オペレーターは Signal Routing ページから再試行できます。グループチャット、テンプレートメッセージ、メッセージの編集、メッセージの削除、リアルタイムの進行状況表示は利用できません。',
-        'すべての制限はプラットフォーム自体に由来し、Ankole は回避できません。'
+        'Meta の仕様により、ユーザーの最新メッセージまたはボタン応答から 24 時間が経過するとカスタマーサービスウィンドウが閉じます。ウィンドウ終了後の送信（スケジュールレポートなど）は明確なエラーで停止し、ユーザーには届きません（ユーザーが再度メッセージを送った後、Signal Routing 画面から再試行できます）。また、グループチャット、有料テンプレートメッセージ、メッセージの編集・削除、リアルタイムの進捗表示には対応していません。',
+        'これらはすべて WhatsApp プラットフォーム自体の仕様による制約であり、Ankole 側で回避することはできません。'
       ]
     },
     prerequisites: [
-      'WhatsApp product を追加した Meta App と、電話番号を所有する WhatsApp Business Account',
+      'WhatsApp プロダクトを追加済みの Meta App と、電話番号を保有する WhatsApp Business Account',
       '公開 HTTPS の Ankole ホスト',
       'テスト用の WhatsApp アカウント'
     ],
@@ -2290,19 +2290,19 @@ export const channelTabs = [
         {
           title: 'WhatsApp product を接続し、識別子を収集する',
           body: [
-            'Meta App Dashboard で、App に WhatsApp product を追加し、電話番号を所有する WhatsApp Business Account を接続してください。App settings → Basic から App ID と App secret を、WhatsApp → API Setup から Phone number ID をコピーしてください。'
+            'Meta App Dashboard で対象 App に WhatsApp プロダクトを追加し、電話番号を保有する WhatsApp Business Account を紐付けます。App settings → Basic から App ID と App secret を、WhatsApp → API Setup から Phone number ID をそれぞれコピーしてください。'
           ]
         },
         {
           title: '無期限の System User token を発行する',
           body: [
-            'Meta Business Suite で System User を作成し、App に対する whatsapp_business_messaging 権限を付与して、有効期限なしの token を生成してください。ユーザー token は期限切れになり、Agent を停止させます。'
+            'Meta Business Suite で System User を作成し、対象 App への whatsapp_business_messaging 権限を付与して、無期限（永続）のアクセストークンを発行してください。通常のユーザートークンは有効期限が切れると Agent の送受信が止まってしまうため使用しないでください。'
           ]
         },
         {
           title: 'コールバックを検証する前に routing ルールを作成する',
           body: [
-            'verify token を決め、それと他のフィールドを Console に入力して、routing ルールを保存して有効にしてください。Meta はコールバック URL を Ankole に対して検証するため、ルールが先に存在する必要があります。'
+            '任意の verify token 文字列を決めて他の項目とともに Console へ入力し、先にルーティングルールを保存・有効化してください。Meta からのコールバック URL 検証に応答するため、ルールが先に存在している必要があります。'
           ]
         },
         {
@@ -2314,7 +2314,7 @@ export const channelTabs = [
             }
           ],
           body: [
-            'WhatsApp → Configuration を開き、この URL と同じ verify token を入力して、Verify and save を選択してください。次に、App を messages webhook フィールドに購読させてください。他のフィールドは使用しません。Ankole はすべてのリクエストの x-hub-signature-256 を App secret で検査し、誤った署名をステータス 401 で拒否します。'
+            'WhatsApp → Configuration を開き、上記の URL と先ほど決めた verify token を入力して Verify and save を選択します。続けて webhook フィールドの messages のみを購読してください（他のフィールドは使用しません）。Ankole は全リクエストの x-hub-signature-256 を App secret で検証し、不正な署名はステータス 401 で拒否します。'
           ]
         },
         {
@@ -2322,28 +2322,28 @@ export const channelTabs = [
           fields: [
             {
               name: 'appId',
-              description: 'Meta App ID。1 つの App の複数の電話番号がそれぞれ別の Agent を担当できます。それらのルールは同じ App secret と verify token を共有する必要があります。'
+              description: 'Meta App ID。1 つの App 配下に複数の電話番号がある場合、番号ごとに別々の Agent を割り当てられます（その場合も App secret と verify token は同じ値を共有します）。'
             },
             {
               name: 'appSecret',
-              description: 'App settings → Basic の App secret。Ankole は webhook の署名検証に使用します。'
+              description: 'App settings → Basic の App secret（webhook 署名の検証に使用します）。'
             },
             {
               name: 'verifyToken',
-              description: '自分で決める値。Meta のコールバック設定に同じ値を入力してください。'
+              description: '任意の検証用トークン文字列（Meta 側のコールバック設定と同じ値を指定します）。'
             },
             {
               name: 'phoneNumberId',
-              description: 'WhatsApp → API Setup の Phone number ID。1 つの番号は有効な routing ルール 1 つにのみ属せます。'
+              description: 'WhatsApp → API Setup の Phone number ID（1 つの電話番号は有効なルーティングルール 1 つにのみ割り当て可能）。'
             },
             {
               name: 'accessToken',
-              description: '無期限の System User access token。'
+              description: '無期限の System User アクセストークン。'
             },
             {
               name: 'group_message_mode',
               value: 'addressed_only',
-              description: '唯一のモードです。WhatsApp は 1 対 1 のチャットのみを配信し、すべてのメッセージが Agent 宛になります。'
+              description: '利用可能な唯一のモードです。WhatsApp は 1 対 1 チャットのみを配信するため、すべての発言が Agent 宛てになります。'
             }
           ]
         }
@@ -2351,33 +2351,33 @@ export const channelTabs = [
     },
     advanced: {
       title: 'identity マッピング、返信、プラットフォームの制限',
-      summary: '展開すると、WhatsApp ユーザーがアカウントになる方法と、Agent が使用できない WhatsApp の機能を確認できます。',
+      summary: 'WhatsApp ユーザーを Ankole アカウントへ紐付ける仕組みと、WhatsApp 上での制限事項を確認できます。',
       steps: [
         {
           title: 'WhatsApp ユーザーがアカウントになる方法を知る',
           body: [
-            '送信者の WhatsApp ID は、Meta が検証した電話番号です。既存のアカウントがその携帯番号を所有している場合（たとえばディレクトリ同期による場合）、送信者は即時にマッピングされます。そうでない場合、アカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、WhatsApp のプロフィール名と電話番号とともに アイデンティティ → 保留中のマッピング に表示され、管理者がその identity を既存のアカウントに紐付けます。独立アカウントを自動作成 は、誰でも Agent と会話できる公開番号の場合にのみ選択してください。'
+            '送信者の WhatsApp ID は Meta 側で確認済みの電話番号です。ディレクトリ同期などでその携帯電話番号を持つアカウントがすでに存在する場合は、即座に自動マッピングされます。該当するアカウントがない場合は自動マッピングが成立しないため、「アカウントの自動マッピングに失敗した場合」は「手動レビュー」のままにしてください。未紐付けの送信者には案内メッセージが 1 回だけ返され、WhatsApp のプロフィール名・電話番号とともに「アイデンティティ → 保留中のマッピング」に表示されるので、管理者が既存アカウントへ紐付けます。「独立アカウントを自動作成」は、誰でも Agent に話しかけられる公開番号の場合にのみ選択してください。'
           ]
         },
         {
           title: 'Agent の返信方法を知る',
           bullets: [
-            '返信はユーザーのメッセージを引用します。長い返信は 4,096 文字で分割されます。',
-            '選択肢が 3 つまでの確認の質問は返信ボタンを表示し、それより多い選択肢は 1 つのリストを表示します。各選択肢は番号で始まります。',
-            'Agent は、種類ごとの Meta のサイズ制限内で画像、動画、音声、ドキュメントを送信できます。Meta が受け付けないファイルは明確なエラーで停止し、テキストは引き続き送信されます。',
-            'ユーザーが WhatsApp で削除したメッセージは Ankole に届かないため、そのテキストはセッションの context に残ります。'
+            '返信時はユーザーの元メッセージを引用します。長文は 4,096 文字ごとに分割されます。',
+            '確認の質問では、選択肢が 3 つ以下なら返信ボタン、4 つ以上なら番号付きのリストメッセージとして表示されます。',
+            '画像・動画・音声・ドキュメントは Meta の種別ごとのサイズ上限内で送信できます。Meta 側に拒否されたファイルは明確なエラーを記録して停止し、テキスト本文のみ配信されます。',
+            'ユーザーが WhatsApp 上でメッセージを削除しても Ankole には通知されないため、削除前のテキストはセッションの context に残ります。'
           ]
         },
         {
           title: 'カスタマーサービスウィンドウを守る',
           body: [
-            'Ankole は送信ごとにウィンドウを確認します。ユーザーの最新のメッセージまたはボタン応答から 24 時間を超えた返信は customer_service_window_closed で停止し、Meta にはリクエストが送られません。新しいウィンドウを開く唯一の方法である有料のテンプレートメッセージは、現在の contract の対象外です。ユーザーが再度メッセージを送ったら、Signal Routing ページの 再試行 を使用して、停止した返信を送信してください。'
+            'Ankole は送信のたびに 24 時間ウィンドウを確認します。ユーザーの最新メッセージまたはボタン操作から 24 時間を過ぎていた場合は customer_service_window_closed で停止し、Meta への API リクエストは行いません（閉じたウィンドウを再度開くための有料テンプレートメッセージは対象外です）。ユーザーから再度メッセージが届いた後、Signal Routing ページの「再試行」から保留分の返信を送信してください。'
           ]
         },
         {
           title: 'ルールをその電話番号に固定する',
           body: [
-            'チャットは、それを受信した電話番号に紐付けられます。ルールを別の番号に移すと、以前のチャットへの返信は、ユーザーが一度も書き込んでいない番号から送信されるのではなく、binding_phone_number_mismatch で停止します。元の番号に戻すと解消されます。'
+            '各チャットは最初に受信した電話番号に紐付いています。後からルーティングルールの電話番号を別の番号へ差し替えると、既存のチャットに対する返信は見知らぬ番号から勝手に送られるのではなく、binding_phone_number_mismatch で安全に停止します（元の番号に戻すと解消します）。'
           ]
         }
       ]
@@ -2387,17 +2387,17 @@ export const channelTabs = [
     value: 'email',
     label: 'Email',
     summary:
-      'Ankole は専用のメールボックスを IMAP で読み取り、Agent の返信を SMTP で送信します。各メールスレッドが 1 つの会話です。メールボックスは Agent に属します。他のメールクライアントで人が読んではいけません。',
+      '専用のメールボックスを IMAP で読み取り、SMTP で Agent の返信を送信します。各メールスレッドが 1 つの会話に対応します。このメールボックスは Agent 専用とし、人間のメールクライアントで開かないでください。',
     alert: {
-      title: 'Email は Ankole の一部の機能を制限します',
+      title: 'Email では Ankole の一部機能に制約があります',
       body: [
-        '他のメールクライアントが既読にしたメッセージは Agent に届かないため、メールボックスは専用である必要があります。Agent の返信は 1 通のプレーンテキストメールで、リアルタイムの進行状況、編集、ボタンはありません。確認の質問は番号付きのテキストとして届き、人は通常の返信で回答します。パスワードとアプリパスワードによるログインのみをサポートしているため、Gmail にはアプリパスワードが必要で、OAuth を必須とする Exchange Online のメールボックスは使用できません。',
-        'control plane は IMAP サーバーと SMTP サーバーに直接到達する必要があります。HTTP egress proxy はこれらを対象としません。'
+        '他のメールクライアントで既読になったメールは Agent が取り込めなくなるため、必ず専用のメールボックスを用意してください。Agent の返信はプレーンテキストメール 1 通として送信され、リアルタイムの進捗表示・編集・インタラクティブボタンはありません（確認の質問は番号付きテキストで送られ、通常のメール返信で回答します）。認証はパスワードまたはアプリパスワードのみに対応しているため、Gmail ではアプリパスワードが必要であり、OAuth 必須の Exchange Online メールボックスは利用できません。',
+        'また、control plane から IMAP サーバーおよび SMTP サーバーへ直接通信できる必要があります（HTTP egress プロキシはメール通信には使われません）。'
       ]
     },
     prerequisites: [
-      'IMAP と SMTP でアクセスでき、パスワードまたはアプリパスワードを持つ専用のメールボックス',
-      'DMARC の結果を含む Authentication-Results ヘッダーを追加するメールサーバー、または外部からのメールを受け付けないプライベートなメールサーバー'
+      'IMAP / SMTP が有効で、パスワードまたはアプリパスワードで認証できる専用メールボックス',
+      'DMARC 検証結果を含む Authentication-Results ヘッダーを付与するメールサーバー（または外部メールを受け付けない閉域メールサーバー）'
     ],
     basic: {
       title: '専用のメールボックスを準備する',
@@ -2405,63 +2405,63 @@ export const channelTabs = [
         {
           title: 'メールボックスとそのパスワードを作成する',
           body: [
-            'Agent だけが使用するメールボックスを作成し、IMAP と SMTP を有効にしてください。プロバイダーが要求する場合は、アカウントのパスワードではなく Ankole 用のアプリパスワードを作成してください。'
+            'Agent 専用のメールボックスを作成し、IMAP と SMTP を有効にします。メールサービス側で求められている場合は、通常のログインパスワードではなく Ankole 専用のアプリパスワードを発行してください。'
           ],
-          caution: 'このメールボックスを他のメールクライアントで開かないでください。他のクライアントが既読にしたメッセージは Agent から見えません。'
+          caution: 'このメールボックスを他のメールソフトで開かないでください。先に既読が付いたメッセージは Agent から見えなくなります。'
         },
         {
           title: 'サーバー設定を収集する',
           body: [
-            'Ankole は IMAP に implicit TLS（通常はポート 993）で接続します。SMTP は STARTTLS（通常はポート 587）または implicit TLS（通常はポート 465）を使用します。Ankole はサーバー証明書をシステムの CA ストアに対して検証します。'
+            'Ankole は IMAP サーバーへ暗黙 TLS（implicit TLS、通常ポート 993）で接続し、SMTP サーバーへは STARTTLS（通常ポート 587）または暗黙 TLS（通常ポート 465）で接続します。サーバー証明書はシステムの CA ストアに対して検証されます。'
           ]
         },
         {
           title: 'Console のフィールドを収集する',
           fields: [
-            { name: 'address', value: 'agent@example.com', description: 'メールボックスのアドレス。返信はここから送信されます。' },
-            { name: 'displayName', value: 'Ankole Agent', description: '送信メールの送信者名。' },
-            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP サーバーのホスト。' },
-            { name: 'imapPort', value: '993', description: 'IMAP のポート。Ankole は implicit TLS を使用します。' },
-            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP サーバーのホスト。' },
-            { name: 'smtpPort', value: '587', description: 'SMTP のポート。STARTTLS では 587、TLS では 465 を使用してください。' },
-            { name: 'smtpSecurity', value: 'starttls', description: 'SMTP のポートに合わせて starttls または tls。' },
-            { name: 'username', description: 'ログイン名。通常はメールボックスのアドレスです。1 組の IMAP ホストとユーザー名は有効な routing ルール 1 つにのみ属せます。' },
-            { name: 'password', description: 'メールボックスのパスワードまたはアプリパスワード。Ankole は暗号化して保存します。' },
-            { name: 'senderAuthentication', value: 'dmarc', description: 'dmarc のままにしてください。none は、外部からのメールを受け付けないプライベートなメールサーバーの場合にのみ設定してください。' }
+            { name: 'address', value: 'agent@example.com', description: '専用メールボックスのアドレス（返信の差出人になります）。' },
+            { name: 'displayName', value: 'Ankole Agent', description: '送信メールの差出人表示名。' },
+            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP サーバーのホスト名。' },
+            { name: 'imapPort', value: '993', description: 'IMAP ポート番号（暗黙 TLS を使用します）。' },
+            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP サーバーのホスト名。' },
+            { name: 'smtpPort', value: '587', description: 'SMTP ポート番号（STARTTLS は 587、暗黙 TLS は 465）。' },
+            { name: 'smtpSecurity', value: 'starttls', description: 'SMTP ポートに合わせて starttls または tls を選択。' },
+            { name: 'username', description: '認証ユーザー名（通常はメールアドレスと同じ。同一の IMAP ホスト＋ユーザー名の組は有効なルーティングルール 1 つにのみ割り当て可能）。' },
+            { name: 'password', description: 'メールボックスのパスワードまたはアプリパスワード（暗号化して保存されます）。' },
+            { name: 'senderAuthentication', value: 'dmarc', description: '通常は dmarc のまま維持してください。none は外部メールを一切受け付けない閉域メールサーバーの場合にのみ指定します。' }
           ]
         },
         {
           title: 'テストメールを送信する',
           body: [
-            '自分のアドレスからメールボックスにメールを送ってください。自分のアドレスがまだアカウントに紐付けられていない場合は、返信としてマッピングの通知を受け取ります。アイデンティティ → 保留中のマッピング でアドレスを紐付けて、メールを再送信してください。'
+            '自分のメールアドレスから専用メールボックス宛てにテストメールを送ります。送信元アドレスがまだアカウントに紐付いていない場合はマッピング案内の返信が届くので、「アイデンティティ → 保留中のマッピング」で紐付けてからもう一度メールを送信してください。'
           ]
         }
       ]
     },
     advanced: {
       title: '送信者の identity、送信者認証、スレッド',
-      summary: '展開すると、メールの送信者が既知のアカウントになる方法と、Ankole がスレッドと一括メールを扱う方法を確認できます。',
+      summary: 'メール送信者を既存アカウントと照合する仕組みや、スレッド・一括配信メールの扱いを確認できます。',
       steps: [
         {
           title: 'メールの送信者がアカウントになる方法を知る',
           body: [
-            'インターネット上の誰でもメールボックスに書き込めて、From アドレスはそれ自体では何も証明しないため、Ankole はメールの送信者を未連携のプロフィールメールアドレスや SiteCredential のログインメールアドレスだけでは照合しません。送信者は、明示的な Pod のメール（email）identity 紐付けによってのみ既知になります。ディレクトリ同期とエンタープライズプロバイダーのサインインは、プロバイダーが報告するアドレスを紐付けるため、同期されたディレクトリの社員は手動の手順なしに受け入れられます。それ以外のアドレスは、管理者が アイデンティティ → 保留中のマッピング から紐付けます。独立アカウントを自動作成 は、そのアドレスを識別子とするアカウントを作成します。公開メールボックスの場合にのみ使用してください。'
+            'メールの From ヘッダーは誰でも詐称でき、それ自体では本人性を証明できないため、未連携のプロフィールメールアドレスや SiteCredential のログイン用アドレスだけで自動照合することはありません。送信者が既知のアカウントとして扱われるのは、Pod の email identity が明示的に紐付けられている場合のみです。エンタープライズ IdP のディレクトリ同期やサインインではプロバイダー確認済みのアドレスが自動で紐付けられるため、同期済み社員からのメールは追加操作なしで受け付けられます。それ以外のアドレスは管理者が「アイデンティティ → 保留中のマッピング」から手動で紐付けます。「独立アカウントを自動作成」は、社外からの問い合わせ窓口など公開メールボックスとして運用する場合にのみ使用してください。'
           ]
         },
         {
           title: '送信者認証を理解する',
           body: [
-            'senderAuthentication が dmarc の場合、Ankole は受信側のメールサーバーが追加する Authentication-Results ヘッダーを読み取り、From アドレスのドメインについて dmarc=pass を報告している場合にのみメッセージを受け入れます。失敗したメッセージは通知なしに無視されます。none は、メールサーバーがプライベートネットワーク上にあり、外部からのメールを受け付けない場合にのみ設定してください。'
+            'senderAuthentication が dmarc の場合、Ankole は受信メールサーバーが付与した Authentication-Results ヘッダーを確認し、From ドメインに対して dmarc=pass が記録されているメールのみを受け入れます（不合格のメールは通知を出さずに破棄されます）。none は、外部からのメールが届かない閉域ネットワーク内のメールサーバーにのみ設定してください。'
           ]
         },
         {
           title: 'スレッドと一括メールの扱いを知る',
           bullets: [
-            'スレッドは件名ではなく、In-Reply-To ヘッダーと References ヘッダーで判定されます。Agent の返信には、メールクライアントが使用するスレッドヘッダーが付きます。',
-            '参加者が送信者とメールボックスだけのスレッドは 1 対 1 の会話です。他の受信者がいるとグループの会話になり、メールボックスを Cc にのみ含むメッセージは Agent 宛になりません。',
-            '既知のスレッド内のメッセージでは、返信区切りの下の引用テキストが削除されます。スレッドの最初のメッセージと転送されたメッセージは、本文全体を保持します。',
-            'メールボックス自身からのメール、自動送信メールと一括メール、メーリングリストのメールは通知なしに無視されます。',
-            '25 MB を超えるメッセージはヘッダーのみが届きます。送信する添付ファイルは 1 通あたり 20 MB までです。'
+            'スレッドの同一性は件名ではなく In-Reply-To ヘッダーと References ヘッダーで判定され、Agent の返信メールにも標準のスレッド用ヘッダーが付与されます。',
+            '送信者と専用メールボックスだけのやり取りは 1 対 1 の会話となり、他の宛先が含まれる場合はグループ会話になります。なお、専用メールボックスが Cc にのみ入っているメールは Agent 宛て（addressed）とはみなされません。',
+            '既存スレッドへの返信メールでは引用区切り線より下の過去引用部分が除去されますが、スレッドの最初のメールと転送メールでは本文全体が保持されます。',
+            '専用メールボックス自身からの送信メール、自動応答・一括配信メール、およびメーリングリスト投稿は通知なしで無視されます。',
+            '25 MB を超える受信メールはヘッダー情報のみが取り込まれます。また、Agent から送信できる添付ファイルは 1 通あたり合計 20 MB までです。'
           ]
         }
       ]
@@ -2471,31 +2471,31 @@ export const channelTabs = [
 
 export const signalAdvanced = {
   title: 'グループでの動作と identity mapping',
-  summary: '最初の設定では、Agent 宛のメッセージだけに返信させてください。',
+  summary: '初回セットアップでは、まず Agent 宛てにメンションされたメッセージにだけ返信させてください。',
   steps: [
     {
       title: 'Agent がアドレス指定されていないグループメッセージをどう処理するかを選択する',
       fields: [
         {
           name: 'addressed_only',
-          description: 'Agent にアドレス指定しないグループメッセージを無視します。最初のテストにはこれを使用してください。'
+          description: 'Agent 宛てではない通常のグループ発言を無視します。最初の疎通確認にはこちらを使用してください。'
         },
         {
           name: 'observe_all',
-          description: 'Agent の Turn を開始せずに、アドレス指定されていないメッセージを context として保存します。'
+          description: 'Agent の Turn は起動せず、メンションのない発言も会話の context として記録します。'
         },
         {
           name: 'may_intervene',
-          description: 'Agent が、アドレス指定されていない議論に参加するかどうかを決定できるようにします。'
+          description: 'メンションのない議論に対しても、発言すべきかどうかを Agent 自身が判断して介入できるようにします。'
         }
       ],
       caution:
-        'provider がそれらのメッセージを配信する必要があります。DingTalk と WeCom は addressed_only のみをサポートします。Slack と Lark は、部屋全体を観察できるようになる前に追加のイベントまたは scope が必要です。'
+        'この設定が機能するには、プラットフォーム側から対象メッセージが配信されている必要があります。DingTalk と WeCom は addressed_only のみに対応しています。Slack と Lark でチャンネルやルーム全体を観察させるには、追加のイベント購読や scope が必要です。'
     },
     {
       title: 'チャット binding から identity provider を参照する',
       body: [
-        'チャット binding は「Identity provider」フィールドで同じプラットフォームの IdP レコードを参照します。IdP が 1 つだけならデフォルトで採用され、複数ある場合は選択が必要で、スタンドアロンの選択肢は binding を独自の namespace に保ちます。この参照により、チャットの送信者と同期されたディレクトリユーザーは 1 つのアカウントになります。'
+        'チャット binding の「Identity provider」フィールドで、同じプラットフォームの IdP レコードを参照できます。対象の IdP が 1 つだけなら自動で選択され、複数ある場合は明示的に選択します（スタンドアロンを選ぶと、その binding は独立した namespace として扱われます）。IdP を参照することで、チャットの発言者とディレクトリ同期された社員が単一のアカウントに統合されます。'
       ]
     }
   ]
@@ -2503,45 +2503,45 @@ export const signalAdvanced = {
 
 ## Ankole のデプロイ方法
 
-プライベートな Ankole デプロイメントインスタンスには、1 つの control plane と、Agent ごとに 1 つの Agent Computer Worker があります。control plane は永続的なドメイン状態と監視を所有する管理プラットフォームです。Worker は Agent の実行環境を提供し、Agent 自身の仕事用コンピュータとして機能します。
+プライベートな Ankole デプロイメントインスタンスは、1 つの control plane と、Agent ごとに 1 つ割り当てられる Agent Computer Worker で構成されます。control plane は永続的なドメイン状態とプロセス監視を担う管理基盤であり、Worker は各 Agent 専用の仕事用コンピュータとして実行環境を提供します。
 
-Agent が Worker を共有することはありません。同僚がそれぞれ自分の仕事用コンピュータを持つのと同じです。control plane は、Agent の作成時にその Agent の Worker を作成し、停止、置き換え、削除も自動で行います。
+人間が一人ひとり自分の業務用 PC を持つのと同じように、複数の Agent が 1 つの Worker を共有することはありません。Agent を作成すると、control plane がその Agent 専用の Worker を自動でプロビジョニングし、停止・置き換え・削除まで一貫して管理します。
 
 <DocsKnowledgeNote
   label="💡 知っていましたか？"
-  text="Worker のコンテナまたは Pod が、その唯一の分離境界です。Agent のコマンド、Automation スクリプト、ブラウザは内側の sandbox なしでその中で実行され、コンテナに追加のカーネル権限は必要ありません。Agent は自分の Worker にソフトウェアをインストールしたり、Worker を壊したりできますが、別の Agent として動作することはできません。control plane は、時間内に準備完了にならない Worker を再構築します。"
+  text="Worker のコンテナ（または Pod）そのものが唯一の分離境界です。Agent が実行するコマンド、Automation スクリプト、ブラウザ操作は内側の追加サンドボックスなしでそのコンテナ内で直接動作し、特権的なカーネル権限も必要としません。Agent が自分の Worker 内にソフトウェアを入れたり環境を壊したりすることはあっても、別の Agent になりすますことはできません。また、規定時間内に準備完了にならない Worker は control plane が自動的に再構築します。"
 />
 
-各デプロイには PostgreSQL、ドライブのファイルストア、Agent ごとの永続 Home が必要です。既定の Kubernetes chart は共有 ReadWriteMany Home PVC と別の ReadWriteOnce キャッシュ PVC を使います。Home はバックアップが必要で、キャッシュは不要です。
+すべてのデプロイメントには、PostgreSQL、ドライブ用のファイルストア、および Agent ごとの永続 Home ストレージが必要です。Kubernetes の既定 Helm chart では、共有の ReadWriteMany Home PVC と、それとは別の ReadWriteOnce キャッシュ PVC を使用します（Home はバックアップ必須ですが、キャッシュは再構築可能なためバックアップ不要です）。
 
-1 つのサイトに複数のテナントを配置できます。サイト管理者が共有基盤を管理し、各テナントは人、Agent、Brain、外部接続を持ちます。管理 Console の既定パスは `/site-admin-console` です。起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm では `controlPlane.siteAdminConsolePath`）で変更できます。
+また、1 つのサイト内に複数のテナントを収容できます。サイト管理者が共有インフラを管理し、各テナントがその配下でメンバー、Agent、Brain、外部接続をそれぞれ保有します。Site Admin Console の既定パスは `/site-admin-console` ですが、起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm では `controlPlane.siteAdminConsolePath`）で変更できます。
 
 <span id="terminology" aria-hidden="true" />
 
 ### このガイドで使用する用語
 
-このページは、Ankole のユーザードキュメントとインターフェースで使用される用語を定義します。括弧内の名前は、サードパーティのプラットフォーム、設定フィールド、API に対応します。以降のセクションでは短縮形を使用します。
+以下の表は、Ankole のドキュメントおよび管理画面で使われる用語の定義です。括弧内の名称は外部プラットフォームや設定フィールド、API 上の表記に対応しています。以降のセクションでは右列の短縮形を使用します。
 
 | 正式用語 | 意味 | 短縮形 |
 |---|---|---|
-| **Site** | 共有基盤とサイト管理者を持つ Ankole の完全なデプロイ | Site |
-| **Tenant** | サイト内の組織に属する人、Agent、Brain、外部接続、仕事 | Tenant |
-| **Principal** | Ankole で identity と権限を持つことができる人、Agent、またはシステムサービス | Principal |
-| **Identity Provider (IdP)** | Console の SSO を提供し、社員、連絡先、組織構造を同期する外部の identity ソース | IdP |
-| **Chat platform** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メールボックスなどの外部の会話プラットフォーム | Platform |
-| **Channel Provider** | メッセージを受信して Agent の返信を送信する 1 つのチャットアプリまたは bot 設定 | Channel Provider |
-| **Conversation** | 人と Agent の共有スペース。ネイティブメッセージは Ankole を権威とし、外部メッセージは外部ホストを権威とします | Conversation |
-| **Message** | 会話の参加者から見える確定済みの記録 | Message |
-| **Signal** | メッセージ、時刻、外部イベント、またはタスク完了から生じる永続的な刺激 | Signal |
-| **Session** | signal キューと復旧可能な作業を持つ実行コンテキスト。会話をまたぎません | Session |
-| **Delivery** | 外部の会話へ送信するメッセージの永続的な送信意図、試行、結果 | Delivery |
-| **Signal Routing Rule (Signal Binding)** | signal ソースから Agent にメッセージまたはイベントを送信するルール | Routing rule |
-| **LLM Provider** | モデルサービスのエンドポイント、credential、利用可能なモデルを保存する設定 | LLM Provider |
-| **Background Agent Jobs profile (内部キー: `coding`)** | Background Agent Jobs の AIGateway provider とモデルを選択します | Background Agent Jobs |
+| **Site** | 共有インフラとサイト管理者を持つ Ankole デプロイメント全体 | Site |
+| **Tenant** | サイト内の 1 組織に属するメンバー、Agent、Brain、外部接続、および業務データ | Tenant |
+| **Principal** | Ankole 上で ID と権限を持つ人間、Agent、またはシステムサービス | Principal |
+| **Identity Provider (IdP)** | Console の SSO を提供し、社員・連絡先・組織構造を同期する外部の認証基盤 | IdP |
+| **Chat platform** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メールなどの外部会話サービス | Platform |
+| **Channel Provider** | メッセージを受信して Agent の返信を送り出す個別のチャットアプリまたは bot 設定 | Channel Provider |
+| **Conversation** | 人と Agent がやり取りする共有の会話空間。ネイティブ会話は Ankole が、外部チャット会話は外部プラットフォーム側が正本を持ちます | Conversation |
+| **Message** | 会話の参加者に表示される確定済みの発言レコード | Message |
+| **Signal** | メッセージ、スケジュール時刻、外部イベント、またはタスク完了から生成される永続的なトリガー信号 | Signal |
+| **Session** | Signal キューと復旧可能な作業状態を持つ実行コンテキスト（複数の Conversation をまたぐことはありません） | Session |
+| **Delivery** | 外部の会話へメッセージを送出する際の永続的な送信意図・試行・結果の記録 | Delivery |
+| **Signal Routing Rule (Signal Binding)** | Signal の発生元から対象の Agent へメッセージやイベントを振り分けるルール | Routing rule |
+| **LLM Provider** | モデルサービスの接続先エンドポイント、認証情報、利用可能なモデル一覧を保持する設定 | LLM Provider |
+| **Background Agent Jobs profile (内部キー: `coding`)** | Background Agent Jobs で使用する AIGateway provider とモデルを指定するプロファイル | Background Agent Jobs |
 
 ## Agent にセットアップを完了させる
 
-このプロンプトを Codex、Claude Code、またはターミナルを操作できる別の Agent に送信できます。
+以下のプロンプトをそのままコピーして、Codex や Claude Code などターミナル操作が可能なコーディング Agent に実行させることもできます。
 
 <QuickstartAgentPrompt
   client:visible
@@ -2553,9 +2553,9 @@ Agent が Worker を共有することはありません。同僚がそれぞれ
 
 ## 1. Ankole をデプロイする
 
-1 台のホストには Docker Compose を、エンタープライズのデプロイメントには Kubernetes を使用してください。開発とデバッグにはソースからインストールしてください。
+単一ホストでの運用には Docker Compose、エンタープライズ本番環境には Kubernetes を選択してください。コード変更やデバッグを行う開発環境では、ソースからインストールします。
 
-Worker の installation 名は 1–20 文字で、小文字、数字、ハイフンのみを使用できます。先頭と末尾は文字または数字にしてください。例えば `e2e-1011b01` は有効です。Compose では `ANKOLE_WORKER_INSTALLATION`（既定値 `ankole`）、Helm では `worker.installation` を設定します。Helm の値が空の場合は release 名を使用します。Worker リソースと永続 Home ストレージがこの名前を使用するため、初回起動前に決め、インストール後は変更しないでください。
+Worker の installation 名は、英小文字・数字・ハイフンのみを使った 1〜20 文字（先頭と末尾は英数字、例：`e2e-1011b01`）で指定します。Docker Compose では `ANKOLE_WORKER_INSTALLATION`（既定値 `ankole`）、Helm では `worker.installation`（空の場合は release 名を使用）で設定します。この名前は Worker リソースや永続 Home ストレージの識別に使われるため、初回起動前に決定し、インストール後は変更しないでください。
 
 <QuickstartTabs
   client:visible
@@ -2569,23 +2569,23 @@ Worker の installation 名は 1–20 文字で、小文字、数字、ハイフ
 
 ## 2. サインインと identity を最初にセットアップする
 
-Ankole はエンタープライズ内のプライベートデプロイメント用に設計されています。1 つのサイトに複数のテナントを配置できます。各テナントの Agent、社員、システムサービスは Principal として表現され、AuthZ が権限を管理します。`/setup` を完了すると、最初の管理者に `siteadmin`（`/site-admin-console` の Site Admin Console 用）と既定 Pod の `pod_admin` の両方が付与されます。テナント固有の設定を行う前に、Console で対象テナントを選択してください。
+Ankole は組織内のプライベートデプロイメント向けに設計されており、1 つのサイト内に複数のテナントを構成できます。各テナントの社員、Agent、システムサービスはすべて Principal として表現され、AuthZ が権限を一元管理します。`/setup` を完了すると、最初の管理者に `siteadmin`（`/site-admin-console` の Site Admin Console 権限）と既定 Pod の `pod_admin` の両方が付与されます。テナント単位の設定を行う際は、Console 上で対象テナントを選択してから操作してください。
 
-`/setup` では、パスワード不要の **メール認証（Email OTP）**（`email_otp`。SMTP サーバーと 6 桁の確認コードを使用）または、社員、ディレクトリの連絡先、組織構造も同期する **エンタープライズ SSO Identity Provider（IdP）** のいずれかを選択できます。チャットチャンネルを設定する前に、サインイン方式を設定してください。
+`/setup` では、パスワードレスの **メール認証（Email OTP）**（`email_otp`：SMTP サーバーと 6 桁の確認コードを使用）または、社員・連絡先・組織構造のディレクトリ同期も兼ねる **エンタープライズ SSO Identity Provider（IdP）** のどちらかを選択します。チャットチャンネルを接続する前に、まずこのサインイン基盤を完了させてください。
 
-| 設定 | 制御するもの | 設定場所 |
+| 設定 | 役割 | 設定場所 |
 |---|---|---|
-| **メール認証（`email_otp`）** | パスワード不要の 6 桁メール確認（`authn.email.mail` SMTP トランスポートと `SiteCredential` 紐付け）およびメール招待 | `/setup`（**メール認証**）、または CLI `mix ankole.authn.mail.put` |
-| **Identity Provider (IdP)** | エンタープライズ SSO、およびエンタープライズのディレクトリから同期される社員、連絡先、組織構造、権限グループ | 最初に `/setup`、その後 **Console → Identity Providers** |
-| **Channel Provider** | メッセージを受信して Agent の返信を送信する IM アプリまたは bot | **Console → Signal Routing** |
+| **メール認証（`email_otp`）** | パスワード不要の 6 桁メール確認コード認証（`authn.email.mail` の SMTP 設定と `SiteCredential` 紐付け）およびメール招待 | `/setup`（**メール認証**）、または CLI `mix ankole.authn.mail.put` |
+| **Identity Provider (IdP)** | エンタープライズ SSO、および組織ディレクトリからの社員・連絡先・部署・権限グループの同期 | 初回は `/setup`、以降は **Console → Identity Providers** |
+| **Channel Provider** | チャットメッセージの受信と Agent からの返信送信を担う IM アプリまたは bot | **Console → Signal Routing** |
 
-サインイン方式とチャットチャンネルには異なるプラットフォームを使用できます。メール認証や Google Workspace でブートストラップして Slack で Agent と会話することも、Entra ID で identity を提供しながら Lark、Slack、DingTalk、Teams、または WeCom で会話を運ぶこともできます。
+なお、サインイン方式とチャットチャンネルを同じプラットフォームに揃える必要はありません。たとえばメール認証や Google Workspace でサインインを構成しつつ Slack で Agent と会話したり、Entra ID で SSO と組織同期を行いながら Lark・Slack・DingTalk・Teams・WeCom をチャット窓口として使ったりできます。
 
 ### お使いのサインイン方式のセットアップを完了する
 
-**メール認証**または組織が使用するエンタープライズの identity ソースを選択してください。エンタープライズ SSO の各タブは provider のコンソールから始まり、最初のサインインとディレクトリ同期で終わります。
+下のタブから、**メール認証**または組織で利用しているエンタープライズ IdP を選択してください。エンタープライズ SSO の各タブでは、外部プロバイダー側のコンソール設定から初回サインイン・ディレクトリ同期の確認までを順番に案内します。
 
-エンタープライズアダプタを初めて有効にする場合は、最初のサインインの後に control plane を再起動してください。この再起動で、ディレクトリ接続や Graph サブスクリプションなどのプラグインのバックグラウンド作業が開始されます。
+初めてエンタープライズアダプターを有効化した場合は、最初のサインインが完了した後に一度 control plane を再起動してください。再起動によって、ディレクトリ常時接続や Graph サブスクリプションといったプラグインのバックグラウンド処理が開始されます。
 
 <QuickstartTabs
   client:visible
@@ -2600,21 +2600,21 @@ Ankole はエンタープライズ内のプライベートデプロイメント�
 
 ## 3. LLM Provider を追加して Agent を作成する
 
-Agent のモデルプロファイルはモデル参照を保存するため、最初に LLM Provider を追加してください。Console にサインインし、**Providers → New provider** を開いて、provider の種類を選択し、安定した Provider ID を付け、エンドポイントと credential のフィールドを入力して保存してください。
+Agent のモデルプロファイルは登録済みの LLM Provider を参照するため、先に LLM Provider を追加します。Console にサインインし、**Providers → New provider** を開いて provider の種類を選択し、安定した Provider ID、エンドポイント、および認証情報を入力して保存してください。
 
-provider の credential は control plane 内で暗号化されたまま保持されます。デプロイメントの環境ファイルや Agent ファイルに配置しないでください。
+登録した認証情報は control plane 内で暗号化して保管されます。デプロイ用の環境変数ファイルや Agent のファイル内に API key を書き込まないでください。
 
-**Agents → New Agent** を開き、handle、表示名、Worker provider、担当する作業と受入条件を示す mission を設定します。不透明な UID は Ankole が生成します。
+続いて **Agents → New Agent** を開き、handle、表示名、Worker provider、および担当業務と完了条件を記した mission を設定します（不透明な Agent UID は Ankole が自動生成します）。
 
-次に、そのモデルプロファイルを設定します。
+Agent を作成したら、以下の 3 つのモデルプロファイルを設定します。
 
 | プロファイル | 初回実行での用途 |
 |---|---|
-| `primary` | メインの推論モデル |
-| `light` | 短く頻繁な仕事 |
-| `heavy` | 難しい総合 |
+| `primary` | メインの対話・推論モデル |
+| `light` | 軽量かつ高頻度な処理用モデル |
+| `heavy` | 高度な統合・深い推論用モデル |
 
-Agent が実行できるようになるには、3 つすべてが必要です。最初の会話では、同じ既知の正常な provider とモデルを 3 つすべてにバインドできます。エンドツーエンドの経路が動作した後にのみ分割してください。
+Agent を動かすにはこの 3 つすべてが必須です。最初の疎通確認では、動作実績のある同じ provider とモデルを 3 つすべてに割り当てて構いません。一通りの会話が通ることを確認してから、用途別にモデルを分けてください。
 
 <QuickstartDisclosure
   client:visible
@@ -2626,11 +2626,11 @@ Agent が実行できるようになるには、3 つすべてが必要です。
 
 ## 4. チャットチャンネルを接続して signal routing ルールを作成する
 
-Console でチャットプラットフォームの Control Plane Plugin を有効にし、そのプラットフォーム上で bot またはアプリケーションを作成してください。両方が同じプラットフォームを使用する場合でも、IdP とチャットの役割には別々のアプリを使用してください。この分離により、サインインとディレクトリの権限が bot の権限から離れます。また、credential のローテーションとアプリのリリースも分離されます。
+Console で対象チャットプラットフォームの Control Plane Plugin を有効化し、プラットフォーム側で bot またはアプリケーションを作成します。サインイン（IdP）と同じプラットフォームを使う場合でも、IdP 用とチャット用でアプリは分けて作成してください。アプリを分離しておくことで、サインイン・ディレクトリ権限と bot 権限を最小限に保てるほか、認証情報のローテーションやアプリのバージョン公開も互いに影響せず行えます。
 
-通常、1 つのチャットアプリは 1 つの bot identity を表します。複数の Agent が異なる bot 名、アバター、または権限を必要とする場合は、そのプラットフォームで複数のアプリを作成してください。アプリを準備したら、Console でその routing ルールを作成し、意図する Agent に接続してください。
+通常、1 つのチャットアプリは 1 つの bot アカウントに対応します。複数の Agent で別々の bot 名・アイコン・権限を使い分けたい場合は、プラットフォーム側で Agent ごとにアプリを作成してください。アプリの準備ができたら、Console でルーティングルールを作成して対象の Agent に接続します。
 
-Slack、Teams、Lark/Feishu、DingTalk、WeCom はエンタープライズ向けプラットフォームです。そのユーザーは IdP が同期したディレクトリに由来します。Telegram、Discord、LINE、WhatsApp はコンシューマー向け IM です。そのユーザーには従業員レコードがないため、Agent が応答する前に、管理者が **アイデンティティ → 保留中のマッピング** で新しい送信者ごとにアカウントへマッピングします。WhatsApp では、既知のアカウントがすでにその電話番号を所有している場合、送信者は自動的にマッピングされます。Email は専用のメールボックスを接続し、送信者は明示的なメールの identity 紐付けによってのみ既知になります。
+なお、Slack・Teams・Lark/Feishu・DingTalk・WeCom はエンタープライズ向けプラットフォームであり、発言者は IdP が同期した社員ディレクトリと照合されます。一方、Telegram・Discord・LINE・WhatsApp はコンシューマー向け IM のため社員レコードが存在せず、新しい送信者が話しかけた際は管理者が **アイデンティティ → 保留中のマッピング** で既存アカウントへ紐付けてから Agent の応答が始まります（WhatsApp のみ、携帯電話番号が既存アカウントと一致すれば自動マッピングされます）。また、Email では専用メールボックスを接続し、明示的に email identity が紐付けられた送信者からのメールのみを受け付けます。
 
 <QuickstartTabs
   client:visible
@@ -2643,23 +2643,23 @@ Slack、Teams、Lark/Feishu、DingTalk、WeCom はエンタープライズ向け
 
 ### Console で接続を完了する
 
-ルーティングルールは 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作を記録します。bot ごとに別のルールを作成してください。
+ルーティングルールは、1 つの Channel Provider と 1 つの Agent を結び付け、使用するアダプター・アプリ認証情報・宛先 Agent・グループメッセージの扱い方を定義します。bot ごとに個別のルールを作成してください。
 
-Console で、**Signal Routing → New routing rule** を開き、設定してください：
+Console で **Signal Routing → New routing rule** を開き、以下の項目を設定します。
 
-| フィールド | 選択するもの |
+| フィールド | 設定内容 |
 |---|---|
 | **Target Agent** | ステップ 3 で作成した Agent |
 | **Adapter** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または Email |
-| **Rule name** | `slack-main` や `lark-main` などの安定した名前 |
-| **Group message mode** | `addressed_only` から始める |
-| **Channel settings** | チャンネルタブの credential と値を貼り付ける |
+| **Rule name** | `slack-main` や `lark-main` など用途がわかる安定した名前 |
+| **Group message mode** | 最初は `addressed_only` を選択 |
+| **Channel settings** | 上のチャンネルタブで控えた認証情報と設定値を入力 |
 
-ルールを保存してください。リストに enabled として表示される必要があります。フォームが credential を拒否した場合は、IM をテストする前にそのエラーを修正してください。アダプタはまだ接続を開いていません。
+保存後、ルール一覧でステータスが `enabled` になっていることを確認してください。保存時に認証情報エラーが表示された場合は、まだアダプターの接続が始まっていないため、IM 側を試す前にエラー内容を解消してください。
 
 <DocsKnowledgeNote
   label="💡 知っていましたか？"
-  text="Signal Routing Rule はソースからのメッセージやイベントを対象 Agent に送ります。チャットアダプタはメッセージを Conversation に記録してから Signal を作成し、CloudEvents エンドポイントも外部システムのイベントを受け取れます。複数の Agent が Conversation の履歴を共有でき、各 Agent は自身の Session でその履歴を処理します。"
+  text="Signal Routing Rule は、送信元からのメッセージやイベントを対象の Agent へ届けます。チャットアダプターは発言を Conversation に記録したうえで Signal を生成し、CloudEvents エンドポイントからも外部システムのイベントを取り込めます。同じ Conversation の履歴を複数の Agent で共有することも可能で、各 Agent はそれぞれ独立した自身の Session 内で履歴を処理します。"
 />
 
 <QuickstartDisclosure
@@ -2670,26 +2670,26 @@ Console で、**Signal Routing → New routing rule** を開き、設定して�
 
 ## 5. IM で Agent と話す
 
-bot をテスト用の会話に追加してください。グループチャットでは、明示的な @ メンションから始めます：
+テスト用の会話に bot を追加して話しかけてみましょう。グループチャットの場合は、明示的な @メンションを付けて送信します。
 
 > @Ankole 何ができますか。どのチームにサービスを提供していますか？
 
-最初の実際のモデル返信の後、Agent の mission、モデル、グループチャットポリシーをチーム用に調整してください。
+実際のモデルから最初の返信が返ってきたら、チームの運用に合わせて Agent の mission、使用モデル、およびグループチャットポリシーを調整してください。
 
 <span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent が返信しない場合
 
-次の順序で、一度に 1 つの境界を確認してください：
+以下の順番で、上流から 1 つずつ境界を確認してください。
 
-1. 最新の provider アプリのバージョンが公開され、テストユーザーが利用できる。
-2. bot がチャンネル、チーム、または会話にインストールされている。
-3. 必要なメッセージイベントと scope がアクティブである。
-4. routing ルールが有効で、意図する Agent を指している。
-5. Agent が `primary`、`light`、`heavy` のモデルプロファイルを持っている。
-6. LLM Provider の credential とモデルセレクタが有効である。
-7. Agent の Worker が **Console → Workers** で準備完了である。準備完了でない場合は、そのページにバックエンドからの理由が表示される。
+1. 外部プロバイダー側でアプリの最新バージョンが公開されており、テストユーザーが公開範囲に含まれていること。
+2. 対象のチャンネル、チーム、または会話に bot が招待・インストールされていること。
+3. 必要なメッセージ受信イベントと権限スコープがすべて有効になっていること。
+4. ルーティングルールが有効（enabled）で、意図した Agent を指していること。
+5. Agent に `primary`・`light`・`heavy` の 3 つのモデルプロファイルが設定されていること。
+6. LLM Provider の認証情報とモデル指定が有効であること。
+7. **Console → Workers** で対象 Agent の Worker が準備完了になっていること（未完了の場合は、同じ画面にバックエンドからのエラー理由が表示されます）。
 
-Compose の場合は、`docker compose logs -f control-plane` を調べてください。`docker ps -a --filter label=ankole.installation=ankole` で Worker コンテナを一覧表示し、`docker logs CONTAINER_NAME` でその 1 つを読みます。Kubernetes の場合は、control plane と Worker の Pod ログを調べてください。関連するエラーのみを読み、環境変数や secret を出力しないでください。
+Docker Compose 環境では、`docker compose logs -f control-plane` で control plane のログを確認し、`docker ps -a --filter label=ankole.installation=ankole` で Worker コンテナを特定して `docker logs CONTAINER_NAME` でログを確認します。Kubernetes 環境では、control plane と Worker の各 Pod ログを確認してください。その際、該当するエラー出力だけを確認し、環境変数一覧や secret をターミナルやチャットに出力しないよう注意してください。
 
-返信を受け取ったら、[Agents](../agents/)、[Signal Routing ルール](../signal-bindings/)、または [Background Agent Jobs](../background-jobs/) に進んでください。
+最初の返信を確認できたら、次は [Agents](../agents/)、[Signal Routing ルール](../signal-bindings/)、または [Background Agent Jobs](../background-jobs/) に進んでください。

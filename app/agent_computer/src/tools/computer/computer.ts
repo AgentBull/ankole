@@ -1,5 +1,11 @@
-import { isAbsolute, join, normalize, resolve } from 'node:path'
-import { runWorkspaceCommand, runWorkspaceProcess, type CommandFinished, type CommandInput } from './commands'
+import { resolve } from 'node:path'
+import {
+  runWorkspaceCommand,
+  runWorkspaceProcess,
+  workspacePath,
+  type CommandFinished,
+  type CommandInput
+} from './commands'
 export type { CommandFinished, CommandInput } from './commands'
 
 export interface ReadFileWindow {
@@ -174,13 +180,8 @@ export function createContainerComputer(
 }
 
 function computerPath(agentHome: string, workspaceRoot: string, path: string, cwd?: string): string {
-  const base = cwd ? expandComputerPath(agentHome, workspaceRoot, cwd) : workspaceRoot
-  return expandComputerPath(agentHome, base, path)
-}
-
-function expandComputerPath(agentHome: string, cwd: string, path: string): string {
-  const expanded = path === '~' ? agentHome : path.startsWith('~/') ? join(agentHome, path.slice(2)) : path
-  return isAbsolute(expanded) ? resolve(normalize(expanded)) : resolve(cwd, normalize(expanded))
+  const base = cwd ? workspacePath(agentHome, workspaceRoot, cwd) : workspaceRoot
+  return workspacePath(agentHome, base, path)
 }
 
 function processError(operation: string, path: string, result: { exitCode: number; stderr: Buffer }): Error {

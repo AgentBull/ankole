@@ -260,56 +260,6 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert select(shell, ctx.tenant, ctx.a_ref).status == 401
   end
 
-  test "legacy HTTPS proof cookies migrate every verified account without changing the selection",
-       ctx do
-    old = send_resp(ctx.signed, 200, "")
-    request = legacy_request(old, ctx.origin)
-    migrated = get(request, ctx.origin <> "/")
-    assert html_response(migrated, 200) =~ BrowserSessions.encode_reference(ctx.b_ref)
-    assert WebSession.browser_reference(migrated) == WebSession.browser_reference(old)
-    assert BrowserSessions.current_reference(WebSession.browser_reference(migrated)) == ctx.b_ref
-
-    for ref <- [ctx.a_ref, ctx.b_ref] do
-      assert migrated.resp_cookies[SessionCookies.authentication_prefix() <> ref["id"]].domain ==
-               ctx.domain
-
-      assert migrated.resp_cookies["__Host-ankole-auth-" <> ref["id"]].max_age == 0
-    end
-
-    assert migrated.resp_cookies["_ankole_key"].domain == ctx.domain
-    assert migrated.resp_cookies["__Host-ankole"].max_age == 0
-  end
-
-  test "legacy migration cannot restore an account revoked before the request", ctx do
-    old = send_resp(ctx.signed, 200, "")
-    assert {:ok, _} = BrowserSessions.revoke(WebSession.browser_reference(old), ctx.a_ref)
-    migrated = old |> legacy_request(ctx.origin) |> get(ctx.origin <> "/")
-    assert html_response(migrated, 200) =~ BrowserSessions.encode_reference(ctx.b_ref)
-
-    refute Map.has_key?(
-             migrated.resp_cookies,
-             SessionCookies.authentication_prefix() <> ctx.a_ref["id"]
-           )
-
-    assert migrated.resp_cookies["__Host-ankole-auth-" <> ctx.a_ref["id"]].max_age == 0
-  end
-
-  defp legacy_request(response, origin) do
-    Enum.reduce(response.resp_cookies, build_conn(:get, origin <> "/"), fn {name, cookie}, conn ->
-      legacy =
-        if name == "_ankole_key",
-          do: "__Host-ankole",
-          else:
-            String.replace_prefix(
-              name,
-              SessionCookies.authentication_prefix(),
-              "__Host-ankole-auth-"
-            )
-
-      Plug.Test.put_req_cookie(conn, legacy, cookie.value)
-    end)
-  end
-
   defp login(conn, principal) do
     conn = WebSession.ensure_browser(conn)
 

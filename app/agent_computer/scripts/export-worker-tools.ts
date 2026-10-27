@@ -1,6 +1,5 @@
 import { zodToJSONSchema } from '../src/core/tool-schema'
 import type { WorkerAgentTool } from '../src/core/types'
-import { Drive } from '../src/drive/drive'
 import { computerToolsForContext } from '../src/tools/computer'
 
 export function workerToolDeclarations(tools: WorkerAgentTool[]): Array<Record<string, unknown>> {
@@ -23,16 +22,10 @@ export function workerToolDeclarations(tools: WorkerAgentTool[]): Array<Record<s
 export const workerToolsPath = new URL('../../kernel/proto/ankole/runtime_fabric/v1/worker_tools.json', import.meta.url)
 
 if (import.meta.main) {
-  // Schema export never accesses a computer, drive, or runtime connection.
+  // Schema export never accesses a computer or runtime connection.
   const tools = computerToolsForContext({
     agentHome: '/workspace',
     workspaceRoot: '/workspace/sessions/1',
-    drive: new Drive({
-      agentHome: '/workspace',
-      rpc: async () => {
-        throw new Error('schema export cannot call RPC')
-      }
-    }),
     computer: {
       runCommand: async () => {
         throw new Error('schema export cannot access the computer')

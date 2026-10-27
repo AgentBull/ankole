@@ -1,20 +1,18 @@
 # Logger
 
-Ankole writes one JSON object for each application event. Docker and Kubernetes
-collect these lines from standard output and standard error.
+Ankole emits one JSON object per application log event to standard output or
+standard error, where Docker or Kubernetes collects the stream. Entries use
+Google Cloud Logging severity names, though application code never calls the
+Google Cloud Logging API or any other remote logging service directly.
 
-The format uses Google Cloud Logging severity names, but it does not call the
-Google Cloud Logging API.
-
-The Bun Worker uses an adapter around Pino. The Elixir control plane uses
-`Ankole.Logging` and an Erlang Logger formatter.
-
-Application code does not call a remote logging service. Logs also do not
-replace metrics, traces, telemetry, or database records.
+In the Bun Worker, logging goes through an adapter around Pino; in the Elixir
+control plane, it goes through `Ankole.Logging` and an Erlang Logger formatter.
+Logs capture operational and diagnostic events and do not replace metrics,
+traces, telemetry, or database records.
 
 ## Fields in Each Entry
 
-Each application entry has these fields:
+Every application log entry includes these core fields:
 
 | Field | Owner | Meaning |
 | --- | --- | --- |
@@ -24,25 +22,25 @@ Each application entry has these fields:
 | `event` | Caller | Stable machine event name |
 | `labels` | Logger and caller | Low-cardinality dimensions |
 
-An entry can also have these top-level fields:
+An entry may also include these optional top-level fields:
 
 | Field | Meaning |
 | --- | --- |
 | `http_request` | One real Phoenix request |
-| `operation` | One operation that has multiple log entries |
+| `operation` | One operation that spans multiple log entries |
 | `insert_id` | An explicit deduplication ID |
 | `trace` | A trace ID or trace resource name |
 | `span_id` | A span ID |
 | `trace_sampled` | A trace sampling flag |
 
-Put other structured data in the JSON payload. Common examples include worker
-IDs, Signal IDs, routes, request IDs, and durations.
-
-The logger does not emit numeric Pino levels or Erlang Logger levels. It also does not emit `severity_text` or `severity_number`.
+Place additional structured context—such as worker IDs, Signal IDs, routes,
+request IDs, and durations—in the JSON payload. Neither logger emits numeric
+Pino or Erlang Logger levels, and neither emits `severity_text` or
+`severity_number`.
 
 ## Use Labels Only for Small Sets of Values
 
-Each entry has these labels:
+Every entry carries three default labels:
 
 | Label | Control plane | Worker |
 | --- | --- | --- |
@@ -50,16 +48,16 @@ Each entry has these labels:
 | `component` | `control-plane` by default | `agent-computer` by default |
 | `runtime` | `beam` | `bun` |
 
-`ANKOLE_ENV` can set the environment label. The Worker also accepts `NODE_ENV` when `ANKOLE_ENV` is absent.
-
-`ANKOLE_VERSION` can set the version label.
-
-Do not put unique or rapidly changing IDs in labels. Put them in normal payload
-fields.
+Operators can set the environment label with `ANKOLE_ENV` and the version label
+with `ANKOLE_VERSION`; the control plane forwards both variables to launched
+Workers, and the Worker falls back to `NODE_ENV` for `environment` and
+`ANKOLE_RELEASE_REVISION` for `version` when either variable is unset. Because
+`labels` is reserved for low-cardinality dimensions, never place unique or
+rapidly changing IDs in `labels`; put them in ordinary payload fields instead.
 
 ## Choose a Severity
 
-Ankole supports these severities:
+Ankole supports eight severity levels:
 
 | Severity | Use |
 | --- | --- |
@@ -72,30 +70,30 @@ Ankole supports these severities:
 | `ALERT` | An operator must act immediately |
 | `EMERGENCY` | An essential system is unusable |
 
-Application code does not emit `DEFAULT`.
-
-`ANKOLE_LOG_LEVEL` accepts the severity names and lowercase aliases. `warn` maps to `WARNING`, and `fatal` maps to `CRITICAL`.
-
-The Worker uses `INFO` when the configured value is unknown. The Elixir runtime raises during bootstrap for an unknown value.
+Application code never emits `DEFAULT`. Operators configure the threshold via
+`ANKOLE_LOG_LEVEL`, which accepts the canonical severity names as well as
+lowercase aliases (`warn` maps to `WARNING`, and `fatal` maps to `CRITICAL`).
+If `ANKOLE_LOG_LEVEL` has an unrecognized value, the Worker falls back to
+`INFO`, whereas the Elixir runtime raises an error during bootstrap.
 
 ## Group Related Entries
 
-Use `operation` when several entries describe one operation. Reuse the real
-domain ID when one exists.
-
-Examples include:
+When several log entries describe the same multi-step operation, correlate them
+with the top-level `operation` field, reusing the real domain ID whenever one
+exists:
 
 - `signal_id` for a Session turn
 - `rpc_request_id` for a RuntimeFabric RPC
 - `transfer_id` for a file transfer
 
-Do not create an operation ID for one entry. Use a normal payload field instead.
+Do not mint a synthetic `operation` ID for a single log entry; record the
+identifier in a regular payload field instead.
 
 ## Log HTTP Requests Once
 
-Only `AnkoleWeb.RequestLogger` writes `http_request`. It listens for `[:phoenix, :endpoint, :stop]` and emits `http.request.completed`.
-
-The request logger uses these severities:
+`AnkoleWeb.RequestLogger` is the sole module that writes `http_request`. It
+subscribes to `[:phoenix, :endpoint, :stop]` and emits
+`http.request.completed` with a severity determined by the HTTP status code:
 
 | Condition | Severity |
 | --- | --- |
@@ -103,15 +101,15 @@ The request logger uses these severities:
 | Status is 401, 403, or 429 | `WARNING` |
 | All other statuses | `INFO` |
 
-Every request log keeps its duration and Cloud HTTP latency fields. A normal
-long-running AI request stays at `INFO`; duration alone does not make it an
-incident.
-
-RuntimeFabric, Sessions, Worker turns, file transfers, and provider delivery do not use `http_request`.
+Every request entry records the duration and Cloud HTTP latency fields. A
+healthy long-running AI request still logs at `INFO`, because elapsed duration
+alone does not indicate an incident. Non-HTTP subsystems—including
+RuntimeFabric, Sessions, Worker turns, file transfers, and provider
+delivery—never populate `http_request`.
 
 ## Write Logs in the Bun Worker
 
-Worker code imports `app/agent_computer/src/worker/logging.ts`.
+Worker modules import the logger from `app/agent_computer/src/worker/logging.ts`:
 
 ```ts
 workerLogger.notice('worker.ready_sent', 'worker ready sent', {
@@ -124,7 +122,7 @@ const turnLogger = workerLogger.child({
 })
 ```
 
-The Worker logging API provides:
+The Worker logger exposes these methods:
 
 - `debug(event, message, fields?)`
 - `info(event, message, fields?)`
@@ -136,22 +134,23 @@ The Worker logging API provides:
 - `emergency(event, message, fields?)`
 - `child({ component?, labels?, fields? })`
 
-Pino uses `message` as its message key and `error` as its error key. It writes ISO timestamps and omits Pino base fields.
-
-The Worker drops these payload names:
+Under the hood, Pino writes the summary under `message`, errors under `error`,
+and timestamps in ISO 8601 format while omitting default Pino base fields. To
+protect the top-level schema, the Worker strips reserved keys from caller
+`fields`:
 
 - `severity`, `level`, `severity_text`, and `severity_number`
 - `message` and `time`
-- names that start with `logging.googleapis.com/`
+- any key starting with `logging.googleapis.com/`
 
-The API replaces a supplied `event` with the method argument. It merges supplied
-`labels` with the logger labels.
-
-The Worker serializes JavaScript `Error` values with type, message, stack, and supported structured details.
+If the caller supplies `event` in `fields`, the logger overwrites it with the
+method's `event` argument; if the caller supplies `labels`, the logger merges
+them with its existing labels. JavaScript `Error` values serialize with their
+type, message, stack, and any supported structured details.
 
 ## Write Logs in the Elixir Control Plane
 
-Control-plane and first-party Plugin code calls `Ankole.Logging`.
+Control-plane and first-party Plugin code logs through `Ankole.Logging`:
 
 ```elixir
 Logging.notice("worker.ready_sent", "worker ready sent", %{
@@ -159,33 +158,33 @@ Logging.notice("worker.ready_sent", "worker ready sent", %{
 })
 ```
 
-The Elixir API provides the same eight severity methods as the Worker. Each
-method accepts an event, message, and fields map.
+`Ankole.Logging` provides the same eight severity functions as the Worker, each
+taking an `event`, `message`, and `fields` map. `Ankole.Logging.JSONFormatter`
+renders each record as a single JSON line, promoting recognized top-level
+fields and removing duplicate reserved keys from the payload.
 
-`Ankole.Logging.JSONFormatter` writes the JSON line. It promotes the special top-level fields and removes reserved payload copies.
+Before emitting a line, `Ankole.Logging.JSONFormatter` scrubs Webhook
+capability tokens across the entire JSON entry—including framework messages and
+nested fields—replacing raw and percent-encoded `wh_` tokens from
+`Ankole.Signals.Webhooks` with `[REDACTED]`. Route templates keep `:token`, and
+Phoenix parameter filtering hides the `token` parameter in debug logs.
 
-Before output, the formatter replaces Webhook capability values with
-`[REDACTED]` across the complete JSON entry, including framework messages and
-nested fields. It recognizes the `wh_` format from `Ankole.Signals.Webhooks`,
-including percent-encoded forms. Route templates keep `:token`. Phoenix
-parameter filtering also hides the `token` parameter in debug logs.
-
-Do not call the standard Logger directly in control-plane or first-party Plugin
-application code.
-
-A generic library can use the standard Logger when it cannot depend on Ankole modules. The configured formatter writes JSON for that record.
+Do not call Elixir's standard `Logger` directly from control-plane or
+first-party Plugin code. Generic libraries that cannot depend on Ankole modules
+may use the standard `Logger`, and the configured formatter still renders their
+entries as JSON.
 
 ## Read Logs During Development
 
-Production runtimes write JSON. The Worker does not include `pino-pretty`.
-
-The root development command pipes Devkit logs through `bun kit logs pretty`. This command changes display only.
+Production runtimes always output raw JSON lines, and the Worker does not
+bundle `pino-pretty`. During local development, the root development command
+pipes Devkit output through `bun kit logs pretty`, which formats entries for
+terminal display without changing the underlying log payload.
 
 ## Name Events and Messages
 
-Use a stable dotted lowercase event name. Start the name with the owning subsystem.
-
-Examples include:
+Format `event` as a stable, dotted, lowercase name prefixed with the owning
+subsystem:
 
 - `worker.ready_sent`
 - `worker.turn_failed`
@@ -193,18 +192,19 @@ Examples include:
 - `conversations.delivery.mirror_failed_after_provider_send`
 - `http.request.completed`
 
-Do not put IDs, status text, or user data in an event name. Put these values in payload fields.
-
-Keep each message short and stable. Do not require an operator to parse IDs from the message.
+Never embed IDs, dynamic status text, or user data in `event`; pass those
+values in payload fields. Keep `message` short and stable so operators never
+have to parse identifiers out of prose.
 
 ## Record Errors
 
-Use `error` for exception values. Use a stable structured reason for domain failures.
-
-`Ankole.Logging.failure_fields/1` records an atom reason or the leading atom of
-a domain error tuple. Exceptions include their type and a stacktrace with
-argument counts. Unknown Console failures log at error severity and return
-HTTP 500. Expected request errors retain their declared status.
+Pass exception values under `error`, and represent domain failures with a
+stable structured reason. `Ankole.Logging.failure_fields/1` extracts an atom
+reason or the leading atom of a domain error tuple, while exceptions include
+their type and a stacktrace with function arities (argument counts). When an
+unexpected failure reaches the Console, Ankole logs it at `ERROR` severity and
+returns HTTP 500; for expected request errors, Ankole returns their declared
+HTTP status.
 
 ## Test the Logging Contract
 
@@ -219,17 +219,17 @@ MIX_ENV=test mix compile --warnings-as-errors
 MIX_ENV=test mix test test/ankole/logging/json_formatter_test.exs
 ```
 
-The Agent Computer unit suite runs on the host and includes the logging test. That test verifies severity mapping, labels,
-reserved fields, errors, and JSON output. The Devkit log-display test runs on
-the host.
-
-The Elixir test verifies the formatter, request logger, special fields, labels, and reserved-field protection.
+Both the Agent Computer unit suite and the Devkit log-formatting test run on
+the host. The Agent Computer suite verifies severity mapping, labels, reserved
+field stripping, error serialization, and JSON output, while the Elixir test
+verifies `Ankole.Logging.JSONFormatter`, `AnkoleWeb.RequestLogger`, promoted
+top-level fields, labels, and reserved-field protection.
 
 ## Rules
 
-- Each application log record is one JSON object.
-- `severity` is the only level field in output.
-- `event` is a stable machine name.
-- Labels contain only low-cardinality dimensions.
-- Only Phoenix request completion uses `http_request`.
-- Database rows, not logs, record workflow state.
+- Emit each application log record as a single JSON object.
+- Write the log level only in `severity`.
+- Give every entry a stable machine-readable `event` name.
+- Restrict `labels` to low-cardinality dimensions.
+- Populate `http_request` only when a Phoenix HTTP request completes.
+- Record workflow state in PostgreSQL rows, never in logs.

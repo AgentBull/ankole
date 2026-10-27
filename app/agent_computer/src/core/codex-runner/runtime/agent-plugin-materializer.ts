@@ -1,3 +1,4 @@
+import { recordValue, stringArg, type JsonObject } from '@agentbull/active-support'
 import { writeFileAtomicSync } from '../../../common/atomic-write'
 import { chownAgentPathSync, mkdirAgentSync } from '../../../common/agent-user'
 import { compareCodePointStrings } from '../../../common/ordering'
@@ -169,18 +170,21 @@ function validateAgentPluginRef(
   assertAgentPluginID(agentPluginID)
   const sourceRoot = join(sourcePackagesRoot, agentPluginID)
   const manifestPath = join(sourceRoot, '.codex-plugin', 'plugin.json')
-  let manifest: Record<string, unknown>
+  let manifest: JsonObject
   try {
-    manifest = asObject(JSON.parse(readFileSync(manifestPath, 'utf8')))
+    manifest = recordValue(JSON.parse(readFileSync(manifestPath, 'utf8'))) ?? {}
   } catch (error) {
     throw new Error(`invalid Agent Plugin manifest for ${agentPluginID}: ${errorMessage(error)}`)
   }
 
-  const manifestName = requiredString(manifest.name, `Agent Plugin ${agentPluginID} manifest name`)
-  const manifestVersion = requiredString(manifest.version, `Agent Plugin ${agentPluginID} manifest version`)
+  const manifestName = requiredString(stringArg(manifest, 'name'), `Agent Plugin ${agentPluginID} manifest name`)
+  const manifestVersion = requiredString(
+    stringArg(manifest, 'version'),
+    `Agent Plugin ${agentPluginID} manifest version`
+  )
   const skillsRelativePath = manifestDirectoryPath(
     sourceRoot,
-    manifest.skills,
+    stringArg(manifest, 'skills'),
     `Agent Plugin ${agentPluginID} manifest skills`
   )
   if (manifestName !== agentPluginID) {
@@ -416,7 +420,7 @@ async function assertInstalledPluginState(
   prepared: PreparedAgentPlugins,
   enabled: boolean
 ): Promise<void> {
-  const response = asObject(await client.request('plugin/installed', { cwds: [prepared.marketplaceRoot] }))
+  const response = recordValue(await client.request('plugin/installed', { cwds: [prepared.marketplaceRoot] })) ?? {}
   const sameName = arrayOfObjects(response.marketplaces).filter(
     candidate => candidate.name === prepared.marketplaceName
   )
@@ -446,17 +450,23 @@ async function selectedPluginHooks(
 ): Promise<Array<{ key: string; currentHash: string; trustStatus?: string }>> {
   // Codex discovers a local marketplace from HOME or an explicit cwd, not CODEX_HOME.
   const cwd = prepared.marketplaceRoot
-  const response = asObject(await client.request('hooks/list', { cwds: [cwd] }))
+  const response = recordValue(await client.request('hooks/list', { cwds: [cwd] })) ?? {}
   const expectedPluginIDs = new Set(prepared.agentPlugins.map(agentPlugin => pluginKey(agentPlugin, prepared)))
   const entry =
     arrayOfObjects(response.data).find(candidate => candidate.cwd === cwd) ?? arrayOfObjects(response.data)[0]
   return arrayOfObjects(entry?.hooks)
-    .filter(hook => typeof hook.pluginId === 'string' && expectedPluginIDs.has(hook.pluginId))
-    .map(hook => ({
-      key: requiredString(hook.key, 'Agent Plugin hook key'),
-      currentHash: requiredString(hook.currentHash, 'Agent Plugin hook currentHash'),
-      ...(typeof hook.trustStatus === 'string' ? { trustStatus: hook.trustStatus } : {})
-    }))
+    .filter(hook => {
+      const pluginId = stringArg(hook, 'pluginId')
+      return pluginId !== undefined && expectedPluginIDs.has(pluginId)
+    })
+    .map(hook => {
+      const trustStatus = stringArg(hook, 'trustStatus')
+      return {
+        key: requiredString(stringArg(hook, 'key'), 'Agent Plugin hook key'),
+        currentHash: requiredString(stringArg(hook, 'currentHash'), 'Agent Plugin hook currentHash'),
+        ...(trustStatus !== undefined ? { trustStatus } : {})
+      }
+    })
 }
 
 function pluginKey(agentPlugin: PreparedAgentPlugin, prepared: PreparedAgentPlugins): string {
@@ -470,8 +480,8 @@ function atomicWriteJSON(path: string, value: unknown): void {
   writeFileAtomicSync(path, content, 0o600)
 }
 
-function arrayOfObjects(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.map(asObject) : []
+function arrayOfObjects(value: unknown): JsonObject[] {
+  return Array.isArray(value) ? value.map(entry => recordValue(entry) ?? {}) : []
 }
 
 function assertUniqueAgentPluginIDs(refs: AgentPluginCatalogEntry[]): void {
@@ -491,8 +501,4 @@ function assertAgentPluginID(id: string): void {
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`${label} is required`)
   return value
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }

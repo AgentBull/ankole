@@ -40,8 +40,8 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      - run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
-      - run: rustup default 1.98.1
+      - run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+      - run: rustup default 1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/kernel
@@ -64,8 +64,8 @@ jobs:
           otp-version: '29'
           elixir-version: '1.20.4'
       - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - run: rustup toolchain install 1.98.1 --profile minimal
-      - run: rustup default 1.98.1
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: rustup default 1.99.1
       - run: bun install --frozen-lockfile
       - uses: actions/cache@v6
         with:
@@ -75,10 +75,10 @@ jobs:
             ~/.cargo/git/db/
             app/kernel/target
             app/kernel/priv/native
-          key: control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/src/**', 'app/kernel/proto/**', 'app/kernel/lib/**') }}
+          key: control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.99.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/src/**', 'app/kernel/proto/**', 'app/kernel/lib/**') }}
           restore-keys: |
-            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
-            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.98.1-
+            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.99.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
+            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.99.1-
       - uses: actions/cache@v6
         with:
           path: |

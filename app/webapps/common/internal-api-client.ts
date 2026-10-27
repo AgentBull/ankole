@@ -1,3 +1,4 @@
+import { arrayPath, deepString, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
 import { identityHeaders } from './browser-context'
 import type { CreateClientConfig } from './api/generated/client.gen'
 
@@ -49,31 +50,19 @@ async function readPayload(response: Response): Promise<unknown> {
   const text = await response.text()
   if (!text) return {}
 
-  try {
-    return JSON.parse(text)
-  } catch {
-    return text
-  }
+  return safeJsonParse(text).unwrapOr(text)
 }
 
 function errorText(payload: unknown): string | undefined {
-  if (payload && typeof payload === 'object' && 'error' in payload) {
-    const value = (payload as { error?: unknown }).error
-    if (typeof value === 'string') return value
-    if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') {
-      return value.message
-    }
-    return JSON.stringify(value)
+  const record = recordValue(payload)
+  if (record && 'error' in record) {
+    return stringArg(record, 'error') ?? deepString(record, ['error', 'message']) ?? JSON.stringify(record.error)
   }
 
   // A JSON:API error document: the first error gives the text.
-  if (payload && typeof payload === 'object' && 'errors' in payload) {
-    const [first] = Array.isArray(payload.errors) ? payload.errors : []
-    if (first && typeof first === 'object') {
-      const { detail, title } = first as { detail?: unknown; title?: unknown }
-      if (typeof detail === 'string') return detail
-      if (typeof title === 'string') return title
-    }
+  const first = recordValue(arrayPath(record, ['errors'])[0])
+  if (first) {
+    return stringArg(first, 'detail') ?? stringArg(first, 'title')
   }
 
   return typeof payload === 'string' ? payload : undefined

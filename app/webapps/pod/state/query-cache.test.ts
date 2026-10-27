@@ -3,7 +3,11 @@ import { MutationObserver, QueryClient, QueryObserver } from '@tanstack/react-qu
 import type { ConversationDetail } from '../api'
 import { podKeys } from '../api'
 import { acceptConversationResult, refreshConversationQueries, refreshConversationDetail } from '../query-cache'
-import { reloadConversation } from '../use-conversation-events'
+import {
+  reloadConversation,
+  subscribeConversationEvents,
+  type ConversationEventStream
+} from '../use-conversation-events'
 import { ChatModel } from './chat'
 import { mergeMessageWindow } from './message-history'
 
@@ -471,6 +475,47 @@ describe('Pod remote cache ordering', () => {
       expect(query.getCurrentResult().data?.conversations).toHaveLength(1)
     } finally {
       unsubscribe()
+      queryClient.clear()
+    }
+  })
+
+  test('SSE listeners ignore malformed and non-object payloads without throwing', () => {
+    const queryClient = client()
+    const model = new ChatModel()
+    class FakeEventSource extends EventTarget implements ConversationEventStream {
+      onopen: ConversationEventStream['onopen'] = null
+      onerror: ConversationEventStream['onerror'] = null
+      closed = false
+      close() {
+        this.closed = true
+      }
+    }
+    const stream = new FakeEventSource()
+    const unsubscribe = subscribeConversationEvents(stream, 'conversation', model, queryClient, () => {})
+    try {
+      for (const type of ['started', 'snapshot', 'delta', 'reasoning_delta', 'activity']) {
+        for (const data of ['{bad json', 'null', '123', '"plain"', '[1, 2]']) {
+          expect(() => stream.dispatchEvent(new MessageEvent(type, { data }))).not.toThrow()
+        }
+      }
+      expect(model.liveStreams.value).toEqual({})
+      expect(model.activities.value).toEqual({})
+
+      stream.dispatchEvent(
+        new MessageEvent('delta', {
+          data: JSON.stringify({
+            conversationID: 'conversation',
+            agentUID: 'agent',
+            responseID: 'response-1',
+            signalIDs: ['signal-1'],
+            text: 'Hello'
+          })
+        })
+      )
+      expect(model.liveStreams.value.agent?.text).toBe('Hello')
+    } finally {
+      unsubscribe()
+      expect(stream.closed).toBe(true)
       queryClient.clear()
     }
   })

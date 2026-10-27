@@ -5,89 +5,89 @@ section: User guide
 order: 20
 ---
 
-Background Agent Job은 조사, 대용량 파일 집합, 문서 작성, 데이터 분석, 리포지토리 변경, 그리고 시간이 걸리는 기타 작업을 위한 것입니다. Job은 백그라운드에서 독립적으로 실행되므로 Agent와 계속 대화할 수 있다.
+Background Agent Job은 심층 리서치, 대용량 파일 묶음 처리, 장문 문서 작성, 데이터 분석, 코드 저장소 변경처럼 시간이 오래 걸리는 업무를 처리할 때 사용합니다. 백그라운드에서 독립적으로 실행되므로 작업이 돌아가는 동안에도 메인 대화방에서 Agent와 대화를 계속 이어 갈 수 있습니다.
 
-<a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a>나 <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>를 사용한다면 가장 가까운 비교 대상은 서브에이전트입니다. 다만 Ankole은 위임의 수명과 상호작용 방식에 따라 [Workflow](../workflows/)와 Background Agent Job을 구분합니다.
+<a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a>나 <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>에 익숙하다면 서브에이전트 개념과 가장 비슷합니다. 다만 Ankole은 위임 작업의 수명과 상호작용 방식에 따라 [Workflow](../workflows/)와 Background Agent Job을 명확히 구분합니다.
 
-Ankole은 각 작업을 일시적인 호출이 아니라, 완전한 수명 주기를 갖는 복구 가능한 영속적 계산으로 취급합니다. Worker 중단, 충돌, 서버 재시작이 발생해도 Job은 중단된 지점부터 재개할 수 있습니다.
+Ankole은 각 백그라운드 Job을 휘발성 함수 호출이 아니라 전체 수명 주기가 영구 보존되는 복구 가능한 연산 단위로 다룹니다. 따라서 실행 도중 Worker가 교체되거나 프로세스 충돌, 서버 재시작이 일어나더라도 마지막으로 저장된 지점부터 작업을 이어 갈 수 있습니다.
 
-Main Agent는 추가 정보를 보낼 수 있다. 대부분의 Job은 질문, 실패 상태, 최종 결과를 원래 대화로 돌려보냅니다. 업데이트를 요청하지 않으면 Job이 조용히 있을 수도 있으므로 나중에 검사할 수 있다.
+작업 도중 Main Agent가 Job에 추가 정보를 전달할 수 있으며, 대부분의 Job은 확인 질문이나 실패 알림, 최종 완료 결과를 원래 대화방으로 돌려보냅니다. 중간 알림 없이 조용히 실행하도록 지시한 경우에는 나중에 직접 결과를 조회할 수 있습니다.
 
 ## Workflow와 Background Agent Job 중 선택
 
 | 작업 형태 | 선택 | 이유 |
 |---|---|---|
-| 하나의 짧은 작업 | 현재 turn에서 직접 실행 | 사용자가 기다릴 수 있고 다음 답변에 완료된 결과를 담을 수 있음 |
-| 유한한 배치 또는 여러 단계의 분석 | [Workflow](../workflows/) | 고정된 JavaScript가 독립적인 서브에이전트 turn을 병렬로 실행하고 구조화된 결과를 결합함 |
-| 지속적인 컨텍스트와 후속 메시지가 필요한 하나의 긴 작업 | Background Agent Job | 고유한 Codex thread와 workspace를 유지하고 사용자의 답변을 기다리거나 나중에 재개할 수 있음 |
+| 짧은 단일 작업 | 현재 turn에서 직접 실행 | 잠시만 기다리면 바로 다음 답변에서 완성된 결과를 받을 수 있음 |
+| 유한한 배치 처리 또는 다단계 병렬 분석 | [Workflow](../workflows/) | 고정된 JavaScript 코드가 독립적인 서브에이전트 turn들을 병렬로 실행하고 구조화된 결과를 취합함 |
+| 지속적인 작업 문맥과 후속 대화가 필요한 장기 과제 | Background Agent Job | 전용 Codex 스레드와 로컬 workspace를 유지하며 사용자의 응답을 기다렸다가 재개할 수 있음 |
 
-Workflow task는 다른 Workflow나 Background Agent Job을 시작할 수 없습니다. 작업 중에 추가 자료를 보내거나 사용자의 판단을 받아야 한다면 Background Agent Job을 선택하세요.
+Workflow 내부 태스크에서는 또 다른 Workflow나 Background Agent Job을 중첩 생성할 수 없습니다. 실행 도중 추가 자료를 건네주거나 사람의 중간 의사결정을 받아야 하는 업무라면 Background Agent Job을 선택하세요.
 
 ## Agent에게 Job 생성을 요청
 
-목표를 채팅에 밝히고 백그라운드 실행을 명시적으로 요청하세요. 예:
+채팅창에 달성할 목표를 적고 백그라운드 작업으로 실행해 달라고 명시적으로 요청하면 됩니다. 예를 들면 다음과 같습니다.
 
 ```text
 Run this as a Background Agent Job. Read these materials and prepare a decision
 memo with evidence, disagreements, and open questions. Return the result here.
 ```
 
-같은 요청에 입력 파일, 완료 기준, 출력 형식을 제공하세요. 마감이 중요하면 마감도 밝히세요. Agent가 작업 수행 방식을 결정하지만, 백그라운드에서 실행된다고 해서 Job에 추가 권한이 생기지는 않습니다.
+입력 자료, 완료 기준, 원하는 결과물 형식을 한 요청 안에 함께 알려 주고, 마감 시각이 중요하다면 마감 기한도 명시하세요. 구체적인 수행 절차는 Agent가 결정하지만, 백그라운드에서 실행된다고 해서 Agent에게 평소보다 넓은 접근 권한이 부여되지는 않습니다.
 
 ## Job이 실행되는 동안 대화 계속
 
-Job이 시작된 후 Main Agent는 추가 자료를 보내거나, 요청을 수정하거나, 현재 상태를 물을 수 있다. 메시지는 활성 작업을 조종하거나 답을 기다리는 Job을 재개할 수 있다.
+Job이 시작된 뒤에도 원래 대화방에서 Main Agent를 통해 추가 참고 자료를 전달하거나 요구 사항을 조정하고 현재 진행 상태를 물어볼 수 있습니다. 이렇게 보낸 메시지는 실행 중인 작업의 방향을 조종(steer)하거나 답변을 기다리며 멈춰 있던 Job을 재개시킵니다.
 
-요청에서 Agent와 Job이 어떻게 협력하길 원하는지 밝혀라:
+요청할 때 Agent와 백그라운드 Job이 어떤 방식으로 소통하길 원하는지 함께 적어 두면 좋습니다.
 
-- **끝나면 알려 줘:** 독립적으로 실행될 수 있는 작업에 사용하세요. 결과가 원래 대화로 돌아오는 동안 계속 채팅할 수 있다.
-- **백그라운드에서 조사한 다음 답변을 계속해:** 현재 답변이 Job 결과에 의존할 때 사용하세요.
-- **핵심 선택 전에 나에게 물어봐:** 방향이나 비용에 결정이 필요할 때 사용하세요. Job은 멈추고 원래 대화에서 질문하며 답변 후 재개합니다.
-- **조용히 실행해:** Job이 파일만 만들면 되거나 나중에 직접 검사할 계획일 때 사용하세요. Agent에게 업데이트를 보내지 말라고 말하세요. 나중에 물어보거나 Console에서 검사할 수 있다.
-- **이전 Job 계속:** 작업을 식별하고 새 요구 사항을 밝히세요. Job이 아직 재개 가능하면 Agent가 기존 컨텍스트로 계속할 수 있다.
+- **끝나면 알려 줘:** 끝까지 알아서 진행할 수 있는 과제에 적합합니다. 결과가 원래 대화방에 도착할 때까지 다른 주제로 자유롭게 대화를 이어 갈 수 있습니다.
+- **백그라운드에서 조사한 다음 답변을 계속해:** 지금 나누고 있는 대화의 결론을 내리기 위해 백그라운드 조사 결과가 먼저 필요할 때 사용합니다.
+- **핵심 선택 전에 나에게 물어봐:** 진행 방향이나 유료 리소스 사용처럼 중요한 결정을 확인받아야 할 때 사용합니다. Job이 잠시 멈추고 원래 대화방에 질문을 남기며, 답변을 주면 다시 실행을 이어 갑니다.
+- **조용히 실행해:** 파일 생성만 해 두면 되거나 나중에 직접 확인할 예정일 때 사용합니다. 알림을 보내지 말라고 지정한 뒤 나중에 대화에서 물어보거나 Console에서 결과를 확인할 수 있습니다.
+- **이전 Job 계속:** 이어서 작업할 이전 Job을 지목하고 추가 요구 사항을 전달합니다. 해당 Job이 재개 가능한 상태라면 기존 작업 공간과 문맥을 그대로 살려 후속 작업을 진행합니다.
 
-예:
+예를 들면 다음과 같이 요청할 수 있습니다.
 
 ```text
 Compare these three proposals in the background. Notify me when you finish.
 Ask me here before you expand the scope or use a paid data source.
 ```
 
-Job에 리포지토리, 문서 집합, 또는 설치된 tool이 필요한지 밝히세요. Agent가 적절한 워크스페이스를 선택합니다. 워크스페이스 템플릿 ID를 입력하거나 Job API를 호출할 필요는 없다.
+코드 저장소나 문서 모음, 특정 설치 도구가 필요하다면 요청에 함께 적어 주세요. 알맞은 작업 공간은 Agent가 알아서 준비하므로 사용자가 직접 템플릿 ID를 외우거나 Job API를 호출할 필요는 없습니다.
 
 ## 모델 provider 선택
 
-모든 Job은 AIGateway를 사용합니다. Job이 생성될 때 Ankole은 유효한 **Background Agent Jobs** 모델 프로필을 저장합니다. 그 프로필이 비어 있으면 Agent의 `heavy` 프로필이 폴백입니다.
+모든 백그라운드 Job은 AIGateway를 거쳐 모델을 호출합니다. Job을 생성할 때 Ankole은 해당 Agent에 설정된 유효 **Background Agent Jobs** 모델 프로필을 기록하며, 이 프로필이 비어 있으면 Agent의 `heavy` 프로필을 기본값으로 사용합니다.
 
-ChatGPT 구독을 사용하려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 만드세요. 그다음 Console에서 **Agents**를 열고 Agent의 모델 프로필에서 **Background Agent Jobs**를 찾아 해당 provider, 자격이 있는 모델, reasoning effort, Fast Mode를 선택하세요. provider의 자격 증명 풀이 계정을 선택하고 순환시킵니다.
+ChatGPT 구독 계정을 연결해 쓰려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 등록하세요. 그다음 Console에서 **Agents** 페이지를 열고 해당 Agent의 모델 프로필 중 **Background Agent Jobs** 항목에서 방금 만든 provider와 지원 모델, reasoning effort, Fast Mode 여부를 선택하면 됩니다. 여러 계정이 등록된 경우 provider의 자격 증명 풀이 알아서 계정을 선택하고 순환 사용합니다.
 
 ## Console에서 Job 검사
 
-**Background Agent Jobs**를 여세요. 보드는 Job을 queued, active, finished 열로 그룹화합니다. Job을 열면 원래 요청, 현재 계획, turn 기록, 모델 사용량, 결과, 오류를 볼 수 있다.
+Console에서 **Background Agent Jobs** 페이지를 열면 대기 중(`queued`), 실행 중(`active`), 종료됨(`finished`) 열로 정리된 보드가 나타납니다. 개별 Job 카드를 클릭하면 최초 요청 내용과 현재 작업 계획, turn 이력, 모델 토큰 사용량, 최종 결과 및 오류 내역을 상세히 살펴볼 수 있습니다.
 
 | 상태 | 의미 | 해야 할 일 |
 |---|---|---|
-| `queued` | 승인되었고 Agent의 Worker 또는 빈 Job 슬롯을 기다리는 중 | 보통 기다립니다. 움직이지 않으면 **Console → Workers**에서 Agent의 Worker를 확인하세요. |
-| `running` | 작업이 진행 중 | Job을 열어 계획과 최신 진행 상황을 확인하세요. |
-| `waiting_on_user` | Agent 또는 사용자의 답변을 기다리는 중 | Agent는 답할 수 있는 질문에 직접 답합니다. Agent가 질문하면 Job을 만든 대화에서 답하세요. |
-| `succeeded` | 완료됨 | 결과를 읽으세요. 업데이트를 요청했다면 원래 대화가 받았는지 확인하세요. |
-| `failed` | 완료하지 못함 | 오류를 읽으세요. 입력이나 구성을 고치고 Agent에게 새 Job 생성을 요청하세요. |
-| `stopped` | 취소됨 | Job은 계속되지 않습니다. |
+| `queued` | 작업이 수락되어 Agent의 Worker 기동이나 빈 Job 슬롯을 기다리는 중 | 잠시 기다립니다. 계속 진행되지 않으면 **Console → Workers**에서 해당 Agent의 Worker 상태를 점검하세요. |
+| `running` | 현재 작업이 실행 중 | 상세 화면을 열어 작업 계획과 최신 진행 내역을 확인합니다. |
+| `waiting_on_user` | 메인 Agent 또는 사용자의 답변을 기다리는 중 | 메인 Agent가 스스로 판단할 수 있는 질문에는 직접 답하며, 사용자에게 물었다면 Job을 시작했던 원래 대화방에서 답변하세요. |
+| `succeeded` | 정상 완료됨 | 최종 결과물을 확인합니다. 완료 알림을 요청했는데 오지 않았다면 원래 대화방에 메시지가 도착했는지 확인하세요. |
+| `failed` | 오류로 중단됨 | 오류 메시지를 확인한 뒤 입력 자료나 설정을 보완해 새 Job 생성을 요청하세요. |
+| `stopped` | 사용자 또는 관리자에 의해 취소됨 | 종료된 상태이므로 추가 실행이 일어나지 않습니다. |
 
-`waiting_on_user`는 실패가 아닙니다. Agent는 답을 알고 있으면 Job의 질문에 직접 답하고, 결정·승인·정보가 필요할 때만 사용자에게 묻습니다. Job은 실행 용량을 놓아주고 답변이 도착하면 재개합니다. Agent가 질문하면 원래 대화에서 답하세요. 관련 없는 대화에서 답하지 마세요. Job이 그 답변을 자신의 질문과 연결할 수 없기 때문입니다.
+`waiting_on_user`는 오류가 아닙니다. Job이 질문을 올리면 먼저 메인 Agent가 알고 있는 범위에서 직접 답변하고, 사람의 의사결정이나 승인 또는 추가 정보가 꼭 필요할 때만 사용자에게 다시 묻습니다. 대기하는 동안 Job은 점유하던 실행 슬롯을 반납하고 답변이 들어오면 즉시 재개합니다. 질문에 답할 때는 반드시 Job을 처음 요청했던 원래 대화방에서 답하세요. 다른 대화방에 답을 남기면 대기 중인 Job 질문과 연결되지 않습니다.
 
 ## Job 취소
 
-Job을 열고 **Cancel**을 선택하세요. 이미 시작한 turn은 멈추는 데 시간이 조금 걸릴 수 있으므로 상태가 즉시 `stopped`로 바뀌지 않을 수 있다.
+중단하려는 Job을 열고 **Cancel**을 누르세요. 이미 실행에 들어간 현재 turn을 안전하게 정리하는 데 약간의 시간이 걸릴 수 있어 상태가 즉시 `stopped`로 바뀌지 않을 수도 있습니다.
 
-취소는 Job이 이미 만든 파일이나 실행 기록을 제거하지 않습니다.
+작업을 취소하더라도 그때까지 생성된 파일이나 실행 로그 기록은 삭제되지 않습니다.
 
-목표만 고치면 된다면 먼저 원래 대화에서 Agent에게 말하세요. 현재 Job이 잘못된 방향으로 가거나, 리소스를 소비하거나, 더 이상 필요 없을 때는 취소하고 새 Job을 만드세요.
+단순히 작업 방향만 조금 수정하고 싶다면 취소하기 전에 먼저 원래 대화방에서 Agent에게 지시를 전달해 보세요. 작업이 완전히 엉뚱한 방향으로 흘러가거나 불필요하게 리소스를 소모하고 있거나 과제 자체가 필요 없어진 경우에는 취소한 뒤 새 Job을 시작하는 편이 깔끔합니다.
 
 ## 일반적인 문제
 
-- **Job이 `queued`로 남아 있음:** Agent의 Worker가 준비되었는지, 같은 Agent의 다른 Job이 Job 슬롯(`agent_computer.background_agent_job.max_running_per_agent`)을 모두 쓰고 있지 않은지 확인하세요.
-- **시작하자마자 실패함:** 저장된 Background Agent Jobs 모델 프로필과 선택한 provider의 자격 증명 풀 상태를 확인하세요.
-- **`waiting_on_user`인데 질문이 오지 않고 Agent도 직접 답하지 않음:** 원래 대화의 시그널 라우팅 규칙과 Channel Provider를 확인하세요.
-- **성공했는데 채팅으로 돌아오지 않음:** 먼저 조용히 있으라고 요청받지 않았는지 확인하세요. 아니라면 Job을 열고 결과가 있는지 확인한 다음 원래 대화의 라우팅 규칙을 확인하세요.
-- **admission된 Job이 모델 프로필 변경을 무시함:** 프로바이더 바인딩은 첫 execution admission에서 고정됩니다. 프로필 변경은 아직 admission되지 않은 Job에만 영향을 줍니다.
+- **Job이 계속 `queued` 상태에 머무름:** 해당 Agent의 Worker가 정상 기동되었는지, 같은 Agent의 다른 백그라운드 작업들이 동시 실행 슬롯(`agent_computer.background_agent_job.max_running_per_agent`)을 모두 점유하고 있지는 않은지 확인하세요.
+- **시작 직후 바로 `failed`로 끝남:** Agent에 저장된 Background Agent Jobs 모델 프로필 구성과 연결된 provider의 자격 증명 풀 상태를 점검하세요.
+- **`waiting_on_user` 상태인데 질문도 안 오고 진행도 멈춤:** 원래 대화방의 시그널 라우팅 규칙과 외부 Channel Provider 연결 상태를 확인하세요.
+- **`succeeded`로 끝났는데 채팅방에 완료 보고가 오지 않음:** 처음 요청할 때 조용히 실행하라고 지시하지 않았는지 먼저 확인하고, 아니라면 상세 화면에 결과가 생성되어 있는지 확인한 뒤 원래 대화방의 라우팅 규칙을 점검하세요.
+- **모델 프로필을 바꿨는데 기존 Job에 반영되지 않음:** 프로바이더 및 모델 바인딩은 첫 실행 승인(execution admission) 시점에 고정되므로, 프로필 변경 사항은 아직 실행 승인 전인 대기 작업이나 새로 생성한 Job부터 적용됩니다.

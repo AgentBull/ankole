@@ -5,83 +5,83 @@ section: User guide
 order: 14
 ---
 
-signal routing 규칙은 어떤 Agent가 수신 메시지나 이벤트를 받을지 결정합니다. 채팅 규칙 하나는 하나의 chat application을 하나의 Agent에 연결하며, Agent는 여러 규칙을 사용해 여러 chat application에 연결할 수 있습니다.
+signal routing 규칙은 들어오는 메시지나 이벤트를 어느 Agent에 전달할지 결정합니다. 채팅용 규칙 하나는 외부 채팅 애플리케이션 하나를 단일 Agent에 연결하며, 한 Agent에 여러 규칙을 두어 여러 채팅 채널을 동시에 연결할 수도 있습니다.
 
-chat adapter는 메시지를 Conversation에 기록하고 대상 Agent를 위한 Signal을 생성하며, CloudEvents 웹훅 엔드포인트도 외부 시스템의 이벤트를 수신해 Signal로 전달할 수 있습니다.
+채팅 어댑터는 수신한 메시지를 Conversation에 기록한 뒤 대상 Agent 앞으로 Signal을 생성합니다. 이와 별도로 CloudEvents 웹훅 엔드포인트를 통해서도 외부 시스템의 이벤트를 받아 Signal로 전달할 수 있습니다.
 
-Slack, Microsoft Teams, Lark, Feishu 또는 DingTalk application을 아직 준비하지 않았다면, 먼저 [Quick start](../quickstart/#chat-channels)의 Channel Provider 단계를 완료하십시오.
+Slack, Microsoft Teams, Lark, Feishu, DingTalk 애플리케이션을 아직 준비하지 않았다면 먼저 [Quick start](../quickstart/#chat-channels)의 Channel Provider 설정 단계를 마친 뒤 진행하세요.
 
 ## routing 규칙 만들기
 
 1. Console에서 **Signal Routing**을 열고 **New routing rule**을 선택합니다.
-2. 메시지를 받을 Agent와 Channel Provider adapter를 선택합니다.
-3. `support-slack`처럼 명확한 규칙 이름을 입력합니다.
-4. group-message mode를 선택합니다.
-5. chat application의 credential과 connection 세부 정보를 입력하고 규칙을 저장합니다.
-6. 해당 chat application에서 bot에게 메시지를 보냅니다. 선택한 Agent가 응답하는지 확인합니다.
+2. 메시지를 수신할 Agent와 사용할 Channel Provider 어댑터를 선택합니다.
+3. `support-slack`처럼 용도가 드러나는 명확한 규칙 이름을 입력합니다.
+4. 그룹 메시지 처리 모드(group-message mode)를 선택합니다.
+5. 채팅 애플리케이션의 자격 증명과 연결 정보를 입력한 뒤 규칙을 저장합니다.
+6. 연결한 채팅 애플리케이션에서 봇에게 테스트 메시지를 보내 선택한 Agent가 정상 응답하는지 확인합니다.
 
-각 bot 계정에 고유한 chat application과 routing 규칙을 부여하십시오. 여러 Agent가 서로 다른 bot 계정을 사용해야 한다면, bot별로 별도의 application을 만든 다음 규칙을 각각 만드십시오.
-
-이렇게 하면 Agent identity와 메시지가 분리되고, 각 credential을 개별적으로 교체할 수 있습니다.
+봇 계정마다 전용 채팅 애플리케이션과 별도의 routing 규칙을 하나씩 배정하세요. 여러 Agent가 각기 다른 봇 계정으로 활동해야 한다면, 봇 수만큼 애플리케이션을 만든 뒤 규칙도 각각 등록하면 됩니다. 이렇게 분리해 두면 Agent별 신원과 대화가 섞이지 않고, 자격 증명도 서로 영향 없이 개별 교체할 수 있습니다.
 
 ## group-message mode 선택
 
-Console에는 선택한 Channel Provider가 지원하는 mode만 표시됩니다.
+Console 화면에는 선택한 Channel Provider가 지원하는 모드만 표시됩니다.
 
-| 모드 | Agent를 지칭하지 않는 그룹 메시지에 일어나는 일 |
+| 모드 | Agent를 멘션하지 않은 그룹 메시지 처리 방식 |
 |---|---|
-| **Addressed messages only** | Agent는 메시지를 보지 못하고 응답하지 않습니다. |
-| **Observe unaddressed messages** | 메시지가 conversation context에 들어가지만 Agent를 깨우지 않습니다. 누군가 Agent를 지칭한 후 Agent는 이를 context로 사용할 수 있습니다. |
-| **May intervene** | Agent는 먼저 대화에 참여하는 것이 도움이 될지 결정합니다. 말하기로 결정한 경우에만 응답합니다. |
+| **Addressed messages only** | Agent가 해당 메시지를 읽지도 않고 응답하지도 않습니다. |
+| **Observe unaddressed messages** | 메시지가 대화 컨텍스트에는 기록되지만 Agent를 바로 깨우지는 않습니다. 이후 누군가 Agent를 호출하면 앞선 대화를 배경 맥락으로 참고할 수 있습니다. |
+| **May intervene** | 대화에 끼어드는 것이 도움이 될지 Agent가 먼저 판단하며, 개입이 필요하다고 결론 내린 경우에만 응답합니다. |
 
-Slack, Microsoft Teams, Lark, Feishu는 세 가지 mode를 모두 지원합니다. DingTalk와 WeCom은 bot을 명시적으로 지칭하는 그룹 메시지만 받을 수 있으므로, Console은 이들에 대해 첫 번째 mode만 제공합니다. WeCom에는 이 외에도 훨씬 더 많은 제한이 있습니다(메시지 회수 불가, 그룹 내 파일 불가, Agent가 대화를 시작할 수 없음). 따라서 첫 번째 channel로는 권장하지 않습니다. [Quick start](../quickstart/#chat-channels)의 WeCom 탭을 참조하십시오.
+Slack, Microsoft Teams, Lark, Feishu는 세 가지 모드를 모두 지원합니다. 반면 DingTalk와 WeCom은 봇을 명시적으로 멘션한 그룹 메시지만 수신할 수 있으므로 첫 번째 모드만 선택할 수 있습니다. 특히 WeCom은 메시지 회수 불가, 그룹 채팅 파일 전송 불가, Agent의 선제 메시지 발송 불가 등 제약이 많으므로 첫 연동 채널로는 권장하지 않습니다. 자세한 제약은 [Quick start](../quickstart/#chat-channels)의 WeCom 탭을 참조하세요.
 
-**May intervene**는 Agent가 모든 메시지에 응답하게 만들지 않습니다. Agent가 언제 말할지 스스로 결정하게 하며, 새 메시지 배치마다 한 번만 판정됩니다. 특정 그룹에서 Agent가 언제 말할지 알려 주려면, 그 그룹에서 바로 channel standing order를 부여하십시오(예: “CI가 빨간불일 때만 말해”). 그래도 너무 자주 말한다면, 먼저 standing order나 역할 지침을 강화하십시오. 판정 동작과 standing order에 대해서는 [Ambient intervention](../ambient-intervention/)을 참조하십시오.
+**May intervene** 모드를 선택하더라도 Agent가 모든 메시지에 일일이 답하는 것은 아닙니다. 새 메시지 묶음이 들어올 때마다 한 번씩 개입 필요성을 평가해 스스로 발화 여부를 결정합니다. 특정 그룹방에서 언제 발언해야 하는지 기준을 정해 주고 싶다면 해당 채널에서 바로 상시 지시(channel standing order)를 내려 주세요(예: “CI 빌드가 깨졌을 때만 알려 줘”). 그래도 너무 자주 개입한다면 상시 지시나 역할 지침을 먼저 더 구체적으로 다듬으세요. 개입 판정 방식과 상시 지시에 대한 자세한 내용은 [Ambient intervention](../ambient-intervention/)을 참조하세요.
 
-질문과 답변 동작만 필요한 그룹에는 **Addressed messages only**를 사용하십시오.
+명시적인 질의응답만 필요한 그룹방에는 **Addressed messages only**를 선택하세요.
 
 ## 알 수 없는 발신자 처리 선택
 
-Ankole는 발신자를 알려진 계정에 자동으로 매핑합니다. 디렉터리 동기화나 로그인으로 가져온 계정은 플랫폼 ID로 일치하고, 새 플랫폼 계정도 플랫폼이 알려주는 이메일이나 휴대폰 번호가 기존 계정과 같으면 같은 사람으로 합쳐집니다. 이 매핑은 최선의 시도입니다. 디렉터리에 없는 외부 사용자나 채팅 계정을 연결하지 않은 이메일 OTP(`SiteCredential`) 사용자는 자동으로 일치하지 않습니다.
+Ankole은 메시지 발신자를 기존 등록 계정에 자동으로 매핑하려고 시도합니다. 디렉터리 동기화나 SSO 로그인으로 등록된 사용자는 플랫폼 ID로 바로 연결되며, 처음 보는 플랫폼 계정이라도 채팅 플랫폼이 검증해 전달한 이메일이나 휴대전화 번호가 기존 계정과 일치하면 같은 사용자로 묶입니다. 다만 이 자동 매핑이 모든 경우를 해결하지는 못하므로, 사내 디렉터리에 없는 외부인이나 채팅 계정을 연동하지 않은 이메일 OTP(`SiteCredential`) 사용자는 자동 일치하지 않습니다.
 
-**계정 자동 매핑에 실패한 경우**에서 이런 발신자의 처리를 선택합니다:
+이러한 미매핑 발신자를 어떻게 처리할지는 **계정 자동 매핑에 실패한 경우** 설정에서 선택합니다.
 
 | 옵션 | 동작 |
 |---|---|
-| **수동 검토**(기본값) | 발신자가 콘솔의 **아이덴티티 → 대기 중인 매핑** 목록에 나타납니다. 관리자가 계정을 연결할 때까지 Agent를 향한 메시지에는 관리자에게 연결을 요청하라는 고정 답장 하나만 돌아가며, 그 외에는 아무 처리도 하지 않습니다. 메시지는 컨텍스트나 Brain 학습에 들어가지 않습니다. |
-| **독립 계정 자동 생성** | Ankole가 발신자를 위한 독립 계정을 만들고 즉시 응답합니다. 누구나 Agent와 대화할 수 있는 열린 채널에 적합합니다. 발신자의 플랫폼 ID가 이미 기존 계정의 식별자인 경우(예: 해당 이메일 주소를 식별자로 쓰는 이메일 OTP `SiteCredential` 계정이나 검증된 Pod `email` identity), Ankole는 아무것도 만들지 않고 발신자를 수동 검토로 보류합니다. 같은 사람인지 판단할 수 있는 것은 관리자뿐이기 때문입니다. |
+| **수동 검토**(기본값) | 발신자가 Console의 **아이덴티티 → 대기 중인 매핑** 목록에 올라갑니다. 관리자가 계정을 연결하기 전까지 Agent에게 말을 걸면 관리자에게 계정 연결을 요청하라는 고정 안내 문구만 한 번 반환되며, 메시지 내용은 대화 컨텍스트나 Brain 학습에 반영되지 않습니다. |
+| **독립 계정 자동 생성** | 발신자용 독립 계정을 즉시 새로 생성하고 바로 응답합니다. 누구나 Agent와 대화할 수 있어야 하는 개방형 채널에 적합합니다. 단, 발신자의 플랫폼 식별자가 이미 기존 계정의 식별자와 겹치는 경우(예: 동일한 이메일을 쓰는 이메일 OTP `SiteCredential` 계정이나 검증된 Pod `email` identity가 있는 경우)에는 새 계정을 만들지 않고 수동 검토 대기열로 넘깁니다. 동일 인물 여부는 관리자만 판단할 수 있기 때문입니다. |
 
-매핑되지 않은 발신자가 그룹에서 Agent를 지목하지 않고 나눈 잡담은 항상 무시됩니다.
+매핑되지 않은 발신자가 그룹 채팅에서 Agent를 부르지 않고 나눈 일반 대화는 설정과 무관하게 항상 무시됩니다.
 
-Telegram, Discord, LINE에서는 처음에는 모든 발신자가 알 수 없는 발신자입니다. 이 소비자용 IM에는 회사 디렉터리가 없고 플랫폼이 이메일이나 휴대폰 번호를 알려주지 않습니다. **수동 검토**를 유지하고 각 사람을 계정에 한 번 매핑하세요. WhatsApp은 발신자의 확인된 전화번호를 알려주므로, 계정이 이미 그 휴대폰 번호를 소유한 사람은 즉시 매핑됩니다. 이메일 발신자는 From 주소만으로는 아무것도 증명되지 않으므로 연결되지 않은 프로필 이메일이나 이메일 OTP(`SiteCredential`) 로그인 이메일만으로는 매칭되지 않습니다. 명시적인 Pod `email` identity 바인딩만 발신자를 허용하며, 직원의 바인딩은 디렉터리 동기화나 ID 공급자 로그인이 만들고 외부 연락처의 바인딩은 관리자가 여기서 직접 만듭니다. Lark와 Feishu에서는 같은 페이지가 외부 그룹도 다룹니다. 외부 테넌트 구성원에게는 직원 ID가 없으므로 수동 연결이나 자동 생성이 필요합니다. 같은 콘솔 페이지에서 본인이 메시지를 보내기 전에 미리 매핑을 등록할 수도 있습니다. 예를 들어 이메일 OTP(`SiteCredential`) 사용자를 채팅 계정과 연결할 때 사용합니다.
+Telegram, Discord, LINE 같은 개인용 메신저는 기업 디렉터리가 없고 플랫폼에서 이메일이나 전화번호도 제공하지 않으므로, 처음에는 모든 발신자가 미확인 상태로 들어옵니다. 이 경우 **수동 검토**로 두고 사용자별로 한 번씩 계정을 연결하세요. 반면 WhatsApp은 발신자의 확인된 전화번호를 전달하므로, 해당 번호가 이미 등록된 계정과 일치하면 즉시 매핑됩니다.
+
+이메일 채널은 `From` 헤더 주소만으로 발신자 신원을 신뢰할 수 없으므로, 연동되지 않은 단순 프로필 이메일이나 이메일 OTP(`SiteCredential`) 로그인 이메일만으로는 매칭되지 않습니다. 명시적인 Pod `email` identity 바인딩이 있는 발신자만 허용되며, 임직원 바인딩은 디렉터리 동기화나 ID 공급자 로그인 시 자동 생성되고 외부 연락처 바인딩은 관리자가 이 화면에서 직접 등록합니다. Lark와 Feishu의 외부 공유 그룹 역시 같은 화면에서 관리하며, 외부 테넌트 참여자에게는 사내 사번이 없으므로 수동 연결이나 자동 생성이 필요합니다. 또한 이메일 OTP(`SiteCredential`) 사용자를 채팅 계정과 미리 이어 줄 때처럼, 사용자가 첫 메시지를 보내기 전에 같은 Console 페이지에서 매핑을 사전 등록해 둘 수도 있습니다.
 
 ## 채팅 내용이 Brain 지식이 되는 방식
 
-routing 규칙은 메시지 전달만 제어하며 지식 범위를 선택하지 않습니다. Brain이 채팅에서 학습할 때는 대화 종류와 확인된 identity로 접근 범위를 정합니다.
+routing 규칙은 메시지 전달 경로만 결정할 뿐 지식 공개 범위는 바꾸지 않습니다. Brain이 채팅 대화에서 지식을 추출해 학습할 때는 대화 유형과 확인된 발신자 신원을 기준으로 접근 범위를 정합니다.
 
-- **그룹 채팅:** channel의 현재 member group에 속한 구성원과 Agent가 학습한 지식을 사용할 수 있습니다. member group이 없는 그룹에서는 학습하지 않습니다.
-- **다이렉트 메시지:** 상대 사용자와 규칙에 바인딩된 Agent가 학습한 지식을 사용할 수 있습니다. 다른 Agent는 기본적으로 사용할 수 없습니다.
+- **그룹 채팅:** 학습된 지식은 해당 채널의 현재 member group 소속 구성원과 참여 Agent가 조회할 수 있습니다. 연결된 member group이 없는 그룹 채팅에서는 Brain 학습을 수행하지 않습니다.
+- **다이렉트 메시지:** 학습된 지식은 대화 상대방과 해당 규칙에 연결된 Agent만 조회할 수 있으며, 다른 Agent에는 기본적으로 공개되지 않습니다.
 
-공개 사실은 테넌트 내에서 공유하는 지식이 될 수 있습니다. 명시적으로 기밀 처리가 필요한 내용은 해당 발언자에게만 제한할 수 있습니다. 그 밖의 내용은 위의 그룹 채팅 또는 다이렉트 메시지 접근 범위를 유지합니다. 모델 요구 사항과 검색 동작은 [Brain](../brain/)을 참조하십시오.
+전사에 공유해도 되는 공개 사실은 테넌트 공통 지식으로 승격될 수 있고, 반대로 기밀로 지정된 내용은 발언자 본인에게만 제한할 수 있습니다. 별도 지정이 없는 일반 대화 내용은 위의 그룹 채팅 또는 다이렉트 메시지 공개 범위를 그대로 따릅니다. 필요한 모델 설정과 검색 동작은 [Brain](../brain/)을 참조하세요.
 
 ## 규칙 편집, 비활성화 또는 활성화
 
-목록에는 기본적으로 활성화된 규칙만 표시됩니다. 이전 규칙을 확인하거나 복원해야 하면 **비활성 규칙 표시**를 켜세요.
+규칙 목록에는 기본적으로 활성 상태인 규칙만 나타납니다. 비활성화해 둔 이전 규칙을 확인하거나 되살리려면 **비활성 규칙 표시** 토글을 켜세요.
 
-**편집**을 선택하면 현재의 비밀 정보가 아닌 설정을 볼 수 있습니다. 대상 Agent, group-message mode 또는 chat credential을 변경할 수 있습니다. 다른 Agent를 선택하면 새 메시지가 그 Agent로 전달됩니다.
+규칙에서 **편집**을 누르면 시크릿을 제외한 현재 설정을 확인하고 연결 대상 Agent, group-message mode, 채팅 자격 증명을 수정할 수 있습니다. 대상 Agent를 바꾸면 이후 새로 들어오는 메시지부터 바뀐 Agent로 전달됩니다.
 
-server는 저장된 token이나 secret을 브라우저로 반환하지 않습니다. credential 필드를 비워 두면 암호화된 기존 값을 유지합니다. 값을 바꾸려는 경우에만 새 값을 입력하세요.
+보안을 위해 서버는 저장된 토큰이나 시크릿 원문을 브라우저로 내려보내지 않습니다. 편집 시 자격 증명 입력란을 비워 두면 기존 암호화 값이 그대로 유지되므로, 키를 교체할 때만 새 값을 입력하세요.
 
-**비활성화**를 선택하면 규칙, chat application 연결, 기록을 유지하면서 새 메시지 전달을 중지합니다. 복원하려면 **비활성 규칙 표시**에서 해당 규칙을 찾고 **활성화**를 선택하세요. 규칙을 다시 만들 필요가 없습니다.
+**비활성화**를 선택하면 규칙 설정과 채팅 애플리케이션 연결, 기존 대화 기록은 보존한 채 새 메시지 전달만 멈춥니다. 다시 켜려면 **비활성 규칙 표시**를 켜고 해당 규칙에서 **활성화**를 선택하면 되며, 규칙을 새로 만들 필요가 없습니다.
 
 ## Agent가 응답하지 않는 경우
 
-- **Channel Provider가 없음:** **Control Plane Plugins**는 엄격히 사이트 범위(`/api/v2/site/control-plane-plugins`)이므로 테넌트나 개별 Agent의 Agent Library 범위 안이 아니라 Site Admin Console의 사이트/전역 범위에만 표시됩니다. Site Admin Console(`/site-admin-console`)을 열고 **Agent Library**에서 범위를 **Global defaults**로 둔 뒤 **Control Plane Plugins** 탭에서 해당 plugin을 활성화하고, 페이지 안내에 따라 control plane을 다시 시작하십시오.
-- **bot이 그룹 메시지를 받지 못함:** provider의 event subscription, 권한, application release 상태를 확인하십시오. DingTalk와 WeCom 그룹 메시지는 bot을 명시적으로 @-언급해야 합니다.
-- **WeCom이 예상과 다르게 동작함:** 먼저 [Quick start](../quickstart/#chat-channels)의 WeCom 탭과 동작을 비교하십시오. 일반적인 원인은 슈퍼 관리자가 만들지 않은 bot, 누락된 trusted-IP 항목, 또는 사용자가 아직 활성화하지 않은 conversation입니다.
-- **규칙은 저장됐지만 응답이 없음:** 대상 Agent가 활성화되어 있고, 해당 모델 configuration이 정상이며, 규칙이 규칙 목록에 있는지 확인하십시오.
-- **DM은 동작하는데 그룹 메시지가 동작하지 않음:** group-message mode를 확인하고 bot이 대상 그룹에 속해 있는지 확인하십시오.
+- **Channel Provider 목록에 원하는 항목이 없음:** **Control Plane Plugins**는 엄격히 사이트 범위(`/api/v2/site/control-plane-plugins`) 리소스이므로, 개별 테넌트나 Agent 범위의 Agent Library가 아니라 Site Admin Console의 전역 범위에서만 관리할 수 있습니다. Site Admin Console(`/site-admin-console`)을 열어 **Agent Library** 범위를 **Global defaults**로 맞춘 뒤 **Control Plane Plugins** 탭에서 해당 플러그인을 활성화하고, 화면 안내에 따라 control plane을 재시작하세요.
+- **봇이 그룹 메시지를 전혀 받지 못함:** 채팅 플랫폼 측의 이벤트 구독(event subscription), 권한 범위, 앱 배포(release) 상태를 점검하세요. 또한 DingTalk와 WeCom 그룹방에서는 반드시 봇을 `@` 멘션해야 메시지가 전달됩니다.
+- **WeCom 동작이 예상과 다름:** 먼저 [Quick start](../quickstart/#chat-channels)의 WeCom 탭 안내와 설정을 대조해 보세요. 슈퍼 관리자가 아닌 계정으로 만든 봇, 누락된 신뢰 IP(trusted IP) 등록, 사용자가 아직 대화를 시작하지 않은 상태가 흔한 원인입니다.
+- **규칙은 저장되었는데 응답이 오지 않음:** 대상 Agent가 활성 상태인지, 모델 프로필 구성에 오류가 없는지, 그리고 활성 규칙 목록에 해당 규칙이 정상 표시되는지 확인하세요.
+- **1:1 DM은 되는데 그룹방에서만 응답이 없음:** 설정된 group-message mode를 확인하고 해당 그룹방에 봇이 실제로 초대되어 있는지 점검하세요.
 
-[Quick start](../quickstart/#chat-channels)의 provider별 권한, event, credential을 사용하십시오.
+플랫폼별 필수 권한, 구독 이벤트, 자격 증명 항목은 [Quick start](../quickstart/#chat-channels)를 기준으로 확인하세요.
 
-DingTalk 규칙의 경우, streaming card 응답에는 DingTalk card platform의 AI card template 하나가 필요합니다. [Quick start](../quickstart/#chat-channels)의 DingTalk 탭 고급 섹션에서 만드는 방법을 보여 줍니다.
+DingTalk 규칙에서 스트리밍 카드 응답을 쓰려면 DingTalk 카드 플랫폼에서 AI 카드 템플릿을 하나 생성해야 합니다. 구체적인 생성 절차는 [Quick start](../quickstart/#chat-channels)의 DingTalk 탭 고급 섹션을 참조하세요.

@@ -1,3 +1,4 @@
+import { equal } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 export type ProviderEditorDraft = {
@@ -35,7 +36,7 @@ export const ProviderEditorModel = createModel(() => {
       (providerID.value !== source.providerID ||
         providerKind.value !== source.providerKind ||
         baseURL.value !== source.baseURL ||
-        JSON.stringify(options.value) !== JSON.stringify(source.options))
+        !equal(options.value, source.options))
     )
   })
 

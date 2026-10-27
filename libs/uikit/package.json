@@ -27,8 +27,8 @@
   },
   "scripts": {
     "test": "bun test test",
-    "type-check": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "type-check": "bun check -p tsconfig.json --noEmit",
+    "lint": "bun check -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check ."
   },

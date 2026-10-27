@@ -95,6 +95,63 @@ defmodule Ankole.Upgrade202610Test do
     end
   end
 
+  test "lark legacy signals.lark.bindings.* keys migrate to binding_configs and repeat without changes" do
+    alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
+
+    %{principal: first} = agent_fixture()
+    %{principal: second} = agent_fixture()
+
+    cases = [
+      {first, "feishu-main", "signals.lark.bindings.#{first.uid}", "cli_legacy_uid"},
+      {second, "feishu-ops", "signals.lark.bindings.feishu-ops", "cli_legacy_name"}
+    ]
+
+    seeded =
+      for {agent, name, old_key, app_id} <- cases do
+        {:ok, cfg} =
+          LarkConfig.validate_chat_config(%{
+            "appID" => app_id,
+            "appSecret" => "secret-#{app_id}",
+            "domain" => "feishu"
+          })
+
+        old_value = seed_config(old_key, cfg)
+
+        assert {:ok, _} =
+                 Ankole.SignalsFixtures.raw_binding_fixture(%{
+                   agent_uid: agent.uid,
+                   name: name,
+                   adapter: "lark",
+                   config_ref: "app-config://#{old_key}"
+                 })
+
+        {agent, name, old_key, cfg, old_value}
+      end
+
+    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+
+    rows =
+      for {agent, name, old_key, cfg, old_value} <- seeded do
+        refute Repo.get_by(SiteConfig, scope: "global", key: old_key)
+        binding = Repo.get_by!(Binding, agent_uid: agent.uid, name: name)
+        new_key = LarkConfig.binding_config_key(agent.uid, name)
+        assert binding.config_ref == "app-config://#{new_key}"
+
+        row = Repo.get_by!(SiteConfig, scope: "global", key: new_key)
+        assert row.value["type"] == old_value["type"]
+        refute row.value["value"] == old_value["value"]
+        assert {:ok, ^cfg} = Bindings.stored_binding_config(binding)
+        assert {:ok, application} = LarkConfig.platform_application(cfg)
+        assert row.value["platform_application"] == application
+        row
+      end
+
+    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+
+    for row <- rows,
+        do: assert(Repo.get_by!(SiteConfig, scope: row.scope, key: row.key).value == row.value)
+  end
+
   for {adapter, module} <- [
         {"line", Ankole.Plugins.LineAdapter.Config},
         {"lark", Ankole.Plugins.LarkAdapter.Config},

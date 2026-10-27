@@ -1,4 +1,4 @@
-import { Result, isRecord, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { Result, isRecord, ms, recordValue, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../../common/errors'
 import { agentProcessArgv, killProcessGroup } from '../../execution/process-group'
 
@@ -73,12 +73,12 @@ export class CodexAppServerRPCError extends Error {
     super(jsonErrorMessage(rpcError))
     this.name = 'CodexAppServerRPCError'
 
-    const payload = isRecord(rpcError) ? rpcError : {}
-    const data = isRecord(payload.data) ? payload.data : {}
+    const payload = recordValue(rpcError) ?? {}
+    const data = recordValue(payload.data) ?? {}
     this.details = {
       ...data,
       ...payload,
-      message: typeof payload.message === 'string' ? payload.message : this.message
+      message: stringArg(payload, 'message') ?? this.message
     }
   }
 }
@@ -520,7 +520,7 @@ function uncertainResultMethod(method: string): boolean {
 }
 
 function parseJSONRPCLine(line: string): Result<JSONRPCMessage | undefined, JSONRPCLineError> {
-  const parsed = parseJSONLine(line).mapError(error => ({ line, message: errorText(error) }))
+  const parsed = parseJSONLine(line).mapError(error => ({ line, message: errorMessage(error) }))
   if (parsed.isErr()) {
     return Result.err(parsed.error)
   }
@@ -585,12 +585,7 @@ async function readTextChunks(
 }
 
 function jsonErrorMessage(error: unknown): string {
-  if (isRecord(error) && typeof error.message === 'string') return error.message
-  return JSON.stringify(error)
-}
-
-function errorText(error: unknown): string {
-  return errorMessage(error)
+  return (isRecord(error) ? stringArg(error, 'message') : undefined) ?? JSON.stringify(error)
 }
 
 function delay(durationMs: number): Promise<void> {

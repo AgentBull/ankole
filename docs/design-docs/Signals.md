@@ -1,21 +1,23 @@
 # Signals
 
-Signals owns durable stimuli for Agent work. Every producer calls
-`Ankole.Signals.accept/1` or `Ankole.Signals.accept_in_tx/1`. A Signal names its
-source, event identity, facts, authorization, and execution target.
+Signals owns durable stimuli for Agent work. Every producer submits work by
+calling `Ankole.Signals.accept/1` or `Ankole.Signals.accept_in_tx/1` with a
+Signal that names its source, event identity, payload facts, authorization, and
+execution target.
 
-[Conversations](Conversations.md) owns shared conversations, participants,
-public Messages, provider observations, and external Delivery. [Sessions](Sessions.md)
-owns execution, input ordering, recovery, and the model history connection.
-[AIGateway](AIGateway.md) owns model requests, Responses, and model session state.
+Surrounding domains own the adjacent boundaries: [Conversations](Conversations.md)
+owns shared conversations, participants, public Messages, provider observations,
+and external Delivery; [Sessions](Sessions.md) owns execution, input ordering,
+recovery, and the link to model history; and [AIGateway](AIGateway.md) owns
+model requests, Responses, and model session state.
 
 ## One Intake
 
 `accept/1` runs in a top-level transaction (`Repo.transact_top_level/2`) and
 returns `{:ok, %Ankole.Signals.Signal{}}` or `{:error, reason}`.
-`accept_in_tx/1` has the same result and requires the caller to own a
-transaction. Use the latter when the stimulus must commit with a Message,
-schedule execution, Job result, or Workflow result.
+`accept_in_tx/1` returns the same result inside a caller-owned transaction; use
+it whenever the stimulus must commit atomically alongside a Message, scheduled
+execution, Job result, or Workflow result.
 
 ```elixir
 Ankole.Signals.accept(%{
@@ -31,12 +33,14 @@ Ankole.Signals.accept(%{
 })
 ```
 
-The intake also stores a private `producer` value. Core code sets `kernel` when
-it derives a stimulus from a Message, schedule, task, or control action. Generic
-CloudEvents and webhook intake set `external`; event fields cannot select this
-value. It does not enter the CloudEvent envelope or change authorization.
-Sessions uses it before it interprets internal event types. A source/id collision
-between producers returns an error and leaves the accepted facts unchanged.
+Alongside the public attributes, intake records a private `producer` marker.
+Core control-plane code sets `kernel` when deriving a stimulus from a Message,
+schedule, task, or control action, whereas generic CloudEvents and webhook
+intake always set `external`. Event payload fields cannot choose this marker,
+and it neither enters the CloudEvent envelope nor alters authorization; Sessions
+checks it before interpreting internal event types. If two different producers
+collide on the same source and event ID, intake returns an error and leaves the
+already accepted record unchanged.
 
 The canonical event fields are:
 
@@ -50,82 +54,94 @@ The canonical event fields are:
 | `data` | `data` | JSON event value, including arrays, scalars, and null |
 | `extensions` | `extensions` | Additional CloudEvents context attributes |
 
-The producer does not store a second envelope. `Signal.envelope/1` builds the
-CloudEvents 1.0 representation from these fields. It keeps extension facts
-without letting them replace canonical event fields.
+Producers do not persist a separate raw envelope. Instead, `Signal.envelope/1`
+reconstructs the CloudEvents 1.0 view from these columns, preserving extension
+attributes without allowing them to overwrite canonical event fields.
 
-The intake resolves the target, validates the facts, locks the Agent's Session,
-allocates `queue_sequence`, and inserts the Signal. PostgreSQL prevents a second
-Signal with the same `(tenant_id, agent_uid, source, source_event_id)`. A repeat
-returns the first Signal, including its first target and facts. Changing a
-subscription does not move an accepted event to another Session. Several rules
-that match the same event for the same Agent also return that one Signal.
+During intake, Ankole resolves the target, validates the attributes, locks the
+Agent's Session, allocates `queue_sequence`, and inserts the Signal. PostgreSQL
+enforces uniqueness on `(tenant_id, agent_uid, source, source_event_id)`. If a
+producer redelivers the same event—or if multiple routing rules match the same
+event for the same Agent—intake returns the original Signal with its initial
+target and facts. Updating a subscription later does not move an already
+accepted Signal to another Session.
 
-`accept_all/1` and `accept_all_in_tx/1` accept a list of stimuli in one
-transaction. The intake locks all target Sessions in order with one statement,
-reads the existing Signals with one query, and inserts the new Signals with one
-bulk insert. The sequence read and the wakeup job stay one for each Session. A
-rejected stimulus rejects the full list.
+For batch writes, `accept_all/1` and `accept_all_in_tx/1` accept a list of
+stimuli in a single transaction: intake locks all target Sessions in lock order
+with one statement, checks existing Signals in one query, and writes new rows in
+one bulk insert, issuing at most one sequence read and one wakeup job per
+Session. If any stimulus in the batch is invalid, intake rejects the entire
+list.
 
-In the same transaction, intake records a durable
-`Ankole.Sessions.Jobs.EnsureDriver` job. It does not start a Driver inside that
-transaction. `accept/1` can wake the Session immediately after a real commit;
-the job repairs a lost wakeup. An outer rollback removes both the Signal and
-its wakeup. Callers do not add their own intake or transaction hook.
+Every intake transaction also enqueues a durable
+`Ankole.Sessions.Jobs.EnsureDriver` job without starting a Driver inside the
+transaction. `accept/1` wakes the Session immediately after commit for low
+latency, while `EnsureDriver` repairs any missed wakeup. If an outer transaction
+rolls back, PostgreSQL discards both the Signal and its wakeup job, so callers
+do not add custom intake or transaction hooks.
 
 ## Queue State
 
-`Ankole.Signals.Signal` owns the queue state through AshStateMachine actions.
-The allowed states are `queued`, `running`, `completed`, and `dead_letter`.
-Intake creates `queued` work. Admission records `running`; a retry deadline
-returns it to `queued`. Completion can settle either live state, including an
-Ambient NOOP that never starts a model turn. Neither terminal state can restart.
-A retry of terminal work creates a new Signal with a new source event identity.
+`Ankole.Signals.Signal` manages queue lifecycle transitions through
+AshStateMachine across four states: `queued`, `running`, `completed`, and
+`dead_letter`. Intake inserts work as `queued`; admission transitions it to
+`running`, and deferring a retry returns it to `queued`. Completion can settle a
+Signal from either live state—including an ambient `NOOP` that finishes without
+starting a model turn. Once a Signal enters `completed` or `dead_letter`, it
+never restarts; retrying terminal work creates a new Signal with a fresh source
+event ID.
 
-`available_at` is a deadline, and `last_attempt_at` records the latest admission.
-A deferred Signal retains that admission history. These timestamps do not select
-its state. Each admission increments `attempt_count` once. Capacity failures have
-a separate counter; an admission refund cannot subtract a capacity attempt.
-Triage retries keep `last_attempt_at` empty until a real turn starts.
+Two timestamps track scheduling and attempts without determining queue state on
+their own: `available_at` records the readiness deadline, and `last_attempt_at`
+records the latest admission (preserved across retry deferrals, though ambient
+triage retries leave `last_attempt_at` empty until a full turn begins). Each
+admission increments `attempt_count` once. Provider-capacity waits use a
+separate counter, and refunding an admission never decrements a capacity
+attempt.
 
-PostgreSQL requires completion time only for `completed` work, and dead-letter
-time and an object reason only for `dead_letter` work. Live work cannot carry
-terminal evidence, and `running` requires an admission time. Actions and bulk
-revocation use the caller's transaction and tenant context. Signal
-writes do not start a second transaction owner.
+Database constraints tie evidence columns to queue state: PostgreSQL requires a
+completion timestamp only on `completed` rows, requires a dead-letter timestamp
+and JSON-object reason only on `dead_letter` rows, forbids terminal columns on
+live rows, and requires an admission timestamp whenever a row is `running`.
+Single-row actions and bulk revocations run inside the caller's transaction and
+tenant context without opening a nested transaction owner.
 
-`Ankole.Signals` is the Signals Ash domain (`Signal`, `Binding`,
-`WebhookEndpoint`). Other domains use its defines and functions (`get_signal`,
-`list_signals`, `update_metadata_signal`, `revise_input_signal`,
-`reauthorize_signal`, `remove_signal`, `get_binding`, `list_bindings`,
-`get_webhook_endpoint`, `list_webhook_endpoints`) and its composition functions
-for a transaction that they own: `accept_in_tx/1`, `lock_signal_in_tx/1`,
-`lock_session_signal_in_tx/2`, `lock_signals_in_tx/2` (a keyword filter, queue
-order unless `sort:` gives another order, an optional `limit:`, row lock
-identity), `transition_in_tx/3` (one queue state transition of a locked Signal),
-`reset_attempts_in_tx/2`, and `signals_for_entry_in_tx/4`. The Session queue
-reads are `session_queue/3` and `session_status_signal/3`. Human revocation of
-unstarted Signals is `stop_human_work_in_tx/3`. A read across tenants runs in
-`Repo.across_tenants/1`: Signals use the Work provenance read action
-`work_across_tenants` (`due_sessions_across_tenants/1`,
-`count_admitted_attempts_for_human/2`), and Bindings and Endpoints use their
-`lookup_across_tenants` read action.
+`Ankole.Signals` is the Ash domain that owns `Signal`, `Binding`, and
+`WebhookEndpoint`. Other domains interact with Signals through three sets of
+interfaces:
 
-Binding and Endpoint writes with more than one step (`assign_binding`,
+- **Domain defines and readers:** `get_signal`, `list_signals`,
+  `update_metadata_signal`, `revise_input_signal`, `reauthorize_signal`,
+  `remove_signal`, `get_binding`, `list_bindings`, `get_webhook_endpoint`,
+  `list_webhook_endpoints`, and the Session queue readers `session_queue/3` and
+  `session_status_signal/3`.
+- **Transactional composition helpers (`*_in_tx`):** `accept_in_tx/1`,
+  `lock_signal_in_tx/1`, `lock_session_signal_in_tx/2`, `lock_signals_in_tx/2`
+  (accepting a keyword filter, queue order unless overridden by `sort:`, an
+  optional `limit:`, and row-lock identity), `transition_in_tx/3` (advancing one
+  locked Signal), `reset_attempts_in_tx/2`, `signals_for_entry_in_tx/4`, and
+  `stop_human_work_in_tx/3` (revoking unstarted Signals for an offboarded
+  Human).
+- **Cross-tenant readers (`Repo.across_tenants/1`):** Signals exposes the
+  `work_across_tenants` read action (`due_sessions_across_tenants/1` and
+  `count_admitted_attempts_for_human/2`), while Bindings and WebhookEndpoints
+  expose `lookup_across_tenants`.
+
+Multi-step writes on Bindings and WebhookEndpoints—`assign_binding`,
 `reassign_binding`, `put_cloud_binding`, `move_cloud_binding`,
 `disable_binding`, `create_webhook_endpoint`, `cancel_webhook_endpoint`, and
-`receive_webhook`) run in `Repo.transact_top_level/2` in `Bindings` and
-`Webhooks`. Console `/api/v2` routes expose generic actions for Binding and
-Endpoint management. A Binding assignment refreshes the configuration cache
-after commit.
+`receive_webhook`—run inside `Repo.transact_top_level/2` in `Bindings` and
+`Webhooks`. Console `/api/v2` routes expose generic actions for managing both
+resources, and assigning a Binding refreshes the configuration cache after
+commit.
 
-An unresolved dead-lettered Signal remains visible in access review. Review
-states are separate from reauthorizable states: review cannot restart terminal
-work or change its recorded authority.
+Unresolved `dead_letter` Signals remain visible in operator access review.
+However, review status is distinct from reauthorizable state: reviewing a
+terminal Signal neither restarts it nor alters its recorded authority.
 
 ## Execution Target and Reply Route
 
-An explicit target has one of these forms:
+Callers specify an explicit execution target in one of three forms:
 
 | Target | Result |
 | --- | --- |
@@ -133,176 +149,186 @@ An explicit target has one of these forms:
 | `%{agent_uid: uid, conversation_id: uuid}` | Work for a participating Agent in that Conversation |
 | `{:conversation, uuid}` | Work for the single Agent of a native Conversation |
 
-A Conversation target resolves to `conversation:<uuid>`. An external
-Conversation can contain several Agents. Its target must name the Agent;
-the native tuple cannot select an arbitrary participant. Each Agent has its
-own Session and model state for the same shared Conversation.
+A Conversation target resolves to the Session key `conversation:<uuid>`. Because
+an external Conversation can include multiple Agents—each maintaining its own
+Session and model state over the shared Conversation—external callers must name
+`agent_uid` explicitly; the `{:conversation, uuid}` shorthand works only for
+single-Agent native Conversations.
 
-Generic event sources may target `main` or an ordinary custom Session.
-`job:<id>` and `wf_task:<id>` are private work-unit Sessions; only their
-internal producers may dispatch or control them. An Endpoint or webhook
-Binding that selects either prefix returns `invalid_signal_target`.
+Generic event sources may target `main` or any ordinary named Session. By
+contrast, `job:<id>` and `wf_task:<id>` identify private work-unit Sessions that
+only their internal producers may dispatch or control; if a WebhookEndpoint or
+Binding targets either prefix, validation fails with `invalid_signal_target`.
 
-A reply route is a separate fact. `reply_route` can carry `binding_name`,
-`conversation_id`, `provider_thread_id`, and `provider_message_id`.
-`binding_name` is stored as `reply_binding_name`. The Signal source remains the
-producer namespace. An internal producer does not create a Binding to name
-itself, and a Binding does not own a Conversation.
+Delivery routing stays separate from execution targeting. `reply_route` can
+carry `binding_name` (persisted as `reply_binding_name`), `conversation_id`,
+`provider_thread_id`, and `provider_message_id`, while the Signal's `source`
+continues to name the producer namespace. Internal producers never synthesize a
+Binding to identify themselves, and a Binding does not own a Conversation.
 
-`message_id` identifies an optional public Message that caused the Signal.
-An IM batch also keeps all of its public Message IDs in `data.message_ids`.
-These IDs are not provider message IDs or AIGateway message IDs.
+When a public Message triggers a Signal, `message_id` stores that Message's
+UUID, and batched IM Signals also list all contributing public Message UUIDs in
+`data.message_ids`. These UUIDs always refer to `Conversations.Message` rows,
+never provider message IDs or AIGateway message IDs.
 
-`Signals.Target.parse/1` is the route-target parser shared by Binding, webhook,
-CloudEvents, and intake. It returns `{:conversation, uuid}` or `{:session, key}`
-and rejects mixed targets. `Sessions.Key.routable?/1` enforces the private-work
-boundary. A reply route remains a separate delivery fact.
+Bindings, webhooks, CloudEvents, and core intake share `Signals.Target.parse/1`
+to parse route targets into `{:conversation, uuid}` or `{:session, key}` while
+rejecting mixed target maps, and `Sessions.Key.routable?/1` enforces the
+private-work boundary. Reply routes remain independent delivery metadata.
 
-`Signals.Types` explicitly declares whether each code-produced type supersedes
-a pending interaction. Undeclared types, including external CloudEvents types,
-preserve the pending interaction. Intake takes the Session lock before insert
-and then applies interaction supersession through `Delivery.Interactions`
-and records the durable EnsureDriver wakeup in the same transaction. Opening a
-late clarification uses the same declared superseding types. Only a kernel
-`session.reset_due` Signal acts as a reset barrier for an interaction answer.
-The provider-removal lifecycle type is `conversation.message.removed`.
+`Signals.Types` declares which internal, code-produced Signal types supersede a
+pending user interaction; any undeclared type—including external CloudEvents
+types—leaves pending interactions open. During intake, Ankole acquires the
+Session lock before inserting the Signal, applies interaction supersession
+through `Delivery.Interactions`, and writes the durable `EnsureDriver` job in
+the same transaction. Opening a late clarification checks the same superseding
+type list. Only a kernel-produced `session.reset_due` Signal acts as a reset
+barrier for an interaction answer. When an external provider deletes a message,
+Ankole uses the `conversation.message.removed` lifecycle type.
 
-`accept_in_tx/1` returns the accepted Signal as a pending publication fact.
-Its outer transaction owner calls `Signals.publish_committed/1` in the same
-process after commit. `accept/1` registers the same publication with
-`after_commit` on `Repo.transact_top_level/2`, and a call inside another
-transaction raises `Ankole.Errors.Framework.NestedOperation`. Publication sends
-a Session state notification,
-calls the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
-on the Session input topic. Drivers read the durable input; an observation or
-raw Conversation message cannot create a second input through PubSub.
-The publication guard checks only the current process. A Task cannot be used
-inside the transaction to publish pending facts.
+For post-commit wakeup, `accept_in_tx/1` returns the accepted Signal as a
+pending publication token so the outer transaction owner can call
+`Signals.publish_committed/1` in the same process after commit. `accept/1`
+wires that same call into `after_commit` on `Repo.transact_top_level/2` (and
+raises `Ankole.Errors.Framework.NestedOperation` if called inside an open
+transaction). `publish_committed/1` broadcasts a Session state update, triggers
+the `ensure_driver/1` fast path, and publishes ready Signal IDs on the Session
+input topic. Drivers always load work from PostgreSQL, so neither a raw
+observation nor a PubSub message can fabricate a second input. Because the
+publication guard inspects only the current process's transaction state,
+transactional code must never spawn a Task to publish pending Signals.
 
 ## Attribution and Runtime Scope
 
-`sender` names the accountable Principal when one exists. WorkAccess captures
-`authorization_kind`, `human_uid`, and `human_access_version`. A producer with
-an existing authorization snapshot passes it unchanged. New Human input uses
-the observed Human version; later identity updates cannot renew old work.
+When a stimulus has an accountable Principal, `sender` identifies them and
+`WorkAccess` snapshots `authorization_kind`, `human_uid`, and
+`human_access_version`. Callers that already hold a frozen authorization
+snapshot pass it through unchanged, while new Human input captures the Human's
+current version so later identity edits cannot revive stale work.
 
-Internal service work and capability callbacks use an explicit service
-snapshot. An unknown sender remains `review_required`. A source rule, an
-ambient observation, or arbitrary event data cannot borrow a Binding owner's
-Human permissions. Sessions checks the snapshot before a new execution
-attempt. An already admitted run can finish. See
+Internal service tasks and capability callbacks carry an explicit service
+authorization snapshot, whereas an unmapped external sender stays
+`review_required`. Source routing rules, ambient room observations, and event
+payload fields can never borrow the Human permissions of a Binding's creator.
+Sessions re-verifies the frozen snapshot before starting each execution attempt,
+while runs that are already admitted finish normally; see
 [Human Offboarding](HumanOffboarding.md).
 
-Runtime scope comes from the persisted Signal, public Message authors, and
-the Conversation audience. `Ankole.Brain.RequestContext` validates the owned
-Signal at the Session boundary and builds the typed Brain context. Sessions
-passes that context to AIGateway as an internal option. Caller metadata on the
-public AIGateway API does not grant a runtime context or interpret a Signal.
-Conversation background messages are readable context; they do not change the
-authorization of the current request.
+At model-request time, runtime scope derives from the persisted Signal, public
+Message authors, and Conversation participants. `Ankole.Brain.RequestContext`
+validates the owned Signal at the Session boundary and constructs a typed Brain
+context, which Sessions passes to AIGateway through an internal option. Caller
+metadata on the public AIGateway API never grants runtime context or interprets
+a Signal, and unread background Messages provide conversational context without
+altering the requester's authorization.
 
 ## Bindings
 
-`Ankole.Signals.Binding` is a routing rule for one Agent and adapter.
-`Ankole.Signals.Bindings` owns its configuration and lifecycle. Its resource
-actions persist configuration replacement, disabling, and removal in the
-caller's transaction. Its typed JSON fields reject runtime values before SQL;
-BindingFilters owns CEL validation and Target owns route parsing. Adapter save
-hooks run after commit. A hook failure is logged and does not change the successful
-save response. Delivery and preview wakeups run independently of the hook.
-`signal_bindings` stores the Agent, name, adapter, configuration reference,
-filter, target, policies, and enabled state. The globally unique Agent UID and
-binding name identify the row; every query also enforces its tenant scope.
+`Ankole.Signals.Binding` defines a routing rule connecting one Agent to one
+adapter, and `Ankole.Signals.Bindings` manages its configuration and lifecycle.
+Resource actions persist configuration updates, disabling, and deletion inside
+the caller's transaction: typed JSON attributes reject invalid runtime values
+before SQL, `BindingFilters` compiles and checks CEL expressions, and `Target`
+validates route targets. Adapter save hooks run after commit—if a hook fails,
+Ankole logs the failure without failing the committed save, and delivery or
+preview wakeups proceed independently. Each `signal_bindings` row stores the
+Agent, binding name, adapter, configuration reference, filter, target, policies,
+and enabled flag; rows are uniquely identified by `(agent_uid, name)` and
+always queried under tenant scope.
 
-Creation and reactivation pass Binding attributes to the site's
-`:enable_signal_binding` Plugin hooks in the write transaction. The attributes
-include `agent_uid`, `name`, `adapter`, `config_ref`, and `enabled: true`.
-Edits and moves of an enabled Binding keep its admission. Messaging adapters
-and CloudEvents use the same write boundary and existing-row lock order.
+Creating or re-enabling a Binding invokes the site's `:enable_signal_binding`
+Plugin hooks inside the write transaction with `agent_uid`, `name`, `adapter`,
+`config_ref`, and `enabled: true`. Editing or moving an already enabled Binding
+preserves its admission, and both messaging adapters and CloudEvents share the
+same write boundary and row-lock order.
 
-An adapter reads secrets through its own AppConfigure contract. A Binding
-contains a `config_ref`, not the provider secret. A `config` update is a patch:
-omitted fields keep their stored values. Console edit reads omit encrypted
-values and list only paths that already have a secret. An omitted or empty
-secret field keeps the stored encrypted value.
+Bindings store only a `config_ref` pointer rather than raw provider secrets,
+which adapters read through their own AppConfigure contracts. Updating `config`
+applies as a patch where omitted keys retain their stored values. Console edit
+reads strip encrypted secret values—listing only which secret paths are
+populated—and omitting or sending an empty secret field preserves the existing
+encrypted value.
 
-Disabling a Binding retains its rule, configuration, and history. Console
-hides disabled rules by default and can show, edit, or enable them. An enabled
-Binding with an `unavailable_reason` rejects new input until its configuration
-is repaired. Disabling one observer does not make a shared Conversation
-unreadable for other Agents.
+Disabling a Binding keeps its routing rule, configuration, and history intact.
+The Console hides disabled Bindings by default while still letting operators
+reveal, edit, or re-enable them. If an enabled Binding carries an
+`unavailable_reason`, Ankole rejects new input on that Binding until an operator
+repairs its configuration, though disabling one observer never prevents other
+Agents from reading a shared Conversation.
 
-Adapter categories group the catalog; they do not grant authority or determine
-routing. The ten messaging adapters declare `enterprise_im`, `consumer_im`,
-or `email`. The built-in `cloudevents` source uses `event_source` and has no
-IM group-message or sender-mapping policy.
+Adapter categories (`enterprise_im`, `consumer_im`, `email` across the ten
+messaging adapters, and `event_source` for built-in `cloudevents`) organize the
+Console catalog without granting permissions or altering routing. Unlike IM
+adapters, `cloudevents` carries no group-message or sender-mapping policies.
 
-The Console catalog and binding list use `GET /api/v2/signal-adapters` and
-`GET /api/v2/signal-bindings` (authorized by `site_console:signal_bindings`
-with `read`). The Agent binding routes are
-`/api/v2/agents/:agent_uid/signal-bindings/:binding_name` for read, edit, and
-delete, and `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name`
-for create or enable. These JSON:API actions call the existing Bindings
-owner; it keeps commit and adapter-hook authority. An edit on the same Agent
-requires `site_console:agent:<agent_uid>:signal_bindings` with `update`. A move
-requires `delete` on the source Agent's `site_console:agent:<agent_uid>:signal_bindings`
-resource and `update` on the target Agent's resource. The permission check
-uses the same target Agent as the move. A refusal changes neither binding.
-The edit response omits secrets. Delivery requeue uses
-`POST /api/v2/agents/:agent_uid/signal-deliveries/requeue` and the
-existing durable Outbox admission rules.
+In the Console JSON:API, `GET /api/v2/signal-adapters` and
+`GET /api/v2/signal-bindings` (guarded by `read` on
+`site_console:signal_bindings`) serve the adapter catalog and binding list.
+Per-Agent routes expose read, edit, and delete at
+`/api/v2/agents/:agent_uid/signal-bindings/:binding_name` and create or enable
+at `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name`,
+delegating commit and adapter-hook authority to `Ankole.Signals.Bindings` (and
+omitting secrets from edit responses). Editing a Binding on the same Agent
+requires `update` on `site_console:agent:<agent_uid>:signal_bindings`; moving a
+Binding to another Agent checks `delete` on the source Agent's resource and
+`update` on the exact target Agent's resource, leaving both Bindings untouched
+if either check fails. Operators requeue failed deliveries via
+`POST /api/v2/agents/:agent_uid/signal-deliveries/requeue`, which enforces the
+durable Outbox admission rules.
 
 ### Filters
 
-`filters` is empty or contains exactly one `cel` expression. An empty filter
-accepts all input. Binding writes validate CEL syntax and return the compiler's
-syntax diagnostic on failure. Evaluation happens
-before durable observation or Signal insertion and fails closed on an invalid
-stored expression.
+A Binding's `filters` map is either empty—accepting all events—or holds a
+single `cel` expression. Writes compile the CEL expression up front and return
+the compiler's syntax diagnostic if it is invalid. At runtime, Ankole evaluates
+the filter before recording a durable observation or inserting a Signal, failing
+closed if a stored expression cannot evaluate.
 
-Messaging Binding creates, edits, and moves store a supplied `filters` value
-in the same transaction as the Binding and adapter configuration. An omitted
-value keeps the stored filter for the same adapter. A new Binding or a
-replacement with a different adapter starts with an empty filter.
-An explicit empty object clears the filter. Invalid filters reject the entire
-write; a failed move leaves the source and target Bindings unchanged.
+Creating, editing, or moving a messaging Binding commits `filters` in the same
+transaction as the Binding and adapter configuration. Omitting `filters` when
+editing or moving keeps the existing filter for the same adapter, whereas
+creating a new Binding or switching adapters starts with an empty filter, and
+passing an explicit `{}` clears the filter. If the supplied filter is invalid,
+Ankole aborts the entire transaction, leaving both source and target Bindings
+unchanged on a move.
 
-For CloudEvents, `signal` is the complete incoming event, and `binding` contains
-the rule's name and adapter. For example:
+For CloudEvents, `signal` exposes the incoming event envelope and `binding`
+exposes the rule's name and adapter:
 
 ```text
 signal.type == 'issue.changed' && signal.data.priority == 'urgent'
 ```
 
-For provider observations, the filter sees normalized `signal.channel`,
-`signal.entry`, lifecycle, reaction, action, and command facts. In this filter
-vocabulary, `signal.channel.id` is the opaque `provider_conversation_id` and
-`signal.entry.id` is the `provider_message_id`. Filtering precedes public
-Conversation identity allocation. These names describe filter input, not
-separate persisted Channel or Entry records.
+For provider message observations, `signal` exposes normalized `signal.channel`,
+`signal.entry`, lifecycle, reaction, action, and command fields, where
+`signal.channel.id` is the opaque `provider_conversation_id` and
+`signal.entry.id` is `provider_message_id`. Because filtering runs before Ankole
+allocates a public Conversation UUID, `channel` and `entry` name filter inputs
+rather than persisted database tables.
 
 ## CloudEvents HTTP Intake
 
-An operator creates an Endpoint with `event_format: "cloudevents"`, a label,
-mode, and future expiry through `POST /api/v2/webhook-endpoints` (JSON:API). The
-Console webhook permission controls creation. Creation returns the capability
-URL once. The Console and safe list API keep the Endpoint ID and metadata,
-and do not return the token or its digest.
+Operators provision a CloudEvents Endpoint through
+`POST /api/v2/webhook-endpoints` (JSON:API, guarded by the Console webhook
+permission) with `event_format: "cloudevents"`, a label, a mode, and a future
+expiration timestamp. Creation returns the capability URL once; subsequent
+Console and list reads expose only the Endpoint ID and safe metadata, never the
+bearer token or its digest.
 
-Create a `cloudevents` Binding for each subscription. Its configuration names
-`webhook_endpoint_id`; its reference is `webhook-endpoint://<endpoint UUID>`.
-The Binding supplies `agent_uid` and one target:
+Each subscriber Agent binds to that Endpoint through a `cloudevents` Binding
+whose configuration sets `webhook_endpoint_id` (`webhook-endpoint://<endpoint UUID>`)
+along with `agent_uid` and one target:
 
 | Target | Session selection |
 | --- | --- |
 | `{"conversation_id": "<UUID>"}` | That Agent's Session in a Conversation where it participates |
 | `{"session_id": "<key>"}` | One fixed ordinary Session |
 
-Console configuration uses `target_kind`: `conversation` or `session`, with
-`target_id` naming the Conversation UUID or fixed Session key. Neither target
-can select a private Job or Workflow Session.
+In Console forms, `target_kind` (`conversation` or `session`) and `target_id`
+specify the Conversation UUID or Session key; neither option may target a
+private Job or Workflow Session.
 
-Send one structured JSON event to the returned URL:
+Producers deliver one structured CloudEvent per HTTP POST to the capability URL:
 
 ```http
 POST /signals/v1/cloudevents/wh_<capability>
@@ -317,34 +343,38 @@ Content-Type: application/cloudevents+json
 }
 ```
 
-The route uses the Endpoint capability, not a browser login or CSRF token.
-PostgreSQL stores only the token's SHA-256 digest. Matching the token also
-selects the Endpoint's tenant before any business read or write. The callback
-body can contain at most 1 MiB.
+Authentication relies solely on the URL capability token rather than browser
+sessions or CSRF tokens. PostgreSQL stores only the token's SHA-256 digest, and
+matching that digest establishes the Endpoint's tenant context before any
+domain read or write runs. Request bodies are capped at 1 MiB.
 
-The supported transport is the
+Ankole accepts the
 [CloudEvents 1.0 structured JSON format](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/formats/json-format.md)
-over HTTP. Required attributes are `specversion: "1.0"`, nonempty `id`,
-nonempty `type`, and a nonempty URI-reference `source`. Relative sources are
-valid. `subject` is optional; when present it is nonempty. `time` is optional
-RFC 3339 time and defaults to acceptance time. The optional `dataschema`
-is an absolute URI; `datacontenttype` is a media type. See the
-[CloudEvents context attribute rules](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md#context-attributes).
+over HTTP. Every event must include `specversion: "1.0"`, a nonempty `id`, a
+nonempty `type`, and a nonempty URI-reference `source` (relative URI references
+are allowed). Optional standard attributes follow the
+[CloudEvents context attribute rules](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md#context-attributes):
+`subject` must be nonempty when present, `time` must be RFC 3339 (defaulting to
+acceptance time), `dataschema` must be an absolute URI, and `datacontenttype`
+must be a valid media type.
 
-`data` keeps any PostgreSQL-storable JSON value without an IM interpretation.
-Strings and object keys must be valid UTF-8 and cannot contain NUL bytes.
-Legal scalar extensions, including trace attributes, remain top-level envelope
-facts. Names use lowercase letters and digits; values use the CloudEvents
-Boolean, Integer, or String type, or JSON null. Invalid attributes fail before
-any Signal or wakeup is stored. This endpoint does not accept binary-mode
-CloudEvents or `data_base64`; the latter returns 422 with
+The `data` field preserves any PostgreSQL-storable JSON value—without applying
+IM message parsing—provided all strings and object keys are valid, NUL-free
+UTF-8. Valid scalar CloudEvents extensions (such as distributed-tracing
+attributes) stay on the top-level envelope: attribute names must use lowercase
+ASCII letters and digits, and values must be CloudEvents Booleans, Integers,
+Strings, or JSON `null`. Requests with invalid attributes fail before Ankole
+writes any Signal or wakeup job. Binary-mode CloudEvents and `data_base64` are
+not supported; sending `data_base64` returns HTTP 422 with
 `unsupported_cloudevent_binary_data`.
 
-All enabled, available Endpoint subscriptions are evaluated in one transaction.
-Each match calls the same `Signals.accept_in_tx/1`. A routing failure rolls
-back the full fanout. Multiple Agents receive independent Signals with the
-original event source and ID. Producer redelivery returns existing Signal IDs
-without changing the original facts. A request with no matches is ignored.
+Ankole evaluates all enabled, available Bindings on the Endpoint inside a single
+transaction, calling `Signals.accept_in_tx/1` for each match so that multiple
+matching Agents receive independent Signals carrying the original `source` and
+`id`. If routing fails for any subscriber, the entire fanout rolls back.
+Producer redeliveries return the already created Signal IDs without mutating
+stored facts, and events that match zero filters return an ignored `202`
+response.
 
 | HTTP status | Meaning |
 | --- | --- |
@@ -354,58 +384,64 @@ without changing the original facts. A request with no matches is ignored.
 | `415` | The request is not structured CloudEvents JSON |
 | `422` | Invalid event, unsupported binary data, or routing failure |
 
-`one_shot` changes from `armed` to `fired` only after it accepts at least one
-Signal. `standing` remains `active`. Expired or cancelled Endpoints are
-terminal and return an ignored result without new work. Suspended tenants
-also accept no work. `DELETE /api/v2/webhook-endpoints/:id` cancels the
-Endpoint. A known terminal capability remains safe for producer redelivery.
+Endpoint lifecycle depends on mode: a `one_shot` Endpoint transitions from
+`armed` to `fired` only after accepting at least one Signal, whereas a
+`standing` Endpoint stays `active`. Expired or cancelled Endpoints are terminal
+and return an ignored response without creating work, as do Endpoints belonging
+to a suspended tenant. `DELETE /api/v2/webhook-endpoints/:id` cancels an
+Endpoint, and terminal capabilities remain idempotent on producer redelivery.
 
-`WebhookEndpoint` owns these transitions through AshStateMachine, including
-the atomic expiry sweep. The callback transaction commits the state and its
-consumer together. PostgreSQL requires `fired_at` for a fired Endpoint and
-`cancelled_at` for a cancelled Endpoint, and rejects conflicting evidence.
-The create action fixes the initial state from the immutable mode. Later
-transitions cannot change that mode. Fire and cancel actions require their
-corresponding timestamp before SQL.
+`WebhookEndpoint` enforces these state transitions—including atomic expiry
+sweeps—through AshStateMachine, committing the Endpoint transition and accepted
+Signals in the same transaction. Create actions set the initial state from the
+immutable `mode`, fire and cancel actions require `fired_at` or `cancelled_at`
+before SQL, and PostgreSQL constraints reject missing or conflicting terminal
+timestamps.
 
 ## Raw Capability Callbacks
 
-A Worker requests a raw Endpoint through `create-webhook-cli`, with a label,
-future expiry, and `one_shot` or `standing` mode. The Endpoint belongs to its
-Agent and long-lived Session. `list-webhooks-cli` returns safe metadata, and
-`cancel-webhook-cli` makes the Endpoint terminal. Native Sessions need no
-provider Binding or reply route.
+Inside a Worker, an Agent provisions a raw callback Endpoint for its own
+long-lived Session by running `create-webhook-cli` with a label, future expiry,
+and `one_shot` or `standing` mode; native Sessions require neither a provider
+Binding nor a reply route. `list-webhooks-cli` inspects safe Endpoint metadata,
+and `cancel-webhook-cli` transitions the Endpoint to its terminal cancelled
+state.
 
-The raw callback path is
-`/webhooks/v1/event-callbacks/wh_<43-character-base64url-token>`.
-Creation returns the full URL once. Raw requests also have a 1 MiB body limit.
-The receipt keeps only `content-type`, `x-hub-signature-256`, and headers whose
-names start with `ce-` or `x-github-`; it discards authentication and other
-headers. Request logs redact both capability paths. A proxy or CDN must also
-redact them in its access logs.
+Raw callbacks post to
+`/webhooks/v1/event-callbacks/wh_<43-character-base64url-token>`, which
+`create-webhook-cli` prints once at creation. Payloads are capped at 1 MiB, and
+the stored receipt retains only `content-type`, `x-hub-signature-256`, and
+headers prefixed with `ce-` or `x-github-`, stripping `authorization` and all
+other headers. Ankole redacts both CloudEvents and raw capability tokens in
+request logs, and any upstream proxy or CDN must redact those URL paths in its
+access logs as well.
 
-`Ankole.Signals.Webhooks` locks the Endpoint and records a `webhook.received`
-Signal before it returns HTTP 204. A standing raw Endpoint gives each callback
-a new event ID and has at-least-once semantics. A one-shot Endpoint accepts one
-callback. Known terminal Endpoints return success without a new record;
-unknown capabilities return 404.
+When a callback arrives, `Ankole.Signals.Webhooks` locks the Endpoint and
+commits a `webhook.received` Signal before returning HTTP 204. Standing raw
+Endpoints assign each delivery a fresh event ID with at-least-once semantics,
+whereas one-shot Endpoints accept a single callback; subsequent deliveries to a
+known terminal Endpoint return 204 without recording new work, and unknown
+tokens return 404.
 
-`create-webhook-cli --automation-job-id <id>` binds a raw Endpoint to an active
-Automation Job for the same Agent. The callback creates a durable Job run
-with the same receipt envelope. `Signals.Trigger.deliver_in_tx/4` owns this
-Signal-or-AutomationJob dispatch for Webhook and Schedule triggers. The Endpoint
-uses strong foreign keys. An Endpoint cannot be rebound; cancel it and
-create another one. See [Automation Jobs](AutomationJobs.md).
+Passing `--automation-job-id <id>` to `create-webhook-cli` binds the raw
+Endpoint to an active Automation Job owned by the same Agent so each callback
+starts a durable Job run with the same receipt envelope.
+`Signals.Trigger.deliver_in_tx/4` shares this Signal-or-AutomationJob dispatch
+path across Webhook and Schedule triggers. Because the Endpoint uses strong
+foreign keys and cannot be rebound, changing targets requires cancelling the
+Endpoint and creating a new one; see [Automation Jobs](AutomationJobs.md).
 
-A capability authorizes a stimulus only. Its body and headers are untrusted
-input. The Agent must read the external system's authoritative state before
-it makes a consequential change. The owning Agent Plugin creates, reconciles,
-and removes the external hook. Signals does not store a second external task
-or hook lifecycle.
+A capability URL authorizes only stimulus delivery—its body and headers remain
+untrusted input, so an Agent must read authoritative state from the external
+system before taking consequential action. The owning Agent Plugin creates,
+reconciles, and deletes the remote webhook registration; Signals does not track
+external hook state.
 
 ## Observe a Provider Message
 
-All ten messaging adapters use the same durable path:
+All ten messaging adapters—Lark, Slack, Microsoft Teams, DingTalk, WeCom,
+Telegram, Discord, LINE, WhatsApp, and Email—feed inbound events through one
+durable pipeline rather than writing Conversation or Signal rows directly:
 
 ```text
 Provider event
@@ -416,199 +452,226 @@ Provider event
   -> Agent's Session
 ```
 
-Lark, Slack, Microsoft Teams, DingTalk, WeCom, Telegram, Discord, LINE,
-WhatsApp, and Email supply provider protocol facts. They do not write
-Conversation records or Signal rows directly. The public observation methods
-include `emit_entry/4`, `emit_entry_with_attachments/5`, `emit_entry_deferred/5`,
-`emit_entry_removed/4`, `emit_reaction/4`, and `emit_action/4` on
-`Ankole.Conversations.Observe`.
+Adapters translate provider protocol payloads and invoke the entry points on
+`Ankole.Conversations.Observe`: `emit_entry/4`, `emit_entry_with_attachments/5`,
+`emit_entry_deferred/5`, `emit_entry_removed/4`, `emit_reaction/4`, and
+`emit_action/4`.
 
-Observation normalizes the provider input, resolves the Binding, applies its
-filter, resolves reply references, and admits the sender. When policy permits
-recording, the transaction writes the public Message and its external
-reference. All observers of the same `(tenant_id, provider_conversation_id)`
-use the same Conversation and Message facts. Each observer Agent becomes a
-participant. A Binding identifies its observation and delivery route; it does
-not divide the platform room into private Agent copies.
+During observation, `Conversations.Observe` normalizes the payload, resolves the
+Binding, evaluates its CEL filter, resolves reply anchors, and runs sender
+identity admission. When policy allows recording, the transaction persists the
+public Message alongside its `ExternalMessageRef`. Every Binding observing the
+same `(tenant_id, provider_conversation_id)` shares one Conversation and Message
+stream, adding each observer Agent as a participant—a Binding defines an
+observation and delivery route rather than partitioning an external room into
+per-Agent copies.
 
-Entry authors report provider subjects and profile observations. Raw
-`principal_uid`, `agent_uid`, `human_access_version`, and top-level `sender_key`
-are rejected at this boundary. Identity admission supplies the Principal and
-access version. Managed actions keep their separately verified operator UID.
-Input channel fields use the nested `channel` map; diagnostic provider facts
-use `raw_payload`.
+At this boundary, adapters report only provider subject identifiers and profile
+observations: `Conversations.Observe` rejects caller-supplied `principal_uid`,
+`agent_uid`, `human_access_version`, and top-level `sender_key`, relying on
+identity admission to resolve the Principal and access version (while managed
+card actions preserve their separately verified operator UID). Channel metadata
+travels inside the nested `channel` map, and raw diagnostic payloads live under
+`raw_payload`.
 
-`Conversations.Attachments` owns attachment storage, download results, and
-reuse on redelivery. Observe owns the order of pending and final observations.
-LINE and WhatsApp share its deferred attachment operation: it commits pending
-attachment IDs before starting the tenant-bound task and admits the
-final result through a fresh Binding lookup. Redelivery keeps the first
-observation time. A task admission error returns to the provider for retry;
-a missing task supervisor fails the request. Lark uses its
-all-consumers pending barrier.
+Attachment downloads and observation ordering split cleanly between two modules:
+`Conversations.Attachments` manages blob storage, download outcomes, and
+redelivery reuse, while `Conversations.Observe` orders pending and final
+observations. LINE and WhatsApp share `emit_entry_deferred/5`, which commits
+pending attachment IDs before spawning a tenant-bound download task and admits
+the completed observation through a fresh Binding lookup (preserving the initial
+observation timestamp on redelivery; if task admission fails transiently, the
+error propagates to the provider for retry, and if the task supervisor is
+missing, the request fails). Lark instead uses its all-consumers pending
+barrier.
 
-`Conversations.MessageInput` owns entry text/list merging and pending
-attachment deadlines. An empty pending set has no deadline. An initial batch
-uses its aggregation window; an input revision becomes available immediately.
-Initial batches and input revisions use these respective scheduling rules.
+`Conversations.MessageInput` merges text and attachment lists and tracks
+pending-attachment deadlines: observations with no pending attachments carry no
+deadline, initial inbound batches wait for their aggregation window, and edits
+or revisions become available immediately.
 
-An observed result contains `conversation` and `message_observation`. The
-latter contains `message`, `external_ref`, and its observation status. Public
-Message ID and sequence come from `Conversations.Message`; provider identity,
-content hash, raw author, attachments, and provider result facts come from
-`ExternalMessageRef`. An unknown author remains Unknown on the Message while
-the external reference retains the reported author. A Principal-looking
-provider ID does not select that Principal.
+Completed observations return `conversation` and `message_observation` (bundling
+`message`, `external_ref`, and the observation status). `Conversations.Message`
+supplies the public UUID and sequence number, while `ExternalMessageRef` stores
+the provider message ID, content hash, raw reported author, attachments, and
+provider delivery metadata. If the sender cannot be mapped, the public Message
+records an Unknown author while `ExternalMessageRef` keeps the raw provider
+author; even if a raw provider ID looks like a Principal UID, Ankole never binds
+it to that Principal automatically.
 
-Addressed IM input becomes `conversation.message.addressed`. Its source is
-`signal://<adapter>/<encoded provider_conversation_id>`, its execution target
-is the participating Agent's `conversation:<public UUID>` Session, and its
-reply route retains the actual Binding and provider anchor. Nearby IM
-observations can become one Signal; `data.message_ids` includes every public
-Message that the batch itself supplied. There is no frozen main history
-snapshot in the Signal. Sessions reads unread shared messages before each
-model request and records the bounded read with model history.
+When an IM message addresses an Agent, observation accepts a
+`conversation.message.addressed` Signal whose `source` is
+`signal://<adapter>/<encoded provider_conversation_id>`, whose target is that
+Agent's `conversation:<public UUID>` Session, and whose `reply_route` records
+the Binding and provider thread/message anchor. Rapid consecutive IM messages
+can coalesce into one Signal whose `data.message_ids` lists every public Message
+contributed by that batch. Signals never embed a frozen snapshot of room
+history; instead, Sessions reads unread shared Messages right before each model
+request and records that watermark alongside model history.
 
-Native Human messages use the same intake. Their source is
-`conversation:<public UUID>`, event ID is the public Message ID, and Message
-plus Signal commit together. They need no provider observation or Delivery.
-See [Conversations](Conversations.md) for native posting, provider lifecycle,
-attachment handling, batching, and external replies.
+Native Pod messages enter through the same Signal intake—using
+`conversation:<public UUID>` as `source` and the public Message UUID as event
+ID—committing the Message and Signal in one transaction without provider
+observation or Delivery; see [Conversations](Conversations.md) for native
+posting, provider lifecycle, attachments, batching, and outbound replies.
 
 ## Admit the Provider Author
 
-`Ankole.Conversations.IdentityAdmission` maps a reported sender to a Principal.
-Adapters supply stable subject candidates and a display name; they do not
-create or select Principals themselves.
+`Ankole.Conversations.IdentityAdmission` resolves an external sender to a
+Principal. Adapters supply stable candidate subject IDs and a display name
+without creating or choosing Principals on their own.
 
-The first existing platform-subject binding wins. If none matches, admission
-tries the platform-reported email, then mobile number. When the adapter has an
-`author_hydrator`, one contact fetch can supply missing verified contact facts.
-A failed hydration logs a warning and continues without those facts.
+Identity admission checks existing platform-subject bindings first and picks the
+first match. If no subject binding matches, it falls back to a platform-verified
+email address and then a verified mobile number; when the adapter declares an
+`author_hydrator`, admission can make a single contact fetch to populate missing
+verified contact fields (logging a warning and continuing without them if the
+fetch fails).
 
-`Ankole.Signals.SubjectNamespace` selects the subject namespace:
+`Ankole.Signals.SubjectNamespace` chooses which namespace scopes those external
+subjects:
 
-- A referenced identity provider names that provider's namespace.
-- `:standalone` keeps the adapter's default namespace.
-- Without a reference, one configured matching provider supplies its namespace;
-  with none or several providers, the adapter default applies.
+- An explicit identity-provider reference selects that provider's namespace.
+- `:standalone` selects the adapter's default namespace.
+- When the reference is omitted, a single configured matching identity provider
+  supplies its namespace automatically; if zero or multiple matching providers
+  exist, the adapter's default namespace applies.
 
-The catalog includes disabled configured providers and the standalone choice.
-The field is required only when several providers exist and is omitted when
-none exists. A configuration write rejects an unknown reference or a missing
-reference when several providers exist. Enabling or moving a Binding keeps
-the stored reference. Identities stored under the adapter default remain there
-until an operator binds them. See [Principal](Principal.md).
+The Console namespace picker lists disabled configured identity providers
+alongside the `:standalone` option, omits the field when no matching provider
+exists, and requires an explicit choice when multiple providers exist (writes
+reject unknown references or a missing reference when multiple providers exist).
+Enabling or moving a Binding preserves its stored namespace reference, and
+identities recorded under the adapter default stay there until an operator
+rebinds them; see [Principal](Principal.md).
 
-Direct messages, structured Agent mentions, replies to that Agent, and replies
-inside a provider thread where the Agent has participated are explicit input.
-Commands are valid only in explicit input. Reactions update external facts
-without a model wakeup. Provider card actions resolve the operator through the
-durable reply interaction owner.
+Direct messages, structured Agent mentions, direct replies to an Agent, and
+replies inside a provider thread where that Agent has already spoken count as
+explicit input. Slash commands are accepted only in explicit input, emoji
+reactions update external metadata without waking a model turn, and interactive
+card actions resolve the clicking operator through the durable reply-interaction
+owner.
 
-For an unaddressed group message, the Binding selects:
+For unaddressed group messages, each Binding configures one of three policies
+(defaulting to `record_only`):
 
-- `ignore`: skip identity admission and public observation; keep the complete
-  provider fact in its inbound batch for later reply references.
-- `record_only`: admit and record the message without waking the Agent.
-- `may_intervene`: admit and record the message for an ambient decision.
+- `ignore`: skip identity admission and public Message creation, keeping the raw
+  provider entry only in the inbound batch for later reply-reference lookups.
+- `record_only`: admit the sender and record the public Message without waking
+  the Agent.
+- `may_intervene`: admit the sender, record the public Message, and enqueue an
+  ambient triage input.
 
-The default is `record_only`. Ambient judgments and their cursor belong to
-each Agent's Session. They cannot mark another Agent's shared messages as
-already judged. See [Sessions](Sessions.md).
+Ambient judgments and their read cursors are private to each Agent's Session, so
+one Agent's triage never marks shared room Messages as judged for another Agent;
+see [Sessions](Sessions.md).
 
-For a sender with no identity match, `unmatched_sender_policy` selects:
+When a sender matches no Principal, `unmatched_sender_policy` governs admission:
 
-- `manual_review` (default): no processing Message or inbound batch. An
-  addressed message records one `identity_mapping_requests` row and one fixed
-  localized mapping notice. The notice Delivery retains the refused sender
-  under `metadata.unmatched_sender` for adapters that need a recipient.
-  Unaddressed chatter is ignored silently.
-- `create_standalone`: create a Human Principal with a new UUIDv7 and serve
-  that account. Without an identity binding or verified contact match, a
-  provider ID equal to an existing Principal UID creates a separate
-  account.
+- `manual_review` (default): skips public Message creation and batching. If the
+  message explicitly addressed the Agent, Ankole writes one
+  `identity_mapping_requests` row and enqueues one localized mapping notice
+  (preserving the unmapped sender under `metadata.unmatched_sender` for adapters
+  that require a recipient address), whereas unaddressed group chatter is
+  dropped silently.
+- `create_standalone`: provisions a new Human Principal with a fresh UUIDv7 and
+  admits the message under that account. Without an identity binding or verified
+  contact match, Ankole creates a separate Principal even if the raw provider ID
+  matches an existing Principal UID.
 
-A disabled Human is ignored without a notice. Admission locks an admitted
-Human and records `access_version` with the observation. Batches and ambient
-work retain that version. Every admitted sender also joins the Binding's
-`signal_source:<agent_uid>:<binding_name>` AuthZ group. Directory sync owns the
-provider-wide `<provider_id>:members:all` group; the difference identifies
-third-party users of a source.
+Messages from disabled Humans are dropped silently without sending a notice.
+When admission succeeds, Ankole locks the Human row, captures `access_version`
+on the observation (preserved across inbound batches and ambient triage), and
+adds the Principal to the Binding's `signal_source:<agent_uid>:<binding_name>`
+AuthZ group. Comparing that group against the directory-synced
+`<provider_id>:members:all` group distinguishes external guests from
+organization members on a given source.
 
 ## Provider Application Ownership
 
-A credential-bearing platform application belongs to one tenant. Bindings
-and directory-sync identity providers share the binding-assignment lock during
-saves, including disabled configuration. The same tenant can share an
-application when the adapter permits it. Another tenant receives a conflict;
-an unverifiable credential fails without a write. Login-only identity
-providers are excluded because their callback uses the outbound OIDC state's
-tenant and opens no message connection or directory synchronization.
+Every credential-bearing external platform application belongs to at most one
+tenant. Saving a Binding or a directory-syncing identity provider—even while
+disabled—acquires the shared binding-assignment lock. Multiple Bindings within
+the same tenant can share one platform application when the adapter supports it,
+whereas another tenant attempting to claim the same application receives a
+conflict, and unverifiable credentials fail before writing. Login-only OIDC
+identity providers are exempt because their callbacks bind tenant scope through
+signed outbound OIDC state without opening message streams or directory sync.
 
-Slack resolves stable `app_id` through `auth.test` and `bots.info`. Socket Mode
-validates the connected application before it acknowledges or dispatches an
-event. Discord and Telegram resolve stable bot IDs through their provider
-APIs. Token rotation does not change the application's tenant. Repair or
-remove an invalid credential before saving a cross-tenant configuration whose
-ownership cannot be verified.
+Before opening a database transaction, adapters resolve a stable platform
+application identifier: Slack calls `auth.test` and `bots.info` to resolve
+`app_id` (and Socket Mode re-verifies the connected `app_id` before
+acknowledging or dispatching events), while Discord and Telegram query their
+bot APIs for stable bot IDs. Rotating tokens therefore preserves tenant
+ownership; if an existing credential has expired and blocks cross-tenant
+verification, an operator must repair or delete that configuration first.
 
-Some adapter configuration keys hash `[agent_uid, binding_name]` and remain
-in AppConfigure's global storage because that key is globally unique. Agent
-deletion removes the owned configuration. Adapter processes enter the
-Binding's tenant before they read or write business facts.
+Adapters whose configuration keys hash `[agent_uid, binding_name]` store secrets
+in AppConfigure's global table because `agent_uid` is globally unique, and
+deleting an Agent purges its owned configurations. At runtime, adapter worker
+processes always enter the Binding's tenant context before reading or writing
+domain tables.
 
 ## Control Plane Plugin Contract
 
-Plugins declare `signals.adapter`; `Ankole.Signals.Adapters` validates active
-declarations from the immutable Plugin registry snapshot. `observe_module`
-implements provider input callbacks. `deliver_module` implements
-`Ankole.Conversations.Delivery.Adapter.deliver/1`. A declared
-`outbound_reconciliation` capability also requires `reconcile/1`. Callback
-result maps have atom keys. `preview_module` implements the optional
-recoverable provider preview contract. See [Plugins](Plugins.md) and
-[Conversations](Conversations.md).
+Control-plane Plugins register messaging and event integrations by declaring
+`signals.adapter`, which `Ankole.Signals.Adapters` validates against the
+immutable Plugin registry snapshot:
 
-Input capabilities are `entry_receive`, `entry_removed`, `reaction_add`,
-`reaction_remove`, and `action_event`. Provider operations can declare
-`post_entry`, `reply_entry`, `edit_entry`, `delete_entry`, `add_reaction`,
-`remove_reaction`, `divider`, `card`, and `outbound_reconciliation`. These
-capability names describe provider operations, not stored domain entities.
+- `observe_module` handles inbound provider events and returns atom-keyed result
+  maps.
+- `deliver_module` implements `Ankole.Conversations.Delivery.Adapter.deliver/1`
+  (plus `reconcile/1` whenever the adapter declares `outbound_reconciliation`).
+- `preview_module` optionally implements recoverable live reply previews.
 
-A provider comment space uses the Conversation observation and Delivery
-contracts. Record changes use the record ID as the CloudEvent subject and enter
-through `Signals.accept_in_tx/1`. Each event source supplies stable event IDs
-for deduplication and targets an Agent and Session. Catalog categories are
-display metadata. They do not change routing or authorization. Comment authors
-use Principal mapping and WorkAccess snapshots; an unknown author cannot use
-the integration owner's authority.
+See [Plugins](Plugins.md) and [Conversations](Conversations.md).
 
-A Plugin with HTTP provider callbacks declares `signals.webhook_handler`.
-The host routes POST and GET to
-`/webhooks/v1/<handler_id>/<instance_id>/<kind>` and passes the method, parsed
-body, query, headers, and exact bytes. GET has no body. The handler verifies
-the provider protocol and completes durable observation before it returns
-success. A provider acknowledgement never waits for model execution.
+Adapters declare supported inbound capabilities (`entry_receive`,
+`entry_removed`, `reaction_add`, `reaction_remove`, `action_event`) and outbound
+provider operations (`post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
+`add_reaction`, `remove_reaction`, `divider`, `card`,
+`outbound_reconciliation`). These capability flags describe protocol operations
+rather than separate persisted tables.
 
-Long connections use `Ankole.Plugins.ConnectionLifecycle`. The adapter builds
-one connection specification per enabled Binding and, when shared, active
-identity provider, from stored configuration alone. Equal connection keys share
-one process. Different app secrets for the same key are rejected. Lark, Slack,
-and DingTalk SDK clients are temporary children. A failed connection retries
-once immediately, then after 5 and 30 seconds; other keys remain connected. A
-connection is stopped only after a reconciliation pass reads all Bindings and
-identity providers successfully and no specification needs it.
+Document-comment integrations reuse the same Conversation observation and
+Delivery contracts, while structured record mutations set the record ID as the
+CloudEvent `subject` and enter through `Signals.accept_in_tx/1` with stable
+deduplication IDs and explicit Agent/Session targets. Catalog categories remain
+UI display labels without affecting routing or permissions, and comment authors
+go through standard Principal mapping and `WorkAccess` snapshots rather than
+inheriting the integration creator's permissions.
 
-The connection Registry retains the last successful start configuration and
-consumers so a replacement reconciler can recover a blocked Binding. A stop
-removes them; a late retry cannot restore a removed connection.
+Plugins that receive provider HTTP webhooks declare `signals.webhook_handler`.
+Ankole routes `POST` and `GET` requests at
+`/webhooks/v1/<handler_id>/<instance_id>/<kind>` to the handler along with the
+HTTP method, parsed body (`nil` on `GET`), query parameters, headers, and raw
+request bytes. Each handler verifies provider signatures and commits durable
+observation before returning `2xx`—webhook acknowledgements never block on model
+execution.
 
-Outer Elixir observation maps use atom keys. Provider data and persisted JSON
-use string keys. Observation normalizes those keys once and rejects mixed or
-colliding keys before a provider acknowledgement. Adapters update their own
-Conversation metadata through `Conversations.External.update_metadata/2`
-under the Conversation lock. Monotonic provider facts therefore cannot move
-backwards on concurrent redelivery.
+Persistent streaming transports (such as Lark, Slack Socket Mode, and DingTalk)
+run under `Ankole.Plugins.ConnectionLifecycle`. From stored configuration alone,
+each adapter derives one connection specification per enabled Binding (and per
+shared active identity provider); specifications with identical connection keys
+share a single connection process, while conflicting app secrets for the same
+key are rejected. Temporary SDK client processes run under that connection,
+retrying a failed connection immediately once, then after 5 seconds and 30
+seconds without disrupting other keys. Ankole stops a running connection only
+after a full reconciliation pass cleanly reads every Binding and identity
+provider and confirms that no active specification references that key.
+
+To survive reconciler restarts, the connection Registry caches the last
+successful start configuration and consumer set so a new reconciler can recover
+a blocked Binding; an explicit stop purges that entry so a late retry timer
+cannot resurrect a removed connection.
+
+At the boundary between Elixir and persisted JSON, outer observation maps use
+atom keys while provider payloads and stored JSON maps use string keys;
+`Conversations.Observe` normalizes keys once and rejects mixed or colliding key
+names before acknowledging the provider webhook. When adapters persist
+conversation-level watermarks or cursors, they call
+`Conversations.External.update_metadata/2` under the Conversation row lock so
+concurrent redeliveries cannot regress monotonic provider state.
 
 ## Storage and Rules
 
@@ -622,15 +685,21 @@ backwards on concurrent redelivery.
 | `deliveries`, `delivery_previews` | Conversations.Delivery; provider intents, live preview state, attempts, and results |
 | `sessions`, `session_round_states` | Sessions; execution context and recovery |
 
-- One accepted event has one Signal per Agent, source, and source event ID.
-- Event source, public Conversation identity, execution target, and provider
-  reply route remain distinct facts.
-- Human authorization comes from the observed Principal version; background
-  context and service events do not renew it.
-- Message observation and its stimulus commit together when work is required.
-- A rolled-back transaction publishes no conversation event or live wakeup.
-- Provider acknowledgements depend on durable acceptance, never on a model
-  reply.
-- Provider confirmation commits an Agent Message through Conversations;
-  an unconfirmed send does not invent a public Message.
-- Runtime and model history remain separate from shared public history.
+Core invariants across these tables:
+
+- Each accepted event produces at most one Signal per `(tenant_id, agent_uid, source, source_event_id)`.
+- Event source, public Conversation UUID, Session execution target, and provider
+  reply route remain separate, orthogonal attributes.
+- Human work authorization freezes the observed Principal's `access_version`;
+  background room messages and service events never renew it.
+- Whenever a provider message requires Agent work, the Message observation and
+  its Signal commit in the same transaction.
+- Rolled-back transactions never emit Conversation PubSub events or live Driver
+  wakeups.
+- Webhook acknowledgements wait only for durable database acceptance, never for
+  a model reply.
+- Outbound Agent statements enter public Conversation history only after
+  provider confirmation—an unconfirmed Delivery attempt never fabricates a
+  public Message.
+- Session runtime state and AIGateway model history stay distinct from shared
+  public Conversation history.

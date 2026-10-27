@@ -1,25 +1,25 @@
 ---
 title: 开发 Skill 与 Control Plane Plugin
-description: 为 Agent 增加工作方法，或为站点级控制面增加适配器、配置项、领域事务钩子、后台服务与前端插槽。
+description: 为 Agent 沉淀标准作业方法（Skill），或为站点级控制面扩展驱动适配器、配置表单、领域事务钩子、常驻服务与前端插槽（Control Plane Plugin）。
 section: Developer guide
 order: 113
 ---
 
-Skill 和 Control Plane Plugin 都能扩展 Ankole，但它们解决的问题不同。先选对扩展点，再开始写代码。
+Skill 与 Control Plane Plugin 都是扩展 Ankole 能力的官方途径，但两者面向的系统层级截然不同。动手编码前，请先对照下表选准扩展机制：
 
-| 需要增加什么 | 选择 |
+| 扩展需求 | 推荐方案 |
 |---|---|
-| 教 Agent 怎样完成某类工作 | Skill |
-| 给 Agent 提供 MCP-backed 工作流及其使用方法 | Skill |
-| 增加身份源、聊天适配器、LLM Provider 或 Worker Provider 类型 | Control Plane Plugin |
-| 增加站点级控制面配置项、受监督后台进程、领域事务钩子、扩展 `/api/v2` 路由或前端 UI 插槽 | Control Plane Plugin |
-| 在运行期不重启控制面的前提下动态切换业务策略 | OpenFeature（`Ankole.Features`） |
+| 教会 Agent 按标准步骤完成某类特定业务工作 | Skill |
+| 为 Agent 接入挂载在 Skill 背后的外部 MCP 服务及调用规范 | Skill |
+| 新增身份源提供商、聊天渠道适配器、LLM 提供商或 Worker 算力驱动类型 | Control Plane Plugin |
+| 新增站点级系统配置项、受监督后台常驻进程、领域写事务钩子、扩展 `/api/v2` 路由或前端强类型 UI 插槽 | Control Plane Plugin |
+| 在不重启控制面的前提下于运行期动态切换或灰度放量业务策略 | OpenFeature（`Ankole.Features`） |
 
-Skill 是 Agent 读取的文件，不需要重新编译控制面。Control Plane Plugin 是编译进发布产物的站点级第一方全栈扩展（绝不按租户或单个 Agent 划分作用域）：`:optional` Plugin 由 `siteadmin` 启用后在控制面下次启动时激活，`:always` Plugin 则随源码构建固定保持激活。
+简言之，Skill 是供 Agent 在运行时按需读取的说明文档与配套资源包，增改无需重新编译控制面；Control Plane Plugin 则是静态编译进发行包的第一方站点级全栈平台扩展（严格限定在全局站点维度，绝不按租户或单个 Agent 切分作用域）：声明为 `:optional` 的插件由站点管理员（`siteadmin`）开启后在控制面下次启动时挂载生效，声明为 `:always` 的插件则随构建版本固定激活。
 
 ## 编写 Skill
 
-一个 Skill 是包含 `SKILL.md` 的目录，也可以带参考资料、模板和 `agents/openai.yaml`：
+一个标准的 Skill 就是一个至少包含 `SKILL.md` 的目录，并可按需附带参考手册、文件模板及声明外部工具依赖的 `agents/openai.yaml`：
 
 ```text
 my-skill/
@@ -30,11 +30,11 @@ my-skill/
 └── templates/
 ```
 
-目录名使用小写字母、数字、连字符或下划线。内置 Skill 放在 `app/library/skills/`，安装到某个 Agent 的 Skill 则保存在该 Agent 的文件空间。
+目录名称仅限使用小写英文字母、数字、连字符（`-`）或下划线（`_`）。随源码构建分发的内置 Skill 存放在仓库的 `app/library/skills/` 目录下，单独安装到某个具体 Agent 名下的自定义 Skill 则保存在该 Agent 专属的云盘文件空间内。
 
 ### 写 frontmatter
 
-`SKILL.md` 顶部的 YAML 用于发现和启用：
+`SKILL.md` 顶部的 YAML Frontmatter 决定了该 Skill 如何被发现、筛选与加载：
 
 ```yaml
 ---
@@ -48,11 +48,11 @@ platforms: [linux]
 ---
 ```
 
-`description` 要说明具体触发条件，因为 Agent 会根据它决定是否读取 Skill。需要后台任务隔离时设置 `ankole-runtime: background_job`；只有依赖 Linux 工具时才设置 `platforms: [linux]`。
+由于 Agent 在日常对话中全靠阅读 `description` 来判断当前任务是否需要展开该 Skill，请在 `description` 中写明清晰具体的触发场景。若该项工作耗时较长或强依赖独立任务工作区，请显式指定 `ankole-runtime: background_job`；仅当脚本确需依赖 Linux 专属命令行工具时，再声明 `platforms: [linux]`。
 
 ### 让 Brain 发现随产品发布的 Skill
 
-如果某个 SOP 或方法论不应出现在每个 Prompt 中，但需要在当前工作与其语义相关时被发现，可以使用 `brain-recall-only`：
+如果某份专业 SOP 或细分方法论不宜每轮都塞进所有 Agent 的默认目录浪费上下文，但又希望在遇到语义高度相关的课题时能被精准召回，可在头部加上 `brain-recall-only: true`：
 
 ```yaml
 ---
@@ -65,25 +65,25 @@ brain-recall-only: true
 ---
 ```
 
-这个字段只支持随产品发布的独立 Skill 和 Agent Plugin 内的 Skill；安装到 Agent 的 Skill 不使用这种发现模式。随产品发布的 Skill 名称仍然全局唯一，Agent Plugin 成员关系不会增加命名空间。Brain 根据标准 Skill 元数据自动派生 `lazyload-agent-skills/<name>` 发现记录。
+这一按需语义召回模式仅支持随产品构建发布的独立内置 Skill 及 Agent Plugin 内包含的子 Skill，不支持单独上传安装到某个 Agent 文件空间的自定义 Skill。所有随产品发布的 Skill 名称依然保持全局唯一，归入某个 Agent Plugin 并不会为其额外叠加命名空间前缀；系统会根据标准 Skill 元数据在 Brain 中自动派生对应的 `lazyload-agent-skills/<name>` 发现索引记录。
 
-不要在 Skill 中加入 `slug`、`type`、`title` 或 `aliases` 等 Object 字段。Brain 搜索 `name`、`description` 和 `tags`，并用名称和标签做自然语言解析。Skill 正文、其他所有 Skill 文件和 Agent 专属教训不会进入 Brain；发现后仍只能通过 `skill_view` 读取。
+编写时请保持纯粹的标准 Skill Frontmatter，切勿混入 `slug`、`type`、`title` 或 `aliases` 等 Brain 知识页专属字段——Brain 会直接索引 `name`、`description` 与 `tags`，并利用名称和标签完成自然语言检索匹配。注意，Skill 正文、附属参考文件以及单 Agent 专属的技能教训均不会写入 Brain 索引库；检索命中后，Agent 依然只能调用 `skill_view` 工具按权限加载正文。
 
 ### 写正文
 
-正文要让一个有能力但不了解项目约定的 Agent 完成任务。至少写清：
+撰写 `SKILL.md` 正文的目标，是让一个具备通用推理能力、但事先并不了解你们团队内部约定的 Agent 能够稳健交付合格结果。正文中至少应交代清楚以下五要素：
 
-1. 什么时候使用。
-2. 要读取哪些输入。
-3. 按什么顺序工作。
-4. 结果必须包含什么。
-5. 哪些动作禁止或需要确认。
+1. **适用时机**：遇到什么特征的请求时应当采用本方法；
+2. **输入材料**：动手前需要先读取或核实哪些上下文与数据源；
+3. **标准步骤**：严格按怎样的先后顺序推进各项检查与操作；
+4. **交付标准**：最终产出的报告或结果中必须包含哪些要素；
+5. **红线与确认点**：哪些高风险动作绝对禁止，或必须先向用户请示确认。
 
-参考资料和模板应从 `SKILL.md` 中按名称链接。Agent 只会按需读取这些文件，所以不能假设它会自动发现未被引用的资料。
+同目录下的附属参考文档与模板文件，必须在 `SKILL.md` 正文中按准确文件名显式引用——Agent 只会顺着正文指引按需读取关联文件，切勿假设它会自动遍历整个目录去盲找未被引用的材料。
 
 ### 声明 MCP 依赖
 
-需要 MCP 能力时，在 `agents/openai.yaml` 中声明执行依赖：
+当作业流程需要调用外部 MCP 服务时，请在 `agents/openai.yaml` 中声明运行依赖：
 
 ```yaml
 dependencies:
@@ -95,17 +95,17 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-只有启用该 Skill 时，这个依赖才可用。在 `SKILL.md` 中写明领域工具和选择规则，只用 `mcporter list server.tool --schema --json` 检查已选工具，并用 stdin JSON 调用。完整合同见 [MCP 参考](../mcp/)。
+上述 MCP 依赖仅在该 Skill 对当前执行环境处于启用状态时才会注入。请在 `SKILL.md` 正文中明确指定应当选用的目标领域工具及筛选准则，引导 Agent 仅在必要时运行 `mcporter list server.tool --schema --json` 查看单个工具的参数定义，并通过标准输入（stdin）传入 JSON 完成调用。完整的配置与隔离契约见 [MCP 参考](../mcp/)。
 
 ### 验证 Skill
 
-在测试 Agent 上启用 Skill，给出一个真实任务，并检查 Agent 是否正确选中 Skill、读取所需资料并遵守完成标准。若 Agent 从未选中它，先改 `description`；若执行步骤不稳定，改正文中的顺序和约束。
+先在测试 Agent 上开启新写的 Skill，向其发送一条贴近真实业务的测试指令，观察 Agent 能否准确命中该 Skill、按指引读取配套参考文件并严格落实交付标准：若发现 Agent 根本没有点开该 Skill，请优先优化 Frontmatter 中的 `description` 触发描述；若选中后执行步骤跳脱不稳，则进一步收紧正文中的步骤顺序与边界约束。
 
-对于 `brain-recall-only` Skill，还要确认普通 Prompt 不会列出它，Brain 可以根据名称、描述和标签找到它。确认 `skill_view` 会在兼容的执行位置加载完整 Skill，并在不兼容的执行位置保留既有的路由或拒绝行为。然后关闭该 Skill 或它所属的 Agent Plugin，确认同一个 Agent 既不能发现它，也不能加载它。
+对于声明了 `brain-recall-only: true` 的内置 Skill，还需额外验证整套按需发现闭环：确认常规对话提示词的默认目录中未列出该条目，而通过名称、描述或标签语义检索 Brain 时能够顺利召回；确认调用 `skill_view` 时，在匹配的 `ankole-runtime` 环境中能正常加载全文，在不兼容的执行环境中则按契约返回路由提示或拒绝结果；最后关闭该 Skill（或其所属的父级 Agent Plugin），确认同一个 Agent 随即既无法在 Brain 中检索到它，也无法再通过 `skill_view` 加载它。
 
 ## 开发 Control Plane Plugin
 
-Control Plane Plugin 适合扩展控制面拥有的站点级能力。模块实现 `Ankole.Plugins.Plugin`，最小实现只有一个稳定的 Plugin ID：
+Control Plane Plugin 专用于扩展归属控制面的站点级平台能力。插件入口模块须实现 `Ankole.Plugins.Plugin` 行为（Behaviour），最简实现只需声明一个全局唯一且稳定的小写连字符标识（Slug）：
 
 ```elixir
 defmodule Ankole.Plugins.MyPlugin do
@@ -116,23 +116,23 @@ defmodule Ankole.Plugins.MyPlugin do
 end
 ```
 
-Plugin ID 使用小写 slug。其他可选回调按需要实现：
+除必填的 `plugin_id/0` 外，可按实际扩展需求选配实现以下回调：
 
-| 回调 | 用途 |
+| 回调函数 | 职责用途 |
 |---|---|
-| `activation/0` | `:optional`（默认，通过 `plugins.enabled_ids` 选择并在下次启动生效）或 `:always`（随构建固定激活，无 Console 开关） |
-| `display_name/0`、`description/0` | Site Admin Console 中显示的本地化名称与说明 |
-| `adapter_declarations/0` | 声明身份源、聊天渠道、LLM Provider、Worker Provider（`agent_workers.provider_kind`）或 Webhook 适配器 |
-| `hooks/0` | 声明同步领域事务钩子（`[{hook_point, module}]`，实现 `Ankole.Plugins.Hook`） |
-| `app_config_definitions/0` | 声明固定的 AppConfigure 配置项 |
-| `app_config_patterns/0` | 声明带动态 ID 的配置项 |
-| `children/0` | 在 Plugin 监督树下启动长连接、Registry 或定期调和进程 |
+| `activation/0` | 返回 `:optional`（默认值，通过 `plugins.enabled_ids` 按需勾选并在下次启动时生效）或 `:always`（随构建版本固定激活，管理后台不提供关闭开关） |
+| `display_name/0`、`description/0` | 在站点管理控制台中展示的本地化显示名称与功能简介 |
+| `adapter_declarations/0` | 注册身份源提供商、聊天渠道、LLM 提供商、Worker 算力驱动（`agent_workers.provider_kind`）或第三方 Webhook 处理器 |
+| `hooks/0` | 注册同步领域写事务钩子列表（形如 `[{hook_point, module}]`，钩子模块须实现 `Ankole.Plugins.Hook`） |
+| `app_config_definitions/0` | 声明固定键名的 `AppConfigure` 系统配置项 |
+| `app_config_patterns/0` | 声明带动态实例 ID 参数的 `AppConfigure` 配置模式 |
+| `children/0` | 在插件专属监督树下挂载长连接客户端、本地 Registry 或周期性后台对账进程 |
 
-作为全栈构建期扩展，发布包还可以在核心路由外层包裹边缘请求 Plug、挂载类型化的 `/api/v2/*` JSON:API 扩展路由，并通过前端构建清单 `entries.json` 的 `overrides` 绑定类型化 Web UI 插槽（`PodAppSlots`、`ConsoleAppSlots`、`AuthAppSlots`）。
+作为全栈编译期扩展，插件包还可在核心路由器外层包裹前置 HTTP `Plug`、挂载强类型的 `/api/v2/*` JSON:API 扩展路由，并通过前端构建清单 `entries.json` 中的 `overrides` 字段注入强类型 Web UI 扩展插槽（涵盖 `PodAppSlots`、`ConsoleAppSlots` 与 `AuthAppSlots`）。
 
 ### 注册 Plugin
 
-把模块加入 `config/config.exs`：
+将编写好的插件主模块注册进控制面的 `config/config.exs` 列表中：
 
 ```elixir
 config :ankole, :control_plane_plugin_modules, [
@@ -140,11 +140,11 @@ config :ankole, :control_plane_plugin_modules, [
 ]
 ```
 
-注册后，Plugin 会出现在 **Site Admin Console**（`/site-admin-console` 的 **Global defaults** 作用域，`GET` / `PUT /api/v2/site/control-plane-plugins`）的站点级目录中。`siteadmin` 启用某个 `:optional` Plugin 后，控制面会在下一次启动时将其解析为不可变的 `:persistent_term` 启动快照，并注册配置项、适配器、事务钩子和受监督进程（若任一租户仍引用某 Worker Provider 类型，`veto_disable` 会阻止停用该 Plugin）。`:always` Plugin 只要编译进发布包即自动激活。Plugin 不支持热加载；需要在运行期免重启切换策略时，请使用 OpenFeature（`Ankole.Features`）。
+完成注册并编译后，该插件便会出现在站点管理控制台（`/site-admin-console` 下将作用域设为**全局默认值**时的插件目录，对应接口 `GET` / `PUT /api/v2/site/control-plane-plugins`）。当 `siteadmin` 启用某个 `:optional` 插件并重启控制面时，系统会在启动引导阶段将其解析固化为不可变的 `:persistent_term` 快照，同步完成配置项、驱动适配器、事务钩子及受监督子进程的挂载注册（日后若要停用，只要任一租户下仍有 Worker 引用该插件提供的算力驱动，`veto_disable` 保护机制就会阻止停用）。而声明为 `:always` 的插件只要编译进发行包便会在启动时无条件激活。注意，Control Plane Plugin 不支持运行期热插拔；凡需免重启即时切换的动态业务开关，请改用 OpenFeature（`Ankole.Features`）。
 
 ### 声明适配器
 
-`adapter_declarations/0` 返回适配器声明。`contract_id` 决定由哪个子系统读取：
+`adapter_declarations/0` 返回一组适配器注册声明，其中 `contract_id` 决定了该声明由哪个核心子系统接管消费：
 
 ```elixir
 @impl true
@@ -159,22 +159,22 @@ def adapter_declarations do
 end
 ```
 
-适配器的专属字段由对应子系统定义。聊天适配器应遵循 [Signals](../signals/) 的契约；身份源、模型 Provider 和 Worker Provider 也应使用各自现有的注册表，不要在 Plugin 内另建平行配置。
+每种适配器声明所需的扩展字段由目标子系统统一规定：聊天渠道适配器须严格遵循 [Signals](../signals/) 契约；身份源、模型提供商与 Worker 算力驱动同样应直接接入各自子系统现有的统一注册表，切勿在插件内部私自另建平行的配置存储。
 
 ### 声明配置、事务钩子与后台进程
 
-运维人员需要在运行期管理的设置应通过 `app_config_definitions/0` 或 `app_config_patterns/0` 声明。只有数据库可用前必须存在的启动参数才使用环境变量。
+凡需交由运维人员在运行期查看或调整的参数，均应通过 `app_config_definitions/0` 或 `app_config_patterns/0` 注册进 `AppConfigure`；操作系统环境变量仅限用于存放数据库尚未连通前就必须读取的底层启动引导参数。
 
-需要为领域写操作（`:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records`、`:admit_compute`）附加同步准入或配额校验时，使用 `hooks/0` 声明钩子模块。每个钩子实现 `Ankole.Plugins.Hook.before_commit_in_tx/2`，在调用方事务内返回 `:ok` 或 `{:error, reason}`（返回错误会直接回滚事务）。
+若需对核心领域写操作（包括 `:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records` 与 `:admit_compute`）附加同步准入拦截或商业配额核验，可通过 `hooks/0` 挂载钩子模块：每个钩子实现 `Ankole.Plugins.Hook.before_commit_in_tx/2`，直接在调用方所处的数据库写事务内部同步返回 `:ok` 或 `{:error, reason}`（一旦返回错误元组，整个外层领域事务将立即原子回滚）。
 
-`children/0` 返回标准 OTP child spec。长连接和调和进程必须进入 Plugin 的监督树，随 Plugin 激活而启动，并在停用后的下次控制面启动时停止。
+`children/0` 则返回标准的 OTP Child Spec 列表：插件自有的外部长连接客户端与后台定期对账进程都必须纳入该插件自身的监督树下托管，随插件激活一同拉起，并在插件被停用后的下一次控制面启动时不再拉起。
 
 ### 验证 Plugin
 
-先运行控制面测试和静态检查。对于 `:optional` Plugin，从 **Site Admin Console**（`/site-admin-console`）启用并重启控制面；`:always` Plugin 会在启动时直接激活。确认它显示为已激活、配置项可见、事务钩子按契约生效，且声明的适配器能完成一次真实连接。若它包含外部协议，还要运行对应的集成测试。
+提交代码前请先跑通控制面单元测试与静态检查。针对 `:optional` 插件，请登录站点管理控制台（`/site-admin-console`）将其开启并重启控制面（`:always` 插件会在启动时直接激活）：逐一核实插件状态已变为运行中、声明的 `AppConfigure` 表单正常渲染、领域写事务钩子按契约准确放行或回滚，且注册的外部适配器能够走通一次真实的端到端连接收发；若对接了外部第三方协议，还须补齐并通过对应的真实协议集成测试。
 
 ## 继续阅读
 
-- Skill 的启用、继承和安装方式见 [Agent 能力库](../skills/)。
-- Plugin 的发现与激活边界见 [Control Plane Plugins](../control-plane-plugins/)。
-- 新增 LLM Provider 见 [添加 Provider](../adding-a-provider/)。
+- 了解在管理后台启停、继承与管理能力的日常操作，请参阅 [Agent 能力库](../skills/)。
+- 深入了解站点插件的发现快照与激活边界设计，请参阅 [Control Plane Plugins](../control-plane-plugins/)。
+- 了解如何编写自定义上游模型提供商模块，请参阅 [添加 Provider](../adding-a-provider/)。

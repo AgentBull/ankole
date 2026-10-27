@@ -32,20 +32,6 @@ type WorkerLoggerContext = {
   labels: Record<string, string>
 }
 
-const pinoLevelToSeverity: Record<string, LogSeverity> = {
-  trace: 'DEBUG',
-  debug: 'DEBUG',
-  info: 'INFO',
-  notice: 'NOTICE',
-  warn: 'WARNING',
-  warning: 'WARNING',
-  error: 'ERROR',
-  fatal: 'CRITICAL',
-  critical: 'CRITICAL',
-  alert: 'ALERT',
-  emergency: 'EMERGENCY'
-}
-
 const severityToPinoLevel: Record<LogSeverity, WorkerPinoLevel> = {
   DEBUG: 'debug',
   INFO: 'info',
@@ -57,7 +43,7 @@ const severityToPinoLevel: Record<LogSeverity, WorkerPinoLevel> = {
   EMERGENCY: 'emergency'
 }
 
-/** Unknown values use the fallback severity. */
+/** Maps Pino level names and log-level aliases onto shared severities. */
 const severityAliases: Record<string, LogSeverity> = {
   trace: 'DEBUG',
   debug: 'DEBUG',
@@ -136,7 +122,7 @@ export function pinoLevelForSeverity(severity: LogSeverity): WorkerPinoLevel {
 }
 
 export function severityForPinoLevel(label: string): LogSeverity {
-  return pinoLevelToSeverity[label] ?? 'INFO'
+  return severityAliases[label] ?? 'INFO'
 }
 
 function createPinoLogger(env: Record<string, string | undefined>, destination?: DestinationStream): PinoLogger {
@@ -189,12 +175,12 @@ function defaultLabels(env: Record<string, string | undefined>): Record<string, 
     component: 'agent-computer',
     runtime: 'bun',
     environment: env.ANKOLE_ENV || env.NODE_ENV,
-    version: env.ANKOLE_VERSION
+    version: env.ANKOLE_VERSION || env.ANKOLE_RELEASE_REVISION
   })
 }
 
 function labelField(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  if (!isRecord(value)) return {}
   return compactLabels(value as Record<string, string | number | boolean | undefined>)
 }
 

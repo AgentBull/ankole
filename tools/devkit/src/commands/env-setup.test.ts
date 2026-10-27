@@ -10,6 +10,7 @@ describe('buildEnvSetupArgs', () => {
         'system-packages': true,
         docker: true,
         rust: true,
+        sccache: true,
         elixir: true,
         bun: true
       })
@@ -23,9 +24,10 @@ describe('buildEnvSetupArgs', () => {
         'system-packages': false,
         docker: false,
         rust: true,
+        sccache: false,
         elixir: false,
         bun: true
       })
-    ).toEqual(['--dry-run', '--no-system-packages', '--no-docker', '--no-elixir'])
+    ).toEqual(['--dry-run', '--no-system-packages', '--no-docker', '--no-sccache', '--no-elixir'])
   })
 })

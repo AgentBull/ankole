@@ -53,6 +53,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
                      "lib/ankole_web",
                      "lib/mix/tasks",
                      "../../plugins",
+                     "../../internals/control_plane/lib/ankole/saas_web",
                      "../../internals/plugins"
                    ],
                    &Path.expand(&1, @application_root)

@@ -1,14 +1,19 @@
 # Changelog
 
-## Version 2.0.0-alpha.31 (2026-10-27)
+## Version 2.0.0-alpha.32 (2026-10-27)
 
+- Report the verified time of the current login in OIDC ID Tokens after email reauthentication, and preserve each authorization code's time through token exchange.
 - Keep unchanged PPTX chart data linked to its original workbook cells when series are added or removed. Preserve other workbook cells and correct scatter and bubble values.
 - Keep image Python packages available when the per-Agent Python bootstrap runs from an active Agent environment.
 
-## Version 2.0.0-alpha.30 (2026-10-27)
+## Version 2.0.0-alpha.30 (2026-10-28)
 
-- Keep standard PPTX charts editable when a data edit adds or removes series. Preserve other workbook cells and correct scatter and bubble values.
-- Keep image Python packages available when the per-Agent Python bootstrap runs from an active Agent environment.
+- Collect the company name, editable tenant slug, and business packs during Setup, and explain how business selections shape the Company Brain ontology.
+- Simplify the Setup step navigator with compact single-line rows and a subtle current-step treatment.
+- Support source-build Console extension slots (`ConsoleAppSlots`) and site-administrator extension JSON:API routers (`/api/v2/saas-site` OpenAPI and client generation).
+- Migrate `1.x` `signals.lark.bindings.*` Lark binding settings onto `signals.lark.binding_configs.<digest>` during `Ankole.Upgrade202610`.
+- Forward `ANKOLE_VERSION` and `ANKOLE_ENV` from the control plane to launched Workers, and fall back to `ANKOLE_RELEASE_REVISION` for Worker log and trace version labels when `ANKOLE_VERSION` is unset.
+- Compare JSON object settings structurally in Console editors so reordered keys keep clean forms clean, reject non-object JSON command frames in the browser daemon and Job emit bridge, and ignore malformed SSE payloads in Pod chat streams.
 
 ## Version 2.0.0-alpha.29 (2026-10-27)
 

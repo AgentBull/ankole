@@ -1,4 +1,4 @@
-import { uuidV4 } from '@agentbull/active-support'
+import { equal, uuidV4 } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type {
   ConversationMessage,
@@ -162,8 +162,8 @@ export const ChatModel = createModel(() => {
   const clearCapturedDraft = (capture: Pick<MessageSubmission, 'text' | 'links' | 'mentions'>) => {
     if (
       draft.peek() !== capture.text ||
-      JSON.stringify(links.peek()) !== JSON.stringify(capture.links ?? []) ||
-      JSON.stringify(mentions.peek()) !== JSON.stringify(capture.mentions ?? [])
+      !equal(links.peek(), capture.links ?? []) ||
+      !equal(mentions.peek(), capture.mentions ?? [])
     ) {
       return
     }
@@ -247,8 +247,8 @@ export const ChatModel = createModel(() => {
       return (
         !!current &&
         (saved.text !== current.originalText ||
-          JSON.stringify(saved.links) !== JSON.stringify(current.originalLinks) ||
-          JSON.stringify(saved.mentions) !== JSON.stringify(current.originalMentions))
+          !equal(saved.links, current.originalLinks) ||
+          !equal(saved.mentions, current.originalMentions))
       )
     },
     restoreQueuedInput(input: ConversationPendingInput, agentUID: string) {
@@ -295,11 +295,7 @@ export const ChatModel = createModel(() => {
       return true
     },
     editSaved(messageID: string, text: string, savedLinks: ChatLinks = []) {
-      if (
-        editing.value?.messageID === messageID &&
-        draft.value === text &&
-        JSON.stringify(links.value) === JSON.stringify(savedLinks)
-      ) {
+      if (editing.value?.messageID === messageID && draft.value === text && equal(links.value, savedLinks)) {
         this.cancelEdit()
       }
     },
@@ -345,9 +341,9 @@ export const ChatModel = createModel(() => {
         previous.deliveryMode === 'queue' &&
         previous.modelProfile === modelProfile.value &&
         previous.targetAgentUID === (targetAgentUID.value || undefined) &&
-        JSON.stringify(previous.mentions ?? []) === JSON.stringify(mentions.value) &&
-        JSON.stringify(previous.links ?? []) === JSON.stringify(links.value) &&
-        JSON.stringify(previous.attachmentIDs ?? []) === JSON.stringify(capture.attachmentIDs)
+        equal(previous.mentions ?? [], mentions.value) &&
+        equal(previous.links ?? [], links.value) &&
+        equal(previous.attachmentIDs ?? [], capture.attachmentIDs)
           ? { ...previous, ...capture }
           : {
               conversationID: conversationID ?? nextID(),

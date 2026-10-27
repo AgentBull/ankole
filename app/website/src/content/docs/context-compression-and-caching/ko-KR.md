@@ -5,60 +5,60 @@ section: Developer guide
 order: 116
 ---
 
-오래 진행된 대화는 결국 model의 context window를 초과합니다. AIGateway는 turn이 보는 대화 history를 압축하여 대화가 그 한도를 넘어서도 계속되게 합니다. 이 페이지는 `ai_gateway/compaction*.ex`의 실제 코드를 기준으로 이 메커니즘을 설명합니다.
+대화가 길어지면 언젠가는 모델의 컨텍스트 윈도우 한도에 부딪히게 됩니다. AIGateway는 실행 turn에 전달할 대화 히스토리를 자동으로 압축(compaction)하여 한도를 넘어선 뒤에도 대화가 끊기지 않고 이어지게 합니다. 이 문서에서는 `ai_gateway/compaction*.ex`의 실제 코드를 기준으로 이 압축 메커니즘을 설명합니다.
 
-핵심 속성을 먼저 말하면, compaction은 *설계상 손실이 있지만, 조용하지 않습니다*. compaction은 오래된 turn을 summary로 대체하고 최근 turn을 그대로 보존하며, 대화가 가리키는 영구 artifact로 스스로를 기록합니다. 원래 turn은 model의 context에서 사라지고, summary가 새로운 reference state가 됩니다. compaction은 원본으로 되돌릴 수 있는 cache가 아닙니다.
+핵심 특성부터 짚어 두면, compaction은 **설계상 세부 내역 일부를 줄이는 손실 압축이지만 암묵적으로 기록을 덮어쓰지 않고 명시적인 흔적을 남깁니다**. 오래된 turn들을 구조화된 요약(summary)으로 대체하고 가장 최근 turn들은 원문 그대로 유지하며, 압축 결과 자체를 대화가 참조하는 영구 아티팩트로 기록합니다. 압축된 이전 turn 원문은 모델에 전달되는 컨텍스트에서 빠지고 요약본이 새로운 기준 상태(reference state)가 되므로, 나중에 원본으로 되돌리는 가역 캐시와는 다릅니다.
 
 ## AIGateway 히스토리 컴팩션
 
-AIGateway는 stateful Responses 대화의 자동 history compaction을 담당합니다. 트리거, summary, 그리고 보존되는 내용은 모두 `Ankole.AIGateway.Compaction`에 있습니다.
+상태 보존형(stateful) Responses 대화의 자동 히스토리 압축은 AIGateway가 전담하며, 발동 조건과 요약 생성 및 원문 보존 규칙은 모두 `Ankole.AIGateway.Compaction`에 구현되어 있습니다.
 
 ### 트리거
 
-compaction은 대화의 token 사용량이 임계값을 넘으면 실행됩니다. 판단은 표시되는 history에 저장된 **가장 최근의 provider 반환 usage**를 사용합니다. 각 usage 값은 더할 양이 아니라 누적 스냅샷입니다. AIGateway는 콘텐츠에서 token 수를 추정하지 않으며 provider의 usage 숫자를 신뢰합니다.
+대화의 누적 토큰 사용량이 설정된 임계값을 넘으면 compaction이 실행됩니다. 이때 토큰 수 판단은 콘텐츠 길이를 어림잡아 추정하지 않고 대화 히스토리에 저장된 **가장 최근의 프로바이더 반환 `usage` 수치**를 그대로 신뢰합니다. 각 `usage` 기록은 매 턴마다 더하는 증분이 아니라 그 시점 전체 컨텍스트의 누적 스냅샷입니다.
 
-임계값은 `ai_gateway.compaction` AppConfigure key로 구성합니다.
+임계값과 보존 예산은 `ai_gateway.compaction` AppConfigure 키로 제어합니다.
 
 | 설정 | 기본값 | 의미 |
 |---|---|---|
-| `threshold` | 0.50 | compaction을 트리거하는 model 입력 context의 비율 |
-| `max_threshold_tokens` | 120,000 | 계산된 트리거의 절대 상한. 큰 context도 너무 오래 기다리지 않게 합니다 |
-| `tail_rows` | 2 | summary와 함께 그대로 유지되는 최근 turn 수 |
-| `user_message_budget_tokens` | 20,000 | 사용자 원문을 그대로 재생하기 위한 token 예산 |
+| `threshold` | 0.50 | compaction을 발동시키는 모델 입력 컨텍스트 대비 사용 비율 |
+| `max_threshold_tokens` | 120,000 | 계산된 발동 기준의 절대 토큰 상한으로, 대용량 컨텍스트 모델에서도 지나치게 긴 이력이 쌓이지 않게 제한함 |
+| `tail_rows` | 2 | 요약본 뒤에 원문 그대로 남겨 둘 최근 turn 수 |
+| `user_message_budget_tokens` | 20,000 | 압축 구간 안의 사용자 요청 원문을 그대로 다시 실어 주기 위한 토큰 예산 |
 
-기본값은 256k context 길이를 가정합니다. `max_threshold_tokens` 상한은 context가 큰 model이 compaction 자체가 비싸질 정도로 긴 history를 쌓지 않도록 하기 위해 존재합니다. context가 작은 model은 `small_context_trigger_ratio`(0.85)를 통해 더 일찍 트리거됩니다.
+기본값은 256k 컨텍스트 길이를 기준으로 설계되었습니다. `max_threshold_tokens` 상한을 두어 컨텍스트 창이 아주 큰 모델이라도 압축 작업 자체가 과도하게 무거워지기 전에 미리 정리하도록 했으며, 반대로 컨텍스트 창이 작은 모델은 `small_context_trigger_ratio`(`0.85`)에 따라 더 높은 비율까지 활용한 뒤 압축이 발동됩니다.
 
 ### summarizer가 하는 일
 
-임계값을 넘으면 AIGateway는 summarizer model을 호출하여 이전 turn들의 구조화된 summary를 생성합니다. compaction prompt는 summary를 **지시가 아닌 reference state**로 규정합니다. “대화를 계속하지 마세요. 질문에 응답하지 마세요. 구조화된 summary만 출력하세요.” summary는 의도, 결정, 오류와 수정을 담으며 파일 경로, 함수 이름, 오류 메시지, 명령줄, ID는 그대로 보존합니다. 경로나 오류를 바꿔 쓰면 깨진 참조가 되기 때문입니다.
+사용량이 임계값을 넘으면 AIGateway는 요약 모델을 호출해 이전 turn들의 구조화된 요약을 생성합니다. 이때 압축 프롬프트는 요약본을 이어갈 대화가 아닌 **기준 상태(reference state)**로 엄격히 규정하여 “대화를 이어 가지 말고, 질문에 답하지 말고, 구조화된 요약만 출력하라”고 지시합니다. 요약본에는 사용자의 원래 의도, 내려진 결정, 발생했던 오류와 해결 내역이 정리되며, 파일 경로·함수 이름·오류 메시지·명령줄·식별자(ID)는 문구를 바꾸면 참조가 깨지므로 원문 그대로 보존합니다.
 
-summary는 대화에서 새로운 가장 오래된 항목입니다. model은 이를 계속 이어갈 turn이 아니라 상태로 봅니다.
+생성된 요약본은 대화 컨텍스트의 새로운 첫 항목이 되며, 이후 모델은 이를 답변해야 할 발화가 아니라 현재까지의 배경 상태로 인식합니다.
 
 ### 그대로 보존되는 것
 
-summary와 함께 두 가지가 유지됩니다.
+요약본과 함께 다음 두 가지 원문 데이터가 그대로 유지됩니다.
 
-- **최근 turn**(`tail_rows`, 기본값 2) — 마지막 몇 개의 turn이 전체로 유지되어 model이 필요한 즉각적인 context를 얻습니다.
-- **사용자 원문 그대로** — `CompactionRetention`은 압축된 구간에서 `user_message_budget_tokens` 범위 내의 사용자 메시지를 선택하여 그대로 재생합니다. 그래서 assistant의 turn이 summary로 처리된 후에도 model은 “사용자가 X를 요청했다”는 내용을 볼 수 있습니다.
+- **최근 turn(`tail_rows`, 기본값 2)** — 직전 몇 개의 turn 전체가 원문 그대로 남아 모델이 방금 진행하던 작업 문맥을 즉시 이어 갈 수 있습니다.
+- **사용자 메시지 원문** — `CompactionRetention`이 압축 대상 구간 안에서 `user_message_budget_tokens` 예산 한도 내의 사용자 발화를 골라 원문 그대로 다시 실어 줍니다. 덕분에 이전 어시스턴트 응답들이 요약으로 합쳐진 뒤에도 “사용자가 처음에 무엇을 요청했는지”는 정확한 원문으로 확인할 수 있습니다.
 
-이 조합(이전 assistant 작업의 summary, 그대로 보존된 최근 turn, 그대로 보존된 사용자 원문)은 대화가 어긋남 없이 계속되게 해주는 요소입니다.
+과거 어시스턴트 작업의 구조화된 요약, 원문 그대로 남긴 직전 turn, 그리고 원문 그대로 보존된 사용자 요청이라는 세 요소가 결합되어 긴 대화에서도 맥락 이탈 없이 작업이 이어집니다.
 
 ### Compaction 아티팩트
 
-각 compaction은 AIGateway가 저장하는 영구 `CompactionArtifact`를 만듭니다. 대화의 history는 가장 최근 compaction을 앵커로 가리키며 이후의 turn은 거기서 계속됩니다.
+매 압축이 완료될 때마다 AIGateway는 영구 `CompactionArtifact` 레코드를 저장합니다. 이후 대화 히스토리는 가장 최근에 생성된 압축 아티팩트를 기준점(앵커)으로 가리키며 후속 turn을 이어 갑니다.
 
 ## 튜닝
 
-- **`threshold`를 올리세요.** agent가 짧은 대화만 다루는데 compaction이 너무 자주 실행된다면. 기본값(0.50)은 보수적입니다.
-- **`tail_rows`를 올리세요.** model이 compaction 후 즉각적인 context를 잃는다면. 더 많은 최근 turn이 그대로 유지되지만 summary를 위한 공간은 줄어듭니다.
-- **`user_message_budget_tokens`를 올리세요.** 사용자 메시지가 압축 구간에서 빠지고 model이 요청 내용을 놓친다면.
+- 에이전트가 비교적 짧은 대화 위주로 처리하는데 압축이 너무 일찍 자주 돈다면 **`threshold`를 높이세요**(기본값 `0.50`은 여유를 많이 둔 보수적 기준입니다).
+- 압축 직후 모델이 바로 직전 작업 맥락을 놓친다면 **`tail_rows`를 늘리세요**(원문으로 남는 최근 turn이 늘어나는 대신 요약에 쓸 수 있는 여유 공간은 줄어듭니다).
+- 대화가 길어졌을 때 초반에 사용자가 지시한 세부 요구 사항을 모델이 빠뜨린다면 **`user_message_budget_tokens`를 늘리세요**.
 
-세 가지 모두 AppConfigure key이며 Console을 통해 변경하고, 현재 turn이 아닌 다음 compaction부터 적용됩니다.
+세 항목 모두 AppConfigure 키이므로 Console에서 실시간으로 변경할 수 있으며, 현재 진행 중인 turn이 아니라 다음 compaction 실행 시점부터 적용됩니다.
 
 ## 이 가이드가 다루지 않는 것
 
-이 가이드는 prompt caching 안내서가 아닙니다. AIGateway는 여기서 provider 측 prompt caching을 구현하지 않으며, 이는 provider의 영역입니다. 이를 지원하는 provider의 `promptCacheKey` 설정이 그 도구입니다. 이것은 무손실 history도 아닙니다. compaction은 설계상 손실이 있으며 원래 turn은 model의 context에서 사라집니다. 그리고 더 짧은 대화를 대체하지도 않습니다. compaction은 대화가 context 한도를 넘어 계속되게 하지만, 몇 turn마다 압축되는 대화는 세션으로 나누거나 background job에 위임하는 것이 더 나은 대화입니다.
+이 문서는 업스트림 프로바이더의 프롬프트 캐싱(prompt caching) 가이드를 다루지 않습니다. 프로바이더 측 프롬프트 캐싱은 업스트림 서비스의 영역이며, 이를 지원하는 프로바이더에서는 `promptCacheKey` 설정으로 제어합니다. 또한 무손실 아카이브 기능도 아니어서 압축된 이전 turn 원문은 모델 컨텍스트에서 제외됩니다. 마지막으로 작업 단위 분리를 대신할 수도 없습니다. compaction 덕분에 컨텍스트 한도를 넘겨 대화를 이어 갈 수는 있지만, 몇 턴마다 계속 압축이 반복될 만큼 비대해진 작업은 새 대화 세션으로 나누거나 Background Agent Job으로 위임하는 편이 훨씬 효율적입니다.
 
 ## 다음 단계
 
-- AIGateway 개념 페이지는 [AIGateway](../ai-gateway/)를 참조하세요.
+- 전체 AIGateway 인터페이스와 상태 보존형 세션 구조는 [AIGateway](../ai-gateway/)를 참조하세요.

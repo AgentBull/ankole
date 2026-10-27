@@ -11,6 +11,7 @@ import {
 import type { ListWorkAccessReviewsResponse } from '../api/v2/generated/types.gen'
 import { fromDocument } from '../api/json-api'
 import { ErrorBlock } from '../../common/error-block'
+import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import { requestErrorMessage } from '../../common/request-errors'
 import { LabeledField } from '../console-form'
 import { AgentLink } from '../console-list-page'
@@ -19,13 +20,6 @@ import { AccessReviewModel } from '../state/access-review-model'
 import { principalLabel } from '../state/principal-label'
 
 type HumanWorkItem = ListWorkAccessReviewsResponse['work'][number]
-
-function humanizeToken(value: string): string {
-  return value
-    .replace(/[._-]+/g, ' ')
-    .trim()
-    .replace(/^\w/, char => char.toUpperCase())
-}
 
 export function WorkAccessReview() {
   const { t } = useTranslation()
@@ -71,11 +65,11 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
   return (
     <div className="my-4 grid gap-3 border-t border-border pt-4">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-        <span>{humanizeToken(work.kind)}</span>
+        <span>{humanizeTechnicalLabel(work.kind)}</span>
         <span aria-hidden>·</span>
         <AgentLink uid={work.agent_uid} />
         <span aria-hidden>·</span>
-        <span>{t(`console.status.${work.status}`, { defaultValue: humanizeToken(work.status) })}</span>
+        <span>{t(`console.status.${work.status}`, { defaultValue: humanizeTechnicalLabel(work.status) })}</span>
       </p>
       <code className="text-xs break-all text-muted-foreground">{work.id}</code>
       {work.human_uid ? (

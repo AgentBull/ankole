@@ -5,6 +5,79 @@ defmodule Ankole.Kernel do
 
   @rustler_mode if(Mix.env() == :prod, do: :release, else: :debug)
 
+  @sccache_remote_env_keys ~w(
+    SCCACHE_BUCKET
+    SCCACHE_REDIS
+    SCCACHE_REDIS_ENDPOINT
+    SCCACHE_MEMCACHED
+    SCCACHE_MEMCACHED_ENDPOINT
+    SCCACHE_GCS_BUCKET
+    SCCACHE_AZURE_CONNECTION_STRING
+    SCCACHE_AZURE_BLOB_CONTAINER
+    SCCACHE_WEBDAV_ENDPOINT
+    SCCACHE_GHA_ENABLED
+    SCCACHE_S3_KEY_PREFIX
+  )
+
+  @rustler_env (
+                 sccache_mode =
+                   case System.get_env("ANKOLE_SCCACHE", "")
+                        |> String.trim()
+                        |> String.downcase() do
+                     value when value in ["", "auto"] ->
+                       :auto
+
+                     value when value in ["1", "true"] ->
+                       :enabled
+
+                     value when value in ["0", "false"] ->
+                       :disabled
+
+                     other ->
+                       raise ArgumentError,
+                             "Invalid ANKOLE_SCCACHE value #{inspect(other)}; expected 0, 1, true, false, or auto"
+                   end
+
+                 cond do
+                   sccache_mode == :disabled ->
+                     []
+
+                   System.get_env("RUSTC_WRAPPER") not in [nil, ""] ->
+                     []
+
+                   sccache = System.find_executable("sccache") ->
+                     [
+                       {"RUSTC_WRAPPER", sccache},
+                       {"CMAKE_C_COMPILER_LAUNCHER",
+                        case System.get_env("CMAKE_C_COMPILER_LAUNCHER") do
+                          value when value in [nil, ""] -> sccache
+                          value -> value
+                        end},
+                       {"CMAKE_CXX_COMPILER_LAUNCHER",
+                        case System.get_env("CMAKE_CXX_COMPILER_LAUNCHER") do
+                          value when value in [nil, ""] -> sccache
+                          value -> value
+                        end},
+                       {"SCCACHE_CACHE_SIZE",
+                        case System.get_env("SCCACHE_CACHE_SIZE") do
+                          value when value in [nil, ""] -> "20G"
+                          value -> value
+                        end}
+                       | Enum.map(@sccache_remote_env_keys, &{&1, nil})
+                     ]
+
+                   sccache_mode == :enabled ->
+                     Mix.shell().info(
+                       "WARN: ANKOLE_SCCACHE=1 is set, but sccache is not on PATH; continuing with standard Cargo."
+                     )
+
+                     []
+
+                   true ->
+                     []
+                 end
+               )
+
   Mix.shell().info("Building Ankole.Kernel NIF in #{@rustler_mode} mode")
 
   use Rustler,
@@ -15,7 +88,8 @@ defmodule Ankole.Kernel do
     path: Path.expand("../..", __DIR__),
     default_features: false,
     features: ["nif"],
-    mode: @rustler_mode
+    mode: @rustler_mode,
+    env: @rustler_env
 
   # The Cargo root also contains Mix and Bun outputs. Rustler lists those as
   # external resources, but they are not inputs to the native library.

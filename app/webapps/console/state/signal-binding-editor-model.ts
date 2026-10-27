@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { equal, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { setPath } from '../../common/config-fields'
 import type { SignalAdapterItem, SignalBindingItem, SignalBindingWriteRequest } from '../api/runtime-types'
@@ -72,7 +72,7 @@ export const SignalBindingEditorModel = createModel(() => {
         name.value !== source.name ||
         groupMessageMode.value !== source.groupMessageMode ||
         unmatchedSenderPolicy.value !== source.unmatchedSenderPolicy ||
-        JSON.stringify(config.value) !== JSON.stringify(source.config))
+        !equal(config.value, source.config))
     )
   })
 

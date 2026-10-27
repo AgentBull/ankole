@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
-FROM rust:1.98.0-bookworm AS native
+ARG EDGE_RUNTIME_IMAGE=native
+
+FROM rust:1.99.1-bookworm AS native
 ARG TARGETPLATFORM
 RUN apt-get update && apt-get install -y --no-install-recommends llvm-dev libclang-dev clang cmake binutils libblas-dev liblapack-dev libopenblas-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /usr/src/edge-runtime
@@ -7,7 +9,9 @@ ADD --checksum=sha256:04e4094f95bee6fff928a29e9e9d66e45e3ef2ce8719b19fb6bf7fe92e
 RUN tar -xzf /tmp/edge-runtime.tar.gz --strip-components=1 -C . && rm /tmp/edge-runtime.tar.gz
 COPY app/function_runtime/native/patches /tmp/ankole-patches
 RUN for patch in /tmp/ankole-patches/*.patch; do git apply --check "$patch" && git apply "$patch"; done
-RUN --mount=type=cache,target=/usr/local/cargo/registry,id=ankole-edge-registry-${TARGETPLATFORM} --mount=type=cache,target=/usr/local/cargo/git,id=ankole-edge-git-${TARGETPLATFORM} --mount=type=cache,target=/usr/src/edge-runtime/target,id=ankole-edge-target-${TARGETPLATFORM} GIT_V_TAG=v1.77.4-ankole.1 CARGO_BUILD_JOBS=4 cargo build --release --locked --bin edge-runtime && cp target/release/edge-runtime /root/edge-runtime && objcopy --strip-debug /root/edge-runtime
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=ankole-edge-registry-${TARGETPLATFORM} --mount=type=cache,target=/usr/local/cargo/git,id=ankole-edge-git-${TARGETPLATFORM} --mount=type=cache,target=/usr/src/edge-runtime/target,id=ankole-edge-target-${TARGETPLATFORM} GIT_V_TAG=v1.77.4-ankole.1 CARGO_BUILD_JOBS=4 cargo build --release --locked --bin edge-runtime && mkdir -p /usr/local/bin && cp target/release/edge-runtime /usr/local/bin/edge-runtime && objcopy --strip-debug /usr/local/bin/edge-runtime
+
+FROM ${EDGE_RUNTIME_IMAGE} AS edge-runtime-binary
 
 FROM oven/bun:1.4.4 AS build
 WORKDIR /build
@@ -25,7 +29,7 @@ ARG RELEASE_REVISION
 ARG RUNTIME_FABRIC_PROTOCOL_VERSION
 LABEL org.opencontainers.image.revision=$RELEASE_REVISION
 LABEL io.ankole.runtime-fabric.protocol-version=$RUNTIME_FABRIC_PROTOCOL_VERSION
-COPY --from=native /root/edge-runtime /usr/local/bin/edge-runtime
+COPY --from=edge-runtime-binary /usr/local/bin/edge-runtime /usr/local/bin/edge-runtime
 COPY app/function_runtime/native/LICENSE /usr/share/licenses/edge-runtime/LICENSE
 COPY --from=build /build/build/index.js /opt/ankole/function_runtime/main/index.js
 CMD ["start", "--main-service", "/opt/ankole/function_runtime/main", "--port", "9000"]

@@ -1,61 +1,63 @@
 ---
 title: Worker CLI の機能
-description: Agent の機能を、--help が契約を担う shell コマンドとして出荷し、Agent が関連する判断をする場所に一文のポインタを配置します。
+description: Agent 向けの機能を、--help 自体が仕様書となるシェルコマンドとして提供し、判断が行われる箇所に一文のポインタを配置する設計パターンを説明します。
 section: Developer guide
 order: 114
 ---
 
-Ankole の機能の一部は、Agent Computer の shell コマンドであり、model に見える tool ではありません。Agent は `gh` や `kubectl` のように shell を通じてコマンドを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook エンドポイントコマンド、および automation job コマンドはこの形態を取ります。
+Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `gh` や `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook エンドポイント操作コマンド、および automation job 操作コマンドはいずれもこの形態をとっています。
 
-このページでは、いつ機能をこの形態で出荷するかと、tool 登録、Skill index エントリ、system prompt セクションなしで発見可能かつ正しいものにする開示アーキテクチャを説明します。
+このページでは、どのような機能を CLI として実装すべきかという基準と、ツール登録・Skill インデックス・システムプロンプトへの常駐記述なしに Agent が機能を正確に見つけて使えるようにする「段階的開示アーキテクチャ」について説明します。
 
 ## CLI が正しい形態である場合
 
-次のすべてが成り立つとき、機能は CLI 形態に適合します。
+次の条件をすべて満たす機能は、モデルツールではなく CLI として提供するのに適しています。
 
-- Agent がより大きな shell ワークフロー内で、他のコマンドと並んで使用し、script や background agent job も呼び出す必要がある場合。
-- それが 1 つの決定パスでのみ重要である場合。webhook を決して作成しない Agent は、`create-webhook-cli` が存在することを知る必要がありません。
-- model が埋める JSON schema を必要とせず、いくつかの flag で入力が運ばれる場合。
+- より大きなシェルワークフローの中で他のコマンドと組み合わせて使われ、スクリプトや Background Agent Job からも同じように呼び出せる必要があること。
+- 特定の判断経路に入ったときにだけ必要になること（たとえば Webhook を一度も作成しない Agent は、`create-webhook-cli` の存在すら知る必要がありません）。
+- 複雑な JSON スキーマをモデルに埋めさせる必要がなく、いくつかのコマンドラインフラグだけで入力を渡せること。
 
-model に見える tool は、すべての Turn で context を消費します。CLI は、Agent が関連するパスをたどるまで何も消費しません。
+モデルに直接見せるツール定義は、使われない Turn でも毎回コンテキストウィンドウを消費します。一方、CLI であれば Agent が該当する作業経路に入るまでコンテキストを一切消費しません。
 
 ## 開示アーキテクチャ
 
-3 つのルールが tool 登録と Skill インデックスを置き換えます。
+ツール登録や Skill インデックスの代わりに、次の 3 つのルールで発見性と正確性を担保します。
 
-**`--help` が契約ドキュメントです。** CLI の `--help` 出力は、機能を正しく使うために Agent が必要とする知識を運びます。それが何か、trust model、保証、完全な使用例がどう見えるか。バイナリと一緒に出荷されるため、説明する振る舞いと同じバージョンになり、独立したドキュメントのように乖離することはありません。他の文脈を持たない読者向けに書き、手順ではなく目標と制約を述べてください。`create-webhook-cli --help` が参考例です。
+**1. `--help` 自体を正式な仕様書にする。** CLI の `--help` 出力には、その機能を正しく使うために Agent が知るべき情報をすべて盛り込みます（機能の概要、信頼モデル、動作保証、そのまま参考にできる完全な実行例）。バイナリと一緒に配布されるため、実際の挙動とドキュメントのバージョンが常に一致し、別管理のドキュメントのように実装と乖離することがありません。前提知識のない読み手を想定し、細かな内部手順ではなく「目的と制約」を明確に記述してください。実装例としては `create-webhook-cli --help` が参考になります。
 
-**ポインタは決定面に置かれます。** 発見性は、Agent がすでに隣接する決定をしている場所に置かれる一文のポインタから生まれます。tool の説明、特定の外部 system を統合する Skill、または別の CLI の `--help`。各ポインタは、機能が関連する条件と、どこで詳細を読むかを述べ、選択を誘導しません。この形態のすべての機能は、Agent が関連パス上で常に訪れる面に、ポインタを少なくとも 1 つ持つ必要があります。機能を意味あるものにするパスこそが、それを開示する面を定めます。
+**2. 意思決定の分岐点に一文のポインタを置く。** Agent がその機能の必要性に気づけるよう、関連する判断を行う場所（隣接ツールの説明文、特定の外部サービス連携 Skill、あるいは別 CLI の `--help` など）に一文だけの案内ポインタを置きます。各ポインタには、特定の手法へ誘導する表現は入れず、「どのような条件のときに関係するか」と「どの `--help` を読めばよいか」だけを中立に記します。CLI 形態で提供するすべての機能には、関連タスクの途中で Agent が必ず通る箇所に最低 1 つのポインタが必要です。つまり、「どういう場面でその機能が意味を持つか」という経路そのものから、ポインタを置くべき場所が自ずと決まります。
 
-**汎用知識は `--help` にあり、domain 知識は plugin Skill にあります。** 機能のすべての使用に当てはまる契約は `--help` に属します。1 つの外部 system を統合する Skill は、その system が加えるものだけを保持します。たとえば GitHub webhook Skill は、汎用 webhook 契約のために Agent を `create-webhook-cli --help` に誘導することから始まり、hook 登録、ping 検証、配信の調整、GitHub hook クォータだけを扱います。2 番目の統合は、汎用レイヤー全体を無料で再利用します。
+**3. 共通仕様は `--help` に集約し、外部システム固有の知識だけを Skill に書く。** その CLI を使うあらゆる場面に共通する契約は `--help` 側に置きます。特定の外部サービスと連携するための Skill には、そのサービス固有の差分だけを記述します。たとえば GitHub Webhook 用の Skill であれば、冒頭で共通仕様の確認先として `create-webhook-cli --help` を案内したうえで、本文では GitHub 側のフック登録、ping 検証、配信設定、フック数上限だけを扱います。こうしておけば、2 つ目の別サービス連携を追加するときも共通レイヤーに一切手を加えずそのまま再利用できます。
 
 ## Automation jobs
 
-automation job は、配信のたびに Agent 会話を起こす代わりに、trigger を消費する決定論的な script です。checkback、cron schedule、または webhook endpoint は、`automation_job_id` を指名できます。このフィールドがない trigger は、直接起動の振る舞いを維持します。
+automation job は、トリガー発火のたびに Agent の会話を起こすのではなく、決定論的なスクリプトでトリガーを処理する仕組みです。checkback、cron スケジュール、または webhook エンドポイントに `automation_job_id` を指定するとスクリプト実行に切り替わり、指定しなければ従来どおり Agent を直接起動します。
 
-Agent は、ワークスペースにディレクトリを 1 つ作成し、`main.ts` を追加し、セットアップと non-SDK ブランチを手動で確認し、`create-automation-job-cli` でディレクトリを登録します。登録時に、ディレクトリは新しいドライブフォルダー `automation/<ディレクトリ名>-<ランダムなサフィックス>` にコピーされ、そのフォルダーが `drive_prefix` として返されます。各実行は、発火時点でそのフォルダーにある内容を新しい実行ディレクトリにコピーし、そこで `main.ts` を Bun で実行します。そのため、スクリプトが作業ディレクトリに書いたファイルは次の実行まで残りません。スクリプトを変更するときは、Agent が `ankole-files put <dir> <drive_prefix>` を実行します。再度登録しなくても編集が反映されます。
+作成時、Agent はワークスペース内にディレクトリを作って `main.ts` を配置し、初期構成や SDK を使わない分岐を手動確認したあと、`create-automation-job-cli` でそのディレクトリを登録します。登録するとディレクトリ一式がドライブ上の新しいフォルダー `automation/<ディレクトリ名>-<ランダムなサフィックス>` にコピーされ、そのパスが `drive_prefix` として返されます。各実行では、発火時点でそのドライブフォルダーにある内容が新しい一時実行ディレクトリへコピーされ、そこで Bun により `main.ts` が実行されます。そのため、実行中に作業ディレクトリへ書き出した一時ファイルは次回の実行には引き継がれません。スクリプトを更新したいときは、Agent が `ankole-files put <dir> <drive_prefix>` を実行するだけで次回の実行から変更が反映され、再登録は不要です。
 
-各 attempt は最新の Agent WorkerEnv と、現在有効な Skill から呼び出しスコープで生成された `MCPORTER_CONFIG` を受け取ります。Worker は script がどの server を使うかを予測しません。script は mcporter と stdin JSON で、選択した 1 つの MCP tool を呼び出せます。Automation は Skill 指示を読み取らず、永続的な Agent Home mcporter 設定も使いません。
+各実行試行には、最新の Agent `WorkerEnv` と、現在有効な Skill からその呼び出し専用に生成された `MCPORTER_CONFIG` が渡されます。スクリプトがどの MCP サーバーを使うかを Worker が事前に推測することはなく、スクリプト側から `mcporter` と標準入力の JSON を使って任意の MCP ツールを呼び出せます。なお、Automation 実行時には Skill の指示文（`SKILL.md`）は読み込まれず、Agent Home 上の永続 `mcporter` 設定も参照されません。
 
-実行 SDK は `context()` と `emitEvent(payload)` を提供します。`context().event` は、直接 trigger が Signal として追加するのと同じ CloudEvents エンベロープです。script は出力なしで成功裏に終了するか、`emitEvent` を 1 回以上呼び出して、永続的な `automation_job.emitted` イベントを所有 session に追加できます。
+ランタイム SDK からは `context()` と `emitEvent(payload)` が提供されます。`context().event` には、Agent を直接起こす場合に Signal として届くものと同一の CloudEvents エンベロープが入っています。スクリプトは何も出力せず正常終了することも、`emitEvent` を 1 回以上呼び出して owner session に永続的な `automation_job.emitted` イベントを送ることもできます。
 
-`context()` と `emitEvent` は、プラットフォームの run 内にのみ存在します。直接の `bun main.ts` 実行では、セットアップとこれらの関数を呼ばないブランチを確認できます。登録後は、各 SDK ブランチにテスト trigger を使い、その永続 run を検査してください。`emitEvent` は stdout にフォールバックしません。その promise は Signal が永続化された後にのみ resolve します。
+なお、`context()` と `emitEvent` はプラットフォーム管理下の本実行環境でのみ利用可能です。ローカルでの直接実行（`bun main.ts`）は、セットアップ確認やこれらの SDK 関数を呼ばない分岐のテストに使います。登録後は、SDK を呼ぶ各分岐を実際のテストトリガーで発火させ、記録された永続 run の結果を確認してください。`emitEvent` が標準出力へフォールバックすることはなく、対応する Signal が PostgreSQL へ永続化された時点で初めて Promise が resolve します。
 
-trigger の消費のたびに、checkback の要求を確定し、cron schedule を進め、または webhook を受け入れる同じ PostgreSQL トランザクション内で永続 run が作成されます。script 例外、非ゼロ終了、タイムアウトは終端の script 結果であり、再試行されません。Worker の喪失はインフラ障害であり、run は既存の Oban wake edge を通じて新しい fenced attempt を受け取ります。リプレイは script の副作用を繰り返す可能性があるため、script は繰り返しが無害になるようにする必要があります。
+トリガーが消費されるたびに、checkback の確定・cron スケジュールの進行・webhook の受け入れと同一の PostgreSQL トランザクション内で永続 run レコードが作成されます。スクリプト内の未捕捉例外、非ゼロ終了、タイムアウトはいずれもスクリプト自身の確定結果として扱われ、自動リトライは行われません。一方、Worker インスタンスの喪失はインフラ障害として扱われ、既存の Oban wake 経路を通じて新しいフェンス付き試行（attempt）が再ディスパッチされます。再実行によってスクリプトの副作用が繰り返される可能性があるため、スクリプトは再実行されても安全な（冪等な）実装にする必要があります。
 
-アクティブな Agent Turn 内でこれらのコマンドを使用します。
+アクティブな Agent Turn 内では、次の CLI コマンドを使用します。
 
 - `create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]`
 - `list-automation-jobs-cli [--limit <1-500>]`
 - `show-automation-job-cli --id <automation-job-id> [--runs <1-100>]`
 - `cancel-automation-job-cli --id <automation-job-id>`
 
-Console の Automation Jobs ページには、各 job とその最近の run 状態、attempt、エラー、exit code、有界の stdout/stderr 末尾が表示されます。`create-automation-job-cli --help` は、model 向けの規範ガイドであり続けます。
+Console の Automation Jobs ページでは、登録済みジョブの一覧や直近の run ステータス、試行回数、エラー、終了コード、上限付きの標準出力／標準エラー末尾を確認できます。モデルにとっての正式な仕様リファレンスは、常に `create-automation-job-cli --help` です。
 
 ## 新しい CLI 機能の要件
 
-- 実装を `app/agent_computer/src/cli/` の下に置き、コマンドファミリごとに 1 ディレクトリにします。
-- `--help` と `-h` で完全な契約を、stdout、exit 0 で、Turn やネットワーク依存なしに提供します。コマンドラッパーがサブコマンドを前置するため、引数リストのどこでも help flag を検出してください。
-- 引数エラーには短い usage 文字列を保持します。契約ドキュメントではありません。
-- Agent が機能を必要とする各決定面にポインタの文を追加し、ポインタを好みから自由に保ちます。条件を述べ、`--help` を指名します。
-- plugin Skill が機能を外部 system と統合する場合、`--help` へのポインタで Skill を始め、Skill を domain の差分に保ちます。
+新しく CLI 機能を追加する際は、次のルールに従ってください。
+
+- 実装コードは `app/agent_computer/src/cli/` 配下に、コマンドファミリごとに 1 ディレクトリずつ配置します。
+- `--help` および `-h` 指定時は、アクティブな Turn やネットワーク接続に一切依存せず、完全な仕様ドキュメントを標準出力へ出して終了コード `0` で終了します。コマンドラッパーが先頭にサブコマンドを付与する場合があるため、引数配列のどの位置にヘルプフラグがあっても検出できるようにしてください。
+- 引数エラー時には仕様全文ではなく、簡潔な usage 文字列だけを返します。
+- その機能が必要になる各意思決定箇所に案内ポインタを 1 文追加します。特定の選択へ誘導する表現は避け、適用条件と参照すべき `--help` コマンドだけを明記してください。
+- プラグイン Skill でその CLI を特定の外部サービスと組み合わせる場合は、Skill の冒頭で `--help` を案内し、Skill 本文には外部サービス固有の差分だけを記述します。

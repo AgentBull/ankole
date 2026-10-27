@@ -1,56 +1,58 @@
 ---
 title: バックアップとリストア
-description: PostgreSQL、ファイルストア、永続 Agent Home、デプロイの秘密情報を一緒にバックアップして検証します。
+description: PostgreSQL、ファイルストア、永続 Agent Home、およびデプロイの秘密情報を一貫した手順でバックアップ・復元・検証する方法を説明します。
 section: Guides
 order: 315
 ---
 
-PostgreSQL（control-plane データベースおよび `BASE_DB_URLS` のすべての物理 Base シャードデータベース）、オブジェクトストア（control plane のファイルストア）、各 Agent の永続 Home を一緒にバックアップします。デプロイの設定と秘密情報は別の secret manager に保存します。Worker インスタンス、`ankole-function-runtime`、および `/var/cache/ankole` は再作成できますが、永続 Home とデータベースは復元が必要です。
+バックアップでは、PostgreSQL（control-plane データベースおよび `BASE_DB_URLS` に含まれるすべての物理 Base シャードデータベース）、オブジェクトストア（control plane のファイルストア）、そして各 Agent の永続 Home を必ずセットで保護します。デプロイ環境の設定値と秘密情報は、別系統のシークレットマネージャーに保管してください。Worker インスタンス、`ankole-function-runtime`、および `/var/cache/ankole` はいつでも再作成できますが、永続 Home とデータベースはバックアップからの復元が不可欠です。
 
 ## バックアップ対象
 
-| データ | 内容 | 取得元 |
+| データ | 含まれる内容 | バックアップ元 |
 |---|---|---|
-| Control-plane PostgreSQL | Principal、Session、Job、Pod のメタデータとドキュメント、provider 設定、暗号化認証情報、generation、ストレージ参照 | `pg_dump -Fc` または PITR |
-| 物理 Base シャード（`BASE_DB_URLS`） | テナントの物理 Base テーブル行（`BASE_DB_URLS` 未設定の単一 DB 構成では Base テーブルも control-plane DB 内にあり、1 回のアトミックな `pg_dump` で両方を含む） | 各シャード DB の `pg_dump -Fc` または PITR |
-| オブジェクトストア（ファイルストア） | Pod の `file` ページ、Pod と会話の添付ファイル、コンパイル済み Applet バンドル、公開ファイル、Skill、Automation スクリプト | Compose `files_data`、PVC、S3 バケット |
-| Agent Home | workspace、ユーザーパッケージ、`/workspace/.codex` のスレッド | provider の volume、共有ディレクトリ、Drive、EFS、Cloudflare R2 バックアップ |
-| デプロイ設定と秘密情報 | `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、`BASE_DB_URLS`、および起動時の認証情報 | 別の secret manager |
+| Control-plane PostgreSQL | Principal、Session、Job、Pod のメタデータとドキュメント、provider 設定、暗号化済み認証情報、generation、ストレージ参照 | `pg_dump -Fc` または PITR |
+| 物理 Base シャード（`BASE_DB_URLS`） | テナントの物理 Base テーブル行（`BASE_DB_URLS` 未設定の単一 DB 構成では Base テーブルも control-plane DB 内に同居するため、1 回の `pg_dump` で両方をアトミックに取得可能） | 各シャード DB の `pg_dump -Fc` または PITR |
+| オブジェクトストア（ファイルストア） | Pod の `file` ページ、Pod や会話の添付ファイル、コンパイル済み Applet バンドル、公開ファイル、インストール済み Skill、Automation スクリプト | Compose の `files_data`、PVC、または S3 バケット |
+| Agent Home | 作業用 workspace、ユーザーパッケージ、`/workspace/.codex` 内のスレッド履歴 | provider のボリューム、共有ディレクトリ、Drive、EFS、または Cloudflare R2 バックアップ |
+| デプロイ設定と秘密情報 | `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、`BASE_DB_URLS`、および起動時の各種認証情報 | 別系統のシークレットマネージャー |
 
-`/var/cache/ankole` とイメージは再作成できます。Home はキャッシュではありません。Docker Home のバックアップは別のホストにも保存します。Cloudflare は R2 バックアップと一致する `storage_ref` をデータベースに含める必要があります。強制停止では最後のバックアップ後の書き込みが失われる場合があります。
+`/var/cache/ankole` やコンテナイメージは再生成できますが、Agent Home はキャッシュではありません。Docker ボリューム上の Home バックアップは、障害に備えて別ホストや外部ストレージにも退避してください。また、Cloudflare バックエンドを使用している場合は、R2 上のバックアップと一致する `storage_ref` がデータベース側に記録されている必要があります（強制停止が発生した場合は、最後のバックアップ以降の書き込みが失われることがあります）。
 
 ## 整合性のあるバックアップ
 
-1. 新しい要求と定期処理を止め、Agent を無効にし、実行中の作業の終了を待ちます。Worker の終了中は control plane を動かしたままにします。
-2. 各プラットフォームの通常の停止または削除操作で、一時停止中を含む Worker インスタンスを終了します。強制削除、Kubernetes の猶予 0、Agent の削除は使いません。control plane が不在を確認し、現在のストレージ参照を保存するまで待ちます。Cloudflare はディレクトリバックアップの完了も確認します。未確定の作成要求がある場合は、確定するまで続行できません。
-3. control plane を停止します。これだけでは別管理の Worker は停止しません。Home への書き込みがないことを確認します。
-4. PostgreSQL を起動したままアーカイブを取得します。単一 DB 構成（`BASE_DB_URLS` 未設定）では 1 回の `pg_dump` で control plane と Base テーブルをアトミックに取得できます。マルチシャード構成（`BASE_DB_URLS` 設定時）では、control-plane データベースとすべての物理 Base シャードデータベースをバックアップします。書き込みを止めた状態でオブジェクトストアと全 Home を保存します。volume 名、シャード ID、provider 設定、Agent UID、所有者、権限を保持します。
-5. control plane を起動し、Agent を有効にして既知の Home ファイルとドライブファイルを確認します。
+静止点を揃えた整合性のあるバックアップを取得するには、次の順序で作業します。
 
-Compose のデータベースバックアップ:
+1. 新規リクエストの受付と定期ジョブを停止し、Agent を無効化して、進行中の作業が完了するのを待ちます。Worker を終了させる間、control plane はまだ稼働させたままにしてください。
+2. 各プラットフォームの通常の停止または削除手順を使い、一時停止中のものを含めてすべての Worker インスタンスを終了させます（強制 kill、Kubernetes の猶予時間 `0` での削除、または Agent 自体の削除は行わないでください）。control plane が Worker の不在を確認し、最新のストレージ参照をデータベースへ保存し終えるまで待ちます。Cloudflare バックエンドでは、ディレクトリバックアップが完了していることも確認してください。未確定のインスタンス作成リクエストが残っている場合は、結果が確定するまで次の手順へ進まないでください。
+3. control plane を停止します（control plane を止めただけでは外部プラットフォーム上の Worker は自動停止しないため、必ず手順 2 を先に行います）。すべての Agent Home への書き込みが完全に止まっていることを確認します。
+4. PostgreSQL を稼働させたままダンプまたはアーカイブを取得します。単一 DB 構成（`BASE_DB_URLS` 未設定）では、1 回の `pg_dump` で control plane と Base テーブルの両方をアトミックに取得できます。マルチシャード構成（`BASE_DB_URLS` 設定時）では、control-plane データベースとすべての物理 Base シャードデータベースをバックアップします。あわせて、書き込み停止中のオブジェクトストアと全 Agent Home を保存し、ボリューム名、シャード ID、provider 設定、Agent UID、ファイル所有者、パーミッションを維持します。
+5. バックアップ完了後、control plane を再起動して Agent を有効化し、既存の Home 内ファイルやドライブ上のファイルが正常に参照できることを確認します。
+
+Docker Compose 環境でのデータベースバックアップ例:
 
 ```bash
 docker compose exec -T postgresql \
   pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-volume とバケットにはストレージのバックアップ機能を使います。アップグレードや破壊的な保守の前にも取得します。イメージ変更ではデータベース migration を戻せません。
+ボリュームや S3 バケットには各ストレージ基盤のスナップショット／バックアップ機能を使用します。バージョンアップや破壊的なメンテナンスの前にも必ずバックアップを取得してください。コンテナイメージだけを以前のバージョンに戻しても、適用済みのデータベースマイグレーションを巻き戻すことはできません。
 
 ## 復元と検証
 
-復元中は全 control plane と Worker を停止します。対象データベースで次を実行します。
+リストア作業中は、すべての control plane と Worker を停止しておきます。対象のデータベースに対して次のコマンドでリストアを実行します。
 
 ```bash
 docker compose exec -T postgresql \
   pg_restore -U ankole -d ankole --clean --if-exists < ankole-backup.dump
 ```
 
-`BASE_DB_URLS` に含まれるすべての物理 Base シャードデータベースも復元します。マルチシャード構成でポイントインタイムリカバリ（PITR）を使用する場合、各 Base シャードの復旧タイムスタンプは control-plane データベースの復旧タイムスタンプ以上（`>=`）にする必要があります。
+`BASE_DB_URLS` に含まれるすべての物理 Base シャードデータベースも同様にリストアします。マルチシャード構成でポイントインタイムリカバリ（PITR）を使用する場合は、各 Base シャードの復旧目標時刻を control-plane データベースの復旧目標時刻以上（`>=`）に揃える必要があります。
 
-起動前に対応するオブジェクトストア、Home、provider の配置、`BASE_DB_URLS`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、元の `ANKOLE_SECRET_BASE` を復元します。`ANKOLE_SECRET_BASE` は provider 認証情報と未確定 generation の再試行認証情報を復号します。新しいキーの生成だけでは復旧できません。
+control plane を起動する前に、対応する時点のオブジェクトストア、全 Agent Home、provider の配置設定、`BASE_DB_URLS`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、および元の `ANKOLE_SECRET_BASE` をすべて復元してください。`ANKOLE_SECRET_BASE` は保存済みの provider 認証情報や未確定 generation のリトライ用認証情報を復号するために必須であり、新しく別のキーを生成しても元のデータは復号できません。
 
-元のストレージ構成と uid 1000 の所有権を保持します。Agent の provider、provider の配置と永続ストレージ設定は変更できません。別の構成への移動には移行計画が必要です。
+ストレージ構成や `uid 1000` のファイル所有権も元の状態のまま維持します。リストア時に Agent の provider や配置先、永続ストレージ設定を別の構成へ書き換えることはできません（構成自体を変更したい場合は、リストアとは別に移行計画が必要です）。
 
-復旧演習ではプラットフォームの復元リソースを本番から隔離します。独立した 2 つの control plane が同じ Home を管理してはいけません。未確定の結果を避けるために generation を消去しないでください。
+また、復旧訓練を行う際は、リストア先のプラットフォームリソースを本番環境から完全に隔離してください。独立した 2 つの control plane が同じ Agent Home を同時に管理する状態は避け、未確定状態の処理結果を隠すために generation レコードを手動で消去するような操作も行わないでください。
 
-既知の workspace ファイルとドライブファイル、Home からの Job 再開、実際の Turn を検証します。構成や手順が変わったら再度演習します。[ディザスタリカバリ](../disaster-recovery/)と [Worker](../worker-management/)も参照してください。
+起動後は、既知の workspace ファイルやドライブ上のファイルの読み取り、Home からの Background Agent Job の再開、および実際の会話 Turn が正常に動くことを検証します。インフラ構成や運用手順を変更した際は、あらためて復旧訓練を実施してください。あわせて[ディザスタリカバリ](../disaster-recovery/)および [Worker](../worker-management/) も参照してください。

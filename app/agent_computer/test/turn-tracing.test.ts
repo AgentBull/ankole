@@ -9,6 +9,7 @@ import {
   turnTracePropagationFromTurnStart,
   workerObservationInputAttributes,
   workerObservationOutputAttributes,
+  workerResource,
   workerTurnTrace
 } from '../src/observability/turn-tracing'
 
@@ -304,6 +305,30 @@ describe('worker turn tracing', () => {
     finishWorkerSpan(startWorkerSpan(turnTrace, 'tool shutdown'))
 
     await expect(forceFlushWorkerTracing()).resolves.toBeUndefined()
+  })
+
+  it('prefers ANKOLE_VERSION and falls back to ANKOLE_RELEASE_REVISION on the worker resource', () => {
+    expect(
+      workerResource({
+        ANKOLE_VERSION: '2.0.0',
+        ANKOLE_RELEASE_REVISION: 'sha-fallback',
+        ANKOLE_ENV: 'production'
+      }).attributes
+    ).toMatchObject({
+      'service.name': 'ankole-worker',
+      'service.version': '2.0.0',
+      'deployment.environment.name': 'production'
+    })
+
+    expect(
+      workerResource({
+        ANKOLE_VERSION: '',
+        ANKOLE_RELEASE_REVISION: 'sha-fallback'
+      }).attributes
+    ).toMatchObject({
+      'service.name': 'ankole-worker',
+      'service.version': 'sha-fallback'
+    })
   })
 })
 

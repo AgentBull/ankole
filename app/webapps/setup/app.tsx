@@ -1,13 +1,6 @@
 import { uniq } from '@agentbull/active-support'
 import { revalidateLogic, useForm } from '@tanstack/react-form'
-import {
-  RiArrowRightSLine,
-  RiCheckLine,
-  RiFileCopyLine,
-  RiLoaderLine,
-  RiLock2Line,
-  RiLoginCircleLine
-} from '@remixicon/react'
+import { RiArrowRightSLine, RiCheckLine, RiFileCopyLine, RiLoaderLine, RiLoginCircleLine } from '@remixicon/react'
 import { Button } from '@ankole/uikit/components/button'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
@@ -131,44 +124,40 @@ export function SetupApp() {
         disabled={pending}
         inert={pending}
         className="grid flex-1 grid-cols-1 gap-6 py-8 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav className="h-fit border border-border bg-background/95 p-3 backdrop-blur" aria-label={t('setup.steps')}>
-          <ol className="flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+        <nav className="h-fit lg:pt-1" aria-label={t('setup.steps')}>
+          <ol className="flex gap-1 overflow-x-auto p-1 lg:flex-col lg:overflow-visible">
             {steps.map((item, index) => {
               const itemState = setupStepState(item.id, currentStep, authenticated, completedSteps)
               const locked = itemState === 'locked'
               const navigable = authenticated && item.id !== 'bootstrap' && !locked
               return (
-                <li key={item.id} className="min-w-28 lg:min-w-0">
+                <li key={item.id} className="shrink-0 lg:min-w-0">
                   <button
                     type="button"
                     aria-current={itemState === 'current' ? 'step' : undefined}
                     disabled={!navigable}
                     onClick={() => item.id !== 'bootstrap' && progress.select(item.id)}
-                    className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm transition-colors focus-visible:-outline-offset-2 disabled:cursor-default ${
+                    className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] leading-5 whitespace-nowrap transition-colors focus-visible:-outline-offset-2 enabled:cursor-pointer disabled:cursor-default ${
                       itemState === 'current'
-                        ? 'border-foreground bg-accent text-foreground'
-                        : itemState === 'completed' || itemState === 'available'
-                          ? 'border-transparent text-foreground'
-                          : 'border-transparent text-muted-foreground opacity-55'
+                        ? 'bg-accent text-foreground'
+                        : itemState === 'locked'
+                          ? 'text-muted-foreground/70'
+                          : 'text-muted-foreground enabled:hover:bg-accent/60 enabled:hover:text-foreground'
                     }`}>
                     <span
-                      className={`grid size-7 shrink-0 place-items-center border font-mono text-xs ${
-                        itemState === 'current' ? 'border-foreground bg-foreground text-background' : 'border-border'
+                      className={`grid w-5 shrink-0 place-items-center font-mono text-[11px] leading-none ${
+                        itemState === 'current' ? 'text-foreground' : 'text-muted-foreground'
                       }`}>
                       {itemState === 'completed' ? (
-                        <RiCheckLine aria-hidden />
-                      ) : itemState === 'locked' ? (
-                        <RiLock2Line aria-hidden />
+                        <RiCheckLine aria-hidden className="size-3.5" />
                       ) : (
                         String(index + 1).padStart(2, '0')
                       )}
                     </span>
-                    <span className="grid min-w-0 gap-0.5">
-                      <span className="truncate font-medium">{item.label}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {t(`setup.step_state_${itemState}`)}
-                      </span>
+                    <span className={`truncate ${itemState === 'current' ? 'font-medium' : 'font-normal'}`}>
+                      {item.label}
                     </span>
+                    <span className="sr-only">{t(`setup.step_state_${itemState}`)}</span>
                   </button>
                 </li>
               )

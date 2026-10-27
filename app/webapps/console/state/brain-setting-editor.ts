@@ -1,4 +1,4 @@
-import { isRecord } from '@agentbull/active-support'
+import { isEmpty, isRecord, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
 
 /**
  * Pure helpers for the `brain.` settings group editor. This module owns
@@ -83,8 +83,8 @@ export function brainModelDraft(value: unknown): BrainModelDraft {
 
   return {
     configured: true,
-    providerID: typeof value.provider_id === 'string' ? value.provider_id : '',
-    model: typeof value.model === 'string' ? value.model : '',
+    providerID: stringArg(value, 'provider_id') ?? '',
+    model: stringArg(value, 'model') ?? '',
     dimensions: typeof value.dimensions === 'number' ? String(value.dimensions) : '',
     providerOptions: isRecord(value.provider_options) ? JSON.stringify(value.provider_options, null, 2) : ''
   }
@@ -100,7 +100,7 @@ export function brainModelValue(draft: BrainModelDraft, requireDimensions: boole
   }
   if (requireDimensions) value.dimensions = Number.parseInt(draft.dimensions, 10)
   const options = parseJSONObject(draft.providerOptions)
-  if (options && Object.keys(options).length > 0) value.provider_options = options
+  if (options && !isEmpty(options)) value.provider_options = options
   return value
 }
 
@@ -234,19 +234,10 @@ export function brainSettingsValidationError(
 
 function parseDraftValue(text: string | undefined): unknown {
   if (text === undefined) return undefined
-  try {
-    return JSON.parse(text)
-  } catch {
-    return undefined
-  }
+  return safeJsonParse(text).unwrapOr(undefined)
 }
 
 function parseJSONObject(text: string): Record<string, unknown> | undefined {
   if (!text.trim()) return {}
-  try {
-    const value: unknown = JSON.parse(text)
-    return isRecord(value) ? value : undefined
-  } catch {
-    return undefined
-  }
+  return recordValue(safeJsonParse(text).unwrapOr(undefined))
 }

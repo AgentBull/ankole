@@ -1,4 +1,11 @@
-import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
+import {
+  jsonObject,
+  ms,
+  recordValue,
+  safeJsonParse,
+  stringArg,
+  type JsonObject as JSONObject
+} from '@agentbull/active-support'
 import { sanitizeTurnContent } from './turn-content'
 import type { JobTurnRef } from '../../../lanes/session_lane'
 import { jsonBytes } from '../../../fabric/envelope_proto'
@@ -137,11 +144,11 @@ export class BackgroundAgentJobTurnRecorder {
     input?: string,
     clientUserMessageID?: string
   ): void {
-    const payload = jsonObject(params.turn)
-    const runtimeTurnID = stringValue(payload.id)
+    const payload = recordValue(params.turn) ?? {}
+    const runtimeTurnID = stringArg(payload, 'id')
     if (!runtimeTurnID) return
     const runtimeThreadID =
-      stringValue(params.threadId) ??
+      stringArg(params, 'threadId') ??
       this.turns.get(runtimeTurnID)?.runtimeThreadID ??
       [...this.turns.values()].at(-1)?.runtimeThreadID
     if (!runtimeThreadID) return
@@ -235,11 +242,11 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   recordRequestUserInput(turnID: string | undefined, params: JSONObject, requestID?: string | number): void {
-    const resolvedTurnID = stringValue(params.turnId) ?? turnID
+    const resolvedTurnID = stringArg(params, 'turnId') ?? turnID
     if (!resolvedTurnID) return
     const turn = this.turns.get(resolvedTurnID)
     if (!turn) return
-    const id = stringValue(params.itemId) ?? `request-user-input:${requestID ?? resolvedTurnID}`
+    const id = stringArg(params, 'itemId') ?? `request-user-input:${requestID ?? resolvedTurnID}`
     const args = Object.fromEntries(
       Object.entries(params).filter(([key]) => !['threadId', 'turnId', 'itemId'].includes(key))
     )
@@ -316,8 +323,8 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private completeTurn(params: JSONObject): void {
-    const payload = jsonObject(params.turn)
-    const runtimeTurnID = stringValue(payload.id)
+    const payload = recordValue(params.turn) ?? {}
+    const runtimeTurnID = stringArg(payload, 'id')
     if (!runtimeTurnID) return
 
     let turn = this.turns.get(runtimeTurnID)
@@ -345,7 +352,7 @@ export class BackgroundAgentJobTurnRecorder {
   private startItem(params: JSONObject): void {
     const turn = this.turn(params)
     const item = jsonObject(params.item)
-    const id = stringValue(item.id)
+    const id = stringArg(item, 'id')
     if (!turn || !id || !shouldRecordItem(item) || terminal(turn.status) || turn.completedItemIDs.has(id)) return
     const tool = projectCodexToolItem(item, turn.modelToolIdentities.get(id))
     if (!tool) return
@@ -365,7 +372,7 @@ export class BackgroundAgentJobTurnRecorder {
   private completeItem(params: JSONObject): void {
     const turn = this.turn(params)
     const rawItem = jsonObject(params.item)
-    const id = stringValue(rawItem.id)
+    const id = stringArg(rawItem, 'id')
     if (!turn || !id) return
     if (rawItem.type === 'subAgentActivity') {
       this.completeSubAgentActivity(turn, rawItem)
@@ -383,7 +390,7 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private recordCompletedItem(turn: RuntimeTurn, rawItem: JSONObject): void {
-    const id = stringValue(rawItem.id)
+    const id = stringArg(rawItem, 'id')
     if (!id) return
     const redacted = turn.redacted
     const truncated = turn.contentTruncated
@@ -409,20 +416,20 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private completeRawResponseItem(params: JSONObject): void {
-    const item = jsonObject(params.item)
+    const item = recordValue(params.item) ?? {}
     if (item.type === 'agent_message') {
       // The child's turn can be unknown here; the thread ID alone routes the input.
-      const threadID = stringValue(params.threadId)
+      const threadID = stringArg(params, 'threadId')
       if (threadID) this.observeChildInput(threadID, agentMessagePayload(item.content))
       return
     }
-    const callID = stringValue(item.call_id)
+    const callID = stringArg(item, 'call_id')
     if (!callID) return
 
     if (item.type === 'function_call') {
       const turn = this.turn(params)
-      const name = stringValue(item.name)
-      const namespace = stringValue(item.namespace)
+      const name = stringArg(item, 'name')
+      const namespace = stringArg(item, 'namespace')
       if (turn && name) turn.modelToolIdentities.set(callID, { ...(namespace ? { namespace } : {}), name })
 
       const tool = collaborationToolName(item)
@@ -475,10 +482,10 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private completeSubAgentActivity(turn: RuntimeTurn, item: JSONObject): void {
-    const id = stringValue(item.id)
-    const kind = stringValue(item.kind)
-    const agentThreadID = stringValue(item.agentThreadId)
-    const agentPath = stringValue(item.agentPath)
+    const id = stringArg(item, 'id')
+    const kind = stringArg(item, 'kind')
+    const agentThreadID = stringArg(item, 'agentThreadId')
+    const agentPath = stringArg(item, 'agentPath')
     if (!id || !kind || !agentThreadID || !agentPath) return
     const activity = { kind, agentThreadID, agentPath }
     const pending = this.pendingCollaborationCalls.get(id)
@@ -565,14 +572,15 @@ export class BackgroundAgentJobTurnRecorder {
     const turn = this.turn(params)
     if (!turn) return
     const steps = arrayValue(params.plan).flatMap(step => {
-      const value = jsonObject(step)
-      const text = stringValue(value.step)
-      const status = planStatus(value.status)
+      const value = recordValue(step)
+      const text = stringArg(value, 'step')
+      const status = planStatus(value?.status)
       return text && status ? [{ step: text, status }] : []
     })
+    const explanation = stringArg(params, 'explanation')
     const candidate = this.sanitizeObject(
       {
-        ...(stringValue(params.explanation) ? { explanation: stringValue(params.explanation) } : {}),
+        ...(explanation ? { explanation } : {}),
         steps
       },
       turn
@@ -593,7 +601,7 @@ export class BackgroundAgentJobTurnRecorder {
 
   private updateDiff(params: JSONObject): void {
     const turn = this.turn(params)
-    const diff = stringValue(params.diff)
+    const diff = stringArg(params, 'diff')
     if (!turn || diff === undefined) return
     const handoff = boundedFilesChangedFromCodexDiff(diff)
     const before = JSON.stringify([...turn.filesChanged].sort())
@@ -604,7 +612,7 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private turn(params: JSONObject): RuntimeTurn | undefined {
-    const turnID = stringValue(params.turnId)
+    const turnID = stringArg(params, 'turnId')
     return turnID ? this.turns.get(turnID) : [...this.turns.values()].at(-1)
   }
 
@@ -627,7 +635,7 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private applyCanonicalItems(turn: RuntimeTurn, payload: JSONObject, completed = false): void {
-    if (stringValue(payload.itemsView) === 'notLoaded') return
+    if (stringArg(payload, 'itemsView') === 'notLoaded') return
     if (!Array.isArray(payload.items)) return
     for (const entry of this.itemEntries(payload.items, turn, completed)) {
       if (!turn.enqueuedItemKeys.has(entry.key)) this.putCanonicalEntry(turn, entry)
@@ -639,7 +647,7 @@ export class BackgroundAgentJobTurnRecorder {
     for (const raw of arrayValue(value)) {
       const rawItem = jsonObject(raw)
       if (!shouldRecordItem(rawItem)) continue
-      const id = stringValue(rawItem.id)
+      const id = stringArg(rawItem, 'id')
       const tool = projectCodexToolItem(rawItem, id ? turn.modelToolIdentities.get(id) : undefined)
       const item = this.canonicalItem(turn, rawItem, tool)
       const key = itemKey(item)
@@ -663,12 +671,12 @@ export class BackgroundAgentJobTurnRecorder {
           })
         : identifiedValue
     const item = this.sanitizeObject(semanticValue, turn)
-    if (item.type !== 'userMessage' || stringValue(item.clientId) || !turn.initialItemKey) return item
+    if (item.type !== 'userMessage' || stringArg(item, 'clientId') || !turn.initialItemKey) return item
 
     const initial = turn.items.get(turn.initialItemKey)
     if (initial?.type !== 'userMessage' || !sameUserContent(initial.content, item.content)) return item
 
-    const clientID = stringValue(initial.clientId) ?? stringValue(initial.id)
+    const clientID = stringArg(initial, 'clientId') ?? stringArg(initial, 'id')
     return clientID ? jsonObject({ ...item, clientId: clientID }) : item
   }
 
@@ -681,7 +689,7 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private trackCompletedItem(turn: RuntimeTurn, item: JSONObject, tool: CodexToolItem | undefined): boolean {
-    const id = stringValue(item.id)
+    const id = stringArg(item, 'id')
     if (!id || turn.completedItemIDs.has(id)) return false
     turn.completedItemIDs.add(id)
     if (tool) turn.toolItemIdentities.set(id, tool.identity)
@@ -853,7 +861,7 @@ function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]
 
 function fileChangePaths(value: unknown): string[] {
   return arrayValue(value).flatMap(change => {
-    const path = stringValue(jsonObject(change).path)
+    const path = stringArg(recordValue(change), 'path')
     return path ? [path] : []
   })
 }
@@ -893,8 +901,8 @@ const collaborationV2Tools = new Set([
 ])
 
 function collaborationToolName(item: JSONObject): string | undefined {
-  const namespace = stringValue(item.namespace)
-  const name = stringValue(item.name)
+  const namespace = stringArg(item, 'namespace')
+  const name = stringArg(item, 'name')
   if (!name) return undefined
   if (namespace === 'collaboration' && collaborationV2Tools.has(name)) return name
   if (!name.startsWith('collaboration.')) return undefined
@@ -935,8 +943,8 @@ function collaborationToolOutcome(output: unknown, activity?: CollaborationActiv
  */
 function agentMessagePayload(content: unknown): string | undefined {
   const payload = arrayValue(content).flatMap(part => {
-    const value = jsonObject(part)
-    return value.type === 'encrypted_content' ? [stringValue(value.encrypted_content) ?? ''] : []
+    const value = recordValue(part)
+    return value?.type === 'encrypted_content' ? [stringArg(value, 'encrypted_content') ?? ''] : []
   })
   return payload.join('') || undefined
 }
@@ -944,16 +952,12 @@ function agentMessagePayload(content: unknown): string | undefined {
 function parseJSONValue(value: unknown, emptyValue: unknown): unknown {
   if (typeof value !== 'string') return value ?? emptyValue
   if (!value.trim()) return emptyValue
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
+  return safeJsonParse(value).unwrapOr(value)
 }
 
 function userContent(content: unknown): string | JSONObject[] {
   const items = arrayValue(content).map(item => jsonObject(item))
-  if (items.every(item => item.type === 'text')) return items.map(item => stringValue(item.text) ?? '').join('')
+  if (items.every(item => item.type === 'text')) return items.map(item => stringArg(item, 'text') ?? '').join('')
   return items
 }
 
@@ -966,9 +970,10 @@ function sameUserContent(left: unknown, right: unknown): boolean {
 }
 
 function itemKey(item: JSONObject): string | undefined {
-  const id = stringValue(item.id)
+  const id = stringArg(item, 'id')
   if (!id) return undefined
-  return item.type === 'userMessage' && stringValue(item.clientId) ? `client:${stringValue(item.clientId)}` : id
+  const clientId = stringArg(item, 'clientId')
+  return item.type === 'userMessage' && clientId ? `client:${clientId}` : id
 }
 
 function shouldRecordItem(item: JSONObject): boolean {
@@ -995,8 +1000,8 @@ function terminal(status: BackgroundAgentJobTurnStatus): boolean {
 
 function traceTurnOutput(payload: JSONObject): unknown {
   for (const value of arrayValue(payload.items).reverse()) {
-    const item = jsonObject(value)
-    const text = item.type === 'agentMessage' ? stringValue(item.text) : undefined
+    const item = recordValue(value)
+    const text = item?.type === 'agentMessage' ? stringArg(item, 'text') : undefined
     if (text) return text
   }
 
@@ -1009,7 +1014,7 @@ function traceTurnError(turn: RuntimeTurn): string | undefined {
 }
 
 function errorType(error: JSONObject): string | undefined {
-  const code = stringValue(error.code)
+  const code = stringArg(error, 'code')
   return code && code.trim() ? code : undefined
 }
 
@@ -1065,8 +1070,4 @@ function persistenceRejectionDetails(
     rpc_code: response.code,
     ...(response.details ? { rpc_details: response.details } : {})
   }
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
 }

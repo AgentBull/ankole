@@ -5,32 +5,30 @@ section: User guide
 order: 13
 ---
 
-An Agent is a durable working identity inside the Ankole Agent Harness. Each Agent has a mission, owner, access, tools, model profiles, and file space.
-
-The Agent can use Company Brain within its knowledge boundary. A signal routing rule connects it to messages and other events.
+An Agent is a durable working identity inside the Ankole Agent Harness, complete with its own mission, owner, permissions, tools, model profiles, and file storage. Each Agent accesses Company Brain strictly within its authorized knowledge boundary and receives messages or external events through signal routing rules.
 
 ## Create an Agent
 
 1. Open **Console → Agents** and select **New Agent**.
-2. Enter the display name and review the generated handle. You can change the handle later. Ankole generates a globally unique opaque UID when it saves the Agent.
+2. Enter the display name and review the generated handle. You can change the handle later; Ankole assigns a permanent, globally unique opaque UID when saving the Agent.
 3. Enter the role, optional avatar URL, and Worker provider.
-4. Select the human Principal who owns the Agent, then select its group-memory disclosure mode.
-5. Save the Agent. The page then shows its durable instructions, model profiles, and Agent-specific environment variables.
+4. Select the human Principal who owns the Agent, then select the disclosure mode for group memory.
+5. Save the Agent to unlock its durable instructions, model profiles, and Agent-specific environment variables on the detail page.
 
-The role gives a short summary of the work, such as “Research Analyst” or “Customer Support.” The four durable documents below manage responsibilities, behavior, visual design, and confidentiality.
+The role provides a short summary of the Agent's work—such as “Research Analyst” or “Customer Support”—while the four durable documents below govern its responsibilities, behavior, visual design, and confidentiality rules.
 
-The Worker provider selects the Agent's [Worker pool](../worker-management/). If the request omits it, the site default is used; creation fails when no default exists. The saved binding cannot change. Agents in the same pool still have separate Workers and persistent Home. Saving the Agent does not start an instance: the control plane starts it when computer work needs it.
+The Worker provider assigns the Agent to a [Worker pool](../worker-management/). If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the Worker provider binding cannot be changed. Even when multiple Agents share a pool, each Agent gets a separate Worker instance and its own persistent Home directory. Saving a new Agent does not start an instance right away; the control plane boots the Worker on demand when a turn requires computer work.
 
 ## Set ownership and group disclosure
 
-Every Agent has an owner. The owner can inspect knowledge that the Agent authored or holds and knowledge addressed to that Agent. Ownership does not grant access to a Group's knowledge unless the owner is also a member of that Group.
+Every Agent has a human owner who can inspect knowledge that the Agent authored or holds, as well as knowledge addressed directly to that Agent. Ownership alone does not grant access to a Group's knowledge unless the owner is also a member of that Group.
 
-The group-memory disclosure mode controls what the Agent can say when several people can see its reply:
+The disclosure mode for group memory controls what knowledge the Agent may draw on when multiple people can read its reply:
 
 - **Strict** requires every participant in the group conversation to satisfy a memory item's audience scope.
-- **Relaxed** checks the person who asked the question. Other participants do not narrow the result.
+- **Relaxed** checks only the person who asked the question, without narrowing results based on other participants in the conversation.
 
-Both modes behave the same way in a direct message. Use **Strict** unless the group accepts the wider disclosure rule. See [Brain](../brain/) for the full knowledge and disclosure model.
+In one-on-one direct messages, both modes behave identically. Use **Strict** unless the group explicitly accepts broader disclosure. See [Brain](../brain/) for the full knowledge and disclosure model.
 
 ## Set the durable documents
 
@@ -43,66 +41,56 @@ Open **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** on the Agent page:
 | `DESIGN.md` | The design system for web pages, slides, documents, charts, and other visual artifacts |
 | `ConfidentialityPolicy.md` | How the Agent chooses an audience scope when it writes knowledge to Brain |
 
-`DESIGN.md` uses the <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>. YAML frontmatter stores design tokens such as colors, type, spacing, corners, and components. The Markdown body explains the visual principles and how to apply them. Ankole includes a usable default design system. You can replace it with your company brand in **Console → Agents → DESIGN**.
+`DESIGN.md` follows the <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>: YAML frontmatter defines design tokens such as colors, typography, spacing, border corners, and components, while the Markdown body explains the visual principles and how to apply them. Ankole ships a ready-to-use default design system that you can replace with your organization's brand under **Console → Agents → DESIGN**.
 
-Do not put workflows, permission boundaries, or behavior rules in `DESIGN.md`. Put them in `MISSION.md`, `SOUL.md`, `ConfidentialityPolicy.md`, or a specific Skill. `ConfidentialityPolicy.md` guides the Agent's own Brain writes; automatic learning from chat uses the conversation's audience. Start with a small set of clear documents, then add rules only when real work shows that they are necessary.
+Keep workflows, permission boundaries, and behavioral rules out of `DESIGN.md`—place them in `MISSION.md`, `SOUL.md`, `ConfidentialityPolicy.md`, or a dedicated Skill instead. Note that `ConfidentialityPolicy.md` guides explicit Brain writes initiated by the Agent, whereas automatic memory extraction from chat uses the conversation's participant audience. Start with concise documents, and add rules only when real work shows that they are needed.
 
-Saved changes apply to later conversations. Work that is already running continues with the version it read when it started.
+Saved edits apply to subsequent turns; work that is already running continues with the document snapshot that it loaded when the turn started.
 
 ## Configure models
 
-On the same page, configure at least the `primary`, `light`, and `heavy` model profiles. They serve normal conversation, light work, and complex reasoning.
-
-For the first setup, all three can use the same model that you have already verified.
+On the same page, configure at least the `primary`, `light`, and `heavy` model profiles, which handle everyday conversation, lightweight tasks, and complex reasoning, respectively. For your initial setup, all three profiles can point to the same verified model.
 
 Configure optional profiles only when the Agent needs them:
 
 - Configure `vision_fallback` when the Agent must read images.
 - Configure `web_search` and `web_fetch` when the Agent must search or read public web pages.
 - Configure `image_generate` when the Agent must create images.
-- Configure **Background Agent Jobs** when Jobs need a separate provider or model. A ChatGPT subscription uses the same provider selection through its [ChatGPT subscription provider](../chatgpt-subscription-provider/).
+- Configure **Background Agent Jobs** when Jobs need a separate provider or model. To run Jobs through a ChatGPT subscription, select its [ChatGPT subscription provider](../chatgpt-subscription-provider/) here.
 
-Select the Provider before you select or enter the model. The context-length field also becomes available after you select the Provider. Leave the context length empty to use the Provider and model default.
+Select the Provider first to unlock the model selector and the context-length field; leave the context length empty to use the Provider and model default.
 
-Advanced settings show only options that the selected Provider declares. **Reasoning summary** applies only to the Responses API. **Answer detail** sets the default response detail. **Service tier** overrides the request tier for this model profile. Available values depend on the Provider, account, and model. Leave these options empty to use the Provider defaults.
+Under **Advanced settings**, the Console displays only options declared by the selected Provider. **Reasoning summary** applies only to the Responses API, **Answer detail** sets the default response verbosity, and **Service tier** overrides the request priority tier for this profile. Supported values depend on the Provider, account, and model—leave these fields blank to use the Provider defaults.
 
 See [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent) for the first LLM Provider and model setup.
 
 ## Set a token quota
 
-The **Token quota** section next to the model profiles limits the tokens that this Agent can consume in a repeating period. Set the period length in days, the period start time, and the token limit. An Agent without a quota has no limit.
+Next to the model profiles, **Token quota** limits how many tokens this Agent may consume within a repeating period. Specify the period length in days, the period start time, and the token limit; an Agent without a quota configured runs with no limit.
 
-The section shows the used tokens as a bar with their share of the limit, and the start and end time of the current period. Ankole counts the input tokens and the output tokens that the provider reports for every model call the Agent makes, including scheduled turns, Workflows, Background Agent Jobs, and the compaction those calls start. Brain model calls, embeddings, web tools, image generation, and requests that a person makes with their own token do not count.
+Once set, the panel displays consumed tokens as a progress bar alongside their share of the limit and the start and end timestamps of the active period. Ankole counts the input and output tokens that the provider reports across every model call that the Agent makes—including scheduled turns, Workflows, Background Agent Jobs, and any context compaction that those calls start. Brain model calls, embeddings, web tools, image generation, and requests that a person makes with their own personal token do not count toward the Agent's quota.
 
-When the Agent reaches the limit, a chat message receives a reply with the used tokens, the limit, and the time the period ends, instead of an answer. A Background Agent Job of that Agent fails and does not wait for the next period. The limit is checked before each model call, so one call can end above the limit by its own usage. Nothing replays a blocked message: the user sends it again after the period ends.
+Once an Agent reaches its limit, Ankole replies to new chat messages with the consumed tokens, the limit, and the timestamp when the period resets instead of invoking the model, while any Background Agent Job belonging to that Agent fails immediately rather than waiting for the next period. Because Ankole checks the quota before each model call, the call that crosses the threshold completes and may finish slightly above the limit. Ankole does not replay blocked messages automatically, so users resend their message after the period ends.
 
-**Reset period** starts a new period at that instant, so the Agent can work again before the period would end. **Remove limit** removes the quota. The usage records stay for audit in both cases. See [Cost management](../cost-management/) for the other spend levers.
+Select **Reset period** to start a fresh period immediately so the Agent can resume work ahead of schedule, or select **Remove limit** to lift the quota altogether. Both actions retain historical usage records for auditing. See [Cost management](../cost-management/) for additional spend controls.
 
 ## Configure capabilities and environment variables
 
-The Agent inherits the tenant defaults for Agent Plugins and Skills. To change them, open **Console → Agent Library** and edit the defaults or set an override for this Agent.
+Each Agent inherits your tenant's default Agent Plugins and Skills. To customize them, open **Console → Agent Library** and update the tenant defaults or configure an override for this Agent; see [Agent Library](../skills/) for the full procedure.
 
-See [Agent Library](../skills/) for the full procedure.
-
-If a Skill, command-line tool, or MCP service needs an API key, add it to **Environment variables** on the Agent page. An Agent-specific value is available only to this Agent.
-
-It overrides the tenant value, or the site value when the tenant has no override. See [Environment variables](../worker-env/).
+Whenever a Skill, CLI tool, or MCP service requires an API key, add it under **Environment variables** on the Agent page. Values set here are exposed exclusively to this Agent and override the tenant value (or the site value when the tenant has no override). See [Environment variables](../worker-env/).
 
 ## Connect a chat channel
 
-In **Pod Chat**, workspace members can send direct messages (`dm`) to an active Agent or add it to a group conversation (`group`) immediately without a Signal Binding.
+In **Pod Chat**, workspace members can send direct messages (`dm`) to an active Agent or invite it into a group conversation (`group`) right away without a Signal Binding.
 
-Signal Bindings govern external IM channels and mailboxes. To receive messages from Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox, add a signal routing rule for the Agent.
-
-Open **Console → Signal routing** and select the chat application and target Agent. One chat application can have multiple rules, and you can create separate bot applications for different Agents.
-
-See [Signal routing rules](../signal-bindings/).
+Signal Bindings govern external IM channels and mailboxes. To connect Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox, open **Console → Signal routing** and bind the external chat application to the target Agent. A single chat application can feed multiple routing rules, or you can register dedicated bot applications for different Agents. See [Signal routing rules](../signal-bindings/).
 
 ## Change or disable an Agent
 
-You can change the display name, role, durable instructions, models, and capabilities at any time. You cannot change the UID because other configuration uses it to identify the Agent.
+You can update an Agent's display name, role, durable instructions, models, and capabilities at any time, whereas its UID is permanent because other configurations reference it.
 
-A disabled Agent does not accept new work, but it stays in the agent list with a disabled status. You can re-enable it at any time, or delete it permanently — deletion is only available for a disabled Agent, and it removes the Agent together with its sessions, jobs, and records. If you only want to stop one chat entry point, disable the related signal routing rule instead of disabling the full Agent.
+Disabling an Agent stops it from accepting new work while keeping it in the Agent list in a disabled state. From there, you can re-enable it at any time or delete it permanently—permanent deletion requires disabling the Agent first and removes the Agent together with all of its sessions, jobs, and historical records. If you only want to pause messages from one external chat entry point, disable that channel's signal routing rule instead of disabling the entire Agent.
 
 ## If the Agent does not reply
 
@@ -112,6 +100,6 @@ Check these items in order:
 2. The `primary`, `light`, and `heavy` profiles are configured, and the LLM Provider is available.
 3. A signal routing rule points to this Agent.
 4. **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason.
-5. **Console → Conversations** contains the message and shows a useful error.
+5. **Console → Conversations** recorded the message—inspect any error attached to the turn.
 
 For channel-specific checks, see [Quick start troubleshooting](../quickstart/#if-the-agent-does-not-reply).
