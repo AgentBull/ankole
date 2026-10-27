@@ -197,7 +197,7 @@ flowchart TB
 
 ## Status and known limits
 
-Ankole runs in production. An Ankole Agent helps maintain this repository with the same Company Brain, tools, and work rules that a company gets. Dedicated end-to-end suites exercise the Slack, Lark, DingTalk, and WeCom message paths, schedules, Worker computers, crash recovery, concurrency, and upgrades. The public API has no compatibility contract yet, so a release can include breaking changes. Read the [changelog](CHANGELOG.md) before you upgrade.
+Ankole runs in production. An Ankole Agent helps maintain this repository with the same Company Brain, tools, and work rules that a company gets. Formal verification checks critical code and core state machines. Dedicated end-to-end suites exercise the Slack, Lark, DingTalk, and WeCom message paths, schedules, Worker computers, crash recovery, concurrency, and upgrades. The public API has no compatibility contract yet, so a release can include breaking changes. Read the [changelog](CHANGELOG.md) before you upgrade.
 
 [Tradeoffs and known limits](docs/TradeoffsAndKnownLimits.md) states what Ankole does not guarantee. The most important points:
 

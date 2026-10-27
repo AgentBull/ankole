@@ -19,7 +19,7 @@ defmodule Ankole.OIDC.RefreshToken do
       check_constraint(:generation, "oidc_refresh_tokens_generation")
       check_constraint(:consumed_at, "oidc_refresh_tokens_consumption")
       check_constraint(:successor_retry_until, "oidc_refresh_tokens_consumption_deadline")
-      check_constraint(:context, "oidc_refresh_tokens_context")
+      check_constraint(:context, "oidc_refresh_tokens_context_object")
     end
   end
 

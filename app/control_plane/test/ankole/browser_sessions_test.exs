@@ -1,7 +1,7 @@
 defmodule Ankole.BrowserSessionsTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.{AuthZ, BrowserSessions}
+  alias Ankole.{AuthZ, BrowserSessions, OIDC}
   alias Ankole.Principals.{SiteCredential, HumanAccess}
 
   defmodule SiteSource do
@@ -21,26 +21,29 @@ defmodule Ankole.BrowserSessionsTest do
     {:ok, browser: BrowserSessions.reference(browser)}
   end
 
-  test "login actions reject scope substitution and cannot reopen a consumed transaction", %{
-    browser: browser
-  } do
-    transaction = flow(browser, :pod)
+  test "OIDC state and authorization actions reject scope substitution and cannot reopen a consumed record",
+       %{
+         browser: browser
+       } do
+    oidc_state = oidc_flow(browser, :pod)
 
     assert {:error, error} =
              Repo.transact(fn _repo ->
-               Ankole.Ash.update(transaction, :bind_provider_in_tx, %{status: :consumed})
+               Ankole.Ash.update(oidc_state, :consume_in_tx, %{purpose: :console})
              end)
 
-    assert [%Ash.Error.Invalid.NoSuchInput{input: :status}] = error.errors
-    assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).status == :pending
+    assert [%Ash.Error.Invalid.NoSuchInput{input: :purpose}] = error.errors
+    assert Repo.get!(BrowserSessions.OidcState, oidc_state.id).consumed_at == nil
 
     assert {:error, error} =
              Repo.transact(fn _repo ->
-               Ankole.Ash.create(BrowserSessions.LoginTransaction, :begin_in_tx, %{
+               Ankole.Ash.create(BrowserSessions.OidcState, :begin_in_tx, %{
+                 state: "missing-tenant",
                  browser_id: browser["id"],
+                 provider_id: "local",
                  purpose: :pod,
                  started_revision: 0,
-                 csrf_token: "scope-test",
+                 redirect_uri: "https://op.test/callback",
                  expires_at: DateTime.add(DateTime.utc_now(), 60)
                })
              end)
@@ -49,57 +52,71 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:ok, consumed} =
              Repo.transact(fn _repo ->
-               Ankole.Ash.update(transaction, :consume_in_tx, %{})
+               Ankole.Ash.update(oidc_state, :consume_in_tx, %{})
              end)
 
-    assert consumed.status == :consumed
+    assert consumed.consumed_at != nil
 
     assert {:error, _error} =
              Repo.transact(fn _repo ->
-               Ankole.Ash.update(consumed, :reauthenticate_in_tx, %{})
+               Ankole.Ash.update(consumed, :consume_in_tx, %{})
              end)
 
-    assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).status == :consumed
+    assert Repo.get!(BrowserSessions.OidcState, oidc_state.id).consumed_at == consumed.consumed_at
   end
 
-  test "login and authentication scopes keep the same tenant field rejection", %{
-    browser: browser,
-    tenant: tenant
-  } do
+  test "authentication and OIDC state scopes enforce their tenant and OAuth request invariants",
+       %{
+         browser: browser,
+         tenant: tenant
+       } do
     now = DateTime.utc_now()
 
     for purpose <- [:site, :pod, :console, :oauth], tenant_id <- [nil, tenant.id] do
-      scope = %{browser_id: browser["id"], tenant_id: tenant_id, purpose: purpose}
-      proof = %{csrf_token: "scope-matrix", expires_at: DateTime.add(now, 60)}
+      result =
+        Repo.transact(fn ->
+          Ankole.Ash.create(BrowserSessions.Authentication, :create_in_tx, %{
+            browser_id: browser["id"],
+            tenant_id: tenant_id,
+            purpose: purpose,
+            csrf_token: "scope-matrix",
+            expires_at: DateTime.add(now, 60),
+            provider_id: "test-site",
+            subject_id: "scope-matrix-#{purpose}-#{tenant_id || "site"}",
+            revision: 1,
+            challenge_started_at: now,
+            amr: ["test"]
+          })
+        end)
 
-      for {resource, action, attrs} <- [
-            {BrowserSessions.LoginTransaction, :begin_in_tx,
-             Map.merge(proof, %{started_revision: 0})},
-            {BrowserSessions.Authentication, :create_in_tx,
-             Map.merge(proof, %{
-               provider_id: "test-site",
-               subject_id: "scope-matrix",
-               revision: 1,
-               challenge_started_at: now,
-               amr: ["test"]
-             })}
-          ] do
-        result =
-          Repo.transact(fn -> Ankole.Ash.create(resource, action, Map.merge(attrs, scope)) end)
+      if purpose == :site == is_nil(tenant_id) do
+        assert {:ok, record} = result
+        assert record.purpose == purpose
+        assert record.tenant_id == tenant_id
+      else
+        assert {:error, error} = result
 
-        if purpose == :site == is_nil(tenant_id) do
-          assert {:ok, record} = result
-          assert record.purpose == purpose
-          assert record.tenant_id == tenant_id
-        else
-          assert {:error, error} = result
-
-          assert Ankole.Ash.validation_details(error) == [
-                   %{path: "tenant_id", message: "must match the login purpose"}
-                 ]
-        end
+        assert Ankole.Ash.validation_details(error) == [
+                 %{path: "tenant_id", message: "must match the login purpose"}
+               ]
       end
     end
+
+    assert {:error, error} =
+             Repo.transact(fn ->
+               Ankole.Ash.create(BrowserSessions.OidcState, :begin_in_tx, %{
+                 state: "oauth-without-request",
+                 browser_id: browser["id"],
+                 tenant_id: tenant.id,
+                 provider_id: "local",
+                 purpose: :oauth,
+                 started_revision: 0,
+                 redirect_uri: "https://op.test/callback",
+                 expires_at: DateTime.add(now, 60)
+               })
+             end)
+
+    assert %{oauth_request_id: [_]} = errors_on(error)
   end
 
   test "logout revisions reject an advance past login without changing the browser", %{
@@ -134,47 +151,49 @@ defmodule Ankole.BrowserSessionsTest do
   test "a browser write owns its transaction; another transaction composes its _in_tx step", %{
     browser: browser
   } do
-    {:ok, transaction} = BrowserSessions.begin_login(browser, :pod, %{})
+    attrs = %{
+      state: "tx-boundary-state",
+      provider_id: "local",
+      purpose: :pod,
+      redirect_uri: "https://op.test/callback"
+    }
 
     assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
-      Repo.transact(fn -> BrowserSessions.bind_provider(browser, transaction.id, "local") end)
+      Repo.transact(fn -> BrowserSessions.begin_oidc_state(browser, attrs) end)
     end
 
     assert_raise Ankole.Errors.Framework.TransactionRequired, fn ->
-      BrowserSessions.bind_provider_in_tx(browser, transaction.id, "local")
+      BrowserSessions.begin_oidc_state_in_tx(browser, attrs)
     end
 
-    assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).provider_id == nil
-
-    assert {:ok, bound} =
+    assert {:ok, created} =
              Repo.transact(fn ->
-               BrowserSessions.bind_provider_in_tx(browser, transaction.id, "local")
+               BrowserSessions.begin_oidc_state_in_tx(browser, attrs)
              end)
 
-    assert bound.provider_id == "local"
+    assert created.provider_id == "local"
   end
 
-  test "trusted Pod entry binds the held proof without refreshing it and rejects another browser",
+  test "OIDC identity selection binds the held proof without refreshing it and rejects another browser",
        %{
          browser: browser
        } do
     %{principal: human} = human_fixture()
+    bind(human, "oidc-member")
+    client_id = create_oidc_client!()
 
-    {:ok, signed_in} =
-      BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
-
+    {:ok, signed_in} = site_login(browser, "oidc-member")
     authentication = signed_in.authentication
 
-    assert {:ok, transaction} =
-             BrowserSessions.begin_login(browser, :pod, %{"kind" => "open-pod"},
-               mode: :add,
-               authentication_ref: ref(signed_in)
-             )
+    {:ok, request} =
+      OIDC.AuthorizationRequests.begin(browser, client_id, %{"client_id" => client_id})
 
-    assert transaction.status == :pending
-    assert transaction.authentication_id == authentication.id
-    assert transaction.authentication_revision == authentication.revision
-    assert transaction.expected_authentication_id == authentication.id
+    assert {:ok, selected} =
+             OIDC.AuthorizationRequests.select_identity(browser, request.id, ref(signed_in))
+
+    assert selected.status == :authenticated
+    assert selected.authentication_id == authentication.id
+    assert selected.authentication_revision == authentication.revision
 
     Ankole.DataCase.assert_persisted_equal(
       Repo.get!(BrowserSessions.Authentication, authentication.id),
@@ -182,56 +201,63 @@ defmodule Ankole.BrowserSessionsTest do
     )
 
     {:ok, other_browser} = BrowserSessions.create()
-    count = Repo.aggregate(BrowserSessions.LoginTransaction, :count)
+
+    {:ok, other_req} =
+      OIDC.AuthorizationRequests.begin(
+        BrowserSessions.reference(other_browser),
+        client_id,
+        %{"client_id" => client_id}
+      )
 
     assert {:error, :invalid_authentication} =
-             BrowserSessions.begin_login(BrowserSessions.reference(other_browser), :pod, %{},
-               mode: :add,
-               authentication_ref: ref(signed_in)
+             OIDC.AuthorizationRequests.select_identity(
+               BrowserSessions.reference(other_browser),
+               other_req.id,
+               ref(signed_in)
              )
-
-    assert Repo.aggregate(BrowserSessions.LoginTransaction, :count) == count
 
     assert {:ok, _} = BrowserSessions.revoke(browser, ref(signed_in))
 
-    assert {:error, :browser_session_expired} =
-             BrowserSessions.begin_login(browser, :pod, %{},
-               mode: :add,
-               authentication_ref: ref(signed_in)
-             )
+    {:ok, after_revoke_req} =
+      OIDC.AuthorizationRequests.begin(browser, client_id, %{"client_id" => client_id})
 
-    assert Repo.aggregate(BrowserSessions.LoginTransaction, :count) == count
+    assert {:error, :browser_session_expired} =
+             OIDC.AuthorizationRequests.select_identity(
+               browser,
+               after_revoke_req.id,
+               ref(signed_in)
+             )
   end
 
-  test "default replacement cancels competing flows and the group reference grants no identity",
+  test "default replacement cancels competing states and the group reference grants no identity",
        %{browser: browser} do
     %{principal: first} = human_fixture()
     %{principal: second} = human_fixture()
-    first_flow = flow(browser, :pod)
-    second_flow = flow(browser, :pod)
-    assert {:ok, completed} = BrowserSessions.complete_login(browser, first_flow.id, auth(first))
+    first_flow = oidc_flow(browser, :pod, mode: :replace)
+    second_flow = oidc_flow(browser, :pod, mode: :replace)
+    assert {:ok, completed} = complete_oidc(browser, first_flow.id, auth(first))
 
     assert {:error, :login_expired} =
-             BrowserSessions.complete_login(browser, second_flow.id, auth(second))
+             complete_oidc(browser, second_flow.id, auth(second))
 
     assert nil == BrowserSessions.authentication(browser, :pod)
     assert %{"principal_uid" => uid} = BrowserSessions.authentication(ref(completed), :pod)
     assert uid == first.uid
 
     assert {:error, :login_expired} =
-             BrowserSessions.complete_login(browser, first_flow.id, auth(first))
+             complete_oidc(browser, first_flow.id, auth(first))
   end
 
   test "independent A and B callbacks both complete, while two callbacks for A cannot overwrite",
        %{browser: browser} do
     %{principal: a} = human_fixture()
     %{principal: b} = human_fixture()
-    first_a = flow(browser, :pod, %{}, mode: :add)
-    stale_a = flow(browser, :pod, %{}, mode: :add)
-    flow_b = flow(browser, :pod, %{}, mode: :add)
-    assert {:ok, b_login} = BrowserSessions.complete_login(browser, flow_b.id, auth(b))
-    assert {:ok, a_login} = BrowserSessions.complete_login(browser, first_a.id, auth(a))
-    assert {:error, :login_expired} = BrowserSessions.complete_login(browser, stale_a.id, auth(a))
+    first_a = oidc_flow(browser, :pod, mode: :add)
+    stale_a = oidc_flow(browser, :pod, mode: :add)
+    flow_b = oidc_flow(browser, :pod, mode: :add)
+    assert {:ok, b_login} = complete_oidc(browser, flow_b.id, auth(b))
+    assert {:ok, a_login} = complete_oidc(browser, first_a.id, auth(a))
+    assert {:error, :login_expired} = complete_oidc(browser, stale_a.id, auth(a))
     assert BrowserSessions.authentication(ref(a_login), :pod)["principal_uid"] == a.uid
     assert BrowserSessions.authentication(ref(b_login), :pod)["principal_uid"] == b.uid
     assert {:ok, _} = BrowserSessions.revoke(browser, ref(a_login))
@@ -239,21 +265,18 @@ defmodule Ankole.BrowserSessionsTest do
     assert BrowserSessions.authentication(ref(b_login), :pod)["principal_uid"] == b.uid
   end
 
-  test "a revoked target stays fenced from its pending callback; a new transaction may sign in",
+  test "a revoked target stays fenced from its pending callback; a new login may sign in",
        %{browser: browser} do
     %{principal: human} = human_fixture()
 
-    {:ok, signed_in} =
-      BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
+    {:ok, signed_in} = BrowserSessions.authenticate(browser, :pod, auth(human))
 
-    pending = flow(browser, :pod, %{}, mode: :add)
+    pending = oidc_flow(browser, :pod, mode: :add)
     {:ok, _} = BrowserSessions.revoke(browser, ref(signed_in))
 
-    assert {:error, :login_expired} =
-             BrowserSessions.complete_login(browser, pending.id, auth(human))
+    assert {:error, :login_expired} = complete_oidc(browser, pending.id, auth(human))
 
-    assert {:ok, current} =
-             BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
+    assert {:ok, current} = BrowserSessions.authenticate(browser, :pod, auth(human))
 
     refute ref(current) == ref(signed_in)
     refute BrowserSessions.authentication(ref(signed_in), :pod)
@@ -266,11 +289,8 @@ defmodule Ankole.BrowserSessionsTest do
     %{principal: a} = human_fixture()
     %{principal: b} = human_fixture()
 
-    {:ok, first} =
-      BrowserSessions.complete_login(browser, flow(browser, :pod, %{}, mode: :add).id, auth(a))
-
-    {:ok, second} =
-      BrowserSessions.complete_login(browser, flow(browser, :pod, %{}, mode: :add).id, auth(b))
+    {:ok, first} = BrowserSessions.authenticate(browser, :pod, auth(a), mode: :add)
+    {:ok, second} = BrowserSessions.authenticate(browser, :pod, auth(b), mode: :add)
 
     assert BrowserSessions.current_reference(browser) == ref(second)
     assert {:ok, _} = BrowserSessions.activate(browser, ref(first), tenant.id)
@@ -290,49 +310,51 @@ defmodule Ankole.BrowserSessionsTest do
     %{principal: admin} = human_fixture()
     %{principal: human} = human_fixture()
     {:ok, _} = first_site_admin_fixture(admin.uid)
-    {:ok, oauth} = BrowserSessions.complete_login(browser, flow(browser, :oauth).id, auth(human))
-
-    {:ok, console} =
-      BrowserSessions.complete_login(browser, flow(browser, :console).id, auth(admin))
+    {:ok, oauth} = BrowserSessions.authenticate(browser, :oauth, auth(human), mode: :replace)
+    {:ok, console} = BrowserSessions.authenticate(browser, :console, auth(admin), mode: :replace)
 
     refute BrowserSessions.authentication(ref(oauth), :oauth)
     assert BrowserSessions.authentication(ref(console), :console)["principal_uid"] == admin.uid
-    {:ok, _} = BrowserSessions.complete_login(browser, flow(browser, :oauth).id, auth(human))
+    {:ok, _} = BrowserSessions.authenticate(browser, :oauth, auth(human), mode: :replace)
     refute BrowserSessions.authentication(ref(console), :console)
   end
 
-  test "global exit fences every old transaction and authentication", %{browser: browser} do
+  test "global exit fences every old ceremony and authentication", %{browser: browser} do
     %{principal: human} = human_fixture()
+    client_id = create_oidc_client!()
 
-    {:ok, signed_in} =
-      BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
+    {:ok, signed_in} = BrowserSessions.authenticate(browser, :pod, auth(human))
 
-    transaction = flow(browser, :oauth, %{}, mode: :add)
-    assert is_binary(BrowserSessions.transaction_csrf(browser, transaction.id))
+    {:ok, oauth_req} =
+      OIDC.AuthorizationRequests.begin(browser, client_id, %{"client_id" => client_id})
+
+    oidc_state = oidc_flow(browser, :oauth, mode: :add, oauth_request_id: oauth_req.id)
+
+    assert {:ok, _} = OIDC.AuthorizationRequests.get(browser, oauth_req.id)
     {:ok, _} = BrowserSessions.logout(browser)
-    refute BrowserSessions.transaction_csrf(browser, transaction.id)
+    assert {:error, :login_expired} = OIDC.AuthorizationRequests.get(browser, oauth_req.id)
 
-    assert {:error, :login_expired} =
-             BrowserSessions.complete_login(browser, transaction.id, auth(human), fn ->
-               flunk("a callback after global exit must not change durable state")
-             end)
+    assert {:error, :login_expired} = complete_oidc(browser, oidc_state.id, auth(human))
 
     refute BrowserSessions.authentication(ref(signed_in), :pod)
-    assert {:ok, _} = BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
+    assert {:ok, _} = BrowserSessions.authenticate(browser, :pod, auth(human))
   end
 
   test "authorization consumes only its exact authentication proof once", %{browser: browser} do
     %{principal: human} = human_fixture()
+    client_id = create_oidc_client!()
 
     request = %{
-      "client_id" => "client",
+      "client_id" => client_id,
       "state" => "state",
       "nonce" => "nonce",
       "code_challenge" => "pkce"
     }
 
-    transaction = flow(browser, :oauth, request)
-    {:ok, completed} = BrowserSessions.complete_login(browser, transaction.id, auth(human))
+    {:ok, oauth_req} = OIDC.AuthorizationRequests.begin(browser, client_id, request)
+
+    {:ok, completed} =
+      BrowserSessions.authenticate(browser, :oauth, auth(human), oauth_request_id: oauth_req.id)
 
     issue = fn params, authentication ->
       assert authentication["principal_uid"] == human.uid
@@ -340,27 +362,26 @@ defmodule Ankole.BrowserSessionsTest do
     end
 
     assert {:error, :login_expired} =
-             BrowserSessions.consume_authorization(browser, transaction.id, browser, issue)
+             OIDC.AuthorizationRequests.consume(browser, oauth_req.id, browser, issue)
 
     assert {:ok, ^request} =
-             BrowserSessions.consume_authorization(browser, transaction.id, ref(completed), issue)
+             OIDC.AuthorizationRequests.consume(browser, oauth_req.id, ref(completed), issue)
 
     assert {:error, :login_expired} =
-             BrowserSessions.consume_authorization(browser, transaction.id, ref(completed), issue)
+             OIDC.AuthorizationRequests.consume(browser, oauth_req.id, ref(completed), issue)
   end
 
   test "authentication beginning before Human revocation cannot finish after restoration", %{
     browser: browser
   } do
     %{principal: human} = human_fixture()
-    transaction = flow(browser, :pod)
+    oidc_state = oidc_flow(browser, :pod)
     restored = disable_and_restore(human)
 
     assert {:error, :human_access_revoked} =
-             BrowserSessions.complete_login(browser, transaction.id, auth(restored))
+             complete_oidc(browser, oidc_state.id, auth(restored))
 
-    assert {:ok, _} =
-             BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(restored))
+    assert {:ok, _} = BrowserSessions.authenticate(browser, :pod, auth(restored))
   end
 
   test "site authentication holds fixed per-Pod evidence; restoring a Human requires a real new login",
@@ -413,40 +434,43 @@ defmodule Ankole.BrowserSessionsTest do
 
   test "a tenant source cannot complete a reserved site source login", %{browser: browser} do
     %{principal: human} = human_fixture()
-    transaction = flow(browser, :pod, %{}, provider: "test-site")
 
     assert {:error, :invalid_authentication} =
-             BrowserSessions.complete_login(
+             BrowserSessions.authenticate(
                browser,
-               transaction.id,
+               :pod,
                Map.put(auth(human), "provider_id", "test-site")
              )
 
-    assert {:error, :login_provider_mismatch} =
-             BrowserSessions.complete_site_login(browser, transaction.id, "unregistered", %{
+    assert {:error, :identity_provider_not_allowed} =
+             BrowserSessions.authenticate_site(browser, :pod, "unregistered", %{
                subject_id: "account",
                auth_time: 1
              })
   end
 
   test "provider callbacks require their exact browser, provider, and state", %{browser: browser} do
-    {:ok, transaction} = BrowserSessions.begin_login(browser, :pod, %{})
-
     {:ok, _} =
-      BrowserSessions.bind_provider(
-        browser,
-        transaction.id,
-        "lark",
-        "secret-state",
-        "https://op.test/callback"
-      )
+      BrowserSessions.begin_oidc_state(browser, %{
+        state: "secret-state",
+        provider_id: "lark",
+        purpose: :pod,
+        redirect_uri: "https://op.test/callback"
+      })
 
-    assert {:ok, _} = BrowserSessions.callback(browser, "lark", "secret-state")
-    assert {:error, :login_expired} = BrowserSessions.callback(browser, "other", "secret-state")
+    assert {:ok, _} = BrowserSessions.oidc_callback(browser, "lark", "secret-state")
+
+    assert {:error, :login_expired} =
+             BrowserSessions.oidc_callback(browser, "other", "secret-state")
+
     {:ok, other} = BrowserSessions.create()
 
     assert {:error, :login_expired} =
-             BrowserSessions.callback(BrowserSessions.reference(other), "lark", "secret-state")
+             BrowserSessions.oidc_callback(
+               BrowserSessions.reference(other),
+               "lark",
+               "secret-state"
+             )
   end
 
   test "new Pod access is atomic and does not rotate the site authentication", %{browser: browser} do
@@ -506,28 +530,6 @@ defmodule Ankole.BrowserSessionsTest do
              end)
   end
 
-  test "a fixed transaction can be consumed once without minting a new authentication", %{
-    browser: browser,
-    tenant: tenant
-  } do
-    transaction = flow(browser, :pod, %{"target" => tenant.id})
-
-    callback = fn transaction ->
-      assert Repo.tenant_id!() == transaction.tenant_id
-      {:ok, transaction.request}
-    end
-
-    assert {:ok, %{"target" => id}} =
-             BrowserSessions.consume_login(browser, transaction.id, :pod, callback)
-
-    assert id == tenant.id
-
-    assert {:error, :login_expired} =
-             BrowserSessions.consume_login(browser, transaction.id, :pod, callback)
-
-    refute BrowserSessions.current_reference(browser)
-  end
-
   test "site authentication uses the existing Console administrator boundary", %{
     browser: browser,
     tenant: tenant
@@ -535,23 +537,21 @@ defmodule Ankole.BrowserSessionsTest do
     :ok = set_privileged_tenant(tenant)
     %{principal: human} = human_fixture()
     bind(human, "operator")
-    transaction = flow(browser, :console, %{}, provider: "test-site")
     proof = site_proof("operator")
 
     assert {:error, :not_an_admin} =
-             BrowserSessions.complete_site_login(browser, transaction.id, "test-site", proof)
+             BrowserSessions.authenticate_site(browser, :console, "test-site", proof)
 
     {:ok, _} = first_site_admin_fixture(human.uid)
 
     {:ok, ordinary_site_login} = site_login(browser, "operator")
     refute BrowserSessions.authentication(ref(ordinary_site_login), :console)
-    transaction = flow(browser, :console, %{}, provider: "test-site")
 
     assert {:ok, completed} =
-             BrowserSessions.complete_site_login(browser, transaction.id, "test-site", proof)
+             BrowserSessions.authenticate_site(browser, :console, "test-site", proof)
 
     assert BrowserSessions.authentication(ref(completed), :console)["principal_uid"] == human.uid
-    {:ok, native} = BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
+    {:ok, native} = BrowserSessions.authenticate(browser, :pod, auth(human))
     refute BrowserSessions.authentication(ref(native), :console)
   end
 
@@ -565,27 +565,20 @@ defmodule Ankole.BrowserSessionsTest do
     {:ok, login} = site_login(browser, "account")
     auth = BrowserSessions.identity(ref(login), tenant.id)
 
-    {:ok, %{client: client}} =
-      Ankole.OIDC.create_client(%{
-        name: "Site identity fixture",
-        enabled: true,
-        type: "public",
-        redirect_uris: ["https://client.example/callback"],
-        scopes: ["openid", "offline_access"]
-      })
+    client_id = create_oidc_client!()
 
-    {:ok, session} = Ankole.OIDC.Sessions.ensure(client.id, auth, "openid offline_access")
-    assert {:ok, _} = Ankole.OIDC.Sessions.validate(session.id, client.id, human.uid, "openid")
+    {:ok, session} = Ankole.OIDC.Sessions.ensure(client_id, auth, "openid offline_access")
+    assert {:ok, _} = Ankole.OIDC.Sessions.validate(session.id, client_id, human.uid, "openid")
     Repo.delete_all(from(e in SiteCredential, where: e.principal_uid == ^human.uid))
     refute BrowserSessions.identity(ref(login), tenant.id)
 
     assert {:error, :authorization_revoked} =
-             Ankole.OIDC.Sessions.validate(session.id, client.id, human.uid, "openid")
+             Ankole.OIDC.Sessions.validate(session.id, client_id, human.uid, "openid")
 
     assert {:error, :authorization_revoked} =
              Ankole.OIDC.Sessions.validate(
                session.id,
-               client.id,
+               client_id,
                human.uid,
                "openid offline_access",
                :code
@@ -594,30 +587,49 @@ defmodule Ankole.BrowserSessionsTest do
     assert {:ok, _} =
              Ankole.OIDC.Sessions.validate(
                session.id,
-               client.id,
+               client_id,
                human.uid,
                "openid offline_access"
              )
   end
 
-  defp flow(browser, purpose, request \\ %{}, opts \\ []) do
-    {:ok, transaction} =
-      BrowserSessions.begin_login(browser, purpose, request, Keyword.delete(opts, :provider))
+  defp oidc_flow(browser, purpose, opts \\ []) do
+    {:ok, oidc_state} =
+      BrowserSessions.begin_oidc_state(browser, %{
+        state: "state-" <> Ecto.UUID.generate(),
+        provider_id: Keyword.get(opts, :provider, "local"),
+        purpose: purpose,
+        mode: Keyword.get(opts, :mode),
+        oauth_request_id: Keyword.get(opts, :oauth_request_id),
+        redirect_uri: "https://op.test/callback"
+      })
 
-    {:ok, transaction} =
-      BrowserSessions.bind_provider(
-        browser,
-        transaction.id,
-        Keyword.get(opts, :provider, "local")
-      )
+    oidc_state
+  end
 
-    transaction
+  defp complete_oidc(browser, oidc_state_id, auth) do
+    Repo.transact_top_level(fn ->
+      BrowserSessions.consume_oidc_state_in_tx(browser, oidc_state_id, auth)
+    end)
   end
 
   defp site_login(browser, subject) do
-    transaction = flow(browser, :site, %{}, mode: :add, provider: "test-site")
+    BrowserSessions.authenticate_site(browser, :site, "test-site", site_proof(subject),
+      mode: :add
+    )
+  end
 
-    BrowserSessions.complete_site_login(browser, transaction.id, "test-site", site_proof(subject))
+  defp create_oidc_client! do
+    {:ok, %{client: client}} =
+      OIDC.create_client(%{
+        name: "Browser session fixture",
+        enabled: true,
+        type: "public",
+        redirect_uris: ["https://client.example/callback"],
+        scopes: ["openid", "offline_access"]
+      })
+
+    client.id
   end
 
   defp bind(principal, subject) do

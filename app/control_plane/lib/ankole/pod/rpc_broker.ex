@@ -6,7 +6,7 @@ defmodule Ankole.Pod.RPCBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(pages.list pages.read pages.sharing files.manifest base.tables base.schema base.query base.aggregate)
+  @read_operations ~w(pages.list pages.children pages.search pages.read pages.sharing files.manifest base.tables base.schema base.query base.aggregate)
   @write_operations ~w(pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.write pages.append files.upload applets.publish applets.call base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
@@ -80,6 +80,13 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp dispatch("pages.list", actor, params, _ctx), do: Pages.list(actor, params)
+
+  defp dispatch("pages.children", actor, params, _ctx),
+    do: Pages.list_children(actor, params["parent_id"], params)
+
+  defp dispatch("pages.search", actor, params, _ctx),
+    do: Pages.search(actor, params["query"], params)
+
   defp dispatch("pages.read", actor, params, ctx), do: read_document(actor, params, ctx)
   defp dispatch("pages.sharing", actor, params, _ctx), do: Pages.sharing(actor, params["id"])
 

@@ -220,14 +220,18 @@ export class DOMObserver {
   }
 
   findMutation(record: MutationRecord): [number, number] | null {
-    const tile = this.wg.docTile.nearest(record.target)
+    let tile = this.wg.docTile.nearest(record.target)
     if (!tile || tile.ignoreMutations) return null
     tile.markDirty()
     if (record.type == 'attributes' || record.type == 'characterData') {
       if (tile == this.wg.docTile) {
         return null
       } else if (tile.dom == record.target) {
-        return [tile.posBefore, tile.posAfter]
+        if (!tile.isNodeInner) return [tile.posBefore, tile.posAfter]
+        while (tile.parent && tile.isNodeInner) tile = tile.parent
+        if (tile.isDoc) return null
+        const nodePos = tile.posBefore
+        return [nodePos, nodePos + 1]
       } else {
         return childRange(tile, record)
       }

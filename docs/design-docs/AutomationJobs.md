@@ -152,7 +152,8 @@ safe.
 
 ## Use the Run SDK
 
-The Worker preloads a small SDK:
+The Worker preloads the SDK module from its installed code directory. The SDK
+reads and caches the run context on the first `context()` call:
 
 - `context()` returns the trigger event and the job ID and label.
 - `emitEvent(payload)` appends one `automation_job.emitted` Signal to the

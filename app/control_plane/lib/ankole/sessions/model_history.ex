@@ -660,18 +660,21 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc false
-  def exact_turn_retryable_in_tx(session_key, signal_id) do
-    case AIGateway.active_conversation_for_update(
-           session_key.agent_uid,
-           session_key.session_id
-         ) do
+  def exact_turn_retryable_in_tx(session_key, signal_id, opts \\ []) do
+    lock? = Keyword.get(opts, :lock, true)
+
+    conversation =
+      AIGateway.list_active_conversations(
+        subject_uid: session_key.agent_uid,
+        conversation_key: session_key.session_id,
+        limit: 1,
+        lock: lock?
+      )
+      |> List.first()
+
+    case conversation do
       %Conversation{} = conversation ->
-        case AIGateway.list_conversation_responses_in_tx(
-               session_key.agent_uid,
-               conversation.id,
-               statuses: [:generating, :complete, :error],
-               lock: true
-             ) do
+        case retry_responses(session_key.agent_uid, conversation.id, lock?) do
           {:ok, responses} ->
             responses
             |> Enum.filter(&(signal_id in response_signal_ids(&1)))
@@ -688,6 +691,25 @@ defmodule Ankole.Sessions.ModelHistory do
         true
     end
   end
+
+  defp retry_responses(uid, conversation_id, true),
+    do:
+      AIGateway.list_conversation_responses_in_tx(uid, conversation_id,
+        statuses: [:generating, :complete, :error],
+        lock: true
+      )
+
+  defp retry_responses(uid, conversation_id, false),
+    do:
+      AIGateway.list_messages(
+        query: [
+          filter: [
+            subject_uid: uid,
+            conversation_id: conversation_id,
+            status: [in: [:generating, :complete, :error]]
+          ]
+        ]
+      )
 
   defp response_replay_safe?(%Message{content: content}) when is_list(content) do
     Enum.all?(content, fn

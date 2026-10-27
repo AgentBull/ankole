@@ -2,7 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/al
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
 import { RiArrowDownSLine, RiArrowRightLine, RiCheckLine, RiErrorWarningLine, RiFileCopyLine } from '@remixicon/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface QuickstartCode {
   code: string
@@ -414,6 +414,9 @@ function CopyButton({
   value: string
 }) {
   const [copied, setCopied] = useState(false)
+  const resetTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
 
   const copy = async () => {
     try {
@@ -429,14 +432,18 @@ function CopyButton({
       document.body.removeChild(textarea)
     }
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 2000)
+    window.clearTimeout(resetTimer.current)
+    resetTimer.current = window.setTimeout(() => setCopied(false), 2000)
   }
+
+  const actionLabel = copied ? labels.copied : labels.copy
+  const targetLabel = itemLabel ?? (value.length <= 80 && !value.includes('\n') ? value : undefined)
 
   return (
     <button
       type="button"
       onClick={copy}
-      aria-label={`${copied ? labels.copied : labels.copy}: ${itemLabel ?? value}`}
+      aria-label={targetLabel ? `${actionLabel}: ${targetLabel}` : actionLabel}
       className={`inline-flex h-7 w-fit shrink-0 cursor-pointer items-center gap-1.5 border px-2 font-mono text-[10px] transition-colors focus-visible:ring-2 focus-visible:outline-none ${
         inverted
           ? 'border-gray-70 text-gray-30 hover:bg-gray-80 hover:text-white focus-visible:ring-brand-40'
@@ -447,7 +454,7 @@ function CopyButton({
       ) : (
         <RiFileCopyLine aria-hidden="true" className="size-3.5" />
       )}
-      {copied ? labels.copied : labels.copy}
+      <span aria-live="polite">{actionLabel}</span>
     </button>
   )
 }

@@ -10,6 +10,48 @@ defmodule AnkoleWeb.PodPageControllerTest do
     :ok
   end
 
+  test "browser creation rejects Applet shells and creates a document with its body", %{
+    conn: conn
+  } do
+    {conn, _uid} = console_conn_with_principal(conn)
+    rejected = api_post(conn, "/api/v2/pod/pages", %{type: "applet"})
+    assert rejected.status in [400, 422]
+
+    created =
+      conn
+      |> recycle_api()
+      |> api_post("/api/v2/pod/pages", %{
+        type: "doc",
+        title: "Saved",
+        xml: "<page><p>Complete</p></page>"
+      })
+
+    assert %{"page" => %{"id" => id}} = api_response(created, 200)
+    read = created |> recycle_api() |> api_get("/api/v2/pod/pages/#{id}")
+
+    assert %{"content" => %{"content" => "<page><p>Complete</p></page>"}} =
+             api_response(read, 200)
+  end
+
+  test "uploading a new file creates a named readable page in one request", %{conn: conn} do
+    {conn, _uid} = console_conn_with_principal(conn)
+    path = Path.join(System.tmp_dir!(), "pod-upload-#{Ecto.UUID.generate()}.txt")
+    File.write!(path, "File page content")
+    on_exit(fn -> File.rm(path) end)
+    upload = %Plug.Upload{path: path, filename: "report.txt", content_type: "text/plain"}
+    created = post(conn, "/api/v2/pod/file-pages", %{file: upload})
+
+    assert %{"page" => %{"id" => id, "title" => "report.txt", "revision" => 1}} =
+             json_response(created, 200)
+
+    response =
+      created
+      |> recycle_api()
+      |> get("/api/v2/pod/pages/#{id}/files/content", %{path: "report.txt"})
+
+    assert response(response, 200) == "File page content"
+  end
+
   test "page lists carry the same current role as individual reads for inherited and restricted pages",
        %{conn: conn, tenant: tenant} do
     {conn, uid} = console_conn_with_principal(conn)

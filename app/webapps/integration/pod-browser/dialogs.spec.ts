@@ -3,18 +3,6 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { BaseField, BaseTable, TableSchema } from '@ankole/applet-sdk/types'
 import { pageRoute } from './routes'
 
-async function choose(page: Page, trigger: Locator, option: string) {
-  await trigger.click()
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
-  const id = await trigger.getAttribute('aria-controls')
-  if (!id) throw new Error('The selection has no popup')
-  await page
-    .locator(`[id=${JSON.stringify(id)}]`)
-    .getByRole('option', { name: option, exact: true })
-    .click()
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
-}
-
 async function inViewport(page: Page, dialog: Locator) {
   await expect(dialog).toBeInViewport({ ratio: 1 })
   const bounds = await dialog.boundingBox()
@@ -44,7 +32,7 @@ test('sidebar type menu stays anchored, dismisses naturally, retries a failed cr
     const menu = page.getByRole('menu', { name: '新建页面', exact: true })
     await expect(menu).toBeVisible()
     await expect(page.getByRole('dialog', { name: '新建页面', exact: true })).toHaveCount(0)
-    await expect(menu.getByRole('menuitem')).toHaveText(['文档', '多维表', '小应用', '文件'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['文档', '多维表', '文件'])
     await expect(menu.getByRole('menuitem', { name: '文档', exact: true })).toBeFocused()
     const anchor = (await trigger.boundingBox())!,
       popup = (await menu.boundingBox())!
@@ -131,24 +119,23 @@ test('table and view forms submit with Enter while field and record deletion ret
     baseID = base.id
     await page.goto(pageRoute(base.id))
     await page.getByRole('button', { name: '+ 数据表', exact: true }).click()
-    const tableDialog = page.getByRole('dialog', { name: '新建数据表', exact: true })
-    const tableName = tableDialog.getByRole('textbox', { name: '数据表名称', exact: true })
+    const tableName = page.getByRole('textbox', { name: '数据表名称', exact: true })
     await expect(tableName).toBeFocused()
     await tableName.fill('客户台账')
     await tableName.press('Enter')
-    await expect(tableDialog).toHaveCount(0)
+    await expect(tableName).toHaveCount(0)
     const { tables } = await request<{ tables: BaseTable[] }>(page, `/bases/${base.id}`)
-    expect(tables).toHaveLength(1)
-    expect(tables[0]!.name).toBe('客户台账')
-    const table = tables[0]!
+    expect(tables).toHaveLength(2)
+    const table = tables.find(table => table.name === '客户台账')!
+    expect(table).toBeDefined()
     await page.getByRole('button', { name: '+ 视图', exact: true }).click()
-    const viewDialog = page.getByRole('dialog', { name: '新建视图', exact: true })
-    const viewName = viewDialog.getByRole('textbox', { name: '视图名称', exact: true })
+    await page.getByRole('menuitem', { name: '看板', exact: true }).click()
+    await page.getByRole('button', { name: '看板', exact: true }).dblclick()
+    const viewName = page.getByRole('textbox', { name: '视图名称', exact: true })
     await expect(viewName).toBeFocused()
     await viewName.fill('客户看板')
-    await choose(page, viewDialog.getByRole('combobox', { name: '视图类型', exact: true }), '看板')
     await viewName.press('Enter')
-    await expect(viewDialog).toHaveCount(0)
+    await expect(viewName).toHaveCount(0)
     const schema = await request<TableSchema>(page, `/tables/${table.id}`)
     expect(schema.views.filter(view => view.name === '客户看板' && view.type === 'kanban')).toHaveLength(1)
     const { field } = await request<{ field: BaseField }>(page, `/tables/${table.id}/fields`, 'POST', {
@@ -159,6 +146,7 @@ test('table and view forms submit with Enter while field and record deletion ret
     const primary = schema.fields.find(field => field.is_primary)!
     await request(page, `/tables/${table.id}/records`, 'POST', { creates: [{ data: { [primary.id]: 'Keep record' } }] })
     await page.reload()
+    await page.getByRole('button', { name: '客户台账', exact: true }).click()
     await page.getByRole('button', { name: schema.views.find(view => view.type === 'grid')!.name, exact: true }).click()
     const fieldTrigger = page.getByRole('columnheader').getByRole('button', { name: field.name, exact: true })
     await fieldTrigger.click()
@@ -181,6 +169,13 @@ test('table and view forms submit with Enter while field and record deletion ret
     await cancelRecord.press('Enter')
     await expect(deleteRecord).toHaveCount(0)
     await expect(page.getByRole('textbox', { name: primary.name, exact: true })).toHaveValue('Keep record')
+    await page.getByRole('button', { name: '视图操作', exact: true }).click()
+    await page.getByRole('menuitem', { name: '删除视图', exact: true }).click()
+    const deleteView = page.getByRole('dialog', { name: '删除视图', exact: true })
+    await deleteView.getByRole('button', { name: '删除视图', exact: true }).click()
+    await expect(deleteView).toBeHidden()
+    const remaining = await request<TableSchema>(page, `/tables/${table.id}`)
+    expect(remaining.views.map(view => view.name)).toEqual(['客户看板'])
   } finally {
     if (baseID) await request(page, `/pages/${baseID}`, 'DELETE')
     await context.close()
@@ -225,6 +220,7 @@ test('390px long record and field dialogs scroll their body and keep actions vis
       }
     })
     await page.goto(pageRoute(base.id))
+    await page.getByRole('button', { name: 'Mobile records', exact: true }).click()
     const fieldTrigger = page.getByRole('columnheader').getByRole('button', { name: 'Long select', exact: true })
     await fieldTrigger.click()
     const fieldDialog = page.getByRole('dialog', { name: '编辑字段', exact: true })
@@ -250,7 +246,7 @@ test('390px long record and field dialogs scroll their body and keep actions vis
     expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
     await expect(recordDialog.getByRole('heading', { name: '新增记录', exact: true })).toBeInViewport({ ratio: 1 })
     await expect(recordDialog.getByRole('button', { name: '提交记录', exact: true })).toBeInViewport({ ratio: 1 })
-    const people = recordDialog.getByRole('button', { name: 'Assignee： 选择', exact: true })
+    const people = recordDialog.getByRole('button', { name: 'Assignee: 选择', exact: true })
     await people.scrollIntoViewIfNeeded()
     await people.click()
     await expect(people).toHaveAttribute('aria-expanded', 'true')
@@ -271,6 +267,57 @@ test('390px long record and field dialogs scroll their body and keep actions vis
     await recordDialog.getByRole('button', { name: '取消', exact: true }).click()
   } finally {
     if (baseID) await request(page, `/pages/${baseID}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('choosing a file creates one named Page with its bytes and replaces it by drag and drop', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    let writes = 0
+    page.on('request', request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v2/pod/file-pages') writes++
+    })
+    const trigger = page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
+    await trigger.click()
+    const chosen = page.waitForEvent('filechooser')
+    await page.getByRole('menuitem', { name: '文件', exact: true }).click()
+    const chooser = await chosen
+    expect(writes).toBe(0)
+    const created = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/file-pages'
+    )
+    const original = Buffer.from('First uploaded report')
+    await chooser.setFiles({ name: 'Quarterly report.txt', mimeType: 'text/plain', buffer: original })
+    const response = await created
+    expect(response.ok()).toBe(true)
+    id = (await response.json()).page.id
+    await expect(page).toHaveURL(state.base_url + pageRoute(id!))
+    const title = page.getByRole('textbox', { name: '页面标题', exact: true })
+    await expect(title).toHaveValue('Quarterly report.txt')
+    const download = page.getByRole('link', { name: '下载原文件', exact: true })
+    expect(await (await page.request.get((await download.getAttribute('href'))!)).body()).toEqual(original)
+    expect(writes).toBe(1)
+    await title.fill('Renamed report')
+    await expect
+      .poll(async () => (await request<{ page: { title: string } }>(page, `/pages/${id}`)).page.title)
+      .toBe('Renamed report')
+    const transfer = await page.evaluateHandle(() => {
+      const data = new DataTransfer()
+      data.items.add(new File(['Updated report'], 'Revised.txt', { type: 'text/plain' }))
+      return data
+    })
+    await download.locator('xpath=ancestor::section[1]').dispatchEvent('drop', { dataTransfer: transfer })
+    await expect(download).toHaveAttribute('download', 'Revised.txt')
+    expect(await (await page.request.get((await download.getAttribute('href'))!)).text()).toBe('Updated report')
+    await expect(title).toHaveValue('Renamed report')
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
   }
 })

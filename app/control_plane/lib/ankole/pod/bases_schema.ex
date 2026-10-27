@@ -13,6 +13,15 @@ defmodule Ankole.Pod.Bases.Schema do
   def delete_table(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil),
     do: Ankole.Pod.Bases.Delete.table(actor, id, authority || actor.turn_authority)
 
+  def rename_table(%Ankole.AuthZ.Actor{} = actor, id, name, authority \\ nil) do
+    write(authority || actor.turn_authority, fn ->
+      schema_write(actor, id, fn write ->
+        with {:ok, table} <- Ankole.Ash.update(write.table, :rename, %{name: name}),
+             do: {:ok, table, write}
+      end)
+    end)
+  end
+
   def create_field(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
     authority = authority || actor.turn_authority
     write(authority, fn -> create_field_in_tx(actor, id, attrs) end)
@@ -161,9 +170,49 @@ defmodule Ankole.Pod.Bases.Schema do
 
   defp delete_field_in_tx(field, write) do
     with {:ok, write} <- detach_reverse(field, write),
+         :ok <- scrub_field_from_views(field.table_id, field.id),
          {:ok, deleted} <- Ankole.Ash.destroy(field, :remove) do
       {:ok, deleted, write}
     end
+  end
+
+  defp scrub_field_from_views(table_id, field_id) do
+    BaseView
+    |> Ash.Query.filter(table_id == ^table_id)
+    |> Ankole.Ash.read!()
+    |> Enum.reduce_while(:ok, fn view, :ok ->
+      cleaned = scrub_view_config(view.config, field_id)
+
+      if cleaned == view.config do
+        {:cont, :ok}
+      else
+        case Ankole.Ash.update(view, :update_definition, %{config: cleaned}) do
+          {:ok, _} -> {:cont, :ok}
+          {:error, _} = error -> {:halt, error}
+        end
+      end
+    end)
+  end
+
+  defp scrub_view_config(config, field_id) when is_map(config) do
+    config
+    |> then(fn map ->
+      case map["visible_fields"] do
+        visible when is_list(visible) ->
+          Map.put(map, "visible_fields", Enum.reject(visible, &(&1 == field_id)))
+
+        _ ->
+          map
+      end
+    end)
+    |> drop_matching_field("group_field_id", field_id)
+    |> drop_matching_field("cover_field_id", field_id)
+  end
+
+  defp scrub_view_config(config, _field_id), do: config
+
+  defp drop_matching_field(config, key, field_id) do
+    if config[key] == field_id, do: Map.delete(config, key), else: config
   end
 
   @doc false
@@ -478,7 +527,7 @@ defmodule Ankole.Pod.Bases.Schema do
       refs =
         Enum.flat_map(
           ~w(group_field_id cover_field_id),
-          fn key -> if config[key], do: [config[key]], else: [] end
+          fn key -> if config[key] not in [nil, ""], do: [config[key]], else: [] end
         )
 
       if Enum.all?(refs, &(&1 in known)), do: :ok, else: {:error, :unknown_field}
@@ -511,10 +560,11 @@ defmodule Ankole.Pod.Bases.Schema do
 
   defp finish_schema(%BaseField{}, write), do: DDL.finish(write)
 
-  defp finish_schema(%BaseView{}, %{table: %{storage_mode: :inline}} = write),
-    do: Write.finish(write)
+  defp finish_schema(%type{}, %{table: %{storage_mode: :inline}} = write)
+       when type in [BaseView, BaseTable],
+       do: Write.finish(write)
 
-  defp finish_schema(%BaseView{}, write) do
+  defp finish_schema(%type{}, write) when type in [BaseView, BaseTable] do
     BaseRepo.run(
       write.shard,
       fn ->

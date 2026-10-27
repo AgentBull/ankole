@@ -213,7 +213,8 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                  data: %{membership: "member", email: "new.user@example.com"}
                })
 
-      assert {201, %{"uid" => _}} =
+      assert {400,
+              %{"errors" => [%{"code" => "required", "source" => %{"pointer" => "/data/email"}}]}} =
                request(conn, :post, "/api/v2/principals", %{
                  data: %{membership: "member", display_name: "No email yet"}
                })

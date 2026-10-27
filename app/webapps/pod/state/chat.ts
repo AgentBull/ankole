@@ -480,8 +480,10 @@ export const ChatModel = createModel(() => {
       }
       observedAt[uid] = ++activityObservation
       latestActivities.set(uid, incoming)
-      activities.value = { ...activities.value, [uid]: incoming }
-      if (incoming.state === 'active' && incoming.responseID && !liveStreams.value[uid]) {
+      if (incoming.state !== 'active' || !connecting.peek()) {
+        activities.value = { ...activities.value, [uid]: incoming }
+      }
+      if (incoming.state === 'active' && !connecting.peek() && incoming.responseID && !liveStreams.value[uid]) {
         liveStreams.value = {
           ...liveStreams.value,
           [uid]: {
@@ -492,6 +494,16 @@ export const ChatModel = createModel(() => {
             thinkingSummary: ''
           }
         }
+      } else if (
+        incoming.state !== 'active' &&
+        liveStreams.value[uid] &&
+        !liveStreams.value[uid].text &&
+        !liveStreams.value[uid].thinkingSummary &&
+        !liveStreams.value[uid].startedAt
+      ) {
+        const next = { ...liveStreams.value }
+        delete next[uid]
+        liveStreams.value = next
       }
     },
     markGone() {

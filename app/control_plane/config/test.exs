@@ -66,6 +66,8 @@ config :ankole, Ankole.Plugins.LarkAdapter.Config,
 
 # Compile the local Worker fixture transport only in the test build.
 config :ankole, :test_worker_routes, true
+config :swoosh, :local, true
+config :ankole, :dev_routes, true
 
 # The limiter test uses a real interval. Other tests do not need wall-clock waits.
 

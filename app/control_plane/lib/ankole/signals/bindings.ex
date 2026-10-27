@@ -127,11 +127,8 @@ defmodule Ankole.Signals.Bindings do
                })
              end,
              after_commit: &cache_committed_assignment/1
-           ),
-         :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
-         :ok <- Delivery.wake_blocked_for_binding(principal.uid, binding_name),
-         :ok <-
-           PreviewStates.wake_blocked(principal.uid, binding_name) do
+           ) do
+      publish_binding(definition, binding, normalized_config)
       {:ok, %{binding: binding, config_key: config_key}}
     else
       {:error, :not_found} -> {:error, :agent_not_found}
@@ -209,14 +206,8 @@ defmodule Ankole.Signals.Bindings do
                })
              end,
              after_commit: &cache_committed_assignment/1
-           ),
-         :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
-         :ok <- Delivery.wake_blocked_for_binding(target_principal.uid, binding_name),
-         :ok <-
-           PreviewStates.wake_blocked(
-             target_principal.uid,
-             binding_name
            ) do
+      publish_binding(definition, binding, normalized_config)
       {:ok, %{binding: binding, config_key: config_key}}
     else
       nil -> {:error, :binding_not_found}
@@ -306,6 +297,41 @@ defmodule Ankole.Signals.Bindings do
       {:error, :not_found} -> {:error, :agent_not_found}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp publish_binding(definition, binding, config) do
+    for {operation, callback} <- [
+          {:adapter_saved, fn -> maybe_handle_binding_saved(definition, binding, config) end},
+          {:wake_delivery,
+           fn -> Delivery.wake_blocked_for_binding(binding.agent_uid, binding.name) end},
+          {:wake_preview, fn -> PreviewStates.wake_blocked(binding.agent_uid, binding.name) end}
+        ] do
+      try do
+        case callback.() do
+          :ok -> :ok
+          {:error, reason} -> log_publication_failure(binding, operation, :error, reason, [])
+        end
+      rescue
+        error -> log_publication_failure(binding, operation, :error, error, __STACKTRACE__)
+      catch
+        kind, reason -> log_publication_failure(binding, operation, kind, reason, __STACKTRACE__)
+      end
+    end
+
+    :ok
+  end
+
+  defp log_publication_failure(binding, operation, kind, reason, stacktrace) do
+    Ankole.Logging.warning(
+      "signals.binding_publication_failed",
+      "Signal Binding was saved, but publication failed",
+      Ankole.Logging.failure_fields(kind, reason, stacktrace)
+      |> Map.merge(%{
+        agent_uid: binding.agent_uid,
+        binding_name: binding.name,
+        operation: operation
+      })
+    )
   end
 
   defp maybe_handle_binding_saved(%Definition{} = definition, %Binding{} = binding, config)

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { SidebarProvider } from '@ankole/uikit'
 import { InternalAPIError } from '../../common/internal-api-client'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
-import { ChatRoute } from '../chat-page'
+import { ChatPage, ChatRoute } from '../chat-page'
 import { ChatDraftProvider, useChatDrafts } from '../chat-drafts'
 import type { ChatModel } from './chat'
 import i18n, { loadLocale } from '../../common/i18n'
@@ -152,6 +152,54 @@ describe('Pod unavailable conversations', () => {
       expect(html).not.toContain('<textarea')
       expect(html).not.toContain('data-slot="input-group"')
       expect(html).toContain('data-slot="sidebar-trigger"')
+    } finally {
+      client.clear()
+    }
+  })
+
+  test('an embedded page conversation 404 stays inside the page panel instead of linking away to root', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
+    })
+    const cached = conversationFixture()
+    cached.conversation.pageID = 'page-1'
+    client.setQueryData(podKeys.detail(conversationID), cached)
+    client
+      .getQueryCache()
+      .find({ queryKey: podKeys.detail(conversationID), exact: true })!
+      .setState({ status: 'error', error: notFound })
+    const rootRoute = createRootRoute({
+      component: () => (
+        <ChatPage
+          conversationID={conversationID}
+          pageID="page-1"
+          pageHeader={<header className="pod-page-chat-header">Page chat</header>}
+          onExitConversation={() => {}}
+        />
+      )
+    })
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+      parseSearch: parseRouterSearch,
+      stringifySearch: stringifyRouterSearch
+    })
+    await router.load()
+    try {
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <SidebarProvider>
+            <ChatDraftProvider>
+              <RouterProvider router={router} />
+            </ChatDraftProvider>
+          </SidebarProvider>
+        </QueryClientProvider>
+      )
+      expect(html).toContain('pod-page-chat-header')
+      expect(html).toContain('role="alert"')
+      expect(html).not.toContain('href="/"')
+      expect(html).not.toContain('Previously cached private text')
+      expect(html).not.toContain('data-slot="sidebar-trigger"')
     } finally {
       client.clear()
     }

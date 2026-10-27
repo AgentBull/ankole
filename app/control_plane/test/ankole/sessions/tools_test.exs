@@ -29,22 +29,25 @@ defmodule Ankole.Sessions.ToolsTest do
     end
   end
 
-  test "argument repair preserves explicit values and refuses to guess strings (G4)" do
-    assert {:ok, %{"path" => "/tmp/a"}, :none} = ToolArguments.parse(~s({"path":"/tmp/a"}))
+  test "tool execution requires complete JSON arguments" do
+    tool =
+      Tools.Session.declarations()
+      |> Enum.find(&(&1["name"] == "clarify"))
+      |> Ankole.Sessions.Tool.new(Tools.Session)
 
-    assert {:ok, %{"path" => "/tmp/a"}, :code_fence} =
-             ToolArguments.parse("```json\n{\"path\":\"/tmp/a\"}\n```")
+    for arguments <- [
+          ~s({"question":"Choose one",),
+          ~s({"question":"Choose one","choices":["A"),
+          ~s({"question":"Choose one"} trailing),
+          "```json\n{\"question\":\"Choose one\"}\n```"
+        ] do
+      call = %{"name" => "clarify", "call_id" => "invalid-json", "arguments" => arguments}
+      assert {:error, error} = Tools.prepare(%{tools: [tool]}, call)
+      assert error.is_error
+      assert error.failure_kind == "invalid_arguments"
+    end
 
-    assert {:ok, %{"path" => "/tmp/a"}, :balanced_object} =
-             ToolArguments.parse(~s(arguments: {"path":"/tmp/a"} thanks))
-
-    assert {:ok, %{"path" => "/tmp/a"}, :incomplete_container} =
-             ToolArguments.parse(~s({"path":"/tmp/a",))
-
-    assert {:ok, %{"path" => "/tmp/a", "unexpected" => true}, :incomplete_container} =
-             ToolArguments.parse(~s({"path":"/tmp/a","unexpected":true,))
-
-    assert {:error, _} = ToolArguments.parse(~s({"path":"/tmp/repor))
+    assert {:ok, %{"path" => "/tmp/a"}} = ToolArguments.parse(~s({"path":"/tmp/a"}))
     assert {:error, _} = ToolArguments.parse(~s({"path":) <> String.duplicate("x", 256 * 1024))
   end
 

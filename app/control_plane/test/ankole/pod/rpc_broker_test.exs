@@ -36,6 +36,34 @@ defmodule Ankole.Pod.RPCBrokerTest do
     }
   end
 
+  test "directory RPC lists nested children and searches their authorized breadcrumbs", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, parent} = Pages.create(actor, %{title: "Project", private_owner_uid: ctx.owner})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, parent.id, %{
+        grants: [%{principal_uid: ctx.agent, role: "view"}]
+      })
+
+    {:ok, child} = Pages.create(actor, %{parent_id: parent.id, title: "Nested result"})
+    {:ok, _hidden} = Pages.create(actor, %{title: "Nested secret", private_owner_uid: ctx.owner})
+
+    assert {:ok, %{"result" => %{"pages" => children}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.children", %{parent_id: parent.id}),
+               ctx.ctx
+             )
+
+    assert Enum.map(children, & &1["id"]) == [child.id]
+
+    assert {:ok, %{"result" => %{"pages" => [found], "ancestors" => ancestors}}} =
+             RPCBroker.handle_read(ctx.ref, request("pages.search", %{query: "Nested"}), ctx.ctx)
+
+    assert found["id"] == child.id
+    assert Enum.map(ancestors, & &1["id"]) == [parent.id]
+  end
+
   for operation <- ["pages.write", "files.upload"] do
     test "#{operation} reports the final relay error without changing the page", ctx do
       operation = unquote(operation)

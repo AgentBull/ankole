@@ -276,6 +276,7 @@ export function AgentPluginDetailPage() {
                   />
                 ) : (
                   <AgentOverrideControl
+                    capabilityName={humanizeAgentPluginID(plugin.id)}
                     override={plugin.override_enabled}
                     effective={plugin.effective_enabled}
                     disabled={mutations.pending}
@@ -394,6 +395,7 @@ function AgentPluginCard({
             />
           ) : (
             <AgentOverrideControl
+              capabilityName={name}
               override={plugin.override_enabled}
               effective={plugin.effective_enabled}
               disabled={pending}
@@ -451,6 +453,7 @@ function SkillCard({
             />
           ) : (
             <AgentOverrideControl
+              capabilityName={skill.name}
               override={skill.override_enabled}
               effective={skill.effective_enabled}
               disabled={pending}
@@ -736,12 +739,14 @@ function GlobalDefaultSwitch({
 
 /** Sets one agent's override — inherit, enabled, or disabled — and shows the effective result. */
 function AgentOverrideControl({
+  capabilityName,
   disabled,
   effective,
   inheritLabel,
   onChange,
   override
 }: {
+  capabilityName: string
   disabled: boolean
   effective: boolean
   inheritLabel?: string
@@ -755,7 +760,12 @@ function AgentOverrideControl({
         value={agentLibraryOverrideValue(override)}
         disabled={disabled}
         onValueChange={value => onChange(parseAgentLibraryOverrideValue(String(value)))}>
-        <SelectTrigger className="w-40">
+        <SelectTrigger
+          aria-label={t('console.agent_library_capabilities.set_agent_override_for', {
+            defaultValue: 'Set override for {$name}',
+            name: capabilityName
+          })}
+          className="w-40">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

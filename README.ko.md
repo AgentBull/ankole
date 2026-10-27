@@ -197,7 +197,7 @@ flowchart TB
 
 ## 현재 상태와 알려진 제한
 
-Ankole은 프로덕션에서 실행 중입니다. Ankole Agent도 회사가 쓰는 것과 같은 Company Brain, 도구, 업무 규칙으로 이 리포지토리의 유지 관리를 돕고 있습니다. 전용 end-to-end 테스트가 Slack, Lark, DingTalk, WeCom 메시지 경로, 일정, Worker 컴퓨터, 장애 복구, 동시 실행, 업그레이드를 검증합니다. 공개 API는 아직 호환성을 보장하지 않으므로 릴리스에 호환되지 않는 변경이 포함될 수 있습니다. 업그레이드하기 전에 [변경 기록](CHANGELOG.md)(영어)을 확인하세요.
+Ankole은 프로덕션에서 실행 중입니다. Ankole Agent도 회사가 쓰는 것과 같은 Company Brain, 도구, 업무 규칙으로 이 리포지토리의 유지 관리를 돕고 있습니다. 핵심 코드와 주요 상태 머신에는 정형 검증을 적용합니다. 전용 end-to-end 테스트가 Slack, Lark, DingTalk, WeCom 메시지 경로, 일정, Worker 컴퓨터, 장애 복구, 동시 실행, 업그레이드를 검증합니다. 공개 API는 아직 호환성을 보장하지 않으므로 릴리스에 호환되지 않는 변경이 포함될 수 있습니다. 업그레이드하기 전에 [변경 기록](CHANGELOG.md)(영어)을 확인하세요.
 
 [트레이드오프와 알려진 제한](docs/TradeoffsAndKnownLimits.md)(영어)에 Ankole이 보장하지 않는 내용을 정리했습니다. 가장 중요한 내용은 다음과 같습니다.
 

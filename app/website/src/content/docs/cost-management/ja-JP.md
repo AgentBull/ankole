@@ -23,7 +23,7 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 | `web_search`、`web_fetch` | web ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成 | 呼び出しごとに高価。使用時にのみバインドする |
 
-Brain は [AppConfigure](../app-configuration/) からサイト単位の embedding モデルとテナント単位の rerank モデルを読み取ります。テナント設定 `brain.maintainer_agent_uid` で各テナントの有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しはこの Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます（詳細は [Brain](../brain/) を参照）。同様に、テナント設定 `pod.applet.ai_agent_uid` は Pod Applet の `ctx.ai` モデル呼び出しを担当する有効な Agent を指定し、その呼び出しと token 使用量を設定先 Agent に帰属させます。
+Brain は [AppConfigure](../app-configuration/) からサイト単位の embedding モデルとテナント単位の rerank モデルを読み取ります。テナント設定 `brain.maintainer_agent_uid` で各テナントの有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しはこの Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます（詳細は [Brain](../brain/) を参照）。Pod Applet の `ctx.ai` 呼び出しには、その Applet を作成した Agent を使用します。この Agent が有効である必要があり、モデル profile、利用枠、token 使用量はその Agent に帰属します。
 
 最も節約できる 2 つの動き:
 

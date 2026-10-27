@@ -47,7 +47,9 @@ test('real email code logins share two Pod accounts while the chooser preserves 
 
     await first.getByRole('button', { name: /^账户菜单/ }).click()
     await first.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
-    await expect(first).toHaveURL(url => url.pathname === '/sessions/new' && url.searchParams.has('flow'))
+    await expect(first).toHaveURL(
+      url => url.pathname === '/sessions/new' && url.searchParams.get('switch') === '1' && !url.searchParams.has('flow')
+    )
     await first.getByRole('button', { name: /Browser owner/ }).click()
     await expect(first).toHaveURL(original)
     await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()

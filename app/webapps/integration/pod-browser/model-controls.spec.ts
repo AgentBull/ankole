@@ -26,6 +26,12 @@ test('a model choice reaches the first real input, survives reload and a failed 
     await page.goto('/')
     await choose(page, /^careful/)
     const input = page.getByRole('textbox', { name: '消息', exact: true })
+    await input.fill('/mod')
+    await expect(page.getByRole('listbox', { name: '补全建议', exact: true })).toBeVisible()
+    await input.press('Tab')
+    await expect(page.getByRole('combobox', { name: '模型', exact: true })).toHaveAttribute('aria-expanded', 'true')
+    await page.keyboard.press('Escape')
+    await expect(input).toHaveValue('')
     await input.fill('Model preference browser story')
     const accepted = page.waitForResponse(
       response =>

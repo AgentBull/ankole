@@ -125,14 +125,24 @@ describe('Pod incremental and source commands', () => {
         `import wasmURL from './add.wasm'; export const provider={load:async()=>WebAssembly.instantiate(await(await fetch(wasmURL)).arrayBuffer())}`
       )
       await buildApplet(root)
-      const script = await readFile(join(root, 'dist/main.js'), 'utf8')
-      const url = script.match(/data:application\/wasm;base64,[A-Za-z0-9+/=]+/)?.[0]
-      expect(url).toBeDefined()
-      const response = await fetch(url!)
-      expect(response.headers.get('content-type')).toBe('application/wasm')
-      const wasm = await WebAssembly.instantiate(await response.arrayBuffer())
-      const add = wasm.instance.exports.add as (a: number, b: number) => number
-      expect(add(2, 3)).toBe(5)
+      const child = Bun.spawn(
+        [
+          'bun',
+          '-e',
+          `globalThis.window=globalThis;globalThis.parent={__ANKOLE_APPLET_HOST__:{mount(){}}};
+const {provider}=await import(${JSON.stringify(join(root, 'dist/main.js'))});
+const wasm=await provider.load();console.log(wasm.instance.exports.add(2,3));`
+        ],
+        { stdout: 'pipe', stderr: 'pipe' }
+      )
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text()
+      ])
+      expect(stderr).toBe('')
+      expect(code).toBe(0)
+      expect(stdout.trim()).toBe('5')
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -142,19 +152,22 @@ describe('Pod incremental and source commands', () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-nested-worker-'))
     try {
       await initializeApplet(root)
-      await mkdir(join(root, 'src/charts'))
-      await writeFile(join(root, 'src/main.tsx'), `export const provider={load:()=>import('./charts/controller')}`)
+      await mkdir(join(root, 'src/charts/nested'), { recursive: true })
       await writeFile(
-        join(root, 'src/charts/controller.ts'),
+        join(root, 'src/main.tsx'),
+        `export const provider={load:()=>import('./charts/nested/controller')}`
+      )
+      await writeFile(
+        join(root, 'src/charts/nested/controller.ts'),
         `import workerURL from './calculate.worker.ts?url';
 export const run=()=>new Worker(new URL(workerURL,import.meta.url),{type:'module'});`
       )
       await writeFile(
-        join(root, 'src/charts/add.wasm'),
+        join(root, 'src/charts/nested/add.wasm'),
         Buffer.from('0061736d0100000001070160027f7f017f030201000707010361646400000a09010700200020016a0b', 'hex')
       )
       await writeFile(
-        join(root, 'src/charts/calculate.worker.ts'),
+        join(root, 'src/charts/nested/calculate.worker.ts'),
         `import wasmURL from './add.wasm';
 const value: number = 42;
 const module=await WebAssembly.instantiate(await(await fetch(wasmURL)).arrayBuffer());

@@ -228,7 +228,7 @@ test('an Applet viewer submits according to target permissions without losing lo
     const base = await request<{ actions: string[] }>(member, `/pages/${state.base_id}`)
     expect(base.actions).toContain('page_write_records')
     const originalBase = new PageSharingModel()
-    originalBase.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
+    originalBase.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
     restoreBase = originalBase.body()
     const share = (role: 'view' | 'contribute') =>
       requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
@@ -290,7 +290,7 @@ test('an Applet viewer submits according to target permissions without losing lo
     await expect(draft).toHaveValue('Unsubmitted member evaluation')
     await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()
     const ancestor = new PageSharingModel()
-    ancestor.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.report_id}/sharing`))
+    ancestor.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.report_id}/sharing`))
     restoreReport = ancestor.body()
     const memberIndex = ancestor.draft.value!.grants.findIndex(
       grant => grant.principal_uid === state.member.uid && (grant.condition ?? 'true') === 'true'
@@ -345,8 +345,8 @@ test('a rejected table write preserves the Applet draft until Page access is rev
   const baseSharing = new PageSharingModel()
   try {
     await owner.goto(pageRoute(state.applet_id))
-    appletSharing.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.applet_id}/sharing`))
-    baseSharing.initialize(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
+    appletSharing.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.applet_id}/sharing`))
+    baseSharing.replace(await request<PodPageSharingResponse>(owner, `/pages/${state.base_id}/sharing`))
     await requestWithSharingVersion(owner, `/pages/${state.base_id}/sharing`, 'PUT', {
       inherit_permissions: false,
       grants: [

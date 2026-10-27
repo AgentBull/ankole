@@ -74,6 +74,20 @@ defmodule Ankole.Brain.CalibrationTest do
     }
   end
 
+  test "public predictions exclude private evidence from the model request", context do
+    write_take!(context.member, %{object_slug: context.object.slug}, "Public prediction")
+    write_fact!(context, "Public evidence")
+
+    write_fact!(context, "Private acquisition detail",
+      audience_scope: "principal:#{context.member.uid}"
+    )
+
+    assert %{attempted: 1, graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, prompt}
+    assert prompt =~ "Public evidence"
+    refute prompt =~ "Private acquisition detail"
+  end
+
   test "grade_takes skips deleted Object parents and grades channel parents", context do
     object_text = "The deleted object prediction must not reach the model"
     channel_text = "The channel prediction remains eligible for grading"

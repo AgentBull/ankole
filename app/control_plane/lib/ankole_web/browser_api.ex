@@ -16,12 +16,6 @@ defmodule AnkoleWeb.BrowserAPI do
     routes do
       base_route "/invitations", AnkoleWeb.BrowserInvitation do
         route(:get, "/:token", :preview, name: "previewInvitation")
-
-        route(:post, "/:token/sessions", :begin_login,
-          name: "beginInvitationLogin",
-          modify_conn: &__MODULE__.apply_cookies/4
-        )
-
         route(:post, "/:token/acceptances", :accept, name: "acceptInvitation")
       end
 
@@ -104,7 +98,15 @@ defmodule AnkoleWeb.BrowserAPI do
 
         route(:get, "/identity-providers", :identity_providers,
           name: "loginProviders",
-          query_params: [:flow]
+          query_params: [
+            :oauth_request,
+            :purpose,
+            :prompt,
+            :switch,
+            :reauth,
+            :invitation,
+            :invitation_token
+          ]
         )
 
         route(:post, "/sessions/identity-selection", :select_identity,
@@ -117,7 +119,8 @@ defmodule AnkoleWeb.BrowserAPI do
         )
 
         route(:post, "/sessions/email-otp/challenges", :request_email_otp,
-          name: "requestEmailOTP"
+          name: "requestEmailOTP",
+          modify_conn: &__MODULE__.apply_cookies/4
         )
 
         route(:post, "/sessions/email-otp/verifications", :verify_email_otp,

@@ -101,7 +101,13 @@ describe('Job web tools adapter', () => {
         throw new Error('ankole-browser daemon unavailable')
       }
     })
-    expect(unavailable).toMatchObject({ results: [{ error: 'rendered fallback is temporarily unavailable' }] })
+    expect(unavailable).toMatchObject({ results: [{ error: 'ankole-browser daemon unavailable' }] })
+    const timedOut = await renderedFallbackFetch(['https://example.com'], {
+      fetchBatch: async () => {
+        throw new Error('Playwright navigation timed out after 30000 ms')
+      }
+    })
+    expect(timedOut).toMatchObject({ results: [{ error: 'Playwright navigation timed out after 30000 ms' }] })
     const abort = new AbortController()
     abort.abort()
     await expect(

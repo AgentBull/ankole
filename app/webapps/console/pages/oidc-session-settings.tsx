@@ -1,16 +1,19 @@
 import { Badge, Button, Checkbox, Input, Textarea, toast } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { listOidcLoginSourcesOptions } from '../api/v2/generated/@tanstack/react-query.gen'
-import { fromDocument } from '../api/json-api'
 import {
+  listOidcLoginSourcesOptions,
   listOidcLogoutDeliveriesOptions,
+  listPrincipalsOptions,
   retryOidcLogoutDeliveryMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
 import { LabeledField } from '../console-form'
+import { formatConsoleDate } from '../console-primitives'
 import type { ClientDraft } from '../state/oidc-client-editor-model'
+import { principalLabel } from '../state/principal-label'
 
 export function OIDCSessionSettings({
   disabled,
@@ -125,6 +128,12 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
     select: document => fromDocument(document) as LogoutDeliveryItem[],
     refetchInterval: 15000
   })
+  const principals = useQuery({
+    ...listPrincipalsOptions({ query: { include_disabled: true } }),
+    select: document => fromDocument(document),
+    enabled: Boolean(deliveries.data && deliveries.data.length > 0)
+  })
+  const principalByUID = new Map((principals.data ?? []).map(principal => [principal.id, principal]))
   const retry = useMutation({
     ...retryOidcLogoutDeliveryMutation(),
     onSuccess: () => {
@@ -141,31 +150,35 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
       {deliveries.data?.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('console.access_sessions.no_deliveries')}</p>
       ) : null}
-      {deliveries.data?.map(item => (
-        <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border border-border p-4">
-          <div className="grid gap-1 text-sm">
-            <span>
-              {item.principal_uid} · {item.status} ·{' '}
-              {t('console.access_sessions.attempts', { count: item.attempt_count })}
-            </span>
-            <code className="text-xs break-all text-muted-foreground">{item.session_id}</code>
-            {item.last_error ? <span role="status">{item.last_error}</span> : null}
-            <span className="text-xs text-muted-foreground">
-              {item.delivered_at ?? item.next_attempt_at ?? item.deadline}
-            </span>
+      {deliveries.data?.map(item => {
+        const principal = item.principal_uid ? principalByUID.get(item.principal_uid) : undefined
+        const actorDisplay = principal ? principalLabel(principal) : (item.principal_uid ?? '—')
+        const statusDisplay = t(`console.access_sessions.status_${item.status}`, { defaultValue: item.status })
+        const timestamp = item.delivered_at ?? item.next_attempt_at ?? item.deadline
+        return (
+          <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border border-border p-4">
+            <div className="grid gap-1 text-sm">
+              <span>
+                <span title={item.principal_uid ?? undefined}>{actorDisplay}</span> · {statusDisplay} ·{' '}
+                {t('console.access_sessions.attempts', { count: item.attempt_count })}
+              </span>
+              <code className="text-xs break-all text-muted-foreground">{item.session_id}</code>
+              {item.last_error ? <span role="status">{item.last_error}</span> : null}
+              <span className="text-xs text-muted-foreground">{formatConsoleDate(timestamp)}</span>
+            </div>
+            {item.status !== 'delivered' ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={retry.isPending}
+                onClick={() => retry.mutate({ path: { client_id: clientID, id: item.id } })}>
+                {t('common.retry')}
+              </Button>
+            ) : null}
           </div>
-          {item.status !== 'delivered' ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={retry.isPending}
-              onClick={() => retry.mutate({ path: { client_id: clientID, id: item.id } })}>
-              {t('common.retry')}
-            </Button>
-          ) : null}
-        </div>
-      ))}
+        )
+      })}
     </section>
   )
 }

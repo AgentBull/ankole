@@ -2,13 +2,13 @@ import { flushSync } from 'react-dom'
 import { DirectoryAccessSection } from './directory-access'
 import {
   Button,
-  Checkbox,
   Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
   TableCell,
   TableRow,
   toast
@@ -32,10 +32,12 @@ import {
   setPath
 } from '../../common/config-fields'
 import i18n from '../../common/i18n'
+import { unusedProviderID } from '../../common/identity-provider'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   listIdentityProviderAdaptersOptions,
   listIdentityProvidersOptions,
+  createIdentityProviderMutation,
   saveIdentityProviderMutation,
   runIdentityProviderSyncMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
@@ -56,20 +58,35 @@ type IdentityProviderAdapterItem = Omit<
 export function IdentityProvidersListPage() {
   const { t } = useTranslation()
   const providers = useQuery(listIdentityProvidersOptions())
+  const adapters = useQuery(listIdentityProviderAdaptersOptions())
+  const adapterByID = useMemo(
+    () =>
+      new Map(
+        ((adapters.data?.identity_provider_adapters ?? []) as IdentityProviderAdapterItem[]).map(adapter => [
+          adapter.adapter_id,
+          adapter
+        ])
+      ),
+    [adapters.data]
+  )
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
+  const locale = i18n.language
   // Search matches the words the table shows, not internal boolean tokens, so
   // typing a visible status label finds the row in every locale.
-  const rows = (providers.data?.identity_providers ?? []).filter(provider =>
-    matchesResourceSearch(
+  const rows = (providers.data?.identity_providers ?? []).filter(provider => {
+    const adapter = adapterByID.get(provider.adapter_id)
+    const adapterLabel = adapter ? (localizedText(adapter.display_name, locale) ?? provider.adapter_id) : undefined
+    return matchesResourceSearch(
       searchQuery,
       provider.provider_id,
       provider.adapter_id,
+      adapterLabel,
       provider.enabled ? t('console.status.enabled') : t('console.status.disabled'),
       syncEnabled(provider) ? t('console.status.contacts') : t('console.status.off')
     )
-  )
+  })
 
   return (
     <ResourceListPage
@@ -108,7 +125,14 @@ export function IdentityProvidersListPage() {
               {provider.provider_id}
             </Link>
           </TableCell>
-          <TableCell>{provider.adapter_id}</TableCell>
+          <TableCell>
+            {(() => {
+              const adapter = adapterByID.get(provider.adapter_id)
+              return adapter
+                ? (localizedText(adapter.display_name, locale) ?? provider.adapter_id)
+                : provider.adapter_id
+            })()}
+          </TableCell>
           <TableCell>
             <StatusIndicator tone={syncEnabled(provider) ? 'info' : 'neutral'}>
               {syncEnabled(provider) ? t('console.status.contacts') : t('console.status.off')}
@@ -156,7 +180,9 @@ export function IdentityProviderEditorPage() {
   const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
 
   const sourceReady =
-    mode === 'new' ? adapters.isSuccess && identityAdapters.length > 0 : providers.isSuccess && Boolean(selected)
+    mode === 'new'
+      ? adapters.isSuccess && providers.isSuccess && !providers.isFetching && identityAdapters.length > 0
+      : providers.isSuccess && Boolean(selected)
   const identityDraft = useMemo(
     () =>
       !sourceReady
@@ -164,9 +190,12 @@ export function IdentityProviderEditorPage() {
         : mode === 'edit' && selected
           ? formFromProvider(selected)
           : mode === 'new'
-            ? emptyForm(identityAdapters[0])
+            ? emptyForm(
+                identityAdapters[0],
+                providers.data?.identity_providers.map(item => item.provider_id)
+              )
             : undefined,
-    [identityAdapters, mode, selected, sourceReady]
+    [identityAdapters, mode, selected, sourceReady, providers.data]
   )
   const draftStatus = useEditorDraft(model, {
     sourceKey: providerID ? `provider:${providerID}` : 'new',
@@ -175,7 +204,7 @@ export function IdentityProviderEditorPage() {
   })
 
   const saveProvider = useMutation({
-    ...saveIdentityProviderMutation(),
+    ...(mode === 'new' ? createIdentityProviderMutation() : saveIdentityProviderMutation()),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
       let accepted = false
@@ -201,7 +230,14 @@ export function IdentityProviderEditorPage() {
 
   const changeAdapter = (adapterID: string) => {
     const adapter = identityAdapters.find(item => item.adapter_id === adapterID)
-    if (adapter) model.changeAdapter(emptyForm(adapter))
+    if (adapter) {
+      model.changeAdapter(
+        emptyForm(
+          adapter,
+          providers.data?.identity_providers.map(item => item.provider_id)
+        )
+      )
+    }
   }
 
   const submit = () => {
@@ -318,15 +354,12 @@ export function IdentityProviderEditorPage() {
           </LabeledField>
         </div>
 
-        <label className="flex items-center justify-between gap-4 border border-border bg-muted/30 p-4">
+        <label className="flex cursor-pointer items-center justify-between gap-4 border border-border bg-muted/30 p-4">
           <span className="grid gap-1">
             <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
             <span className="text-xs text-muted-foreground">{t('console.identity.enabled_hint')}</span>
           </span>
-          <Checkbox
-            checked={model.enabled.value}
-            onCheckedChange={checked => (model.enabled.value = checked === true)}
-          />
+          <Switch checked={model.enabled.value} onCheckedChange={checked => (model.enabled.value = checked)} />
         </label>
 
         {activeAdapter ? (
@@ -344,10 +377,10 @@ export function IdentityProviderEditorPage() {
   )
 }
 
-function emptyForm(adapter?: IdentityProviderAdapterItem): IdentityEditorDraft {
+function emptyForm(adapter?: IdentityProviderAdapterItem, existingIDs: string[] = []): IdentityEditorDraft {
   return {
     adapterID: adapter?.adapter_id ?? '',
-    providerID: adapter?.default_provider_id ?? '',
+    providerID: unusedProviderID(adapter?.default_provider_id ?? '', existingIDs),
     enabled: true,
     config: defaultConfig(adapter?.fields ?? [])
   }

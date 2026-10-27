@@ -620,10 +620,13 @@ defmodule AnkoleWeb.OIDCControllerTest do
     for params <- [%{"prompt" => "login"}, %{"max_age" => "0"}] do
       result = get(recycle(session), "/oauth/authorize", Map.merge(request, params))
       assert String.starts_with?(redirected_to(result), "/sessions/new?")
-      flow = URI.decode_query(URI.parse(redirected_to(result)).query)["flow"]
-      {:ok, transaction} = WebSession.login_transaction(result, flow)
-      if Map.has_key?(params, "prompt"), do: assert(transaction.request["prompt"] == ["login"])
-      if Map.has_key?(params, "max_age"), do: assert(transaction.request["max_age"] == 0)
+      oauth_request = URI.decode_query(URI.parse(redirected_to(result)).query)["oauth_request"]
+
+      {:ok, stored} =
+        OIDC.AuthorizationRequests.get(WebSession.browser_reference(result), oauth_request)
+
+      if Map.has_key?(params, "prompt"), do: assert(stored.request["prompt"] == ["login"])
+      if Map.has_key?(params, "max_age"), do: assert(stored.request["max_age"] == 0)
     end
 
     result =
@@ -1037,14 +1040,22 @@ defmodule AnkoleWeb.OIDCControllerTest do
         Map.put(authorization_request(client.id, "openid"), "prompt", "select_account")
       )
 
-    flow = redirect_query(authorization)["flow"]
-    assert is_binary(flow)
+    oauth_request = redirect_query(authorization)["oauth_request"]
+    assert is_binary(oauth_request)
     refute redirect_query(authorization)["code"]
-    page = authorization |> recycle() |> get("/sessions/new", %{"flow" => flow})
+
+    page =
+      authorization |> recycle() |> get("/sessions/new", %{"oauth_request" => oauth_request})
+
     assert html_response(page, 200) =~ "entrypoints/auth.tsx"
 
+    assert html_response(page, 200) =~
+             ~s(<meta name="ankole-login-tenant-name" content="#{tenant.display_name}">)
+
     choices =
-      page |> recycle() |> api_get("/api/v2/browser/identity-providers", %{"flow" => flow})
+      page
+      |> recycle()
+      |> api_get("/api/v2/browser/identity-providers", %{"oauth_request" => oauth_request})
 
     assert %{"selectAccount" => true, "identities" => identities} =
              api_response(choices, 200)
@@ -1056,13 +1067,19 @@ defmodule AnkoleWeb.OIDCControllerTest do
       choices
       |> recycle()
       |> api_post("/api/v2/browser/sessions/identity-selection", %{
-        "flow" => flow,
+        "oauthRequest" => oauth_request,
         "authenticationRef" => Ankole.BrowserSessions.encode_reference(a_ref)
       })
 
     assert %{"returnTo" => resume} = api_response(selected, 200)
     issued_a = selected |> recycle() |> get(resume)
     assert is_binary(redirect_query(issued_a)["code"])
+
+    assert selected |> recycle() |> get(resume) |> json_response(400) == %{
+             "error" => "invalid_request",
+             "error_description" => "authorization request expired or not allowed"
+           }
+
     Repo.put_tenant_id(tenant.id)
     [session_a] = Repo.all(Ankole.OIDC.Session)
     assert session_a.principal_uid == a.principal.uid
@@ -1113,26 +1130,28 @@ defmodule AnkoleWeb.OIDCControllerTest do
         Map.put(authorization_request(client.id, "openid"), "prompt", "login select_account")
       )
 
-    flow = redirect_query(authorization)["flow"]
+    oauth_request = redirect_query(authorization)["oauth_request"]
 
     selected =
       authorization
       |> recycle()
       |> api_post("/api/v2/browser/sessions/identity-selection", %{
-        "flow" => flow,
+        "oauthRequest" => oauth_request,
         "authenticationRef" => Ankole.BrowserSessions.encode_reference(a_ref)
       })
 
     assert %{"returnTo" => return_to} = api_response(selected, 200)
-    assert return_to =~ "/sessions/new?"
+    assert return_to =~ "/sessions/new?oauth_request="
 
     assert {:ok, %{status: :pending, expected_authentication_id: expected}} =
-             WebSession.login_transaction(selected, flow)
+             OIDC.AuthorizationRequests.get(
+               WebSession.browser_reference(selected),
+               oauth_request
+             )
 
     assert expected == a_ref["id"]
     Repo.put_tenant_id(tenant.id)
     browser = WebSession.browser_reference(selected)
-    {:ok, _} = Ankole.BrowserSessions.bind_provider(browser, flow, "lark-main")
 
     wrong = %{
       "principal_uid" => b.principal.uid,
@@ -1142,15 +1161,23 @@ defmodule AnkoleWeb.OIDCControllerTest do
     }
 
     assert {:error, :login_subject_mismatch} =
-             Ankole.BrowserSessions.complete_login(browser, flow, wrong)
+             Ankole.BrowserSessions.authenticate(
+               browser,
+               :oauth,
+               wrong,
+               oauth_request_id: oauth_request,
+               expected_authentication_id: expected
+             )
 
     {:ok, _} = Ankole.BrowserSessions.revoke(browser, a_ref)
 
     assert {:error, :login_expired} =
-             Ankole.BrowserSessions.complete_login(
+             Ankole.BrowserSessions.authenticate(
                browser,
-               flow,
-               Map.put(wrong, "principal_uid", a.principal.uid)
+               :oauth,
+               Map.put(wrong, "principal_uid", a.principal.uid),
+               oauth_request_id: oauth_request,
+               expected_authentication_id: expected
              )
   end
 
@@ -1301,24 +1328,23 @@ defmodule AnkoleWeb.OIDCControllerTest do
   end
 
   defp add_authentication(conn, principal) do
-    {:ok, conn, transaction} = WebSession.begin_login(conn, :pod, %{}, mode: :add)
+    conn = WebSession.ensure_browser(conn)
 
-    {:ok, _} =
-      Ankole.BrowserSessions.bind_provider(
+    {:ok, %{browser: browser, authentication: authentication}} =
+      Ankole.BrowserSessions.authenticate(
         WebSession.browser_reference(conn),
-        transaction.id,
-        "lark-main"
+        :pod,
+        %{
+          "principal_uid" => principal.uid,
+          "provider_id" => "lark-main",
+          "external_id" => principal.uid,
+          "access_version" => principal.access_version,
+          "auth_time" => System.system_time(:second)
+        },
+        mode: :add
       )
 
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, transaction.id, %{
-        "principal_uid" => principal.uid,
-        "provider_id" => "lark-main",
-        "external_id" => principal.uid,
-        "access_version" => principal.access_version,
-        "auth_time" => System.system_time(:second)
-      })
-
+    conn = WebSession.put_authentication(conn, browser, authentication)
     {conn, WebSession.authentication_reference(conn)}
   end
 
@@ -1442,28 +1468,23 @@ defmodule AnkoleWeb.OIDCControllerTest do
   end
 
   defp oauth_session_conn(conn, principal_uid, auth_time \\ System.system_time(:second)) do
-    conn = init_test_session(conn, %{})
-    {:ok, conn, transaction} = WebSession.begin_login(conn, :oauth, %{})
-
-    {:ok, _} =
-      Ankole.BrowserSessions.bind_provider(
-        WebSession.browser_reference(conn),
-        transaction.id,
-        "lark-main"
-      )
-
+    conn = conn |> init_test_session(%{}) |> WebSession.ensure_browser()
     {:ok, version} = Ankole.Principals.HumanAccess.current_version(principal_uid)
 
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, transaction.id, %{
-        "principal_uid" => principal_uid,
-        "provider_id" => "lark-main",
-        "external_id" => principal_uid,
-        "access_version" => version,
-        "auth_time" => auth_time
-      })
+    {:ok, %{browser: browser, authentication: authentication}} =
+      Ankole.BrowserSessions.authenticate(
+        WebSession.browser_reference(conn),
+        :oauth,
+        %{
+          "principal_uid" => principal_uid,
+          "provider_id" => "lark-main",
+          "external_id" => principal_uid,
+          "access_version" => version,
+          "auth_time" => auth_time
+        }
+      )
 
-    conn
+    WebSession.put_authentication(conn, browser, authentication)
   end
 
   defp verify_id_token!(token, audience) do

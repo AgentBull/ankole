@@ -1,6 +1,6 @@
 import { Button, cn, toast } from '@ankole/uikit'
-import { RiFileCopyLine } from '@remixicon/react'
-import { useRef, type ReactNode } from 'react'
+import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -24,6 +24,9 @@ export default function MarkdownRenderer({ text, copyCode = false }: { text: str
 function CodeBlock({ children }: { children?: ReactNode }) {
   const { t } = useTranslation()
   const code = useRef<HTMLPreElement>(null)
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
   return (
     <div className="my-2 overflow-hidden border border-border bg-card">
       <div className="flex justify-end border-b border-border px-2 py-1">
@@ -33,13 +36,16 @@ function CodeBlock({ children }: { children?: ReactNode }) {
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(code.current?.textContent ?? '')
+              setCopied(true)
+              clearTimeout(timer.current)
+              timer.current = setTimeout(() => setCopied(false), 1500)
               toast.success(t('pod.chat.code_copied'))
             } catch {
               toast.error(t('pod.chat.copy_failed'))
             }
           }}>
-          <RiFileCopyLine aria-hidden />
-          {t('pod.chat.copy_code')}
+          {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+          {t(copied ? 'pod.chat.code_copied' : 'pod.chat.copy_code')}
         </Button>
       </div>
       <pre

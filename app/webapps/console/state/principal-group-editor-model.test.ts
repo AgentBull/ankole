@@ -41,20 +41,18 @@ describe('PrincipalGroupEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('draftError requires a lowercase name on create but not on edit', () => {
+  test('creation accepts a name for the server to normalize and requires a display name', () => {
     const model = new PrincipalGroupEditorModel()
 
     model.initialize('new', { name: '', displayName: '', description: '', kind: 'static', computedCondition: '' })
     expect(model.draftError('new')).toBe('name_required')
 
     model.name.value = 'Operators'
-    expect(model.draftError('new')).toBe('name_lowercase')
-
-    model.name.value = 'operators'
     expect(model.draftError('new')).toBe('display_name_required')
 
     model.displayName.value = 'Operators'
     expect(model.draftError('new')).toBeUndefined()
+    expect(model.createBody().name).toBe('Operators')
     // The server owns the immutable name on edit, so an empty draft name is fine.
     expect(model.draftError('edit')).toBeUndefined()
     model[Symbol.dispose]()
@@ -108,6 +106,19 @@ describe('PrincipalGroupEditorModel', () => {
     model.kind.value = 'static'
     expect(model.createBody().computed_condition).toBeNull()
     expect(model.updateBody().computed_condition).toBeNull()
+    model[Symbol.dispose]()
+  })
+
+  test('auto-derives name from display name in new mode until manually edited', () => {
+    const model = new PrincipalGroupEditorModel()
+    model.initialize('new', { name: '', displayName: '', description: '', kind: 'static', computedCondition: '' })
+
+    model.setDisplayName('Research Ops', true)
+    expect(model.name.value).toBe('research-ops')
+
+    model.setName('custom-ops')
+    model.setDisplayName('Updated Research Ops', true)
+    expect(model.name.value).toBe('custom-ops')
     model[Symbol.dispose]()
   })
 })

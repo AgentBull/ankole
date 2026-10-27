@@ -140,6 +140,16 @@ function timeValue(fields: CronEditorFields): string {
   return `${String(fields.hour).padStart(2, '0')}:${String(fields.minute).padStart(2, '0')}`
 }
 
+type CronNumberFieldName = 'interval' | 'minute' | 'dayOfMonth'
+type CronNumberDraft = { field: CronNumberFieldName; text: string; forValue: string }
+
+export function commitCronNumberDraft(raw: string, fallback: number, min: number, max: number): number {
+  const trimmed = raw.trim()
+  if (trimmed === '') return clamp(fallback, min, max)
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? clamp(parsed, min, max) : clamp(fallback, min, max)
+}
+
 export function CronEditor({
   className,
   disabled = false,
@@ -159,6 +169,7 @@ export function CronEditor({
   // chosen for: the editor's own emissions carry it forward, and an external
   // value replacement, such as a restore, drops it so the mode re-derives.
   const [override, setOverride] = React.useState<CronEditorModeOverride>()
+  const [numberDraft, setNumberDraft] = React.useState<CronNumberDraft>()
   const mode = cronEditorModeWithOverride(override, value)
   const fields = cronEditorFields(value)
 
@@ -172,6 +183,7 @@ export function CronEditor({
   }
 
   const selectMode = (nextMode: CronEditorMode) => {
+    setNumberDraft(undefined)
     if (nextMode === 'custom') setOverride({ mode: 'custom', forValue: value })
     else emit(nextMode, fields)
   }
@@ -180,6 +192,55 @@ export function CronEditor({
     const [hourText = '', minuteText = ''] = time.split(':')
     if (!isCronNumber(hourText) || !isCronNumber(minuteText)) return
     emit(mode, { ...fields, hour: Number(hourText), minute: Number(minuteText) })
+  }
+
+  const renderNumberInput = (fieldName: CronNumberFieldName, label: string, min: number, max: number) => {
+    const activeDraft =
+      numberDraft && numberDraft.field === fieldName && numberDraft.forValue === value ? numberDraft.text : undefined
+    const commit = () => {
+      if (activeDraft === undefined) return
+      const clamped = commitCronNumberDraft(activeDraft, fields[fieldName], min, max)
+      setNumberDraft(undefined)
+      if (clamped !== fields[fieldName]) {
+        emit(mode, { ...fields, [fieldName]: clamped })
+      }
+    }
+
+    return (
+      <Field>
+        <FieldLabel>{label}</FieldLabel>
+        <Input
+          aria-label={label}
+          disabled={disabled}
+          max={max}
+          min={min}
+          type="number"
+          value={activeDraft ?? String(fields[fieldName])}
+          onBlur={commit}
+          onChange={event => {
+            const raw = event.target.value
+            const trimmed = raw.trim()
+            if (/^\d+$/.test(trimmed)) {
+              const parsed = Number(trimmed)
+              if (parsed >= min && parsed <= max) {
+                const next = cronExpressionFor(mode, { ...fields, [fieldName]: parsed }, value)
+                setNumberDraft({ field: fieldName, text: raw, forValue: next })
+                emitAs(mode, next)
+                return
+              }
+            }
+            setNumberDraft({ field: fieldName, text: raw, forValue: value })
+          }}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && activeDraft !== undefined) {
+              const clamped = commitCronNumberDraft(activeDraft, fields[fieldName], min, max)
+              if (activeDraft !== String(clamped)) event.preventDefault()
+              commit()
+            }
+          }}
+        />
+      </Field>
+    )
   }
 
   return (
@@ -206,35 +267,9 @@ export function CronEditor({
         </Select>
       </Field>
 
-      {mode === 'every_minutes' ? (
-        <Field>
-          <FieldLabel>{labels.interval}</FieldLabel>
-          <Input
-            aria-label={labels.interval}
-            disabled={disabled}
-            max={59}
-            min={1}
-            type="number"
-            value={String(fields.interval)}
-            onChange={event => emit(mode, { ...fields, interval: Number(event.target.value) })}
-          />
-        </Field>
-      ) : null}
+      {mode === 'every_minutes' ? renderNumberInput('interval', labels.interval, 1, 59) : null}
 
-      {mode === 'hourly' ? (
-        <Field>
-          <FieldLabel>{labels.minute}</FieldLabel>
-          <Input
-            aria-label={labels.minute}
-            disabled={disabled}
-            max={59}
-            min={0}
-            type="number"
-            value={String(fields.minute)}
-            onChange={event => emit(mode, { ...fields, minute: Number(event.target.value) })}
-          />
-        </Field>
-      ) : null}
+      {mode === 'hourly' ? renderNumberInput('minute', labels.minute, 0, 59) : null}
 
       {mode === 'weekly' ? (
         <Field>
@@ -258,20 +293,7 @@ export function CronEditor({
         </Field>
       ) : null}
 
-      {mode === 'monthly' ? (
-        <Field>
-          <FieldLabel>{labels.dayOfMonth}</FieldLabel>
-          <Input
-            aria-label={labels.dayOfMonth}
-            disabled={disabled}
-            max={31}
-            min={1}
-            type="number"
-            value={String(fields.dayOfMonth)}
-            onChange={event => emit(mode, { ...fields, dayOfMonth: Number(event.target.value) })}
-          />
-        </Field>
-      ) : null}
+      {mode === 'monthly' ? renderNumberInput('dayOfMonth', labels.dayOfMonth, 1, 31) : null}
 
       {mode === 'daily' || mode === 'weekly' || mode === 'monthly' ? (
         <Field>

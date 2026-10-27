@@ -23,7 +23,7 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 | `web_search`, `web_fetch` | web 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 비쌈. 사용할 때만 바인딩 |
 
-Brain은 [AppConfigure](../app-configuration/)에서 사이트 단위 embedding 모델과 테넌트 단위 rerank 모델을 읽습니다. 테넌트 설정 `brain.maintainer_agent_uid`로 각 테넌트의 활성 Brain 유지보수 Agent를 선택하면 모든 Brain 모델 호출이 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 해당 Agent의 `light` profile은 대화와 Source의 지식 추출, `heavy` profile은 Dreaming과 Skill 교훈 재검토, `web_fetch` profile은 URL Source 가져오기에 사용합니다. `web_fetch`가 설정되지 않았거나 Provider 요청이 실패하면 Source 가져오기가 실패합니다. 유지보수 Agent를 비활성화하면 다시 활성화하거나 교체할 때까지 모델 호출과 URL Source 가져오기가 모두 중지됩니다. **Brain → 상태**에서 선택한 Agent와 각 profile 상태를 확인할 수 있습니다(자세한 동작은 [Brain](../brain/) 참조). 마찬가지로 테넌트 설정 `pod.applet.ai_agent_uid`는 Pod Applet `ctx.ai` 모델 호출을 수행할 활성 Agent를 지정하며, 해당 호출과 token 사용량을 설정된 Agent에 귀속시킵니다.
+Brain은 [AppConfigure](../app-configuration/)에서 사이트 단위 embedding 모델과 테넌트 단위 rerank 모델을 읽습니다. 테넌트 설정 `brain.maintainer_agent_uid`로 각 테넌트의 활성 Brain 유지보수 Agent를 선택하면 모든 Brain 모델 호출이 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 해당 Agent의 `light` profile은 대화와 Source의 지식 추출, `heavy` profile은 Dreaming과 Skill 교훈 재검토, `web_fetch` profile은 URL Source 가져오기에 사용합니다. `web_fetch`가 설정되지 않았거나 Provider 요청이 실패하면 Source 가져오기가 실패합니다. 유지보수 Agent를 비활성화하면 다시 활성화하거나 교체할 때까지 모델 호출과 URL Source 가져오기가 모두 중지됩니다. **Brain → 상태**에서 선택한 Agent와 각 profile 상태를 확인할 수 있습니다(자세한 동작은 [Brain](../brain/) 참조). Pod Applet의 `ctx.ai` 호출은 해당 Applet을 만든 Agent를 사용합니다. 이 Agent는 활성 상태여야 하며, 모델 profile, 할당량, token 사용량은 해당 Agent에 귀속됩니다.
 
 가장 많이 절약하는 두 가지 조치:
 

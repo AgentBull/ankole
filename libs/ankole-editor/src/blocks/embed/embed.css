@@ -1,13 +1,28 @@
+.ankole-editor,
+.ankole-editor-overlay {
+  --editor-embed-border: #e4dfd9;
+  --editor-embed-bg: #fbfaf8;
+  --editor-embed-fg: #6f6252;
+  --editor-embed-code: #9a8d7e;
+}
+
+:is([data-theme='dark'], [data-theme='dark'] *):is(.ankole-editor, .ankole-editor-overlay) {
+  --editor-embed-border: #343637;
+  --editor-embed-bg: #202223;
+  --editor-embed-fg: #dcd4c8;
+  --editor-embed-code: #abaaa6;
+}
+
 :where(.ankole-editor, .ankole-editor-overlay) .embed {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 16px 0;
   padding: 12px 16px;
-  border: 1px solid #e4dfd9;
+  border: 1px solid var(--editor-embed-border);
   border-radius: 6px;
-  background: #fbfaf8;
-  color: #6f6252;
+  background: var(--editor-embed-bg);
+  color: var(--editor-embed-fg);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -26,5 +41,5 @@
   padding: 0;
   background: none;
   font: 11px var(--font-family-mono);
-  color: #9a8d7e;
+  color: var(--editor-embed-code);
 }

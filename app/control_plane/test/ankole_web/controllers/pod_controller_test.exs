@@ -47,23 +47,17 @@ defmodule AnkoleWeb.PodControllerTest do
     Repo.put_tenant_id(tenant.id)
     %{principal: human} = human_fixture()
 
-    {:ok, non_admin, transaction} =
-      conn |> Plug.Test.init_test_session(%{}) |> WebSession.begin_login(:pod, %{})
+    non_admin = conn |> Plug.Test.init_test_session(%{}) |> WebSession.ensure_browser()
 
-    {:ok, _} =
-      Ankole.BrowserSessions.bind_provider(
-        WebSession.browser_reference(non_admin),
-        transaction.id,
-        "lark-main"
-      )
-
-    {:ok, non_admin, _} =
-      WebSession.complete_login(non_admin, transaction.id, %{
+    {:ok, %{browser: browser, authentication: auth}} =
+      Ankole.BrowserSessions.authenticate(WebSession.browser_reference(non_admin), :pod, %{
         "principal_uid" => human.uid,
         "access_version" => human.access_version,
         "provider_id" => "lark-main",
         "external_id" => "external-human"
       })
+
+    non_admin = WebSession.put_authentication(non_admin, browser, auth)
 
     non_admin = api_get(non_admin, ~p"/api/v2/pod/agents")
 
@@ -549,23 +543,21 @@ defmodule AnkoleWeb.PodControllerTest do
       human = human_fixture().principal
       human_uid = human.uid
 
-      {:ok, authenticated_conn, transaction} =
-        conn |> Plug.Test.init_test_session(%{}) |> WebSession.begin_login(:pod, %{})
+      authenticated_conn = conn |> Plug.Test.init_test_session(%{}) |> WebSession.ensure_browser()
 
-      {:ok, _} =
-        Ankole.BrowserSessions.bind_provider(
+      {:ok, %{browser: browser, authentication: auth}} =
+        Ankole.BrowserSessions.authenticate(
           WebSession.browser_reference(authenticated_conn),
-          transaction.id,
-          "lark-main"
+          :pod,
+          %{
+            "principal_uid" => human_uid,
+            "access_version" => human.access_version,
+            "provider_id" => "lark-main",
+            "external_id" => "external-human"
+          }
         )
 
-      {:ok, authenticated_conn, _} =
-        WebSession.complete_login(authenticated_conn, transaction.id, %{
-          "principal_uid" => human_uid,
-          "access_version" => human.access_version,
-          "provider_id" => "lark-main",
-          "external_id" => "external-human"
-        })
+      authenticated_conn = WebSession.put_authentication(authenticated_conn, browser, auth)
 
       agent = agent_fixture().principal
       Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)

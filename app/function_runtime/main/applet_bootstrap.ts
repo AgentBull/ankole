@@ -83,7 +83,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       state.ws.send(json({ type: 'call', run_id: state.runId, call_id: callId, operation, args }))
     })
     if (operation === 'file.read' && typeof result?.bytes?.__ankole_bytes === 'string') {
-      result.bytes = Uint8Array.from(atob(result.bytes.__ankole_bytes), value => value.charCodeAt(0))
+      result.bytes = new Uint8Array(Buffer.from(result.bytes.__ankole_bytes, 'base64'))
     }
     return result
   }
@@ -102,9 +102,10 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         write: (pageId: string, file: { bytes: Uint8Array }) => {
           store()
           if (!(file.bytes instanceof Uint8Array)) throw new TypeError('file.write bytes must be Uint8Array')
-          let binary = ''
-          for (const byte of file.bytes) binary += String.fromCharCode(byte)
-          return call('file.write', [pageId, { ...file, bytes: { __ankole_bytes: btoa(binary) } }])
+          return call('file.write', [
+            pageId,
+            { ...file, bytes: { __ankole_bytes: Buffer.from(file.bytes).toString('base64') } }
+          ])
         }
       }),
       ai: Object.freeze({ generateText: (options: unknown) => call('ai.generateText', [options]) })

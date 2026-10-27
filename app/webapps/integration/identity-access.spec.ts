@@ -117,12 +117,12 @@ test('the identity editor saves v2 settings, keeps typed field errors, and revie
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   await expect(page.getByText('missing-person', { exact: true })).toBeVisible()
-  await page.getByLabel('Reason for this change', { exact: true }).fill('Reviewed scope')
+  await page.getByLabel('Reason for this change (required)', { exact: true }).fill('Reviewed scope')
   await page
     .getByRole('checkbox', { name: 'I reviewed this snapshot and approve disabling the listed missing people.' })
     .check()
   await page.getByRole('button', { name: 'Approve snapshot', exact: true }).click()
-  await expect(page.getByText('healthy', { exact: true })).toBeVisible()
+  await expect(page.getByText('Healthy', { exact: true })).toBeVisible()
   await expect(page.getByText('missing-person', { exact: true })).toHaveCount(0)
 })
 
@@ -160,10 +160,12 @@ test('Human access requires an explicit disposition, identity confirmation, and 
         return route.fulfill({ status: 201, json: state })
       }
       if (path.endsWith('/clear')) {
+        expect(data.reason).toBe('Cleared manual hold')
         state = { ...state, restrictions: [] }
         return route.fulfill({ status: 201, json: state })
       }
       if (path.endsWith('/access-restorations')) {
+        expect(data.reason).toBe('Approved return')
         expect(data.identity_verified).toBe(true)
         expect(data.review_fingerprint).toBe('review-one')
         state = { ...state, status: 'active' }
@@ -175,13 +177,23 @@ test('Human access requires an explicit disposition, identity confirmation, and 
     }
   )
   await page.goto('/access/principals/human-one')
-  const disable = page.getByRole('button', { name: 'Offboard member', exact: true })
-  await expect(disable).toBeDisabled()
-  await page.getByRole('textbox', { name: 'Reason for this change (required)', exact: true }).fill('Reviewed departure')
-  await page
+  const offboardTrigger = page.getByRole('button', { name: 'Offboard member', exact: true })
+  await offboardTrigger.click()
+  const offboardDialog = page.getByRole('dialog', { name: 'Offboard member', exact: true })
+  const confirmOffboard = offboardDialog.getByRole('button', { name: 'Offboard member', exact: true })
+  await expect(confirmOffboard).toBeDisabled()
+  await offboardDialog
+    .getByRole('textbox', { name: 'Reason for this change (required)', exact: true })
+    .fill('Reviewed departure')
+  await offboardDialog
     .getByRole('checkbox', { name: 'I confirm this person should lose access and their future work should stop.' })
     .check()
-  await disable.click()
+  await confirmOffboard.click()
+  await expect(offboardDialog).toHaveCount(0)
+  await page
+    .getByRole('textbox', { name: 'Reason for this change (required)', exact: true })
+    .first()
+    .fill('Cleared manual hold')
   await page.getByRole('button', { name: 'Clear restriction', exact: true }).click()
   const restore = page.getByRole('button', { name: 'Restore account', exact: true })
   await expect(restore).toBeDisabled()
@@ -191,8 +203,9 @@ test('Human access requires an explicit disposition, identity confirmation, and 
     })
     .check()
   await page.getByRole('checkbox', { name: 'I approve the permission rules shown above.' }).check()
+  await page.getByRole('textbox', { name: 'Reason for this change (required)', exact: true }).fill('Approved return')
   await restore.click()
-  await expect(disable).toBeVisible()
+  await expect(offboardTrigger).toBeVisible()
 })
 
 test('the OIDC editor lists login sources and shows a rotated secret only in its result dialog', async ({ page }) => {

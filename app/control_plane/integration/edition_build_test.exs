@@ -208,7 +208,9 @@ defmodule Ankole.EditionBuildTest do
 
         verification = """
         Ecto.Migrator.with_repo(Ankole.Repo, fn repo ->
-          %{rows: [[0]]} = repo.query!("SELECT count(*) FROM browser_login_transactions")
+          %{rows: [[nil]]} = repo.query!("SELECT to_regclass('browser_login_transactions')")
+          %{rows: [[0]]} = repo.query!("SELECT count(*) FROM browser_oidc_states")
+          %{rows: [[0]]} = repo.query!("SELECT count(*) FROM oidc_authorization_requests")
           %{rows: [[0]]} = repo.query!("SELECT count(*) FROM browser_authentications")
           %{rows: [[1]]} = repo.query!("SELECT count(*) FROM schema_migrations WHERE version = 20990101000000")
           %{rows: [["edition_fixture"]]} = repo.query!("SELECT to_regclass('edition_fixture')::text")

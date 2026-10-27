@@ -52,10 +52,11 @@ defmodule Ankole.Sessions.AmbientTest do
     assert decide(observation([alice, row("msg-2", "Alice")]), base)["authority"] ==
              "EXPLICIT_REQUEST"
 
-    stale = decide(observation([alice, bob]), base)
-    assert stale["authority"] == "NONE"
-    assert stale["asked_by_state"] == "degraded"
-    assert stale["reason"] =~ "not present in the current ambient observation"
+    acknowledgement = Map.put(bob, "text", "👍")
+    accepted = decide(observation([alice, acknowledgement]), base)
+    assert accepted["authority"] == "EXPLICIT_REQUEST"
+    assert accepted["asked_by_state"] == "accepted"
+    assert accepted["asked_by_message_id"] == "msg-1"
 
     assert decide(observation([Map.put(alice, "role", "agent")]), base)["authority"] == "NONE"
     assert decide(observation([alice]), Map.put(base, "asked_by", "missing"))["action"] == "NOOP"
@@ -82,6 +83,12 @@ defmodule Ankole.Sessions.AmbientTest do
   end
 
   test "invalid structured routes stay silent (G4)" do
+    {_input, schema, delta, orders?} = Observation.render(observation([]), @now)
+
+    for text <- ["[]", "null", "true", "123", ~s("not a route")] do
+      assert Observation.decision(text, schema, delta, orders?)["action"] == "NOOP"
+    end
+
     for overrides <- [
           %{"reason" => "   "},
           %{"reason" => String.duplicate("x", 301)},

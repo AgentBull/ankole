@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { logoutConfirmation } from '../common/api/generated/sdk.gen'
 import { clearDataTenant } from '../common/browser-session'
+import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { ThemeToggle } from '../common/theme-toggle'
 
 export function SessionScreen({ invalid }: { invalid: boolean }) {
@@ -65,7 +66,10 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
                   <p className="text-sm text-muted-foreground">
                     {t('auth.current_identity', {
                       name: details.data.identity.displayName,
-                      provider: details.data.identity.providerID
+                      provider:
+                        details.data.identity.providerID === 'email_otp'
+                          ? t('auth.email_login')
+                          : humanizeTechnicalLabel(details.data.identity.providerID)
                     })}
                   </p>
                 ) : (

@@ -24,6 +24,7 @@ import { canAggregateLocally, canQueryLocally } from './state/local-query'
 import {
   podBaseTables,
   podBaseTableCreate,
+  podBaseTableRename,
   podBaseTableDelete,
   podBaseSchema,
   podBaseQuery,
@@ -41,6 +42,7 @@ export const baseHTTP = {
   tables: (pageID: string) => podBaseTables({ path: { page_id: pageID } }),
   createTable: (pageID: string, name: string) =>
     podBaseTableCreate({ path: { page_id: pageID }, body: { data: { name } } }),
+  renameTable: (id: string, name: string) => podBaseTableRename({ path: { id }, body: { data: { name } } }),
   removeTable: (tableID: string) => podBaseTableDelete({ path: { id: tableID } }),
   schema: (tableID: string): Promise<TableSchema> => podBaseSchema({ path: { id: tableID } }),
   query: (tableID: string, body: RecordQuery): Promise<RecordsResult> =>

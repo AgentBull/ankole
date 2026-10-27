@@ -12,6 +12,7 @@ defmodule AnkoleWeb.MemberAPI do
     routes do
       base_route "/me", AnkoleWeb.MeOperations do
         route(:get, "/", :show, name: "podMe")
+        route(:patch, "/", :update_profile, name: "updatePodProfile")
 
         route(:post, "/reauthentication", :begin_reauthentication,
           name: "reauthenticatePodMember"

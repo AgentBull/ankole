@@ -27,6 +27,105 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     :ok
   end
 
+  test "different account codes both complete through the browser API and real SMTP", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    first = human_fixture(%{email: "independent-a@example.test"}).principal
+    second = human_fixture(%{email: "independent-b@example.test"}).principal
+
+    page = conn |> pod_conn(tenant) |> get("/sessions/new") |> browser_api_conn()
+
+    sent_first =
+      api_post(page, "/api/v2/browser/sessions/email-otp/challenges", %{
+        email: "independent-a@example.test"
+      })
+
+    first_id = api_response(sent_first, 201)["challengeID"]
+    first_code = delivered_code("independent-a@example.test")
+
+    sent_second =
+      sent_first
+      |> recycle_api()
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
+        email: "independent-b@example.test"
+      })
+
+    second_id = api_response(sent_second, 201)["challengeID"]
+    second_code = delivered_code("independent-b@example.test")
+
+    verified_first =
+      sent_second
+      |> recycle_api()
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: first_id,
+        code: first_code
+      })
+
+    assert %{"returnTo" => _} = api_response(verified_first, 201)
+    first_ref = WebSession.authentication_reference(verified_first)
+
+    verified_second =
+      verified_first
+      |> recycle_api()
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: second_id,
+        code: second_code
+      })
+
+    assert %{"returnTo" => _} = api_response(verified_second, 201)
+    second_ref = WebSession.authentication_reference(verified_second)
+    assert BrowserSessions.identity(first_ref, tenant.id)["principal_uid"] == first.uid
+    assert BrowserSessions.identity(second_ref, tenant.id)["principal_uid"] == second.uid
+  end
+
+  test "a code sent before browser logout establishes a new session for the same member", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    member = human_fixture(%{email: "returning-member@example.test"}).principal
+    {signed_in, old_ref} = pod_login(conn, tenant, "returning-member@example.test")
+
+    login_page =
+      signed_in
+      |> put_req_header("accept", "text/html")
+      |> get("/sessions/new?switch=1")
+      |> browser_api_conn()
+
+    sent =
+      login_page
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
+        email: "returning-member@example.test"
+      })
+
+    challenge_id = api_response(sent, 201)["challengeID"]
+    code = delivered_code("returning-member@example.test")
+
+    signed_out =
+      sent
+      |> recycle_api()
+      |> put_req_header("x-csrf-token", List.first(get_req_header(signed_in, "x-csrf-token")))
+      |> api_delete("/api/v2/browser/session")
+
+    assert %{"ok" => true} = api_response(signed_out, 200)
+    refute BrowserSessions.identity(old_ref, tenant.id)
+
+    verified =
+      signed_out
+      |> recycle_api()
+      |> put_req_header("x-csrf-token", List.first(get_req_header(login_page, "x-csrf-token")))
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: challenge_id,
+        code: code
+      })
+
+    assert %{"returnTo" => _} = api_response(verified, 201)
+    new_ref = WebSession.authentication_reference(verified)
+    assert BrowserSessions.identity(new_ref, tenant.id)["principal_uid"] == member.uid
+    refute BrowserSessions.identity(old_ref, tenant.id)
+    refute new_ref == old_ref
+  end
+
   test "an old site proof claims an ordinary new membership but cannot claim a recycled email", %{
     tenant: tenant
   } do
@@ -288,17 +387,18 @@ defmodule Ankole.Authn.MembershipStoriesTest do
 
     entry = api_post(conn, "/api/v2/pod/me/reauthentication", %{})
     path = api_response(entry, 201)["loginURL"]
-    flow = URI.decode_query(URI.parse(path).query)["flow"]
+    reauth = URI.decode_query(URI.parse(path).query)["reauth"]
     page = entry |> recycle() |> put_req_header("accept", "text/html") |> get(path)
     conn = browser_api_conn(page)
-    providers = api_get(conn, "/api/v2/browser/identity-providers?flow=" <> flow)
+    providers = api_get(conn, "/api/v2/browser/identity-providers", %{"reauth" => reauth})
     assert api_response(providers, 200)["identities"] == []
 
     sent =
       providers
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: flow,
+        reauth: reauth,
+        returnTo: "/me",
         email: "reauth@example.test"
       })
 
@@ -309,7 +409,6 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       sent
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })
@@ -334,8 +433,7 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       |> put_req_header("accept", "text/html")
       |> get("/sessions/new?switch=1")
 
-    other_flow = URI.decode_query(URI.parse(redirected_to(entry)).query)["flow"]
-    {other_conn, _, _} = verify_email_flow(entry, other_flow, "other-member@example.test")
+    {other_conn, _, _} = verify_email_on_page(entry, "other-member@example.test", %{})
     assert %{"returnTo" => _} = api_response(other_conn, 201)
     other_ref = WebSession.authentication_reference(other_conn)
     assert BrowserSessions.identity(other_ref, tenant.id)["principal_uid"] == other.uid
@@ -348,19 +446,34 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       |> api_post("/api/v2/pod/me/reauthentication", %{})
 
     path = api_response(pinned, 201)["loginURL"]
-    flow = URI.decode_query(URI.parse(path).query)["flow"]
-    assert {:ok, transaction} = WebSession.login_transaction(pinned, flow)
-    assert transaction.expected_authentication_id == owner_ref["id"]
-    assert transaction.request["reauthentication_principal_uid"] == owner.uid
+    reauth = URI.decode_query(URI.parse(path).query)["reauth"]
+    assert {:ok, ticket} = WebSession.unseal_reauthentication(pinned, reauth, tenant.id)
+    assert ticket.authentication_id == owner_ref["id"]
+    assert ticket.uid == owner.uid
 
-    assert {:error, :reauthentication_required} =
-             BrowserSessions.select_authorization(
-               WebSession.browser_reference(pinned),
-               flow,
-               other_ref
-             )
+    reauth_page =
+      pinned
+      |> recycle()
+      |> put_req_header("accept", "text/html")
+      |> get(path)
 
-    {rejected, challenge, code} = verify_email_flow(pinned, flow, "other-member@example.test")
+    denied_selection =
+      reauth_page
+      |> browser_api_conn()
+      |> api_post("/api/v2/browser/sessions/identity-selection", %{
+        reauth: reauth,
+        returnTo: "/me",
+        authenticationRef: BrowserSessions.encode_reference(other_ref)
+      })
+
+    assert api_error(denied_selection, 403)["code"] == "reauthentication_required"
+
+    {rejected, challenge, code} =
+      verify_email_on_page(reauth_page, "other-member@example.test", %{
+        reauth: reauth,
+        returnTo: "/me"
+      })
+
     assert api_error(rejected, 400)["code"] == "login_subject_mismatch"
     assert Repo.get!(Ankole.Authn.Challenge, challenge).verified_at
 
@@ -368,7 +481,6 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       rejected
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })
@@ -377,24 +489,24 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     assert BrowserSessions.identity(owner_ref, tenant.id)["principal_uid"] == owner.uid
     assert BrowserSessions.identity(other_ref, tenant.id)["principal_uid"] == other.uid
 
-    {verified, _, _} = verify_email_flow(repeated, flow, "pinned-owner@example.test")
+    {verified, _, _} =
+      verify_email_on_page(reauth_page, "pinned-owner@example.test", %{
+        reauth: reauth,
+        returnTo: "/me"
+      })
+
     assert URI.parse(api_response(verified, 201)["returnTo"]).path == "/me"
     assert WebSession.pod_session(verified)["principal_uid"] == owner.uid
     assert BrowserSessions.identity(other_ref, tenant.id)["principal_uid"] == other.uid
   end
 
-  defp verify_email_flow(conn, flow, email) do
-    page =
-      conn
-      |> recycle()
-      |> put_req_header("accept", "text/html")
-      |> get("/sessions/new?flow=" <> flow)
-
+  defp verify_email_on_page(page, email, extra) do
     sent =
-      api_post(browser_api_conn(page), "/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: flow,
-        email: email
-      })
+      api_post(
+        browser_api_conn(page),
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(extra, :email, email)
+      )
 
     challenge = api_response(sent, 201)["challengeID"]
     code = delivered_code(email)
@@ -403,7 +515,6 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       sent
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })
@@ -414,25 +525,28 @@ defmodule Ankole.Authn.MembershipStoriesTest do
   defp site_login(email) do
     {:ok, browser} = BrowserSessions.create()
     reference = BrowserSessions.reference(browser)
-    {:ok, flow} = BrowserSessions.begin_login(reference, :site, %{})
-    {:ok, sent} = Domain.request_otp(reference, flow.id, email, "story-#{browser.id}")
+
+    {:ok, sent} =
+      Domain.request_otp(reference, email, "story-#{browser.id}", login_purpose: :site)
+
     code = delivered_code(email)
 
     {:ok, result} =
-      Domain.verify_otp(reference, flow.id, sent.challenge_id, code, "story-#{browser.id}")
+      Domain.verify_otp(reference, sent.challenge_id, code, "story-#{browser.id}")
 
     result
   end
 
   defp pod_login(conn, tenant, email) do
-    conn = conn |> pod_conn(tenant) |> init_test_session(%{})
-    {:ok, conn, flow} = WebSession.begin_login(conn, :pod, %{})
-
-    conn = conn |> get("/sessions/new?flow=" <> flow.id) |> browser_api_conn()
+    conn =
+      conn
+      |> pod_conn(tenant)
+      |> init_test_session(%{})
+      |> get("/sessions/new")
+      |> browser_api_conn()
 
     sent =
       api_post(conn, "/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: flow.id,
         email: email
       })
 
@@ -443,7 +557,6 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       sent
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow.id,
         challengeID: challenge,
         code: code
       })

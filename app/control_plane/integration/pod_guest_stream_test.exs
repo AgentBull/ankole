@@ -72,17 +72,22 @@ defmodule Ankole.Pod.GuestStreamIntegrationTest do
       |> Map.put(:secret_key_base, AnkoleWeb.Endpoint.config(:secret_key_base))
       |> SessionCookies.call([])
       |> fetch_session()
+      |> Session.ensure_browser()
 
-    {:ok, conn, flow} = Session.begin_login(conn, :pod, %{})
-    {:ok, _} = BrowserSessions.bind_provider(Session.browser_reference(conn), flow.id, "local")
+    {:ok, %{browser: browser, authentication: authentication}} =
+      BrowserSessions.authenticate(
+        Session.browser_reference(conn),
+        :pod,
+        %{
+          "principal_uid" => principal.uid,
+          "access_version" => principal.access_version,
+          "provider_id" => "local",
+          "external_id" => principal.uid
+        },
+        mode: :add
+      )
 
-    {:ok, conn, _} =
-      Session.complete_login(conn, flow.id, %{
-        "principal_uid" => principal.uid,
-        "access_version" => principal.access_version,
-        "provider_id" => "local",
-        "external_id" => principal.uid
-      })
+    conn = Session.put_authentication(conn, browser, authentication)
 
     conn
     |> send_resp(200, "")

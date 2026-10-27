@@ -126,16 +126,13 @@ defmodule AnkoleWeb.PodAppletControllerTest do
 
       manifest = stage_manifest(uid, draft_page.id)
 
-      publish_response =
-        conn
-        |> recycle_api()
-        |> api_post("/api/v2/pod/pages/#{draft_page.id}/publish", %{
-          "base_revision" => 0,
-          "files" => manifest
-        })
-
-      assert %{"errors" => [%{"code" => "applet_busy"}]} =
-               json_response(publish_response, 503)
+      assert {:error, :applet_busy} =
+               Files.publish(
+                 Ankole.PrincipalsFixtures.actor_fixture(uid),
+                 draft_page.id,
+                 0,
+                 manifest
+               )
     after
       Ankole.FunctionRuntimeHelpers.release(active)
     end

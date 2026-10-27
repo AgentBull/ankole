@@ -31,7 +31,7 @@ defmodule AnkoleWeb.SpaController do
   end
 
   def logout_confirmation(conn, _params), do: render_spa(conn, :sessions)
-  def join(conn, _params), do: conn |> WebSession.ensure_browser() |> render_spa(:sessions)
+  def join(conn, _params), do: render_spa(conn, :sessions)
   def logged_out(conn, _params), do: render_spa(conn, :sessions)
   def logout_error(conn, _params), do: render_spa(conn, :sessions)
 
@@ -40,20 +40,32 @@ defmodule AnkoleWeb.SpaController do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
 
-      is_binary(params["flow"]) ->
-        render_login_transaction(conn, params["flow"])
+      is_binary(params["oauth_request"]) ->
+        render_oauth_request(conn, params["oauth_request"])
 
       params["purpose"] == "console" ->
-        begin_login(conn, :console, params)
+        console_login(conn, params)
 
       true ->
         pod_login(conn, params)
     end
   end
 
+  defp console_login(conn, params) do
+    :ok = WebSession.put_privileged_tenant()
+
+    if params["switch"] != "1" and params["prompt"] != "login" and
+         not is_nil(WebSession.site_admin_session(conn)) do
+      redirect(conn, to: login_return_to(:console, params["return_to"]))
+    else
+      render_spa(conn, :sessions)
+    end
+  end
+
   defp pod_login(conn, params) do
     with :ok <- put_pod_target(conn) do
-      {:ok, tenant} = Ankole.Tenants.get(Ankole.Repo.tenant_id!())
+      tenant_id = Ankole.Repo.tenant_id!()
+      {:ok, tenant} = Ankole.Tenants.get(tenant_id)
       origin = PodURL.origin(conn, tenant)
 
       cond do
@@ -64,29 +76,55 @@ defmodule AnkoleWeb.SpaController do
             external: origin <> "/sessions/new" <> if(query == "", do: "", else: "?" <> query)
           )
 
+        is_binary(params["reauth"]) ->
+          case WebSession.unseal_reauthentication(conn, params["reauth"], tenant_id) do
+            {:ok, _} -> render_tenant_login(conn, tenant_id)
+            {:error, _} -> conn |> put_status(401) |> render_spa(:sessions)
+          end
+
+        is_binary(params["invitation"]) ->
+          case WebSession.unseal_membership_invitation(conn, params["invitation"], tenant_id) do
+            {:ok, _} -> render_tenant_login(conn, tenant_id)
+            {:error, _} -> conn |> put_status(401) |> render_spa(:sessions)
+          end
+
+        is_binary(params["invitation_token"]) ->
+          case Ankole.Principals.locate_invitation(params["invitation_token"]) do
+            {:ok, %{tenant_id: ^tenant_id}} -> render_tenant_login(conn, tenant_id)
+            _ -> conn |> put_status(401) |> render_spa(:sessions)
+          end
+
         params["switch"] != "1" and params["prompt"] != "login" and
             is_map(WebSession.pod_session(conn)) ->
-          redirect(conn, to: "/")
+          redirect(conn, to: login_return_to(:pod, params["return_to"]))
 
         true ->
-          begin_login(conn, :pod, params)
+          render_tenant_login(conn, tenant_id)
       end
     else
       _ -> send_resp(conn, 404, "Pod not found")
     end
   end
 
-  defp render_login_transaction(conn, flow) do
-    conn = AnkoleWeb.BrowserAuth.login_context(conn, flow)
+  defp render_oauth_request(conn, id) do
+    case Ankole.OIDC.AuthorizationRequests.get(WebSession.browser_reference(conn), id) do
+      {:ok, request} ->
+        case conn.assigns[:host_context] do
+          {:pod, tenant_id} when tenant_id != request.tenant_id ->
+            conn |> put_status(401) |> render_spa(:sessions)
 
-    case conn.assigns.login_transaction do
-      {:ok, _transaction} ->
-        render_spa(conn, :sessions)
+          _ ->
+            :ok = Ankole.Repo.put_tenant_id(request.tenant_id)
+            render_tenant_login(conn, request.tenant_id)
+        end
 
-      _ ->
+      {:error, _} ->
         conn |> put_status(401) |> render_spa(:sessions)
     end
   end
+
+  defp render_tenant_login(conn, tenant_id),
+    do: conn |> assign(:login_tenant_id, tenant_id) |> render_spa(:sessions)
 
   def console(conn, _params) do
     :ok = WebSession.put_privileged_tenant()
@@ -96,14 +134,21 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, to: ~p"/setup")
 
       is_nil(WebSession.site_admin_session(conn)) ->
-        begin_login(conn, :console, %{"return_to" => current_return_to(conn)})
+        return_to = current_return_to(conn)
+
+        query =
+          if return_to == AnkoleWeb.SiteAdminConsole.path(),
+            do: %{"purpose" => "console"},
+            else: %{"purpose" => "console", "return_to" => return_to}
+
+        redirect(conn, to: "/sessions/new?" <> URI.encode_query(query))
 
       true ->
         render_spa(conn, :console)
     end
   end
 
-  def pod(conn, params) do
+  def pod(conn, _params) do
     with true <- setup_completed?(),
          {:ok, tenant_id} <- AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn),
          :ok <- Ankole.Repo.put_tenant_id(tenant_id),
@@ -116,7 +161,12 @@ defmodule AnkoleWeb.SpaController do
       else
         case WebSession.pod_session(conn) do
           nil ->
-            begin_login(conn, :pod, Map.put(params, "return_to", path))
+            target =
+              if path == "/",
+                do: "/sessions/new",
+                else: "/sessions/new?" <> URI.encode_query(%{"return_to" => path})
+
+            redirect(conn, to: target)
 
           %{"principal_uid" => uid} ->
             conn |> assign(:current_principal_uid, uid) |> render_spa(:pod)
@@ -124,22 +174,6 @@ defmodule AnkoleWeb.SpaController do
       end
     else
       false -> redirect(conn, to: ~p"/setup")
-      _ -> send_resp(conn, 404, "Pod not found")
-    end
-  end
-
-  defp begin_login(conn, purpose, params) do
-    target =
-      if purpose == :console, do: WebSession.put_privileged_tenant(), else: put_pod_target(conn)
-
-    with :ok <- target,
-         {:ok, conn, transaction} <-
-           WebSession.begin_login(conn, purpose, %{
-             "return_to" => login_return_to(purpose, params["return_to"]),
-             "prompt" => if(params["prompt"] == "login", do: ["login"])
-           }) do
-      redirect(conn, to: "/sessions/new?flow=" <> transaction.id)
-    else
       _ -> send_resp(conn, 404, "Pod not found")
     end
   end
@@ -219,7 +253,8 @@ defmodule AnkoleWeb.SpaController do
         html_escape(PodURL.site_origin(conn)),
         "\">\n"
       ],
-      authentication_meta(conn),
+      login_tenant_meta(conn),
+      authentication_meta(conn, entry),
       console_path_meta(entry),
       "<meta name=\"ankole-active-plugins\" content=\"",
       Ankole.Plugins.list_active() |> Enum.map(& &1.id) |> Ankole.JSON.encode!() |> html_escape(),
@@ -237,7 +272,22 @@ defmodule AnkoleWeb.SpaController do
     ]
   end
 
-  defp authentication_meta(conn) do
+  defp login_tenant_meta(%{assigns: %{login_tenant_id: tenant_id}})
+       when is_binary(tenant_id) do
+    {:ok, tenant} = Ankole.Tenants.get(tenant_id)
+
+    [
+      "<meta name=\"ankole-login-tenant-name\" content=\"",
+      html_escape(tenant.display_name),
+      "\">\n"
+    ]
+  end
+
+  defp login_tenant_meta(_conn), do: []
+
+  defp authentication_meta(_conn, entry) when entry in ["auth", "setup"], do: []
+
+  defp authentication_meta(conn, _entry) do
     case WebSession.authentication_reference(conn) do
       nil ->
         []

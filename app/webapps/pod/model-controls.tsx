@@ -15,6 +15,9 @@ type ModelControlsProps = {
   onDraftProfileChange(profile: string | null): void
   activeSignalID?: string | null
   disabled?: boolean
+  inline?: boolean
+  open?: boolean
+  onOpenChange?(open: boolean): void
 }
 
 /** The server owns existing Chat preferences; a new Chat keeps its choice with its draft. */
@@ -24,7 +27,10 @@ export function ModelControls({
   draftProfile,
   onDraftProfileChange,
   activeSignalID,
-  disabled
+  disabled,
+  inline = false,
+  open,
+  onOpenChange
 }: ModelControlsProps) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -67,11 +73,18 @@ export function ModelControls({
   }
 
   return (
-    <div role="group" aria-label={t('pod.chat.model')} className="min-w-0">
+    <div
+      role="group"
+      aria-label={t('pod.chat.model')}
+      className={inline ? 'flex min-w-0 flex-wrap items-center gap-1.5' : 'min-w-0'}>
       <Select
         value={profile ?? '__agent_default__'}
         onValueChange={value => value && choose(value)}
-        onOpenChange={open => open && void selection.refetch()}
+        open={open}
+        onOpenChange={next => {
+          onOpenChange?.(next)
+          if (next) void selection.refetch()
+        }}
         disabled={disabled || selection.isPending || selection.isError || save.isPending}>
         <SelectTrigger size="sm" aria-label={t('pod.chat.model')} title={label} className="max-w-48">
           <SelectValue>{label}</SelectValue>
@@ -98,14 +111,18 @@ export function ModelControls({
           ))}
         </SelectContent>
       </Select>
-      {requiresQueue && <p className="mt-1 text-xs text-muted-foreground">{t('pod.chat.model_for_next_reply')}</p>}
+      {requiresQueue && (
+        <p className={inline ? 'text-xs text-muted-foreground' : 'mt-1 text-xs text-muted-foreground'}>
+          {t('pod.chat.model_for_next_reply')}
+        </p>
+      )}
       {(save.isError || selection.isError) && (
-        <p role="alert" className="mt-1 text-xs text-destructive">
+        <p role="alert" className={inline ? 'text-xs text-destructive' : 'mt-1 text-xs text-destructive'}>
           {t('pod.chat.model_save_failed')}
         </p>
       )}
       {selection.isError && (
-        <Button variant="ghost" size="sm" onClick={() => void selection.refetch()}>
+        <Button variant="ghost" size={inline ? 'xs' : 'sm'} onClick={() => void selection.refetch()}>
           {t('pod.content.retry')}
         </Button>
       )}

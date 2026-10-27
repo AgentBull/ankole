@@ -4,6 +4,7 @@ import {
   buttonVariants,
   cn,
   CreatableCombobox,
+  CronEditor,
   Input,
   Select,
   SelectContent,
@@ -32,11 +33,13 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import i18n from '../../common/i18n'
 import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { listAgentSessionsOptions, listSignalBindingsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
+import { aiGatewayConversationsOptions } from '../api/ai-gateway-conversations'
 import type { CronSchedule, ScheduledEvent } from '../api/v2/generated/types.gen'
 import { fromDocument, type Flat } from '../api/json-api'
 import {
@@ -55,8 +58,10 @@ import {
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope, type AgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
+import { conversationDisplayName } from '../conversation-presentation'
 import {
   ConfirmDeleteButton,
+  cronEditorLabels,
   EditorNotFound,
   LabeledField,
   ReadOnlyValue,
@@ -72,9 +77,12 @@ import {
   ScheduleEditorModel,
   type ScheduleDelivery,
   type ScheduleEditorDraft,
+  type ScheduleFieldErrors,
+  type ScheduleIntervalUnit,
   type ScheduleRecurrence
 } from '../state/schedule-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
+import { timeZoneCurrentTime, timeZoneOffsetLabel, timeZoneOptions } from '../state/timezone-editor'
 import { useEditorDraft } from '../use-editor-draft'
 
 // The recurrence and delivery JSON are normalized by the Schedule domain.
@@ -113,18 +121,22 @@ export function SchedulesListPage() {
     refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = (crons.data ?? []).filter(row =>
-    matchesResourceSearch(
+  const agentByUID = new Map(scope.agents.map(agent => [agent.uid, agent]))
+  const rows = (crons.data ?? []).filter(row => {
+    const agent = agentByUID.get(row.agent_uid)
+    return matchesResourceSearch(
       query,
       row.name,
       row.binding_name,
       row.agent_uid,
+      agent?.display_name,
+      agent?.handle,
       row.owner_session_id,
       row.status,
       scheduleStatusLabel(t, row.status),
       describeSchedule(t, row.schedule)
     )
-  )
+  })
 
   const pauseCron = useMutation({
     ...pauseCronScheduleMutation(),
@@ -202,7 +214,7 @@ export function SchedulesListPage() {
         />
       }>
       {rows.map(row => {
-        const editTo = `new?agent=${encodeURIComponent(row.agent_uid)}&cron=${encodeURIComponent(row.id)}`
+        const editTo = `/schedules/${encodeURIComponent(row.agent_uid)}/${encodeURIComponent(row.id)}`
         const toggleable = isMutableCronStatus(row.status)
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
@@ -411,10 +423,12 @@ export function ScheduleCronEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(ScheduleEditorModel)
+  const params = useParams({ strict: false }) as { agent?: string; cronID?: string }
   const [searchParams, setSearchParams] = useSearchParams()
+  const locale = i18n.language
 
-  const routeAgentUID = searchParams.get('agent') ?? ''
-  const cronID = searchParams.get('cron') ?? undefined
+  const routeAgentUID = params.agent ?? searchParams.get('agent') ?? ''
+  const cronID = params.cronID ?? searchParams.get('cron') ?? undefined
   const editing = Boolean(cronID)
 
   const agents = useQuery(agentListOptions())
@@ -422,6 +436,7 @@ export function ScheduleCronEditorPage() {
   // An existing schedule is pinned to its agent; a new one starts from the
   // resolved `?agent=` request.
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)
+  const selectedAgent = (agents.data ?? []).find(agent => agent.uid === agentUID)
 
   const selectAgent = (uid: string) => {
     setSearchParams({ agent: uid }, { replace: true })
@@ -441,6 +456,22 @@ export function ScheduleCronEditorPage() {
     enabled: !editing && Boolean(agentUID)
   })
   const sessionList = sessions.data?.sessions ?? []
+
+  const conversations = useQuery({
+    ...aiGatewayConversationsOptions({ subject_uid: agentUID || undefined, limit: 50 }),
+    enabled: Boolean(agentUID)
+  })
+  const conversationOptions = (conversations.data?.conversations ?? []).map(conversation => {
+    const label = conversationDisplayName(conversation)
+    return {
+      value: conversation.id,
+      label,
+      description:
+        label === conversation.conversation_key
+          ? conversation.id
+          : `${conversation.conversation_key} · ${conversation.id}`
+    }
+  })
 
   const existing = useQuery({
     ...getCronScheduleOptions({ path: { agent_uid: agentUID, id: cronID ?? '' } }),
@@ -521,12 +552,55 @@ export function ScheduleCronEditorPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
+  const validateFields = (): boolean => {
+    const errors: ScheduleFieldErrors = {}
+    if (!editing && !model.ownerSessionId.value.trim()) {
+      errors.ownerSessionId = t('console.schedules.session_required')
+    }
+    if (!model.name.value.trim()) {
+      errors.name = t('common.field_required', { field: t('console.schedules.name') })
+    }
+    if (!model.hasAutomationJob.value && !model.task.value.trim()) {
+      errors.task = t('common.field_required', { field: t('console.schedules.task') })
+    }
+    const kind = model.scheduleKind.value || 'cron'
+    if (kind === 'cron') {
+      if (!model.cronExpression.value.trim()) {
+        errors.cronExpression = t('common.field_required', { field: t('console.schedules.expression') })
+      }
+    } else {
+      const ms = Number(model.everyMs.value)
+      if (!Number.isFinite(ms) || ms <= 0) {
+        errors.interval = t('common.field_invalid', {
+          field: t('console.schedules.interval', { defaultValue: 'Interval' })
+        })
+      }
+      if (!model.anchorAt.value.trim()) {
+        errors.anchorAt = t(model.anchorInput.value.trim() ? 'common.field_invalid' : 'common.field_required', {
+          field: t('console.schedules.anchor_at')
+        })
+      }
+    }
+    const targetErrors: Record<number, string> = {}
+    model.deliveryTargets.value.forEach((target, index) => {
+      if (!target.conversationId.trim()) {
+        targetErrors[index] = t('common.field_required', { field: t('console.schedules.delivery_conversation') })
+      }
+    })
+    if (Object.keys(targetErrors).length > 0) {
+      errors.deliveryConversationIds = targetErrors
+    }
+    model.fieldErrors.value = errors
+    return Object.keys(errors).length === 0
+  }
+
   const submit = () => {
     model.clearValidation()
     if (!agentUID) {
       model.validationError.value = t('console.schedules.scope_required')
       return
     }
+    if (!validateFields()) return
     if (editing) {
       if (!cronID || !existingRow || !isMutableCronStatus(existingRow.status)) return
       const body = model.toUpdateBody()
@@ -541,14 +615,7 @@ export function ScheduleCronEditorPage() {
       updateCron.mutate({ body: { data: body }, path: { agent_uid: agentUID, id: cronID } })
       return
     }
-    if (!model.ownerSessionId.value.trim()) {
-      model.validationError.value = t('console.schedules.session_required')
-      return
-    }
-    if (!model.idempotencyKey.value.trim()) {
-      model.idempotencyKey.value = crypto.randomUUID()
-    }
-    const body = model.toCreateBody()
+    const body = model.toCreateBody(crypto.randomUUID())
     if (!body) {
       model.validationError.value = t('console.schedules.schedule_invalid')
       return
@@ -684,7 +751,13 @@ export function ScheduleCronEditorPage() {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <LabeledField label={t('console.agents.agent')} required={!editing}>
           {editing ? (
-            <ReadOnlyValue mono>{agentUID || '—'}</ReadOnlyValue>
+            <ReadOnlyValue>
+              {selectedAgent
+                ? selectedAgent.display_name
+                  ? `${selectedAgent.display_name} · ${selectedAgent.handle}`
+                  : selectedAgent.handle
+                : agentUID || '—'}
+            </ReadOnlyValue>
           ) : (
             <Select value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
               <SelectTrigger className="w-full">
@@ -708,7 +781,8 @@ export function ScheduleCronEditorPage() {
           <LabeledField
             label={t('console.schedules.owner_session')}
             required
-            description={t('console.schedules.session_hint')}>
+            description={t('console.schedules.session_hint')}
+            error={model.fieldErrors.value.ownerSessionId}>
             <CreatableCombobox
               ariaLabel={t('console.schedules.owner_session')}
               clearLabel={t('common.clear')}
@@ -721,7 +795,12 @@ export function ScheduleCronEditorPage() {
               emptyLabel={sessions.isLoading ? t('common.loading') : t('console.schedules.session_empty')}
               createLabel={value => t('console.schedules.session_use', { session: value })}
               triggerLabel={t('common.open')}
-              onValueChange={value => (model.ownerSessionId.value = value)}
+              onValueChange={value => {
+                model.ownerSessionId.value = value
+                if (model.fieldErrors.value.ownerSessionId) {
+                  model.fieldErrors.value = { ...model.fieldErrors.value, ownerSessionId: undefined }
+                }
+              }}
             />
           </LabeledField>
         )}
@@ -768,11 +847,17 @@ export function ScheduleCronEditorPage() {
           label={t('console.schedules.name')}
           required
           description={t('console.schedules.name_hint')}
+          error={model.fieldErrors.value.name}
           invalidError={t('common.field_required', { field: t('console.schedules.name') })}>
           <Input
             pattern=".*\S.*"
             value={model.name.value}
-            onChange={event => (model.name.value = event.target.value)}
+            onChange={event => {
+              model.name.value = event.target.value
+              if (model.fieldErrors.value.name) {
+                model.fieldErrors.value = { ...model.fieldErrors.value, name: undefined }
+              }
+            }}
           />
         </LabeledField>
       </div>
@@ -780,8 +865,18 @@ export function ScheduleCronEditorPage() {
       <LabeledField
         label={t('console.schedules.task')}
         required={!model.hasAutomationJob.value}
-        description={t('console.schedules.task_hint')}>
-        <Textarea rows={4} value={model.task.value} onChange={event => (model.task.value = event.target.value)} />
+        description={t('console.schedules.task_hint')}
+        error={model.fieldErrors.value.task}>
+        <Textarea
+          rows={4}
+          value={model.task.value}
+          onChange={event => {
+            model.task.value = event.target.value
+            if (model.fieldErrors.value.task) {
+              model.fieldErrors.value = { ...model.fieldErrors.value, task: undefined }
+            }
+          }}
+        />
       </LabeledField>
 
       <LabeledField label={t('console.schedules.schedule_kind')}>
@@ -800,43 +895,97 @@ export function ScheduleCronEditorPage() {
 
       {model.scheduleKind.value === 'every' ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <LabeledField label={t('console.schedules.every_ms')} required>
-            <Input
-              type="number"
-              min="1"
-              value={model.everyMs.value}
-              onChange={event => (model.everyMs.value = event.target.value)}
-            />
+          <LabeledField
+            label={t('console.schedules.interval', { defaultValue: 'Interval' })}
+            required
+            error={model.fieldErrors.value.interval}>
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label={t('console.schedules.interval', { defaultValue: 'Interval' })}
+                className="min-w-0 flex-1"
+                min="1"
+                required
+                type="number"
+                value={model.intervalValue.value}
+                onChange={event => {
+                  model.setIntervalValue(event.target.value)
+                  if (model.fieldErrors.value.interval) {
+                    model.fieldErrors.value = { ...model.fieldErrors.value, interval: undefined }
+                  }
+                }}
+              />
+              <Select
+                value={model.intervalUnit.value}
+                onValueChange={value => model.setIntervalUnit(value as ScheduleIntervalUnit)}>
+                <SelectTrigger
+                  aria-label={t('console.schedules.interval_unit', { defaultValue: 'Interval unit' })}
+                  className="w-36 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="seconds">
+                    {t('console.schedules.unit_seconds', { defaultValue: 'Seconds' })}
+                  </SelectItem>
+                  <SelectItem value="minutes">
+                    {t('console.schedules.unit_minutes', { defaultValue: 'Minutes' })}
+                  </SelectItem>
+                  <SelectItem value="hours">{t('console.schedules.unit_hours', { defaultValue: 'Hours' })}</SelectItem>
+                  <SelectItem value="days">{t('console.schedules.unit_days', { defaultValue: 'Days' })}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </LabeledField>
           <LabeledField
             label={t('console.schedules.anchor_at')}
             required
-            description={t('console.schedules.anchor_hint')}>
+            description={anchorHintText(t, locale)}
+            error={model.fieldErrors.value.anchorAt}>
             <Input
-              value={model.anchorAt.value}
-              placeholder="2026-07-17T00:00:00Z"
-              onChange={event => (model.anchorAt.value = event.target.value)}
+              step={1}
+              type="datetime-local"
+              value={model.anchorInput.value}
+              onChange={event => {
+                model.setAnchorLocal(event.target.value)
+                if (model.fieldErrors.value.anchorAt) {
+                  model.fieldErrors.value = { ...model.fieldErrors.value, anchorAt: undefined }
+                }
+              }}
             />
           </LabeledField>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid gap-3">
           <LabeledField
             label={t('console.schedules.expression')}
             required
-            description={t('console.schedules.expression_hint')}>
-            <Input
-              className="font-mono"
-              placeholder="0 9 * * *"
+            description={t('console.schedules.expression_hint')}
+            error={model.fieldErrors.value.cronExpression}>
+            <CronEditor
+              labels={cronEditorLabels(t)}
               value={model.cronExpression.value}
-              onChange={event => (model.cronExpression.value = event.target.value)}
+              onChange={expression => {
+                model.cronExpression.value = expression
+                if (model.fieldErrors.value.cronExpression) {
+                  model.fieldErrors.value = { ...model.fieldErrors.value, cronExpression: undefined }
+                }
+              }}
             />
           </LabeledField>
-          <LabeledField label={t('console.schedules.timezone')} description={t('console.schedules.timezone_hint')}>
-            <Input
+          <LabeledField
+            label={t('console.schedules.timezone')}
+            description={timezoneHintText(t, locale, model.timezone.value)}>
+            <CreatableCombobox
+              ariaLabel={t('console.schedules.timezone')}
+              clearLabel={t('common.clear')}
+              createLabel={value =>
+                t('console.schedules.timezone_use', { defaultValue: 'Use {$timezone}', timezone: value })
+              }
+              emptyLabel={t('common.select_empty')}
+              options={timeZoneOptions(locale, model.timezone.value.trim())}
               placeholder="Asia/Shanghai"
+              triggerLabel={t('common.open')}
               value={model.timezone.value}
-              onChange={event => (model.timezone.value = event.target.value)}
+              onValueChange={value => (model.timezone.value = value)}
             />
           </LabeledField>
         </div>
@@ -889,10 +1038,38 @@ export function ScheduleCronEditorPage() {
                   </Select>
                 )}
               </LabeledField>
-              <LabeledField label={t('console.schedules.delivery_conversation')} required>
-                <Input
+              <LabeledField
+                label={t('console.schedules.delivery_conversation')}
+                required
+                error={model.fieldErrors.value.deliveryConversationIds?.[index]}>
+                <CreatableCombobox
+                  ariaLabel={t('console.schedules.delivery_conversation')}
+                  clearLabel={t('common.clear')}
+                  createLabel={value =>
+                    t('console.schedules.delivery_conversation_use', {
+                      defaultValue: 'Use {$conversation}',
+                      conversation: value
+                    })
+                  }
+                  emptyLabel={conversations.isLoading ? t('common.loading') : t('console.schedules.session_empty')}
+                  options={conversationOptions}
+                  placeholder={t('console.schedules.delivery_conversation_placeholder', {
+                    defaultValue: 'Select a conversation or enter an ID'
+                  })}
+                  required
+                  triggerLabel={t('common.open')}
                   value={target.conversationId}
-                  onChange={event => model.updateDeliveryTarget(index, { conversationId: event.target.value })}
+                  onValueChange={value => {
+                    model.updateDeliveryTarget(index, { conversationId: value })
+                    if (model.fieldErrors.value.deliveryConversationIds?.[index]) {
+                      const nextTargets = { ...model.fieldErrors.value.deliveryConversationIds }
+                      delete nextTargets[index]
+                      model.fieldErrors.value = {
+                        ...model.fieldErrors.value,
+                        deliveryConversationIds: Object.keys(nextTargets).length > 0 ? nextTargets : undefined
+                      }
+                    }
+                  }}
                 />
               </LabeledField>
               <LabeledField label={t('console.schedules.delivery_thread')}>
@@ -905,18 +1082,6 @@ export function ScheduleCronEditorPage() {
           </div>
         ))}
       </div>
-
-      {!editing ? (
-        <LabeledField
-          label={t('console.schedules.idempotency_key')}
-          description={t('console.schedules.idempotency_hint')}>
-          <Input
-            value={model.idempotencyKey.value}
-            placeholder={t('console.schedules.idempotency_placeholder')}
-            onChange={event => (model.idempotencyKey.value = event.target.value)}
-          />
-        </LabeledField>
-      ) : null}
 
       {!editing ? (
         <LabeledField label={t('console.schedules.status_field')}>
@@ -946,6 +1111,19 @@ function eventStatusLabel(t: TFunction, status: string): string {
   return t(`console.schedules.event_status_${status}`, { defaultValue: status })
 }
 
+function anchorHintText(t: TFunction, locale: string): string {
+  const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const offset = localZone ? timeZoneOffsetLabel(localZone, locale) : undefined
+  const zoneLabel = localZone && offset ? `${localZone} (${offset})` : localZone
+  return zoneLabel ? `${t('console.schedules.anchor_hint')} (${zoneLabel})` : t('console.schedules.anchor_hint')
+}
+
+function timezoneHintText(t: TFunction, locale: string, timezone: string): string {
+  const trimmed = timezone.trim()
+  const preview = trimmed ? timeZoneCurrentTime(trimmed, locale) : undefined
+  return preview ? `${t('console.schedules.timezone_hint')} — ${preview}` : t('console.schedules.timezone_hint')
+}
+
 function describeSchedule(t: TFunction, schedule: ScheduleRecurrence): string {
   if (schedule.kind === 'cron') return schedule.expression ?? '—'
   const ms = schedule.every_ms ?? 0
@@ -958,7 +1136,9 @@ function describeSchedule(t: TFunction, schedule: ScheduleRecurrence): string {
           ? `${ms / 3_600_000}h`
           : ms >= 60_000 && ms % 60_000 === 0
             ? `${ms / 60_000}m`
-            : `${ms}ms`
+            : ms >= 1_000 && ms % 1_000 === 0
+              ? `${ms / 1_000}s`
+              : `${ms}ms`
   return t('console.schedules.every_interval', { interval })
 }
 
@@ -1026,7 +1206,7 @@ function emptyDraft(): ScheduleEditorDraft {
     name: '',
     status: 'active',
     scheduleKind: 'cron',
-    cronExpression: '',
+    cronExpression: '0 9 * * *',
     everyMs: '',
     anchorAt: '',
     timezone: '',

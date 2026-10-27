@@ -5,7 +5,7 @@ defmodule Ankole.Brain.Recall do
   The Claim arm returns structured current Facts and Takes; the Chunk arm
   returns body and timeline passages. Both arms apply the querier's
   knowledge boundary as SQL prefilters, fuse BM25 and vector candidates with
-  RRF, apply graph, recency, and salience boosts, optionally rerank, then
+  RRF, optionally rerank, apply graph, recency, and salience boosts, then
   run the disclosure filter before assembly. One parameter set, constants in
   code: values follow GBrain balanced mode.
 
@@ -26,7 +26,6 @@ defmodule Ankole.Brain.Recall do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.Tag
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 
@@ -39,7 +38,6 @@ defmodule Ankole.Brain.Recall do
   @recency_halflife_days 30
   @evergreen_prefix "concepts/"
   @salience_strength 0.15
-  @high_emotion_tags ~w(family marriage wedding loss death grief relationship love mental-health health illness birth children kids parents)
   @rerank_timeout_ms 5_000
   @max_chunks_per_page 2
   @retrieved_throttle_seconds 300
@@ -224,9 +222,9 @@ defmodule Ankole.Brain.Recall do
       end)
 
     hits
+    |> maybe_rerank(query)
     |> apply_adjacency_boost(visibility)
     |> apply_recency_and_salience()
-    |> maybe_rerank(query)
     |> Enum.sort_by(& &1.score, :desc)
   end
 
@@ -346,27 +344,12 @@ defmodule Ankole.Brain.Recall do
         {slug, {count, weight_sum, members}}
       end)
 
-    tagged =
-      Tag
-      |> where(
-        [tag],
-        tag.object_slug in ^slugs and fragment("lower(?)", tag.tag) in ^@high_emotion_tags
-      )
-      |> select([tag], tag.object_slug)
-      |> distinct(true)
-      |> Repo.all()
-      |> MapSet.new()
-
     today = Date.utc_today()
 
     Enum.map(hits, fn hit ->
       recency = recency_factor(hit.object, today)
 
-      salience =
-        salience_factor(
-          Map.get(take_counts, hit.object.slug, {0, 0.0, 0}),
-          MapSet.member?(tagged, hit.object.slug)
-        )
+      salience = salience_factor(Map.get(take_counts, hit.object.slug, {0, 0.0, 0}))
 
       %{hit | score: hit.score * recency * salience}
     end)
@@ -388,8 +371,8 @@ defmodule Ankole.Brain.Recall do
     |> min(1.0)
   end
 
-  defp salience_factor({count, weight_sum, members}, tagged?) do
-    weight = min(take_salience(count, weight_sum, members) + if(tagged?, do: 0.5, else: 0.0), 1.0)
+  defp salience_factor({count, weight_sum, members}) do
+    weight = take_salience(count, weight_sum, members)
     raw = weight * 5 + :math.log(1 + count)
     1.0 + @salience_strength * :math.log(1 + raw)
   end
@@ -455,7 +438,7 @@ defmodule Ankole.Brain.Recall do
         tokens = Chunker.estimate_tokens(claim.claim)
 
         if used + tokens > budget do
-          {:halt, {acc, used}}
+          {:cont, {acc, used}}
         else
           payload = %{
             id: claim.id,
@@ -490,7 +473,7 @@ defmodule Ankole.Brain.Recall do
           tokens = Chunker.estimate_tokens(hit.chunk.chunk_text)
 
           if used + tokens > budget do
-            {:halt, {acc, used, per_page}}
+            {:cont, {acc, used, per_page}}
           else
             payload = %{
               object_slug: slug,

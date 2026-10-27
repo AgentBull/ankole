@@ -90,9 +90,6 @@ export function LinkedExecutionCard({ run, conversationID }: { run: LinkedExecut
             </dl>
             {open && <ExecutionLog conversationID={conversationID} run={run} />}
           </div>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            {t('common.close')}
-          </Button>
         </SheetContent>
       </Sheet>
     </>

@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.CopyRegressionTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.Pod.{Bases, BaseRecord, Pages}
+  alias Ankole.Pod.{Bases, BaseRecord, Formula, Pages}
 
   setup do
     uid = human_fixture().principal.uid
@@ -21,14 +21,14 @@ defmodule Ankole.Pod.CopyRegressionTest do
     %{uid: uid, page: page, table: table, primary: primary}
   end
 
-  test "a filtered copy preserves the available linked choices as independent options", ctx do
+  test "a filtered copy snapshots only referenced labels as independent text", ctx do
     actor = actor_fixture(ctx.uid)
     {:ok, target} = Bases.create_table(actor, ctx.page.id, %{name: "Customers"})
     title = Enum.find(Bases.fields(target.id), & &1.is_primary)
 
-    {:ok, %{records: [used, excluded, unused]}} =
+    {:ok, %{records: [used, second, excluded, _unused]}} =
       Bases.write_records(actor, target.id, %{
-        creates: Enum.map(["Used", "Excluded", "Unused"], &%{data: %{title.id => &1}})
+        creates: Enum.map(["Used", "Second", "Excluded", "Unused"], &%{data: %{title.id => &1}})
       })
 
     {:ok, link} = field(ctx, "Customer", "link", %{"table_id" => target.id})
@@ -36,27 +36,45 @@ defmodule Ankole.Pod.CopyRegressionTest do
     {:ok, _} =
       Bases.write_records(actor, ctx.table.id, %{
         creates: [
-          %{data: %{ctx.primary.id => "Copy", link.id => [used.id]}},
+          %{data: %{ctx.primary.id => "Copy full", link.id => [second.id, used.id]}},
+          %{data: %{ctx.primary.id => "Copy empty"}},
           %{data: %{ctx.primary.id => "Skip", link.id => [excluded.id]}}
         ]
       })
 
     assert {:ok, copied} =
              Bases.copy_table(actor, ctx.table.id, %{
-               filter: %{conditions: [%{field_id: ctx.primary.id, operator: "is", value: "Copy"}]}
+               filter: %{
+                 conditions: [
+                   %{field_id: ctx.primary.id, operator: "text_contains", value: "Copy"}
+                 ]
+               }
              })
 
     copied_link = Enum.find(Bases.fields(copied.table.id), &(&1.name == "Customer"))
-    assert copied_link.type == :select
+    assert copied_link.type == :text
+    assert copied_link.config == %{}
 
-    assert copied_link.config["options"] == [
-             %{"id" => used.id, "name" => "Used"},
-             %{"id" => excluded.id, "name" => "Excluded"},
-             %{"id" => unused.id, "name" => "Unused"}
-           ]
+    assert copied.table.record_count == 2
+    assert copied.table.storage_mode == :inline
+    assert {:ok, %{tables: [only_table]}} = Bases.list_tables(actor, copied.page.id)
+    assert only_table.id == copied.table.id
+    assert {:ok, %{records: rows}} = Bases.query(actor, copied.table.id, %{})
+    assert Enum.map(rows, & &1["data"][copied_link.id]) |> Enum.sort() == [nil, "Second, Used"]
 
-    assert {:ok, %{records: [row]}} = Bases.query(actor, copied.table.id, %{})
-    assert row["data"][copied_link.id] == [used.id]
+    assert {:ok, _} =
+             Bases.write_records(actor, target.id, %{
+               updates: [
+                 %{
+                   id: used.id,
+                   data: %{title.id => "Changed"},
+                   expected_versions: %{title.id => 1}
+                 }
+               ]
+             })
+
+    assert {:ok, %{records: rows}} = Bases.query(actor, copied.table.id, %{})
+    assert Enum.any?(rows, &(&1["data"][copied_link.id] == "Second, Used"))
   end
 
   test "copy changes only typed field references, preserving UUID-valued business text", ctx do
@@ -237,7 +255,7 @@ defmodule Ankole.Pod.CopyRegressionTest do
     assert {:ok, _} = Ankole.Files.fetch(:pod, path)
   end
 
-  test "links become independent multi-select snapshots without changing array formula values",
+  test "links become independent text and their formulas adopt the copied value type",
        ctx do
     {:ok, related} =
       Bases.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.page.id, %{
@@ -281,17 +299,15 @@ defmodule Ankole.Pod.CopyRegressionTest do
              )
 
     fields = Map.new(Bases.fields(copied.table.id), &{&1.name, &1})
-    assert fields["Empty"].type == :select
-    assert fields["Empty"].config == %{"multiple" => true, "options" => []}
 
-    for name <- ["One", "Many"] do
-      assert fields[name].type == :select
-
-      assert fields[name].config == %{
-               "multiple" => true,
-               "options" => [%{"id" => a.id, "name" => "Alpha"}, %{"id" => b.id, "name" => ""}]
-             }
+    for name <- ["Empty", "One", "Many"] do
+      assert fields[name].type == :text
+      assert fields[name].config == %{}
     end
+
+    assert fields["Selected"].type == :formula
+    assert fields["Selected"].config["result_type"] == "text"
+    assert {:ok, _} = Formula.validate_all(Map.values(fields))
 
     {:ok, %{records: [b]}} =
       Bases.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), related.id, %{ids: [b.id]})
@@ -322,9 +338,9 @@ defmodule Ankole.Pod.CopyRegressionTest do
              )
 
     full = Enum.find(rows, & &1["data"][fields["One"].id])
-    assert full["data"][fields["One"].id] == [a.id]
-    assert full["data"][fields["Many"].id] == [a.id, b.id]
-    assert full["data"][fields["Selected"].id] == [a.id, b.id]
+    assert full["data"][fields["One"].id] == "Alpha"
+    assert full["data"][fields["Many"].id] == "Alpha, "
+    assert full["data"][fields["Selected"].id] == "Alpha, "
     assert Enum.any?(rows, &is_nil(&1["data"][fields["Many"].id]))
 
     assert {:ok, _} =
@@ -335,12 +351,190 @@ defmodule Ankole.Pod.CopyRegressionTest do
                  updates: [
                    %{
                      id: full["id"],
-                     data: %{fields["Many"].id => [b.id]},
+                     data: %{fields["Many"].id => "Local title"},
                      expected_versions: %{fields["Many"].id => 1}
                    }
                  ]
                }
              )
+
+    assert {:ok, %{records: [updated]}} =
+             Bases.query(actor_fixture(ctx.uid), copied.table.id, %{ids: [full["id"]]})
+
+    assert updated["data"][fields["Selected"].id] == "Local title"
+  end
+
+  test "mixed link formulas materialize their source values and revalidate downstream formulas",
+       ctx do
+    actor = actor_fixture(ctx.uid)
+    {:ok, related} = Bases.create_table(actor, ctx.page.id, %{name: "Related"})
+    related_name = Enum.find(Bases.fields(related.id), & &1.is_primary)
+
+    {:ok, %{records: [target]}} =
+      Bases.write_records(actor, related.id, %{
+        creates: [%{data: %{related_name.id => "Target"}}]
+      })
+
+    {:ok, link} = field(ctx, "Related", "link", %{"table_id" => related.id})
+    {:ok, flag} = field(ctx, "Flag", "checkbox")
+    {:ok, owners} = field(ctx, "Owners", "user")
+    {:ok, files} = field(ctx, "Files", "attachment")
+
+    {:ok, tags} =
+      field(ctx, "Tags", "select", %{
+        "multiple" => true,
+        "options" => [%{"id" => "tag", "name" => "Tag"}]
+      })
+
+    for name <- ["Owners", "Files", "Tags"] do
+      {:ok, _} =
+        field(ctx, "Mixed #{name}", "formula", %{"source" => "IF([Flag], [Related], [#{name}])"})
+    end
+
+    {:ok, _} = field(ctx, "Alias", "formula", %{"source" => "[Mixed Owners]"})
+    {:ok, _} = field(ctx, "Same Owners", "formula", %{"source" => "[Mixed Owners] = [Owners]"})
+
+    {:ok, uploaded} =
+      Ankole.Pod.Files.upload(
+        actor,
+        ctx.page.id,
+        "attachment",
+        nil,
+        "a.txt",
+        "bytes",
+        "text/plain"
+      )
+
+    attachments = [
+      %{
+        "path" => "pages/#{ctx.page.id}/#{uploaded.file.path}",
+        "name" => "a.txt",
+        "mime" => "text/plain",
+        "size" => uploaded.file.size
+      }
+    ]
+
+    {:ok, _} =
+      Bases.write_records(actor, ctx.table.id, %{
+        creates:
+          Enum.map([true, false], fn enabled ->
+            %{
+              data: %{
+                ctx.primary.id => to_string(enabled),
+                flag.id => enabled,
+                link.id => [target.id],
+                owners.id => [ctx.uid],
+                files.id => attachments,
+                tags.id => ["tag"]
+              }
+            }
+          end)
+      })
+
+    source_fields = Map.new(Bases.fields(ctx.table.id), &{&1.name, &1})
+    {:ok, %{records: originals}} = Bases.query(actor, ctx.table.id, %{})
+    originals = Map.new(originals, &{&1["data"][ctx.primary.id], &1["data"]})
+
+    assert {:ok, copy} = Bases.copy_table(actor, ctx.table.id, %{})
+    fields = Map.new(Bases.fields(copy.table.id), &{&1.name, &1})
+    assert {:ok, checked} = Formula.validate_all(Map.values(fields))
+    assert Enum.all?(checked, fn field -> field.config == fields[field.name].config end)
+    assert fields["Alias"].type == :formula
+    assert fields["Alias"].config["result_type"] == "text"
+    assert fields["Same Owners"].type == :checkbox
+    assert fields["Same Owners"].config == %{}
+    assert {:ok, %{records: rows}} = Bases.query(actor, copy.table.id, %{})
+
+    for row <- rows do
+      original = originals[row["data"][fields["Name"].id]]
+
+      for name <- ["Mixed Owners", "Mixed Files", "Mixed Tags"] do
+        assert fields[name].type == :text
+        assert fields[name].config == %{}
+
+        assert Ankole.JSON.decode!(row["data"][fields[name].id]) ==
+                 original[source_fields[name].id]
+
+        assert Repo.get_by!(BaseRecord, id: row["id"]).data[fields[name].id] ==
+                 row["data"][fields[name].id]
+      end
+
+      assert row["data"][fields["Alias"].id] == row["data"][fields["Mixed Owners"].id]
+      assert row["data"][fields["Same Owners"].id] == original[source_fields["Same Owners"].id]
+    end
+
+    row = Enum.find(rows, &(&1["data"][fields["Name"].id] == "true"))
+
+    assert {:ok, _} =
+             Bases.write_records(actor, copy.table.id, %{
+               updates: [
+                 %{
+                   id: row["id"],
+                   data: %{fields["Flag"].id => false},
+                   expected_versions: %{fields["Flag"].id => 1}
+                 }
+               ]
+             })
+
+    assert {:ok, %{records: [updated]}} = Bases.query(actor, copy.table.id, %{ids: [row["id"]]})
+    assert updated["data"][fields["Mixed Owners"].id] == row["data"][fields["Mixed Owners"].id]
+  end
+
+  test "copied views retain empty link tests and discard predicates on source record IDs", ctx do
+    actor = actor_fixture(ctx.uid)
+    {:ok, related} = Bases.create_table(actor, ctx.page.id, %{name: "Related"})
+    name = Enum.find(Bases.fields(related.id), & &1.is_primary)
+
+    {:ok, %{records: [target]}} =
+      Bases.write_records(actor, related.id, %{creates: [%{data: %{name.id => "Target"}}]})
+
+    {:ok, link} = field(ctx, "Related", "link", %{"table_id" => related.id})
+    {:ok, formula} = field(ctx, "Related formula", "formula", %{"source" => "[Related]"})
+
+    {:ok, _} =
+      Bases.write_records(actor, ctx.table.id, %{
+        creates: [
+          %{data: %{ctx.primary.id => "Full", link.id => [target.id]}},
+          %{data: %{ctx.primary.id => "Empty"}}
+        ]
+      })
+
+    for {label, conditions} <- [
+          {"Source IDs",
+           [
+             %{"field_id" => link.id, "operator" => "contains", "value" => target.id},
+             %{"field_id" => formula.id, "operator" => "is", "value" => [target.id]},
+             %{"field_id" => ctx.primary.id, "operator" => "is", "value" => "Full"}
+           ]},
+          {"Empty", [%{"field_id" => link.id, "operator" => "is_empty"}]},
+          {"Full", [%{"field_id" => link.id, "operator" => "is_not_empty"}]}
+        ] do
+      assert {:ok, _} =
+               Bases.create_view(actor, ctx.table.id, %{
+                 name: label,
+                 type: "grid",
+                 config: %{
+                   "filter" => %{"conditions" => conditions},
+                   "sort" => [%{"field_id" => link.id, "direction" => "asc"}]
+                 }
+               })
+    end
+
+    assert {:ok, copy} = Bases.copy_table(actor, ctx.table.id, %{})
+    assert {:ok, schema} = Bases.get_table(actor, copy.table.id)
+    fields = Map.new(schema.fields, &{&1.name, &1})
+
+    for view <- Enum.filter(schema.views, &(&1.name in ["Source IDs", "Empty", "Full"])) do
+      assert length(view.config["filter"]["conditions"]) == 1
+
+      assert {:ok, %{records: [row]}} =
+               Bases.query(actor, copy.table.id, %{
+                 filter: view.config["filter"],
+                 sort: view.config["sort"]
+               })
+
+      assert row["data"][fields["Name"].id] == if(view.name == "Empty", do: "Empty", else: "Full")
+    end
   end
 
   defp field(ctx, name, type, config \\ %{}),

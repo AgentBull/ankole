@@ -10,7 +10,8 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow
+  TableRow,
+  toast
 } from '@ankole/uikit'
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
@@ -21,10 +22,12 @@ import type {
   BaseField,
   BaseRecord,
   BaseTable,
+  FieldType,
   RecordData,
   RecordWrite,
   Value,
-  Versions
+  Versions,
+  WriteResult
 } from '@ankole/applet-sdk/types'
 import { fileURL } from './content-api'
 import { Choice, ContentError } from './content-primitives'
@@ -33,11 +36,15 @@ import { fieldValue } from './state/table-query'
 import { ReferenceLabelsProvider } from './base-field-value'
 import { RecordFormModel } from './state/record-form'
 import type { ConfiguredView, ViewConfig } from './state/view-config'
+import { requestErrorMessage } from '../common/request-errors'
+import { contentError } from './content-errors'
 import {
+  RiAddLine,
   RiAttachmentLine,
   RiCalendarLine,
   RiCheckboxLine,
   RiDeleteBinLine,
+  RiExpandDiagonalLine,
   RiFormula,
   RiHashtag,
   RiLink,
@@ -48,7 +55,7 @@ import {
 } from '@remixicon/react'
 import { fieldTypes } from './base-field-types'
 
-const fieldIcons = {
+export const fieldIcons = {
   text: RiText,
   number: RiHashtag,
   auto_number: RiHashtag,
@@ -83,10 +90,12 @@ export type ViewProps = {
   editable: boolean
   schemaEditable: boolean
   pending?: boolean
+  create(data: RecordData): Promise<WriteResult>
   update(id: string, data: RecordData, expected: Versions): Promise<unknown>
   remove(id: string, expected: Versions): Promise<unknown>
   configure(config: ViewConfig): void
   configuring?: boolean
+  onFieldCreated?(fieldID: string): void
 }
 
 export function BaseViewContent(props: ViewProps) {
@@ -101,7 +110,12 @@ function BaseView(props: ViewProps) {
     case 'grid':
       return <GridView {...props} />
     case 'kanban':
-      return <KanbanView {...props} />
+      return (
+        <KanbanView
+          key={JSON.stringify([props.view.config.group_field_id, props.view.config.filter, props.view.config.sort])}
+          {...props}
+        />
+      )
     case 'gallery':
       return <GalleryView {...props} />
   }
@@ -109,10 +123,13 @@ function BaseView(props: ViewProps) {
 
 function GridView(props: ViewProps) {
   const visible = props.view.config.visible_fields
-    ? props.fields.filter(field => props.view.config.visible_fields!.includes(field.id))
+    ? props.fields.filter(field => field.is_primary || props.view.config.visible_fields!.includes(field.id))
     : props.fields
   const scroll = useRef<HTMLDivElement>(null)
   const [retained, setRetained] = useState<string[]>([])
+  const [detailID, setDetailID] = useState<string>()
+  const [addingRow, setAddingRow] = useState(false)
+  const [pendingFocusID, setPendingFocusID] = useState<string>()
   useEffect(() => {
     const container = scroll.current!
     const sync = () => {
@@ -139,93 +156,178 @@ function GridView(props: ViewProps) {
     estimateSize: () => 48,
     overscan: 8,
     rangeExtractor: useCallback(
-      range =>
-        [
+      range => {
+        const pinned = pendingFocusID ? [...retained, pendingFocusID] : retained
+        return [
           ...new Set([
             ...defaultRangeExtractor(range),
-            ...retained.map(id => props.records.findIndex(record => record.id === id)).filter(index => index >= 0)
+            ...pinned.map(id => props.records.findIndex(record => record.id === id)).filter(index => index >= 0)
           ])
-        ].sort((a, b) => a - b),
-      [retained, props.records]
+        ].sort((a, b) => a - b)
+      },
+      [pendingFocusID, retained, props.records]
     )
   })
+  useEffect(() => {
+    if (!pendingFocusID) return
+    const index = props.records.findIndex(record => record.id === pendingFocusID)
+    if (index < 0) return
+    virtual.scrollToIndex(index, { align: 'auto' })
+    const frame = requestAnimationFrame(() => {
+      const row = scroll.current?.querySelector<HTMLElement>(`[data-grid-record="${CSS.escape(pendingFocusID)}"]`)
+      const target = row?.querySelector<HTMLElement>('input, [role="combobox"], button')
+      if (target) {
+        target.focus()
+        setPendingFocusID(undefined)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pendingFocusID, props.records, virtual])
   const rows = virtual.getVirtualItems()
+  const detailRecord = detailID ? props.records.find(record => record.id === detailID) : undefined
   return (
-    <div
-      ref={scroll}
-      className="pod-base-grid max-h-[70vh] overflow-auto"
-      role="region"
-      aria-label={t('pod.content.table_records')}
-      tabIndex={0}>
-      <Table containerClassName="overflow-visible" aria-rowcount={props.records.length + 1}>
-        <TableHeader className="sticky top-0 z-10 bg-background">
-          <TableRow>
-            {visible.map(field => {
-              const Icon = fieldIcons[field.type]
+    <>
+      <div
+        ref={scroll}
+        className="pod-base-grid max-h-[70vh] overflow-auto"
+        role="region"
+        aria-label={t('pod.content.table_records')}
+        tabIndex={0}>
+        <Table containerClassName="overflow-visible" aria-rowcount={props.records.length + 1}>
+          <TableHeader className="sticky top-0 z-10 bg-background">
+            <TableRow>
+              {visible.map(field => {
+                const Icon = fieldIcons[field.type]
+                return (
+                  <TableHead key={field.id} aria-description={fieldTypes[field.type]}>
+                    <div className="pod-base-property" title={fieldTypes[field.type]}>
+                      <Icon aria-hidden="true" />
+                      <FieldEditorButton
+                        field={field}
+                        tableID={props.tableID}
+                        pageID={props.pageID}
+                        tables={props.tables}
+                        canManage={props.schemaEditable}
+                      />
+                    </div>
+                  </TableHead>
+                )
+              })}
+              <TableHead className="pod-base-row-actions">
+                <FieldEditorButton
+                  tableID={props.tableID}
+                  pageID={props.pageID}
+                  tables={props.tables}
+                  canManage={props.schemaEditable}
+                  onCreated={props.onFieldCreated}
+                />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, index) => {
+              const record = props.records[row.index]!
+              const gap = row.start - (rows[index - 1]?.end ?? 0)
               return (
-                <TableHead key={field.id} aria-description={fieldTypes[field.type]}>
-                  <div className="pod-base-property" title={fieldTypes[field.type]}>
-                    <Icon aria-hidden="true" />
-                    <FieldEditorButton
-                      field={field}
-                      tableID={props.tableID}
-                      pageID={props.pageID}
-                      tables={props.tables}
-                      canManage={props.schemaEditable}
-                    />
-                  </div>
-                </TableHead>
+                <GridRow key={record.id} gap={gap} columns={visible.length + 1}>
+                  <TableRow
+                    data-grid-record={record.id}
+                    data-index={row.index}
+                    ref={virtual.measureElement}
+                    className="pod-base-row"
+                    aria-rowindex={row.index + 2}>
+                    {visible.map(field => (
+                      <TableCell key={field.id} className={field.is_primary ? 'pod-base-primary' : undefined}>
+                        {field.is_primary ? (
+                          <div className="flex items-center gap-1">
+                            <div className="min-w-0 flex-1">
+                              <BaseCell
+                                field={field}
+                                record={record}
+                                pageID={props.pageID}
+                                editable={props.editable}
+                                update={(data, expected) => props.update(record.id, data, expected)}
+                              />
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="pod-base-delete shrink-0"
+                              title={t('pod.content.record_details')}
+                              aria-label={t('pod.content.record_details')}
+                              onClick={() => setDetailID(record.id)}>
+                              <RiExpandDiagonalLine aria-hidden="true" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <BaseCell
+                            field={field}
+                            record={record}
+                            pageID={props.pageID}
+                            editable={props.editable}
+                            update={(data, expected) => props.update(record.id, data, expected)}
+                          />
+                        )}
+                      </TableCell>
+                    ))}
+                    <TableCell className="pod-base-row-actions">
+                      {props.editable && <RecordDeleteButton {...props} record={record} />}
+                    </TableCell>
+                  </TableRow>
+                </GridRow>
               )
             })}
-            <TableHead className="pod-base-row-actions">
-              <FieldEditorButton
-                tableID={props.tableID}
-                pageID={props.pageID}
-                tables={props.tables}
-                canManage={props.schemaEditable}
+            <tr aria-hidden="true">
+              <td
+                colSpan={visible.length + 1}
+                style={{ height: Math.max(0, virtual.getTotalSize() - (rows.at(-1)?.end ?? 0)), padding: 0, border: 0 }}
               />
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row, index) => {
-            const record = props.records[row.index]!
-            const gap = row.start - (rows[index - 1]?.end ?? 0)
-            return (
-              <GridRow key={record.id} gap={gap} columns={visible.length + 1}>
-                <TableRow
-                  data-grid-record={record.id}
-                  data-index={row.index}
-                  ref={virtual.measureElement}
-                  className="pod-base-row"
-                  aria-rowindex={row.index + 2}>
-                  {visible.map(field => (
-                    <TableCell key={field.id} className={field.is_primary ? 'pod-base-primary' : undefined}>
-                      <BaseCell
-                        field={field}
-                        record={record}
-                        pageID={props.pageID}
-                        editable={props.editable}
-                        update={(data, expected) => props.update(record.id, data, expected)}
-                      />
-                    </TableCell>
-                  ))}
-                  <TableCell className="pod-base-row-actions">
-                    {props.editable && <RecordDeleteButton {...props} record={record} />}
-                  </TableCell>
-                </TableRow>
-              </GridRow>
-            )
-          })}
-          <tr aria-hidden="true">
-            <td
-              colSpan={visible.length + 1}
-              style={{ height: Math.max(0, virtual.getTotalSize() - (rows.at(-1)?.end ?? 0)), padding: 0, border: 0 }}
-            />
-          </tr>
-        </TableBody>
-      </Table>
-    </div>
+            </tr>
+            {props.editable && (
+              <TableRow className="pod-base-add-row">
+                <TableCell colSpan={visible.length + 1} className="border-r-0 p-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="w-full justify-start text-fg-tertiary hover:text-foreground"
+                    disabled={addingRow || props.pending}
+                    onClick={() => {
+                      if (addingRow) return
+                      setAddingRow(true)
+                      void props
+                        .create({})
+                        .then(result => {
+                          const createdID = result.records[0]?.id
+                          if (createdID) setPendingFocusID(createdID)
+                        })
+                        .catch(error => toast.error(requestErrorMessage(contentError(error))))
+                        .finally(() => setAddingRow(false))
+                    }}>
+                    <RiAddLine aria-hidden="true" />
+                    {t('pod.content.add_row', { defaultValue: 'New row' })}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      {detailRecord && (
+        <RecordDetailsDialog
+          open
+          onOpenChange={next => {
+            if (!next) setDetailID(undefined)
+          }}
+          record={detailRecord}
+          fields={props.fields}
+          pageID={props.pageID}
+          editable={props.editable}
+          pending={props.pending}
+          update={props.update}
+          remove={props.remove}
+        />
+      )}
+    </>
   )
 }
 
@@ -242,7 +344,14 @@ function GridRow({ gap, columns, children }: { gap: number; columns: number; chi
   )
 }
 
-function RecordCard(props: ViewProps & { record: BaseRecord; draggable?: boolean; dragFrom?: Value }) {
+function RecordCard(
+  props: ViewProps & {
+    record: BaseRecord
+    draggable?: boolean
+    dragFrom?: Value
+    coverImage?: { name: string; src: string }
+  }
+) {
   const [open, setOpen] = useState(false)
   const primary = props.fields.find(field => field.is_primary) ?? props.fields[0]
   return (
@@ -250,7 +359,19 @@ function RecordCard(props: ViewProps & { record: BaseRecord; draggable?: boolean
       <article
         draggable={props.draggable}
         onDragStart={event => writeRecordDrag(event, props.record, props.dragFrom)}
-        className="space-y-2 rounded-control border border-border bg-card p-3">
+        onClick={event => {
+          const target = event.target as HTMLElement | null
+          if (target?.closest('a, button, input, select, textarea')) return
+          setOpen(true)
+        }}
+        className="cursor-pointer space-y-2 overflow-hidden rounded-control border border-border bg-card p-3 transition-colors hover:border-control-edge">
+        {props.coverImage && (
+          <img
+            className="-mx-3 -mt-3 mb-2 h-36 w-[calc(100%+1.5rem)] max-w-none object-cover"
+            alt={props.coverImage.name}
+            src={props.coverImage.src}
+          />
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -258,56 +379,96 @@ function RecordCard(props: ViewProps & { record: BaseRecord; draggable?: boolean
           onClick={() => setOpen(true)}>
           <span className="min-w-0 truncate">
             {primary ? (
-              <FieldValue field={primary} value={fieldValue(props.record, primary)} />
+              <FieldValue field={primary} value={fieldValue(props.record, primary)} pageID={props.pageID} />
             ) : (
               t('pod.content.record')
             )}
           </span>
         </Button>
         {props.fields
-          .filter(field => field !== primary)
-          .slice(0, 4)
+          .filter(
+            field =>
+              field !== primary &&
+              (!props.view.config.visible_fields || props.view.config.visible_fields.includes(field.id))
+          )
           .map(field => (
             <p key={field.id} className="text-xs text-fg-tertiary">
-              <span>{field.name}：</span>
-              <FieldValue field={field} value={fieldValue(props.record, field)} />
+              <span>{field.name}: </span>
+              <FieldValue field={field} value={fieldValue(props.record, field)} pageID={props.pageID} />
             </p>
           ))}
       </article>
-      <Dialog open={open} onOpenChange={next => !props.pending && setOpen(next)}>
-        <DialogContent
-          className="pod-dialog pod-record-dialog"
-          closeLabel={t('common.close')}
-          showCloseButton={!props.pending}
-          aria-busy={props.pending}>
-          <DialogTitle>{t('pod.content.record_details')}</DialogTitle>
-          <div className="pod-dialog-body grid gap-4">
-            {props.fields.map(field => (
-              <div className="grid gap-2 text-sm" key={field.id}>
-                <span>{field.name}</span>
-                <BaseCell
-                  field={field}
-                  record={props.record}
-                  pageID={props.pageID}
-                  editable={props.editable}
-                  update={(data, expected) => props.update(props.record.id, data, expected)}
-                />
-              </div>
-            ))}
-          </div>
-          <DialogFooter>
-            {props.editable && <RecordDeleteButton {...props} />}
-            <Button type="button" variant="ghost" disabled={props.pending} onClick={() => setOpen(false)}>
-              {t('common.close')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RecordDetailsDialog
+        open={open}
+        onOpenChange={setOpen}
+        record={props.record}
+        fields={props.fields}
+        pageID={props.pageID}
+        editable={props.editable}
+        pending={props.pending}
+        update={props.update}
+        remove={props.remove}
+      />
     </>
   )
 }
 
-function RecordDeleteButton({ record, fields, remove }: Pick<ViewProps, 'fields' | 'remove'> & { record: BaseRecord }) {
+function RecordDetailsDialog({
+  open,
+  onOpenChange,
+  record,
+  fields,
+  pageID,
+  editable,
+  pending,
+  update,
+  remove
+}: Pick<ViewProps, 'fields' | 'pageID' | 'editable' | 'pending' | 'update' | 'remove'> & {
+  open: boolean
+  onOpenChange(open: boolean): void
+  record: BaseRecord
+}) {
+  return (
+    <Dialog open={open} onOpenChange={next => !pending && onOpenChange(next)}>
+      <DialogContent
+        className="pod-dialog pod-record-dialog"
+        closeLabel={t('common.close')}
+        showCloseButton={!pending}
+        aria-busy={pending}>
+        <DialogTitle>{t('pod.content.record_details')}</DialogTitle>
+        <div className="pod-dialog-body grid gap-4">
+          {fields.map(field => (
+            <div className="grid gap-2 text-sm" key={field.id}>
+              <span>{field.name}</span>
+              <BaseCell
+                field={field}
+                record={record}
+                pageID={pageID}
+                editable={editable}
+                update={(data, expected) => update(record.id, data, expected)}
+              />
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          {editable && (
+            <RecordDeleteButton fields={fields} remove={remove} record={record} onDeleted={() => onOpenChange(false)} />
+          )}
+          <Button type="button" variant="ghost" disabled={pending} onClick={() => onOpenChange(false)}>
+            {t('common.close')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RecordDeleteButton({
+  record,
+  fields,
+  remove,
+  onDeleted
+}: Pick<ViewProps, 'fields' | 'remove'> & { record: BaseRecord; onDeleted?(): void }) {
   const [deleting, setDeleting] = useState<BaseRecord>()
   const open = !!deleting
   const setOpen = (next: boolean) => setDeleting(next ? record : undefined)
@@ -361,7 +522,10 @@ function RecordDeleteButton({ record, fields, remove }: Pick<ViewProps, 'fields'
               setPending(true)
               setError(undefined)
               void remove(deleting.id, deleting.versions)
-                .then(() => setOpen(false))
+                .then(() => {
+                  setOpen(false)
+                  onDeleted?.()
+                })
                 .catch(setError)
                 .finally(() => {
                   saving.current = false
@@ -376,6 +540,9 @@ function RecordDeleteButton({ record, fields, remove }: Pick<ViewProps, 'fields'
   )
 }
 
+const kanbanGroupTypes = new Set<FieldType>(['select', 'user', 'created_by', 'updated_by', 'checkbox', 'link', 'text'])
+const kanbanColumnPageSize = 20
+
 function GroupField({
   props,
   attribute,
@@ -387,13 +554,21 @@ function GroupField({
   label: string
   datetime?: boolean
 }) {
-  const fields = props.fields.filter(field => (datetime ? field.type === 'datetime' : field.type !== 'attachment'))
+  const current = String(props.view.config[attribute] ?? '')
+  const fields = props.fields.filter(field =>
+    datetime ? field.type === 'datetime' : kanbanGroupTypes.has(field.type) || field.id === current
+  )
   return (
     <Choice
       label={label}
-      value={String(props.view.config[attribute] ?? '')}
+      value={current}
       disabled={props.configuring}
-      onChange={value => props.configure({ ...props.view.config, [attribute]: value })}
+      onChange={value => {
+        const next: ViewConfig = { ...props.view.config }
+        if (value) next[attribute] = value
+        else delete next[attribute]
+        props.configure(next)
+      }}
       options={{ '': label, ...Object.fromEntries(fields.map(field => [field.id, field.name])) }}
     />
   )
@@ -430,20 +605,24 @@ function KanbanView(props: ViewProps) {
       ) : (
         <>
           <div className="flex min-h-64 gap-4 overflow-auto pb-4">
-            {columns.slice(start, start + 6).map(([key, group]) => (
+            {columns.slice(start, start + kanbanColumnPageSize).map(([key, group]) => (
               <KanbanColumn key={`${field.id}:${key}`} props={props} field={field} group={group} />
             ))}
           </div>
-          {columns.length > 6 && (
+          {columns.length > kanbanColumnPageSize && (
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" disabled={!start} onClick={() => setOffset(Math.max(0, start - 6))}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!start}
+                onClick={() => setOffset(Math.max(0, start - kanbanColumnPageSize))}>
                 {t('pod.content.previous_group')}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                disabled={start + 6 >= columns.length}
-                onClick={() => setOffset(start + 6)}>
+                disabled={start + kanbanColumnPageSize >= columns.length}
+                onClick={() => setOffset(start + kanbanColumnPageSize)}>
                 {t('pod.content.next_group')}
               </Button>
             </div>
@@ -466,6 +645,9 @@ function KanbanColumn({
   const [token, setToken] = useState<string>()
   const [history, setHistory] = useState<(string | undefined)[]>([])
   const [error, setError] = useState<unknown>()
+  const [dragOver, setDragOver] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createdRecord, setCreatedRecord] = useState<BaseRecord>()
   const rows = useRecords(props.tableID, {
     filter: props.view.config.filter,
     sort: props.view.config.sort,
@@ -476,15 +658,25 @@ function KanbanColumn({
     page_size: 100,
     page_token: token
   })
+  const activeCreated = createdRecord
+    ? (rows.data?.records.find(record => record.id === createdRecord.id) ?? createdRecord)
+    : undefined
   return (
     <ReferenceLabelsProvider fields={props.fields} records={rows.data?.records ?? []}>
       <section
-        className="w-64 shrink-0 space-y-3 rounded-control bg-muted/40 p-3"
+        className={`w-64 shrink-0 space-y-3 rounded-control bg-muted/40 p-3 transition-colors ${dragOver ? 'bg-accent/60 ring-2 ring-primary/40' : ''}`}
         onDragOver={event => {
-          if (props.editable && writableField(field)) event.preventDefault()
+          if (props.editable && writableField(field)) {
+            event.preventDefault()
+            if (!dragOver) setDragOver(true)
+          }
+        }}
+        onDragLeave={event => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
         }}
         onDrop={event => {
           event.preventDefault()
+          setDragOver(false)
           try {
             const dragged = readRecordDrag(event)
             const record = dragged.record
@@ -503,15 +695,51 @@ function KanbanColumn({
             setError(error)
           }
         }}>
-        <h3 className="text-sm font-semibold">
-          {group.value === null ? t('pod.content.ungrouped') : <FieldValue field={field} value={group.value} />}{' '}
-          <span className="text-fg-tertiary">{group.count}</span>
-        </h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="min-w-0 truncate text-sm font-semibold">
+            {group.value === null ? (
+              t('pod.content.ungrouped')
+            ) : (
+              <FieldValue field={field} value={group.value} pageID={props.pageID} />
+            )}{' '}
+            <span className="text-fg-tertiary">{group.count}</span>
+          </h3>
+          {props.editable && (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              disabled={creating || rows.write.isPending}
+              title={t('pod.content.add_record_in_group', { defaultValue: 'Add record to group' })}
+              aria-label={t('pod.content.add_record_in_group', { defaultValue: 'Add record to group' })}
+              onClick={() => {
+                if (creating) return
+                setCreating(true)
+                setError(undefined)
+                const initialValue =
+                  ['user', 'link'].includes(field.type) || (field.type === 'select' && field.config.multiple)
+                    ? [group.value]
+                    : group.value
+                const initialData: RecordData =
+                  writableField(field) && group.value !== null ? { [field.id]: initialValue } : {}
+                void rows
+                  .create(initialData)
+                  .then(result => {
+                    const created = result.records[0]
+                    if (created) setCreatedRecord(created)
+                  })
+                  .catch(setError)
+                  .finally(() => setCreating(false))
+              }}>
+              <RiAddLine aria-hidden="true" />
+            </Button>
+          )}
+        </div>
         <ContentError error={rows.error || error} />
         {rows.data?.records.map(record => (
           <RecordCard
             key={record.id}
             {...props}
+            create={rows.create}
             update={rows.update}
             remove={rows.remove}
             record={record}
@@ -543,27 +771,48 @@ function KanbanColumn({
             </Button>
           </div>
         )}
+        {activeCreated && (
+          <RecordDetailsDialog
+            open
+            onOpenChange={next => {
+              if (!next) setCreatedRecord(undefined)
+            }}
+            record={activeCreated}
+            fields={props.fields}
+            pageID={props.pageID}
+            editable={props.editable}
+            pending={rows.write.isPending}
+            update={rows.update}
+            remove={rows.remove}
+          />
+        )}
       </section>
     </ReferenceLabelsProvider>
   )
 }
 
 function GalleryView(props: ViewProps) {
-  const cover = props.fields.find(field => field.id === props.view.config.cover_field_id)
+  const attachmentFields = props.fields.filter(field => field.type === 'attachment')
+  const cover = attachmentFields.find(field => field.id === props.view.config.cover_field_id)
   return (
     <div className="space-y-4">
-      <Choice
-        label={t('pod.content.gallery_cover')}
-        disabled={props.configuring}
-        value={String(props.view.config.cover_field_id ?? '')}
-        onChange={value => props.configure({ ...props.view.config, cover_field_id: value })}
-        options={{
-          '': t('pod.content.no_cover'),
-          ...Object.fromEntries(
-            props.fields.filter(field => field.type === 'attachment').map(field => [field.id, field.name])
-          )
-        }}
-      />
+      {attachmentFields.length > 0 && (
+        <Choice
+          label={t('pod.content.gallery_cover')}
+          disabled={props.configuring}
+          value={String(props.view.config.cover_field_id ?? '')}
+          onChange={value => {
+            const next: ViewConfig = { ...props.view.config }
+            if (value) next.cover_field_id = value
+            else delete next.cover_field_id
+            props.configure(next)
+          }}
+          options={{
+            '': t('pod.content.no_cover'),
+            ...Object.fromEntries(attachmentFields.map(field => [field.id, field.name]))
+          }}
+        />
+      )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
         {props.records.map(record => {
           const value = cover ? fieldValue(record, cover) : null
@@ -571,16 +820,19 @@ function GalleryView(props: ViewProps) {
             ? (value as { mime: string; path: string; name: string }[]).find(file => file.mime.startsWith('image/'))
             : undefined
           return (
-            <div key={record.id}>
-              {image && (
-                <img
-                  className="h-36 w-full rounded-t object-cover"
-                  alt={image.name}
-                  src={fileURL(props.pageID, image.path.replace(`pages/${props.pageID}/`, ''))}
-                />
-              )}
-              <RecordCard {...props} record={record} />
-            </div>
+            <RecordCard
+              key={record.id}
+              {...props}
+              record={record}
+              coverImage={
+                image
+                  ? {
+                      name: image.name,
+                      src: fileURL(props.pageID, image.path.replace(`pages/${props.pageID}/`, ''))
+                    }
+                  : undefined
+              }
+            />
           )
         })}
       </div>
@@ -643,7 +895,7 @@ export function RecordForm(
           {t('pod.content.cancel')}
         </Button>
         <Button
-          variant="outline"
+          variant="default"
           type="submit"
           disabled={!props.editable || model.pending.value || !!model.uploading.value.size}>
           {model.pending.value ? t('pod.content.submitting') : t('pod.content.submit_record')}

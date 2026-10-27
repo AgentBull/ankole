@@ -57,10 +57,12 @@ defmodule Ankole.Pod.Pages do
     |> MapSet.new(& &1.id)
   end
 
-  @doc "Returns visible Pages that were saved from the supplied Messages."
-  def saved_from_messages(actor, ids) do
+  @doc "Returns visible Pages saved from the live Messages of one Conversation."
+  def saved_from_conversation(actor, id) do
     Page
-    |> Ash.Query.filter(saved_from_message_id in ^ids)
+    |> Ash.Query.filter(
+      saved_from_message.conversation_id == ^id and not saved_from_message.withdrawn
+    )
     |> Ankole.Ash.read_authorized(actor)
   end
 
@@ -86,6 +88,7 @@ defmodule Ankole.Pod.Pages do
       now = DateTime.utc_now(:microsecond)
 
       skip_default_table = Ankole.Attrs.get(attrs, :skip_default_table, false)
+      xml = Ankole.Attrs.get(attrs, :xml)
 
       attrs = %{
         id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -112,7 +115,7 @@ defmodule Ankole.Pod.Pages do
       attrs = Access.anchor_attributes(attrs)
 
       with {:ok, page} <- Ankole.Ash.create(Page, :create_in_tx, attrs),
-           :ok <- initial_content(page, uid, skip_default_table) do
+           :ok <- initial_content(page, uid, skip_default_table, xml) do
         {:ok, page}
       end
     end
@@ -162,7 +165,6 @@ defmodule Ankole.Pod.Pages do
          :ok <- destination(actor, parent, owner, false),
          :ok <- no_cycle(page, parent),
          {:ok, _} <- Access.authorize_move(actor, page, parent, owner),
-         :ok <- destination(actor, parent, owner, false),
          undo = previous_location(page),
          {:ok, position} <- move_position(page, parent, owner, attrs),
          {:ok, moved} <-
@@ -298,11 +300,26 @@ defmodule Ankole.Pod.Pages do
   def delete_embed(%Ankole.AuthZ.Actor{} = actor, parent_id, child_id, authority \\ nil) do
     authority = authority || actor.turn_authority
 
-    Access.write_tree(
-      authority,
-      fn -> delete_embed_in_tx(actor, parent_id, child_id) end,
-      after_commit: &committed/1
-    )
+    with {:ok, _} <- authorize(actor, parent_id, "page_edit") do
+      case fetch(child_id) do
+        {:ok, %Page{parent_id: ^parent_id}} ->
+          Access.write_tree(
+            authority,
+            fn -> delete_embed_in_tx(actor, parent_id, child_id) end,
+            after_commit: fn
+              %Page{} = page -> committed(page)
+              _ -> :ok
+            end
+          )
+          |> case do
+            {:ok, _} -> {:ok, nil}
+            error -> error
+          end
+
+        _reference ->
+          {:ok, nil}
+      end
+    end
   end
 
   @doc false
@@ -320,11 +337,16 @@ defmodule Ankole.Pod.Pages do
   end
 
   defp delete_embedded_child(%Ankole.AuthZ.Actor{} = actor, child) do
-    with {:ok, _} <- Access.authorize(actor, child, "page_manage"),
+    action =
+      if child.inherit_permissions and child.created_by == ActorRef.from_actor(actor),
+        do: "page_edit",
+        else: "page_manage"
+
+    with {:ok, _} <- Access.authorize(actor, child, action),
          {:ok, child} <-
            Access.update_anchor_in_tx(child, :trash, %{deleted_at: DateTime.utc_now(:microsecond)}),
          :ok <- schedule_purge(child),
-         do: {:ok, nil}
+         do: {:ok, child}
   end
 
   def restore(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
@@ -519,8 +541,8 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  defp initial_content(%{type: :doc} = page, uid, _skip) do
-    with {:ok, parsed} <- Ankole.Kernel.page_validate("<page />"),
+  defp initial_content(%{type: :doc} = page, uid, _skip, xml) do
+    with {:ok, parsed} <- Ankole.Kernel.page_validate(xml || "<page />"),
          {:ok, _} <-
            Ankole.Ash.create(PageContent, :create_in_tx, %{
              page_id: page.id,
@@ -532,11 +554,12 @@ defmodule Ankole.Pod.Pages do
          do: :ok
   end
 
-  defp initial_content(%{type: :base} = page, uid, false) do
+  defp initial_content(%{type: :base} = page, uid, false, nil) do
     with {:ok, _} <- Ankole.Pod.Bases.init_default_table_in_tx(page, uid), do: :ok
   end
 
-  defp initial_content(_page, _uid, _skip), do: :ok
+  defp initial_content(_page, _uid, _skip, nil), do: :ok
+  defp initial_content(_page, _uid, _skip, _xml), do: {:error, :invalid_request}
 
   defp source_message(_uid, nil), do: {:ok, nil}
 

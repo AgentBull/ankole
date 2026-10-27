@@ -94,4 +94,17 @@ describe('LoginModel', () => {
     expect(model.formError.value).toBeUndefined()
     model[Symbol.dispose]()
   })
+
+  test('starts, restores and clears the resend countdown without locking verification', () => {
+    const model = new LoginModel()
+    model.startResendCooldown(60)
+    expect(model.resendSeconds.value).toBe(60)
+    expect(model.formError.value).toBeUndefined()
+    model.restoreResendCooldown(Date.now() - 1000)
+    model.updateResendCooldown()
+    expect(model.resendSeconds.value).toBe(0)
+    model.clearResendCooldown()
+    expect(model.resendUntil.value).toBe(0)
+    model[Symbol.dispose]()
+  })
 })

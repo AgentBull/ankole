@@ -6,6 +6,17 @@ defmodule Ankole.Tenants.Tenant do
     domain: Ankole.Tenants,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
+  @blacklist_file Application.compile_env(:ankole, :tenant_slug_blacklist)
+
+  if @blacklist_file do
+    @external_resource @blacklist_file
+    @reserved_slugs @blacklist_file |> File.read!() |> TomlElixir.decode!() |> Map.fetch!("slugs")
+  else
+    @reserved_slugs []
+  end
+
+  def reserved_slug?(slug), do: slug in @reserved_slugs
+
   authz do
     scope(:site_console)
     resolve_param(:id, :uuid)
@@ -49,10 +60,6 @@ defmodule Ankole.Tenants.Tenant do
     check_constraints do
       check_constraint(:slug, "tenants_slug_format")
 
-      if Application.compile_env(:ankole, :edition, :foss) == :saas do
-        check_constraint(:slug, "tenants_slug_reserved", message: "is reserved")
-      end
-
       check_constraint(:display_name, "tenants_display_name_present")
     end
   end
@@ -85,6 +92,13 @@ defmodule Ankole.Tenants.Tenant do
 
   validations do
     validate(match(:slug, ~r/\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/))
+
+    validate(fn changeset, _context ->
+      if Ash.Changeset.changing_attribute?(changeset, :slug) and
+           reserved_slug?(Ash.Changeset.get_attribute(changeset, :slug)),
+         do: {:error, field: :slug, message: "is reserved"},
+         else: :ok
+    end)
 
     validate(fn changeset, _context ->
       case Ash.Changeset.get_attribute(changeset, :display_name) do

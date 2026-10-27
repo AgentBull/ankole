@@ -5,10 +5,12 @@
  */
 import { Command, enter } from '../core/command'
 import { Node, type ChangeSet, type Leaf, type Mark, type Pos } from '../core/doc'
+import { Wordgard } from '../core/editor'
 import { history } from '../core/history'
 import { GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { pairsOf, recordOf, type Pairs } from './attributes'
+import { openLinkHref } from './host'
 import * as S from './schema'
 
 /** A link: its address and title, and the range of its text. */
@@ -163,5 +165,17 @@ const onEnter = GardState.prec.highest(
   })
 )
 
-/** Typed addresses become links. */
-export const links: GardState.Extension = [onSpace, onEnter]
+const onClick = Wordgard.domEventHandler('click', (event, wg) => {
+  if (event.defaultPrevented || event.button !== 0) return false
+  const link = (event.target as Element | null)?.closest('a[href]')
+  if (!link) return false
+  const href = link.getAttribute('href') ?? ''
+  if (href.startsWith('ankole:page/')) return false
+  if (!wg.state.readOnly && !event.metaKey && !event.ctrlKey) return false
+  if (!openLinkHref(wg, href)) return false
+  event.preventDefault()
+  return true
+})
+
+/** Typed addresses become links, and external links open on modifier click or in read-only mode. */
+export const links: GardState.Extension = [onSpace, onEnter, onClick]

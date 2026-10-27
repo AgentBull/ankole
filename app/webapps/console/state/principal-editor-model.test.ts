@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { principalRequestError } from '../pages/principal-create'
 import { PrincipalEditorModel } from './principal-editor-model'
 
 describe('PrincipalEditorModel', () => {
@@ -78,4 +79,19 @@ test('creating a guest captures the selected membership without changing the pro
   expect(model.createBody().membership).toBe('guest')
   expect(model.updateBody()).toEqual({})
   model[Symbol.dispose]()
+})
+
+test('principalRequestError maps structured email_taken codes and details without relying solely on English text', () => {
+  const t = (key: string) => key
+  expect(principalRequestError({ error: { code: 'email_taken', message: '冲突' } }, t)).toBe(
+    'console.principals.email_taken'
+  )
+  expect(
+    principalRequestError(
+      { errors: [{ code: 'validation_failed', meta: { details: [{ path: 'email', kind: 'taken' }] } }] },
+      t
+    )
+  ).toBe('console.principals.email_taken')
+  const unrelated = new Error('network')
+  expect(principalRequestError(unrelated, t)).toBe(unrelated)
 })

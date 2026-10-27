@@ -10,7 +10,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
     Ankole.Authn.RateLimiter.reset_for_test()
     previous = Application.get_env(:ankole, Ankole.Authn.Mailer)
-    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: :test)
+    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.Test)
 
     on_exit(fn ->
       if previous,
@@ -42,8 +42,8 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
         mail: settings
       })
 
-    %{"flow" => flow, "challengeID" => challenge} = api_response(conn, 200)
-    assert_receive {:delivered_email, %{to: "operator@example.com", text_body: body}}
+    %{"challengeID" => challenge} = api_response(conn, 200)
+    assert_receive {:email, %Swoosh.Email{to: [{_, "operator@example.com"}], text_body: body}}
     assert {:ok, false} = Ankole.Setup.Config.completed?()
     assert {:ok, nil} = AppConfigure.get_by_key("authn.email.mail")
     [_, code] = Regex.run(~r/verification code is (\d{6})/, body)
@@ -52,7 +52,6 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
       conn
       |> recycle()
       |> api_post("/api/v2/browser/setup/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })
@@ -100,24 +99,22 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
         end)
       end
 
-    conn = init_test_session(conn, %{})
-    {:ok, conn, transaction} = WebSession.begin_login(conn, :site, %{})
-
     conn =
-      api_post(conn, "/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: transaction.id,
+      conn
+      |> init_test_session(%{})
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
+        purpose: "site",
         email: proof.subject_id
       })
 
     %{"challengeID" => id} = api_response(conn, 200)
-    assert_receive {:delivered_email, %{text_body: body}}
+    assert_receive {:email, %Swoosh.Email{text_body: body}}
     [_, code] = Regex.run(~r/verification code is (\d{6})/, body)
 
     conn =
       conn
       |> recycle()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: transaction.id,
         challengeID: id,
         code: code
       })
@@ -159,12 +156,11 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
       conn
       |> init_test_session(%{})
       |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: Ash.UUIDv7.generate(),
         email: "member@example.com"
       })
 
     assert api_error(conn, 409)
-    refute_receive {:delivered_email, _}
+    refute_receive {:email, _}
   end
 
   test "verified ordinary membership cannot establish a Console session", %{conn: conn} do
@@ -179,26 +175,23 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     {:ok, %{principal: member}} =
       Principals.create_human(%{email: "member@example.com", display_name: "Member"})
 
-    conn = init_test_session(conn, %{})
-
-    {:ok, conn, transaction} =
-      WebSession.begin_login(conn, :console, %{"return_to" => "https://evil.example"})
-
     conn =
-      api_post(conn, "/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: transaction.id,
+      conn
+      |> init_test_session(%{})
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
+        purpose: "console",
+        returnTo: "https://evil.example",
         email: "member@example.com"
       })
 
     %{"challengeID" => challenge} = api_response(conn, 200)
-    assert_receive {:delivered_email, %{text_body: body}}
+    assert_receive {:email, %Swoosh.Email{text_body: body}}
     [_, code] = Regex.run(~r/code is (\d{6})/, body)
 
     conn =
       conn
       |> recycle()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: transaction.id,
         challengeID: challenge,
         code: code
       })
@@ -206,5 +199,77 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     assert api_error(conn, 403)["code"] == "not_an_admin"
     refute WebSession.site_admin_session(conn)
     refute AuthZ.site_admin?(member.uid)
+  end
+
+  test "local mailbox preview serves localized OTP emails in development mode without SMTP settings",
+       %{conn: conn} do
+    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.Local)
+    {:ok, true} = AppConfigure.put_global_by_key("setup.completed", true)
+    {:ok, _} = AppConfigure.put_global_by_key("authn.email.mail", nil)
+    Swoosh.Adapters.Local.Storage.Memory.delete_all()
+    on_exit(fn -> Swoosh.Adapters.Local.Storage.Memory.delete_all() end)
+
+    {:ok, %{principal: member}} =
+      Principals.create_human(%{email: "dev-login@example.com", display_name: "Dev Member"})
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Principals.bind_site_credential_in_tx(member.uid, %{
+          provider_id: "email_otp",
+          subject_id: "dev-login@example.com",
+          verified_email: "dev-login@example.com"
+        })
+      end)
+
+    providers_conn =
+      conn
+      |> init_test_session(%{})
+      |> api_get("/api/v2/browser/identity-providers", %{purpose: "site"})
+
+    assert Enum.any?(
+             api_response(providers_conn, 200)["providers"],
+             &(&1["providerID"] == "email_otp")
+           )
+
+    challenge_conn =
+      providers_conn
+      |> recycle()
+      |> put_req_header("accept-language", "zh-CN,zh;q=0.9,en;q=0.8")
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
+        purpose: "site",
+        email: "dev-login@example.com"
+      })
+
+    %{"challengeID" => challenge_id} = api_response(challenge_conn, 200)
+
+    json_conn = get(build_conn(), "/dev/mailbox/json")
+    assert %{"data" => [rendered]} = json_response(json_conn, 200)
+    assert rendered["subject"] == "Ankole 邮箱验证码"
+    assert rendered["html_body"] =~ ~s(lang="zh-Hans-CN")
+    [_, code] = Regex.run(~r/验证码为 (\d{6})/, rendered["text_body"])
+
+    message_id = rendered["headers"]["Message-ID"]
+    html_conn = get(build_conn(), "/dev/mailbox/#{message_id}/html")
+    assert html_response(html_conn, 200) =~ code
+
+    verify_conn =
+      challenge_conn
+      |> recycle()
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: challenge_id,
+        code: code
+      })
+
+    assert %{"status" => "ok"} = api_response(verify_conn, 200)
+    session_conn = verify_conn |> recycle() |> api_get("/api/v2/browser/session")
+
+    assert Enum.any?(
+             api_response(session_conn, 200)["accounts"],
+             &(&1["principalUID"] == member.uid)
+           )
+
+    clear_conn = post(build_conn(), "/dev/mailbox/clear")
+    assert redirected_to(clear_conn, 302) == "/dev/mailbox"
+    assert json_response(get(build_conn(), "/dev/mailbox/json"), 200) == %{"data" => []}
   end
 end

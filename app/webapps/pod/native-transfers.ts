@@ -1,10 +1,27 @@
 import { createClientConfig } from '../common/internal-api-client'
 import type { ConversationAttachment } from './api'
 import { identityQuery } from './content-api'
-import type { PodFileCopyResponse } from './api/generated/types.gen'
+import type { PodFileCopyResponse, PodPageCreateResponse } from './api/generated/types.gen'
 
 export type AttachmentReceipt = { receipt: string; name: string; size: number; content_type?: string | null }
 const transport = createClientConfig({}).fetch!
+
+export function chooseLocalFile(): Promise<File | undefined> {
+  return new Promise(resolve => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.hidden = true
+    const finish = () => {
+      const file = input.files?.[0]
+      input.remove()
+      resolve(file)
+    }
+    input.addEventListener('change', finish, { once: true })
+    input.addEventListener('cancel', finish, { once: true })
+    document.body.append(input)
+    input.click()
+  })
+}
 
 export async function uploadAttachment(file: File, fileID: string, signal: AbortSignal): Promise<AttachmentReceipt> {
   const body = new FormData()
@@ -25,6 +42,17 @@ export async function uploadFile(
   body.set('role', role)
   if (revision !== undefined) body.set('base_revision', String(revision))
   const response = await transport(`/api/v2/pod/pages/${encodeURIComponent(id)}/files`, { method: 'POST', body })
+  return response.json()
+}
+
+export async function createFilePage(
+  file: File,
+  destination: { parent_id?: string; private_owner_uid?: string }
+): Promise<PodPageCreateResponse> {
+  const body = new FormData()
+  body.set('file', file)
+  for (const [key, value] of Object.entries(destination)) if (value) body.set(key, value)
+  const response = await transport('/api/v2/pod/file-pages', { method: 'POST', body })
   return response.json()
 }
 

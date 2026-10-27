@@ -30,12 +30,17 @@ defmodule Ankole.Pod.Files do
   end
 
   @doc "Reads a page file, optionally requiring its current content digest."
-  def read(%Ankole.AuthZ.Actor{} = actor, page_id, path, digest \\ nil) do
+  def read(%Ankole.AuthZ.Actor{} = actor, page_id, path, digest \\ nil, opts \\ []) do
     with {:ok, file} <- resolve_read(actor, page_id, path, digest),
+         :ok <- read_size(file, opts[:max_bytes]),
          {:ok, bytes} <- Drive.read_content(hex(file.sha256)) do
       {:ok, entry(file), bytes}
     end
   end
+
+  defp read_size(_file, nil), do: :ok
+  defp read_size(%{size: size}, max) when size <= max, do: :ok
+  defp read_size(_file, _max), do: {:error, :file_too_large}
 
   @doc "Streams a page file through a local file for the WorkerFiles relay."
   def read_to_file(%Ankole.AuthZ.Actor{} = actor, page_id, path, local_path, digest \\ nil) do
@@ -151,6 +156,54 @@ defmodule Ankole.Pod.Files do
     end
   end
 
+  @doc "Creates a file page and its manifest in one transaction after storing the bytes."
+  def create_from_upload(%Ankole.AuthZ.Actor{} = actor, attrs, name, source, content_type) do
+    with {:ok, _} <- Access.principal(actor),
+         {:ok, stored} <- Drive.store(source) do
+      create_file_page(actor, attrs, name, stored.sha256, content_type)
+    end
+  end
+
+  @doc "Creates a file page from a visible conversation attachment in one transaction."
+  def create_from_message(%Ankole.AuthZ.Actor{} = actor, attrs) do
+    message_id = Ankole.Attrs.get(attrs, :saved_from_message_id)
+    path = Ankole.Attrs.get(attrs, :attachment_path)
+
+    with true <- Ankole.Attrs.get(attrs, :type) in [:file, "file"],
+         {:ok, attachment} <- message_attachment(actor, message_id, path) do
+      create_file_page(
+        actor,
+        attrs,
+        attachment["name"] || Path.basename(path),
+        attachment["blob_ref"],
+        Ankole.Conversations.Attachments.content_type(attachment)
+      )
+    else
+      false -> {:error, :invalid_request}
+      error -> error
+    end
+  end
+
+  defp create_file_page(actor, attrs, name, digest, content_type) do
+    upload = %{
+      role: "file",
+      base_revision: 0,
+      name: name,
+      digest: digest,
+      content_type: content_type
+    }
+
+    Access.write_tree(
+      actor.turn_authority,
+      fn ->
+        with {:ok, page} <- Pages.create_in_tx(actor, Map.put(attrs, :type, :file)),
+             {:ok, _} <- commit_upload_in_tx(actor, page.id, upload),
+             do: Pages.fetch(page.id)
+      end,
+      after_commit: &Pages.committed/1
+    )
+  end
+
   @doc "Saves an attachment visible in a conversation without granting access to the Agent's drive."
   def copy_from_message(
         %Ankole.AuthZ.Actor{} = actor,
@@ -159,12 +212,7 @@ defmodule Ankole.Pod.Files do
         message_id,
         source_path
       ) do
-    with {:ok, message_id} <- Ecto.UUID.cast(message_id),
-         {:ok, %Ankole.Conversations.Message{} = message} <-
-           Ankole.Conversations.get_message(message_id),
-         {:ok, _conversation} <- Ankole.Conversations.get(actor, message.conversation_id),
-         %{"blob_ref" => digest} = attachment <-
-           Enum.find(message.attachments, &(Map.get(&1, "path") == source_path)),
+    with {:ok, attachment} <- message_attachment(actor, message_id, source_path),
          {:ok, _page} <- Pages.authorize(actor, page_id, "page_edit") do
       commit_upload(
         actor,
@@ -172,14 +220,25 @@ defmodule Ankole.Pod.Files do
         "file",
         base_revision,
         attachment["name"] || Path.basename(source_path),
-        digest,
+        attachment["blob_ref"],
         Ankole.Conversations.Attachments.content_type(attachment),
         nil
       )
-    else
-      {:error, _reason} = error -> error
-      _ -> {:error, :not_found}
     end
+  end
+
+  defp message_attachment(actor, message_id, source_path) do
+    with {:ok, message_id} <- Ecto.UUID.cast(message_id),
+         {:ok, %Ankole.Conversations.Message{} = message} <-
+           Ankole.Conversations.get_message(message_id),
+         {:ok, _conversation} <- Ankole.Conversations.get(actor, message.conversation_id),
+         %{"blob_ref" => _} = attachment <-
+           Enum.find(message.attachments, &(Map.get(&1, "path") == source_path)),
+         do: {:ok, attachment},
+         else: (
+           {:error, _} = error -> error
+           _ -> {:error, :not_found}
+         )
   end
 
   @doc "Publishes a complete applet source and distribution manifest with compare-and-set."
@@ -287,6 +346,7 @@ defmodule Ankole.Pod.Files do
                [%{path: path, sha256: digest, source: "pod", content_type: upload.content_type}],
                deletes
              ),
+           {:ok, page} <- name_uploaded_file(page, role, name),
            {:ok, page} <- maybe_advance(page) do
         result = %{page_id: page.id, revision: page.revision, file: entry(file)}
 
@@ -304,6 +364,11 @@ defmodule Ankole.Pod.Files do
       end
     end)
   end
+
+  defp name_uploaded_file(%{title: ""} = page, "file", name),
+    do: Ankole.Ash.update(page, :edit, %{title: Drive.file_name(name)})
+
+  defp name_uploaded_file(page, _role, _name), do: {:ok, page}
 
   @doc "Publishes a committed page file change to the page channel."
   def committed(%{page_id: id}), do: Pages.broadcast(id)

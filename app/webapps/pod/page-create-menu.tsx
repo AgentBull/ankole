@@ -11,48 +11,116 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiAddLine, RiFileAddLine, RiLoader4Line } from '@remixicon/react'
+import { useRef } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
-import { contentKeys, pageAPI, pageChildrenQuery, type Page, type PageType } from './content-api'
+import { contentKeys, pageAPI, pageChildrenQuery, type Page } from './content-api'
 import { contentError } from './content-errors'
 import { typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
+import { chooseLocalFile, createFilePage } from './native-transfers'
 
-type CreatePageOptions = {
+export type CreatePageOptions = {
   parentID?: string
   scope?: 'space' | 'private'
   privateOwner?: string
   onCreated?: (page: Page) => void
 }
 
-function usePageCreation({ parentID, scope, privateOwner, onCreated }: CreatePageOptions) {
-  const navigate = useNavigate()
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: (type: PageType) => {
-      if (!parentID && scope === 'private' && !privateOwner) {
-        throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_the'))
-      }
-      return pageAPI.create({
-        type,
-        title: '',
-        ...(parentID ? { parent_id: parentID } : scope === 'private' ? { private_owner_uid: privateOwner } : {})
-      })
-    },
-    onSuccess: async ({ page }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
-      if (onCreated) onCreated(page)
-      else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
-    },
-    onError: error => toast.error(requestErrorMessage(contentError(error)))
-  })
+export type PageCreation = {
+  isPending: boolean
+  submit: (type: 'doc' | 'base' | 'file') => Promise<void>
 }
 
-function PageTypeItems({ create }: { create: ReturnType<typeof usePageCreation> }) {
-  return (['doc', 'base', 'applet', 'file'] as const).map(type => (
-    <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => create.mutate(type)}>
+export function usePageCreation({ parentID, scope, privateOwner, onCreated }: CreatePageOptions = {}): PageCreation {
+  const navigate = useNavigate()
+  const client = useQueryClient()
+  const latestOnCreated = useRef(onCreated)
+  latestOnCreated.current = onCreated
+  const mutation = useMutation({
+    mutationFn: ({
+      input,
+      targetParentID,
+      targetScope,
+      targetOwner
+    }: {
+      input: 'doc' | 'base' | File
+      targetParentID?: string
+      targetScope?: 'space' | 'private'
+      targetOwner?: string
+    }) => {
+      if (!targetParentID && targetScope === 'private' && !targetOwner) {
+        throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_the'))
+      }
+      const destination = targetParentID
+        ? { parent_id: targetParentID }
+        : targetScope === 'private'
+          ? { private_owner_uid: targetOwner }
+          : {}
+      if (input instanceof File) return createFilePage(input, destination)
+      return pageAPI.create({
+        type: input,
+        title: '',
+        ...destination
+      })
+    }
+  })
+  const run = async (type: 'doc' | 'base' | 'file', override?: CreatePageOptions) => {
+    const input = type === 'file' ? await chooseLocalFile() : type
+    if (!input) return
+    const callback = override?.onCreated ?? latestOnCreated.current
+    try {
+      const { page } = await mutation.mutateAsync({
+        input,
+        targetParentID: override?.parentID ?? parentID,
+        targetScope: override?.scope ?? scope,
+        targetOwner: override?.privateOwner ?? privateOwner
+      })
+      await client.invalidateQueries({ queryKey: contentKeys.all })
+      if (callback) callback(page)
+      else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+    } catch (error) {
+      toast.error(requestErrorMessage(contentError(error)))
+    }
+  }
+  return {
+    isPending: mutation.isPending,
+    submit: type => run(type)
+  }
+}
+
+export function useSubpageCreation() {
+  const navigate = useNavigate()
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: ({ input, parentID }: { input: 'doc' | 'base' | File; parentID: string }) => {
+      if (input instanceof File) return createFilePage(input, { parent_id: parentID })
+      return pageAPI.create({ type: input, title: '', parent_id: parentID })
+    }
+  })
+  const forParent = (parentID: string, onCreated?: (page: Page) => void): PageCreation => ({
+    isPending: mutation.isPending,
+    submit: async type => {
+      const input = type === 'file' ? await chooseLocalFile() : type
+      if (!input) return
+      try {
+        const { page } = await mutation.mutateAsync({ input, parentID })
+        await client.invalidateQueries({ queryKey: contentKeys.all })
+        if (onCreated) onCreated(page)
+        else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+      } catch (error) {
+        toast.error(requestErrorMessage(contentError(error)))
+      }
+    }
+  })
+  return forParent
+}
+
+function PageTypeItems({ create }: { create: PageCreation }) {
+  return (['doc', 'base', 'file'] as const).map(type => (
+    <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => void create.submit(type)}>
       <PageIcon page={{ type, icon: null }} />
       {typeLabels[type]}
     </DropdownMenuItem>
@@ -106,9 +174,11 @@ export function CreatePageButton({
 
 export function CreatePageSubmenu({
   label = t('pod.sidebar.new_subpage'),
+  create: provided,
   ...options
-}: CreatePageOptions & { label?: string }) {
-  const create = usePageCreation(options)
+}: CreatePageOptions & { label?: string; create?: PageCreation }) {
+  const fallback = usePageCreation(options)
+  const create = provided ?? fallback
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger disabled={create.isPending}>

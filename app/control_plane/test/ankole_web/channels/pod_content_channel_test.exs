@@ -556,11 +556,9 @@ defmodule AnkoleWeb.PodContentChannelTest do
   defp socket_token(principal) do
     {:ok, browser} = BrowserSessions.create()
     browser_ref = BrowserSessions.reference(browser)
-    {:ok, flow} = BrowserSessions.begin_login(browser_ref, :pod, %{})
-    {:ok, _} = BrowserSessions.bind_provider(browser_ref, flow.id, "lark-main")
 
     {:ok, %{authentication: auth}} =
-      BrowserSessions.complete_login(browser_ref, flow.id, %{
+      BrowserSessions.authenticate(browser_ref, :pod, %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
         "provider_id" => "lark-main",

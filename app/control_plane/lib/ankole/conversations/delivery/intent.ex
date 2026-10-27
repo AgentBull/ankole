@@ -34,7 +34,6 @@ defmodule Ankole.Conversations.Delivery.Intent do
       check_constraint(:recovery_status, "deliveries_recovery_status_delivery")
       check_constraint(:recovery_reason, "deliveries_recovery_reason_paired")
       check_constraint(:possible_duplicate_notice, "deliveries_duplicate_notice_requires_flag")
-      check_constraint(:recovery_state, "deliveries_recovery_state_adapter_only")
       check_constraint(:recovery_state, "deliveries_recovery_state_object")
       check_constraint(:payload, "deliveries_payload_object")
       check_constraint(:last_error, "deliveries_last_error_object")

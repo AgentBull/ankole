@@ -28,7 +28,7 @@ import type { AgentHomeConfig, WorkerConfig } from '../worker/config'
 
 const logMaxBytes = 65_536
 const emitRequestMaxBytes = 1_100_000
-const workerSDKPath = '/repo/app/agent_computer/src/automation-jobs/sdk.ts'
+const workerSDKPath = join(import.meta.dir, 'sdk.ts')
 const contextFileEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_CONTEXT_FILE'
 const emitSocketEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_EMIT_SOCKET'
 

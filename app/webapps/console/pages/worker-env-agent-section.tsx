@@ -1,8 +1,8 @@
 import {
   Button,
-  Checkbox,
   Input,
   Skeleton,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -46,7 +46,13 @@ const emptyDraft: OverrideDraft = { name: '', value: '', secret: true }
  * badged per row. Editing here always writes the agent tier; installation-wide
  * values live on the Worker env page.
  */
-export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
+export function WorkerEnvAgentSection({
+  agentUID,
+  onDirtyChange
+}: {
+  agentUID: string
+  onDirtyChange?: (dirty: boolean) => void
+}) {
   const { t } = useTranslation()
   const list = useQuery(listAgentWorkerEnvsOptions({ path: { agent_uid: agentUID } }))
   const items = list.data?.worker_envs ?? []
@@ -196,6 +202,26 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     persistDraft()
   }
 
+  const activeSource = editing !== undefined ? items.find(item => item.name === editing) : undefined
+  const activeSourceValue = activeSource?.secret
+    ? (revealed[activeSource.name] ?? ENCRYPTED_VALUE_MASK)
+    : (activeSource?.value ?? '')
+  const isDirty =
+    editing !== undefined
+      ? activeSource?.source === 'agent'
+        ? !(
+            draft.name === activeSource.name &&
+            draft.value === activeSourceValue &&
+            draft.secret === activeSource.secret
+          )
+        : Boolean(draft.value.length > 0 || draft.secret !== (activeSource?.secret ?? true))
+      : Boolean(draft.name.trim() || draft.value.length > 0 || !draft.secret)
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+    return () => onDirtyChange?.(false)
+  }, [isDirty, onDirtyChange])
+
   const draftRow = (mode: 'add' | 'edit') => {
     const source = mode === 'edit' ? items.find(item => item.name === editing) : undefined
     const sourceValue = source?.secret ? (revealed[source.name] ?? ENCRYPTED_VALUE_MASK) : (source?.value ?? '')
@@ -256,10 +282,11 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
           </div>
         </TableCell>
         <TableCell>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <Switch
               checked={draft.secret}
-              onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked === true }))}
+              size="sm"
+              onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked }))}
             />
             {t('console.worker_envs.secret')}
           </label>

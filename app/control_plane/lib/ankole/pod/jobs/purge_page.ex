@@ -151,7 +151,7 @@ defmodule Ankole.Pod.Jobs.PurgePage do
   @doc false
   def remove_pages_in_tx(ids) do
     Pages.lock_tree()
-    delete_batch(Ash.Query.filter(Page, id in ^ids), Page, :purge)
+    delete_batch(Ash.Query.filter(Page, id in ^ids and not exists(children, true)), Page, :purge)
   end
 
   defp delete_batch(query, resource, action) do

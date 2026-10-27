@@ -126,12 +126,6 @@ defmodule Ankole.Pod.Values do
             do: value,
             else: if(is_nil(value), do: nil, else: Torque.encode!(value))
 
-        :number when is_binary(value) ->
-          case Float.parse(value) do
-            {number, ""} -> number
-            _ -> :invalid
-          end
-
         :select when is_binary(value) ->
           if field.config["multiple"], do: [value], else: value
 

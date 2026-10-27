@@ -13,9 +13,9 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { RiCloseCircleLine, RiWebhookLine } from '@remixicon/react'
+import { RiCheckLine, RiCloseCircleLine, RiFileCopyLine, RiWebhookLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import { fromDocument } from '../api/json-api'
@@ -25,10 +25,18 @@ import {
   listWebhookEndpointsOptions
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { ConfirmDeleteButton, StatusIndicator, type StatusTone } from '../console-form'
+import {
+  ConfirmDeleteButton,
+  DiscardConfirmDialog,
+  LabeledField,
+  StatusIndicator,
+  useDialogDiscardGuard,
+  type StatusTone
+} from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { instantFromDateTimeLocal } from '../state/token-quota-editor-model'
 
 type WebhookEndpointItem = {
   id: string
@@ -68,6 +76,17 @@ export function WebhooksPage() {
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
+  const [labelError, setLabelError] = useState<string>()
+  const [expiresAtError, setExpiresAtError] = useState<string>()
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
+    },
+    []
+  )
+
   const create = useMutation({
     ...createWebhookEndpointMutation(),
     onSuccess: () => scope.selectAgent(''),
@@ -75,6 +94,30 @@ export function WebhooksPage() {
   })
   const created = create.data
   const url = created ? `${window.location.origin}/signals/v1/cloudevents/${created.token}` : ''
+
+  const resetDialog = () => {
+    setLabel('')
+    setExpiresAt('')
+    setLabelError(undefined)
+    setExpiresAtError(undefined)
+    setCopied(false)
+    if (copyTimerRef.current !== null) {
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = null
+    }
+    create.reset()
+  }
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next)
+    if (!next) resetDialog()
+  }
+
+  const discardGuard = useDialogDiscardGuard({
+    dirty: open && !created && Boolean(label.trim() || expiresAt.trim()),
+    onOpenChange: handleOpenChange,
+    pending: create.isPending
+  })
 
   const endpoints = useQuery({
     ...webhookEndpointListOptions(scope.agentUID),
@@ -114,7 +157,7 @@ export function WebhooksPage() {
           <Button
             type="button"
             onClick={() => {
-              create.reset()
+              resetDialog()
               setOpen(true)
             }}>
             {t('console.webhooks.create')}
@@ -144,7 +187,8 @@ export function WebhooksPage() {
         toolbarCanRevealRows
         toolbar={
           <ResourceSearch
-            label={t('console.webhooks.search_placeholder')}
+            label={t('console.webhooks.search', { defaultValue: 'Search webhooks' })}
+            placeholder={t('console.webhooks.search_placeholder')}
             value={query}
             onChange={setQuery}
             filters={
@@ -172,12 +216,7 @@ export function WebhooksPage() {
           />
         ))}
       </ResourceListPage>
-      <Dialog
-        open={open}
-        onOpenChange={next => {
-          setOpen(next)
-          if (!next) create.reset()
-        }}>
+      <Dialog open={open} onOpenChange={discardGuard.requestOpenChange}>
         <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.webhooks.create')}</DialogTitle>
@@ -187,21 +226,31 @@ export function WebhooksPage() {
           </DialogHeader>
           {created ? (
             <div className="grid gap-4">
-              <label className="grid gap-2">
-                {t('console.webhooks.endpoint_id')}
+              <LabeledField label={t('console.webhooks.endpoint_id')}>
                 <Input readOnly value={String(created.webhook_endpoint.id)} />
-              </label>
-              <label className="grid gap-2">
-                {t('console.webhooks.created_url')}
+              </LabeledField>
+              <LabeledField label={t('console.webhooks.created_url')}>
                 <Input readOnly value={url} />
-              </label>
+              </LabeledField>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() =>
-                  navigator.clipboard.writeText(url).catch(error => toast.error(requestErrorMessage(error)))
+                  navigator.clipboard
+                    .writeText(url)
+                    .then(() => {
+                      setCopied(true)
+                      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
+                      copyTimerRef.current = setTimeout(() => {
+                        setCopied(false)
+                        copyTimerRef.current = null
+                      }, 2000)
+                      toast.success(t('console.webhooks.url_copied', { defaultValue: 'Capability URL copied.' }))
+                    })
+                    .catch(error => toast.error(requestErrorMessage(error)))
                 }>
-                {t('common.copy')}
+                {copied ? <RiCheckLine data-icon="inline-start" /> : <RiFileCopyLine data-icon="inline-start" />}
+                {copied ? t('common.copied', { defaultValue: 'Copied' }) : t('common.copy', { defaultValue: 'Copy' })}
               </Button>
               <DialogFooter>
                 <DialogClose render={<Button />}>{t('common.close')}</DialogClose>
@@ -210,23 +259,45 @@ export function WebhooksPage() {
           ) : (
             <form
               className="grid gap-4"
+              noValidate
+              onInvalidCapture={event => event.preventDefault()}
               onSubmit={event => {
                 event.preventDefault()
-                create.mutate({ body: { data: { label, expires_at: new Date(expiresAt).toISOString() } } })
+                const trimmedLabel = label.trim()
+                const nextLabelError = trimmedLabel
+                  ? undefined
+                  : t('common.field_required', { field: t('console.webhooks.label') })
+                const trimmedExpires = expiresAt.trim()
+                const parsedInstant = trimmedExpires ? instantFromDateTimeLocal(trimmedExpires) : undefined
+                const nextExpiresError = !trimmedExpires
+                  ? t('common.field_required', { field: t('console.webhooks.expires_at') })
+                  : parsedInstant
+                    ? undefined
+                    : t('common.field_invalid', { field: t('console.webhooks.expires_at') })
+                setLabelError(nextLabelError)
+                setExpiresAtError(nextExpiresError)
+                if (nextLabelError || nextExpiresError || !parsedInstant) return
+                create.mutate({ body: { data: { label: trimmedLabel, expires_at: parsedInstant } } })
               }}>
-              <label className="grid gap-2">
-                {t('console.webhooks.label')}
-                <Input required value={label} onChange={event => setLabel(event.target.value)} />
-              </label>
-              <label className="grid gap-2">
-                {t('console.webhooks.expires_at')}
+              <LabeledField label={t('console.webhooks.label')} required error={labelError}>
                 <Input
-                  required
+                  value={label}
+                  onChange={event => {
+                    setLabel(event.target.value)
+                    if (labelError) setLabelError(undefined)
+                  }}
+                />
+              </LabeledField>
+              <LabeledField label={t('console.webhooks.expires_at')} required error={expiresAtError}>
+                <Input
                   type="datetime-local"
                   value={expiresAt}
-                  onChange={event => setExpiresAt(event.target.value)}
+                  onChange={event => {
+                    setExpiresAt(event.target.value)
+                    if (expiresAtError) setExpiresAtError(undefined)
+                  }}
                 />
-              </label>
+              </LabeledField>
               <DialogFooter>
                 <DialogClose render={<Button type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
                 <Button type="submit" disabled={create.isPending}>
@@ -237,6 +308,11 @@ export function WebhooksPage() {
           )}
         </DialogContent>
       </Dialog>
+      <DiscardConfirmDialog
+        open={discardGuard.confirming}
+        onDiscard={discardGuard.confirmDiscard}
+        onKeep={discardGuard.keepEditing}
+      />
     </>
   )
 }

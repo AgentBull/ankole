@@ -24,7 +24,6 @@ defmodule Ankole.Authn.OtpConcurrencyTest do
     RateLimiter.reset_for_test()
     {:ok, session} = BrowserSessions.create()
     browser = BrowserSessions.reference(session)
-    {:ok, flow} = BrowserSessions.begin_login(browser, :site, %{})
 
     on_exit(fn ->
       SMTPFixture.stop(smtp)
@@ -38,7 +37,7 @@ defmodule Ankole.Authn.OtpConcurrencyTest do
 
     source = "concurrent-#{session.id}"
     email = "#{session.id}@example.test"
-    assert {:ok, sent} = Domain.request_otp(browser, flow.id, email, source)
+    assert {:ok, sent} = Domain.request_otp(browser, email, source, login_purpose: :site)
     assert_receive {:smtp_message, _, [^email], message}, 5_000
     [_, code] = Regex.run(~r/code is (\d{6})/, SMTPFixture.text(message))
     wrong = if code == "000000", do: "111111", else: "000000"
@@ -52,7 +51,7 @@ defmodule Ankole.Authn.OtpConcurrencyTest do
 
           Sandbox.unboxed_run(Repo, fn ->
             Repo.without_tenant(fn ->
-              Domain.verify_otp(browser, flow.id, sent.challenge_id, wrong, source)
+              Domain.verify_otp(browser, sent.challenge_id, wrong, source)
             end)
           end)
         end)
@@ -69,7 +68,7 @@ defmodule Ankole.Authn.OtpConcurrencyTest do
     RateLimiter.reset_for_test()
 
     assert {:error, :invalid_code} =
-             Domain.verify_otp(browser, flow.id, sent.challenge_id, code, source)
+             Domain.verify_otp(browser, sent.challenge_id, code, source)
 
     assert Repo.aggregate(BrowserSessions.Authentication, :count, :id) == 0
   end

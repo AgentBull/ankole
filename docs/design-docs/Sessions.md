@@ -230,7 +230,9 @@ starting work. A Human request retains Human UID and access version, so a later
 revoke or restore cannot revive a queued request from an earlier version.
 Service stimuli execute under their explicit service authority. An ambient
 proposal defaults to the Agent's responsibility; a verified Human request can
-supply the responsible Human through the judged public Message.
+supply the responsible Human through the judged public Message. Attribution uses
+the selected Message ID from the observed batch and its current authorization.
+A later message from another speaker does not remove that request.
 
 Generic Signal data and CloudEvents extensions never establish a Human identity.
 Runtime environment and Brain disclosure use frozen facts and canonical
@@ -304,6 +306,9 @@ retain sequence numbers, so later turns do not reread already consumed Messages.
 The request's `conversation_read` contains only `id`, `max_seq`, and `message_ids`.
 
 ## Execute Tools and Asynchronous Work
+
+Tool calls must contain complete, valid JSON arguments before execution. Invalid
+arguments return a tool error so the model can submit a complete call.
 
 A tool result is durable before the model continues. A recorded result is reused
 on recovery. A sent tool call with an unknown result becomes interrupted rather

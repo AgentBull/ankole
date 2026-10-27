@@ -3930,6 +3930,56 @@ export type CreatePermissionGrantResponses = {
 
 export type CreatePermissionGrantResponse = CreatePermissionGrantResponses[keyof CreatePermissionGrantResponses]
 
+export type CreateIdentityProviderData = {
+  /**
+   * Request body for the create_identity_provider operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}'
+}
+
+export type CreateIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateIdentityProviderError = CreateIdentityProviderErrors[keyof CreateIdentityProviderErrors]
+
+export type CreateIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  201: {
+    identity_provider: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_key: string
+      enabled: boolean
+      plugin_id?: string | null
+      provider_id: string
+      stored_secret_paths: Array<string>
+    }
+  }
+}
+
+export type CreateIdentityProviderResponse = CreateIdentityProviderResponses[keyof CreateIdentityProviderResponses]
+
 export type SaveIdentityProviderData = {
   /**
    * Request body for the save_identity_provider operation on identity_provider_operation resource
@@ -7870,7 +7920,7 @@ export type CreateMemberData = {
   body: {
     data: {
       display_name?: string | null
-      email?: string | null
+      email: string
       membership: 'member' | 'guest'
     }
   }
@@ -8225,9 +8275,6 @@ export type GetConsoleReadinessResponses = {
       provider_id?: string | null
     }
     ready: boolean
-    signal_route: {
-      complete: boolean
-    }
     total_core_steps: number
     worker: {
       complete: boolean

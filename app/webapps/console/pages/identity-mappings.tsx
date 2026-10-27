@@ -3,6 +3,7 @@ import {
   Button,
   buttonVariants,
   cn,
+  CreatableCombobox,
   Dialog,
   DialogClose,
   DialogContent,
@@ -21,18 +22,29 @@ import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useNavigate } from '@tanstack/react-router'
+import { localizedText } from '../../common/config-fields'
+import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   bindIdentityMappingRequestMutation,
   createIdentityMappingMutation,
   deleteIdentityMappingRequestMutation,
   listIdentityMappingRequestsOptions,
-  listPrincipalsOptions
+  listIdentityProvidersOptions,
+  listPrincipalsOptions,
+  listSignalAdaptersOptions
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { IdentityMappingRequest } from '../api/v2/generated/types.gen'
 import { type Flat, fromDocument } from '../api/json-api'
+import type { SignalAdapterItem } from '../api/runtime-types'
 import type { PrincipalRecord } from './principals'
-import { ConfirmDeleteButton, LabeledField, ResourceEditorPage } from '../console-form'
+import {
+  ConfirmDeleteButton,
+  DiscardConfirmDialog,
+  LabeledField,
+  ResourceEditorPage,
+  useDialogDiscardGuard
+} from '../console-form'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
@@ -193,11 +205,35 @@ export function IdentityMappingCreatePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
+  const identityProviders = useQuery(listIdentityProvidersOptions())
+  const signalAdapters = useQuery({
+    ...listSignalAdaptersOptions(),
+    select: data => data.signal_adapters as SignalAdapterItem[]
+  })
   const humanPrincipals = (principals.data ?? []).filter(principal => principal.type === 'human')
   const [provider, setProvider] = useState('')
   const [externalID, setExternalID] = useState('')
   const [principalUID, setPrincipalUID] = useState<string>()
   const [validationError, setValidationError] = useState<string>()
+
+  const providerOptionsMap = new Map<string, { value: string; label: string; description?: string }>()
+  for (const item of identityProviders.data?.identity_providers ?? []) {
+    providerOptionsMap.set(item.provider_id, {
+      value: item.provider_id,
+      label: item.provider_id,
+      description: item.adapter_id
+    })
+  }
+  for (const adapter of signalAdapters.data ?? []) {
+    if (!providerOptionsMap.has(adapter.adapter_id)) {
+      providerOptionsMap.set(adapter.adapter_id, {
+        value: adapter.adapter_id,
+        label: adapter.adapter_id,
+        description: localizedText(adapter.display_name, i18n.language) ?? adapter.adapter_id
+      })
+    }
+  }
+  const providerOptions = [...providerOptionsMap.values()]
 
   const create = useMutation({
     ...createIdentityMappingMutation(),
@@ -243,7 +279,23 @@ export function IdentityMappingCreatePage() {
           label={t('console.identity_mappings.provider')}
           description={t('console.identity_mappings.provider_hint')}
           required>
-          <Input required value={provider} onChange={event => setProvider(event.target.value)} />
+          <CreatableCombobox
+            ariaLabel={t('console.identity_mappings.provider')}
+            clearLabel={t('common.clear')}
+            createLabel={value =>
+              t('console.identity_mappings.provider_use', { defaultValue: 'Use {$provider}', provider: value })
+            }
+            disabled={create.isPending}
+            emptyLabel={
+              identityProviders.isLoading || signalAdapters.isLoading ? t('common.loading') : t('common.select_empty')
+            }
+            options={providerOptions}
+            placeholder={t('console.identity_mappings.provider')}
+            required
+            triggerLabel={t('common.open')}
+            value={provider}
+            onValueChange={setProvider}
+          />
         </LabeledField>
         <LabeledField
           label={t('console.identity_mappings.external_id')}
@@ -299,52 +351,62 @@ function BindMappingDialog({
   const bind = useMutation({
     ...bindIdentityMappingRequestMutation(),
     onSuccess: () => {
-      toast.success(t('console.identity_mappings.bound', { name: selected?.display_name ?? selectedUID }))
+      toast.success(t('console.identity_mappings.bound', { name: selected ? principalLabel(selected) : selectedUID }))
       onOpenChange(false)
     },
     onError: error => toast.error(mappingErrorMessage(t, error))
   })
+  const guard = useDialogDiscardGuard({
+    dirty: open && Boolean(selectedUID),
+    onOpenChange,
+    pending: bind.isPending
+  })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t('common.close')}>
-        <DialogHeader>
-          <DialogTitle>{t('console.identity_mappings.bind_title')}</DialogTitle>
-          <DialogDescription>
-            {t('console.identity_mappings.bind_description', { name: senderName, provider: request?.provider })}
-          </DialogDescription>
-        </DialogHeader>
-        <SinglePrincipalPicker
-          ariaLabel={t('console.identity_mappings.picker_label')}
-          placeholder={t('console.identity_mappings.picker_placeholder')}
-          candidates={principals.map(principal => ({
-            id: principal.id,
-            label: principalLabel(principal),
-            description: principal.email ?? principal.handle
-          }))}
-          disabled={bind.isPending}
-          error={principalsError}
-          isLoading={principalsLoading}
-          value={selectedUID ?? ''}
-          onChange={id => setSelectedUID(id || undefined)}
-        />
-        <DialogFooter>
-          <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
-            {t('common.cancel')}
-          </DialogClose>
-          <Button
-            disabled={!request || !selectedUID || bind.isPending}
-            size="sm"
-            type="button"
-            onClick={() =>
-              request &&
-              selectedUID &&
-              bind.mutate({ path: { id: request.id }, body: { data: { principal_uid: selectedUID } } })
-            }>
-            {t('console.identity_mappings.bind_confirm')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={guard.requestOpenChange}>
+        <DialogContent closeLabel={t('common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('console.identity_mappings.bind_title')}</DialogTitle>
+            <DialogDescription>
+              {t('console.identity_mappings.bind_description', { name: senderName, provider: request?.provider })}
+            </DialogDescription>
+          </DialogHeader>
+          <LabeledField label={t('console.identity_mappings.picker_label')} required>
+            <SinglePrincipalPicker
+              ariaLabel={t('console.identity_mappings.picker_label')}
+              placeholder={t('console.identity_mappings.picker_placeholder')}
+              candidates={principals.map(principal => ({
+                id: principal.id,
+                label: principalLabel(principal),
+                description: principal.email ?? principal.handle
+              }))}
+              disabled={bind.isPending}
+              error={principalsError}
+              isLoading={principalsLoading}
+              value={selectedUID ?? ''}
+              onChange={id => setSelectedUID(id || undefined)}
+            />
+          </LabeledField>
+          <DialogFooter>
+            <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={!request || !selectedUID || bind.isPending}
+              size="sm"
+              type="button"
+              onClick={() =>
+                request &&
+                selectedUID &&
+                bind.mutate({ path: { id: request.id }, body: { data: { principal_uid: selectedUID } } })
+              }>
+              {t('console.identity_mappings.bind_confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
+    </>
   )
 }

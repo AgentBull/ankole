@@ -290,6 +290,16 @@ defmodule Ankole.Pod.Bases.DDL do
       else: convert_stored_values(write, table, fields, conversion)
   end
 
+  defp convert_stored_values(write, table, fields, %{candidate: %{type: :number}} = conversion) do
+    fields = Physical.fields(table, fields)
+    old = Enum.find(fields, &(&1.id == conversion.old.id))
+    {:ok, expr, _type, params} = Formula.expression(old, fields, [Repo.tenant_id!(), table.id])
+    {field_key, params} = Formula.bind(params, conversion.candidate.id)
+
+    with :ok <- check_numeric_conversion(table, expr, field_key, params, conversion.clear),
+         do: store_numeric_conversion(write, table, expr, field_key, params)
+  end
+
   defp convert_stored_values(write, table, fields, %{old: old, candidate: candidate, clear: clear}) do
     fields = Physical.fields(table, fields)
     old = Enum.find(fields, &(&1.id == old.id))
@@ -323,6 +333,86 @@ defmodule Ankole.Pod.Bases.DDL do
       with {:ok, %{rows: rows}} <- Query.execute(table, sql, params),
            do: convert_rows(rows, write, table, old, candidate, clear)
     end
+  end
+
+  defp execute_numeric_conversion(table, expr, field_key, statement, params) do
+    original = if table.storage_mode == :inline, do: "r.data", else: "NULL::jsonb"
+
+    projection = """
+    WITH cells AS (
+      SELECT r.id, to_jsonb(#{expr}) AS value, #{original} AS original
+      FROM #{Query.source(table)} r WHERE #{Query.scope(table)}
+    ), checked AS (
+      SELECT *, value IS NULL OR value IN ('null'::jsonb, '""'::jsonb, '[]'::jsonb) AS empty,
+        jsonb_typeof(value) IN ('number', 'string')
+          AND pg_input_is_valid(value #>> '{}', 'numeric')
+          AND lower(btrim(value #>> '{}')) NOT IN ('nan', 'infinity', '+infinity', '-infinity', 'inf', '+inf', '-inf') AS valid
+      FROM cells
+    ), converted AS (
+      SELECT id, original, jsonb_build_object(#{field_key}::text,
+        CASE WHEN valid THEN to_jsonb((value #>> '{}')::numeric) ELSE 'null'::jsonb END) AS data
+      FROM checked
+    )
+    """
+
+    Query.execute(table, projection <> statement, params)
+  end
+
+  defp check_numeric_conversion(_table, _expr, _field_key, _params, true), do: :ok
+
+  defp check_numeric_conversion(table, expr, field_key, params, false) do
+    case execute_numeric_conversion(
+           table,
+           expr,
+           field_key,
+           "SELECT id::text FROM checked WHERE NOT empty AND NOT COALESCE(valid, false) LIMIT 1",
+           params
+         ) do
+      {:ok, %{rows: []}} -> :ok
+      {:ok, %{rows: [[id]]}} -> {:error, {:conversion_failed, [id]}}
+      error -> error
+    end
+  end
+
+  defp store_numeric_conversion(
+         write,
+         %{storage_mode: :inline} = table,
+         expr,
+         field_key,
+         params
+       ) do
+    {limit, sized_params} = Formula.bind(params, write.limits["record_bytes"])
+
+    size_query =
+      "SELECT id FROM converted WHERE octet_length(jsonb_strip_nulls((original-#{field_key}::text)||data)::text)>#{limit} LIMIT 1"
+
+    with {:ok, %{rows: []}} <-
+           execute_numeric_conversion(table, expr, field_key, size_query, sized_params),
+         {:ok, %{rows: [[payload]]}} <-
+           execute_numeric_conversion(
+             table,
+             expr,
+             field_key,
+             "SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id::text,'data',data)), '[]'::jsonb)::text FROM converted",
+             params
+           ) do
+      {:ok, {:json, payload}}
+    else
+      {:ok, %{rows: [_ | _]}} -> {:error, :record_size_limit}
+      error -> error
+    end
+  end
+
+  defp store_numeric_conversion(_write, table, expr, field_key, params) do
+    with {:ok, _} <-
+           execute_numeric_conversion(
+             table,
+             expr,
+             field_key,
+             "INSERT INTO pg_temp.ankole_base_conversions(field_id,id,data) SELECT #{field_key}::text,id,data FROM converted",
+             params
+           ),
+         do: {:ok, :staged}
   end
 
   defp convert_rows(rows, write, table, old, candidate, clear) do
@@ -373,7 +463,7 @@ defmodule Ankole.Pod.Bases.DDL do
         Repo.tenant_id!(),
         table.id,
         field.id,
-        Torque.encode!(values),
+        conversion_payload(values),
         to_string(Ankole.ActorRef.from_writer(uid, Repo.tenant_id!(), []))
       ]
     )
@@ -394,12 +484,17 @@ defmodule Ankole.Pod.Bases.DDL do
     )
   end
 
+  defp conversion_payload({:json, payload}), do: payload
+  defp conversion_payload(values), do: Torque.encode!(values)
+
   defp change_edges(write, definitions, records, links, converted) do
     old_links =
       write.definitions |> Map.values() |> List.flatten() |> Enum.filter(&(&1.type == :link))
 
     old_names = MapSet.new(old_links, & &1.config["edge_table"])
     new_names = MapSet.new(links, & &1.config["edge_table"])
+
+    Links.remove_constraints(old_links, Map.keys(write.changes))
 
     for field <- links,
         field.config["edge_role"] == "src",
@@ -438,8 +533,6 @@ defmodule Ankole.Pod.Bases.DDL do
 
     for name <- MapSet.difference(old_names, new_names),
         do: BaseRepo.query!("DROP TABLE IF EXISTS #{BaseRepo.edge(name)}", [])
-
-    Links.remove_constraints(links, Map.keys(write.changes))
 
     write = %{
       write

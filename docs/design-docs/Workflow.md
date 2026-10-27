@@ -43,7 +43,8 @@ tasks, and at most ten task failure summaries. A live task row carries
 `wake_at`, and `wake_count`, with attention rows first. A sleeping task
 is executing, not finished: it hibernates until an event wakes it. For a
 completed run, set `result_offset` to a stable UTF-8 byte offset to read one
-bounded result segment. A segment contains at most 8,000 bytes. Use its next
+bounded result segment. PostgreSQL returns only the requested byte window and the total byte count.
+Result reads omit task summaries. A segment contains at most 8,000 bytes. Use its next
 offset to read the next segment.
 
 `send_message_to_workflow_task` appends one owner message to a live task,

@@ -68,10 +68,8 @@ function codePayload(value: Record<string, any>): AppletCode {
 }
 
 async function worker(service: string, runId: string, module: string, options: Record<string, unknown>) {
-  const servicePath = `/tmp/ankole-workers/${service}/${runId}`
-  Deno.mkdirSync(servicePath, { recursive: true })
   return await EdgeRuntime.userWorkers.create({
-    servicePath,
+    servicePath: `/tmp/ankole-workers/${service}/${runId}`,
     maybeModuleCode: module,
     envVars: [],
     noModuleCache: false,
@@ -100,7 +98,7 @@ async function fetchOneShot(instance: Awaited<ReturnType<typeof worker>>, req: R
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url)
   if (url.pathname === '/_internal/health') {
-    return json(draining || active >= capacity ? 503 : 200, draining ? 'draining' : 'ok')
+    return json(draining ? 503 : 200, draining ? 'draining' : 'ok')
   }
   if (!url.pathname.startsWith('/v1/')) return json(404, 'not_found')
   if (req.headers.get('authorization') !== `Bearer ${token}`) return json(401, 'unauthorized')

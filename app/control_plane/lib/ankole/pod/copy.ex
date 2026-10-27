@@ -72,9 +72,21 @@ defmodule Ankole.Pod.Copy do
              position: Ankole.Ecto.UUIDv7.autogenerate()
            }),
          definitions <- Bases.fields(source.id),
-         options = %{filter: Ankole.Attrs.get(attrs, :filter), timezone: timezone},
-         {:ok, copied_fields, mapping} <- copy_fields(definitions, target, timezone),
-         :ok <- copy_views(source.id, target.id, mapping),
+         {:ok, links} <- link_targets(actor, definitions),
+         {:ok, copied_fields, mapping} <- copy_fields(definitions, target),
+         options = %{
+           filter: Ankole.Attrs.get(attrs, :filter),
+           timezone: timezone,
+           links: links,
+           formula_ids: materialized_formulas(definitions, copied_fields)
+         },
+         :ok <-
+           copy_views(
+             source.id,
+             target.id,
+             mapping,
+             changed_value_types(definitions, copied_fields)
+           ),
          :ok <- Projection.begin_stage(),
          {:ok, counters} <-
            stage_records(actor, source, target, definitions, copied_fields, limits, options),
@@ -88,64 +100,79 @@ defmodule Ankole.Pod.Copy do
     end
   end
 
-  defp copy_fields(definitions, table, timezone) do
+  defp copy_fields(definitions, table) do
     mapping = Map.new(definitions, &{&1.id, Ankole.Ecto.UUIDv7.autogenerate()})
 
-    Enum.reduce_while(definitions, {:ok, [], mapping}, fn field, {:ok, copied, mapping} ->
-      with {:ok, type, config} <- copy_field(field, mapping, timezone) do
-        attrs = %{
-          id: mapping[field.id],
-          table_id: table.id,
-          name: field.name,
-          type: type,
-          config: config,
-          position: field.position,
-          is_primary: field.is_primary
-        }
+    with {:ok, ordered} <- Formula.validate_all(definitions),
+         {:ok, checked} <- copied_definitions(ordered, table.id, mapping) do
+      by_id = Map.new(checked, &{&1.id, &1})
+
+      Enum.reduce_while(definitions, {:ok, []}, fn field, {:ok, copied} ->
+        attrs =
+          by_id[mapping[field.id]]
+          |> Map.take([:id, :table_id, :name, :type, :config, :position, :is_primary])
 
         case Ankole.Ash.create(BaseField, :create_in_tx, attrs) do
-          {:ok, new} -> {:cont, {:ok, [new | copied], mapping}}
+          {:ok, new} -> {:cont, {:ok, [new | copied]}}
           error -> {:halt, error}
         end
-      else
-        error -> {:halt, error}
+      end)
+      |> case do
+        {:ok, copied} -> {:ok, Enum.reverse(copied), mapping}
+        error -> error
+      end
+    end
+  end
+
+  defp copied_definitions(ordered, table_id, mapping) do
+    Enum.reduce_while(ordered, {:ok, []}, fn field, {:ok, copied} ->
+      {type, config} = copy_field(field, mapping)
+      candidate = %{field | id: mapping[field.id], table_id: table_id, type: type, config: config}
+
+      case Formula.validate_all([candidate | copied]) do
+        {:ok, checked} ->
+          {:cont, {:ok, checked}}
+
+        {:error, :formula_type} when candidate.type == :formula ->
+          # The source was valid. Keep its result when the copied dependency
+          # types cannot support the same formula.
+          materialized = %{candidate | type: snapshot_type(field), config: %{}}
+          {:cont, {:ok, [materialized | copied]}}
+
+        error ->
+          {:halt, error}
       end
     end)
-    |> case do
-      {:ok, copied, mapping} -> {:ok, Enum.reverse(copied), mapping}
-      error -> error
+  end
+
+  defp snapshot_type(field) do
+    case Formula.type(field) do
+      :array -> :text
+      :boolean -> :checkbox
+      type -> type
     end
   end
 
-  defp copy_field(%{type: :formula, config: config}, mapping, _timezone),
-    do: {:ok, :formula, Map.update!(config, "ast", &Formula.remap_references(&1, mapping))}
-
-  defp copy_field(%{type: :link, config: config}, _mapping, timezone) do
-    target_id = config["table_id"]
-    primary = Enum.find(Bases.fields(target_id), & &1.is_primary)
-    {:ok, target} = Bases.fetch_table(target_id)
-
-    with {:ok, rows} <-
-           BaseRepo.run(
-             BaseRepo.shard!(),
-             fn ->
-               with {:ok, _} <- Physical.state(target),
-                    {:ok, result} <-
-                      BaseRepo.query(
-                        "SELECT id::text,#{BaseRepo.column(primary.id)} FROM #{BaseRepo.table(target.id)} ORDER BY id",
-                        []
-                      ),
-                    do: {:ok, result.rows}
-             end,
-             read_only: true,
-             timezone: timezone
-           ) do
-      choices = Enum.map(rows, fn [id, title] -> %{"id" => id, "name" => title || ""} end)
-      {:ok, :select, %{"multiple" => true, "options" => choices}}
-    end
+  defp changed_value_types(fields, copied) do
+    fields
+    |> Enum.zip(copied)
+    |> Enum.filter(fn {old, new} -> Formula.type(old) != Formula.type(new) end)
+    |> MapSet.new(fn {old, _new} -> old.id end)
   end
 
-  defp copy_field(%{type: type, config: config}, _mapping, _timezone) do
+  defp materialized_formulas(fields, copied) do
+    fields
+    |> Enum.zip(copied)
+    |> Enum.filter(fn {old, new} -> old.type == :formula and new.type != :formula end)
+    |> Enum.map(fn {old, _new} -> old.id end)
+  end
+
+  defp copy_field(%{type: :formula, config: config}, mapping),
+    do: {:formula, Map.update!(config, "ast", &Formula.remap_references(&1, mapping))}
+
+  defp copy_field(%{type: :link}, _mapping), do: {:text, %{}}
+
+  defp copy_field(%{type: type, config: config}, _mapping) do
     type =
       case type do
         kind when kind in [:created_at, :updated_at] -> :datetime
@@ -153,10 +180,24 @@ defmodule Ankole.Pod.Copy do
         kind -> kind
       end
 
-    {:ok, type, config}
+    {type, config}
   end
 
-  defp copy_views(source_id, target_id, mapping) do
+  defp link_targets(actor, fields) do
+    fields
+    |> Enum.filter(&(&1.type == :link))
+    |> Enum.reduce_while({:ok, []}, fn field, {:ok, links} ->
+      with {:ok, table} <- Bases.table_access(actor, field.config["table_id"], :read),
+           primary when not is_nil(primary) <- Enum.find(Bases.fields(table.id), & &1.is_primary) do
+        {:cont, {:ok, [{field, table, primary} | links]}}
+      else
+        nil -> {:halt, {:error, :not_found}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp copy_views(source_id, target_id, mapping, changed_types) do
     Enum.reduce_while(
       Ankole.Ash.read!(Ash.Query.filter(BaseView, table_id == ^source_id)),
       :ok,
@@ -165,7 +206,7 @@ defmodule Ankole.Pod.Copy do
           table_id: target_id,
           name: view.name,
           type: view.type,
-          config: remap_view(view.config, mapping),
+          config: remap_view(view.config, mapping, changed_types),
           position: view.position
         }
 
@@ -179,13 +220,16 @@ defmodule Ankole.Pod.Copy do
 
   defp snapshot(table, fields, options) do
     fun = fn current ->
-      Query.records(
-        current,
-        fields,
-        %{filter: options.filter, page_token: options[:page_token], page_size: 100},
-        max_limit: 100,
-        raw_json: true
-      )
+      with {:ok, snapshot} <-
+             Query.records(
+               current,
+               fields,
+               %{filter: options.filter, page_token: options[:page_token], page_size: 100},
+               max_limit: 100,
+               raw_json: true,
+               formula_ids: options.formula_ids
+             ),
+           do: materialize_links(snapshot, options.links)
     end
 
     if table.storage_mode == :physical do
@@ -201,6 +245,34 @@ defmodule Ankole.Pod.Copy do
     else
       fun.(table)
     end
+  end
+
+  # Read only the linked labels in this batch. Keep the JSON text in PostgreSQL
+  # so a copy does not round numeric cells through an Elixir float.
+  defp materialize_links(snapshot, links) do
+    Enum.reduce_while(links, {:ok, snapshot}, fn {field, table, primary}, {:ok, snapshot} ->
+      payload = "[" <> Enum.join(snapshot.records, ",") <> "]"
+
+      result =
+        BaseRepo.query(
+          """
+          SELECT jsonb_set(record, ARRAY['data', $2::text], COALESCE((
+            SELECT to_jsonb(string_agg(COALESCE(target.#{BaseRepo.column(primary.id)}, ''), ', ' ORDER BY ref.position))
+            FROM jsonb_array_elements_text(COALESCE(NULLIF(record->'data'->$2::text, 'null'::jsonb), '[]'::jsonb))
+              WITH ORDINALITY AS ref(id, position)
+            JOIN #{BaseRepo.table(table.id)} target ON target.id=ref.id::uuid
+          ), 'null'::jsonb), true)::text
+          FROM jsonb_array_elements($1::text::jsonb) WITH ORDINALITY AS source(record, position)
+          ORDER BY source.position
+          """,
+          [payload, field.id]
+        )
+
+      case result do
+        {:ok, %{rows: rows}} -> {:cont, {:ok, %{snapshot | records: Enum.map(rows, &hd/1)}}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp stage_records(actor, source, target, fields, copied, limits, options) do
@@ -308,7 +380,7 @@ defmodule Ankole.Pod.Copy do
     end)
   end
 
-  defp remap_view(config, mapping) do
+  defp remap_view(config, mapping, changed_types) do
     Map.new(config, fn
       {key, id} when key in ~w(group_field_id cover_field_id) ->
         {key, Map.get(mapping, id, id)}
@@ -317,6 +389,12 @@ defmodule Ankole.Pod.Copy do
         {key, Enum.map(ids, &Map.get(mapping, &1, &1))}
 
       {"filter", %{"conditions" => conditions} = filter} when is_list(conditions) ->
+        conditions =
+          Enum.reject(conditions, fn condition ->
+            MapSet.member?(changed_types, condition["field_id"]) and
+              condition["operator"] not in ["is_empty", "is_not_empty"]
+          end)
+
         {"filter",
          Map.put(filter, "conditions", Enum.map(conditions, &remap_field_id(&1, mapping)))}
 
@@ -388,7 +466,7 @@ defmodule Ankole.Pod.Copy.Projection do
 
     {data, params} =
       Enum.zip(fields, copied)
-      |> Enum.reject(fn {field, _} -> field.type == :formula end)
+      |> Enum.reject(fn {_field, new} -> new.type == :formula end)
       |> Enum.reduce({"'{}'::jsonb", params}, fn {field, new}, {data, params} ->
         {old_key, params} = Formula.bind(params, field.id)
         {new_key, params} = Formula.bind(params, new.id)
@@ -397,6 +475,13 @@ defmodule Ankole.Pod.Copy.Projection do
           if field.type in [:created_at, :updated_at, :created_by, :updated_by],
             do: "to_jsonb(r.#{field.type})",
             else: "r.data->#{old_key}::text"
+
+        value =
+          if field.type == :formula and field.config["result_type"] == "array" do
+            "to_jsonb(NULLIF(#{value}, 'null'::jsonb)::text)"
+          else
+            value
+          end
 
         {value, params} =
           if field.type == :attachment do

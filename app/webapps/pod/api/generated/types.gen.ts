@@ -806,6 +806,42 @@ export type PodBaseSchemaResponses = {
 
 export type PodBaseSchemaResponse = PodBaseSchemaResponses[keyof PodBaseSchemaResponses]
 
+export type PodBaseTableRenameData = {
+  /**
+   * Request body for the podBaseTableRename operation on pod_base_operation resource
+   */
+  body: {
+    data: {
+      name: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}'
+}
+
+export type PodBaseTableRenameErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTableRenameError = PodBaseTableRenameErrors[keyof PodBaseTableRenameErrors]
+
+export type PodBaseTableRenameResponses = {
+  /**
+   * Success
+   */
+  200: {
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseTableRenameResponse = PodBaseTableRenameResponses[keyof PodBaseTableRenameResponses]
+
 export type UpdateConversationParticipantsData = {
   /**
    * Request body for the updateConversationParticipants operation on pod_chat_operation resource
@@ -1291,55 +1327,6 @@ export type PodVersionsResponses = {
 }
 
 export type PodVersionsResponse = PodVersionsResponses[keyof PodVersionsResponses]
-
-export type PodPublishData = {
-  /**
-   * Request body for the podPublish operation on pod_file_operation resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      files: Array<{
-        content_type?: string | null
-        path: string
-        sha256: string
-      }>
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/publish'
-}
-
-export type PodPublishErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPublishError = PodPublishErrors[keyof PodPublishErrors]
-
-export type PodPublishResponses = {
-  /**
-   * Success
-   */
-  201: {
-    files: Array<{
-      content_type?: string | null
-      path: string
-      sha256: string
-      size: number
-    }>
-    page_id: string
-    revision: number
-    routes?: Array<string> | null
-  }
-}
-
-export type PodPublishResponse = PodPublishResponses[keyof PodPublishResponses]
 
 export type PodEmbedDeleteData = {
   body?: never
@@ -3512,7 +3499,7 @@ export type CreatePodMemberData = {
   body: {
     data: {
       displayName: string
-      email?: string | null
+      email: string
       membership: 'member' | 'guest'
     }
   }
@@ -3661,6 +3648,47 @@ export type PodBaseFieldUpdateResponses = {
 }
 
 export type PodBaseFieldUpdateResponse = PodBaseFieldUpdateResponses[keyof PodBaseFieldUpdateResponses]
+
+export type CreatePodIdentityProviderData = {
+  /**
+   * Request body for the createPodIdentityProvider operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled: boolean
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers/{provider_id}'
+}
+
+export type CreatePodIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodIdentityProviderError = CreatePodIdentityProviderErrors[keyof CreatePodIdentityProviderErrors]
+
+export type CreatePodIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type CreatePodIdentityProviderResponse =
+  CreatePodIdentityProviderResponses[keyof CreatePodIdentityProviderResponses]
 
 export type SavePodIdentityProviderData = {
   /**
@@ -3881,13 +3909,15 @@ export type PodPageCreateData = {
    */
   body?: {
     data: {
+      attachment_path?: string | null
       icon?: string | null
       parent_id?: string | null
       position?: string | null
       private_owner_uid?: string | null
       saved_from_message_id?: string | null
       title?: string | null
-      type?: 'doc' | 'base' | 'applet' | 'file' | null
+      type?: 'doc' | 'base' | 'file' | null
+      xml?: string | null
     }
   }
   path?: never
@@ -4951,6 +4981,40 @@ export type PodMeResponses = {
 
 export type PodMeResponse = PodMeResponses[keyof PodMeResponses]
 
+export type UpdatePodProfileData = {
+  /**
+   * Request body for the updatePodProfile operation on pod_member_account resource
+   */
+  body: {
+    data: {
+      displayName: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me'
+}
+
+export type UpdatePodProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePodProfileError = UpdatePodProfileErrors[keyof UpdatePodProfileErrors]
+
+export type UpdatePodProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    displayName: string
+  }
+}
+
+export type UpdatePodProfileResponse = UpdatePodProfileResponses[keyof UpdatePodProfileResponses]
+
 export type ReauthenticatePodMemberData = {
   body?: never
   path?: never
@@ -5003,6 +5067,7 @@ export type PodPageSearchResponses = {
    * Success
    */
   200: {
+    ancestors: Array<PodPageType>
     can_create_private: boolean
     can_create_space: boolean
     pages: Array<PodPageType>

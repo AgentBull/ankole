@@ -36,6 +36,9 @@ defmodule AnkoleWeb.BrowserAPI.Error do
       do: {:error, new(403, reason)}
 
   def login(:invalid_credentials), do: {:error, new(401, :invalid_credentials)}
+  def login(:invalid_authentication), do: {:error, new(401, :invalid_authentication)}
+  def login(:not_found), do: {:error, new(404, :not_found)}
+  def login(:identity_provider_exists), do: {:error, new(409, :identity_provider_exists)}
   def login(reason) when is_exception(reason), do: {:error, reason}
   def login(reason), do: {:error, new(400, reason)}
 

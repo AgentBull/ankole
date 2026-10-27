@@ -71,7 +71,7 @@ defmodule Ankole.Sessions.AmbientTriage.Observation do
         ),
         if(orders == "",
           do: "Standing Orders: none.",
-          else: "Standing Orders (trusted operator policy for this room):\n#{orders}"
+          else: "Standing Orders (member-set policy for this room):\n#{orders}"
         ),
         work,
         if(backdrop != [],
@@ -108,15 +108,14 @@ defmodule Ankole.Sessions.AmbientTriage.Observation do
       "reason" => "The structured ambient route was invalid, so the Agent stayed silent."
     }
 
-    with {:ok, value, _} <- ToolArguments.parse(text),
+    with {:ok, %{} = value} <- ToolArguments.parse(text),
          value =
            Map.update(value, "reason", nil, &if(is_binary(&1), do: String.trim(&1), else: &1)),
          {:ok, value} <- ToolArguments.validate(schema, value),
          true <- value["action"] == "HANDOFF" == is_binary(value["handoff_job_id"]) do
       humans = Enum.filter(delta, &(&1.role == "human" and String.trim(&1.text) != ""))
       asked = Enum.find(humans, &(&1.id == value["asked_by"]))
-      newest = List.last(humans)
-      accepted? = asked && newest && asked.speaker == newest.speaker
+      accepted? = not is_nil(asked)
 
       authority =
         cond do

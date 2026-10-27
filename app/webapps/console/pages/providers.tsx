@@ -76,7 +76,9 @@ export function ProvidersListPage() {
       provider.provider_kind,
       kind ? providerKindLabel(kind) : undefined,
       provider.disabled_at ? 'disabled' : 'enabled',
+      provider.disabled_at ? t('console.status.disabled') : t('console.status.enabled'),
       pool.strategy,
+      credentialStrategyLabel(t, pool.strategy),
       ...entrySearch
     )
   })
@@ -441,11 +443,14 @@ export function ProviderEditorPage() {
 
       {advancedFieldCount > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
-          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
             <span>{t('common.advanced_settings')}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               {advancedFieldCount}
-              <RiArrowDownSLine className="size-4" aria-hidden />
+              <RiArrowDownSLine
+                className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
+                aria-hidden
+              />
             </span>
           </CollapsibleTrigger>
           <CollapsibleContent className="grid gap-5">

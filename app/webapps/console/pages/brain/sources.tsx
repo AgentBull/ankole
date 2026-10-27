@@ -36,6 +36,7 @@ import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
 import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
+import { BrainScopeLabel, BrainScopeSelector } from './brain-scope'
 
 const SOURCE_KINDS = ['file', 'url'] as const
 
@@ -149,9 +150,14 @@ export function BrainSourcesPage() {
               </Badge>
             </TableCell>
             <TableCell className="max-w-[280px] truncate font-mono text-xs">{source.upstream_id}</TableCell>
-            <TableCell className="font-mono text-xs">
-              {source.default_audience_scope ??
-                (source.kind === 'oidc_client' ? t('console.brain.source_scope_private') : '—')}
+            <TableCell>
+              {source.default_audience_scope ? (
+                <BrainScopeLabel scope={source.default_audience_scope} />
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {source.kind === 'oidc_client' ? t('console.brain.source_scope_private') : '—'}
+                </span>
+              )}
             </TableCell>
             <TableCell className="text-xs text-muted-foreground">
               {source.last_sync_at ? formatConsoleDate(source.last_sync_at) : t('console.brain.never_synced')}
@@ -264,12 +270,11 @@ export function BrainSourcesPage() {
               <Input required value={name} onChange={event => setName(event.target.value)} />
             </LabeledField>
             <LabeledField label={t('console.brain.default_scope')}>
-              <Input
-                className="font-mono"
-                placeholder="world"
-                spellCheck={false}
+              <BrainScopeSelector
+                ariaLabel={t('console.brain.default_scope')}
+                unsetLabel={t('console.brain.scope_unset', { defaultValue: 'Source default' })}
                 value={scope}
-                onChange={event => setScope(event.target.value)}
+                onChange={setScope}
               />
             </LabeledField>
             <DialogFooter>
@@ -308,12 +313,11 @@ export function BrainSourcesPage() {
               }
             }}>
             <LabeledField label={t('console.brain.scope')}>
-              <Input
-                className="font-mono"
-                spellCheck={false}
-                placeholder={t('console.brain.source_scope_private')}
+              <BrainScopeSelector
+                ariaLabel={t('console.brain.scope')}
+                unsetLabel={t('console.brain.source_scope_private')}
                 value={sourceScope}
-                onChange={event => setSourceScope(event.target.value)}
+                onChange={setSourceScope}
               />
             </LabeledField>
             <DialogFooter>

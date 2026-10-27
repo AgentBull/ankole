@@ -111,7 +111,7 @@ RUN --mount=type=cache,target=/root/.cache/hex \
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
   --mount=type=cache,target=/repo/app/kernel/target \
-  TORQUE_BUILD=true mix compile
+  MJML_BUILD=true TORQUE_BUILD=true mix compile
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \

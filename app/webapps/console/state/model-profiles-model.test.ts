@@ -116,6 +116,18 @@ describe('ModelProfilesModel', () => {
       { hasUnsavedChanges: false }
     )
     expect(model.profiles.primary.dirty.value).toBeFalse()
+    expect(model.dirty.value).toBeFalse()
+
+    model.update('primary', { model: 'temporary-edit', error: 'Invalid option' })
+    expect(model.dirty.value).toBeTrue()
+    model.reset('primary')
+    expect(model.snapshot('primary')).toMatchObject({
+      providerID: 'openai',
+      model: 'newer-unsaved-model',
+      error: undefined
+    })
+    expect(model.profiles.primary.dirty.value).toBeFalse()
+    expect(model.dirty.value).toBeFalse()
     model[Symbol.dispose]()
   })
 })

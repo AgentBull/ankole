@@ -177,7 +177,6 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     fields =
       context
       |> Map.merge(log_fields(reason))
-      |> Map.delete(:provider_message)
       |> Map.reject(fn {_key, value} -> is_nil(value) or value == [] end)
 
     case severity(fields) do

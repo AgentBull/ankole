@@ -28,7 +28,16 @@ defmodule Ankole.Logging do
       end)
 
     %{failure: Atom.to_string(failure), stacktrace: Exception.format_stacktrace(frames)}
+    |> Map.merge(reason_fields(reason))
   end
+
+  defp reason_fields(reason) when is_atom(reason), do: %{reason: Atom.to_string(reason)}
+
+  defp reason_fields(reason) when is_tuple(reason) and tuple_size(reason) > 0 do
+    reason_fields(elem(reason, 0))
+  end
+
+  defp reason_fields(_reason), do: %{}
 
   @spec debug(String.t() | atom(), String.t(), fields()) :: :ok
   def debug(event, message, fields \\ %{}), do: log(:debug, event, message, fields)

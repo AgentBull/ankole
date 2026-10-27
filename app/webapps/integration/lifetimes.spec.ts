@@ -4,7 +4,13 @@ import { conversationRoute } from './pod-browser/routes'
 
 const base = '/api/v2/pod'
 const oldID = '00112233-4455-6677-8899-aabbccddeeff'
-const agent = { uid: 'agent-one', displayName: 'Research Agent' }
+const agent = {
+  uid: 'agent-one',
+  displayName: 'Research Agent',
+  active: true,
+  type: 'agent' as const,
+  mayIntervene: true
+}
 function detail(id = oldID, text = 'Existing history'): ConversationDetail {
   return {
     activities: [],
@@ -143,7 +149,7 @@ test('returning to a new page preserves its separate draft when the old create f
   await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'New conversation', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Start a conversation', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Separate draft')
   await server.complete()
   await expect(page.getByRole('link', { name: 'Created conversation', exact: true })).toBeVisible()
@@ -269,7 +275,7 @@ test('Provider save acknowledges only sent input, then a clean new-provider save
   await expect(page.getByText('Unsaved changes', { exact: true })).not.toBeVisible()
 })
 
-async function streamEvent(page: Page, event = 'message') {
+async function streamEvent(page: Page, event = 'conversation') {
   await page.evaluate(event => {
     const streams = (window as unknown as { testStreams: EventTarget[] }).testStreams
     streams.at(-1)!.dispatchEvent(new MessageEvent(event))
@@ -310,7 +316,7 @@ test('a late POST failure after reopening cannot fail the newer send or change i
   snapshot.messages[0] = { ...snapshot.messages[0]!, id: first.messageID, authorType: 'human' }
   server.setDetail(snapshot)
   await page.getByRole('link', { name: 'New conversation', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Start a conversation', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: /What can we work on/ })).toBeVisible()
   await page.getByRole('link', { name: 'Existing conversation', exact: true }).click()
   await streamEvent(page)
   await expect(page.getByText('Same text', { exact: true })).toBeVisible()

@@ -8,9 +8,8 @@ defmodule AnkoleWeb.OIDCController do
 
   use AnkoleWeb, :controller
 
-  alias Ankole.BrowserSessions
   alias Ankole.OIDC
-  alias Ankole.OIDC.{ClientAuthentication, Grants, LoginPolicy}
+  alias Ankole.OIDC.{AuthorizationRequests, ClientAuthentication, Grants, LoginPolicy}
   alias AnkoleWeb.Session, as: WebSession
 
   def discovery(conn, _params), do: json(conn, OIDC.discovery_metadata())
@@ -34,12 +33,14 @@ defmodule AnkoleWeb.OIDCController do
     end
   end
 
-  def resume_authorize(conn, %{"flow" => flow}) do
+  def resume_authorize(conn, %{"oauth_request" => id}) do
+    browser_ref = WebSession.browser_reference(conn)
+
     result =
-      BrowserSessions.consume_authorization(
-        WebSession.browser_reference(conn),
-        flow,
-        authorization_reference(conn, flow),
+      AuthorizationRequests.consume(
+        browser_ref,
+        id,
+        authorization_reference(conn, browser_ref, id),
         fn params, auth ->
           with {:ok, client, params} <- OIDC.authorization_request(params),
                :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]),
@@ -60,13 +61,13 @@ defmodule AnkoleWeb.OIDCController do
           conn,
           400,
           "invalid_request",
-          "authorization request expired or no longer allowed"
+          "authorization request expired or not allowed"
         )
     end
   end
 
   def resume_authorize(conn, _params),
-    do: oauth_json_error(conn, 400, "invalid_request", "authorization transaction is required")
+    do: oauth_json_error(conn, 400, "invalid_request", "authorization request is required")
 
   def token(conn, params) do
     with :ok <- Grants.validate_type(params),
@@ -153,14 +154,15 @@ defmodule AnkoleWeb.OIDCController do
           redirect_authorization_error(conn, params, "login_required", "Human login is required")
         else
           with {:ok, _providers} <- LoginPolicy.providers(client, params),
-               {:ok, conn, transaction} <-
-                 WebSession.begin_login(
-                   conn,
-                   :oauth,
+               conn = WebSession.ensure_browser(conn),
+               {:ok, request} <-
+                 AuthorizationRequests.begin(
+                   WebSession.browser_reference(conn),
+                   client.id,
                    params,
                    reauthentication_target(conn, client, params)
                  ) do
-            redirect(conn, to: "/sessions/new?oauth=1&flow=" <> transaction.id)
+            redirect(conn, to: "/sessions/new?oauth_request=" <> request.id)
           else
             {:error, reason} ->
               redirect_authorization_error(conn, params, "access_denied", message(reason))
@@ -195,9 +197,9 @@ defmodule AnkoleWeb.OIDCController do
     end
   end
 
-  defp authorization_reference(conn, flow) do
-    case WebSession.login_transaction(conn, flow) do
-      {:ok, transaction} -> WebSession.transaction_reference(conn, transaction)
+  defp authorization_reference(conn, browser_ref, id) do
+    case AuthorizationRequests.get(browser_ref, id) do
+      {:ok, request} -> WebSession.authorization_reference(conn, request)
       _ -> nil
     end
   end

@@ -155,12 +155,11 @@ async function home(page: Page, failures = false) {
         return route.fulfill({
           json: {
             ready: true,
-            completed_core_steps: 5,
-            total_core_steps: 5,
+            completed_core_steps: 4,
+            total_core_steps: 4,
             provider: { complete: true, provider_id: 'fixture' },
             agent: { complete: true, uid: 'agent-one', display_name: 'Research Agent' },
             model_profiles: { complete: true, agent_uid: 'agent-one', missing_profiles: [] },
-            signal_route: { complete: true },
             worker: { complete: true, ready_count: 1 }
           }
         })

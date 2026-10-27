@@ -202,5 +202,5 @@ function BrainTestNavigation() {
 }
 
 function LoginTestPage() {
-  return <EmailOtpForm flow="login-test-flow" />
+  return <EmailOtpForm />
 }

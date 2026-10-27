@@ -1,5 +1,6 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { CreatePrincipalGroupData, UpdatePrincipalGroupData } from '../api/v2/generated/types.gen'
+import { deriveSlugWithTransliteration, preloadTransliteration, slugFromDisplayName } from './agent-editor-model'
 
 type PrincipalGroupCreateRequest = NonNullable<CreatePrincipalGroupData['body']['data']['attributes']>
 type PrincipalGroupUpdateRequest = NonNullable<NonNullable<UpdatePrincipalGroupData['body']>['data']['attributes']>
@@ -15,14 +16,11 @@ export type PrincipalGroupEditorDraft = {
 }
 
 /** Client-side draft problems, reported as i18n key suffixes under `console.principal_groups`. */
-export type PrincipalGroupDraftError =
-  | 'name_required'
-  | 'name_lowercase'
-  | 'display_name_required'
-  | 'condition_required'
+export type PrincipalGroupDraftError = 'name_required' | 'display_name_required' | 'condition_required'
 
 export const PrincipalGroupEditorModel = createModel(() => {
   let generation = Symbol()
+  let nameManuallyEdited = false
   const sourceKey = signal<string>()
   const name = signal('')
   const displayName = signal('')
@@ -46,6 +44,7 @@ export const PrincipalGroupEditorModel = createModel(() => {
   return {
     resetSource() {
       generation = Symbol()
+      nameManuallyEdited = false
       sourceKey.value = undefined
     },
     sourceKey,
@@ -57,8 +56,10 @@ export const PrincipalGroupEditorModel = createModel(() => {
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalGroupEditorDraft) {
+      if (nextSourceKey === 'new') void preloadTransliteration()
       if (sourceKey.value === nextSourceKey) return
       generation = Symbol()
+      nameManuallyEdited = false
       batch(() => {
         sourceKey.value = nextSourceKey
         name.value = draft.name
@@ -69,6 +70,20 @@ export const PrincipalGroupEditorModel = createModel(() => {
         initialDraft.value = { ...draft }
         validationError.value = undefined
       })
+    },
+    setDisplayName(value: string, deriveName: boolean) {
+      batch(() => {
+        displayName.value = value
+        if (deriveName && !nameManuallyEdited) {
+          name.value = deriveSlugWithTransliteration(value, 63, () => {
+            if (!nameManuallyEdited) name.value = slugFromDisplayName(displayName.value, 63)
+          })
+        }
+      })
+    },
+    setName(value: string) {
+      nameManuallyEdited = true
+      name.value = value
     },
     clearValidation() {
       validationError.value = undefined
@@ -108,7 +123,6 @@ export const PrincipalGroupEditorModel = createModel(() => {
       if (mode === 'new') {
         const trimmedName = name.value.trim()
         if (!trimmedName) return 'name_required'
-        if (trimmedName !== trimmedName.toLowerCase()) return 'name_lowercase'
       }
       if (!displayName.value.trim()) return 'display_name_required'
       if (kind.value === 'computed' && !computedCondition.value.trim()) return 'condition_required'

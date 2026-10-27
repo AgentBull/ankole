@@ -39,6 +39,14 @@ defmodule Ankole.Logging.JSONFormatterTest do
            )
   end
 
+  test "domain reason codes survive classification without a stacktrace" do
+    assert %{failure: "Elixir.ErlangError", reason: "enoent"} =
+             Ankole.Logging.failure_fields(:error, :enoent, [])
+
+    assert %{reason: "worker_unavailable"} =
+             Ankole.Logging.failure_fields(:error, {:worker_unavailable, %{token: "secret"}}, [])
+  end
+
   test "raw caught failures share classification without disclosing their reason" do
     secret = "caught-secret-should-not-escape"
 

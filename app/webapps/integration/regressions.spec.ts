@@ -6,8 +6,8 @@ test('selecting either Agent in a compiled Pod enables sending and retains the s
       json: route.request().url().endsWith('/agents')
         ? {
             agents: [
-              { uid: 'agent-one', displayName: 'First Agent' },
-              { uid: 'agent-two', displayName: 'Second Agent' }
+              { uid: 'agent-one', displayName: 'First Agent', active: true, type: 'agent', mayIntervene: false },
+              { uid: 'agent-two', displayName: 'Second Agent', active: true, type: 'agent', mayIntervene: false }
             ]
           }
         : { conversations: [] }
@@ -83,8 +83,8 @@ test('the first Webhook result survives the list switching from empty to populat
   await page.route('**/api/v2/agents', route => route.fulfill({ json: { data: [] } }))
   await page.goto('/webhooks')
   await page.getByRole('button', { name: 'Create CloudEvents endpoint', exact: true }).click()
-  await page.getByLabel('Label', { exact: true }).fill('Fixture')
-  await page.getByLabel('Expires', { exact: true }).fill('2030-01-01T12:00')
+  await page.getByLabel('Label (required)', { exact: true }).fill('Fixture')
+  await page.getByLabel('Expires (required)', { exact: true }).fill('2030-01-01T12:00')
   await page.getByRole('dialog').getByRole('button', { name: 'Create CloudEvents endpoint', exact: true }).click()
   await expect(page.getByLabel('Capability URL (shown once)', { exact: true })).toHaveValue(
     new URL('/signals/v1/cloudevents/synthetic-capability', page.url()).href
@@ -110,31 +110,42 @@ async function files(page: Page) {
 test('a folder portal action opens its dialog without navigating the row', async ({ page }) => {
   await files(page)
   await page.getByRole('button', { name: 'More actions', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Move or rename', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Move', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page).toHaveURL(/\/files\/agent-one$/)
 })
 
-test('a long upload preview keeps its actions inside a mobile viewport', async ({ page }) => {
+test('mobile uploads use the file picker without a second confirmation form', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 640 })
   await files(page)
+  const uploaded: string[] = []
+  await page.route('**/api/v2/agents/agent-one/files', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    const request = route.request()
+    const form = await new Response(new Uint8Array(request.postDataBuffer()!).buffer, {
+      headers: request.headers()
+    }).formData()
+    uploaded.push(String(form.get('path')))
+    return route.fulfill({ json: { uploaded_file: { path: form.get('path') } } })
+  })
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
-  await page.getByLabel('Upload', { exact: true }).setInputFiles(
+  const uploadFiles = page.getByRole('menuitem', { name: 'Upload files', exact: true })
+  await expect(uploadFiles).toBeInViewport()
+  await expect(page.getByRole('menuitem', { name: 'Upload folder', exact: true })).toBeInViewport()
+  const chosen = page.waitForEvent('filechooser')
+  await uploadFiles.click()
+  await (
+    await chosen
+  ).setFiles(
     Array.from({ length: 24 }, (_, i) => ({
       name: `file-${i}.txt`,
       mimeType: 'text/plain',
       buffer: Buffer.from('fixture')
     }))
   )
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
-  const box = await dialog.boundingBox()
-  expect(box!.y).toBeGreaterThanOrEqual(0)
-  expect(box!.y + box!.height).toBeLessThanOrEqual(640)
-  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
-  await expect(cancel).toBeInViewport()
-  await cancel.click()
-  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => uploaded).toEqual(Array.from({ length: 24 }, (_, i) => `file-${i}.txt`))
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeEnabled()
 })
 
 const compaction = {

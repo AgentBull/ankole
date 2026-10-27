@@ -1,6 +1,5 @@
 defmodule Ankole.OIDCLogoutIntegrationTest do
   use AnkoleWeb.ConnCase, async: false
-  import AnkoleWeb.PodAPI
   import Ankole.PrincipalsFixtures
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   alias Ankole.{BrowserSessions, OIDC, Repo}
@@ -14,7 +13,15 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
-    {:ok, _} = Ankole.IdentityProviders.save_provider("local", "local", %{}, true)
+
+    {:ok, _} =
+      Ankole.IdentityProviders.save_provider(
+        "lark-main",
+        "lark",
+        %{"appID" => "cli_logout_test", "appSecret" => "secret", "syncEnabled" => false},
+        true
+      )
+
     :ok
   end
 
@@ -198,7 +205,11 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
         Req.get!(origin <> "/api/v2/browser/oidc-logout/" <> id, headers: [cookie: cookie])
 
       assert identity.status == 200
-      if attempt == 2, do: assert(is_nil(identity.body["identity"]))
+
+      body =
+        if is_binary(identity.body), do: Ankole.JSON.decode!(identity.body), else: identity.body
+
+      if attempt == 2, do: assert(is_nil(body["identity"]))
 
       rejected =
         Req.post!(origin <> "/oauth/logout/confirm",
@@ -267,17 +278,20 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
     try do
       Repo.put_tenant_id(tenant.id)
       human = human_fixture().principal
-      {:ok, flow} = BrowserSessions.begin_login(reference, :pod, %{}, mode: :add)
-      {:ok, _} = BrowserSessions.bind_provider(reference, flow.id, "local")
 
       {:ok, %{authentication: authentication}} =
-        BrowserSessions.complete_login(reference, flow.id, %{
-          "principal_uid" => human.uid,
-          "access_version" => human.access_version,
-          "provider_id" => "local",
-          "external_id" => human.uid,
-          "auth_time" => System.system_time(:second)
-        })
+        BrowserSessions.authenticate(
+          reference,
+          :pod,
+          %{
+            "principal_uid" => human.uid,
+            "access_version" => human.access_version,
+            "provider_id" => "lark-main",
+            "external_id" => human.uid,
+            "auth_time" => System.system_time(:second)
+          },
+          mode: :add
+        )
 
       send(delivery, :finish_delivery)
       assert Task.await(confirmation, 5_000).status == 302
@@ -317,18 +331,18 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
         allow_insecure_local_logout: true
       })
 
-    conn = init_test_session(conn, %{})
-    {:ok, conn, flow} = WebSession.begin_login(conn, :oauth, %{})
-    {:ok, _} = BrowserSessions.bind_provider(WebSession.browser_reference(conn), flow.id, "local")
+    conn = conn |> init_test_session(%{}) |> WebSession.ensure_browser()
 
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, flow.id, %{
+    {:ok, %{browser: browser, authentication: authentication}} =
+      BrowserSessions.authenticate(WebSession.browser_reference(conn), :oauth, %{
         "principal_uid" => human.principal.uid,
-        "provider_id" => "local",
+        "provider_id" => "lark-main",
         "external_id" => human.principal.uid,
         "access_version" => human.principal.access_version,
         "auth_time" => System.system_time(:second)
       })
+
+    conn = WebSession.put_authentication(conn, browser, authentication)
 
     verifier = String.duplicate("a", 43)
     challenge = :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false)

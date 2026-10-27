@@ -27,6 +27,7 @@ import {
   createBrainSource,
   createCronSchedule,
   createIdentityMapping,
+  createIdentityProvider,
   createMember,
   createOidcClient,
   createPermissionGrant,
@@ -238,6 +239,9 @@ import type {
   CreateIdentityMappingData,
   CreateIdentityMappingError,
   CreateIdentityMappingResponse,
+  CreateIdentityProviderData,
+  CreateIdentityProviderError,
+  CreateIdentityProviderResponse,
   CreateMemberData,
   CreateMemberError,
   CreateMemberResponse,
@@ -1113,6 +1117,33 @@ export const createPermissionGrantMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await createPermissionGrant({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * create_identity_provider operation on identity_provider_operation resource
+ */
+export const createIdentityProviderMutation = (
+  options?: Partial<Options<CreateIdentityProviderData>>
+): UseMutationOptions<
+  CreateIdentityProviderResponse,
+  CreateIdentityProviderError,
+  Options<CreateIdentityProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateIdentityProviderResponse,
+    CreateIdentityProviderError,
+    Options<CreateIdentityProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createIdentityProvider({
         ...options,
         ...fnOptions,
         throwOnError: true

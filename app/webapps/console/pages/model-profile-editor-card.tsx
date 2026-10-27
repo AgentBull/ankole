@@ -91,15 +91,15 @@ export function ModelProfileEditorCard({
   }
   /** When set, the delete action asks for confirmation before it fires. */
   deleteConfirm?: { title: string; description?: string; confirmLabel: string }
-  deleteDisabled: boolean
-  deleteLabel: string
+  deleteDisabled?: boolean
+  deleteLabel?: string
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
   onUpdate: (patch: Partial<ProfileDraft>) => void
   /** Omit inside a parent form that owns persistence for this card. */
   onSave?: () => void
-  onDelete: () => void
+  onDelete?: () => void
 }) {
   const { t } = useTranslation()
   const providerID = draft.providerID
@@ -193,23 +193,25 @@ export function ModelProfileEditorCard({
               {t('common.save')}
             </SaveButton>
           ) : null}
-          {deleteConfirm ? (
-            <ConfirmDeleteButton
-              confirm={deleteConfirm}
-              label={deleteLabel}
-              pending={disabled || deleteDisabled || persistencePending || hostedActive}
-              onConfirm={onDelete}
-            />
-          ) : (
-            <Button
-              disabled={disabled || deleteDisabled || persistencePending || hostedActive}
-              size="xs"
-              type="button"
-              variant="ghost"
-              onClick={onDelete}>
-              {deleteLabel}
-            </Button>
-          )}
+          {onDelete && deleteLabel ? (
+            deleteConfirm ? (
+              <ConfirmDeleteButton
+                confirm={deleteConfirm}
+                label={deleteLabel}
+                pending={disabled || deleteDisabled || persistencePending || hostedActive}
+                onConfirm={onDelete}
+              />
+            ) : (
+              <Button
+                disabled={disabled || deleteDisabled || persistencePending || hostedActive}
+                size="xs"
+                type="button"
+                variant="ghost"
+                onClick={onDelete}>
+                {deleteLabel}
+              </Button>
+            )
+          ) : null}
         </div>
       </div>
       <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
@@ -318,11 +320,14 @@ export function ModelProfileEditorCard({
                 ) : null}
                 {advancedOptionSettings.length > 0 ? (
                   <Collapsible className="grid gap-4" defaultOpen={false}>
-                    <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+                    <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
                       <span>{t('common.advanced_settings')}</span>
                       <span className="flex items-center gap-2 text-xs text-muted-foreground">
                         {advancedOptionSettings.length}
-                        <RiArrowDownSLine className="size-4" aria-hidden />
+                        <RiArrowDownSLine
+                          className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
+                          aria-hidden
+                        />
                       </span>
                     </CollapsibleTrigger>
                     <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">

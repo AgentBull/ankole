@@ -20,7 +20,7 @@ import type {
 } from '../api/runtime-types'
 import { resolveAgentUID } from '../console-agent-scope'
 import { StatusIndicator } from '../console-form'
-import { CursorPagination } from '../console-list-page'
+import { AgentLink, CursorPagination } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { ACTIVITY_REFRESH_MS } from '../refresh-intervals'
 import {
@@ -267,7 +267,9 @@ function Ownership({ agent, owner, task }: { agent: string; owner: string; task?
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-muted-foreground">
       <dt>{t(`${key}agent`)}</dt>
-      <dd className="font-mono break-all">{agent}</dd>
+      <dd className="break-all">
+        <AgentLink uid={agent} />
+      </dd>
       <dt>{t(`${key}owner`)}</dt>
       <dd className="font-mono break-all">{owner}</dd>
       {task ? (

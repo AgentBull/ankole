@@ -23,6 +23,8 @@ or add your Agent to the space. Interactive access uses Human ∩ Agent permissi
 
 Read operations:
   pages.list       {scope?: space|private|shared|recent|favorites|trash, query?}
+  pages.children   {parent_id?, scope?: space|private, cursor?, limit?} — returns pages and next_cursor
+  pages.search     {query, required_action?, exclude_subtree_of?} — searches titles and document text, up to 30 matches
   pages.read       {id} — returns Markdown and the current page revision
   pages.sharing    {id}
   files.manifest   {id}
@@ -165,33 +167,37 @@ function appletBuildError(stage: string, error: unknown) {
   return new Error(`${stage}:\n${errors.map(String).join('\n')}`)
 }
 
-// Embed imported media in scripts and CSS; other ESM chunks use the versioned frame path.
 const appletAssetPattern =
   /\.(?:png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp3|mp4|webm|ogg|wav|pdf|wasm|bin)(?:[?#].*)?$/i
-
-async function appletAssetURL(path: string) {
-  const [filename, fragment] = path.split('#', 2)
-  const file = Bun.file(filename!.split('?', 1)[0]!)
-  const data = Buffer.from(await file.arrayBuffer()).toString('base64')
-  return `data:${file.type};base64,${data}${fragment ? `#${fragment}` : ''}`
-}
 
 const appletAssets: BunPlugin = {
   name: 'applet-assets',
   setup(build) {
-    build.onResolve({ filter: appletAssetPattern }, async args => {
-      if (!args.importer.endsWith('.css') || /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(args.path)) return
-      return { path: await appletAssetURL(resolve(args.resolveDir, args.path)), external: true }
+    build.onResolve({ filter: appletAssetPattern }, args => {
+      if (args.importer.endsWith('.css') || /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(args.path)) return
+      const [, filename, suffix] = args.path.match(/^([^?#]+)(.*)$/)!
+      return { path: `${Bun.resolveSync(filename!, args.resolveDir)}${suffix}.url.js`, namespace: 'applet-asset-url' }
     })
-    build.onLoad({ filter: appletAssetPattern, namespace: 'file' }, async args => ({
-      contents: `export default ${JSON.stringify(await appletAssetURL(args.path))}`,
-      loader: 'js'
+    build.onLoad({ filter: /.*/, namespace: 'applet-asset-url' }, args => {
+      const [, filename, suffix] = args.path.slice(0, -7).match(/^([^?#]+)(.*)$/)!
+      return {
+        contents: `import path from ${JSON.stringify(`applet-asset:${filename}`)}; export default new URL(path + ${JSON.stringify(suffix)}, import.meta.url).href;`,
+        loader: 'js'
+      }
+    })
+    build.onResolve({ filter: /^applet-asset:/ }, args => ({
+      path: args.path.slice('applet-asset:'.length),
+      namespace: 'applet-asset-file'
+    }))
+    build.onLoad({ filter: /.*/, namespace: 'applet-asset-file' }, async args => ({
+      contents: await readFile(args.path),
+      loader: 'file'
     }))
   }
 }
 
 export async function buildApplet(directory: string) {
-  directory = resolve(directory)
+  directory = await realpath(directory)
   const packageFile = Bun.file(join(directory, 'package.json'))
   if (await packageFile.exists()) {
     const manifest = await packageFile.json()
@@ -240,8 +246,8 @@ export async function buildApplet(directory: string) {
         name: 'applet-entry',
         setup(build) {
           build.onResolve({ filter: /^ankole-applet-entry$/ }, () => ({ path: 'app', namespace: 'applet' }))
-          build.onResolve({ filter: /\.worker\.(?:ts|js)\?url$/ }, args => {
-            const source = resolve(args.resolveDir, args.path.slice(0, -4))
+          build.onResolve({ filter: /\.worker\.(?:ts|js)\?url$/ }, async args => {
+            const source = await realpath(resolve(args.resolveDir, args.path.slice(0, -4)))
             if (!workers.includes(source)) {
               throw new Error('Worker URL imports must refer to a Worker source under src/')
             }
@@ -250,8 +256,9 @@ export async function buildApplet(directory: string) {
               namespace: 'applet-worker-url'
             }
           })
-          build.onLoad({ filter: /.*/, namespace: 'applet-worker-url' }, async args => ({
-            contents: await readFile(args.path),
+          build.onLoad({ filter: /.*/, namespace: 'applet-worker-url' }, args => ({
+            // The URL asset imports the original bundle so its resource URLs keep their base.
+            contents: `import ${JSON.stringify(`../${args.path.slice(outdir.length + 1)}`)};`,
             loader: 'file'
           }))
           build.onResolve({ filter: /^(?:react|react-dom|@ankole\/(?:uikit|applet-sdk))\// }, args => {

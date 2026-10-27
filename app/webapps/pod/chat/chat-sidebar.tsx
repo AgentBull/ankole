@@ -1,5 +1,7 @@
 import {
   Button,
+  buttonVariants,
+  cn,
   Input,
   SidebarMenu,
   SidebarMenuButton,
@@ -20,6 +22,7 @@ import {
 } from '@ankole/uikit'
 import {
   RiAddLine,
+  RiCloseLine,
   RiMoreLine,
   RiPushpinLine,
   RiNotificationOffLine,
@@ -30,7 +33,7 @@ import {
 } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import { podKeys, chatError } from '../api'
@@ -70,8 +73,14 @@ export function ChatSidebar() {
   const [search, setSearch] = useState(''),
     query = useDeferredValue(search)
   const [deleting, setDeleting] = useState<RoomRow>(),
-    [renaming, setRenaming] = useState<RoomRow>(),
-    [title, setTitle] = useState('')
+    [leaving, setLeaving] = useState<RoomRow>(),
+    [renaming, setRenaming] = useState<string>()
+  const keepFocusInRow = useRef(false)
+  const menuFinalFocus = () => {
+    const restore = !keepFocusInRow.current
+    keepFocusInRow.current = false
+    return restore
+  }
   const rooms = useInfiniteQuery({
     queryKey: [...podKeys.conversations, 'sidebar', query],
     initialPageParam: undefined as string | undefined,
@@ -83,7 +92,6 @@ export function ChatSidebar() {
     mutationFn: ({ id, data }: { id: string; data: RoomUpdate }) =>
       updateConversation({ path: { id }, body: { data } }),
     onSuccess: (_, { id }) => {
-      setRenaming(undefined)
       void client.invalidateQueries({ queryKey: podKeys.conversations })
       void client.invalidateQueries({ queryKey: podKeys.detail(id) })
     },
@@ -95,6 +103,7 @@ export function ChatSidebar() {
       setDeleting(undefined)
       client.removeQueries({ queryKey: podKeys.detail(room.id) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
+      if (room.pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
       if (location.pathname === podLocation(`/conversations/${room.id}`).pathname) {
         void navigate({ to: podLocation('/').pathname })
       }
@@ -105,8 +114,10 @@ export function ChatSidebar() {
     mutationFn: (room: RoomRow) =>
       updateConversationParticipants({ path: { id: room.id }, body: { data: { removeUIDs: [room.viewer.uid] } } }),
     onSuccess: (_, room) => {
+      setLeaving(undefined)
       client.removeQueries({ queryKey: podKeys.detail(room.id) })
       void client.invalidateQueries({ queryKey: podKeys.conversations })
+      if (room.pageID) void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
       if (location.pathname === podLocation(`/conversations/${room.id}`).pathname) {
         void navigate({ to: podLocation('/').pathname })
       }
@@ -124,21 +135,38 @@ export function ChatSidebar() {
   return (
     <div className="pod-chat-sidebar">
       <div className="pod-chat-sidebar-search">
-        <Input
-          value={search}
-          onChange={event => setSearch(event.target.value)}
-          placeholder={t('pod.chat_room.search_chats')}
-          aria-label={t('pod.chat_room.search_chats')}
-        />
-        <Button
-          size="icon-sm"
-          variant="ghost"
+        <div className="pod-chat-sidebar-search-field">
+          <Input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Escape' && search) {
+                event.preventDefault()
+                setSearch('')
+              }
+            }}
+            placeholder={t('pod.chat_room.search_chats')}
+            aria-label={t('pod.chat_room.search_chats')}
+          />
+          {search && (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="pod-chat-sidebar-search-clear"
+              aria-label={t('common.clear')}
+              onClick={() => setSearch('')}>
+              <RiCloseLine aria-hidden />
+            </Button>
+          )}
+        </div>
+        <Link
+          to={podLocation('/').pathname}
+          className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}
           aria-label={t('pod.chat.new_conversation')}
-          nativeButton={false}
-          render={<Link to={podLocation('/').pathname} />}
+          title={t('pod.chat.new_conversation')}
           onClick={close}>
           <RiAddLine aria-hidden />
-        </Button>
+        </Link>
       </div>
       {rooms.isPending && (
         <p role="status" className="p-2">
@@ -160,12 +188,13 @@ export function ChatSidebar() {
             <h3 className="pod-chat-section-label">{t(`pod.chat_room.section_${section}`)}</h3>
             <SidebarMenu>
               {sections.get(section)!.map(room => {
+                const isRenaming = renaming === room.id
                 const menu = (
                   <>
                     <DropdownMenuItem
                       onClick={() => {
-                        setTitle(room.title)
-                        setRenaming(room)
+                        keepFocusInRow.current = true
+                        setRenaming(room.id)
                       }}>
                       {t('pod.chat_room.rename')}
                     </DropdownMenuItem>
@@ -186,7 +215,10 @@ export function ChatSidebar() {
                       </DropdownMenuItem>
                     )}
                     {!room.canDelete && room.accessScope === 'participants' && (
-                      <DropdownMenuItem onClick={() => leave.mutate(room)} disabled={leave.isPending}>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setLeaving(room)}
+                        disabled={leave.isPending}>
                         <RiLogoutBoxLine aria-hidden />
                         {t('pod.chat_room.leave')}
                       </DropdownMenuItem>
@@ -196,40 +228,50 @@ export function ChatSidebar() {
                 return (
                   <ContextMenu key={room.id}>
                     <ContextMenuTrigger render={<SidebarMenuItem className="pod-chat-row flex items-center" />}>
-                      <SidebarMenuButton
-                        render={<Link to={podLocation(`/conversations/${room.id}`).pathname} />}
-                        isActive={location.pathname === podLocation(`/conversations/${room.id}`).pathname}
-                        onClick={close}
-                        title={room.title}>
-                        <span className="pod-chat-avatar-cluster">
-                          {room.agents.slice(0, 2).map(agent => (
-                            <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
-                          ))}
-                        </span>
-                        <span>{room.title}</span>
-                        {room.viewer.muted && (
-                          <RiNotificationOffLine className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
-                        )}
-                      </SidebarMenuButton>
-                      <span className="pod-chat-row-status">
-                        <ChatRowStatus status={room.rowStatus} />
-                      </span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          className="pod-chat-row-menu"
-                          render={
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              aria-label={t('pod.chat_room.room_actions', { title: room.title })}
-                            />
-                          }>
-                          <RiMoreLine aria-hidden />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">{menu}</DropdownMenuContent>
-                      </DropdownMenu>
+                      {isRenaming ? (
+                        <ChatRenameField room={room} onDone={() => setRenaming(undefined)} />
+                      ) : (
+                        <>
+                          <SidebarMenuButton
+                            render={<Link to={podLocation(`/conversations/${room.id}`).pathname} />}
+                            isActive={location.pathname === podLocation(`/conversations/${room.id}`).pathname}
+                            onClick={close}
+                            title={room.title}>
+                            {room.agents.length > 0 && (
+                              <span className="pod-chat-avatar-cluster">
+                                {room.agents.slice(0, 2).map(agent => (
+                                  <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
+                                ))}
+                              </span>
+                            )}
+                            <span>{room.title}</span>
+                            {room.viewer.muted && (
+                              <RiNotificationOffLine className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
+                            )}
+                          </SidebarMenuButton>
+                          <span className="pod-chat-row-status">
+                            <ChatRowStatus status={room.rowStatus} />
+                          </span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              className="pod-chat-row-menu"
+                              render={
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost"
+                                  aria-label={t('pod.chat_room.room_actions', { title: room.title })}
+                                />
+                              }>
+                              <RiMoreLine aria-hidden />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
+                              {menu}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </>
+                      )}
                     </ContextMenuTrigger>
-                    <ContextMenuContent>{menu}</ContextMenuContent>
+                    <ContextMenuContent finalFocus={menuFinalFocus}>{menu}</ContextMenuContent>
                   </ContextMenu>
                 )
               })}
@@ -237,7 +279,9 @@ export function ChatSidebar() {
           </section>
         ))}
       {!rooms.isPending && !rooms.error && !sections.size && (
-        <p className="p-2 text-fg-tertiary">{t('pod.sidebar.chat_empty')}</p>
+        <p className="p-2 text-fg-tertiary">
+          {t(search.trim() ? 'pod.chat_room.no_matches' : 'pod.sidebar.chat_empty')}
+        </p>
       )}
       {rooms.hasNextPage && (
         <Button
@@ -249,24 +293,23 @@ export function ChatSidebar() {
           {t('pod.chat_room.load_more')}
         </Button>
       )}
-      <Dialog open={!!renaming} onOpenChange={open => !open && setRenaming(undefined)}>
+      <Dialog open={!!leaving} onOpenChange={open => !open && !leave.isPending && setLeaving(undefined)}>
         <DialogContent closeLabel={t('common.close')}>
-          <DialogTitle>{t('pod.chat_room.rename')}</DialogTitle>
-          <form
-            onSubmit={event => {
-              event.preventDefault()
-              if (renaming) update.mutate({ id: renaming.id, data: { title } })
-            }}>
-            <Input
-              autoFocus
-              value={title}
-              aria-label={t('pod.chat_room.rename')}
-              onChange={event => setTitle(event.target.value)}
-            />
-            <Button className="mt-3" type="submit" disabled={update.isPending}>
-              {t('pod.chat_room.save')}
+          <DialogTitle>{t('pod.chat_room.leave')}</DialogTitle>
+          <p className="text-sm">
+            {t('pod.chat_room.leave_confirm', {
+              title: leaving?.title ?? '',
+              defaultValue: 'Leave “{$title}”? You will need a new invitation to rejoin.'
+            })}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLeaving(undefined)} disabled={leave.isPending}>
+              {t('common.cancel')}
             </Button>
-          </form>
+            <Button variant="destructive" disabled={leave.isPending} onClick={() => leaving && leave.mutate(leaving)}>
+              {t('pod.chat_room.leave')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={!!deleting} onOpenChange={open => !open && !remove.isPending && setDeleting(undefined)}>
@@ -299,6 +342,60 @@ export function ChatSidebar() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function ChatRenameField({ room, onDone }: { room: RoomRow; onDone(): void }) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const [value, setValue] = useState(room.title)
+  const finished = useRef(false)
+  const finish = () => {
+    finished.current = true
+    onDone()
+  }
+  const rename = useMutation({
+    mutationFn: (title: string) => updateConversation({ path: { id: room.id }, body: { data: { title } } }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: podKeys.conversations }),
+        client.invalidateQueries({ queryKey: podKeys.detail(room.id) })
+      ])
+      finish()
+    },
+    onError: error => {
+      finished.current = false
+      toast.error(requestErrorMessage(contentError(chatError(error))))
+    }
+  })
+  const submit = () => {
+    if (finished.current || rename.isPending) return
+    const next = value.trim()
+    if (!next || next === room.title) return finish()
+    finished.current = true
+    rename.mutate(next)
+  }
+  return (
+    <Input
+      autoFocus
+      className="pod-chat-row-rename"
+      aria-label={t('pod.chat_room.rename')}
+      value={value}
+      disabled={rename.isPending}
+      onFocus={event => event.currentTarget.select()}
+      onChange={event => setValue(event.target.value)}
+      onBlur={submit}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          submit()
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          finish()
+        }
+      }}
+    />
   )
 }
 

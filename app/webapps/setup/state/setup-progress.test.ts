@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { setupStepState, type SetupStepID } from './setup-progress'
+import { setupStepState, readSetupProgress, type SetupStepID } from './setup-progress'
 
 const done = (...steps: SetupStepID[]): ReadonlySet<SetupStepID> => new Set(steps)
 
@@ -29,4 +29,11 @@ describe('setupStepState', () => {
     expect(setupStepState('identity', 'plugins', true, done('plugins', 'industry'))).toBe('available')
     expect(setupStepState('identity', 'industry', true, done('plugins'))).toBe('locked')
   })
+})
+
+test('refresh restores the setup step and completed navigation', () => {
+  const progress = readSetupProgress('?step=industry&completed=plugins,industry')
+  expect(progress.step).toBe('industry')
+  expect(setupStepState('identity', progress.step, true, progress.completed)).toBe('available')
+  expect(readSetupProgress('?step=invalid').step).toBe('plugins')
 })

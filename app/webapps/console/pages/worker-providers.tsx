@@ -40,7 +40,7 @@ import {
   ResourceEditorPage,
   StatusIndicator
 } from '../console-form'
-import { ResourceListPage, ResourceSearch } from '../console-list-page'
+import { ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
 import { EncryptedValueInput } from '../encrypted-value-input'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import {
@@ -104,6 +104,10 @@ export function WorkerProvidersListPage() {
             <ProviderAvailability providerID={provider.provider_id} />
           </TableCell>
           <TableCell>{provider.agent_count}</TableCell>
+          <RowViewAction
+            label={t('common.view_details_for', { name: provider.display_name })}
+            to={`${providersPath}/${encodeURIComponent(provider.provider_id)}`}
+          />
         </TableRow>
       ))}
     </ResourceListPage>
@@ -253,20 +257,23 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
       }>
       {selected && kinds.isSuccess && !definition ? <ProviderAvailability providerID={selected.provider_id} /> : null}
       <fieldset className="contents" disabled={create.isPending || (kinds.isSuccess && !definition)}>
+        <LabeledField label={t('console.worker_providers.name')} required>
+          <Input
+            value={model.displayName.value}
+            onChange={event => model.setDisplayName(event.target.value, !providerID)}
+          />
+        </LabeledField>
         <LabeledField label={t('console.worker_providers.id')} required={!providerID}>
           {providerID ? (
             <ReadOnlyValue mono>{providerID}</ReadOnlyValue>
           ) : (
             <Input
               value={model.providerID.value}
-              onChange={event => (model.providerID.value = event.target.value)}
+              onChange={event => model.setProviderID(event.target.value)}
               autoComplete="off"
               spellCheck={false}
             />
           )}
-        </LabeledField>
-        <LabeledField label={t('console.worker_providers.name')} required>
-          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
         </LabeledField>
         <LabeledField label={t('console.worker_providers.kind')} required={!providerID}>
           {providerID ? (

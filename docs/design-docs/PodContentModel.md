@@ -5,10 +5,9 @@ shared by Humans and Agents through the same domain contracts. PostgreSQL owns
 pages, documents, Base records, revisions, permissions, and file references.
 Worker files, browser caches, and channel presence are not durable truth.
 
-The first product version lets Humans and AI collaborate on these same stored
-documents and business tables. An AI-generated applet is another interface to
-the same Base and runs as its current Human. GitHub Issues are test input;
-they do not define a separate first-version product or connector interface.
+Humans and Agents collaborate on the same stored documents and business tables.
+An Agent creates and publishes an Applet as another interface to a Base. Its
+business operations use the current Human's permissions.
 
 ## Browser interactions
 
@@ -22,14 +21,19 @@ This reference does not add features outside the first-version scope. See
 Calendar, timeline, form, and chart presentations are Applets, not built-in
 Base views.
 
-Page creation opens a non-modal type menu at its trigger. Selecting a type
-creates an untitled Page at that entry's Space, Private, or parent destination
-and opens the Page for editing. Document insertion uses the same type submenu
-and embeds the new child in the current document. Titles are edited at the top of the Page canvas.
-Creation failures show an error toast, and the entry permits a retry.
+Page creation opens a non-modal menu with document, Base, and file choices.
+A document or Base opens at the selected Space, Private, or parent destination.
+File creation first selects a file, then submits its bytes and Page attributes
+through `POST /api/v2/pod/file-pages`. One tree transaction creates the Page
+and its file reference. An empty title uses the selected filename.
+Document insertion creates a child at the current document. Titles are edited
+at the top of the Page canvas. Creation failures keep the entry available for retry.
+Applets are created and published by an Agent through its conversation workflow.
 
 Page titles and document bodies share one recoverable draft and navigation
-guard. Failed saves retain input. Pending dialogs keep their submitted inputs
+guard. Failed saves retain input. Before leaving with unsaved changes, the
+person can continue editing, download the draft, or discard it and leave.
+Pending dialogs keep their submitted inputs
 and cannot close. Document titles save after a 500 ms pause in typing and on
 blur. IME composition delays the automatic save until composition ends. Enter
 moves from the title to the start of the body. Up at the start of the body
@@ -44,6 +48,8 @@ the directory's `can_create_space` and `can_create_private` facts from the same
 destination check as the write. Root capabilities load while the navigation
 section is collapsed. Trash search matches titles and document bodies
 before the server applies the result limit.
+The Page header and sidebar use the same trash action. Deleting a Page discards
+its local draft, returns to its visible parent or content root, and offers Undo.
 Every Page header offers child-page navigation. It lists visible children,
 loads further children with the directory cursor, and offers creation when the
 Page permits `page_edit`. This entry also serves shared projects whose parent
@@ -70,6 +76,8 @@ The sidebar search button and Command/Control+K open the same navigation menu.
 The menu links to Pages, Chats, and content locations. Page search owns title
 and body matching for both the menu and the search list. The search list keeps
 its query in the `q` URL parameter across result navigation, Back, and reload.
+Search results, quick navigation, and Chat Page references show visible ancestor
+paths so that people can distinguish Pages with the same title.
 The menu does not send a request
 or replace an unfinished Chat draft. J/K moves focus within content lists;
 fields keep their normal typing and composition keys. Desktop rows use compact
@@ -113,8 +121,10 @@ Enter or Tab submits; Escape cancels; composition keys do not submit. A conflict
 keeps the draft for an explicit retry or discard. View changes preview locally;
 an editor can save them for everyone with the starting view version. A failed
 save retains the draft. Inline configuration belongs to its document embed.
-Invalid filter and calculation fields require repair instead of silently
-selecting another field.
+Single-value relation and user pickers close when a value is selected.
+Multiple-value pickers keep the selection open until Done. A calculation that
+needs a field prompts for that field. Invalid saved filter and calculation
+fields show a repair action.
 
 Ankole's settled differences are: records are not pages and have no separate
 page trash; permanent record and field deletion requires confirmation. Moving
@@ -251,12 +261,18 @@ Broadcasts to the page, access, and table topics run after commit
 `Ankole.Pod.Access` owns ancestor paths, reachable anchors, and access
 provenance. Its native SQL read model loads paths and reachable anchors.
 `Ankole.Pod.Pages.Queries` owns directory cursors, title and body search, list scopes,
-and version snapshots. Each SQL branch binds the tenant.
+and version snapshots. The `all` list includes visible child Pages. Search
+results include authorized ancestor breadcrumbs. `pages.children` and
+`pages.search` expose these directory contracts to Agents. Each SQL branch
+binds the tenant.
 `Ankole.Pod.Pages.Sharing` owns sharing changes, collaborator selection, and
 Space access settings. `Pages` owns tree writes, page details, and personal state.
 AuthZ owns Grant persistence and calls anchor maintenance for affected targets.
-Sharing forms offer four roles for complete role grants. Applet forms offer
-view, edit, and manage. Conditional rules,
+Base sharing offers view, contribute, edit, and manage roles. Other Page types
+offer view, edit, and manage. A non-Base Page rejects a contribute-only grant
+that applies only to itself; a container grant can pass record-write access to
+Base children. Adding a collaborator, changing a role, or removing a grant
+saves that change immediately. Conditional rules,
 Usersets, and partial action sets show their exact actions as read-only entries
 with a revoke action. An unchanged entry preserves its action set. An explicit
 role change expands that role into its actions. A write supplies a role or an
@@ -453,9 +469,12 @@ first response was lost.
 Links use ordered `lnk_<forward_field_hex>` edge tables with native cascading
 foreign keys. Field configuration records the edge name and `src` or `dst`
 role. Both directions enforce their single-value cardinality or a maximum of
-2,000 IDs per cell. Reads return the complete ordered array. A one-way child
+2,000 IDs per cell. Each single-value constraint uses its field UUID in its
+name, so fields in the same tenant have independent indexes.
+Reads return the complete ordered array. A one-way child
 link can point to a parent with more than 2,000 children. Deleting one direction
-keeps the counterpart's edge and values. Disabling bidirectional writes gives
+removes that field's cardinality constraint and keeps the counterpart's edge
+and values. Disabling bidirectional writes gives
 each field an independent edge.
 
 Deleting a linked record updates surviving peer cell versions and timestamps
@@ -477,7 +496,9 @@ Conversion to a formula or system field removes the stored cell value and
 version; reads use the formula or the record's system columns. A physical
 field type change refreshes statistics with best-effort `ANALYZE` after commit.
 PostgreSQL's 1,600 historical column limit returns an error that asks the caller
-to copy the table.
+to copy the table. Field deletion removes the deleted field from saved view
+filters, sorts, grouping, field order, field visibility, and summaries in the
+same transaction.
 
 View changes write their definitions in the control plane and advance the
 table's data version in its storage database. They publish `schema_changed`
@@ -524,13 +545,15 @@ representations; they do not pass through JavaScript numeric rounding. Aggregate
 groups return `value_json` alongside display values, and grouped record queries
 use that exact JSON value. The group condition is ANDed outside any user filter.
 Large kanban views fetch full-table group counts and page each group separately.
+A change to grouping, filtering, or sorting starts the board at its first page.
 Physical reads hold metadata key-share locks and use one repeatable-read,
 read-only shard snapshot for records and `_table_states`. They verify the schema
 version before serving data. The statement timeout includes lock waiting.
 
 The shared query compiler uses JSONB expressions for inline records and native
 columns and edge subqueries for physical records. Array equality checks JSONB
-equality as well as containment. Statistics support
+equality as well as containment. Author system fields accept a single Principal
+UID or a UID list in equality and membership filters. Statistics support
 up to two group fields and date buckets in `system.timezone`. A count without
 a field counts rows; a count with a field counts its non-null values.
 
@@ -552,6 +575,10 @@ the same records. Calendar, timeline, form, and chart presentations are Applets;
 they introduce time-axis, public submission, or encoding semantics that do not
 belong to the Base contract. An Applet that presents a table reads and
 writes through the same Base API.
+New kanban views use the first single-choice field when one exists. The grouping
+control lets the person change it. Kanban and gallery cards show the primary
+field as their title and the fields selected for that view. Record details
+include every field.
 
 View changes use their own versions. Dragging in kanban writes the related field
 through the ordinary record contract. Inline views keep their configuration in
@@ -567,14 +594,19 @@ root or under a target parent Page. It applies
 the source filter, assigns new IDs, and adds references to existing attachment
 bytes. Source metadata locks keep the copy stable. Records move in batches
 through a temporary control-plane table, then into their destination storage.
-The temporary table belongs to the copy transaction. Copied formulas refer to
-the copy's own fields. Links become fixed
-multiple-select options with the original record IDs and their current titles.
-The copy reads the complete option set as IDs and titles; the saved options
-are independent of the linked table. View configuration changes only field
-references, not business values that happen to equal a field ID. Later source
-edits do not change the copy. Copies that fit the fixed inline thresholds use
-inline storage; larger copies are created directly in the tenant shard.
+The temporary table belongs to the copy transaction. Only the selected table
+is copied. Each link becomes a text field with the referenced records' primary
+field titles, joined with a comma and space in link order. An empty link becomes
+null. The copy reads only the referenced titles in each selected record batch.
+Copied formulas refer to the copy's own fields and are checked against their
+new types. A formula that cannot use the new types becomes an ordinary field
+with its current result. Array results become JSON text; scalar results keep
+their value type. Other formulas continue to calculate from the copied fields.
+View configuration remaps field references and keeps business values. When a
+field's value type changes, its filter conditions keep only `is_empty` and
+`is_not_empty`. Later source edits do not change the copy. Copies that fit the
+fixed inline thresholds use inline storage; larger copies are created directly
+in the tenant shard.
 
 `pod.base.limits` has these configurable defaults:
 
@@ -651,9 +683,10 @@ the Applet. Dynamic imports and WASM use browser module rules. Source files name
 `dist/`. Import a Worker URL with
 `import workerURL from './calculation.worker.ts?url'`, then start it with
 `new Worker(new URL(workerURL, import.meta.url), { type: 'module' })`.
-Bun's file loader places the Worker URL relative to its importing chunk.
-Worker bundles contain their dependencies and use the same imported-media
-loader as the main entry. The project scaffold supplies the URL import types.
+JavaScript media imports emit standalone assets and resolve their URLs against
+the importing module. A Worker URL import emits an entry that loads the compiled
+Worker at its original output path, so nested resource URLs keep the same base.
+CSS asset processing follows Bun. The project scaffold supplies the URL import types.
 
 An Applet runs in a same-origin iframe at
 `/pod/applet-frame/:authentication_ref/:id/:revision/*path`. The path selects
@@ -706,40 +739,31 @@ root project files to a temporary directory, checks each digest, and moves the
 complete project to its destination. A project with `package.json` runs
 `bun install --ignore-scripts`.
 
-The SDK uses the current Human's ordinary Pod APIs and a shared QueryClient.
-The shared Base API owns table-cache refresh after writes and live events.
-One connection per table coordinates schema and snapshot changes, then refreshes
-the record and aggregate queries once. SDK hooks observe access revocation.
-The ContentProvider owns one cache observer for denied reads across Applet
-generations and disposes it when the Pod unmounts. Runtime props supply its
-read-denial lookup to SDK hooks.
-`useRecords` and `useAggregate` keep live subscriptions. An explicit HTTP
-401, 403, or 404 hides cached data even while the live connection is unavailable.
-The first denial applies while a Query retry is pending, not only after its
-final error. A later temporary failure or component remount cannot make denied
-data visible; a successful read restores it. A new subscriber to a table with
-revoked access receives the revocation immediately. It does not join that
-table's channel again while any subscriber keeps the revoked entry.
-Temporary network failures before
-a denial keep the last data. Pending writes cannot make
-denied data visible again. Record updates and
-deletes require the caller to capture its record at the start of editing and pass
-its field versions explicitly; a later query refresh cannot replace that edit
-snapshot. An attachment upload ends its cell edit when it settles, including
-a transport failure. A later edit takes the latest field versions. A failed
-record save keeps its attempted value and versions for explicit retry;
-upload cleanup does not clear that attempt or call an unmounted editor.
-Pending mutation inputs preview existing record values without
-changing the confirmed query cache. A failure removes that preview and retains
-newer confirmed reads. Creates and deletes show pending state and enter the result only
-after server confirmation, preserving failed input and deletion dialogs. The
-server confirms created records, auto-numbers, formulas and filtered or paged
-result membership. `useChannel` uses `applet:<page-id>:<room>` for temporary messages
-and presence. The server checks each recipient's current authentication, Pod
-policy, and Page access before it sends a message or presence update. A failed
-check ends that recipient's subscription. Presence and channel messages are not
-saved or replayed. Applets can use network fetch. Page and Base authority
-remains with the server.
+The SDK uses the current Human's Pod APIs and a shared QueryClient. One
+connection per table coordinates schema and snapshot events and refreshes record
+and aggregate queries. The ContentProvider owns the read-denial cache observer
+across Applet generations and disposes it when the Pod unmounts.
+
+`useRecords` and `useAggregate` keep live subscriptions. An HTTP 401, 403, or
+404 hides cached data on the first denial, including during a Query retry.
+Remounts, temporary failures, and pending writes preserve that denial until a
+successful read. Subscribers share the denied state and stop joining the
+table's channel while it applies. Temporary failures before a denial keep
+previous data.
+
+Record updates and deletes use the field versions captured when editing began.
+A failed save keeps the attempted value and versions for explicit retry. An
+attachment upload ends its cell edit when it settles; the next edit takes the
+latest versions. Pending updates preview values separately from the confirmed
+cache. Creates and deletes enter results after server confirmation, which owns
+auto-numbers, formulas, and membership in filtered or paged results. Failed
+creates retain input, and failed deletes retain their confirmation dialog.
+
+`useChannel` uses `applet:<page-id>:<room>` for temporary messages and presence.
+The server checks each recipient's authentication, Pod policy, and Page access
+before delivery. A failed check ends that subscription. Presence and messages
+are ephemeral. Applets can use network fetch; the server owns Page and Base
+authorization.
 
 ### Backend routes
 
@@ -776,7 +800,8 @@ A plain HTTP invoke preflight on the selected replica returns 204 and reserves
 one invocation, 428 for missing code, or 503 at capacity. The client supplies
 missing code to that replica and opens its WebSocket. The client settles the
 reservation with an authenticated DELETE when the connection ends; the call's
-wall-time limit bounds an abandoned reservation.
+wall-time limit bounds an abandoned reservation. Health reports process
+availability independently of occupied invocation capacity.
 
 The client resolves all Ready replica addresses and chooses the least occupied
 endpoint from its active process leases. An explicit release or caller exit removes
@@ -787,8 +812,8 @@ Caller exit, cancellation, timeout, and connection loss settle that owner once
 and stop its pending tasks.
 
 `pod.applet.limits` sets the wall-time and heap bounds. The function service
-also enforces per-worker CPU limits. Applets can use Node crypto, in-memory
-`/tmp` files, environment values, and public network fetch. The function service
+also enforces per-worker CPU limits. Applets can use Node crypto, a private
+temporary `/tmp` filesystem per worker, environment values, and public network fetch. The function service
 has no database credentials or persistent business volumes. Its deployment
 network uses the Helm NetworkPolicy to block the configured private and metadata
 CIDRs when the cluster enforces that policy. Single-host Compose puts the
@@ -829,16 +854,17 @@ Base API owns record-write authorization. GET handlers cannot write. Base writes
 field-version conflicts and normal broadcasts.
 There is no transaction across capability calls. A guarded inventory update
 reads the record, writes with its field versions, and rereads after a conflict.
-Files use the page-type, revision, and upload-size rules; byte values in
-the handler are `Uint8Array`, including empty files.
+Files use the page-type and revision rules. Both reads and writes enforce the
+Worker transfer byte limit before loading or storing file content. Byte values
+in the handler are `Uint8Array`, including empty files.
 
-`ai.generateText` resolves only an LLM profile of the Agent configured by
-`pod.applet.ai_agent_uid`. It accepts `model`, `effort`, optional `system`, and
+`ai.generateText` resolves an LLM profile of the Agent recorded in the Applet
+Page's `created_by`. It accepts `model`, `effort`, optional `system`, and
 `prompt`, and returns `text`, `finishReason`, and token `usage`. It rejects raw
 provider/model identifiers. Missing `light` falls back to the primary profile.
-Usage belongs to the configured Agent without its token-quota admission check.
-An unset or disabled Agent yields `ai_not_configured`; model and effort errors
-use 422, and unavailable providers use 502.
+The creator Agent's token quota applies and usage belongs to that Agent.
+An unavailable creator Agent yields `ai_not_configured`. Model and effort errors
+use 422, an exhausted quota uses 429, and unavailable providers use 502.
 
 `useRoute` and `useRouteMutation` are thin TanStack Query hooks. They expand
 declared route parameters, preserve Query options and result objects, and use
@@ -853,56 +879,21 @@ access host connectors or host secrets, stream responses, or return binary HTTP
 bodies. Source, backend code, and publication environment values require
 `page_edit` permission to read.
 
-An Agent's Worker browser has its own profile. It does not inherit the
-requesting Human's Pod login. Build checks and persisted-data reads are separate
-from authenticated host interaction. The runtime Skill uses the browser
-contract for rendered checks, returns the saved page link, and states any
-unverified host behavior. Its verification traces each requested action through
-the full write payload and saved result, including naming fields and derived
-values; a correct aggregate or success message is insufficient. A workspace
-handler check establishes logic only, not the authenticated Human interaction.
-
-## External test data
-
-Tests can import external data through ordinary Base writes. Pod has no
-sync bindings, source cursors, reserved external IDs, or sync-owned fields.
-All stored records follow the same access and field-version contracts.
+An Agent's Worker browser has its own profile and uses the browser runtime
+contract for rendered checks. The Agent returns the saved Page link and reports
+which interactions it verified.
 
 ## Verification
 
-Fast suites cover the domain, endpoint encoding, channels, SDK, query fixtures,
-and editor state. Dedicated integration suites keep independent PostgreSQL
-transactions, 100,000-row measurements, interrupted purge, tenant teardown,
-provider reads, and real-browser user flows outside the default fast tests.
-The shared Rust/editor corpus compares XML and in-memory documents after every
-continuous edit batch. The function-runtime protocol suite checks real worker
-isolation and cancellation. `test:pod` uses the production Pod, real SDK, Phoenix endpoints, and PostgreSQL.
-Provider and process integration results do not by themselves prove a complete
-model-driven user session.
+The domain, endpoint, channel, SDK, query, and editor suites check their owning
+contracts. Integration suites use independent PostgreSQL transactions for
+concurrency, purge, tenant teardown, and large-table measurements. The shared
+Rust/editor corpus compares XML and editor documents after each edit batch.
+The function-runtime protocol suite checks real workers and cancellation.
 
-The dedicated `pod_content_real_llm` suite starts from a native Human business
-request. The actual model creates the report, Base, and applet through the
-Worker CLI. A real authenticated Human follows the delivered Chat link, uses
-the applet inside the report to write the same table, and reloads it. A later
-request makes the AI update the original report from those records. The Human
-reopens the updated report from its new Chat link and checks the same applet
-and saved data. The suite also checks Agent revocation and saved content after
-deletion of the source Conversation. Its long-lived channels use the normal
-SQL connection pool; fixture cleanup precedes restoration of the test pool.
-
-Separate stories develop and use a pure frontend applet, move an existing Page
-without copying it, and invoke the installed research Skill without specifying
-an output format. The move story keeps Agent space `edit` access and requires
-the original Page to move without a permission upgrade or a change in access.
-The research story requires a saved, editable Page delivered through Chat.
-Its numeric and source-link assertions establish delivery and basic coverage,
-not semantic correctness. Review the delivered examples independently, including
-the rule applied to each computed value; correct verification notes do not
-establish that the final body's classification is correct.
-
-Each story must reach its final saved-content and browser assertions. A Job's
-success, a passing subsystem suite, or a partial provider run does not establish
-complete workflow or visual acceptance. Completion wakes use the whole-story
-test deadline while initial Human dispatch has a separate guard; these harness
-budgets do not define product deadlines. The separate domain, browser, editor,
-and Worker suites verify only their own boundaries.
+`test:pod` follows browser user flows through the production Pod, SDK, Phoenix
+endpoints, and PostgreSQL. The `pod_content_real_llm` suite starts with a Human
+request, lets the Agent create and deliver content through the Worker CLI,
+and checks the delivered result in an authenticated Human browser. See
+[Pod content checks](../../CONTRIBUTING.md#pod-content-checks) for commands and
+fixture requirements.

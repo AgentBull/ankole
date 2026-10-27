@@ -14,6 +14,7 @@ import { PageHeader, PageStack } from '../../console-page'
 import { formatConsoleDate } from '../../console-primitives'
 import { SinglePrincipalPicker } from '../../principal-picker'
 import { BrainSubNav, brainObjectPath } from './brain-nav'
+import { BrainHolderLabel, BrainScopeLabel } from './brain-scope'
 import { ClaimStateBadge } from './claims'
 
 /** Audits every claim where one Principal is holder, author, or the audience. */
@@ -30,6 +31,8 @@ export function BrainPrincipalAuditPage() {
     enabled: Boolean(principalUID)
   })
   const rows = knowledge.data?.claims ?? []
+  const selectedPrincipal = principals.data?.find(principal => principal.id === principalUID)
+  const selectedPrincipalLabel = selectedPrincipal ? principalLabel(selectedPrincipal) : principalUID
 
   return (
     <PageStack>
@@ -70,7 +73,7 @@ export function BrainPrincipalAuditPage() {
         <Skeleton className="h-48 w-full" />
       ) : rows.length === 0 ? (
         <p className="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-          {t('console.brain.principal_audit_no_claims', { uid: principalUID })}
+          {t('console.brain.principal_audit_no_claims', { uid: selectedPrincipalLabel })}
         </p>
       ) : (
         <Table
@@ -100,7 +103,9 @@ export function BrainPrincipalAuditPage() {
                     {claim.kind ? ` · ${claim.kind}` : ''}
                   </Badge>
                 </TableCell>
-                <TableCell className="font-mono text-xs">{claim.holder ?? '—'}</TableCell>
+                <TableCell>
+                  <BrainHolderLabel holder={claim.holder} />
+                </TableCell>
                 <TableCell className="font-mono text-xs">
                   <ActorLabel actor={claim.author} />
                 </TableCell>
@@ -113,7 +118,9 @@ export function BrainPrincipalAuditPage() {
                     '—'
                   )}
                 </TableCell>
-                <TableCell className="font-mono text-xs">{claim.audience_scope}</TableCell>
+                <TableCell>
+                  <BrainScopeLabel scope={claim.audience_scope} />
+                </TableCell>
                 <TableCell>
                   <ClaimStateBadge claim={claim} />
                 </TableCell>

@@ -63,6 +63,7 @@ test('page chat sends through the real API and reopens the same conversation in 
     const selectedTitle = panel.getByRole('heading', { level: 3, name: submitted.conversation.title, exact: true })
     await expect(selectedTitle).toBeVisible()
     await expect(panel.locator('.pod-room-header [data-slot="sidebar-trigger"]')).toHaveCount(0)
+    await expect(panel.getByRole('link', { name: '关联页面', exact: true })).toHaveCount(0)
     await expect(panel.locator('.pod-chat-turn-rail')).toHaveCount(0)
     await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toHaveCount(0)
     await expect(panel.getByLabel('选择页面对话', { exact: true })).toBeVisible()

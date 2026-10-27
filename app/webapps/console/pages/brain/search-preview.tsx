@@ -19,6 +19,7 @@ import { RiCloseLine, RiLoaderLine, RiSearchEyeLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from '@tanstack/react-router'
 import { previewBrainSearchMutation } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../../api/json-api'
@@ -27,7 +28,8 @@ import { AddMembershipPicker } from '../../add-membership-picker'
 import { LabeledField } from '../../console-form'
 import { PageHeader, PageStack } from '../../console-page'
 import { SinglePrincipalPicker } from '../../principal-picker'
-import { BrainSubNav } from './brain-nav'
+import { BrainSubNav, brainObjectPath } from './brain-nav'
+import { BrainHolderLabel, BrainScopeLabel } from './brain-scope'
 
 /** Runs recall as any Principal to diagnose knowledge boundaries and disclosure behavior. */
 export function BrainSearchPreviewPage() {
@@ -131,18 +133,22 @@ export function BrainSearchPreviewPage() {
               />
               {presentUIDs.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
-                  {presentUIDs.map(uid => (
-                    <Badge key={uid} variant="secondary">
-                      <span className="font-mono">{uid}</span>
-                      <button
-                        aria-label={t('console.brain.remove_present_member', { uid })}
-                        className="ml-1 inline-flex"
-                        type="button"
-                        onClick={() => setPresentUIDs(current => current.filter(item => item !== uid))}>
-                        <RiCloseLine className="size-3" />
-                      </button>
-                    </Badge>
-                  ))}
+                  {presentUIDs.map(uid => {
+                    const candidate = candidates.find(item => item.id === uid)
+                    const memberLabel = candidate?.label ?? uid
+                    return (
+                      <Badge key={uid} title={uid} variant="secondary">
+                        <span className={candidate ? undefined : 'font-mono'}>{memberLabel}</span>
+                        <button
+                          aria-label={t('console.brain.remove_present_member', { uid: memberLabel })}
+                          className="ml-1 inline-flex"
+                          type="button"
+                          onClick={() => setPresentUIDs(current => current.filter(item => item !== uid))}>
+                          <RiCloseLine className="size-3" />
+                        </button>
+                      </Badge>
+                    )
+                  })}
                 </div>
               ) : null}
             </div>
@@ -203,9 +209,21 @@ export function BrainSearchPreviewPage() {
                           {claim.kind ? ` · ${claim.kind}` : ''}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{claim.holder ?? '—'}</TableCell>
-                      <TableCell className="font-mono text-xs">{claim.object_slug ?? '—'}</TableCell>
-                      <TableCell className="font-mono text-xs">{claim.audience_scope}</TableCell>
+                      <TableCell>
+                        <BrainHolderLabel holder={claim.holder} />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {claim.object_slug ? (
+                          <Link className="link" to={brainObjectPath(claim.object_slug)}>
+                            {claim.object_slug}
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <BrainScopeLabel scope={claim.audience_scope} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -227,10 +245,12 @@ export function BrainSearchPreviewPage() {
                     className="grid gap-2 border border-border bg-card p-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="font-semibold">{chunk.title}</span>
-                      <span className="font-mono text-muted-foreground">{chunk.object_slug}</span>
+                      <Link className="link font-mono" to={brainObjectPath(chunk.object_slug)}>
+                        {chunk.object_slug}
+                      </Link>
                       <Badge variant="outline">{chunk.type}</Badge>
                       <Badge variant="outline">#{chunk.chunk_index}</Badge>
-                      <span className="font-mono text-muted-foreground">{chunk.audience_scope}</span>
+                      <BrainScopeLabel scope={chunk.audience_scope} />
                     </div>
                     <p className="text-xs whitespace-pre-wrap leading-5 text-muted-foreground">{chunk.text}</p>
                   </article>

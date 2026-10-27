@@ -403,7 +403,9 @@ and rejects a disable request.
 
 Setup shows fixed Plugins as selected and disables their checkboxes. Its
 selection response includes fixed Plugins; the saved enable list contains
-only optional Plugins.
+only optional Plugins. The setup URL records the current step and completed
+steps. A reload restores that progress and reads the saved Plugin selection
+from the setup API.
 
 The Plugin cohort reads the list during startup and resolves one immutable boot
 snapshot. A later change takes effect only after a restart.
@@ -433,6 +435,10 @@ Each response row includes these fields:
 The Console lists inactive Plugins, and their saved settings stay
 in PostgreSQL. An inactive Plugin adds no definitions, adapters, or processes until activation.
 
+An identity-provider Plugin cannot be disabled while any tenant has an enabled
+provider that uses it. Disable those providers in their owning tenant first; the
+login policy checks that an administrator can still sign in.
+
 A Worker-provider Plugin cannot be disabled while any tenant has an assigned
 Worker row for one of its kinds. Paused Workers and Agents being deleted count
 as references. Remove those Agents and wait for their Worker cleanup before
@@ -443,7 +449,7 @@ The Plugin controls and setup selection use this same check. The
 Control Plane Plugin controls to change it. These writes belong to
 `Ankole.Plugins.Config`. AppConfigure supplies validation, storage, the
 transaction, and its key lock (`AppConfigure.update_global/2`). In that
-transaction, `Ankole.Plugins.Contracts.veto_disable/3` lets each contract stop
+transaction, `Ankole.Plugins.Contracts.veto_disable/2` lets each contract stop
 the change. Only changes that remove Worker kinds also take the Worker
 provider lock and check Worker references. Enabling Plugins and changes to other
 Plugins do not run that check. A stored list that cannot be decoded stops the

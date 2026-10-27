@@ -74,6 +74,10 @@ defmodule Ankole.Pod.BaseTable do
       accept([:id, :page_id, :name, :position])
     end
 
+    update :rename do
+      accept([:name])
+    end
+
     update :commit_write do
       require_atomic?(true)
       accept([:record_bytes])

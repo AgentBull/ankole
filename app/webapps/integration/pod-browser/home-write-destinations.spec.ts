@@ -33,7 +33,7 @@ test('a manager can take a shared private root into their own Private space', as
     await member.getByRole('button', { name: '更多操作', exact: true }).click()
     await member.getByRole('menuitem', { name: '移动', exact: true }).click()
     const dialog = member.getByRole('dialog')
-    await dialog.getByRole('option', { name: 'Private', exact: true }).click()
+    await dialog.getByRole('option', { name: '私人页面', exact: true }).click()
     await expect(dialog.getByRole('button', { name: '移动', exact: true })).toBeEnabled()
     const moved = member.waitForResponse(
       response =>
@@ -49,7 +49,7 @@ test('a manager can take a shared private root into their own Private space', as
     expect(current.page.private_owner_uid).toBe(state.member.uid)
     expect(current.page.parent_id).toBeNull()
     await expect(
-      member.locator('.pod-nav-section[aria-label="Private"]').getByRole('link', {
+      member.locator('.pod-nav-section[aria-label="私人页面"]').getByRole('link', {
         name: 'Shared private project takeover',
         exact: true
       })
@@ -115,7 +115,7 @@ test('page creation, movement and copies offer destinations the current member c
       ).toHaveCount(allowed ? 1 : 0)
       await expect(
         member
-          .locator('.pod-nav-section[aria-label="Private"] > .pod-nav-section-heading')
+          .locator('.pod-nav-section[aria-label="私人页面"] > .pod-nav-section-heading')
           .getByRole('button', { name: '新建页面', exact: true })
       ).toBeEnabled()
 
@@ -175,16 +175,16 @@ test('page creation, movement and copies offer destinations the current member c
       await member.goto(state.base_url + pageRoute(base.page.id))
       await member.getByRole('button', { name: '复制当前结果', exact: true }).click()
       const copy = member.getByRole('dialog')
-      await copy.getByRole('combobox', { name: '保存到', exact: true }).click()
+      await expect(copy.getByRole('combobox', { name: '保存到', exact: true })).toBeFocused()
       await expect(member.getByRole('listbox')).toBeVisible()
-      await expect(
-        member.getByRole('option', { name: allowed ? 'Shared working folder' : 'Private', exact: true })
-      ).toBeFocused()
+      await expect(member.getByRole('option', { name: 'Shared working folder', exact: true })).toBeVisible()
       await expect(member.getByRole('option', { name: '空间', exact: true })).toHaveCount(allowed ? 1 : 0)
-      await expect(member.getByRole('option', { name: 'Private', exact: true })).toBeVisible()
-      await member.keyboard.press('Escape')
-      await expect(member.getByRole('listbox')).toBeHidden()
-      await expect(copy).toBeVisible()
+      await expect(member.getByRole('option', { name: '私人页面', exact: true })).toBeVisible()
+      await expect(copy.locator('.pod-selected-destination')).toContainText('Shared working folder')
+      if (!allowed) await member.getByRole('option', { name: '私人页面', exact: true }).click()
+      await expect(copy.locator('.pod-selected-destination')).toContainText(
+        allowed ? 'Shared working folder' : '私人页面'
+      )
       if (!allowed) {
         const copied = member.waitForResponse(
           response => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/copy')
@@ -273,10 +273,12 @@ test('destination searches find editable work beyond thirty read-only matches', 
         url.searchParams.get('required_action') === 'page_edit'
       )
     })
-    await copy.getByRole('textbox', { name: '搜索页面', exact: true }).fill('Needle destination')
+    await copy.getByRole('combobox', { name: '保存到', exact: true }).fill('Needle destination')
     expect((await searched).status()).toBe(200)
-    await copy.getByRole('combobox', { name: '保存到', exact: true }).click()
-    await member.getByRole('option', { name: 'Needle destination available', exact: true }).click()
+    await member
+      .getByRole('option')
+      .filter({ has: member.getByText('Needle destination available', { exact: true }) })
+      .click()
     await copy.getByRole('textbox', { name: '页面标题', exact: true }).fill('Copied working data')
     const copied = member.waitForResponse(
       response => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/copy')
@@ -287,11 +289,15 @@ test('destination searches find editable work beyond thirty read-only matches', 
     expect(((await copyResponse.json()) as { page: { parent_id: string } }).page.parent_id).toBe(target.page.id)
     await expect(copy).toBeHidden()
 
+    await member.goto(state.base_url + pageRoute(source.page.id))
     await member.getByRole('button', { name: '更多操作', exact: true }).click()
     await member.getByRole('menuitem', { name: '移动', exact: true }).click()
     const move = member.getByRole('dialog')
     await move.getByRole('combobox', { name: '目标位置', exact: true }).fill('Needle destination')
-    await move.getByRole('option', { name: 'Needle destination available', exact: true }).click()
+    await move
+      .getByRole('option')
+      .filter({ has: member.getByText('Needle destination available', { exact: true }) })
+      .click()
     const moved = member.waitForResponse(
       response =>
         response.request().method() === 'POST' &&
@@ -352,9 +358,13 @@ test('structure edits and page management do not imply record submission', async
       expect((await request<{ actions: string[] }>(member, `/pages/${sourceID}`)).actions).toEqual(actions)
       await expect(member.getByRole('button', { name: '新增记录', exact: true })).toHaveCount(0)
       await expect(member.getByRole('button', { name: '+ 数据表', exact: true })).toHaveCount(role === 'edit' ? 1 : 0)
-      await expect(member.getByRole('button', { name: '删除数据表', exact: true })).toHaveCount(
+      await member.getByRole('button', { name: '数据表操作', exact: true }).click()
+      await expect(member.getByRole('menu')).toBeVisible()
+      await expect(member.getByRole('menuitem', { name: '删除数据表', exact: true })).toHaveCount(
         role === 'manage' ? 1 : 0
       )
+      await member.keyboard.press('Escape')
+      await expect(member.getByRole('menu')).toBeHidden()
       await expect(member.getByRole('button', { name: '分享', exact: true })).toHaveCount(role === 'manage' ? 1 : 0)
       const title = member.getByRole('textbox', { name: '页面标题', exact: true })
       await expect(title).toHaveCount(role === 'edit' ? 1 : 0)

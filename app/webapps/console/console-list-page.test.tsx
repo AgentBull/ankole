@@ -6,7 +6,8 @@ import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
-import { ResourceListPage, RowActions, RowViewAction, SubNav } from './console-list-page'
+import { listAgentsQueryKey } from './api/v2/generated/@tanstack/react-query.gen'
+import { AgentCell, ResourceListPage, RowActions, RowViewAction, SubNav } from './console-list-page'
 import { brainObjectPath } from './pages/brain/brain-nav'
 import { BrainObjectDrawer } from './pages/brain/objects'
 
@@ -168,6 +169,50 @@ describe('RowViewAction', () => {
     expect(linkHTML).toContain('aria-label="View resource details"')
     expect(linkHTML).toContain('href="/resources/one"')
     expect(buttonHTML).toContain('aria-label="View resource details"')
+  })
+})
+
+describe('AgentCell', () => {
+  test('links to the Agent by display name when resolved and falls back to UID when absent', async () => {
+    const emptyClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    const fallbackHTML = await renderWithRouter(
+      <QueryClientProvider client={emptyClient}>
+        <table>
+          <tbody>
+            <tr>
+              <AgentCell uid="agent-raw-uid" />
+            </tr>
+          </tbody>
+        </table>
+      </QueryClientProvider>
+    )
+    expect(fallbackHTML).toContain('agent-raw-uid')
+    emptyClient.clear()
+
+    const populatedClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    populatedClient.setQueryData(listAgentsQueryKey(), {
+      data: [
+        {
+          id: 'agent-raw-uid',
+          type: 'agent',
+          attributes: { display_name: 'Research Bot', handle: 'research-bot', status: 'active' }
+        }
+      ]
+    })
+    const resolvedHTML = await renderWithRouter(
+      <QueryClientProvider client={populatedClient}>
+        <table>
+          <tbody>
+            <tr>
+              <AgentCell uid="agent-raw-uid" />
+            </tr>
+          </tbody>
+        </table>
+      </QueryClientProvider>
+    )
+    expect(resolvedHTML).toContain('Research Bot')
+    expect(resolvedHTML).toContain('href="/agents/agent-raw-uid"')
+    populatedClient.clear()
   })
 })
 

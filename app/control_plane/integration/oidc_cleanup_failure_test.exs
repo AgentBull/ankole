@@ -96,7 +96,8 @@ defmodule Ankole.OIDCCleanupFailureIntegrationTest do
               oidc_logout_requests
               oidc_sessions
               oidc_logout_deliveries
-              browser_login_transactions
+              oidc_authorization_requests
+              browser_oidc_states
               browser_sessions
             ) do
           Repo.query!("CREATE TABLE #{table} (LIKE public.#{table} INCLUDING ALL)")

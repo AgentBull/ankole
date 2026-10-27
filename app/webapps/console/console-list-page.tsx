@@ -36,10 +36,12 @@ import {
   RiPencilLine,
   RiSearchLine
 } from '@remixicon/react'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
+import { agentListOptions } from './api/agents'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { scheduleResourceSearchCommit } from './state/resource-search'
@@ -546,13 +548,75 @@ export function FilterSwitch({
   )
 }
 
-/** Truncated monospace cell for the agent that owns a row; the full UID stays in the title. */
-export function AgentCell({ uid }: { uid: string }) {
-  return (
-    <TableCell>
-      <span className="block max-w-40 truncate font-mono text-xs" title={uid}>
+function formatAgentTooltip(agent: { display_name?: string | null; handle: string }, uid: string) {
+  const label = agent.display_name || agent.handle || uid
+  return agent.handle && agent.display_name ? `${label} (${agent.handle}) · ${uid}` : `${label} · ${uid}`
+}
+
+/** Resolved Agent name for inline text inside existing links or buttons, falling back to the raw UID. */
+export function AgentName({ className, uid }: { className?: string; uid: string }) {
+  const agents = useQuery({ ...agentListOptions(), enabled: Boolean(uid) })
+  const agent = agents.data?.find(item => item.uid === uid)
+  if (!agent) {
+    return (
+      <span className={cn('font-mono text-xs', className)} title={uid}>
         {uid}
       </span>
+    )
+  }
+  return (
+    <span className={className} title={formatAgentTooltip(agent, uid)}>
+      {agent.display_name || agent.handle || uid}
+    </span>
+  )
+}
+
+/** Resolved Agent link to `/agents/$uid`, falling back to the raw UID when the Agent list is unavailable. */
+export function AgentLink({ className, hash, uid }: { className?: string; hash?: string; uid: string }) {
+  const agents = useQuery({ ...agentListOptions(), enabled: Boolean(uid) })
+  const agent = agents.data?.find(item => item.uid === uid)
+  if (!agent) {
+    return (
+      <span className={cn('font-mono text-xs', className)} title={uid}>
+        {uid}
+      </span>
+    )
+  }
+  return (
+    <Link
+      className={cn('link', className)}
+      hash={hash}
+      title={formatAgentTooltip(agent, uid)}
+      to={`/agents/${encodeURIComponent(uid)}`}>
+      {agent.display_name || agent.handle || uid}
+    </Link>
+  )
+}
+
+/** Cell for the Agent that owns a row: links by display name when resolved, or keeps the raw UID. */
+export function AgentCell({ uid }: { uid: string }) {
+  const agents = useQuery({ ...agentListOptions(), enabled: Boolean(uid) })
+  const agent = agents.data?.find(item => item.uid === uid)
+  if (!agent) {
+    return (
+      <TableCell>
+        <span className="block max-w-40 truncate font-mono text-xs" title={uid}>
+          {uid}
+        </span>
+      </TableCell>
+    )
+  }
+  return (
+    <TableCell onClick={event => event.stopPropagation()}>
+      <Link
+        className="link block max-w-44 truncate text-sm"
+        title={formatAgentTooltip(agent, uid)}
+        to={`/agents/${encodeURIComponent(uid)}`}>
+        {agent.display_name || agent.handle || uid}
+      </Link>
+      {agent.handle ? (
+        <span className="block max-w-44 truncate font-mono text-xs text-muted-foreground">{agent.handle}</span>
+      ) : null}
     </TableCell>
   )
 }

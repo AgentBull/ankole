@@ -80,8 +80,12 @@ defmodule Ankole.Principals.Humans do
   end
 
   def create_member_in_tx(attrs) do
-    with {:ok, %{principal: principal, human_user: human}} <- create_human_in_tx(attrs),
-         do: {:ok, %{principal | human_user: human}}
+    if is_nil(Principals.normalize_email(Map.get(attrs, :email))) do
+      {:error, Ash.Error.Changes.InvalidArgument.exception(field: :email, message: "is required")}
+    else
+      with {:ok, %{principal: principal, human_user: human}} <- create_human_in_tx(attrs),
+           do: {:ok, %{principal | human_user: human}}
+    end
   end
 
   def lock_principal_in_tx(uid, mode \\ :update) do

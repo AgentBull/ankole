@@ -28,7 +28,7 @@ import {
 import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection, type CodexJobProjection } from './projection'
-import { migrateLegacyCodexJobSkillRoots, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
+import { migrateLegacyCodexJobSkillRoots, renderCodexJobAgents } from './runtime-files'
 import { skillAvailableInRuntime } from '../../../skills/effective-skill'
 import { createSkillLoader, type SkillLoader } from '../../../skills/skill-loader'
 import { loadEnabledSkillMCPServers, type MCPServerConfig } from '../../../tools/mcp'
@@ -124,7 +124,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         jobRoot: jobProject.root,
         soul: agentContext.soul ?? '',
         mission: agentContext.mission ?? '',
-        jobGuidance: readCodexJobGuidance(opts.builtinSkillsRoot),
         skillsPrompt,
         driveDirectory: agentContext.conversation?.driveDirectory,
         podInstructions: agentContext.conversation?.podInstructions,

@@ -22,14 +22,12 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import i18n from '../common/i18n'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
 import { getConsoleReadinessOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import type { ConsoleReadinessResponse } from './api/runtime-types'
-
-const AUTO_OPEN_STORAGE_KEY = 'ankole.console.readiness.seen.v1'
 
 /**
  * The Console header shows setup progress while the deployment instance is not
@@ -46,30 +44,12 @@ export function ConsoleReadiness() {
   })
   const readiness = query.data
 
-  useEffect(() => {
-    if (!readiness || readiness.ready) return
-
-    try {
-      if (window.localStorage.getItem(AUTO_OPEN_STORAGE_KEY)) return
-      window.localStorage.setItem(AUTO_OPEN_STORAGE_KEY, 'true')
-      setOpen(true)
-    } catch {
-      // Readiness remains available through the trigger when browser storage is unavailable.
-    }
-  }, [readiness])
-
   if (readiness?.ready) return null
 
   const changeOpen = (nextOpen: boolean) => {
     setOpen(nextOpen)
     if (!nextOpen) return
     void query.refetch()
-
-    try {
-      window.localStorage.setItem(AUTO_OPEN_STORAGE_KEY, 'true')
-    } catch {
-      // Opening the readiness popover does not depend on browser storage.
-    }
   }
 
   const completed = readiness?.completed_core_steps
@@ -152,7 +132,7 @@ export function ConsoleReadiness() {
 export type ReadinessStep = {
   complete: boolean
   detail: string
-  key: 'provider' | 'agent' | 'profiles' | 'worker' | 'signal'
+  key: 'provider' | 'agent' | 'profiles' | 'worker'
   title: string
   to: string
 }
@@ -211,16 +191,6 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
         : t('console.readiness.worker_incomplete'),
       title: t('console.readiness.worker_title'),
       to: readiness.worker.complete ? '/workers' : '/worker-providers'
-    },
-    {
-      key: 'signal',
-      complete: readiness.signal_route.complete,
-      detail: readiness.signal_route.complete
-        ? t('console.readiness.signal_complete')
-        : t('console.readiness.signal_incomplete'),
-      title: t('console.readiness.signal_title'),
-      to:
-        !readiness.signal_route.complete && agentUID ? `/signals/new?agent=${encodeURIComponent(agentUID)}` : '/signals'
     }
   ]
 }

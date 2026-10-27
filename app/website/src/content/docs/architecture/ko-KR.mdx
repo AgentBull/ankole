@@ -33,6 +33,8 @@ Elixir/OTP 컨트롤 플레인은 Pod(페이지, 문서, Base 테이블과 물�
 
 OTP 감독 트리는 Agent, 연결, Job에 별도의 장애 도메인을 제공합니다. 하나의 실행 브랜치가 멈추거나 크래시되어도 컨트롤 플레인은 그 브랜치만 복구할 수 있으며 전체 deployment instance가 실패하지는 않습니다.
 
+컨트롤 플레인의 핵심 코드와 주요 상태 머신에는 정형 검증을 적용하여, 재시도, 재시작, 동시 입력 상황에서도 핵심 상태 전이와 경계 불변식이 유지되도록 검증합니다.
+
 ### Worker는 Agent의 작업용 컴퓨터입니다
 
 주 Agent loop는 control plane에서 실행됩니다. 환경 도구나 Codex가 필요할 때 Agent Computer Worker를 시작합니다. Worker는 도구, Skills, 브라우저, 터미널, 파일 작업, automation script와 Codex Job을 실행하고 control plane이 영구 결과를 커밋합니다.

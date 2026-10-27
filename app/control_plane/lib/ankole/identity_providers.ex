@@ -32,6 +32,7 @@ defmodule Ankole.IdentityProviders do
 
       base_route "/identity-providers", Ankole.IdentityProviders.Console do
         route(:get, "/", :providers, name: "list_identity_providers")
+        route(:post, "/:provider_id", :create_provider, name: "create_identity_provider")
         route(:put, "/:provider_id", :save_provider, name: "save_identity_provider")
         route(:post, "/:provider_id/sync-runs", :run_sync, name: "run_identity_provider_sync")
         route(:get, "/:provider_id/directory", :directory, name: "get_identity_directory")
@@ -191,7 +192,8 @@ defmodule Ankole.IdentityProviders do
                "config_key" => config_key,
                "enabled" => enabled
              },
-             config
+             config,
+             Keyword.get(opts, :mode, :upsert)
            ),
          {:ok, _job} <-
            DirectorySync.enqueue_initial_sync(

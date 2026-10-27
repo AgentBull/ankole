@@ -18,6 +18,8 @@ import {
 } from '@ankole/uikit'
 import {
   RiDeleteBin6Line,
+  RiCheckLine,
+  RiCloseLine,
   RiDownloadLine,
   RiFileLine,
   RiFolder3Line,
@@ -26,7 +28,7 @@ import {
   RiUploadCloud2Line
 } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState, type InputHTMLAttributes } from 'react'
+import { useDeferredValue, useEffect, useRef, useState, type InputHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
@@ -104,8 +106,9 @@ export function AgentFilesPage() {
 
   const move = useMutation({
     ...moveAgentFilesMutation(),
-    onSuccess: () => {
-      toast.success(t('console.agent_files.moved'))
+    onSuccess: (_data, { body }) => {
+      const renamed = parentPath(body.data.from_path) === parentPath(body.data.to_path)
+      toast.success(t(renamed ? 'console.agent_files.renamed' : 'console.agent_files.moved'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -133,7 +136,7 @@ export function AgentFilesPage() {
       <BackLink to={`/agents/${encodeURIComponent(agentUID)}`} />
       <Breadcrumbs agentName={agentName} path={path} onNavigate={enterPath} />
       <div className="ml-auto">
-        <UploadDialog currentPath={path} disabled={upload.isPending} onUpload={items => upload.mutate(items)} />
+        <UploadMenu currentPath={path} disabled={upload.isPending} onUpload={items => upload.mutate(items)} />
       </div>
     </ScopeBar>
   )
@@ -179,10 +182,15 @@ export function AgentFilesPage() {
           path={folder.path}
           pending={pending}
           onNavigate={enterPath}
-          onMove={to =>
-            move.mutate({ path: { agent_uid: agentUID }, body: { data: { from_path: folder.path, to_path: to } } })
+          onMove={(to, onSuccess) =>
+            move.mutate(
+              { path: { agent_uid: agentUID }, body: { data: { from_path: folder.path, to_path: to } } },
+              { onSuccess }
+            )
           }
-          onDelete={() => remove.mutate({ path: { agent_uid: agentUID }, query: { path: folder.path } })}
+          onDelete={onSuccess =>
+            remove.mutate({ path: { agent_uid: agentUID }, query: { path: folder.path } }, { onSuccess })
+          }
         />
       ))}
       {files.map(file => (
@@ -193,10 +201,15 @@ export function AgentFilesPage() {
           path={file.path}
           pending={pending}
           onNavigate={enterPath}
-          onMove={to =>
-            move.mutate({ path: { agent_uid: agentUID }, body: { data: { from_path: file.path, to_path: to } } })
+          onMove={(to, onSuccess) =>
+            move.mutate(
+              { path: { agent_uid: agentUID }, body: { data: { from_path: file.path, to_path: to } } },
+              { onSuccess }
+            )
           }
-          onDelete={() => remove.mutate({ path: { agent_uid: agentUID }, query: { path: file.path } })}
+          onDelete={onSuccess =>
+            remove.mutate({ path: { agent_uid: agentUID }, query: { path: file.path } }, { onSuccess })
+          }
         />
       ))}
     </ResourceListPage>
@@ -262,14 +275,15 @@ function PathRow({
   path: string
   pending: boolean
   onNavigate: (path: string) => void
-  onMove: (to: string) => void
-  onDelete: () => void
+  onMove: (to: string, onSuccess: () => void) => void
+  onDelete: (onSuccess: () => void) => void
 }) {
   const { t } = useTranslation()
   const name = basename(path)
   const isFolder = file === undefined
   const [moveOpen, setMoveOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [rename, setRename] = useState<string>()
 
   const handleDownload = async () => {
     if (!agentUID) return
@@ -299,7 +313,45 @@ function PathRow({
           ) : (
             <RiFileLine className="size-4 text-muted-foreground" aria-hidden />
           )}
-          {isFolder ? (
+          {rename !== undefined ? (
+            <form
+              className="flex items-center gap-1"
+              onSubmit={event => {
+                event.preventDefault()
+                if (pending || !rename.trim() || rename.includes('/')) return
+                if (rename.trim() === name) setRename(undefined)
+                else onMove(joinPath(parentPath(path), rename.trim()), () => setRename(undefined))
+              }}>
+              <Input
+                autoFocus
+                required
+                pattern="[^/]+"
+                aria-label={t('console.agent_files.name')}
+                value={rename}
+                disabled={pending}
+                onFocus={event => event.currentTarget.select()}
+                onChange={event => setRename(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setRename(undefined)
+                  }
+                }}
+              />
+              <Button type="submit" size="icon-sm" variant="ghost" disabled={pending} aria-label={t('common.save')}>
+                <RiCheckLine />
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                disabled={pending}
+                aria-label={t('common.cancel')}
+                onClick={() => setRename(undefined)}>
+                <RiCloseLine />
+              </Button>
+            </form>
+          ) : isFolder ? (
             <button
               type="button"
               data-row-link
@@ -309,7 +361,13 @@ function PathRow({
               {name}
             </button>
           ) : (
-            <span>{name}</span>
+            <button
+              type="button"
+              data-row-link
+              className="text-left hover:underline"
+              onClick={() => void handleDownload()}>
+              {name}
+            </button>
           )}
         </div>
       </TableCell>
@@ -350,8 +408,12 @@ function PathRow({
                 {t('console.agent_files.download')}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+            <DropdownMenuItem onClick={() => setRename(name)}>
               <RiPencilLine />
+              {t('console.agent_files.rename')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+              <RiFolder3Line />
               {t('console.agent_files.move')}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
@@ -387,10 +449,7 @@ function PathRow({
                 size="sm"
                 type="button"
                 variant="destructive"
-                onClick={() => {
-                  setDeleteOpen(false)
-                  onDelete()
-                }}>
+                onClick={() => onDelete(() => setDeleteOpen(false))}>
                 {t('common.delete')}
               </Button>
             </DialogFooter>
@@ -435,7 +494,7 @@ function uploadName(file: File): string {
 
 type UploadItem = { file: File; drivePath: string }
 
-function UploadDialog({
+function UploadMenu({
   currentPath,
   disabled,
   onUpload
@@ -445,91 +504,47 @@ function UploadDialog({
   onUpload: (items: UploadItem[]) => void
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [files, setFiles] = useState<File[]>([])
-  const [subdir, setSubdir] = useState('')
+  const filesInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
 
-  const reset = () => {
-    setFiles([])
-    setSubdir('')
-  }
-
-  // The page reports the outcome of the upload, so the dialog hands the files
-  // over and closes.
-  const submit = () => {
-    if (disabled || files.length === 0) return
-    onUpload(files.map(file => ({ file, drivePath: joinPath(currentPath, subdir.trim(), uploadName(file)) })))
-    reset()
-    setOpen(false)
+  const choose = (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? [])
+    input.value = ''
+    if (files.length > 0) onUpload(files.map(file => ({ file, drivePath: joinPath(currentPath, uploadName(file)) })))
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button disabled={disabled} size="sm" type="button" variant="outline" onClick={() => setOpen(true)}>
-        <RiUploadCloud2Line className="size-4" data-icon="inline-start" />
-        {t('console.agent_files.upload')}
-      </Button>
-      <DialogContent
-        className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto]"
-        closeLabel={t('common.close')}>
-        <DialogHeader>
-          <DialogTitle>{t('console.agent_files.upload_title')}</DialogTitle>
-          <DialogDescription>{t('console.agent_files.upload_hint')}</DialogDescription>
-        </DialogHeader>
-        <form
-          className="contents"
-          onSubmit={event => {
-            event.preventDefault()
-            submit()
-          }}>
-          <div className="grid min-h-0 gap-4 overflow-y-auto">
-            <Input
-              aria-label={t('console.agent_files.upload')}
-              type="file"
-              multiple
-              onChange={event => setFiles(event.target.files ? Array.from(event.target.files) : [])}
-            />
-            <label className="grid gap-1 text-sm">
-              <span className="text-muted-foreground">{t('console.agent_files.upload_folder')}</span>
-              <Input
-                type="file"
-                multiple
-                {...folderPicker}
-                onChange={event => setFiles(event.target.files ? Array.from(event.target.files) : [])}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span className="text-muted-foreground">{t('console.agent_files.upload_subdirectory')}</span>
-              <Input placeholder="docs/" value={subdir} onChange={event => setSubdir(event.target.value)} />
-            </label>
-            {files.length > 0 ? (
-              <ul className="grid gap-1 text-xs text-muted-foreground">
-                {files.map(file => {
-                  const drivePath = joinPath(currentPath, subdir.trim(), uploadName(file))
-                  return <li key={drivePath}>{drivePath}</li>
-                })}
-              </ul>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <DialogClose render={<Button size="sm" type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
-            <Button
-              aria-busy={disabled}
-              disabled={disabled}
-              incomplete={files.length === 0 && !disabled}
-              size="sm"
-              type="submit">
-              {t('console.agent_files.upload')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <>
+      <input ref={filesInput} type="file" hidden multiple onChange={event => choose(event.currentTarget)} />
+      <input
+        ref={folderInput}
+        type="file"
+        hidden
+        multiple
+        {...folderPicker}
+        onChange={event => choose(event.currentTarget)}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button disabled={disabled} size="sm" type="button" variant="outline" aria-busy={disabled} />}>
+          <RiUploadCloud2Line className="size-4" data-icon="inline-start" />
+          {t(disabled ? 'console.agent_files.uploading' : 'console.agent_files.upload')}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => filesInput.current?.click()}>
+            <RiFileLine />
+            {t('console.agent_files.upload_title')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => folderInput.current?.click()}>
+            <RiFolder3Line />
+            {t('console.agent_files.upload_folder')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   )
 }
 
-// The dialog edits the whole drive path, so the same action renames an entry
-// in its folder and moves it to another folder.
 function MoveDialog({
   open,
   onOpenChange,
@@ -542,16 +557,15 @@ function MoveDialog({
   onOpenChange: (open: boolean) => void
   path: string
   disabled: boolean
-  onConfirm: (toPath: string) => void
+  onConfirm: (toPath: string, onSuccess: () => void) => void
   t: (key: string) => string
 }) {
-  const [value, setValue] = useState(path)
-  const normalizedValue = joinPath(value)
-  const incomplete = normalizedValue === ''
+  const [value, setValue] = useState(parentPath(path))
+  const normalizedValue = joinPath(value, basename(path))
   const unchanged = normalizedValue === path
 
   useEffect(() => {
-    if (open) setValue(path)
+    if (open) setValue(parentPath(path))
   }, [open, path])
 
   return (
@@ -564,22 +578,16 @@ function MoveDialog({
           className="contents"
           onSubmit={event => {
             event.preventDefault()
-            if (disabled || incomplete || unchanged) return
-            onConfirm(normalizedValue)
-            onOpenChange(false)
+            if (disabled || unchanged) return
+            onConfirm(normalizedValue, () => onOpenChange(false))
           }}>
           <label className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">{t('console.agent_files.new_path')}</span>
-            <Input required value={value} onChange={event => setValue(event.target.value)} />
+            <span className="text-muted-foreground">{t('console.agent_files.destination_folder')}</span>
+            <Input placeholder="/" value={value} disabled={disabled} onChange={event => setValue(event.target.value)} />
           </label>
           <DialogFooter>
             <DialogClose render={<Button size="sm" type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
-            <Button
-              aria-busy={disabled}
-              disabled={disabled || (unchanged && !incomplete)}
-              incomplete={incomplete && !disabled}
-              size="sm"
-              type="submit">
+            <Button aria-busy={disabled} disabled={disabled || unchanged} size="sm" type="submit">
               {t('console.agent_files.move')}
             </Button>
           </DialogFooter>
@@ -587,6 +595,10 @@ function MoveDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+function parentPath(path: string): string {
+  return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
 }
 
 function basename(path: string): string {

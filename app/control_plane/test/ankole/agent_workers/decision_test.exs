@@ -26,6 +26,54 @@ defmodule Ankole.AgentWorkers.DecisionTest do
       assert :none = next(worker: %{state: :absent})
     end
 
+    test "removes unlabelled objects before creating a generation or deleting storage" do
+      orphan = %{generation: nil, instance_ref: "orphan-1", phase: :running}
+
+      partial_orphan = %{
+        generation: nil,
+        instance_ref: "orphan-secret",
+        phase: :exited,
+        instance_present?: false
+      }
+
+      absent =
+        facts(
+          worker: %{state: :absent, generation: nil, instance_seen_at: nil},
+          wanted: true
+        )
+
+      deleting =
+        facts(worker: %{state: :deleting, generation: nil, instance_seen_at: nil})
+
+      for object <- [orphan, partial_orphan] do
+        refute Ankole.AgentWorkers.ProviderKind.current_instance?(absent.worker, object)
+        assert {:delete_object, ^object} = Decision.next(%{absent | objects: [object]})
+        assert {:delete_object, ^object} = Decision.next(%{deleting | objects: [object]})
+      end
+    end
+
+    test "removes duplicate objects of the current generation before proceeding" do
+      first = %{
+        generation: "gen-a",
+        instance_ref: "c-1",
+        phase: :running,
+        started_at: ago(@minute)
+      }
+
+      second = %{
+        generation: "gen-a",
+        instance_ref: "c-2",
+        phase: :running,
+        started_at: ago(@minute)
+      }
+
+      facts =
+        facts(worker: %{state: :starting, generation: "gen-a", instance_ref: nil}, wanted: true)
+        |> Map.put(:objects, [first, second])
+
+      assert {:delete_object, ^second} = Decision.next(facts)
+    end
+
     test "is not created for an Agent that is not active" do
       assert :none = next(worker: %{state: :absent}, wanted: true, agent: :disabled)
     end

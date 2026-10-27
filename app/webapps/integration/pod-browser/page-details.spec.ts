@@ -208,10 +208,9 @@ test('title saves keep edit order and a failed save protects navigation until re
     await linked.close()
     const values: string[] = []
     let failNext = false
-    let failReadNext = false
+    let failRead = false
     await owner.route(`**/api/v2/pod/pages/${id}`, async route => {
-      if (route.request().method() === 'GET' && failReadNext) {
-        failReadNext = false
+      if (route.request().method() === 'GET' && failRead) {
         return route.fulfill({ status: 503, json: { error: 'Page refresh unavailable' } })
       }
       if (route.request().method() !== 'PATCH') return route.continue()
@@ -243,18 +242,23 @@ test('title saves keep edit order and a failed save protects navigation until re
     await title.fill('Recoverable title')
     await title.blur()
     await expect(owner.getByRole('alert')).toContainText('Title save unavailable')
-    failReadNext = true
+    failRead = true
     await owner.getByRole('button', { name: '分享', exact: true }).click()
-    await owner
-      .getByRole('dialog', { name: '分享页面', exact: true })
-      .getByRole('button', { name: '保存分享设置', exact: true })
-      .click()
-    await expect(owner.getByRole('dialog', { name: '分享页面', exact: true })).toHaveCount(0)
+    const sharing = owner.getByRole('dialog', { name: '分享页面', exact: true })
+    const shared = owner.waitForResponse(
+      response =>
+        response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/sharing`
+    )
+    await sharing.getByRole('checkbox').uncheck()
+    expect((await shared).status()).toBe(200)
+    await expect(sharing.getByRole('checkbox')).toBeEnabled()
+    await owner.keyboard.press('Escape')
+    await expect(sharing).toHaveCount(0)
     await expect(
-      owner.getByText('无法读取页面的最新状态，未保存的草稿已保留。请重试后继续编辑。', { exact: true })
+      owner.getByText('无法读取页面的最新状态，未保存的草稿已保留。请重试以获取最新状态。', { exact: true })
     ).toBeVisible()
     await expect(title).toHaveValue('Recoverable title')
-    await expect(title).toBeDisabled()
+    await expect(title).toBeEditable()
     await owner
       .getByRole('navigation', { name: '页面导航' })
       .getByRole('link', { name: '最近访问', exact: true })
@@ -263,8 +267,10 @@ test('title saves keep edit order and a failed save protects navigation until re
     await owner.keyboard.press('Escape')
     await expect(owner.getByRole('dialog')).toHaveCount(0)
     await expect(title).toHaveValue('Recoverable title')
+    failRead = false
     await owner.getByRole('button', { name: '重试', exact: true }).first().click()
-    await expect(title).toBeEnabled()
+    await expect(owner.getByText('Page refresh unavailable', { exact: true })).toHaveCount(0)
+    await expect(title).toHaveValue('Recoverable title')
     await owner.getByRole('button', { name: '重试', exact: true }).click()
     await expect
       .poll(async () => (await request<{ page: { title: string } }>(owner, `/pages/${id}`)).page.title)
@@ -288,6 +294,83 @@ test('title saves keep edit order and a failed save protects navigation until re
       ],
       failed
     )
+  }
+})
+
+test('a failed draft can be discarded without downloading a recovery file', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  const downloads: string[] = []
+  page.on('download', download => downloads.push(download.suggestedFilename()))
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    id = await create(page, 'Keep the saved title')
+    await page.goto(state.base_url + pageRoute(id))
+    await page.route(`**/api/v2/pod/pages/${id}`, route =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 503, json: { error: 'Title save unavailable' } })
+        : route.continue()
+    )
+    const title = page.getByRole('textbox', { name: '页面标题', exact: true })
+    await title.fill('Discard this draft')
+    await title.blur()
+    await expect(page.getByRole('alert')).toContainText('Title save unavailable')
+    await page
+      .getByRole('navigation', { name: '页面导航' })
+      .getByRole('link', { name: '最近访问', exact: true })
+      .click()
+    const dialog = page.getByRole('dialog', { name: '修改尚未保存', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '放弃修改并离开', exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: '放弃修改并离开', exact: true }).click()
+    await expect(page).toHaveURL(state.base_url + listRoute('recent'))
+    expect(downloads).toEqual([])
+    await page.goto(state.base_url + pageRoute(id))
+    await expect(title).toHaveValue('Keep the saved title')
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' })
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('moving an open page to Trash does not require saving its draft and offers undo at its parent', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    id = await create(page, 'Unwanted child', state.report_id)
+    await page.goto(state.base_url + pageRoute(id))
+    await page.route(`**/api/v2/pod/pages/${id}`, route =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 503, json: { error: 'Title save unavailable' } })
+        : route.continue()
+    )
+    await page.getByRole('textbox', { name: '页面标题', exact: true }).fill('Unwanted unsaved title')
+    await page.getByRole('textbox', { name: '页面标题', exact: true }).blur()
+    await expect(page.getByRole('alert')).toContainText('Title save unavailable')
+    await pageAction(page, '移到回收站')
+    await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
+    await expect(page.getByRole('dialog', { name: '修改尚未保存', exact: true })).toHaveCount(0)
+    const restored = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/restore`
+    )
+    await page.getByRole('button', { name: '撤销', exact: true }).click()
+    expect((await restored).status()).toBe(201)
+    expect((await request<{ page: { deleted_at: string | null } }>(page, `/pages/${id}`)).page.deleted_at).toBeNull()
+    await page.goto(state.base_url + pageRoute(id))
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue('Unwanted child')
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' })
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
   }
 })
 
@@ -499,7 +582,7 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
     await pageAction(owner, '移动')
     await expect(dialog.locator('.pod-selected-destination')).toContainText(`${prefix} Target`)
     await expect(dialog.getByRole('button', { name: '移动', exact: true })).toBeDisabled()
-    await choose(owner, '目标位置', 'Private')
+    await choose(owner, '目标位置', '私人页面')
     await expect(dialog).toContainText('单独授权仍然保留')
     await owner.keyboard.press('Escape')
     await expect(owner.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true })).toBeFocused()
@@ -507,9 +590,10 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
     const inherit = owner.getByRole('checkbox')
     await expect(inherit).toBeChecked()
     await inherit.uncheck()
+    await expect(inherit).toBeEnabled()
     await owner.keyboard.press('Escape')
     await owner.getByRole('button', { name: '分享', exact: true }).click()
-    await expect(inherit).toBeChecked()
+    await expect(inherit).not.toBeChecked()
     await owner.route(`**/api/v2/pod/pages/${source}/sharing`, async (route: Route) => {
       if (route.request().method() === 'PUT') {
         await new Promise<void>(resolve => {
@@ -518,12 +602,15 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
       }
       return route.continue()
     })
-    await owner.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    await inherit.check()
     await expect.poll(() => !!held).toBe(true)
     await expect(inherit).toBeDisabled()
     await owner.keyboard.press('Escape')
     await expect(owner.getByRole('dialog', { name: '分享页面' })).toBeVisible()
     held!()
+    await expect(inherit).toBeEnabled()
+    await expect(inherit).toBeChecked()
+    await owner.keyboard.press('Escape')
     await expect(owner.getByRole('dialog')).toHaveCount(0)
   } catch (error) {
     failed = true

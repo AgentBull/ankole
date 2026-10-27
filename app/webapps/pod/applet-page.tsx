@@ -99,7 +99,7 @@ export function AppletPage({ detail }: { detail: PageDetail }) {
       )}
       {loading && !revoked && <p role="status">{t('pod.content.loading_applet')}</p>}
       {!revoked && <ContentError error={connection.error} retry={connection.retry} />}
-      <div ref={container} />
+      <div ref={container} hidden={!!error || revoked} />
     </section>
   )
 }

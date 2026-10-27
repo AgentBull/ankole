@@ -18,7 +18,7 @@ import {
   timelineTurns,
   unloadedPendingQuestions
 } from '../chat/turn-timeline'
-import { ToolRunView, commandDetails } from '../chat/tool-run-view'
+import { ToolRunView, commandDetails, formatToolDetail, humanizeToolName } from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
 import { ChatModel } from './chat'
 
@@ -131,6 +131,27 @@ test('live work uses the room activity phases before the final reply is committe
   expect(html).toContain('data-status="completed"')
   expect(html).toContain('data-status="failed"')
   expect(html).toContain('data-status="running"')
+
+  const waiting = render(
+    <CollapsedWorkView active phaseLabel="Waiting for computer capacity" execution={{ steps: [] }} />
+  )
+  expect(waiting).toContain('Waiting for computer capacity')
+  expect(waiting).not.toContain('<details')
+
+  const parallel = render(
+    <CollapsedWorkView
+      active
+      execution={{
+        steps: [
+          { id: 'read', tool: 'read', title: 'Reading the report', status: 'running' },
+          { id: 'search', tool: 'search', title: 'Searching source material', status: 'running' }
+        ]
+      }}
+    />
+  )
+  expect(parallel).toContain('2 tool calls')
+  expect(parallel.match(/Searching source material/g)).toHaveLength(1)
+  expect(parallel).not.toContain('pod-chat-tool-group')
 })
 
 test('active work highlights the current action without forcing its accumulated thinking and tool history open', () => {
@@ -354,6 +375,74 @@ test('editing a prior request keeps the artifact warning in its tooltip', () => 
   expect(html).toContain('aria-label="Edit and regenerate"')
   expect(html).toContain('Edit and regenerate · Regenerating keeps changes already made to pages, bases, and applets.')
   expect(render(<MessageActions text="Latest answer" alwaysVisible />)).toContain('data-visible="true"')
+  expect(render(<MessageActions text="Retryable request" onRetry={() => {}} />)).toContain('data-visible="true"')
+})
+
+test('tool steps omit empty disclosures and humanize raw tool identifiers', () => {
+  for (const empty of [null, undefined, '', '   ', {}, [], '{}', '[]', '""']) {
+    expect(formatToolDetail(empty)).toBeUndefined()
+  }
+  expect(formatToolDetail('{"count":3}')).toBe('{\n  "count": 3\n}')
+  expect(humanizeToolName('mcp__github__search_api_issues')).toBe('Search API issues')
+  expect(humanizeToolName('pod.pages.read_document')).toBe('Pod pages read document')
+  const html = render(
+    <ToolRunView
+      steps={[
+        {
+          id: 'empty-step',
+          tool: 'mcp__github__search_api_issues',
+          title: 'mcp__github__search_api_issues',
+          status: 'completed',
+          input: {},
+          output: '[]'
+        }
+      ]}
+    />
+  )
+  expect(html).toContain('Search API issues')
+  expect(html).not.toContain('<details')
+})
+
+test('choice cards expose numeric shortcuts only for the first four active keyboard choices and preserve astral initials', () => {
+  const client = new QueryClient()
+  const choices = Array.from({ length: 5 }, (_, index) => ({ id: `c-${index + 1}`, label: `Option ${index + 1}` }))
+  const prompt: ClarifyPrompt = {
+    state: 'pending',
+    tool_call_id: 'call-shortcuts',
+    interaction_id: 'source:clarify:call-shortcuts',
+    question: 'Choose one:',
+    choices,
+    allow_free_text: false
+  }
+  try {
+    const inactive = render(
+      <QueryClientProvider client={client}>
+        <ChoiceCard prompt={prompt} interaction={prompt} onAnswer={async () => {}} />
+      </QueryClientProvider>
+    )
+    expect(inactive).not.toContain('<kbd>')
+    expect(inactive).not.toContain('aria-keyshortcuts=')
+
+    const active = render(
+      <QueryClientProvider client={client}>
+        <ChoiceCard prompt={prompt} interaction={prompt} onAnswer={async () => {}} keyboardActive />
+      </QueryClientProvider>
+    )
+    expect(active.match(/<kbd>\d+<\/kbd>/g)).toEqual(['<kbd>1</kbd>', '<kbd>2</kbd>', '<kbd>3</kbd>', '<kbd>4</kbd>'])
+    expect(active).not.toContain('aria-keyshortcuts="5"')
+
+    const answered = render(
+      <QueryClientProvider client={client}>
+        <ChoiceCard
+          prompt={prompt}
+          interaction={{ state: 'answered', choice_id: 'c-1', answered_by_name: '🚀 Rocket' }}
+        />
+      </QueryClientProvider>
+    )
+    expect(answered).toContain('<span class="pod-chat-event-avatar" aria-hidden="true">🚀</span>')
+  } finally {
+    client.clear()
+  }
 })
 
 test('frozen attachments choose the existing in-chat preview for supported office and code files', () => {

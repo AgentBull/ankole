@@ -54,6 +54,36 @@ defmodule AnkoleWeb.PodFileController do
     end
   end
 
+  def create(conn, _params) do
+    body = conn.body_params
+
+    with %Plug.Upload{} = file <- Ankole.Attrs.get(body, :file),
+         {:ok, stat} <- File.stat(file.path),
+         true <- stat.size <= WorkerFiles.max_transfer_bytes() do
+      attrs = Map.take(body, ["parent_id", "private_owner_uid"])
+
+      result =
+        Files.create_from_upload(
+          actor(conn),
+          attrs,
+          file.filename,
+          {:file, file.path},
+          file.content_type
+        )
+
+      respond(
+        conn,
+        case result do
+          {:ok, page} -> {:ok, %{page: page}}
+          error -> error
+        end
+      )
+    else
+      false -> error(conn, :file_too_large)
+      _ -> error(conn, :missing_file)
+    end
+  end
+
   defp actor(conn), do: conn.assigns.authz_actor
 
   defp revision(body),

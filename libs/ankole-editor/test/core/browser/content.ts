@@ -19,7 +19,7 @@ import { builder, basicBuilders, basicSchema, tableSchema, tag, eq } from '../sc
 import { rDoc, rChangeSpec } from '../generate'
 
 const { DocTile } = Wordgard
-const { doc, p, blockquote, h2, ul, li, br, $img, img, imgAlt, hr, strong, em, table, tr, td } = basicBuilders
+const { doc, p, blockquote, h1, h2, ul, li, br, $img, img, imgAlt, hr, strong, em, table, tr, td } = basicBuilders
 
 type DocTile = InstanceType<typeof DocTile>
 const dummyEditor: Wordgard = { connected: false } as any
@@ -657,6 +657,14 @@ describe('DocTile', () => {
       ist(tile.dom.innerHTML, '<p>abc</p>')
     })
 
+    it('can change between normal plot and atom plot', () => {
+      const atomH = Decoration.Tag.shape(Heading, Elt.mk('h1', ['H']))
+      let tile = update(render(doc(h1('abcd')), atomH), { changes: { from: 0, to: 1, insert: [Paragraph] } })
+      ist(tile.dom.innerHTML, '<p>abcd</p>')
+      tile = update(tile, { changes: { from: 0, to: 1, insert: [Heading.of(1)] } })
+      ist(tile.dom.innerHTML, `<h1${uned}>H</h1>`)
+    })
+
     it('can add attributes to a specific node', () => {
       const deco = Decoration.Point.set([[Decoration.Point.attributes({ class: 'u' }), 0]])
       ist(
@@ -861,6 +869,29 @@ describe('DocTile', () => {
         )
       })
       ist(tile.dom.innerHTML, `<para${uned}></para>`)
+    })
+
+    it('renders shape atoms at the end of a positional shape change', () => {
+      let tile = render(doc(p('a')))
+      tile = update(tile, {
+        effects: GardState.appendConfig.of(
+          Decoration.Point.source.of(_state => {
+            return Decoration.Point.set([
+              [Decoration.Point.shape(Elt.mk('div', [Elt.mk('p', [0]), Elt.mk('after')])), 0]
+            ])
+          })
+        )
+      })
+      ist(tile.dom.innerHTML, `<div><p>a</p><after${uned}></after></div>`)
+    })
+
+    it("keeps to-the-side node structure in place when the node's content changes", () => {
+      const paraShape = Decoration.Tag.shape(
+        Paragraph,
+        Elt.mk('div', [Elt.mk('before'), Elt.mk('p', [0]), Elt.mk('after')])
+      )
+      const tile = update(render(doc(p('abc')), paraShape), { changes: { from: 2, to: 3 } })
+      ist(tile.dom.innerHTML, `<div><before${uned}></before><p>ac</p><after${uned}></after></div>`)
     })
 
     it('supports dynamic shapes', () => {

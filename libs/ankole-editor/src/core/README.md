@@ -1,6 +1,6 @@
 # Core
 
-This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit 575d653 (2026-10-22), under the MIT license in [LICENSE](LICENSE).
+This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit 91c8e86 (2026-10-23), under the MIT license in [LICENSE](LICENSE).
 
 The fork is part of the package source. It uses the package's TypeScript settings, formatting and test runners. It does not follow upstream mechanically: to take an upstream change, apply it by hand and add a test.
 

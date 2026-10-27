@@ -133,6 +133,26 @@ defmodule Ankole.Workflow.Schemas.Run do
     end
   end
 
+  calculations do
+    calculate(
+      :result_output_window,
+      :binary,
+      expr(
+        fragment(
+          "substring(convert_to(?, 'UTF8') from ? for ?)",
+          result_text,
+          ^arg(:from),
+          ^arg(:bytes)
+        )
+      )
+    ) do
+      argument(:from, :integer, allow_nil?: false)
+      argument(:bytes, :integer, allow_nil?: false)
+    end
+
+    calculate(:result_output_bytes, :integer, expr(fragment("octet_length(?)", result_text)))
+  end
+
   aggregates do
     count :running_call_count, :agent_calls do
       filter(expr(status == :running))

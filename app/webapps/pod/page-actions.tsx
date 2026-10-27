@@ -16,12 +16,12 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import type { PageMove as PodPageMove } from './content-api'
 import { podLocation, podRouteID } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
-import { contentKeys, pageAPI, type Page } from './content-api'
+import { cachedPages, contentKeys, pageAPI, type Page, type PageDetail } from './content-api'
 import { useContent } from './content-context'
 import { contentError } from './content-errors'
 import { useCopyPageLink } from './page-sharing'
 import { canMovePage, stepRequest } from './state/page-move'
-import { CreatePageSubmenu } from './page-create-menu'
+import { CreatePageSubmenu, useSubpageCreation } from './page-create-menu'
 
 const title = (page: Page) => page.title || t('pod.content.untitled')
 
@@ -32,7 +32,13 @@ export type PageActions = ReturnType<typeof usePageActions>
  * component that outlives the menu, so an undo still runs after the menu closes.
  */
 export function usePageActions() {
-  return { move: usePageMove(), trash: usePageTrash(), favorite: usePageFavorite() }
+  const trash = usePageTrash()
+  return {
+    move: usePageMove(),
+    trash: trash.mutate,
+    favorite: usePageFavorite(),
+    createSubpage: useSubpageCreation()
+  }
 }
 
 function usePageMove() {
@@ -56,7 +62,7 @@ function usePageMove() {
 }
 
 /** Trash runs at once; the toast restores the page. */
-function usePageTrash() {
+export function usePageTrash(onRemoved?: () => void) {
   const client = useQueryClient()
   const navigate = useNavigate()
   const { pageID } = useParams({ strict: false })
@@ -65,25 +71,32 @@ function usePageTrash() {
     onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.all }),
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
-  const trash = useMutation({
+  return useMutation({
     mutationFn: (page: Page) => pageAPI.remove(page.id),
     onSuccess: async (_result, page) => {
+      onRemoved?.()
+      const parent =
+        page.parent_id &&
+        (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
+          cachedPages(client).find(candidate => candidate.id === page.parent_id))
       await client.invalidateQueries({ queryKey: contentKeys.all })
-      if (podRouteID(pageID) === page.id) void navigate({ to: podLocation('/content/space').pathname })
+      if (podRouteID(pageID) === page.id) {
+        const destination = parent ? `/pages/${parent.id}` : `/content/${page.private_owner_uid ? 'private' : 'space'}`
+        void navigate({ to: podLocation(destination).pathname })
+      }
       toast.success(t('pod.sidebar.page_trashed', { title: title(page) }), {
         action: { label: t('pod.sidebar.undo'), onClick: () => restore.mutate(page.id) }
       })
     },
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
-  return (page: Page) => trash.mutate(page)
 }
 
 function usePageFavorite() {
   const client = useQueryClient()
   const favorite = useMutation({
     mutationFn: ({ page, value }: { page: Page; value: boolean }) => pageAPI.state(page.id, { favorite: value }),
-    onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.lists }),
+    onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.list('favorites') }),
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
   return (page: Page, value: boolean) => favorite.mutate({ page, value })
@@ -94,7 +107,7 @@ export function PageMenuItems({
   page,
   pages,
   favorited,
-  actions: { move, trash, favorite },
+  actions: { move, trash, favorite, createSubpage },
   onRename,
   onMoveTo
 }: {
@@ -131,7 +144,7 @@ export function PageMenuItems({
           <DropdownMenuSeparator />
           {canEdit && (
             <>
-              <CreatePageSubmenu parentID={page.id} />
+              <CreatePageSubmenu create={createSubpage(page.id)} />
               <DropdownMenuItem onClick={onRename}>
                 <RiPencilLine aria-hidden />
                 {t('pod.sidebar.rename')}

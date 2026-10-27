@@ -50,13 +50,29 @@ export function agentHandleError(
   return undefined
 }
 
-export function agentHandleFromDisplayName(displayName: string): string {
+export function slugFromDisplayName(displayName: string, maxLength = 63): string {
   return (transliterate?.(displayName) ?? displayName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 96)
+    .slice(0, maxLength)
     .replace(/-+$/g, '')
+}
+
+export function deriveSlugWithTransliteration(
+  displayName: string,
+  maxLength: number,
+  onTransliterated: () => void
+): string {
+  const initial = slugFromDisplayName(displayName, maxLength)
+  if (!transliterate) {
+    void preloadTransliteration().then(onTransliterated)
+  }
+  return initial
+}
+
+export function agentHandleFromDisplayName(displayName: string): string {
+  return slugFromDisplayName(displayName, 96)
 }
 
 export const AgentEditorModel = createModel(() => {

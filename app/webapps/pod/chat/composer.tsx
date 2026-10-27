@@ -8,10 +8,19 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
+  toast
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiArrowUpLine, RiCheckLine, RiStopFill, RiAtLine, RiCommandLine, RiLoader4Line } from '@remixicon/react'
+import {
+  RiArrowUpLine,
+  RiCheckLine,
+  RiCloseLine,
+  RiStopFill,
+  RiAtLine,
+  RiCommandLine,
+  RiLoader4Line
+} from '@remixicon/react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -31,7 +40,12 @@ import { ModelControls } from '../model-controls'
 import { pageQuery } from '../content-api'
 import { MentionPicker, type MentionChoice } from './mention-picker'
 import { SlashCommandPicker, type SlashCommand } from './slash-command-picker'
-import { completionAt, type ComposerCompletion, type CompletionHandle } from './composer-completion'
+import {
+  completionAt,
+  insertCompletionTrigger,
+  type ComposerCompletion,
+  type CompletionHandle
+} from './composer-completion'
 import type { ClarifyAnswer } from './choice-card'
 
 type Model = InstanceType<typeof ChatModel>
@@ -70,11 +84,16 @@ export function Composer({
   const { t } = useTranslation(),
     navigate = useNavigate()
   const shell = useRef<HTMLDivElement>(null)
-  const textarea = useRef<HTMLTextAreaElement>(null),
-    modelControl = useRef<HTMLDivElement>(null)
+  const textarea = useRef<HTMLTextAreaElement>(null)
+  const [modelOpen, setModelOpen] = useState(false)
   const recipientControl = useRef<HTMLButtonElement>(null)
   useImperativeHandle(inputRef, () => textarea.current!, [])
   const [picker, setPicker] = useState<ComposerCompletion>()
+  const pickerRef = useRef<ComposerCompletion>(undefined)
+  const updatePicker = (next: ComposerCompletion | undefined) => {
+    pickerRef.current = next
+    setPicker(next)
+  }
   const completion = useRef<CompletionHandle>(null)
   const completionID = useId()
   const composing = useRef(false)
@@ -82,7 +101,7 @@ export function Composer({
   useEffect(() => {
     if (!picker) return
     const outside = (event: PointerEvent) => {
-      if (!shell.current?.contains(event.target as Node)) setPicker(undefined)
+      if (!shell.current?.contains(event.target as Node)) updatePicker(undefined)
     }
     document.addEventListener('pointerdown', outside)
     return () => document.removeEventListener('pointerdown', outside)
@@ -122,10 +141,13 @@ export function Composer({
     !humanOnly &&
     detail?.conversation.roomMode === 'dm' &&
     detail.conversation.agents.some(agent => agent.active && !callable.has(agent.uid))
-  const modelAgentUID =
-    !selectedTargetUnavailable && recipientUID && roomAgents.some(agent => agent.uid === recipientUID)
+  const modelAgentUID = !selectedTargetUnavailable
+    ? recipientUID && roomAgents.some(agent => agent.uid === recipientUID)
       ? recipientUID
-      : undefined
+      : roomAgents.length === 1
+        ? roomAgents[0]!.uid
+        : undefined
+    : undefined
   const editingID = model.editing.value?.messageID
   useEffect(() => {
     if (editingID) textarea.current?.focus()
@@ -139,8 +161,9 @@ export function Composer({
     }
   }, [draft])
   const close = () => {
-    if (picker?.kind === 'slash') dismissedSlash.current = picker.start
-    setPicker(undefined)
+    const active = pickerRef.current
+    if (active?.kind === 'slash') dismissedSlash.current = active.start
+    updatePicker(undefined)
     textarea.current?.focus()
   }
   const leaveAnswer = () => {
@@ -149,24 +172,26 @@ export function Composer({
   }
   const syncPicker = (input: HTMLTextAreaElement) => {
     if (composing.current) return
-    const next = completionAt(input.value, input.selectionStart, input.selectionEnd, picker)
+    const active = pickerRef.current
+    const next = completionAt(input.value, input.selectionStart, input.selectionEnd, active)
     if (next?.kind === 'slash' && next.start === dismissedSlash.current) {
-      setPicker(undefined)
+      updatePicker(undefined)
       return
     }
     if (next?.kind !== 'slash') dismissedSlash.current = undefined
-    setPicker(next && picker?.kind === 'page' && next.start === picker.start ? { ...next, kind: 'page' } : next)
+    updatePicker(next && active?.kind === 'page' && next.start === active.start ? { ...next, kind: 'page' } : next)
   }
-  const open = (kind: ComposerCompletion['kind']) => {
+  const open = (kind: ComposerCompletion['kind'], atPosition?: number, baseValue?: string) => {
     dismissedSlash.current = undefined
-    const value = model.draft.value
-    const start = Math.min(textarea.current?.selectionStart ?? value.length, value.length)
-    const end = Math.min(textarea.current?.selectionEnd ?? start, value.length)
-    model.draft.value = `${value.slice(0, start)}${kind === 'slash' ? '/' : '@'}${value.slice(end)}`
-    setPicker({ kind, start, end: start + 1, query: '' })
+    const value = baseValue ?? model.draft.value
+    const start = atPosition ?? textarea.current?.selectionStart ?? value.length
+    const end = atPosition ?? textarea.current?.selectionEnd ?? start
+    const inserted = insertCompletionTrigger(value, start, end, kind)
+    model.draft.value = inserted.value
+    updatePicker(inserted.completion)
     requestAnimationFrame(() => {
       textarea.current?.focus()
-      textarea.current?.setSelectionRange(start + 1, start + 1)
+      textarea.current?.setSelectionRange(inserted.cursor, inserted.cursor)
     })
   }
   const choose = (choice: MentionChoice) => {
@@ -192,23 +217,24 @@ export function Composer({
     })
   }
   const slash = (command: SlashCommand) => {
-    if (picker) model.draft.value = draft.slice(0, picker.start) + draft.slice(picker.end)
+    const start = picker?.start
+    const nextDraft = picker ? draft.slice(0, picker.start) + draft.slice(picker.end) : draft
+    if (picker) model.draft.value = nextDraft
     close()
     if (command === 'new') {
       if (onNew) onNew()
       else void navigate({ to: podLocation('/').pathname })
     } else if (command === 'invite') onInvite()
     else if (command === 'rename') onRename()
-    else if (command === 'page') open('page')
+    else if (command === 'page') open('page', start ?? nextDraft.length, nextDraft)
     else if (command === 'model') {
-      const button = modelControl.current?.querySelector<HTMLButtonElement>('button')
-      if (button) button.click()
+      if (modelAgentUID) setModelOpen(true)
       else onSummary()
     } else if (command === 'stop') stop()
   }
   const send = () => {
     if (sending || answering || !canSubmit || (answerID && !answerAvailable)) return
-    setPicker(undefined)
+    updatePicker(undefined)
     if (model.editing.value) {
       submit()
       return
@@ -283,6 +309,7 @@ export function Composer({
         <SlashCommandPicker
           existing={!!detail}
           working={working}
+          hasAgents={roomAgents.length > 0}
           query={picker.query}
           id={completionID}
           input={textarea}
@@ -306,7 +333,18 @@ export function Composer({
         )
       )}
       <form
-        {...chatAttachmentHandlers(model.attachments, disabled || !!model.editing.value)}
+        {...chatAttachmentHandlers(
+          model.attachments,
+          disabled || !!model.editing.value,
+          model.editing.value
+            ? () =>
+                toast.info(
+                  t('pod.chat.attachments_disabled_while_editing', {
+                    defaultValue: 'Finish or cancel editing before adding files.'
+                  })
+                )
+            : undefined
+        )}
         className="pod-chat-composer"
         onSubmit={event => {
           event.preventDefault()
@@ -342,7 +380,7 @@ export function Composer({
                 onClick={() => {
                   model.links.value = model.links.value.filter(link => link !== quoted)
                 }}>
-                ×
+                <RiCloseLine aria-hidden />
               </Button>
             </div>
           )}
@@ -372,6 +410,7 @@ export function Composer({
           <InputGroupTextarea
             ref={textarea}
             autoFocus
+            disabled={sending || answering}
             aria-label={t('pod.chat.message_label')}
             aria-autocomplete="list"
             aria-haspopup="listbox"
@@ -392,7 +431,7 @@ export function Composer({
             onSelect={event => syncPicker(event.currentTarget)}
             onCompositionStart={() => {
               composing.current = true
-              setPicker(undefined)
+              updatePicker(undefined)
             }}
             onCompositionEnd={event => {
               composing.current = false
@@ -494,17 +533,18 @@ export function Composer({
                 </SelectContent>
               </Select>
               {modelAgentUID ? (
-                <div ref={modelControl}>
-                  <ModelControls
-                    agentUID={modelAgentUID}
-                    conversationID={conversationID}
-                    draftProfile={model.modelProfile.value}
-                    onDraftProfileChange={profile => {
-                      model.modelProfile.value = profile
-                    }}
-                    disabled={sending || answering || !!answerID || !!model.editing.value}
-                  />
-                </div>
+                <ModelControls
+                  inline
+                  agentUID={modelAgentUID}
+                  open={modelOpen}
+                  onOpenChange={setModelOpen}
+                  conversationID={conversationID}
+                  draftProfile={model.modelProfile.value}
+                  onDraftProfileChange={profile => {
+                    model.modelProfile.value = profile
+                  }}
+                  disabled={sending || answering || !!answerID || !!model.editing.value}
+                />
               ) : (
                 detail &&
                 detail.conversation.agents.length > 0 && (
@@ -577,7 +617,7 @@ function DraftPageChip({ id, onRemove }: { id: string; onRemove(name?: string): 
         variant="ghost"
         aria-label={t('common.close')}
         onClick={() => onRemove(page.data?.page.title)}>
-        ×
+        <RiCloseLine aria-hidden />
       </Button>
     </span>
   )

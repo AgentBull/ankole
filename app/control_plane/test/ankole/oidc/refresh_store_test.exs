@@ -70,10 +70,18 @@ defmodule Ankole.OIDC.RefreshStoreTest do
     assert {:ok, retried} = Attesto.RefreshToken.rotate(RefreshStore, ctx.issued.token, opts)
     assert retried == rotated
     parent = Repo.get!(RefreshToken, Attesto.Secret.hash(ctx.issued.token))
+    refute Map.has_key?(parent.context, "subject")
+    refute Map.has_key?(parent.context, "client_id")
+    refute Map.has_key?(parent.context, "scope")
+    refute Map.has_key?(parent.context["claims"], "session_id")
     assert parent.consumed_at
     assert is_binary(parent.successor_ciphertext)
     refute String.contains?(parent.successor_ciphertext, rotated.token)
     assert {:ok, stored} = RefreshStore.get(parent.digest)
+    assert stored.data.subject == parent.principal_uid
+    assert stored.data.client_id == parent.client_id
+    assert stored.data.scope == ["openid", "offline_access"]
+    assert stored.data.claims["session_id"] == parent.session_id
     assert stored.successor.token == rotated.token
     assert stored.successor.context == stored.data
     assert rotated.expires_at <= ctx.issued.expires_at

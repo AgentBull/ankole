@@ -40,6 +40,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
   TableCell,
   TableRow,
   Textarea,
@@ -96,7 +97,9 @@ export function OIDCClientsListPage() {
       client.name,
       client.id,
       client.client_type,
+      t(`console.oidc_clients.type_${client.client_type}`),
       client.enabled ? 'enabled' : 'disabled',
+      t(client.enabled ? 'console.status.enabled' : 'console.status.disabled'),
       ...client.scopes,
       ...client.redirect_uris
     )
@@ -440,7 +443,6 @@ export function OIDCClientEditorPage() {
           </LabeledField>
         ) : null}
 
-        <OIDCSessionSettings disabled={fieldsDisabled} draft={draft} setDraft={setDraft} />
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <LabeledField label={t('console.oidc_clients.name')} required>
             <Input required value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} />
@@ -467,15 +469,15 @@ export function OIDCClientEditorPage() {
           </LabeledField>
         </div>
 
-        <label className="flex items-center justify-between gap-4 border border-border bg-muted/30 p-4">
+        <label className="flex cursor-pointer items-center justify-between gap-4 border border-border bg-muted/30 p-4">
           <span className="grid gap-1">
             <span className="text-sm font-medium">{t('console.oidc_clients.enabled')}</span>
             <span className="text-xs leading-5 text-muted-foreground">{t('console.oidc_clients.enabled_hint')}</span>
           </span>
-          <Checkbox
+          <Switch
             checked={draft.enabled}
             disabled={fieldsDisabled}
-            onCheckedChange={checked => setDraft({ ...draft, enabled: checked === true })}
+            onCheckedChange={checked => setDraft({ ...draft, enabled: checked })}
           />
         </label>
 
@@ -511,6 +513,8 @@ export function OIDCClientEditorPage() {
             ))}
           </div>
         </LabeledField>
+
+        <OIDCSessionSettings disabled={fieldsDisabled} draft={draft} setDraft={setDraft} />
 
         {aiGatewayEnabled ? (
           <>

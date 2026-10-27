@@ -23,6 +23,7 @@ import {
   createPermissionGrantMutation,
   deletePermissionGrantMutation,
   getPermissionGrantOptions,
+  getPrincipalOptions,
   listPrincipalGroupsOptions,
   updatePermissionGrantMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
@@ -32,6 +33,8 @@ import { requestErrorCode, requestErrorDetailList, requestErrorMessage } from '.
 import { ErrorBlock } from '../../common/error-block'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { RowActions } from '../console-list-page'
+import { principalGroupDisplayName } from '../state/principal-group-text'
+import { principalLabel } from '../state/principal-label'
 import {
   PermissionGrantEditorModel,
   type PermissionGrantEditorDraft,
@@ -186,11 +189,21 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   const groups = useQuery({
     ...listPrincipalGroupsOptions(),
     select: data => fromDocument(data),
-    enabled: Boolean(loadedGrant?.group_id)
+    enabled: Boolean(loadedGrant?.group_id || (owner && 'groupName' in owner))
   })
-  const ownerGroupName = loadedGrant?.group_id
-    ? groups.data?.find(group => group.id === loadedGrant.group_id)?.name
-    : undefined
+  const ownerGroup = loadedGrant?.group_id
+    ? groups.data?.find(group => group.id === loadedGrant.group_id)
+    : owner && 'groupName' in owner
+      ? groups.data?.find(group => group.name === owner.groupName)
+      : undefined
+  const ownerGroupName = ownerGroup?.name
+  const targetPrincipalUID = owner && 'principalUID' in owner ? owner.principalUID : (loadedGrant?.principal_uid ?? '')
+  const ownerPrincipal = useQuery({
+    ...getPrincipalOptions({ path: { uid: targetPrincipalUID } }),
+    select: data => fromDocument(data),
+    enabled: Boolean(targetPrincipalUID),
+    retry: false
+  })
   const grantDraft = useMemo(
     () => (mode === 'new' ? emptyGrantForm() : loadedGrant ? formFromGrant(loadedGrant) : undefined),
     [loadedGrant, mode]
@@ -202,14 +215,19 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   })
 
   const backTo = ownerBackTo(owner) ?? grantBackTo(loadedGrant, ownerGroupName)
+  const resolvedPrincipalLabel = ownerPrincipal.data ? principalLabel(ownerPrincipal.data) : targetPrincipalUID
   const ownerLabel = owner
     ? 'groupName' in owner
-      ? t('console.permission_grants.owner_group', { id: owner.groupName })
-      : t('console.permission_grants.owner_principal', { id: owner.principalUID })
+      ? t('console.permission_grants.owner_group', {
+          id: ownerGroup ? principalGroupDisplayName(t, ownerGroup) : owner.groupName
+        })
+      : t('console.permission_grants.owner_principal', { id: resolvedPrincipalLabel })
     : loadedGrant
       ? loadedGrant.group_id
-        ? t('console.permission_grants.owner_group', { id: ownerGroupName ?? loadedGrant.group_id })
-        : t('console.permission_grants.owner_principal', { id: loadedGrant.principal_uid ?? '' })
+        ? t('console.permission_grants.owner_group', {
+            id: ownerGroup ? principalGroupDisplayName(t, ownerGroup) : (loadedGrant.group_id ?? '')
+          })
+        : t('console.permission_grants.owner_principal', { id: resolvedPrincipalLabel })
       : ''
 
   const createGrant = useMutation({

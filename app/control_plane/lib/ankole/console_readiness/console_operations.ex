@@ -65,11 +65,6 @@ defmodule Ankole.ConsoleReadiness.ConsoleOperations do
             allow_nil?: false
           ],
           ready: [type: :boolean, allow_nil?: false],
-          signal_route: [
-            type: :map,
-            constraints: [fields: [complete: [type: :boolean, allow_nil?: false]]],
-            allow_nil?: false
-          ],
           total_core_steps: [type: :integer, allow_nil?: false],
           worker: [
             type: :map,

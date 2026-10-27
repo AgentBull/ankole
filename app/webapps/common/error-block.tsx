@@ -11,7 +11,7 @@ export function ErrorBlock({ action, error, title }: { action?: ReactNode; error
     <Alert className="min-w-0 overflow-hidden" variant="destructive">
       <RiErrorWarningLine aria-hidden />
       <AlertTitle>{title ?? i18n.t('common.error')}</AlertTitle>
-      <AlertDescription className="min-w-0 break-all whitespace-pre-wrap">
+      <AlertDescription className="min-w-0 break-words whitespace-pre-wrap">
         {requestErrorMessage(error)}
       </AlertDescription>
       {action ? <div className="mt-3">{action}</div> : null}

@@ -42,23 +42,24 @@ defmodule Ankole.EditionFixture.ConformanceTest do
 
     %{principal: member} = human_fixture()
 
-    {:ok, member_conn, flow} =
-      conn |> pod_conn(tenant) |> init_test_session(%{}) |> WebSession.begin_login(:pod, %{})
+    member_conn =
+      conn |> pod_conn(tenant) |> init_test_session(%{}) |> WebSession.ensure_browser()
 
-    {:ok, _} =
-      Ankole.BrowserSessions.bind_provider(
+    {:ok, completed} =
+      Ankole.BrowserSessions.authenticate(
         WebSession.browser_reference(member_conn),
-        flow.id,
-        "fixture"
+        :pod,
+        %{
+          "principal_uid" => member.uid,
+          "access_version" => member.access_version,
+          "provider_id" => "fixture",
+          "external_id" => "fixture-member"
+        },
+        mode: :add
       )
 
-    {:ok, member_conn, _} =
-      WebSession.complete_login(member_conn, flow.id, %{
-        "principal_uid" => member.uid,
-        "access_version" => member.access_version,
-        "provider_id" => "fixture",
-        "external_id" => "fixture-member"
-      })
+    member_conn =
+      WebSession.put_authentication(member_conn, completed.browser, completed.authentication)
 
     assert member_conn |> api_get("/api/v2/saas-pod/fixture-settings") |> api_response(403)
 
@@ -226,7 +227,7 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     conn: conn
   } do
     previous = Application.get_env(:ankole, Ankole.Authn.Mailer)
-    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: :test)
+    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.Test)
 
     on_exit(fn ->
       if previous,
@@ -241,18 +242,17 @@ defmodule Ankole.EditionFixture.ConformanceTest do
       })
 
     conn = init_test_session(conn, %{})
-    {:ok, conn, flow} = WebSession.begin_login(conn, :site, %{})
-    providers = conn |> api_get("/api/v2/browser/identity-providers", %{flow: flow.id})
+    providers = conn |> api_get("/api/v2/browser/identity-providers", %{purpose: "site"})
     assert api_response(providers, 200)["providers"]
 
-    payload = %{flow: flow.id, email: "fixture@example.test"}
+    payload = %{purpose: "site", email: "fixture@example.test"}
     assert conn |> api_post(@otp_path, payload) |> response(403) == "Fixture challenge required"
 
     passed =
       conn |> put_req_header("x-fixture-challenge", "passed") |> api_post(@otp_path, payload)
 
     assert api_response(passed, 200)["challengeID"]
-    assert_receive {:delivered_email, %{to: "fixture@example.test"}}
+    assert_receive {:email, %Swoosh.Email{to: [{_, "fixture@example.test"}]}}
 
     {:ok, _} =
       AppConfigure.put_global_by_key("features.fixture.auth-challenge", %{
@@ -262,15 +262,17 @@ defmodule Ankole.EditionFixture.ConformanceTest do
       })
 
     snapshot =
-      conn |> api_get("/api/v2/browser/identity-providers", %{flow: flow.id}) |> api_response(200)
+      conn
+      |> api_get("/api/v2/browser/identity-providers", %{purpose: "site"})
+      |> api_response(200)
 
     refute Map.has_key?(snapshot, "features")
 
     unchallenged =
-      conn |> api_post(@otp_path, %{flow: flow.id, email: "fixture-disabled@example.test"})
+      conn |> api_post(@otp_path, %{purpose: "site", email: "fixture-disabled@example.test"})
 
     assert api_response(unchallenged, 200)["challengeID"]
-    assert_receive {:delivered_email, %{to: "fixture-disabled@example.test"}}
+    assert_receive {:email, %Swoosh.Email{to: [{_, "fixture-disabled@example.test"}]}}
 
     assert AnkoleWeb.JSONAPI.BrowserRouter.spec().paths[@otp_path].post.operationId ==
              "requestEmailOTP"

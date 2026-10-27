@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
+  commitCronNumberDraft,
   CronEditor,
   cronEditorFields,
   cronEditorMode,
@@ -68,5 +69,12 @@ describe('CronEditor', () => {
     const html = renderToStaticMarkup(<CronEditor value="*/5 9-17 * * 1-5" onChange={() => {}} />)
     expect(html).toContain('*/5 9-17 * * 1-5')
     expect(html).toContain('Custom expression')
+  })
+
+  test('clamps transient numeric drafts on blur or Enter while preserving fallback on empty input', () => {
+    expect(commitCronNumberDraft('', 15, 1, 59)).toBe(15)
+    expect(commitCronNumberDraft('15', 5, 1, 59)).toBe(15)
+    expect(commitCronNumberDraft('0', 5, 1, 59)).toBe(1)
+    expect(commitCronNumberDraft('99', 5, 1, 59)).toBe(59)
   })
 })

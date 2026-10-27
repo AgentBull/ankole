@@ -5,9 +5,9 @@ defmodule Ankole.Pod.Position do
   digit, so a later key can always go before it.
   """
 
-  @digits ~c"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-  @base length(@digits)
-  @index @digits |> Enum.with_index() |> Map.new()
+  @base 62
+  @mid_byte ?V
+  @top_byte ?z
 
   @doc "A key after `lower` and before `upper`. `nil` is an open end. Returns `:error` for keys it cannot order."
   def between(lower, upper) do
@@ -21,78 +21,102 @@ defmodule Ankole.Pod.Position do
   @doc "`count` ascending keys of one width, for a sibling list that must be renumbered."
   def sequence(count) when count > 0 do
     width = width(count + 1, 1)
-    space = Integer.pow(@base, width)
-
-    for i <- 1..count do
-      key = encode(div(i * space, count + 1), width)
-      if String.ends_with?(key, "0"), do: key <> "V", else: key
-    end
+    space = pow(@base, width)
+    sequence_range(1, count, space, count + 1, width)
   end
 
-  defp width(count, width),
-    do: if(Integer.pow(@base, width) > count, do: width, else: width(count, width + 1))
+  defp sequence_range(i, count, _space, _denom, _width) when i > count, do: []
 
-  defp encode(value, width) do
-    value
-    |> Integer.digits(@base)
-    |> Enum.map(&Enum.at(@digits, &1))
-    |> List.to_string()
-    |> String.pad_leading(width, "0")
+  defp sequence_range(i, count, space, denom, width) do
+    value = div(i * space, denom)
+    key = encode(value, width, "")
+    key = if rem(value, @base) == 0, do: key <> <<@mid_byte>>, else: key
+    [key | sequence_range(i + 1, count, space, denom, width)]
   end
 
-  defp valid?(key),
-    do:
-      not String.ends_with?(key, "0") and
-        key |> String.to_charlist() |> Enum.all?(&Map.has_key?(@index, &1))
-
-  defp midpoint(lower, upper) when is_binary(upper) do
-    case common_prefix(lower, upper, 0) do
-      0 -> step(lower, upper)
-      n -> binary_part(upper, 0, n) <> midpoint(tail(lower, n), tail(upper, n))
-    end
+  defp width(count, current) do
+    if pow(@base, current) > count, do: current, else: width(count, current + 1)
   end
+
+  defp pow(_base, 0), do: 1
+  defp pow(base, exp), do: base * pow(base, exp - 1)
+
+  defp encode(_value, 0, acc), do: acc
+
+  defp encode(value, width, acc) do
+    digit = digit_byte(rem(value, @base))
+    encode(div(value, @base), width - 1, <<digit, acc::binary>>)
+  end
+
+  defp valid?(""), do: true
+  defp valid?(key), do: valid_nonempty?(key)
+
+  defp valid_nonempty?(<<?0>>), do: false
+  defp valid_nonempty?(<<c>>), do: digit_byte?(c)
+  defp valid_nonempty?(<<c, rest::binary>>), do: digit_byte?(c) and valid_nonempty?(rest)
+  defp valid_nonempty?(_), do: false
+
+  defp digit_byte?(c), do: c in ?0..?9 or c in ?A..?Z or c in ?a..?z
+
+  defp midpoint(lower, nil), do: after_key(lower)
+
+  defp midpoint(<<c, l_rest::binary>>, <<c, u_rest::binary>>),
+    do: <<c>> <> midpoint(l_rest, u_rest)
+
+  defp midpoint("", <<?0, u_rest::binary>>),
+    do: <<?0>> <> midpoint("", u_rest)
+
+  defp midpoint(lower, <<u, u_rest::binary>>),
+    do: step(lower, u, u_rest)
 
   # Appending raises the last digit that can rise, so a long append run adds
   # one character per alphabet pass.
-  defp midpoint("", nil), do: <<Enum.at(@digits, div(@base, 2))>>
+  defp after_key(""), do: <<@mid_byte>>
 
-  defp midpoint(lower, nil) do
-    top = List.last(@digits)
-
-    rising =
-      lower |> String.to_charlist() |> Enum.with_index() |> Enum.filter(&(elem(&1, 0) != top))
-
-    case List.last(rising) do
-      nil ->
-        lower <> <<Enum.at(@digits, div(@base, 2))>>
-
-      {char, index} ->
-        binary_part(lower, 0, index) <> <<Enum.at(@digits, Map.fetch!(@index, char) + 1)>>
+  defp after_key(lower) do
+    case raise_last(lower) do
+      {:ok, raised} -> raised
+      :all_top -> lower <> <<@mid_byte>>
     end
   end
 
-  defp step(lower, upper) do
-    low = if lower == "", do: 0, else: digit(lower)
-    high = if upper, do: digit(upper), else: @base
+  defp raise_last(<<>>), do: :all_top
+
+  defp raise_last(<<@top_byte, rest::binary>>) do
+    case raise_last(rest) do
+      {:ok, raised} -> {:ok, <<@top_byte, raised::binary>>}
+      :all_top -> :all_top
+    end
+  end
+
+  defp raise_last(<<c, rest::binary>>) do
+    case raise_last(rest) do
+      {:ok, raised} -> {:ok, <<c, raised::binary>>}
+      :all_top -> {:ok, <<digit_byte(digit_index(c) + 1)>>}
+    end
+  end
+
+  defp step(lower, u, u_rest) do
+    {low, l_rest} =
+      case lower do
+        "" -> {0, ""}
+        <<l, rest::binary>> -> {digit_index(l), rest}
+      end
+
+    high = digit_index(u)
 
     cond do
-      high - low > 1 -> <<Enum.at(@digits, div(low + high + 1, 2))>>
-      is_binary(upper) and byte_size(upper) > 1 -> binary_part(upper, 0, 1)
-      true -> <<Enum.at(@digits, low)>> <> midpoint(tail(lower, 1), nil)
+      high - low > 1 -> <<digit_byte(div(low + high + 1, 2))>>
+      byte_size(u_rest) > 0 -> <<u>>
+      true -> <<digit_byte(low)>> <> after_key(l_rest)
     end
   end
 
-  defp common_prefix(lower, upper, n) when n < byte_size(upper) do
-    if char(lower, n) == :binary.at(upper, n), do: common_prefix(lower, upper, n + 1), else: n
-  end
+  defp digit_index(c) when c in ?0..?9, do: c - ?0
+  defp digit_index(c) when c in ?A..?Z, do: c - ?A + 10
+  defp digit_index(c) when c in ?a..?z, do: c - ?a + 36
 
-  defp common_prefix(_lower, _upper, n), do: n
-
-  defp char(key, n) when n < byte_size(key), do: :binary.at(key, n)
-  defp char(_key, _n), do: ?0
-
-  defp digit(key), do: Map.fetch!(@index, :binary.at(key, 0))
-
-  defp tail(key, n) when n < byte_size(key), do: binary_part(key, n, byte_size(key) - n)
-  defp tail(_key, _n), do: ""
+  defp digit_byte(i) when i >= 0 and i < 10, do: ?0 + i
+  defp digit_byte(i) when i >= 10 and i < 36, do: ?A + i - 10
+  defp digit_byte(i) when i >= 36 and i < 62, do: ?a + i - 36
 end

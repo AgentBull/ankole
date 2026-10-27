@@ -5,11 +5,12 @@
  * The functions that take an editor dispatch one undo step. The functions that take a state return
  * the transaction spec of the same operation, for composition and for tests.
  */
-import { Leaf, Plot, type ChangeSet, type Node, type Pos, type Schema, type Token } from '../core/doc'
+import { Leaf, Node, Plot, type ChangeSet, type Pos, type Schema, type Token } from '../core/doc'
 import type { Wordgard } from '../core/editor'
 import { GardSelection, type GardState, type Transaction } from '../core/state'
 import * as T from '../core/types'
 import { blocks } from '../blocks'
+import { Callout } from '../blocks/callout'
 import { compareNames } from '../document/tree'
 import { Attrs, markSet, markValue, type Pairs } from './attributes'
 import { blockInsertion, compose, dispatchStep, isContainer, isList, isListItem, withLeadingEdit } from './block-insert'
@@ -175,8 +176,21 @@ export function currentBlock(state: GardState): number | null {
 
 /** Whether the block menu can turn the top-level block at `pos` into another type. */
 export function canTurnInto(state: GardState, pos: number): boolean {
-  const node = state.doc.resolveNode(pos)?.node
-  return !!node && (node.type === T.Paragraph.type || node.type === T.Heading || node.type === T.CodeBlock.type)
+  const node = topLevel(state, pos)?.[0]?.node
+  return (
+    !!node &&
+    (node.type === T.Paragraph.type ||
+      node.type === T.Heading ||
+      node.type === T.CodeBlock.type ||
+      node.type === S.Blockquote.type ||
+      node.type === Callout.type ||
+      node.type.hasRole(Node.Role.List))
+  )
+}
+
+/** Turn the top-level block at `pos` into `type` as one undo step. */
+export function turnBlockInto(editor: Wordgard, pos: number, type: BlockType): boolean {
+  return step(editor, turnBlock(editor.state, pos, type))
 }
 
 /**
@@ -230,6 +244,107 @@ function step(editor: Wordgard, spec: Transaction.Spec | null): boolean {
 
 // ---------------------------------------------------------------------------
 // Block types
+
+/** Select all inline or selectable positions inside `[from, to]` on a copy of `state`. */
+function selectSpan(state: GardState, from: number, to: number): GardState | null {
+  const start = GardSelection.near(state, from, 1).from
+  const end = GardSelection.near(state, to, -1).to
+  if (start < from || start > to || end < from || end > to) return null
+  return state.update({ selection: GardSelection.range(start, end) }).state
+}
+
+/** The spec of `turnBlockInto` for a top-level block at `pos`. */
+export function turnBlock(state: GardState, pos: number, type: BlockType): Transaction.Spec | null {
+  const target = topLevel(state, pos)?.[0]
+  if (!target?.node.isPlot || !canTurnInto(state, pos) || state.readOnly) return null
+  if (!blockOptions.find(option => option.type === type)?.turnInto) return null
+  const plot = target as Pos.Plot
+  const inside = state.selection.from > plot.before && state.selection.to < plot.after
+
+  if (plot.node.isTextblock) {
+    const apply = (next: GardState): Transaction.Spec | null =>
+      type === 'callout'
+        ? { ...blockInsertion(next, Callout.create([])), userEvent: 'block.insert' }
+        : blockChange(next, type as CoreBlockType)
+    if (inside) return apply(state)
+    const atEnd = GardSelection.atEnd(state, plot)
+    const preview = apply(state.update({ selection: atEnd }).state)
+    return preview ? compose(state, { selection: atEnd }, apply) : null
+  }
+
+  if (plot.node.type.hasRole(Node.Role.List)) {
+    if (type === 'quote' || type === 'callout') {
+      const container = state.schema.withMarksFrom(plot.node.tag, type === 'quote' ? S.Blockquote : Callout)
+      const whole = selectSpan(state, plot.before, plot.after)
+      const unlisted = whole ? turnInto(whole, { kind: 'text', tag: T.Paragraph }) : null
+      if (!unlisted) return null
+      const tailLength = state.doc.length - plot.after
+      return compose(state, unlisted, next => {
+        const end = next.doc.length - tailLength
+        return {
+          changes: [
+            { from: plot.before, insert: [container] },
+            { from: end, insert: [Plot.End] }
+          ],
+          selection: cx => GardSelection.near(cx, end + 1, -1),
+          userEvent: 'block.type'
+        }
+      })
+    }
+    const keepPartial = !state.selection.empty && inside
+    const base = keepPartial ? state : selectSpan(state, plot.before, plot.after)
+    const spec = base ? blockChange(base, type as CoreBlockType) : null
+    if (!spec) return null
+    return inside
+      ? spec
+      : {
+          ...spec,
+          selection: spec.selection ?? ((cx, changes) => GardSelection.near(cx, changes.mapPos(plot.before, 1) + 1, 1))
+        }
+  }
+
+  const isQuote = (plot.node as Node).type === S.Blockquote.type
+  if ((isQuote && type === 'quote') || (!isQuote && type === 'callout')) return null
+  if (type === 'quote' || type === 'callout') {
+    const container = state.schema.withMarksFrom(plot.node.tag, type === 'quote' ? S.Blockquote : Callout)
+    if (!plot.node.content.length) {
+      return {
+        changes: { from: plot.before, to: plot.after, insert: [container.create([T.Paragraph.create([])])] },
+        selection: GardSelection.cursor(plot.before + 2),
+        userEvent: 'block.type'
+      }
+    }
+    return {
+      changes: { from: plot.before, to: plot.start, insert: [container] },
+      selection: inside ? undefined : cx => selectStart(cx, plot.start, plot.node.firstChild!),
+      userEvent: 'block.type'
+    }
+  }
+
+  if (!plot.node.content.length) {
+    const unwrap: Transaction.Spec = {
+      changes: { from: plot.before, to: plot.after, insert: [T.Paragraph.create([])] },
+      selection: GardSelection.cursor(plot.before + 1),
+      userEvent: 'block.type'
+    }
+    return compose(state, unwrap, next => blockChange(next, type as CoreBlockType))
+  }
+
+  const tailLength = state.doc.length - plot.after
+  const firstChild = plot.node.firstChild!
+  const unwrap: Transaction.Spec = {
+    changes: [
+      { from: plot.before, to: plot.start },
+      { from: plot.end, to: plot.after }
+    ],
+    selection: inside ? undefined : cx => selectStart(cx, plot.before, firstChild),
+    userEvent: 'block.type'
+  }
+  return compose(state, unwrap, next => {
+    const selected = selectSpan(next, plot.before, next.doc.length - tailLength)
+    return selected ? blockChange(selected, type as CoreBlockType) : null
+  })
+}
 
 /** The change that `applyBlockType` makes for a core block type, or null when nothing changes. */
 export function blockChange(state: GardState, type: CoreBlockType): Transaction.Spec | null {

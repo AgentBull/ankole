@@ -11,6 +11,228 @@ defmodule Ankole.Pod.BaseStorageTest do
     %{actor: actor, page: page, table: table, primary: primary}
   end
 
+  test "single-valued links have independent constraints across fields and tables", ctx do
+    {:ok, target} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "People"})
+    {:ok, other} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "Other work"})
+
+    for table <- [ctx.table, other], number <- 1..2 do
+      assert {:ok, field} =
+               Bases.create_field(ctx.actor, table.id, %{
+                 name: "Owner #{number}",
+                 type: "link",
+                 config: %{"table_id" => target.id, "multiple" => false, "bidirectional" => true}
+               })
+
+      reverse = Enum.find(Bases.fields(target.id), &(&1.id == field.config["reverse_field_id"]))
+
+      assert {:ok, _} =
+               Bases.update_field(ctx.actor, reverse.id, %{
+                 version: reverse.version,
+                 config: Map.put(reverse.config, "multiple", false)
+               })
+
+      assert {:ok, %{records: [person]}} =
+               Bases.write_records(ctx.actor, target.id, %{creates: [%{data: %{}}]})
+
+      assert {:ok, %{records: [work]}} =
+               Bases.write_records(ctx.actor, table.id, %{
+                 creates: [%{data: %{field.id => [person.id]}}]
+               })
+
+      assert {:ok, %{records: [saved]}} =
+               Bases.query(ctx.actor, target.id, %{ids: [person.id]})
+
+      assert saved["data"][reverse.id] == [work.id]
+
+      assert {:error, :link_cardinality} =
+               Bases.write_records(ctx.actor, table.id, %{
+                 creates: [%{data: %{field.id => [person.id]}}]
+               })
+    end
+  end
+
+  test "deleting a single-valued field removes its cardinality from the surviving link", ctx do
+    {:ok, target} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "People"})
+
+    {:ok, field} =
+      Bases.create_field(ctx.actor, ctx.table.id, %{
+        name: "Owner",
+        type: "link",
+        config: %{"table_id" => target.id, "multiple" => false, "bidirectional" => true}
+      })
+
+    {:ok, %{records: [person, second_person]}} =
+      Bases.write_records(ctx.actor, target.id, %{creates: [%{data: %{}}, %{data: %{}}]})
+
+    {:ok, %{records: [work]}} =
+      Bases.write_records(ctx.actor, ctx.table.id, %{
+        creates: [%{data: %{field.id => [person.id]}}]
+      })
+
+    assert {:ok, _} = Bases.delete_field(ctx.actor, field.id, field.version)
+
+    assert {:ok, _} =
+             Bases.write_records(ctx.actor, target.id, %{
+               updates: [
+                 %{
+                   id: second_person.id,
+                   data: %{field.config["reverse_field_id"] => [work.id]},
+                   expected_versions: second_person.versions
+                 }
+               ]
+             })
+
+    assert {:ok, %{records: saved}} =
+             Bases.query(ctx.actor, target.id, %{ids: [person.id, second_person.id]})
+
+    assert length(saved) == 2
+    assert Enum.all?(saved, &(&1["data"][field.config["reverse_field_id"]] == [work.id]))
+  end
+
+  test "stored legacy single-link constraints can change cardinality without losing links", ctx do
+    {:ok, target} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "People"})
+
+    {:ok, field} =
+      Bases.create_field(ctx.actor, ctx.table.id, %{
+        name: "Owner",
+        type: "link",
+        config: %{"table_id" => target.id, "multiple" => false, "bidirectional" => true}
+      })
+
+    reverse = Enum.find(Bases.fields(target.id), &(&1.id == field.config["reverse_field_id"]))
+
+    {:ok, reverse} =
+      Bases.update_field(ctx.actor, reverse.id, %{
+        version: reverse.version,
+        config: Map.put(reverse.config, "multiple", false)
+      })
+
+    {:ok, %{records: [person, second_person]}} =
+      Bases.write_records(ctx.actor, target.id, %{creates: [%{data: %{}}, %{data: %{}}]})
+
+    {:ok, %{records: [work]}} =
+      Bases.write_records(ctx.actor, ctx.table.id, %{
+        creates: [%{data: %{field.id => [person.id]}}]
+      })
+
+    BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+      for link <- [field, reverse] do
+        BaseRepo.query!(
+          "ALTER TABLE #{BaseRepo.edge(link.config["edge_table"])} RENAME CONSTRAINT single_#{BaseRepo.hex(link.id)} TO #{link.config["edge_role"]}_single",
+          []
+        )
+      end
+    end)
+
+    for link <- [field, reverse] do
+      assert {:ok, _} =
+               Bases.update_field(ctx.actor, link.id, %{
+                 version: link.version,
+                 config: Map.put(link.config, "multiple", true)
+               })
+    end
+
+    assert {:ok, %{records: [current_work]}} =
+             Bases.query(ctx.actor, ctx.table.id, %{ids: [work.id]})
+
+    assert {:ok, %{records: records}} =
+             Bases.write_records(ctx.actor, ctx.table.id, %{
+               updates: [
+                 %{
+                   id: work.id,
+                   data: %{field.id => [person.id, second_person.id]},
+                   expected_versions: current_work["versions"]
+                 }
+               ],
+               creates: [%{data: %{field.id => [person.id]}}]
+             })
+
+    updated = Enum.find(records, &(&1.id == work.id))
+    assert updated.data[field.id] == [person.id, second_person.id]
+
+    for {link, conflicting_id} <- [{field, work.id}, {reverse, person.id}] do
+      current = Enum.find(Bases.fields(link.table_id), &(&1.id == link.id))
+
+      assert {:error, {:conversion_failed, [^conflicting_id]}} =
+               Bases.update_field(ctx.actor, link.id, %{
+                 version: current.version,
+                 config: Map.put(current.config, "multiple", false)
+               })
+    end
+
+    assert {:ok, %{records: [saved]}} = Bases.query(ctx.actor, ctx.table.id, %{ids: [work.id]})
+    assert saved["data"][field.id] == [person.id, second_person.id]
+
+    second_work = Enum.find(records, &(&1.id != work.id))
+
+    assert {:ok, _} =
+             Bases.write_records(ctx.actor, ctx.table.id, %{
+               updates: [
+                 %{
+                   id: work.id,
+                   data: %{field.id => [person.id]},
+                   expected_versions: saved["versions"]
+                 }
+               ],
+               deletes: [%{id: second_work.id, expected_versions: second_work.versions}]
+             })
+
+    for link <- [field, reverse] do
+      current = Enum.find(Bases.fields(link.table_id), &(&1.id == link.id))
+
+      assert {:ok, _} =
+               Bases.update_field(ctx.actor, link.id, %{
+                 version: current.version,
+                 config: Map.put(current.config, "multiple", false)
+               })
+    end
+
+    assert {:ok, %{records: [saved]}} = Bases.query(ctx.actor, ctx.table.id, %{ids: [work.id]})
+    assert saved["data"][field.id] == [person.id]
+  end
+
+  for mode <- [:inline, :physical] do
+    test "#{mode} text-to-number conversion keeps PostgreSQL numeric precision", ctx do
+      if unquote(mode) == :physical do
+        assert {:ok, _} =
+                 Bases.create_field(ctx.actor, ctx.table.id, %{
+                   name: "Peer",
+                   type: "link",
+                   config: %{"table_id" => ctx.table.id}
+                 })
+      end
+
+      assert {:ok, field} =
+               Bases.create_field(ctx.actor, ctx.table.id, %{name: "Exact", type: "text"})
+
+      number = "12345678901234567890.12345678901234567890"
+
+      assert {:ok, _} =
+               Bases.write_records(ctx.actor, ctx.table.id, %{
+                 creates: [%{data: %{ctx.primary.id => "Precision", field.id => number}}]
+               })
+
+      assert {:ok, _} = Bases.update_field(ctx.actor, field.id, %{version: 1, type: "number"})
+
+      stored =
+        if unquote(mode) == :inline do
+          Repo.query!(
+            "SELECT data->>$3::text FROM base_records WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid",
+            [Repo.tenant_id!(), ctx.table.id, field.id]
+          ).rows
+        else
+          BaseRepo.with_shard(BaseRepo.shard!(), fn ->
+            BaseRepo.query!(
+              "SELECT #{BaseRepo.column(field.id)}::text FROM #{BaseRepo.table(ctx.table.id)}",
+              []
+            ).rows
+          end)
+        end
+
+      assert stored == [[number]]
+    end
+  end
+
   test "primary fields keep their text type while their name and position can change", ctx do
     for mode <- [:inline, :physical] do
       if mode == :physical do

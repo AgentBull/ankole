@@ -52,7 +52,7 @@ defmodule AnkoleWeb.Plugs.RequestHost do
           if conn.method == "GET" and conn.host in ["localhost", "127.0.0.1", "::1"] and
                browser_shell?(conn.request_path) and
                URI.parse(AnkoleWeb.PodURL.site_origin(conn)).host != conn.host do
-            if Map.has_key?(URI.decode_query(conn.query_string), "flow") do
+            if Map.has_key?(URI.decode_query(conn.query_string), "oauth_request") do
               conn
               |> Plug.Conn.send_resp(
                 401,

@@ -78,6 +78,40 @@ defmodule Ankole.Pod.FilesTest do
              Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
   end
 
+  test "file creation commits its name and bytes together and rolls back a failed destination",
+       ctx do
+    actor = actor_fixture(ctx.owner)
+
+    assert {:ok, page} =
+             Files.create_from_upload(
+               actor,
+               %{private_owner_uid: ctx.owner},
+               "report.pdf",
+               "%PDF report",
+               "application/pdf"
+             )
+
+    assert page.title == "report.pdf"
+    assert page.type == :file
+    assert page.revision == 1
+    assert {:ok, _, "%PDF report"} = Files.read(actor, page.id, "report.pdf")
+    assert {:error, :file_too_large} = Files.read(actor, page.id, "report.pdf", nil, max_bytes: 5)
+    assert {:ok, _, "%PDF report"} = Files.read(actor, page.id, "report.pdf", nil, max_bytes: 11)
+
+    before = Repo.aggregate(Ankole.Pod.Page, :count)
+
+    assert {:error, _} =
+             Files.create_from_upload(
+               actor,
+               %{parent_id: Ecto.UUID.generate()},
+               "failed.pdf",
+               "failed",
+               "application/pdf"
+             )
+
+    assert Repo.aggregate(Ankole.Pod.Page, :count) == before
+  end
+
   test "document assets use their full digest and do not consume document revisions", ctx do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{title: "Images"})
@@ -305,6 +339,21 @@ defmodule Ankole.Pod.FilesTest do
              Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), page.id, file.path)
 
     refute Ankole.AuthZ.allowed?(ctx.reader, resource, "read")
+
+    assert {:ok, saved} =
+             Files.create_from_message(actor_fixture(ctx.reader), %{
+               type: :file,
+               saved_from_message_id: message.id,
+               attachment_path: attachment["path"],
+               private_owner_uid: ctx.reader
+             })
+
+    assert saved.saved_from_message_id == message.id
+    assert saved.title == attachment["name"]
+    assert saved.revision == 1
+
+    assert {:ok, _, "committed report bytes"} =
+             Files.read(actor_fixture(ctx.reader), saved.id, file.path)
 
     Ankole.FilesFixtures.drive_file_fixture(agent, "private/unshared.txt", "private notes")
 

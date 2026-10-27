@@ -18,6 +18,9 @@ import type {
   CreateConversationData,
   CreateConversationErrors,
   CreateConversationResponses,
+  CreatePodIdentityProviderData,
+  CreatePodIdentityProviderErrors,
+  CreatePodIdentityProviderResponses,
   CreatePodInvitationData,
   CreatePodInvitationErrors,
   CreatePodInvitationResponses,
@@ -75,6 +78,9 @@ import type {
   PodBaseTableDeleteData,
   PodBaseTableDeleteErrors,
   PodBaseTableDeleteResponses,
+  PodBaseTableRenameData,
+  PodBaseTableRenameErrors,
+  PodBaseTableRenameResponses,
   PodBaseTablesData,
   PodBaseTablesErrors,
   PodBaseTablesResponses,
@@ -156,9 +162,6 @@ import type {
   PodPageUserStateData,
   PodPageUserStateErrors,
   PodPageUserStateResponses,
-  PodPublishData,
-  PodPublishErrors,
-  PodPublishResponses,
   PodRealtimeTokenData,
   PodRealtimeTokenErrors,
   PodRealtimeTokenResponses,
@@ -225,6 +228,9 @@ import type {
   UpdatePodAdminSettingsData,
   UpdatePodAdminSettingsErrors,
   UpdatePodAdminSettingsResponses,
+  UpdatePodProfileData,
+  UpdatePodProfileErrors,
+  UpdatePodProfileResponses,
   VerifyPodEmailBindingData,
   VerifyPodEmailBindingErrors,
   VerifyPodEmailBindingResponses
@@ -272,6 +278,23 @@ export const podBaseSchema = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}',
     ...options
+  })
+
+/**
+ * podBaseTableRename operation on pod_base_operation resource
+ */
+export const podBaseTableRename = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableRenameData, ThrowOnError>
+): RequestResult<PodBaseTableRenameResponses, PodBaseTableRenameErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodBaseTableRenameResponses, PodBaseTableRenameErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -367,23 +390,6 @@ export const podVersions = <ThrowOnError extends boolean = true>(
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options?.headers
-    }
-  })
-
-/**
- * podPublish operation on pod_file_operation resource
- */
-export const podPublish = <ThrowOnError extends boolean = true>(
-  options: Options<PodPublishData, ThrowOnError>
-): RequestResult<PodPublishResponses, PodPublishErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodPublishResponses, PodPublishErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/publish',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
     }
   })
 
@@ -934,6 +940,28 @@ export const podBaseFieldUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * createPodIdentityProvider operation on pod_admin_operation resource
+ */
+export const createPodIdentityProvider = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodIdentityProviderData, ThrowOnError>
+): RequestResult<CreatePodIdentityProviderResponses, CreatePodIdentityProviderErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    CreatePodIdentityProviderResponses,
+    CreatePodIdentityProviderErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * savePodIdentityProvider operation on pod_admin_operation resource
  */
 export const savePodIdentityProvider = <ThrowOnError extends boolean = true>(
@@ -1328,6 +1356,23 @@ export const podMe = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/me',
     ...options
+  })
+
+/**
+ * updatePodProfile operation on pod_member_account resource
+ */
+export const updatePodProfile = <ThrowOnError extends boolean = true>(
+  options: Options<UpdatePodProfileData, ThrowOnError>
+): RequestResult<UpdatePodProfileResponses, UpdatePodProfileErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<UpdatePodProfileResponses, UpdatePodProfileErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**

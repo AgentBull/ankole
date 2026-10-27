@@ -25,9 +25,6 @@ export const PageSharingModel = createModel(() => {
   return {
     draft,
     conflictReloaded,
-    initialize(source: PodPageSharingResponse) {
-      if (!draft.peek()) draft.value = source
-    },
     replace(source: PodPageSharingResponse) {
       batch(() => {
         draft.value = source
@@ -49,9 +46,10 @@ export const PageSharingModel = createModel(() => {
     add(grant: SharingGrant) {
       const current = draft.peek()
       if (current) {
+        const next = { ...grant, target_scope: grant.target_scope ?? 'container' }
         draft.value = {
           ...current,
-          grants: [...current.grants.filter(item => ruleKey(item) !== ruleKey(grant)), grant]
+          grants: [...current.grants.filter(item => ruleKey(item) !== ruleKey(next)), next]
         }
       }
     },

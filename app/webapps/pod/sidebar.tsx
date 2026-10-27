@@ -11,7 +11,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import { RiChat3Line, RiHome5Line, RiSearchLine } from '@remixicon/react'
+import { RiChat3Line, RiHome5Line, RiSearchLine, RiSettings3Line } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,6 +26,12 @@ import { usePodCommandMenu } from './command-menu'
 
 import { browserSession } from '../common/api/generated/sdk.gen'
 
+export function routeSidebarTab(pathname: string): 'home' | 'chat' | undefined {
+  if (pathname.startsWith('/pages/') || pathname.startsWith('/content/')) return 'home'
+  if (pathname === '/' || pathname.startsWith('/conversations/')) return 'chat'
+  return undefined
+}
+
 export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNode }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -36,9 +42,8 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
   const location = useLocation()
   const { isMobile, setOpenMobile } = useSidebar()
   const openCommand = usePodCommandMenu()
-  const [tab, setTab] = useState<'home' | 'chat'>(
-    location.pathname.includes('/pages/') || location.pathname.includes('/content/') ? 'home' : 'chat'
-  )
+  const [tab, setTab] = useState<'home' | 'chat'>(() => routeSidebarTab(location.pathname) ?? 'chat')
+  const settingsActive = location.pathname === '/settings' || location.pathname.startsWith('/settings/')
   const closeMobile = () => {
     if (isMobile) setOpenMobile(false)
   }
@@ -46,7 +51,8 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
     if (isMobile) setOpenMobile(false)
   }, [location.pathname, isMobile, setOpenMobile])
   useEffect(() => {
-    setTab(location.pathname.includes('/pages/') || location.pathname.includes('/content/') ? 'home' : 'chat')
+    const next = routeSidebarTab(location.pathname)
+    if (next) setTab(next)
   }, [location.pathname])
 
   return (
@@ -103,8 +109,14 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
       </Tabs>
       <SidebarFooter className="pod-sidebar-footer">
         {account.data?.canManagePod && (
-          <Link to="/settings" className="p-2 text-sm">
-            {t('pod.settings.title')}
+          <Link
+            to="/settings"
+            className="pod-nav-link mb-1"
+            aria-current={settingsActive ? 'page' : undefined}
+            data-active={settingsActive ? '' : undefined}
+            onClick={closeMobile}>
+            <RiSettings3Line aria-hidden />
+            <span className="truncate">{t('pod.settings.title')}</span>
           </Link>
         )}
         <AccountMenu extra={accountNavigation} />

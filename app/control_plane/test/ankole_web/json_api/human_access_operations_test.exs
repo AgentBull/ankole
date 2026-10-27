@@ -86,6 +86,13 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     assert {:ok, source} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: admin_uid})
     assert {:ok, target} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: admin_uid})
 
+    assert {:ok, _} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: uid,
+               resource_pattern: "pod:**:#{source.id}:**",
+               action: "page_view"
+             })
+
     assert {:ok, userset} =
              AuthZ.create_permission_grant(%{
                source_page_id: source.id,
@@ -143,6 +150,31 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
            |> recycle_api()
            |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
            |> json_response(201) == restored
+  end
+
+  test "unrelated private Page sharing does not change a member restoration review" do
+    person = human_fixture().principal
+    owner = human_fixture().principal
+    actor = actor_fixture(owner.uid)
+    assert {:ok, source} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: owner.uid})
+    assert {:ok, target} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: owner.uid})
+
+    assert {:ok, _} =
+             Principals.PodAdministration.disable(actor, person.uid, :suspended, "review")
+
+    assert {:ok, before} = AuthZ.restoration_review(person.uid)
+
+    assert {:ok, _} =
+             AuthZ.create_permission_grant(%{
+               source_page_id: source.id,
+               source_action: "page_view",
+               resource_pattern: "pod:**:#{target.id}:**",
+               action: "page_view"
+             })
+
+    assert {:ok, after_sharing} = AuthZ.restoration_review(person.uid)
+    assert after_sharing.fingerprint == before.fingerprint
+    assert after_sharing.permissions["userset_grants"] == []
   end
 
   test "read and mutations require a live Console administrator", %{conn: conn, tenant: tenant} do

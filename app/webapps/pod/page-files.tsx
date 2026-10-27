@@ -1,13 +1,15 @@
 import { t } from 'i18next'
 import { Button, buttonVariants, cn } from '@ankole/uikit'
+import { RiUploadCloud2Line } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useRef, useState } from 'react'
-import { InternalAPIError } from '../common/internal-api-client'
+import { createClientConfig, InternalAPIError } from '../common/internal-api-client'
 import { contentKeys, fileURL, type PageDetail } from './content-api'
 import { ContentError } from './content-primitives'
 import { podFiles } from './api/generated/sdk.gen'
 import { uploadFile } from './native-transfers'
 import type { PodFileCopyResponse } from './api/generated/types.gen'
+import { CodeBlockView } from './chat/code-block-view'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
 
@@ -15,6 +17,8 @@ export type DriveFile = NonNullable<Awaited<ReturnType<typeof podFiles>>>['files
 export type UploadedFile = PodFileCopyResponse
 const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
+const transport = createClientConfig({}).fetch!
+const TEXT_BYTES = 64 * 1024
 const filesQuery = (id: string) => ({
   queryKey: [...contentKeys.page(id), 'files'],
   queryFn: () => podFiles({ path: { id } })
@@ -31,22 +35,22 @@ export async function uploadPageFile(
 
 export function FilePage({ detail }: { detail: PageDetail }) {
   const { page, actions } = detail
+  const canEdit = actions.includes('page_edit')
   const manifest = useQuery(filesQuery(page.id))
-  const [selected, setSelected] = useState<File>()
   const input = useRef<HTMLInputElement>(null)
   const uploading = useRef(false)
+  const [dragOver, setDragOver] = useState(false)
   const client = useQueryClient()
   const connection = usePageRealtime(page.id, page.revision)
   const upload = useMutation({
     mutationFn: ({ file, revision }: { file: File; revision: number }) =>
       uploadPageFile(page.id, file, 'file', revision),
-    onSuccess: (_, submitted) => {
-      setSelected(current => (current === submitted.file ? undefined : current))
+    onSuccess: () => {
       if (input.current) input.current.value = ''
       return client.invalidateQueries({ queryKey: contentKeys.all })
     },
-    onError: error => {
-      if (error instanceof InternalAPIError && error.status === 409) void manifest.refetch()
+    onError: async error => {
+      if (error instanceof InternalAPIError && error.status === 409) await manifest.refetch()
       if (error instanceof InternalAPIError && error.status === 403) {
         void client.invalidateQueries({ queryKey: contentKeys.page(page.id) })
       }
@@ -60,13 +64,49 @@ export function FilePage({ detail }: { detail: PageDetail }) {
   )
   const name = file?.path.split('/').at(-1) ?? t('pod.content.file')
   const chooseLabel = file ? t('pod.content.choose_a_replacement_file') : t('pod.content.choose_a_file_to_upload')
+  const canUpload = Boolean(manifest.data) && !manifest.isFetching && !upload.isPending
+  const submit = (selected: File | undefined) => {
+    if (!selected || !manifest.data || manifest.isFetching || uploading.current) return
+    uploading.current = true
+    upload.mutate({ file: selected, revision: manifest.data.revision })
+  }
   if (connection.revoked || isRealtimeAccessDenied(manifest.error)) {
     return <ContentError error={new Error(t('pod.content.you_no_longer_have_access_to_this_file'))} />
   }
   return (
-    <section className="space-y-4">
+    <section
+      className={cn(
+        'space-y-4 rounded-control transition-colors',
+        dragOver && canEdit && 'bg-accent/30 ring-2 ring-primary ring-offset-2'
+      )}
+      onDragEnter={event => {
+        if (canEdit && event.dataTransfer.types.includes('Files')) {
+          event.preventDefault()
+          setDragOver(true)
+        }
+      }}
+      onDragOver={event => {
+        if (canEdit && event.dataTransfer.types.includes('Files')) {
+          event.preventDefault()
+          if (!dragOver) setDragOver(true)
+        }
+      }}
+      onDragLeave={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
+      }}
+      onDrop={event => {
+        setDragOver(false)
+        if (!canEdit) return
+        event.preventDefault()
+        submit(event.dataTransfer.files[0])
+      }}>
       <ContentError error={manifest.error} retry={() => void manifest.refetch()} />
-      <ContentError error={upload.error} />
+      <ContentError error={upload.error} retry={() => submit(upload.variables?.file)} />
+      {(upload.isPending || upload.isError) && upload.variables && (
+        <p role="status" className="text-sm">
+          {upload.variables.file.name}
+        </p>
+      )}
       <ContentError error={connection.error} retry={connection.retry} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {file && (
@@ -74,15 +114,8 @@ export function FilePage({ detail }: { detail: PageDetail }) {
             {name} · {Math.ceil(file.size / 1024)} KB
           </span>
         )}
-        {actions.includes('page_edit') && (
-          <form
-            className="flex min-w-0 flex-wrap items-center gap-2"
-            onSubmit={event => {
-              event.preventDefault()
-              if (!selected || !manifest.data || uploading.current) return
-              uploading.current = true
-              upload.mutate({ file: selected, revision: manifest.data.revision })
-            }}>
+        {canEdit && (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <input
               aria-label={chooseLabel}
               type="file"
@@ -91,35 +124,19 @@ export function FilePage({ detail }: { detail: PageDetail }) {
               tabIndex={-1}
               disabled={upload.isPending}
               onChange={event => {
-                upload.reset()
-                setSelected(event.target.files?.[0])
+                submit(event.target.files?.[0])
+                event.target.value = ''
               }}
             />
             <Button
               type="button"
               size="sm"
               variant="outline"
-              disabled={upload.isPending}
+              disabled={!canUpload}
               onClick={() => input.current?.click()}>
-              {chooseLabel}
+              {upload.isPending ? t('pod.content.uploading') : chooseLabel}
             </Button>
-            {selected && (
-              <span role="status" className="max-w-64 truncate text-xs text-fg-secondary" title={selected.name}>
-                {selected.name}
-              </span>
-            )}
-            <Button
-              type="submit"
-              size="sm"
-              variant="outline"
-              disabled={!selected || !manifest.data || manifest.isFetching || upload.isPending}>
-              {upload.isPending
-                ? t('pod.content.uploading')
-                : file
-                  ? t('pod.content.replace_file')
-                  : t('pod.content.upload_file')}
-            </Button>
-          </form>
+          </div>
         )}
         {file && (
           <a
@@ -134,8 +151,21 @@ export function FilePage({ detail }: { detail: PageDetail }) {
         <p role="status">{t('pod.content.loading_file')}</p>
       ) : file ? (
         <FilePreview pageID={page.id} file={file} />
+      ) : canEdit ? (
+        <div
+          onClick={() => {
+            if (canUpload) input.current?.click()
+          }}
+          className={cn(
+            'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-control border-2 border-dashed px-6 py-12 text-center transition-colors',
+            dragOver ? 'border-primary bg-accent/50' : 'border-border hover:border-border-strong hover:bg-accent/30',
+            !canUpload && 'pointer-events-none opacity-60'
+          )}>
+          <RiUploadCloud2Line aria-hidden className="size-6 text-fg-tertiary" />
+          <p className="text-sm text-fg-secondary">{t('pod.content.upload_a_file_to_preview_and_download_it_here')}</p>
+        </div>
       ) : (
-        <p className="py-10 text-sm text-fg-tertiary">
+        <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-tertiary">
           {t('pod.content.upload_a_file_to_preview_and_download_it_here')}
         </p>
       )}
@@ -143,27 +173,38 @@ export function FilePage({ detail }: { detail: PageDetail }) {
   )
 }
 
+function isTextFile(name: string, mime?: string) {
+  return Boolean(
+    mime?.startsWith('text/') ||
+    ['application/json', 'application/xml', 'application/javascript'].includes(mime ?? '') ||
+    /\.(txt|md|json|xml|ya?ml|[cm]?[jt]sx?|py|exs?|rs|go|rb|sh|css|html|sql|toml)$/i.test(name)
+  )
+}
+
 function FilePreview({ pageID, file }: { pageID: string; file: DriveFile }) {
   const url = fileURL(pageID, file.path, file.sha256)
   const name = file.path.split('/').at(-1) ?? t('pod.content.file')
+  const mime = file.content_type?.split(';')[0]?.trim().toLowerCase()
   return (
     <div className="space-y-3">
-      {/\.(xlsx|xls|xlsb|ods|csv)$/i.test(name) ? (
+      {/\.(xlsx|xls|xlsb|ods|csv|tsv)$/i.test(name) || mime?.includes('spreadsheet') ? (
         <Suspense fallback={<p role="status">{t('pod.content.loading_spreadsheet_preview')}</p>}>
           <SpreadsheetPreview key={url} url={url} />
         </Suspense>
-      ) : /\.pptx$/i.test(name) ? (
+      ) : /\.pptx$/i.test(name) || mime?.includes('presentationml') ? (
         <Suspense fallback={<p role="status">{t('pod.content.loading_slide_preview')}</p>}>
           <PresentationPreview key={url} url={url} />
         </Suspense>
-      ) : file.content_type?.startsWith('image/') ? (
+      ) : mime?.startsWith('image/') ? (
         <img className="mx-auto max-h-[70vh] max-w-full object-contain" alt={name} src={url} />
-      ) : file.content_type === 'application/pdf' ? (
+      ) : mime === 'application/pdf' ? (
         <iframe className="h-[70vh] w-full rounded border border-border" src={url} title={name} />
-      ) : file.content_type?.startsWith('video/') ? (
+      ) : mime?.startsWith('video/') ? (
         <video controls className="max-h-[70vh] w-full" src={url} />
-      ) : file.content_type?.startsWith('audio/') ? (
+      ) : mime?.startsWith('audio/') ? (
         <audio controls src={url} />
+      ) : isTextFile(name, mime) ? (
+        <TextFilePreview key={url} pageID={pageID} url={url} name={name} />
       ) : (
         <p className="rounded border border-border p-8 text-sm text-fg-tertiary">
           {t('pod.content.online_preview_is_not_available_for_this_file_download_the')}
@@ -171,4 +212,71 @@ function FilePreview({ pageID, file }: { pageID: string; file: DriveFile }) {
       )}
     </div>
   )
+}
+
+function TextFilePreview({ pageID, url, name }: { pageID: string; url: string; name: string }) {
+  const query = useQuery({
+    queryKey: [...contentKeys.page(pageID), 'file-text-preview', url],
+    queryFn: async ({ signal }) => {
+      const response = await transport(url, { credentials: 'same-origin', signal })
+      if (!response.body) {
+        throw new Error(t('pod.chat_attachments.preview_unavailable'))
+      }
+      const result = await readPrefix(response, TEXT_BYTES, signal)
+      const decoder = new TextDecoder()
+      return {
+        text: decoder.decode(result.bytes, { stream: result.truncated }),
+        truncated: result.truncated
+      }
+    },
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false
+  })
+  if (query.isPending) return <p role="status">{t('pod.content.loading_file')}</p>
+  if (query.error) return <ContentError error={query.error} retry={() => void query.refetch()} />
+  const extension = name.includes('.') ? name.split('.').at(-1)?.toLowerCase() : undefined
+  return (
+    <div className="space-y-2">
+      {query.data.truncated && (
+        <p role="status" className="text-sm text-fg-tertiary">
+          {t('pod.chat_attachments.preview_truncated')}
+        </p>
+      )}
+      <CodeBlockView code={query.data.text} language={extension} />
+    </div>
+  )
+}
+
+async function readPrefix(response: Response, limit: number, signal: AbortSignal) {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('The file response has no body')
+  const chunks: Uint8Array[] = []
+  let length = 0
+  let truncated = false
+  try {
+    while (true) {
+      signal.throwIfAborted()
+      const { done, value } = await reader.read()
+      if (done) break
+      const part = value.slice(0, limit - length)
+      chunks.push(part)
+      length += part.length
+      if (part.length < value.length) {
+        truncated = true
+        break
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const part of chunks) {
+    bytes.set(part, offset)
+    offset += part.length
+  }
+  return { bytes, truncated }
 }

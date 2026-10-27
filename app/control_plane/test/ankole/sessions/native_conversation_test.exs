@@ -758,10 +758,34 @@ defmodule Ankole.Sessions.NativeConversationTest do
              })
   end
 
-  test "each Agent's last reply can be retried without selecting another Agent's session",
+  @tag sandbox: false
+  test "each Agent's last reply can be read without locks and retried in its own session",
        context do
     actor = Ankole.PrincipalsFixtures.actor_fixture(context.human.uid)
-    colleague = agent_fixture(%{owner_principal_uid: context.human.uid}).principal
+    colleague = agent_fixture(%{}).principal
+
+    provider_ids =
+      Enum.map([context.agent.uid, colleague.uid], fn uid ->
+        {:ok, %{"provider_id" => provider_id}} =
+          Ankole.AIAgent.ModelProfiles.get_model_profile(uid, "primary")
+
+        provider_id
+      end)
+
+    on_exit(fn ->
+      Repo.with_tenant(context.tenant.id, fn ->
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(colleague.uid)
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(context.agent.uid)
+        cleanup_tenant!(context.tenant)
+      end)
+
+      for provider_id <- provider_ids do
+        assert {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
+        assert {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
+        assert {:error, :not_found} = Ankole.AIGateway.ProviderConfigs.fetch_provider(provider_id)
+      end
+    end)
+
     Ankole.ConversationsFixtures.grant_chat(context.human.uid, colleague.uid)
 
     assert {:ok, _} =
@@ -781,7 +805,28 @@ defmodule Ankole.Sessions.NativeConversationTest do
     run = %{key: key, event: event} |> prepare() |> respond("The colleague's summary")
     assert {:ok, completed} = Run.finalize(run)
     reply = hd(completed.posted.messages)
+
+    queries = "retry-advisory-#{reply.id}"
+
+    :telemetry.attach(
+      queries,
+      [:ankole, :repo, :query],
+      fn _, _, meta, pid ->
+        if self() == pid do
+          if String.contains?(meta.query, "FOR UPDATE"),
+            do: send(pid, {:exclusive_read_lock, meta.query})
+
+          if String.contains?(meta.query, "READ ONLY"), do: send(pid, :read_only_transaction)
+        end
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(queries) end)
     assert {:ok, detail} = Conversations.get(actor, context.id)
+    assert_receive :read_only_transaction
+    refute_receive {:exclusive_read_lock, _}
+    :telemetry.detach(queries)
     assert detail.retryable_message_ids[colleague.uid] == reply.id
     assert detail.retryable_message_id == reply.id
     assert is_nil(detail.retryable_message_ids[context.agent.uid])

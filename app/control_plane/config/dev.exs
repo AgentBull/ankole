@@ -25,6 +25,9 @@ config :ankole, AnkoleWeb.Endpoint,
   ]
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://127.0.0.1:3035"
+config :swoosh, :local, true
+config :ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.Local
+config :ankole, :dev_routes, true
 
 # Phoenix reloads controller and route modules in development. Keep the OpenAPI
 # operation lookup live as well, or a new route can use a stale operation cache.

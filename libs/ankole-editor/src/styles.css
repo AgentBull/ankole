@@ -8,6 +8,75 @@
   color: var(--foreground);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  --editor-selection-bg: var(--color-brand-20);
+  --editor-scrollbar-thumb: var(--color-gray-30);
+  --editor-toolbar-border: #f1efed;
+  --editor-toolbar-bg: rgb(255 255 255 / 96%);
+  --editor-toolbar-btn: #807970;
+  --editor-toolbar-divider: #eae7e3;
+  --editor-hint: #a2998f;
+  --editor-ink: #494541;
+  --editor-placeholder: #b0a599;
+  --editor-selected-outline: #d3c4b3;
+  --editor-h1: #282521;
+  --editor-h2: #3b352f;
+  --editor-pre-border: #e9e4df;
+  --editor-pre-bg: #f8f6f3;
+  --editor-quote-border: #d5c1ab;
+  --editor-quote-fg: #8b7a69;
+  --editor-task-border: #c3b8ad;
+  --editor-task-done-fg: #9e9286;
+  --editor-task-done-bg: #b19b84;
+  --editor-task-check: white;
+  --editor-hr: #e7e1da;
+  --editor-table-border: #e4dfd9;
+  --editor-th-bg: #f7f5f2;
+  --editor-strong: #5c5146;
+  --editor-mark-bg: #fff1b8;
+  --editor-code-bg: #f3efeb;
+  --editor-code-fg: #8f6857;
+  --editor-unknown-inline: #9a9ab0;
+  --editor-unknown-border: #c4c4d2;
+  --editor-unknown-label: #8a8aa0;
+  --editor-handle-fg: #b3a99e;
+  --editor-handle-hover-fg: #8a7561;
+  --editor-handle-hover-bg: #f3ede7;
+}
+
+:is([data-theme='dark'], [data-theme='dark'] *):is(.ankole-editor, .ankole-editor-overlay) {
+  --editor-selection-bg: var(--selection, #27425c);
+  --editor-scrollbar-thumb: var(--color-gray-70, #47494a);
+  --editor-toolbar-border: var(--border, #343637);
+  --editor-toolbar-bg: rgb(24 25 26 / 92%);
+  --editor-toolbar-btn: #abaaa6;
+  --editor-toolbar-divider: #343637;
+  --editor-hint: #888987;
+  --editor-ink: #e5e4e1;
+  --editor-placeholder: #888987;
+  --editor-selected-outline: #6b5e50;
+  --editor-h1: #f4f4f2;
+  --editor-h2: #ebebe8;
+  --editor-pre-border: #343637;
+  --editor-pre-bg: #202223;
+  --editor-quote-border: #7c6a58;
+  --editor-quote-fg: #c2b6aa;
+  --editor-task-border: #636566;
+  --editor-task-done-fg: #888987;
+  --editor-task-done-bg: #9c856d;
+  --editor-task-check: #18191a;
+  --editor-hr: #343637;
+  --editor-table-border: #343637;
+  --editor-th-bg: #232526;
+  --editor-strong: #f4f4f2;
+  --editor-mark-bg: rgb(210 161 6 / 32%);
+  --editor-code-bg: #262829;
+  --editor-code-fg: #e6b39e;
+  --editor-unknown-inline: #7c7c96;
+  --editor-unknown-border: #525264;
+  --editor-unknown-label: #9e9eb4;
+  --editor-handle-fg: #888987;
+  --editor-handle-hover-fg: #e5e4e1;
+  --editor-handle-hover-bg: #2a2c2d;
 }
 
 /* Embedded objects own their content styles. A read-only editor root still owns its document text. */
@@ -84,12 +153,12 @@
   ) {
   color: inherit;
 }
-/* The UI kit draws selected text in the colour for dark backgrounds; this background is light. */
+/* The UI kit draws selected text in the colour for dark backgrounds; use theme-aware selection fill. */
 :where(.ankole-editor, .ankole-editor-overlay)
   :not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   )::selection {
-  background: var(--color-brand-20);
+  background: var(--editor-selection-bg);
   color: var(--foreground);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -103,7 +172,7 @@
   :not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   )::-webkit-scrollbar-thumb {
-  background: var(--color-gray-30);
+  background: var(--editor-scrollbar-thumb);
   border-radius: 7px;
 }
 
@@ -114,8 +183,8 @@
   gap: 5px;
   align-items: center;
   height: 49px;
-  border-bottom: 1px solid #f1efed;
-  background: rgb(255 255 255 / 96%);
+  border-bottom: 1px solid var(--editor-toolbar-border);
+  background: var(--editor-toolbar-bg);
   padding: 0 28px;
   position: sticky;
   top: 0;
@@ -123,7 +192,7 @@
   backdrop-filter: blur(8px);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .editor-toolbar [data-slot='button'] {
-  color: #807970;
+  color: var(--editor-toolbar-btn);
   letter-spacing: 0;
   font-size: 11px;
   font-weight: 450;
@@ -135,7 +204,7 @@
 :where(.ankole-editor, .ankole-editor-overlay) .toolbar-divider {
   width: 1px;
   height: 15px;
-  background: #eae7e3;
+  background: var(--editor-toolbar-divider);
   margin: 0 6px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .toolbar-spacer {
@@ -143,7 +212,7 @@
 }
 :where(.ankole-editor, .ankole-editor-overlay) .editing-hint {
   font-size: 11px;
-  color: #a2998f;
+  color: var(--editor-hint);
   margin-left: 12px;
 }
 
@@ -172,18 +241,18 @@
   font-size: 14px;
   line-height: 1.95;
   min-height: 420px;
-  color: #494541;
+  color: var(--editor-ink);
 }
 /* The empty-page hint is out of the line, so that it is not page text and does not move the caret. */
 .ankole-editor .editor-content[contenteditable='true'] > p[data-placeholder]::before {
   content: attr(data-placeholder);
   position: absolute;
-  color: #b0a599;
+  color: var(--editor-placeholder);
   pointer-events: none;
   user-select: none;
 }
 .ankole-editor .editor-content .wg-selected-node {
-  outline: 2px solid #d3c4b3;
+  outline: 2px solid var(--editor-selected-outline);
   outline-offset: 2px;
   border-radius: 3px;
 }
@@ -199,7 +268,7 @@
   font-weight: 600;
   line-height: 1.45;
   letter-spacing: -0.7px;
-  color: #282521;
+  color: var(--editor-h1);
   margin: 0 0 16px;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -211,7 +280,7 @@
   font-weight: 600;
   line-height: 1.55;
   margin: 35px 0 10px;
-  color: #3b352f;
+  color: var(--editor-h2);
   letter-spacing: -0.25px;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -297,8 +366,8 @@
   font: 12px/1.8 var(--font-family-mono);
   white-space: pre-wrap;
   padding: 18px;
-  border: 1px solid #e9e4df;
-  background: #f8f6f3;
+  border: 1px solid var(--editor-pre-border);
+  background: var(--editor-pre-bg);
   margin: 15px 0;
   border-radius: 4px;
 }
@@ -309,8 +378,8 @@
   ) {
   margin: 22px 0;
   padding: 2px 20px;
-  border-left: 3px solid #d5c1ab;
-  color: #8b7a69;
+  border-left: 3px solid var(--editor-quote-border);
+  color: var(--editor-quote-fg);
   font-size: 13px;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -380,7 +449,7 @@
   top: 7px;
   width: 14px;
   height: 14px;
-  border: 1px solid #c3b8ad;
+  border: 1px solid var(--editor-task-border);
   border-radius: 3px;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -395,7 +464,7 @@
   li[data-task='done']:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  color: #9e9286;
+  color: var(--editor-task-done-fg);
   text-decoration: line-through;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -403,8 +472,8 @@
   li[data-task='done']:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   )::before {
-  background: #b19b84;
-  border-color: #b19b84;
+  background: var(--editor-task-done-bg);
+  border-color: var(--editor-task-done-bg);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -417,8 +486,8 @@
   top: 10px;
   width: 6px;
   height: 8px;
-  border-right: 1.5px solid white;
-  border-bottom: 1.5px solid white;
+  border-right: 1.5px solid var(--editor-task-check);
+  border-bottom: 1.5px solid var(--editor-task-check);
   transform: rotate(45deg);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -427,7 +496,7 @@
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
   border: 0;
-  border-top: 1px solid #e7e1da;
+  border-top: 1px solid var(--editor-hr);
   margin: 28px 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -444,7 +513,7 @@
   :is(td, th):not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  border: 1px solid #e4dfd9;
+  border: 1px solid var(--editor-table-border);
   padding: 7px 12px;
   min-width: 80px;
 }
@@ -453,7 +522,7 @@
   th:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  background: #f7f5f2;
+  background: var(--editor-th-bg);
   font-weight: 600;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -479,7 +548,7 @@
   .block-menu-target:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  outline: 2px solid #d3c4b3;
+  outline: 2px solid var(--editor-selected-outline);
   outline-offset: 3px;
   border-radius: 3px;
 }
@@ -492,7 +561,7 @@
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
   font-weight: 600;
-  color: #5c5146;
+  color: var(--editor-strong);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -520,7 +589,7 @@
   mark:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  background: #fff1b8;
+  background: var(--editor-mark-bg);
   color: inherit;
 }
 /* Inline code. Low specificity, so that blocks such as the embed card can style their own code. */
@@ -531,9 +600,9 @@
   ) {
   font: 12px var(--font-family-mono);
   padding: 3px 5px;
-  background: #f3efeb;
+  background: var(--editor-code-bg);
   border-radius: 3px;
-  color: #8f6857;
+  color: var(--editor-code-fg);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -554,11 +623,11 @@
   border-radius: 3px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) span.unknown-element {
-  text-decoration: underline dotted #9a9ab0;
+  text-decoration: underline dotted var(--editor-unknown-inline);
   text-underline-offset: 3px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) div.unknown-element {
-  border: 1px dashed #c4c4d2;
+  border: 1px dashed var(--editor-unknown-border);
   padding: 22px 14px 8px;
   margin: 12px 0;
   position: relative;
@@ -569,7 +638,7 @@
   top: 4px;
   left: 8px;
   font: 10px/1.4 var(--font-family-mono);
-  color: #8a8aa0;
+  color: var(--editor-unknown-label);
 }
 
 /* Block handles */
@@ -580,7 +649,7 @@
   left: -58px;
   display: flex;
   cursor: grab;
-  color: #b3a99e;
+  color: var(--editor-handle-fg);
   padding: 2px;
   border-radius: 4px;
   z-index: 5;
@@ -591,8 +660,8 @@
 }
 :where(.ankole-editor, .ankole-editor-overlay) .drag-handle:hover,
 :where(.ankole-editor, .ankole-editor-overlay) .drag-handle[data-menu-open='true'] {
-  color: #8a7561;
-  background: #f3ede7;
+  color: var(--editor-handle-hover-fg);
+  background: var(--editor-handle-hover-bg);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .drag-line {
   position: absolute;
@@ -708,6 +777,21 @@
   padding: 5px;
   font-size: 11px;
   color: var(--destructive);
+}
+:where(.ankole-editor-overlay) .link-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(440px, calc(100vw - 24px));
+}
+:where(.ankole-editor-overlay) .link-bar-url {
+  max-width: 180px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--fg-secondary, var(--editor-quote-fg));
 }
 
 @media (min-width: 1700px) {

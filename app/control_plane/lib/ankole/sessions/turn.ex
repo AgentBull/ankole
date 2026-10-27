@@ -406,7 +406,7 @@ defmodule Ankole.Sessions.Turn do
 
           args =
             case ToolArguments.parse(entry.call["arguments"] || "{}") do
-              {:ok, args, _repair} -> args
+              {:ok, args} -> args
               {:error, _reason} -> %{}
             end
 

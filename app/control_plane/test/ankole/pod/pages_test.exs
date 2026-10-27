@@ -60,6 +60,96 @@ defmodule Ankole.Pod.PagesTest do
     assert {:error, :invalid_tree} = Access.path(leaf)
   end
 
+  test "document creation commits validated content and rolls back an invalid document", ctx do
+    actor = actor_fixture(ctx.owner.uid)
+
+    assert {:ok, page} =
+             Pages.create(actor, %{
+               title: "Saved message",
+               xml: "<page><p>Complete body</p></page>"
+             })
+
+    assert {:ok, %{content: %{content: "<page><p>Complete body</p></page>"}}} =
+             Pages.get(actor, page.id)
+
+    before = Repo.aggregate(Page, :count)
+    assert {:error, _} = Pages.create(actor, %{title: "Invalid message", xml: "<page><p>"})
+    assert Repo.aggregate(Page, :count) == before
+  end
+
+  test "all-page discovery includes ordinary children and search returns visible ancestors",
+       ctx do
+    actor = actor_fixture(ctx.owner.uid)
+    {:ok, root} = Pages.create(actor, %{title: "Root"})
+    {:ok, middle} = Pages.create(actor, %{title: "Middle", parent_id: root.id})
+    {:ok, leaf} = Pages.create(actor, %{title: "Needle", parent_id: middle.id})
+    assert {:ok, pages} = Pages.list(actor, %{scope: "all"})
+    assert leaf.id in Enum.map(pages, & &1.id)
+    assert {:ok, %{pages: [found], ancestors: ancestors}} = Pages.search(actor, "Needle")
+    assert found.id == leaf.id
+    assert MapSet.new(ancestors, & &1.id) == MapSet.new([root.id, middle.id])
+  end
+
+  test "an editor can remove their own inherited inline child", ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    editor = actor_fixture(ctx.reader.uid)
+    {:ok, parent} = Pages.create(owner, %{})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, parent.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: ctx.reader.uid, role: "edit"}]
+      })
+
+    {:ok, child} = Pages.create(editor, %{parent_id: parent.id})
+    assert {:error, :forbidden} = Pages.authorize(editor, child.id, "page_manage")
+    assert {:ok, nil} = Pages.delete_embed(editor, parent.id, child.id)
+    assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
+  end
+
+  test "trash scans past 200 inaccessible candidates with its database timestamp cursor", ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+
+    {:ok, visible} =
+      Pages.create(owner, %{title: "Accessible trash", private_owner_uid: ctx.owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, visible.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "manage"}]
+      })
+
+    {:ok, _} = Pages.delete(owner, visible.id)
+
+    for _ <- 1..201 do
+      {:ok, hidden} = Pages.create(owner, %{private_owner_uid: ctx.owner.uid})
+      {:ok, _} = Pages.delete(owner, hidden.id)
+    end
+
+    assert {:ok, [found]} = Pages.list(reader, %{scope: "trash"})
+    assert found.id == visible.id
+  end
+
+  test "record contribution is meaningful on Bases or inherited descendants, not a document itself",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    {:ok, page} = Pages.create(owner, %{})
+
+    assert {:error, :invalid_grants} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+               grants: [
+                 %{principal_uid: ctx.reader.uid, role: "contribute", target_scope: "self"}
+               ]
+             })
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+               grants: [
+                 %{principal_uid: ctx.reader.uid, role: "contribute", target_scope: "container"}
+               ]
+             })
+  end
+
   test "space default roles, Private, explicit Agent admission, and restricted roots use AuthZ",
        ctx do
     {:ok, shared} =

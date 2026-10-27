@@ -14,7 +14,7 @@ defmodule Ankole.Brain.Chunker do
 
   # Bump on any change that affects chunk boundaries; the value enters the
   # chunking signature so Self-healing rebuilds pages chunked by old code.
-  @chunker_version "brain-chunker-v1"
+  @chunker_version "brain-chunker-v2"
 
   @cjk_chars ~r/[\x{4E00}-\x{9FFF}\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{AC00}-\x{D7AF}]/u
   @cjk_density_threshold 0.30
@@ -240,18 +240,17 @@ defmodule Ankole.Brain.Chunker do
   # Last N words of the previous chunk, preferring a sentence-boundary start.
   defp extract_trailing_context(text, target_words) do
     words = Regex.scan(~r/\S+\s*/u, text) |> Enum.map(fn [word] -> word end)
+    words = if count_words(text) > length(words), do: String.graphemes(text), else: words
 
     if length(words) <= target_words do
       ""
     else
       trailing = words |> Enum.take(-target_words) |> Enum.join()
 
-      case Regex.run(~r/[.!?]\s+/, trailing, return: :index) do
-        [{start, _length}] when start < div(byte_size(trailing), 2) ->
+      case Regex.run(~r/[.!?]\s+|[。！？]\s*/u, trailing, return: :index) do
+        [{start, length}] when start < div(byte_size(trailing), 2) ->
           after_sentence =
-            trailing
-            |> binary_part(start, byte_size(trailing) - start)
-            |> String.replace(~r/^[.!?]\s+/, "")
+            binary_part(trailing, start + length, byte_size(trailing) - start - length)
 
           if String.trim(after_sentence) == "", do: trailing, else: after_sentence
 

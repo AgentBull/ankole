@@ -863,7 +863,7 @@ function pasteData(wg: Wordgard, event: ClipboardEvent | InputEvent, data: DataT
   }
   if (slice) {
     wg.dispatch({
-      changes: { from, to, insert: slice, fit: true },
+      changes: { correct: { from, to, insert: slice, fit: true }, local: true },
       selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
       userEvent: 'input.paste',
       scrollIntoView: isSel
@@ -1079,9 +1079,11 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     const dropPos = wg.posAtCoords({ x: event.clientX, y: event.clientY }).pos
     const { draggedContent } = wg.inputState
     const del =
-      draggedContent && dragMovesSelection(wg, event) ? { from: draggedContent.from, to: draggedContent.to } : null
-    if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del, slice))) return true
-    const ins = { from: dropPos, insert: slice, fit: true }
+      draggedContent && dragMovesSelection(wg, event)
+        ? { correct: { from: draggedContent.from, to: draggedContent.to }, local: true }
+        : null
+    if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del ? del.correct : null, slice))) return true
+    const ins = { correct: { from: dropPos, insert: slice, fit: true }, local: true }
     const changes = ChangeSet.create(wg.state.doc, del ? [del, ins] : ins)
     wg.focus()
     wg.dispatch({

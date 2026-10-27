@@ -28,6 +28,7 @@ import {
   duplicateBlocks,
   insertAfterBlock,
   moveBlocks,
+  turnBlockInto,
   type BlockType
 } from '../editor/block-actions'
 import { useEditor, useEditorLabel, useEditorState } from './context'
@@ -187,7 +188,7 @@ export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null;
               aria-label={label('current_block_menu')}
               title={`${label('current_block_menu')} ⌘/Ctrl+/`}>
               <RiMoreLine />
-              Block
+              {label('block')}
             </Button>
           )
         }
@@ -274,14 +275,7 @@ function BlockActions() {
   }
   const turnInto = (type: BlockType) =>
     act(pos => {
-      const { state } = editor
-      const target = topBlock(state, pos)
-      if (!target?.node.isPlot || !canTurnInto(state, pos)) return
-      // The operation acts on the selected block. Keep a caret that is already inside it.
-      if (state.selection.from <= target.before || state.selection.to >= target.after) {
-        editor.dispatch({ selection: GardSelection.atEnd(state, target as Pos.Plot) })
-      }
-      applyBlockType(editor, type)
+      turnBlockInto(editor, pos, type)
     })
   const remove = async () => {
     const pos = targetOf(editor)

@@ -1,7 +1,7 @@
 import { Button, toast } from '@ankole/uikit'
-import { RiFileCopyLine, RiFileTextLine } from '@remixicon/react'
+import { RiCheckLine, RiFileCopyLine, RiFileTextLine } from '@remixicon/react'
 import { Link } from '@tanstack/react-router'
-import { Children, isValidElement, useRef, type ReactNode } from 'react'
+import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -35,6 +35,9 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 function Table({ children }: { children?: ReactNode }) {
   const { t } = useTranslation()
   const table = useRef<HTMLTableElement>(null)
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
   return (
     <div className="pod-chat-table">
       <div className="pod-chat-table-tools">
@@ -51,13 +54,16 @@ function Table({ children }: { children?: ReactNode }) {
               .join('\n')
             try {
               await navigator.clipboard.writeText(text)
+              setCopied(true)
+              clearTimeout(timer.current)
+              timer.current = setTimeout(() => setCopied(false), 1500)
               toast.success(t('pod.chat_timeline.copied'))
             } catch {
               toast.error(t('pod.chat.copy_failed'))
             }
           }}>
-          <RiFileCopyLine aria-hidden />
-          {t('pod.chat_timeline.copy_table')}
+          {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+          {t(copied ? 'pod.chat_timeline.copied' : 'pod.chat_timeline.copy_table')}
         </Button>
       </div>
       <div className="pod-chat-table-scroll">

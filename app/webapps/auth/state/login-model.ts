@@ -1,4 +1,4 @@
-import { batch, createModel, effect, signal } from '@preact/signals-react'
+import { batch, createModel, signal } from '@preact/signals-react'
 import { requestErrorCode, requestErrorDetails } from '../../common/request-errors'
 import { InternalAPIError } from '../../common/internal-api-client'
 
@@ -44,24 +44,35 @@ export const LoginModel = createModel(() => {
   const email = signal('')
   const code = signal('')
   const formError = signal<LoginFormError>()
-
-  // Every locked state schedules exactly one 1s timer: each tick writes a new
-  // value, which re-runs the effect. Disposal and recovery clear the timer.
-  effect(() => {
-    const current = formError.value
-    if (current?.kind !== 'locked') return
-
-    const timer = setTimeout(() => {
-      formError.value = tickLockout(current)
-    }, 1000)
-
-    return () => clearTimeout(timer)
-  })
+  const resendSeconds = signal(0)
+  const resendUntil = signal(0)
 
   return {
     email,
     code,
     formError,
+    resendSeconds,
+    resendUntil,
+    advanceLockout() {
+      formError.value = tickLockout(formError.value)
+    },
+    startResendCooldown(seconds: number) {
+      resendUntil.value = Date.now() + seconds * 1000
+      resendSeconds.value = seconds
+    },
+    restoreResendCooldown(until: number) {
+      resendUntil.value = until
+      resendSeconds.value = Math.max(0, Math.ceil((until - Date.now()) / 1000))
+    },
+    updateResendCooldown() {
+      const seconds = Math.max(0, Math.ceil((resendUntil.value - Date.now()) / 1000))
+      resendSeconds.value = seconds
+      if (seconds === 0) resendUntil.value = 0
+    },
+    clearResendCooldown() {
+      resendUntil.value = 0
+      resendSeconds.value = 0
+    },
     reportLoginError(error: unknown) {
       formError.value = classifyLoginError(error)
     },

@@ -51,20 +51,45 @@ defmodule Ankole.Workflow.Queries do
 
   def get(run_id, agent_uid, opts \\ [])
       when is_integer(run_id) and run_id > 0 and is_binary(agent_uid) and is_list(opts) do
-    case Ankole.Workflow.Slot.get_run(run_id, agent_uid) do
-      %Run{} = run ->
-        with {:ok, result} <- result_projection(run, Keyword.get(opts, :result_offset)) do
-          {:ok,
-           Map.merge(result, %{
-             run: run,
-             counts: counts(run.id),
-             failure_summaries: failure_summaries(run.id),
-             live_tasks: live_tasks(run.id)
-           })}
+    offset = Keyword.get(opts, :result_offset)
+
+    query =
+      Run
+      |> Ash.Query.filter(id == ^run_id and agent_uid == ^agent_uid)
+      |> Ash.Query.select([:id, :agent_uid, :title, :status, :error])
+
+    query =
+      if is_integer(offset) and offset >= 0 do
+        Ash.Query.load(query, [
+          :result_output_bytes,
+          result_output_window: [from: offset + 1, bytes: @result_window_bytes]
+        ])
+      else
+        query
+      end
+
+    case Ankole.Ash.read_one(query) do
+      {:ok, %Run{} = run} ->
+        with {:ok, result} <- result_projection(run, offset) do
+          details =
+            if is_nil(offset) do
+              %{
+                counts: counts(run.id),
+                failure_summaries: failure_summaries(run.id),
+                live_tasks: live_tasks(run.id)
+              }
+            else
+              %{}
+            end
+
+          {:ok, result |> Map.merge(details) |> Map.put(:run, run)}
         end
 
-      nil ->
+      {:ok, nil} ->
         {:error, :workflow_not_found}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -300,23 +325,19 @@ defmodule Ankole.Workflow.Queries do
     {:ok, %{result_output_text: "", result_output_total_bytes: 0}}
   end
 
-  defp result_projection(%Run{result_text: result_text}, offset)
-       when is_binary(result_text) and is_integer(offset) and offset >= 0 do
-    total = byte_size(result_text)
-
+  defp result_projection(%Run{result_output_window: text, result_output_bytes: total}, offset)
+       when is_binary(text) and is_integer(total) and is_integer(offset) and offset >= 0 do
     cond do
       offset > total ->
         {:error, :invalid_workflow_result_offset}
 
-      not utf8_boundary?(result_text, offset, total) ->
+      not utf8_boundary?(text, 0, byte_size(text)) ->
         {:error, :invalid_workflow_result_offset}
 
       true ->
-        remaining = binary_part(result_text, offset, total - offset)
-
         {:ok,
          %{
-           result_output_text: Text.utf8_prefix(remaining, @result_window_bytes),
+           result_output_text: Text.utf8_prefix(text, @result_window_bytes),
            result_output_total_bytes: total
          }}
     end

@@ -10,12 +10,12 @@ import {
   SheetTitle
 } from '@ankole/uikit'
 import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiHistoryLine } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { lazy, Suspense, useEffect, useState, useRef, type CSSProperties, type RefObject } from 'react'
 import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
-import { pageConversationsQuery } from './api'
+import { pageConversationsQuery, podKeys } from './api'
 import { useRoomActions } from './chat/room-api'
 import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
@@ -40,6 +40,7 @@ export function PageChat({
   returnFocus: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const drafts = useChatDrafts()
   // Keep the current conversation on the sheet until its close transition ends.
   const [displayedSelection, setDisplayedSelection] = useState(selection)
@@ -60,14 +61,14 @@ export function PageChat({
       if (unfinished || !chats.isFetching) select(unfinished ?? chats.data.conversations[0]?.id ?? 'new')
     }
   }, [selection, chats.data, chats.isFetching, drafts, pageID, select])
+  const exitConversation = () => {
+    void client.invalidateQueries({ queryKey: podKeys.pageConversations(pageID) })
+    select('new', true)
+  }
   const header = (
     <header className="pod-page-chat-header" title={pageTitle}>
       <div className="pod-page-chat-heading">
-        {mobile ? (
-          <SheetTitle className="pod-page-chat-title">{t('pod.page_chat.title')}</SheetTitle>
-        ) : (
-          <h2 className="pod-page-chat-title">{t('pod.page_chat.title')}</h2>
-        )}
+        <h2 className="pod-page-chat-title">{t('pod.page_chat.title')}</h2>
         <div className="pod-page-chat-scope">
           <Select
             value={selectedChat?.accessScope ?? newScope}
@@ -137,26 +138,48 @@ export function PageChat({
   )
   const body =
     chats.error && (!chats.data || accessDenied) ? (
-      <div className="p-4">
-        <ContentError error={chats.error} retry={() => void chats.refetch()} />
-      </div>
+      <>
+        {header}
+        <div className="p-4">
+          <ContentError error={chats.error} retry={() => void chats.refetch()} />
+        </div>
+      </>
     ) : chats.isPending || selected === 'latest' ? (
-      <p role="status" className="p-4 text-sm">
-        {t('pod.chat.loading_history')}
-      </p>
+      <>
+        {header}
+        <p role="status" className="p-4 text-sm">
+          {t('pod.chat.loading_history')}
+        </p>
+      </>
     ) : (
       <Suspense
         fallback={
-          <p role="status" className="p-4 text-sm">
-            {t('pod.chat.loading_history')}
-          </p>
+          <>
+            {header}
+            <p role="status" className="p-4 text-sm">
+              {t('pod.chat.loading_history')}
+            </p>
+          </>
         }>
         <ChatPage
           key={conversationID ?? 'new'}
           conversationID={conversationID}
           pageID={pageID}
           accessScope={newScope}
+          pageHeader={header}
+          pageChat={{
+            pageTitle,
+            conversations: chats.data?.conversations ?? [],
+            conversationsPending: chats.isPending,
+            listError: chats.data && chats.error && !accessDenied ? chats.error : undefined,
+            onRetryList: () => void chats.refetch(),
+            accessDenied,
+            onSelectConversation: id => select(id, true),
+            onNewConversation: () => select('new', true),
+            onClose: () => select(null, true)
+          }}
           onNewConversation={() => select('new', true)}
+          onExitConversation={exitConversation}
           onConversationStarted={id => {
             if (selection) select(id)
           }}
@@ -167,7 +190,7 @@ export function PageChat({
     return (
       <Sheet open={!!selection} onOpenChange={open => !open && select(null, true)}>
         <SheetContent className="pod-page-chat-sheet" showCloseButton={false} finalFocus={returnFocus}>
-          {header}
+          <SheetTitle className="sr-only">{t('pod.page_chat.title')}</SheetTitle>
           {body}
         </SheetContent>
       </Sheet>
@@ -211,7 +234,6 @@ export function PageChat({
           }
         }}
       />
-      {header}
       {body}
     </aside>
   )

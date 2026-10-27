@@ -117,9 +117,26 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
     assert {{:ready, ^row}, []} = Acquisition.next({:ready, row}, :round_committed, 70_000)
   end
 
-  test "broadcasts do not open a computer for local work" do
+  test "broadcasts and late workspace replies do not open or poison non-opening states" do
+    row = %{transport_route: "route"}
+
+    for state <- [
+          :idle,
+          {:idle, :requested},
+          {:opening, 10, nil},
+          {:waiting, :capacity, 10},
+          {:ready, row}
+        ],
+        reply <- [
+          :ready,
+          {:waiting, :CAPACITY},
+          {:waiting, :DRAINING},
+          {:unavailable, :late_reply}
+        ] do
+      assert {^state, []} = Acquisition.next(state, reply, 20)
+    end
+
     assert {:idle, []} = Acquisition.next(:idle, :check, 0)
-    assert {:idle, []} = Acquisition.next(:idle, :ready, 0)
-    assert {:idle, []} = Acquisition.next(:idle, {:unavailable, :late_reply}, 0)
+    assert {{:idle, :requested}, []} = Acquisition.next({:idle, :requested}, :check, 0)
   end
 end

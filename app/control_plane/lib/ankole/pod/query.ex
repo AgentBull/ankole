@@ -16,7 +16,11 @@ defmodule Ankole.Pod.Query do
          {:ok, order, params} <- sort(fields, Ankole.Attrs.get(attrs, :sort, []), params),
          {:ok, cursor, params} <- cursor(table, attrs, order, params),
          {:ok, projection, params} <-
-           projection(if(Keyword.get(opts, :raw_json, false), do: [], else: fields), params),
+           projection(
+             fields,
+             params,
+             if(Keyword.get(opts, :raw_json, false), do: Keyword.get(opts, :formula_ids, []))
+           ),
          {:ok, ids_sql, params} <- ids(Ankole.Attrs.get(attrs, :ids), params) do
       limit = Ankole.Attrs.get(attrs, :page_size, Keyword.get(opts, :limit, 200))
 
@@ -129,7 +133,7 @@ defmodule Ankole.Pod.Query do
     with {:ok, expr, type, params} <- expression(field, fields, params),
          expr = if(type == :datetime, do: utc_timestamp("(#{expr})::timestamptz"), else: expr),
          {:ok, value} <- Torque.decode(json),
-         {:ok, json} <- group_json(type, value, json) do
+         {:ok, json} <- group_json(field, type, value, json) do
       {param, params} = Formula.bind(params, json)
 
       sql =
@@ -233,13 +237,40 @@ defmodule Ankole.Pod.Query do
   end
 
   defp condition_value(%{type: :datetime}, "is", value), do: datetime_value(value)
+
+  defp condition_value(%{type: kind}, op, value)
+       when kind in [:created_by, :updated_by, "created_by", "updated_by"] and
+              op in ["is", "gt", "gte", "lt", "lte"] and is_binary(value),
+       do: {:ok, actor_ref_string(value)}
+
   defp condition_value(_field, _operator, value), do: {:ok, value}
 
-  defp group_json(:datetime, value, _json) when not is_nil(value) do
+  defp group_json(_field, :datetime, value, _json) when not is_nil(value) do
     with {:ok, value} <- datetime_value(value), do: {:ok, Torque.encode!(value)}
   end
 
-  defp group_json(_type, _value, json), do: {:ok, json}
+  defp group_json(%{type: kind}, _type, value, _json)
+       when kind in [:created_by, :updated_by, "created_by", "updated_by"] and is_binary(value),
+       do: {:ok, Torque.encode!(actor_ref_string(value))}
+
+  defp group_json(_field, _type, _value, json), do: {:ok, json}
+
+  defp actor_ref_string("ankole:" <> rest = value) do
+    with [tenant_id, raw_uid] <- String.split(rest, ":principal/", parts: 2),
+         {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+         {:ok, uid} <- Ankole.PrincipalKey.normalize(raw_uid) do
+      to_string(%Ankole.ActorRef{tenant_id: tenant_id, uid: uid})
+    else
+      _ -> value
+    end
+  end
+
+  defp actor_ref_string(value) do
+    case Ankole.PrincipalKey.normalize(value) do
+      {:ok, uid} -> to_string(%Ankole.ActorRef{tenant_id: Repo.tenant_id!(), uid: uid})
+      _ -> value
+    end
+  end
 
   defp datetime_value(nil), do: {:ok, nil}
 
@@ -306,9 +337,9 @@ defmodule Ankole.Pod.Query do
 
   defp sort(_, _, _), do: {:error, :invalid_query}
 
-  defp projection(fields, params) do
+  defp projection(fields, params, selected_ids \\ nil) do
     fields
-    |> Enum.filter(&(&1.type == :formula))
+    |> Enum.filter(&(&1.type == :formula and (is_nil(selected_ids) or &1.id in selected_ids)))
     |> Enum.reduce_while({:ok, "'{}'::jsonb", params}, fn field, {:ok, sql, params} ->
       with {:ok, expr, _type, params} <- expression(field, fields, params) do
         {key, params} = Formula.bind(params, field.id)

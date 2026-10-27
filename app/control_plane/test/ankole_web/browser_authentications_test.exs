@@ -372,20 +372,23 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
   end
 
   defp add_login(conn, principal) do
-    {:ok, conn, transaction} = WebSession.begin_login(conn, :pod, %{}, mode: :add)
+    conn = WebSession.ensure_browser(conn)
 
-    {:ok, _} =
-      BrowserSessions.bind_provider(WebSession.browser_reference(conn), transaction.id, "local")
+    {:ok, %{browser: browser, authentication: auth}} =
+      BrowserSessions.authenticate(
+        WebSession.browser_reference(conn),
+        :pod,
+        %{
+          "principal_uid" => principal.uid,
+          "access_version" => principal.access_version,
+          "provider_id" => "local",
+          "external_id" => principal.uid,
+          "auth_time" => System.system_time(:second)
+        },
+        mode: :add
+      )
 
-    {:ok, conn, _} =
-      WebSession.complete_login(conn, transaction.id, %{
-        "principal_uid" => principal.uid,
-        "access_version" => principal.access_version,
-        "provider_id" => "local",
-        "external_id" => principal.uid,
-        "auth_time" => System.system_time(:second)
-      })
-
+    conn = WebSession.put_authentication(conn, browser, auth)
     {conn, WebSession.authentication_reference(conn)}
   end
 

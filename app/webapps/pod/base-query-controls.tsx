@@ -1,9 +1,10 @@
 import { t } from 'i18next'
 import { Button, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@ankole/uikit'
 import { useState } from 'react'
-import type { Condition, BaseField, Filter, Sort } from '@ankole/applet-sdk/types'
+import type { Condition, BaseField, Filter, Sort, Value } from '@ankole/applet-sdk/types'
 import { Choice } from './content-primitives'
 import { FieldInput, fieldOptions } from './base-fields'
+import { principalUID } from './state/table-query'
 
 const operators: Record<Condition['operator'], string> = {
   get is() {
@@ -92,13 +93,15 @@ export function QueryControls({
         className="max-h-[min(70vh,var(--available-height))] w-[min(32rem,calc(100vw-2rem))] gap-3 overflow-y-auto">
         <PopoverTitle>{t('pod.content.filter_and_sort')}</PopoverTitle>
         <fieldset disabled={disabled} className="grid gap-4">
-          <Choice<'and' | 'or'>
-            label={t('pod.content.combine_filters')}
-            value={conjunction}
-            onChange={setConjunction}
-            options={{ and: t('pod.content.match_all_conditions'), or: t('pod.content.match_any_condition') }}
-            disabled={disabled}
-          />
+          {conditions.length >= 2 && (
+            <Choice<'and' | 'or'>
+              label={t('pod.content.combine_filters')}
+              value={conjunction}
+              onChange={setConjunction}
+              options={{ and: t('pod.content.match_all_conditions'), or: t('pod.content.match_any_condition') }}
+              disabled={disabled}
+            />
+          )}
           <div className="space-y-3">
             {conditions.map((condition, index) => (
               <div className="flex flex-wrap items-center gap-2" key={index}>
@@ -267,7 +270,7 @@ export function QueryControls({
             {t('pod.content.cancel')}
           </Button>
           <Button
-            variant="outline"
+            variant="default"
             disabled={disabled || invalidConfiguration}
             onClick={() => {
               if (disabled || invalidConfiguration) return
@@ -276,7 +279,9 @@ export function QueryControls({
                 return
               }
               update(
-                conditions.length ? { conjunction, conditions } : undefined,
+                conditions.length
+                  ? { conjunction: conditions.length >= 2 ? conjunction : 'and', conditions }
+                  : undefined,
                 ordering.length ? ordering : undefined
               )
               setOpen(false)
@@ -346,7 +351,7 @@ function FilterValue({
             ? String(condition.value.name)
             : ''
         }
-        onChange={event => update({ name: event.target.value })}
+        onChange={event => update(event.target.value ? { name: event.target.value } : null)}
       />
     )
   }
@@ -363,6 +368,7 @@ function FilterValue({
       />
     )
   }
+  const person = effectiveType(field) === 'person'
   const effective =
     field.type === 'formula' ||
     field.type === 'auto_number' ||
@@ -376,20 +382,28 @@ function FilterValue({
                 ? ('checkbox' as const)
                 : effectiveType(field) === 'datetime'
                   ? ('datetime' as const)
-                  : effectiveType(field) === 'person'
+                  : person
                     ? ('user' as const)
                     : ('text' as const)
         }
       : field
-  const referenceContains =
-    (['user', 'link'].includes(field.type) && condition.operator === 'contains') || effectiveType(field) === 'person'
+  const referenceContains = (['user', 'link'].includes(field.type) && condition.operator === 'contains') || person
+  const selectedReference = person ? principalUID(condition.value) : condition.value ? String(condition.value) : null
   return (
     <FieldInput
       commitOnChange
       pageID={pageID}
-      field={effective}
-      value={referenceContains ? (condition.value ? [condition.value] : []) : (condition.value ?? null)}
-      onChange={value => update(referenceContains && Array.isArray(value) ? ((value.at(-1) as string) ?? null) : value)}
+      field={referenceContains ? { ...effective, config: { ...effective.config, multiple: false } } : effective}
+      value={referenceContains ? (selectedReference ? [selectedReference] : []) : (condition.value ?? null)}
+      onChange={value =>
+        update(
+          referenceContains && Array.isArray(value)
+            ? person
+              ? principalUID((value.at(-1) as Value) ?? null)
+              : ((value.at(-1) as string) ?? null)
+            : value
+        )
+      }
     />
   )
 }

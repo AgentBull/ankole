@@ -472,10 +472,13 @@ PREVIEW_DIR=$(mktemp -d) &&
 
 ### Delivery Gate (run before handing off — any failure = REJECT, do NOT deliver)
 
-Copy-paste, set `FILE`, and refuse to declare done until every gate prints OK.
+Set `FILE`. Set `EXPECT_PAGE_FIELD=1` for a document with more than one rendered
+page or when its template requires page numbers. Set it to `0` for a one-page
+document without page numbers. Run the applicable checks before delivery.
 
 ```bash
 FILE="your-file.docx"
+EXPECT_PAGE_FIELD=0 # Set from the rendered document and its template.
 
 # Gate 1 — schema.
 officecli close "$FILE" 2>/dev/null
@@ -488,8 +491,12 @@ LEAK=$(officecli view "$FILE" text | grep -cE '(\$[A-Za-z_]+\$|\{\{[^}]+\}\}|<TO
 # A TOC placeholder is valid before a Word-compatible field engine updates it. Check the TOC field and updateFields setting structurally instead.
 
 # Gate 3 — live PAGE field exists when a footer is expected.
-FLD=$(officecli query "$FILE" 'field[fieldType=page]' --json | jq '.data.results | length')
-[ "$FLD" -ge 1 ] && echo "Gate 3 OK" || { echo "REJECT Gate 3: no live PAGE field"; exit 1; }
+if [ "$EXPECT_PAGE_FIELD" -eq 1 ]; then
+  FLD=$(officecli query "$FILE" 'field[fieldType=page]' --json | jq '.data.results | length')
+  [ "$FLD" -ge 1 ] && echo "Gate 3 OK" || { echo "REJECT Gate 3: no live PAGE field"; exit 1; }
+else
+  echo "Gate 3 not applicable: one-page document without page numbers"
+fi
 echo "Delivery Gate PASS"
 ```
 

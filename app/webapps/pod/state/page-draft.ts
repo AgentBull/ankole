@@ -27,6 +27,15 @@ export const PageDraftModel = createModel(() => {
     recoveryDrafts,
     dirty,
     hasUnsavedChanges,
+    discard() {
+      reloadVersion++
+      batch(() => {
+        title.value = savedTitle.value
+        xml.value = savedXML.value
+        recoveryDrafts.value = []
+        conflict.value = false
+      })
+    },
     keepRecoveryDraft(content: string) {
       if (!recoveryDrafts.value.includes(content)) recoveryDrafts.value = [...recoveryDrafts.value, content]
     },

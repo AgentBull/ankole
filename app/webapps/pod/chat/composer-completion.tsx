@@ -14,6 +14,28 @@ import { useTranslation } from 'react-i18next'
 export type ComposerCompletion = { kind: 'mention' | 'page' | 'slash'; start: number; end: number; query: string }
 export type CompletionHandle = { onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean }
 
+export function insertCompletionTrigger(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number,
+  kind: ComposerCompletion['kind']
+): { value: string; completion: ComposerCompletion; cursor: number } {
+  const rawStart = Math.max(0, Math.min(selectionStart, value.length))
+  const rawEnd = Math.max(rawStart, Math.min(selectionEnd, value.length))
+  const previous = rawStart > 0 ? value[rawStart - 1]! : ''
+  const needsSpace =
+    kind === 'slash' ? !!previous && !/\s/.test(previous) : !!previous && /[\p{L}\p{N}_@]/u.test(previous)
+  const prefix = needsSpace ? ' ' : ''
+  const trigger = kind === 'slash' ? '/' : '@'
+  const start = rawStart + prefix.length
+  const cursor = start + 1
+  return {
+    value: `${value.slice(0, rawStart)}${prefix}${trigger}${value.slice(rawEnd)}`,
+    completion: { kind, start, end: cursor, query: '' },
+    cursor
+  }
+}
+
 export function completionAt(
   text: string,
   start: number,

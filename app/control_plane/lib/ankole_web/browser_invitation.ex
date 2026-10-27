@@ -9,7 +9,6 @@ defmodule AnkoleWeb.BrowserInvitation do
   authz do
     scope(:public)
     allow(:preview, check: :public)
-    allow(:begin_login, check: :public)
     allow(:accept, check: :public)
   end
 
@@ -54,29 +53,6 @@ defmodule AnkoleWeb.BrowserInvitation do
       argument(:token, :string, allow_nil?: false, sensitive?: true)
       transaction?(false)
       run(fn input, _ -> preview(input.context.conn, input.arguments.token) end)
-    end
-
-    action :begin_login, :map do
-      constraints(fields: [flow: [type: UUIDv7, allow_nil?: false]])
-      argument(:token, :string, allow_nil?: false, sensitive?: true)
-      transaction?(false)
-
-      run(fn input, _ ->
-        conn = input.context.conn
-
-        with {:ok, invitation} <- Principals.locate_invitation(input.arguments.token) do
-          Repo.with_tenant(invitation.tenant_id, fn ->
-            with {:ok, conn, transaction} <-
-                   Session.begin_login(conn, :pod, %{
-                     "return_to" => "/",
-                     "invitation_id" => invitation.id
-                   }),
-                 do: BrowserAPI.ok(conn, %{flow: transaction.id})
-          end)
-        else
-          {:error, reason} -> BrowserAPI.error(410, reason)
-        end
-      end)
     end
 
     action :accept, :map do

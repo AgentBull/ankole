@@ -51,7 +51,10 @@ Set a Page's `title` with `pages.create` or `pages.update`;
 `pages.write` supplies its Markdown body. Follow the native Pod delivery
 rules for Page authoring and the requested output format.
 
-1. List the pages you can see or read the requested page.
+1. Use `pages.search {query}` to find titles and document text, or read a known
+   page ID. Search returns at most 30 matches. Use `pages.children {parent_id}`
+   to browse a page's children; omit `parent_id` for roots. Pass `next_cursor`
+   back as `cursor` until it is null. `pages.list` provides workspace lists.
 2. Read its Markdown and revision before a change.
 3. Use `pages.write` for a target body, `pages.append` for Markdown at the end,
    or `pages.patch` for exact `old_text` and `new_text` edits. Each operation
@@ -116,10 +119,11 @@ must belong to the same Base.
 
 For a report that must retain today's data, use `base.copy` with the
 source table, target document, and optional filter. The copy has new IDs and
-is independent. Formulas refer to the copied fields and recalculate when those
-fields change. Links become fixed multiple-select options with the original
-record IDs and current titles. A live dashboard references the source Base
-instead.
+is independent. Links become text with their current titles in link order;
+empty links become null. Formulas are checked against the copied field types.
+Valid formulas recalculate from copied fields. A formula that cannot use the
+new types becomes an ordinary field with its current result; array results
+become JSON text. A live dashboard references the source Base instead.
 
 ## React applets
 
@@ -235,8 +239,9 @@ Function workers are reused by tenant, page, and publication revision. Keep
 request-specific state inside the handler. Calls have no cross-call transaction; a later failure does not undo committed writes. Put an atomic batch
 in one `base.write`, and include the field versions captured by the read.
 
-Model generation needs tenant `pod.applet.ai_agent_uid` configured to an active
-Agent. Use a model profile such as `light`, not a raw provider/model ID. The
+Model generation uses the Agent that created the Applet (`Page.created_by`).
+That Agent must be active; its model profiles, quota, and usage apply. Use a
+model profile such as `light`, not a raw provider/model ID. The
 runtime returns `{text, finishReason, usage}`; handle an empty or truncated result
 when `finishReason` is `length`. Runtime errors preserve their status and code.
 

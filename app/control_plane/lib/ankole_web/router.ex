@@ -98,6 +98,7 @@ defmodule AnkoleWeb.Router do
 
     get "/pages/:id/files/content", PodFileController, :download
     post "/pages/:id/files", PodFileController, :upload
+    post "/file-pages", PodFileController, :create
     get "/pages/:id/routes/*path", PodAppletController, :get
     post "/pages/:id/routes/*path", PodAppletController, :post
     put "/pages/:id/routes/*path", PodAppletController, :put
@@ -221,6 +222,19 @@ defmodule AnkoleWeb.Router do
     get "/content/:scope", SpaController, :pod
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
+  end
+
+  if Application.compile_env(:ankole, :dev_routes, false) do
+    pipeline :dev_mailbox do
+      plug :put_secure_browser_headers
+      plug :private_response
+    end
+
+    scope "/dev" do
+      pipe_through :dev_mailbox
+
+      AnkoleWeb.runtime_forward("/mailbox", Plug.Swoosh.MailboxPreview)
+    end
   end
 
   # Function plugs preserve runtime dependencies on business code in production too.

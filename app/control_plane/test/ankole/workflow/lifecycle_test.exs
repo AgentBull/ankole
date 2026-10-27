@@ -1306,9 +1306,9 @@ defmodule Ankole.WorkflowTest do
         end
       end)
 
-    assert {:ok, result} = Workflow.get(run.id, agent.uid, result_offset: 0)
+    assert {:ok, state} = Workflow.get(run.id, agent.uid)
 
-    assert result.counts == %{
+    assert state.counts == %{
              "total" => 1,
              "queued" => 0,
              "running" => 0,
@@ -1319,8 +1319,11 @@ defmodule Ankole.WorkflowTest do
            }
 
     assert [%{"code" => "failed_check", "summary" => "Check failed."}] =
-             Enum.map(result.failure_summaries, &Map.take(&1, ["code", "summary"]))
+             Enum.map(state.failure_summaries, &Map.take(&1, ["code", "summary"]))
 
+    assert {:ok, result} = Workflow.get(run.id, agent.uid, result_offset: 0)
+    refute Map.has_key?(result, :counts)
+    refute Ash.Resource.selected?(result.run, :result_text)
     assert result.result_output_text == String.duplicate("a", 7_999)
     assert result.result_output_total_bytes == byte_size(result_text)
 

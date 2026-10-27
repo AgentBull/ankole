@@ -77,11 +77,44 @@ defmodule Ankole.IdentityProviders.Config do
     AppConfigure.get(active_definition())
   end
 
+  @doc "Rejects removal of a Plugin with enabled tenant identity providers."
+  def veto_plugin_disable_in_tx(previous_ids, enabled_ids) do
+    disabled = previous_ids -- enabled_ids
+
+    if disabled == [] do
+      :ok
+    else
+      Enum.reduce_while(Ankole.Tenants.list(), :ok, fn tenant, :ok ->
+        case check_tenant_plugins_in_tx(tenant.id, disabled) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp check_tenant_plugins_in_tx(tenant_id, disabled) do
+    Repo.with_tenant(tenant_id, fn ->
+      with {:ok, providers} <- AppConfigure.get_in_tx(active_definition()) do
+        case Enum.find(providers, &(&1["enabled"] and &1["plugin_id"] in disabled)) do
+          nil ->
+            :ok
+
+          provider ->
+            {:error,
+             {:identity_provider_plugin_in_use, provider["plugin_id"], provider["provider_id"],
+              tenant_id}}
+        end
+      end
+    end)
+  end
+
   @doc """
   Stores a provider configuration and its activation in one transaction.
   """
-  @spec save_provider(map(), map()) :: {:ok, map()} | {:error, term()}
-  def save_provider(attrs, config) when is_map(attrs) and is_map(config) do
+  @spec save_provider(map(), map(), :create | :update | :upsert) ::
+          {:ok, map()} | {:error, term()}
+  def save_provider(attrs, config, mode \\ :upsert) when is_map(attrs) and is_map(config) do
     with {:ok, next} <- validate_activation(attrs),
          {:ok, definition} <- Registry.require_key(next["config_key"]),
          {:ok, config} <- Codec.validate(definition, config),
@@ -95,7 +128,7 @@ defmodule Ankole.IdentityProviders.Config do
            ),
          {:ok, {_activation_write, {persisted_config, _scope, _key}}} <-
            Repo.transact_top_level(
-             fn -> save_provider_in_tx(next, config, application) end,
+             fn -> save_provider_in_tx(next, config, application, mode) end,
              after_commit: &publish_saved_configuration/1
            ) do
       {:ok, persisted_config}
@@ -103,7 +136,7 @@ defmodule Ankole.IdentityProviders.Config do
   end
 
   @doc false
-  def save_provider_in_tx(next, config, application) do
+  def save_provider_in_tx(next, config, application, mode) do
     with :ok <- validate_login_removal_in_tx(next, config),
          :ok <-
            Ankole.Signals.Bindings.validate_platform_application_in_tx(application),
@@ -113,7 +146,7 @@ defmodule Ankole.IdentityProviders.Config do
            ),
          {:ok, activation_write} <-
            AppConfigure.update_tenant_in_tx(active_definition(), fn providers ->
-             providers |> upsert(next) |> validate_activations()
+             write_activation(providers, next, mode)
            end),
          {:ok, config_write} <-
            AppConfigure.put_tenant_by_key_in_tx(next["config_key"], config),
@@ -123,6 +156,16 @@ defmodule Ankole.IdentityProviders.Config do
              application
            ) do
       {:ok, {activation_write, config_write}}
+    end
+  end
+
+  defp write_activation(providers, next, mode) do
+    exists? = Enum.any?(providers, &(&1["provider_id"] == next["provider_id"]))
+
+    case {mode, exists?} do
+      {:create, true} -> {:error, :identity_provider_exists}
+      {:update, false} -> {:error, :not_found}
+      _ -> providers |> upsert(next) |> validate_activations()
     end
   end
 

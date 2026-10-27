@@ -1,25 +1,60 @@
 import { createAppletRoutes } from './applet-routes'
 import { t } from 'i18next'
-import { AppletRuntimeProvider, useAggregate, useRecords } from '@ankole/applet-sdk'
-import type { AppletRuntime, BaseTable, BaseView, Filter, ViewType } from '@ankole/applet-sdk/types'
-import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
+import { AppletRuntimeProvider, useAggregate, useRecords, useRecordWrites } from '@ankole/applet-sdk'
+import type {
+  AppletRuntime,
+  BaseField,
+  BaseTable,
+  BaseView,
+  Filter,
+  RecordQuery,
+  ViewType
+} from '@ankole/applet-sdk/types'
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  Input,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverTitle,
+  toast
+} from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { TableWorkspaceModel } from './state/table-workspace'
 import { parseViewConfig, type ViewConfig, type ConfiguredView } from './state/view-config'
 import { useMemo, useRef, useState } from 'react'
-import { RiAddLine, RiFileCopyLine, RiGalleryLine, RiLayoutColumnLine, RiTableLine } from '@remixicon/react'
+import {
+  RiAddLine,
+  RiCloseLine,
+  RiFileCopyLine,
+  RiGalleryLine,
+  RiLayoutColumnLine,
+  RiTableLine
+} from '@remixicon/react'
 import { contentKeys, podRequest, type PageDetail } from './content-api'
 import { useContent } from './content-context'
-import { Choice, ContentError, TextField } from './content-primitives'
+import { ContentError } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
-import { BaseViewContent, RecordForm } from './base-views'
+import { BaseViewContent, RecordForm, fieldIcons, type ViewProps } from './base-views'
 import { QueryControls } from './base-query-controls'
 import { FieldEditorButton } from './base-fields'
 import { podBaseCopy } from './api/generated/sdk.gen'
 import { pageSearchQuery, pageQuery, type Page } from './content-api'
 import { BaseSummary } from './base-summary'
+import { PagePicker } from './page-picker'
+import { requestErrorMessage } from '../common/request-errors'
+import { contentError } from './content-errors'
 import './base.css'
 
 export const viewLabels: Record<ViewType, string> = {
@@ -87,6 +122,29 @@ export function BasePage({
   )
 }
 
+function nextTableName(tables: BaseTable[]): string {
+  const existing = new Set(tables.map(table => table.name.trim()))
+  const prefix = t('pod.content.table')
+  for (let index = 1; index <= tables.length + 1; index++) {
+    const candidate = `${prefix} ${index}`
+    if (!existing.has(candidate)) return candidate
+  }
+  return `${prefix} ${tables.length + 1}`
+}
+
+function sanitizeViewConfig(config: ViewConfig, fields: BaseField[]): ViewConfig {
+  const known = new Set(fields.map(field => field.id))
+  const primaryID = fields.find(field => field.is_primary)?.id
+  const next: ViewConfig = { ...config }
+  if (next.visible_fields) {
+    const filtered = next.visible_fields.filter(id => known.has(id))
+    next.visible_fields = primaryID && !filtered.includes(primaryID) ? [primaryID, ...filtered] : filtered
+  }
+  if (!next.group_field_id || !known.has(next.group_field_id)) delete next.group_field_id
+  if (!next.cover_field_id || !known.has(next.cover_field_id)) delete next.cover_field_id
+  return next
+}
+
 function BaseWorkspace({
   detail,
   initialTable,
@@ -100,18 +158,17 @@ function BaseWorkspace({
 }) {
   const tables = useQuery(baseTablesQuery(detail.page.id))
   const [selected, setSelected] = useState(initialTable ?? '')
-  const [name, setName] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [renaming, setRenaming] = useState<string>()
   const [deleting, setDeleting] = useState(false)
   const tableSaving = useRef(false)
   const client = useQueryClient()
+  const tablesQueryKey = [...contentKeys.page(detail.page.id), 'tables']
   const create = useMutation({
-    mutationFn: () => baseHTTP.createTable(detail.page.id, name),
+    mutationFn: () => baseHTTP.createTable(detail.page.id, nextTableName(tables.data?.tables ?? [])),
     onSuccess: async ({ table }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+      await client.invalidateQueries({ queryKey: tablesQueryKey })
       setSelected(table.id)
-      setName('')
-      setCreating(false)
+      setRenaming(table.id)
     },
     onSettled: () => {
       tableSaving.current = false
@@ -123,44 +180,86 @@ function BaseWorkspace({
     onSuccess: async () => {
       setDeleting(false)
       setSelected('')
-      await client.invalidateQueries({ queryKey: contentKeys.all })
+      await Promise.all([
+        client.invalidateQueries({ queryKey: tablesQueryKey }),
+        client.invalidateQueries({ queryKey: [...contentKeys.all, 'table'] }),
+        client.invalidateQueries({ queryKey: [...contentKeys.all, 'reference-labels'] })
+      ])
     }
   })
+  const hasTableActions = detail.actions.includes('page_edit') || detail.actions.includes('page_manage')
   return (
     <section className="pod-base min-w-0" data-inline={!!inline}>
       <div className="pod-base-sources" aria-label={t('pod.content.table')}>
-        {tables.data?.tables.map(table => (
-          <Button
-            key={table.id}
-            size="sm"
-            variant="ghost"
-            className={table.id === tableID ? 'font-semibold' : undefined}
-            aria-pressed={table.id === tableID}
-            onClick={() => {
-              setSelected(table.id)
-              inline?.configure({}, table.id)
-            }}>
-            {table.name}
-          </Button>
-        ))}
-        {detail.actions.includes('page_edit') && (
-          <Button size="sm" variant="ghost" onClick={() => setCreating(true)}>
-            {t('pod.content.table_2')}
-          </Button>
+        {tables.data?.tables.map(table =>
+          renaming === table.id ? (
+            <DefinitionName
+              key={table.id}
+              name={table.name}
+              label={t('pod.content.table_name')}
+              invalidateKey={tablesQueryKey}
+              save={name => baseHTTP.renameTable(table.id, name)}
+              close={() => setRenaming(undefined)}
+            />
+          ) : (
+            <div key={table.id} className="inline-flex shrink-0 items-center gap-0.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className={table.id === tableID ? 'font-semibold' : undefined}
+                aria-pressed={table.id === tableID}
+                onDoubleClick={() => detail.actions.includes('page_edit') && setRenaming(table.id)}
+                onClick={() => {
+                  setSelected(table.id)
+                  inline?.configure({}, table.id)
+                }}>
+                {table.name}
+              </Button>
+              {hasTableActions && table.id === tableID && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.table_actions')} />}>
+                    ⋯
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    {detail.actions.includes('page_edit') && (
+                      <DropdownMenuItem onClick={() => setRenaming(table.id)}>
+                        {t('pod.sidebar.rename')}
+                      </DropdownMenuItem>
+                    )}
+                    {detail.actions.includes('page_manage') && (
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => {
+                          remove.reset()
+                          setDeleting(true)
+                        }}>
+                        {t('pod.content.delete_table')}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          )
         )}
-        {detail.actions.includes('page_manage') && tableID && (
+        {detail.actions.includes('page_edit') && (
           <Button
             size="sm"
             variant="ghost"
+            disabled={create.isPending}
             onClick={() => {
-              remove.reset()
-              setDeleting(true)
+              if (!tableSaving.current) {
+                tableSaving.current = true
+                create.mutate()
+              }
             }}>
-            {t('pod.content.delete_table')}
+            {t('pod.content.table_2')}
           </Button>
         )}
       </div>
       <ContentError error={tables.error} retry={() => void tables.refetch()} />
+      <ContentError error={create.error} />
       {tables.isPending ? (
         <p role="status">{t('pod.content.loading_tables')}</p>
       ) : tableID ? (
@@ -186,41 +285,8 @@ function BaseWorkspace({
             <Button variant="ghost" disabled={remove.isPending} onClick={() => setDeleting(false)}>
               {t('pod.content.cancel')}
             </Button>
-            <Button disabled={remove.isPending} onClick={() => remove.mutate()}>
+            <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
               {t('pod.content.delete_table')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={creating}
-        onOpenChange={next => {
-          if (!tableSaving.current) setCreating(next)
-        }}>
-        <DialogContent
-          className="pod-dialog"
-          closeLabel={t('common.close')}
-          showCloseButton={!create.isPending}
-          aria-busy={create.isPending}
-          render={
-            <form
-              onSubmit={event => {
-                event.preventDefault()
-                if (tableSaving.current || !name.trim()) return
-                tableSaving.current = true
-                create.mutate()
-              }}
-            />
-          }>
-          <DialogTitle>{t('pod.content.new_table')}</DialogTitle>
-          <TextField label={t('pod.content.table_name')} value={name} onChange={setName} disabled={create.isPending} />
-          <ContentError error={create.error} />
-          <DialogFooter>
-            <Button type="button" variant="ghost" disabled={create.isPending} onClick={() => setCreating(false)}>
-              {t('pod.content.cancel')}
-            </Button>
-            <Button variant="outline" type="submit" disabled={!name.trim() || create.isPending}>
-              {t('pod.content.create_table')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -242,7 +308,7 @@ function TableWorkspace({
   initialView?: string
   inline?: InlineView
 }) {
-  const { base } = useContent()
+  const { base, pageHref } = useContent()
   const schema = useQuery(baseSchemaQuery(tableID))
   useSignals()
   const model = useModel(TableWorkspaceModel)
@@ -257,23 +323,39 @@ function TableWorkspace({
   }
   const newRecordSaving = useRef(false)
   const viewSaving = useRef(false)
+  const [renamingView, setRenamingView] = useState<string>()
+  const [deletingView, setDeletingView] = useState<BaseView>()
+  const [copiedPageID, setCopiedPageID] = useState<string>()
   const client = useQueryClient()
+  const removeView = useMutation({
+    mutationFn: (view: BaseView) => baseHTTP.removeView(view.id, view.version),
+    onSuccess: async () => {
+      model.select('')
+      setDeletingView(undefined)
+      await client.invalidateQueries({ queryKey: base.key(tableID) })
+    }
+  })
   const view = viewID ? schema.data?.views.find(view => view.id === viewID) : schema.data?.views[0]
   const missingView = !!viewID && !view && !inline?.config
   const fallback: BaseView = { id: '', name: t('pod.content.grid'), type: 'grid', config: {}, version: 0 }
   const configuration = parseViewConfig(draft?.config ?? inline?.config ?? view?.config ?? {})
+  const parsedConfig = configuration.success
+    ? schema.data
+      ? sanitizeViewConfig(configuration.data, schema.data.fields)
+      : configuration.data
+    : {}
   const effective: ConfiguredView = {
     ...(view ?? fallback),
     type: inline?.config ? (inline.config.type ?? 'grid') : (view?.type ?? 'grid'),
-    config: configuration.success ? configuration.data : {}
+    config: parsedConfig
   }
-  const query = {
+  const query: RecordQuery = {
     filter: effective.config.filter,
     sort: effective.config.sort,
     page_size: 100,
     page_token: pageToken
   }
-  const records = useRecords(tableID, query)
+  const writes = useRecordWrites(tableID)
   const stats = useAggregate(tableID, {
     filter: query.filter,
     metrics: [{ operation: 'count', alias: 'count' }]
@@ -296,9 +378,15 @@ function TableWorkspace({
   const schemaEditable = page.actions.includes('page_edit')
   const configure = (config: ViewConfig) => {
     if (viewSaving.current) return
+    const next = schema.data ? sanitizeViewConfig(config, schema.data.fields) : config
     model.resetPages()
-    if (inline) inline.configure({ ...config, type: effective.type })
-    else model.configure(config, view?.version ?? 0)
+    if (inline) inline.configure({ ...next, type: effective.type })
+    else model.configure(next, view?.version ?? 0)
+  }
+  const handleFieldCreated = (fieldID: string) => {
+    if (effective.config.visible_fields && !effective.config.visible_fields.includes(fieldID)) {
+      configure({ ...effective.config, visible_fields: [...effective.config.visible_fields, fieldID] })
+    }
   }
   if (schema.error && !schema.data) return <ContentError error={schema.error} retry={() => void schema.refetch()} />
   if (!schema.data) return <p role="status">{t('pod.content.loading_table_schema')}</p>
@@ -319,56 +407,92 @@ function TableWorkspace({
       </div>
     )
   }
-  const props = {
+  const sharedViewProps: Omit<ViewProps, 'records' | 'pending' | 'create' | 'update' | 'remove'> = {
     pageID: page.page.id,
     tableID,
     tables,
     fields: schema.data.fields,
-    records: records.data?.records ?? [],
     view: effective,
     editable,
     schemaEditable,
-    pending: records.write.isPending,
-    update: records.update,
-    remove: records.remove,
     configure,
-    configuring: updateView.isPending
+    configuring: updateView.isPending,
+    onFieldCreated: handleFieldCreated
   }
+  const copiedLocation = copiedPageID ? pageHref(copiedPageID) : undefined
   return (
     <div className="pod-base-workspace min-w-0">
       <div className="pod-base-toolbar">
         <div className="pod-base-view-navigation">
           <nav aria-label={t('pod.content.data_view')} className="pod-base-views">
-            {schema.data.views.map(view => {
-              const Icon = viewIcons[view.type]
+            {schema.data.views.map(item => {
+              const Icon = viewIcons[item.type]
+              if (renamingView === item.id) {
+                return (
+                  <DefinitionName
+                    key={item.id}
+                    name={item.name}
+                    label={t('pod.content.view_name')}
+                    invalidateKey={base.key(tableID)}
+                    save={name => baseHTTP.updateView(item.id, { name }, item.version)}
+                    close={() => setRenamingView(undefined)}
+                  />
+                )
+              }
+              const active = item.id === effective.id
               return (
-                <Button
-                  key={view.id}
-                  size="sm"
-                  variant={view.id === effective.id ? 'outline' : 'ghost'}
-                  className="pod-base-view"
-                  aria-pressed={view.id === effective.id}
-                  disabled={updateView.isPending}
-                  onClick={() => {
-                    model.select(view.id)
-                    if (inline) {
-                      const config = parseViewConfig(view.config)
-                      if (config.success) inline.configure({ ...config.data, type: view.type })
-                    }
-                    model.draft.value = undefined
-                    updateView.reset()
-                    setNewRecord(false)
-                    model.resetPages()
-                  }}>
-                  <Icon aria-hidden="true" />
-                  <span>{view.name}</span>
-                </Button>
+                <div key={item.id} className="inline-flex shrink-0 items-center gap-0.5">
+                  <Button
+                    size="sm"
+                    variant={active ? 'outline' : 'ghost'}
+                    className="pod-base-view"
+                    aria-pressed={active}
+                    disabled={updateView.isPending}
+                    onDoubleClick={() => schemaEditable && setRenamingView(item.id)}
+                    onClick={() => {
+                      model.select(item.id)
+                      if (inline) {
+                        const config = parseViewConfig(item.config)
+                        if (config.success) inline.configure({ ...config.data, type: item.type })
+                      }
+                      model.draft.value = undefined
+                      updateView.reset()
+                      setNewRecord(false)
+                      model.resetPages()
+                    }}>
+                    <Icon aria-hidden="true" />
+                    <span>{item.name}</span>
+                  </Button>
+                  {schemaEditable && active && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.view_actions')} />}>
+                        ⋯
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => setRenamingView(item.id)}>
+                          {t('pod.sidebar.rename')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={schema.data.views.length <= 1}
+                          onClick={() => {
+                            removeView.reset()
+                            setDeletingView(item)
+                          }}>
+                          {t('pod.content.delete_view')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
               )
             })}
           </nav>
           {schemaEditable && (
             <CreateViewButton
               tableID={tableID}
+              fields={schema.data.fields}
               onCreated={id => {
                 model.select(id)
               }}
@@ -384,18 +508,107 @@ function TableWorkspace({
             disabled={updateView.isPending}
             update={(filter, sort) => configure({ ...effective.config, filter, sort })}
           />
+          <Popover>
+            <PopoverTrigger render={<Button size="sm" variant="outline" />}>{t('pod.content.fields')}</PopoverTrigger>
+            <PopoverContent
+              align="end"
+              collisionPadding={16}
+              className="max-h-[min(24rem,calc(var(--available-height)-0.5rem))] w-64 gap-2 overflow-hidden p-3">
+              <PopoverTitle className="shrink-0">{t('pod.content.fields')}</PopoverTitle>
+              <div className="min-h-0 flex-1 grid gap-1 overflow-y-auto">
+                {schema.data.fields.map(field => {
+                  const Icon = fieldIcons[field.type]
+                  const checked =
+                    field.is_primary ||
+                    !effective.config.visible_fields ||
+                    effective.config.visible_fields.includes(field.id)
+                  return (
+                    <div
+                      key={field.id}
+                      className="flex items-center gap-1 rounded-control px-1.5 py-1 hover:bg-accent/60">
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={checked}
+                          disabled={field.is_primary || updateView.isPending}
+                          onCheckedChange={next => {
+                            const visible = effective.config.visible_fields
+                              ? schema
+                                  .data!.fields.filter(
+                                    item => item.is_primary || effective.config.visible_fields!.includes(item.id)
+                                  )
+                                  .map(item => item.id)
+                              : schema.data!.fields.map(item => item.id)
+                            configure({
+                              ...effective.config,
+                              visible_fields: next
+                                ? [...new Set([...visible, field.id])]
+                                : visible.filter(id => id !== field.id)
+                            })
+                          }}
+                        />
+                        <Icon aria-hidden="true" className="size-3.5 shrink-0 text-fg-tertiary" />
+                        <span className="truncate">{field.name}</span>
+                      </label>
+                      {schemaEditable && (
+                        <FieldEditorButton
+                          tableID={tableID}
+                          pageID={page.page.id}
+                          tables={tables}
+                          field={field}
+                          canManage={schemaEditable}
+                          iconOnly
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {schemaEditable && (
+                <div className="shrink-0 border-t border-border pt-2">
+                  <FieldEditorButton
+                    tableID={tableID}
+                    pageID={page.page.id}
+                    tables={tables}
+                    canManage
+                    onCreated={handleFieldCreated}
+                  />
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
           {editable && (
-            <Button variant="outline" size="sm" className="pod-base-new" onClick={() => setNewRecord(true)}>
+            <Button variant="default" size="sm" className="pod-base-new" onClick={() => setNewRecord(true)}>
               <RiAddLine aria-hidden="true" />
               {t('pod.content.new_record')}
             </Button>
           )}
-          {schemaEditable && effective.type !== 'grid' && (
-            <FieldEditorButton tableID={tableID} pageID={page.page.id} tables={tables} canManage />
-          )}
-          <CopyTableButton tableID={tableID} parentID={page.page.parent_id ?? undefined} filter={query.filter} />
+          <CopyTableButton
+            tableID={tableID}
+            parentID={page.page.parent_id ?? undefined}
+            filter={query.filter}
+            onCopied={setCopiedPageID}
+          />
         </div>
       </div>
+      {copiedLocation && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-control border border-border bg-muted/50 px-3 py-2 text-sm">
+          <p role="status">
+            {t('pod.content.copied_to_an_independent_page')}{' '}
+            <a className="link" href={copiedLocation}>
+              {t('pod.content.open_page')}
+            </a>
+          </p>
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            aria-label={t('common.close')}
+            title={t('common.close')}
+            onClick={() => setCopiedPageID(undefined)}>
+            <RiCloseLine aria-hidden="true" />
+          </Button>
+        </div>
+      )}
       {draft && !inline && (
         <div className="pod-base-draft flex flex-wrap items-center gap-2 p-2 text-sm">
           <p role="status">
@@ -405,14 +618,14 @@ function TableWorkspace({
           </p>
           {schemaEditable && (
             <Button
-              variant="outline"
+              variant="default"
               size="sm"
               disabled={updateView.isPending || schema.isFetching}
               onClick={() => {
                 if (viewSaving.current) return
                 viewSaving.current = true
                 updateView.mutate({
-                  config: draft.config,
+                  config: sanitizeViewConfig(draft.config, schema.data.fields),
                   version: updateView.error ? (view?.version ?? 0) : draft.version
                 })
               }}>
@@ -435,51 +648,62 @@ function TableWorkspace({
           </Button>
         </div>
       )}
-      <ContentError
-        error={records.error || records.write.error || updateView.error || stats.error || schema.error}
-        retry={() => void records.refetch()}
-      />
-      <div className="pod-base-content min-w-0">
-        <BaseViewContent key={`${effective.id}:${effective.type}`} {...props} />
-        {!records.isPending && !records.error && !props.records.length && (
-          <p className="py-8 text-sm text-fg-tertiary">
-            {editable
-              ? t('pod.content.this_view_has_no_records_adjust_the_filters_or_add')
-              : t('pod.content.this_view_has_no_records_adjust_the_filters')}
+      {effective.type === 'kanban' ? (
+        <>
+          <ContentError error={writes.write.error || updateView.error || stats.error || schema.error} />
+          <div className="pod-base-content min-w-0">
+            <BaseViewContent
+              key={`${effective.id}:${effective.type}`}
+              {...sharedViewProps}
+              records={[]}
+              pending={writes.write.isPending}
+              create={writes.create}
+              update={writes.update}
+              remove={writes.remove}
+            />
+          </div>
+          <p className="pod-base-status text-xs text-fg-tertiary" role="status">
+            {stats.isPending
+              ? t('pod.content.loading_records')
+              : t('pod.content.records', {
+                  value1: stats.data?.groups[0]?.metrics.count ?? 0
+                })}
+            {writes.write.isPending ? t('pod.content.saving_2') : ''}
           </p>
-        )}
-      </div>
-      <p className="pod-base-status text-xs text-fg-tertiary" role="status">
-        {records.isPending
-          ? t('pod.content.loading_records')
-          : t('pod.content.records', {
-              value1: stats.data?.groups[0]?.metrics.count ?? records.data?.records.length ?? 0
-            })}
-        {records.write.isPending ? t('pod.content.saving_2') : ''}
-      </p>
-      <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
-      {(schema.data.mode === 'remote' || !!records.data?.page_token || history.length > 0) && (
-        <div className="pod-base-pagination flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!history.length || records.isFetching}
-            onClick={() => {
-              model.previous()
-            }}>
-            {t('pod.content.previous_page')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!records.data?.page_token || records.isFetching}
-            onClick={() => {
-              if (records.data?.page_token) model.next(records.data.page_token)
-            }}>
-            {t('pod.content.next_page')}
-          </Button>
-        </div>
+          <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
+        </>
+      ) : (
+        <UngroupedWorkspaceBody
+          tableID={tableID}
+          query={query}
+          mode={schema.data.mode}
+          sharedViewProps={sharedViewProps}
+          statsCount={stats.data?.groups[0]?.metrics.count}
+          upstreamError={updateView.error || stats.error || schema.error}
+          historyLength={history.length}
+          onPrevious={() => model.previous()}
+          onNext={token => model.next(token)}
+          summary={<BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />}
+        />
       )}
+      <Dialog open={!!deletingView} onOpenChange={open => !open && !removeView.isPending && setDeletingView(undefined)}>
+        <DialogContent closeLabel={t('common.close')}>
+          <DialogTitle>{t('pod.content.delete_view')}</DialogTitle>
+          <p>{deletingView?.name}</p>
+          <ContentError error={removeView.error} />
+          <DialogFooter>
+            <Button variant="ghost" disabled={removeView.isPending} onClick={() => setDeletingView(undefined)}>
+              {t('pod.content.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={removeView.isPending}
+              onClick={() => deletingView && removeView.mutate(deletingView)}>
+              {t('pod.content.delete_view')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={newRecord}
         onOpenChange={next => {
@@ -488,17 +712,17 @@ function TableWorkspace({
         <DialogContent
           className="pod-dialog pod-record-dialog"
           closeLabel={t('common.close')}
-          showCloseButton={!records.write.isPending}>
+          showCloseButton={!writes.write.isPending}>
           <DialogTitle>{t('pod.content.new_record')}</DialogTitle>
           <RecordForm
-            fields={props.fields}
-            pageID={props.pageID}
+            fields={schema.data.fields}
+            pageID={page.page.id}
             editable={editable}
             close={() => setNewRecord(false)}
             write={async changes => {
               newRecordSaving.current = true
               try {
-                await records.write.mutateAsync(changes)
+                await writes.write.mutateAsync(changes)
                 setNewRecord(false)
               } finally {
                 newRecordSaving.current = false
@@ -511,84 +735,220 @@ function TableWorkspace({
   )
 }
 
-function CreateViewButton({ tableID, onCreated }: { tableID: string; onCreated(id: string): void }) {
-  const [open, setOpen] = useState(false),
-    [name, setName] = useState(''),
-    [type, setType] = useState<ViewType>('grid')
-  const client = useQueryClient()
-  const { base } = useContent()
-  const saving = useRef(false)
-  const create = useMutation({
-    mutationFn: () => baseHTTP.createView(tableID, { name: name || viewLabels[type], type, config: {} }),
-    onSuccess: async ({ view }) => {
-      await client.invalidateQueries({ queryKey: base.key(tableID) })
-      onCreated(view.id)
-      setOpen(false)
-      setName('')
-    },
-    onSettled: () => {
-      saving.current = false
-    }
-  })
+function UngroupedWorkspaceBody({
+  tableID,
+  query,
+  mode,
+  sharedViewProps,
+  statsCount,
+  upstreamError,
+  historyLength,
+  onPrevious,
+  onNext,
+  summary
+}: {
+  tableID: string
+  query: RecordQuery
+  mode: string
+  sharedViewProps: Omit<ViewProps, 'records' | 'pending' | 'create' | 'update' | 'remove'>
+  statsCount: unknown
+  upstreamError: unknown
+  historyLength: number
+  onPrevious(): void
+  onNext(token: string): void
+  summary: React.ReactNode
+}) {
+  const records = useRecords(tableID, query)
+  const rows = records.data?.records ?? []
   return (
-    <Dialog
-      open={open}
-      onOpenChange={next => {
-        if (!saving.current) setOpen(next)
-      }}>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
-        {t('pod.content.view')}
-      </Button>
-      <DialogContent
-        className="pod-dialog"
-        closeLabel={t('common.close')}
-        showCloseButton={!create.isPending}
-        aria-busy={create.isPending}
-        render={
-          <form
-            onSubmit={event => {
-              event.preventDefault()
-              if (saving.current) return
-              saving.current = true
-              create.mutate()
-            }}
-          />
-        }>
-        <DialogTitle>{t('pod.content.new_view')}</DialogTitle>
-        <TextField label={t('pod.content.view_name')} value={name} onChange={setName} disabled={create.isPending} />
-        <Choice
-          label={t('pod.content.view_type')}
-          value={type}
-          onChange={setType}
-          options={viewLabels}
-          disabled={create.isPending}
+    <>
+      <ContentError
+        error={records.error || records.write.error || upstreamError}
+        retry={() => void records.refetch()}
+      />
+      <div className="pod-base-content min-w-0">
+        <BaseViewContent
+          key={`${sharedViewProps.view.id}:${sharedViewProps.view.type}`}
+          {...sharedViewProps}
+          records={rows}
+          pending={records.write.isPending}
+          create={records.create}
+          update={records.update}
+          remove={records.remove}
         />
-        <ContentError error={create.error} />
-        <DialogFooter>
-          <Button type="button" variant="ghost" disabled={create.isPending} onClick={() => setOpen(false)}>
-            {t('pod.content.cancel')}
+        {!records.isPending && !records.error && !rows.length && (
+          <p className="py-8 text-sm text-fg-tertiary">
+            {sharedViewProps.editable
+              ? t('pod.content.this_view_has_no_records_adjust_the_filters_or_add')
+              : t('pod.content.this_view_has_no_records_adjust_the_filters')}
+          </p>
+        )}
+      </div>
+      <p className="pod-base-status text-xs text-fg-tertiary" role="status">
+        {records.isPending
+          ? t('pod.content.loading_records')
+          : t('pod.content.records', {
+              value1: statsCount ?? rows.length
+            })}
+        {records.write.isPending ? t('pod.content.saving_2') : ''}
+      </p>
+      {summary}
+      {(mode === 'remote' || !!records.data?.page_token || historyLength > 0) && (
+        <div className="pod-base-pagination flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={!historyLength || records.isFetching} onClick={onPrevious}>
+            {t('pod.content.previous_page')}
           </Button>
-          <Button variant="outline" type="submit" disabled={create.isPending}>
-            {t('pod.content.create_view')}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!records.data?.page_token || records.isFetching}
+            onClick={() => {
+              if (records.data?.page_token) onNext(records.data.page_token)
+            }}>
+            {t('pod.content.next_page')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      )}
+    </>
   )
 }
 
-function CopyTableButton({ tableID, parentID, filter }: { tableID: string; parentID?: string; filter?: Filter }) {
-  const { pageHref } = useContent()
+function DefinitionName({
+  name,
+  label,
+  invalidateKey,
+  save,
+  close
+}: {
+  name: string
+  label: string
+  invalidateKey: readonly unknown[]
+  save(name: string): Promise<unknown>
+  close(): void
+}) {
+  const [draft, setDraft] = useState(name)
+  const writing = useRef(false)
+  const client = useQueryClient()
+  const write = useMutation({
+    mutationFn: () => save(draft.trim()),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: invalidateKey })
+      close()
+    },
+    onError: error => toast.error(requestErrorMessage(contentError(error))),
+    onSettled: () => {
+      writing.current = false
+    }
+  })
+  const commit = () => {
+    if (writing.current) return
+    if (!draft.trim() || draft.trim() === name) {
+      close()
+      return
+    }
+    writing.current = true
+    write.mutate()
+  }
+  return (
+    <Input
+      className="h-7 w-40 px-2 text-sm"
+      autoFocus
+      aria-label={label}
+      value={draft}
+      disabled={write.isPending}
+      onFocus={event => event.target.select()}
+      onChange={event => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          commit()
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          writing.current = true
+          close()
+        }
+      }}
+    />
+  )
+}
+
+function CreateViewButton({
+  tableID,
+  fields,
+  onCreated
+}: {
+  tableID: string
+  fields: BaseField[]
+  onCreated(id: string): void
+}) {
+  const client = useQueryClient()
+  const { base } = useContent()
+  const create = useMutation({
+    mutationFn: (type: ViewType) => {
+      const group =
+        type === 'kanban' ? fields.find(field => field.type === 'select' && !field.config.multiple) : undefined
+      return baseHTTP.createView(tableID, {
+        name: viewLabels[type],
+        type,
+        config: group ? { group_field_id: group.id } : {}
+      })
+    },
+    onSuccess: async ({ view }) => {
+      await client.invalidateQueries({ queryKey: base.key(tableID) })
+      onCreated(view.id)
+    },
+    onError: error => toast.error(requestErrorMessage(contentError(error)))
+  })
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={create.isPending} />}>
+        {t('pod.content.view')}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        {(Object.keys(viewLabels) as ViewType[]).map(type => {
+          const Icon = viewIcons[type]
+          return (
+            <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => create.mutate(type)}>
+              <Icon aria-hidden="true" />
+              {viewLabels[type]}
+            </DropdownMenuItem>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function CopyTableButton({
+  tableID,
+  parentID,
+  filter,
+  onCopied
+}: {
+  tableID: string
+  parentID?: string
+  filter?: Filter
+  onCopied(pageID: string): void
+}) {
   const [open, setOpen] = useState(false),
     [title, setTitle] = useState(''),
-    [selectedParent, setParent] = useState<string>(),
-    [createdPage, setCreatedPage] = useState<string>()
+    [selectedParent, setParent] = useState<string>()
   const client = useQueryClient()
   const saving = useRef(false)
-  const [destinationQuery, setDestinationQuery] = useState('')
+  const titleInput = useRef<HTMLInputElement>(null)
   const [selectedTarget, setSelectedTarget] = useState<Page>()
+  const openDialog = () => {
+    copy.reset()
+    setTitle('')
+    setParent(undefined)
+    setSelectedTarget(undefined)
+    setOpen(true)
+  }
   const destinations = useQuery({
-    ...pageSearchQuery(destinationQuery, { required_action: 'page_edit' }),
+    ...pageSearchQuery('', { required_action: 'page_edit' }),
     enabled: open
   })
   const initialTarget = useQuery({ ...pageQuery(parentID ?? ''), enabled: open && Boolean(parentID) })
@@ -603,6 +963,7 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
       ].map(page => [page.id, page])
     ).values()
   ]
+  const loadingTargets = destinations.isPending || (Boolean(parentID) && !selectedParent && initialTarget.isPending)
   const canCreateSpace = destinations.data?.can_create_space === true
   const canCreatePrivate = destinations.data?.can_create_private === true && !!destinations.data.principal_uid
   const parent = selectedParent ?? parentID ?? (canCreateSpace ? 'space' : canCreatePrivate ? 'private' : '')
@@ -627,101 +988,95 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
       }),
     onSuccess: async ({ page }) => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
-      setCreatedPage(page.id)
+      onCopied(page.id)
       setOpen(false)
     },
     onSettled: () => {
       saving.current = false
     }
   })
-  const createdLocation = createdPage ? pageHref(createdPage) : undefined
   return (
-    <>
-      <Dialog
-        open={open}
-        onOpenChange={next => {
-          if (!saving.current) setOpen(next)
-        }}>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          title={t('pod.content.copy_current_results')}
-          onClick={() => {
-            copy.reset()
-            setParent(undefined)
-            setOpen(true)
-          }}>
-          <RiFileCopyLine aria-hidden="true" />
-          <span className="sr-only">{t('pod.content.copy_current_results')}</span>
-        </Button>
-        <DialogContent
-          className="pod-dialog"
-          closeLabel={t('common.close')}
-          showCloseButton={!copy.isPending}
-          aria-busy={copy.isPending}
-          render={
-            <form
-              onSubmit={event => {
-                event.preventDefault()
-                if (saving.current || invalidTarget || destinations.isError || !destinations.data) return
-                saving.current = true
-                copy.mutate()
-              }}
-            />
-          }>
-          <DialogTitle>{t('pod.content.copy_table')}</DialogTitle>
+    <Dialog
+      open={open}
+      onOpenChange={next => {
+        if (saving.current) return
+        if (next) openDialog()
+        else setOpen(false)
+      }}>
+      <Button size="icon-sm" variant="ghost" title={t('pod.content.copy_current_results')} onClick={openDialog}>
+        <RiFileCopyLine aria-hidden="true" />
+        <span className="sr-only">{t('pod.content.copy_current_results')}</span>
+      </Button>
+      <DialogContent
+        className="pod-dialog"
+        closeLabel={t('common.close')}
+        showCloseButton={!copy.isPending}
+        initialFocus={titleInput}
+        aria-busy={copy.isPending}
+        render={
+          <form
+            onSubmit={event => {
+              event.preventDefault()
+              if (saving.current || loadingTargets || invalidTarget || destinations.isError || !destinations.data) {
+                return
+              }
+              saving.current = true
+              copy.mutate()
+            }}
+          />
+        }>
+        <DialogTitle>{t('pod.content.copy_table')}</DialogTitle>
+        <div className="pod-dialog-body grid gap-3">
           <p className="text-sm text-fg-tertiary">
             {t('pod.content.the_copied_data_is_saved_independently_changes_to_the_source')}
           </p>
-          <TextField label={t('pod.content.page_title')} value={title} onChange={setTitle} disabled={copy.isPending} />
-          <TextField
-            label={t('pod.content.search_pages')}
-            value={destinationQuery}
-            onChange={setDestinationQuery}
-            disabled={copy.isPending}
-          />
-          <Choice
+          <label className="grid gap-2 text-sm">
+            <span>{t('pod.content.page_title')}</span>
+            <Input
+              ref={titleInput}
+              autoFocus
+              aria-label={t('pod.content.page_title')}
+              value={title}
+              disabled={copy.isPending}
+              onChange={event => setTitle(event.target.value)}
+            />
+          </label>
+          <PagePicker
             label={t('pod.content.save_to')}
-            value={parent}
-            onChange={id => {
+            requiredAction="page_edit"
+            selected={parent}
+            disabled={copy.isPending}
+            autoFocus={false}
+            roots={[
+              ...(canCreateSpace ? [{ id: 'space', title: t('pod.content.space') }] : []),
+              ...(canCreatePrivate ? [{ id: 'private', title: t('pod.content.private'), private: true }] : [])
+            ]}
+            onSelect={(id, page) => {
               setParent(id)
-              setSelectedTarget(targets.find(page => page.id === id))
-            }}
-            disabled={copy.isPending || destinations.isPending}
-            options={{
-              ...(!parent ? { '': t('pod.content.choose_an_available_destination') } : {}),
-              ...(canCreateSpace ? { space: t('pod.content.space') } : {}),
-              ...(canCreatePrivate ? { private: 'Private' } : {}),
-              ...(invalidTarget && parent
-                ? {
-                    [parent]: t('pod.content.the_original_destination_is_no_longer_editable_choose_another_destination')
-                  }
-                : {}),
-              ...Object.fromEntries(targets.map(page => [page.id, page.title || t('pod.content.untitled')]))
+              setSelectedTarget(page)
             }}
           />
+          <p className="pod-selected-destination text-sm">
+            {loadingTargets
+              ? t('pod.content.loading_destinations')
+              : invalidTarget
+                ? t('pod.content.the_original_destination_is_no_longer_editable_choose_another_destination')
+                : `${t('pod.content.save_to')}: ${parent === 'space' ? t('pod.content.space') : parent === 'private' ? t('pod.content.private') : targets.find(page => page.id === parent)?.title || t('pod.content.untitled')}`}
+          </p>
           <ContentError error={copy.error || destinations.error} />
-          <DialogFooter>
-            <Button type="button" variant="ghost" disabled={copy.isPending} onClick={() => setOpen(false)}>
-              {t('pod.content.cancel')}
-            </Button>
-            <Button
-              variant="outline"
-              type="submit"
-              disabled={copy.isPending || destinations.isPending || destinations.isError || invalidTarget}>
-              {t('pod.content.copy')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {createdLocation && (
-        <p role="status" className="text-sm">
-          {t('pod.content.copied_to_an_independent_page')}{' '}
-          <a className="link" href={createdLocation}>
-            {t('pod.content.open_page')}
-          </a>
-        </p>
-      )}
-    </>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" disabled={copy.isPending} onClick={() => setOpen(false)}>
+            {t('pod.content.cancel')}
+          </Button>
+          <Button
+            variant="default"
+            type="submit"
+            disabled={copy.isPending || loadingTargets || destinations.isError || invalidTarget}>
+            {t('pod.content.copy')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

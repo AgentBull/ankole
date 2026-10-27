@@ -2,15 +2,16 @@ import { t } from 'i18next'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { BaseField, BaseRecord, Value } from '@ankole/applet-sdk/types'
-import { contentKeys } from './content-api'
+import { contentKeys, fileURL } from './content-api'
 import { podSubjects } from './api/generated/sdk.gen'
 import { baseHTTP } from './base-api'
 import { displayValue } from './base-field-types'
 import { useContent } from './content-context'
 import { isRealtimeAccessDenied } from './realtime'
-import { fieldValue } from './state/table-query'
+import { fieldValue, principalUID } from './state/table-query'
 
-const ReferenceLabels = createContext<Map<string, Map<string, string>> | null>(null)
+type TableReferenceLabels = { labels: Map<string, string>; pending: boolean }
+const ReferenceLabels = createContext<Map<string, TableReferenceLabels> | null>(null)
 
 /** Batch record labels at the view boundary instead of one schema/query pair per cell. */
 export function ReferenceLabelsProvider({
@@ -65,12 +66,16 @@ export function ReferenceLabelsProvider({
     <ReferenceLabels
       value={
         new Map(
-          entries.map((entry, index) => [
-            entry.tableID,
-            revoked.has(entry.tableID) || isRealtimeAccessDenied(labels[index]?.error)
-              ? new Map()
-              : (labels[index]?.data ?? new Map())
-          ])
+          entries.map((entry, index) => {
+            const denied = revoked.has(entry.tableID) || isRealtimeAccessDenied(labels[index]?.error)
+            return [
+              entry.tableID,
+              {
+                labels: denied ? new Map<string, string>() : (labels[index]?.data ?? new Map<string, string>()),
+                pending: !denied && Boolean(labels[index]?.isPending)
+              }
+            ]
+          })
         )
       }>
       {children}
@@ -98,11 +103,12 @@ export async function loadReferenceLabels(tableID: string, ids: string[]) {
   )
 }
 
-export function FieldValue({ field, value }: { field: BaseField; value: Value }) {
+export function FieldValue({ field, value, pageID }: { field: BaseField; value: Value; pageID?: string }) {
   const sharedLabels = useContext(ReferenceLabels)
   const people = ['user', 'created_by', 'updated_by'].includes(field.type)
   const link = field.type === 'link'
   const values = (Array.isArray(value) ? value : value === null ? [] : [value]).map(item => {
+    if (people) return principalUID(item as Value) ?? String(item)
     if (item && typeof item === 'object' && 'uid' in item) return String(item.uid)
     return String(item).split(':principal/').at(-1)!
   })
@@ -118,8 +124,42 @@ export function FieldValue({ field, value }: { field: BaseField; value: Value })
     enabled: link && !sharedLabels && values.length > 0,
     retry: false
   })
+  if (field.type === 'attachment') {
+    const files = Array.isArray(value)
+      ? (value as { path?: string; name?: string }[]).filter(file => file && typeof file === 'object' && file.name)
+      : []
+    if (!files.length) return <>—</>
+    return (
+      <span className="inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+        {files.map((file, index) => {
+          const match = typeof file.path === 'string' ? /^pages\/([^/]+)\/(.+)$/.exec(file.path) : null
+          const ownerPageID = pageID ?? match?.[1]
+          const relativePath =
+            ownerPageID && typeof file.path === 'string' ? file.path.replace(`pages/${ownerPageID}/`, '') : undefined
+          return ownerPageID && relativePath ? (
+            <a
+              key={`${file.path}:${index}`}
+              className="link truncate"
+              href={fileURL(ownerPageID, relativePath)}
+              download={file.name}
+              onClick={event => event.stopPropagation()}>
+              {file.name}
+            </a>
+          ) : (
+            <span key={index} className="truncate">
+              {file.name}
+            </span>
+          )
+        })}
+      </span>
+    )
+  }
   if (!people && !link) return <>{displayValue(field, value)}</>
   if (!values.length) return <>—</>
+  const shared = link ? sharedLabels?.get(String(field.config.table_id)) : undefined
+  if ((people && subjects.isPending) || (link && (shared ? shared.pending : !sharedLabels && records.isPending))) {
+    return <span className="text-fg-tertiary">…</span>
+  }
   return (
     <>
       {values
@@ -127,7 +167,7 @@ export function FieldValue({ field, value }: { field: BaseField; value: Value })
           people
             ? (subjects.data?.subjects.find(subject => subject.principal_uid === id)?.name ??
               t('pod.content.unknown_member'))
-            : (sharedLabels?.get(String(field.config.table_id))?.get(id) ??
+            : (shared?.labels.get(id) ??
               (isRealtimeAccessDenied(records.error) ? undefined : records.data?.get(id)) ??
               t('pod.content.cannot_display'))
         )

@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
+  ConfigFields,
   configFieldRequired,
   configFieldValidationMessage,
   localizedText,
+  parseConfigFieldInput,
   type ConfigFieldDefinition
 } from './config-fields'
 
@@ -101,4 +105,32 @@ test('localized labels return selected text and reject non-text values', () => {
   ]) {
     expect(localizedText(value, 'zh-Hans-CN')).toBeUndefined()
   }
+})
+
+describe('parseConfigFieldInput and ConfigFields rendering', () => {
+  test('clearing an integer input produces undefined instead of snapping to zero', () => {
+    const intField = field({ path: 'port', type: 'integer' })
+    expect(parseConfigFieldInput(intField, '')).toBeUndefined()
+    expect(parseConfigFieldInput(intField, '0')).toBe(0)
+    expect(parseConfigFieldInput(intField, '587')).toBe(587)
+    expect(parseConfigFieldInput(field({ path: 'host', type: 'string' }), '')).toBe('')
+  })
+
+  test('renders cleared integer fields empty and rotates the advanced trigger chevron on expand', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConfigFields, {
+        config: {},
+        fields: [
+          field({ path: 'port', type: 'integer', label: { default: 'Port' } }),
+          field({ path: 'timeout', type: 'integer', advanced: true, label: { default: 'Timeout' } })
+        ],
+        locale: 'en-US',
+        onChange() {}
+      })
+    )
+
+    expect(html).toMatch(/<input[^>]*type="number"[^>]*value=""/)
+    expect(html).toContain('group flex w-full items-center justify-between')
+    expect(html).toContain('transition-transform group-aria-expanded:rotate-180')
+  })
 })

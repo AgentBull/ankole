@@ -2,7 +2,6 @@ defmodule AnkoleWeb.JSONAPI.Context do
   @moduledoc "Sets the explicit Ash Actor, tenant, and canonical request targets."
   import Plug.Conn
   alias Ankole.AuthZ.Checks.GrantCheck
-  @principal_keys ~w(uid principal_uid agent_uid target_agent_uid)
 
   def before_dispatch(conn, :open_api, _scope),
     do: put_resp_content_type(conn, "application/json")
@@ -14,9 +13,7 @@ defmodule AnkoleWeb.JSONAPI.Context do
          {:ok, params} <- canonical_targets(resource, params) do
       conn = %{
         conn
-        | path_params: Map.merge(conn.path_params, params),
-          query_params: canonical_principals(conn.query_params),
-          body_params: canonical_body(conn.body_params)
+        | path_params: Map.merge(conn.path_params, params)
       }
 
       conn
@@ -48,7 +45,7 @@ defmodule AnkoleWeb.JSONAPI.Context do
     fun = fn ->
       Enum.reduce_while(
         Ankole.AuthZ.Dsl.params(resource),
-        {:ok, canonical_principals(params)},
+        {:ok, params},
         fn param, {:ok, acc} ->
           key = to_string(param.name)
 
@@ -79,27 +76,5 @@ defmodule AnkoleWeb.JSONAPI.Context do
     |> put_resp_content_type("application/vnd.api+json")
     |> send_resp(status, Jason.encode!(%{errors: [%{status: to_string(status), code: code}]}))
     |> halt()
-  end
-
-  defp canonical_body(%{"data" => %{} = data} = body) do
-    data = canonical_principals(data)
-
-    data =
-      if is_map(data["attributes"]),
-        do: Map.update!(data, "attributes", &canonical_principals/1),
-        else: data
-
-    Map.put(body, "data", data)
-  end
-
-  defp canonical_body(body), do: body
-
-  defp canonical_principals(params) do
-    Enum.reduce(@principal_keys, params, fn key, acc ->
-      case Map.fetch(acc, key) do
-        {:ok, uid} when is_binary(uid) -> Map.put(acc, key, Ankole.PrincipalKey.canonicalize(uid))
-        _ -> acc
-      end
-    end)
   end
 end

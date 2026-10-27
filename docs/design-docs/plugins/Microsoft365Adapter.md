@@ -59,8 +59,9 @@ https://<host>/webhooks/v1/entra-id/<provider_id>/directory
 ```
 
 The Teams handler checks the Bot Framework token before it loads a binding. The
-token audience must match `appID`. The handler completes durable Conversation
-observation before it returns status 200.
+token audience must match `appID`, and its `serviceurl` claim must match the
+activity's `serviceUrl`. The handler completes durable Conversation observation
+before it returns status 200.
 
 The directory handler checks the stored `clientState`. For an update, it fetches
 the current Graph object before it changes Principal or AuthZ records. For a

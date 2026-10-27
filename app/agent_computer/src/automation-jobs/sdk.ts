@@ -12,13 +12,13 @@ export type AutomationJobContext = {
   }
 }
 
-const contextValue = readContext()
+let contextValue: AutomationJobContext | undefined
 
 /**
  * Returns the immutable facts for the current automation job run.
  */
 export function context(): AutomationJobContext {
-  return contextValue
+  return (contextValue ??= readContext())
 }
 
 /**

@@ -164,23 +164,17 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     human = Ankole.PrincipalsFixtures.human_fixture().principal
 
-    {:ok, other, flow} =
-      conn |> Plug.Test.init_test_session(%{}) |> AnkoleWeb.Session.begin_login(:pod, %{})
+    other = conn |> Plug.Test.init_test_session(%{}) |> AnkoleWeb.Session.ensure_browser()
 
-    {:ok, _} =
-      Ankole.BrowserSessions.bind_provider(
-        AnkoleWeb.Session.browser_reference(other),
-        flow.id,
-        "lark-main"
-      )
-
-    {:ok, other, _} =
-      AnkoleWeb.Session.complete_login(other, flow.id, %{
+    {:ok, %{browser: browser, authentication: auth}} =
+      Ankole.BrowserSessions.authenticate(AnkoleWeb.Session.browser_reference(other), :pod, %{
         "principal_uid" => human.uid,
         "access_version" => human.access_version,
         "provider_id" => "lark-main",
         "external_id" => "other"
       })
+
+    other = AnkoleWeb.Session.put_authentication(other, browser, auth)
 
     other = other |> with_console_csrf() |> get("/api/v2/browser/session")
     denied = other |> recycle_json() |> get("/api/v2/pod/pages/#{id}")

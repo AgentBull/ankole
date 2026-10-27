@@ -73,7 +73,7 @@ defmodule Ankole.Signals.BindingFilters do
     else
       case validate_kernel_filter(source) do
         :ok -> :ok
-        {:error, _reason} -> {:error, "cel must be a valid filter"}
+        {:error, reason} -> {:error, "cel: " <> reason}
       end
     end
   end

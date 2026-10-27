@@ -30,7 +30,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
     assert %{
              "ready" => false,
              "completed_core_steps" => 0,
-             "total_core_steps" => 5,
+             "total_core_steps" => 4,
              "provider" => %{"complete" => false, "provider_id" => nil},
              "agent" => %{"complete" => false, "uid" => nil, "display_name" => nil},
              "model_profiles" => %{
@@ -38,12 +38,11 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
                "agent_uid" => nil,
                "missing_profiles" => ["primary", "light", "heavy"]
              },
-             "worker" => %{"complete" => false, "ready_count" => 0},
-             "signal_route" => %{"complete" => false}
+             "worker" => %{"complete" => false, "ready_count" => 0}
            } = json_response(conn, 200)
   end
 
-  test "readiness follows the active owner of a deployment instance signal route", %{conn: conn} do
+  test "an Agent is ready for native work without an external message channel", %{conn: conn} do
     Ankole.AgentWorkerDockerHTTP.install()
     worker_provider_fixture(%{is_default: true})
     provider_id = "readiness-#{System.unique_integer([:positive])}"
@@ -68,16 +67,16 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
     end
 
     mark_worker_ready!(agent.uid)
-    %{principal: route_agent} = agent_fixture(%{display_name: "Route Agent"})
-    insert_signal_binding!(route_agent.uid)
+    assert {:ok, []} = Ankole.Signals.Bindings.list_bindings()
 
     conn = console_conn(conn)
     agent_uid = agent.uid
+    response = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
 
     assert %{
              "ready" => true,
-             "completed_core_steps" => 5,
-             "total_core_steps" => 5,
+             "completed_core_steps" => 4,
+             "total_core_steps" => 4,
              "provider" => %{"complete" => true, "provider_id" => ^provider_id},
              "agent" => %{
                "complete" => true,
@@ -89,18 +88,21 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
                "agent_uid" => ^agent_uid,
                "missing_profiles" => []
              },
-             "worker" => %{"complete" => true, "ready_count" => 1},
-             "signal_route" => %{"complete" => true}
-           } = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
+             "worker" => %{"complete" => true, "ready_count" => 1}
+           } = response
+
+    assert Enum.sort(Map.keys(response)) ==
+             ~w(agent completed_core_steps model_profiles provider ready total_core_steps worker)
 
     assert {:ok, _principal} =
-             Ankole.PrincipalsFixtures.disable_principal_fixture(route_agent.uid)
+             Ankole.PrincipalsFixtures.disable_principal_fixture(agent_uid)
 
     assert %{
              "ready" => false,
-             "completed_core_steps" => 4,
-             "total_core_steps" => 5,
-             "signal_route" => %{"complete" => false}
+             "completed_core_steps" => 2,
+             "total_core_steps" => 4,
+             "agent" => %{"complete" => false},
+             "model_profiles" => %{"complete" => false}
            } = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
   end
 
@@ -112,20 +114,6 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   defp mark_worker_ready!(agent_uid) do
     route = "readiness-route-#{System.unique_integer([:positive])}"
     {:ok, _worker} = SessionsCase.admit_worker(route, %{worker_id: agent_uid})
-  end
-
-  defp insert_signal_binding!(agent_uid) do
-    {:ok, binding} =
-      Ankole.SignalsFixtures.raw_binding_fixture(%{
-        agent_uid: agent_uid,
-        name: "readiness",
-        adapter: "lark",
-        config_ref: "app-config://signals.lark.bindings.readiness",
-        filters: %{},
-        enabled: true
-      })
-
-    binding
   end
 
   defp api_request(conn, method, path, body \\ nil) do

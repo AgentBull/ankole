@@ -69,7 +69,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
     conn =
       conn
       |> recycle_api()
-      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
+      |> v2_post(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -88,7 +88,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
                "config" => %{"appID" => "cli_identity_console"},
                "stored_secret_paths" => ["appSecret"]
              }
-           } = json_response(conn, 200)
+           } = json_response(conn, 201)
 
     refute conn.resp_body =~ "secret-console"
 
@@ -138,7 +138,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
     conn =
       conn
       |> console_conn()
-      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
+      |> v2_post(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -153,7 +153,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
                "stored_secret_paths" => ["appSecret"]
              }
            } =
-             json_response(conn, 200)
+             json_response(conn, 201)
 
     conn =
       conn
@@ -189,7 +189,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
     conn =
       conn
       |> console_conn()
-      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
+      |> v2_post(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -199,7 +199,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
         }
       })
 
-    assert %{"identity_provider" => %{"enabled" => true}} = json_response(conn, 200)
+    assert %{"identity_provider" => %{"enabled" => true}} = json_response(conn, 201)
 
     conn =
       conn
@@ -216,7 +216,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
     conn =
       conn
       |> console_conn()
-      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
+      |> v2_post(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{"appSecret" => "secret-console"}
@@ -264,6 +264,50 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
       |> v2_post(~p"/api/v2/identity-providers/missing-main/sync-runs", %{})
 
     assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
+  end
+
+  test "creation keeps existing provider settings and updates require an existing ID", %{
+    conn: conn
+  } do
+    conn = console_conn(conn)
+
+    for id <- ["lark-first", "lark-second"] do
+      response =
+        v2_post(conn, "/api/v2/identity-providers/#{id}", %{
+          adapter_id: "lark",
+          enabled: true,
+          config: %{"appID" => "cli_#{id}", "appSecret" => "secret-#{id}"}
+        })
+
+      assert %{"identity_provider" => %{"provider_id" => ^id}} = json_response(response, 201)
+    end
+
+    duplicate =
+      v2_post(conn, "/api/v2/identity-providers/lark-first", %{
+        adapter_id: "lark",
+        enabled: true,
+        config: %{"appID" => "cli_replacement", "appSecret" => "replacement"}
+      })
+
+    assert %{"errors" => [%{"code" => "identity_provider_exists"}]} =
+             json_response(duplicate, 409)
+
+    missing =
+      v2_put(conn, "/api/v2/identity-providers/lark-missing", %{
+        adapter_id: "lark",
+        enabled: true,
+        config: %{"appID" => "cli_missing", "appSecret" => "missing"}
+      })
+
+    assert %{"errors" => [%{"code" => "not_found"}]} = json_response(missing, 404)
+
+    for id <- ["lark-first", "lark-second"] do
+      assert {:ok, config} = AppConfigure.get_by_key("principals.identity_providers.lark.#{id}")
+      assert config["appID"] == "cli_#{id}"
+      assert config["appSecret"] == "secret-#{id}"
+    end
+
+    assert :error = AppConfigure.get_by_key("principals.identity_providers.lark.lark-missing")
   end
 
   defp revoke_console_grants do

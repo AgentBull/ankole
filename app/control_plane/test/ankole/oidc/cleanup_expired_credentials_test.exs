@@ -94,11 +94,22 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
       end
 
     {:ok, anonymous} = BrowserSessions.create()
+    anonymous_ref = BrowserSessions.reference(anonymous)
 
-    {:ok, login} =
-      BrowserSessions.begin_login(BrowserSessions.reference(anonymous), :console, %{})
+    {:ok, oidc_state} =
+      BrowserSessions.begin_oidc_state(anonymous_ref, %{
+        state: "anon-expired-state",
+        provider_id: "lark",
+        purpose: :console,
+        redirect_uri: "https://cleanup.example.test/callback"
+      })
 
-    login |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
+    oidc_state |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
+
+    {:ok, anon_oauth_req} =
+      OIDC.AuthorizationRequests.begin(anonymous_ref, client_id, %{"client_id" => client_id})
+
+    anon_oauth_req |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
     {:ok, request} =
       Repo.transact(fn ->
@@ -112,31 +123,55 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
     anonymous |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
     {:ok, active_browser} = BrowserSessions.create()
+    active_ref = BrowserSessions.reference(active_browser)
 
-    {:ok, active_login} =
-      BrowserSessions.begin_login(BrowserSessions.reference(active_browser), :console, %{})
+    {:ok, active_oidc_state} =
+      BrowserSessions.begin_oidc_state(active_ref, %{
+        state: "active-state",
+        provider_id: "lark",
+        purpose: :console,
+        redirect_uri: "https://cleanup.example.test/callback"
+      })
 
-    {:ok, expired_login} =
-      BrowserSessions.begin_login(BrowserSessions.reference(active_browser), :console, %{})
+    {:ok, expired_oidc_state} =
+      BrowserSessions.begin_oidc_state(active_ref, %{
+        state: "expired-state",
+        provider_id: "lark",
+        purpose: :console,
+        redirect_uri: "https://cleanup.example.test/callback"
+      })
 
-    expired_login |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
+    expired_oidc_state |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
+
+    {:ok, active_oauth_req} =
+      OIDC.AuthorizationRequests.begin(active_ref, client_id, %{"client_id" => client_id})
+
+    {:ok, expired_oauth_req} =
+      OIDC.AuthorizationRequests.begin(active_ref, client_id, %{"client_id" => client_id})
+
+    expired_oauth_req |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
     counts = OIDC.cleanup_expired_credentials(now)
     assert counts.oidc_sessions == 2
+    assert counts.authorization_requests == 2
     refute Map.has_key?(counts, :browser_sessions)
     assert Repo.get(BrowserSessions.Session, expired.browser_id)
     assert Repo.get(BrowserSessions.Session, anonymous.id)
+    refute Repo.get(OIDC.AuthorizationRequest, anon_oauth_req.id)
+    refute Repo.get(OIDC.AuthorizationRequest, expired_oauth_req.id)
+    assert Repo.get(OIDC.AuthorizationRequest, active_oauth_req.id)
 
     assert :ok = CleanupExpiredCredentials.perform(%Oban.Job{})
 
     refute Repo.get(Session, expired.id)
     refute Repo.get(BrowserSessions.Session, expired.browser_id)
     refute Repo.get(BrowserSessions.Session, anonymous.id)
-    refute Repo.get(BrowserSessions.LoginTransaction, login.id)
+    refute Repo.get(BrowserSessions.OidcState, oidc_state.id)
     refute Repo.get(LogoutRequest, request.id)
-    refute Repo.get(BrowserSessions.LoginTransaction, expired_login.id)
+    refute Repo.get(BrowserSessions.OidcState, expired_oidc_state.id)
     assert Repo.get(BrowserSessions.Session, active_browser.id)
-    assert Repo.get(BrowserSessions.LoginTransaction, active_login.id)
+    assert Repo.get(BrowserSessions.OidcState, active_oidc_state.id)
+    assert Repo.get(OIDC.AuthorizationRequest, active_oauth_req.id)
 
     for session <- [recent, offline, credential] do
       assert Repo.get(Session, session.id)

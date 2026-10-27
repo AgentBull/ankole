@@ -186,4 +186,19 @@ describe('PointSet', () => {
     ist(set.at(1), undefined)
     ist(set.at(chunkSize * 2 + 100), V.a)
   })
+
+  it('supports a predicate when finding a point', () => {
+    const set = PointSet.create<V>([
+      [V.a, 10],
+      [V.b, 10]
+    ])
+    ist(
+      set.at(10, v => v.name == 'a'),
+      V.a
+    )
+    ist(
+      set.at(10, v => v.name == 'b'),
+      V.b
+    )
+  })
 })

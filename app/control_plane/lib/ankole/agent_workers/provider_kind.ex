@@ -154,7 +154,7 @@ defmodule Ankole.AgentWorkers.ProviderKind do
 
   @doc "A saved instance reference selects one instance when a generation has repeated creates."
   def current_instance?(worker, observation) do
-    observation.generation == worker.generation and
+    not is_nil(worker.generation) and observation.generation == worker.generation and
       (is_nil(worker.instance_ref) or observation.instance_ref == worker.instance_ref)
   end
 

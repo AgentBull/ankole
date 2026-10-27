@@ -10,6 +10,7 @@ import {
 } from '@remixicon/react'
 import { Button } from '@ankole/uikit/components/button'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
 import {
   Field,
   FieldDescription,
@@ -51,7 +52,7 @@ import { SetupLayout, SetupPanel } from './layout'
 import { EmailAdminForm } from './email-admin-form'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
 import { PluginsStepModel, filterSelectedPluginItems } from './state/plugins-step-model'
-import { setupStepState, type SetupStepID } from './state/setup-progress'
+import { setupStepState, SetupProgressModel, type SetupStepID } from './state/setup-progress'
 
 const bootstrapSchema = z.object({
   activation_code: z.string().min(1, {
@@ -72,6 +73,7 @@ function identitySchema(adapterRequired: string, providerIDInvalid: string) {
 }
 
 export function SetupApp() {
+  useSignals()
   const queryClient = useQueryClient()
   const pending = useIsMutating() > 0
   const { t } = useTranslation()
@@ -80,20 +82,23 @@ export function SetupApp() {
   }, [t])
   const pluginsModel = useModel(PluginsStepModel)
   const identityModel = useModel(IdentitySetupModel)
-  // A reload restarts at the plugin step. The selected plugins live only in
-  // this model, and the identity step reads them to know which adapters to
-  // offer, so restoring the step alone would land the operator on a screen
-  // that reports no adapters at all.
-  const [step, setStep] = useState<'plugins' | 'industry' | 'identity'>('plugins')
-  const [completedSteps, setCompletedSteps] = useState<ReadonlySet<SetupStepID>>(new Set())
-  const completeStep = (completed: SetupStepID, next: 'industry' | 'identity') => {
-    setCompletedSteps(current => new Set([...current, completed]))
-    setStep(next)
-  }
+  const progress = useModel(SetupProgressModel)
+  const step = progress.step.value
+  const completedSteps = progress.completed.value
+  const completeStep = (completed: SetupStepID, next: 'industry' | 'identity') => progress.complete(completed, next)
   const state = useQuery({
     queryKey: ['setup-state'],
     queryFn: () => setupState()
   })
+
+  const plugins = useQuery({
+    queryKey: ['setup-plugins'],
+    queryFn: () => setupPlugins(),
+    enabled: Boolean(state.data?.authenticated)
+  })
+  useEffect(() => {
+    if (plugins.data) pluginsModel.initialize('setup-plugins', plugins.data.enabledPluginIDs)
+  }, [pluginsModel, plugins.data])
 
   useEffect(() => {
     // The server owns the selected locale. The SPA mirrors it after loading
@@ -138,7 +143,7 @@ export function SetupApp() {
                     type="button"
                     aria-current={itemState === 'current' ? 'step' : undefined}
                     disabled={!navigable}
-                    onClick={() => item.id !== 'bootstrap' && setStep(item.id)}
+                    onClick={() => item.id !== 'bootstrap' && progress.select(item.id)}
                     className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm transition-colors focus-visible:-outline-offset-2 disabled:cursor-default ${
                       itemState === 'current'
                         ? 'border-foreground bg-accent text-foreground'
@@ -190,6 +195,10 @@ export function SetupApp() {
               setupState={state.data}
               onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
             />
+          ) : plugins.error ? (
+            <ErrorBlock error={plugins.error} />
+          ) : !pluginsModel.sourceKey.value ? (
+            <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
           ) : step === 'plugins' ? (
             <PluginsStep model={pluginsModel} onContinue={() => completeStep('plugins', 'industry')} />
           ) : step === 'industry' ? (
@@ -209,6 +218,9 @@ export function SetupApp() {
 
 function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupState; onAuthenticated: () => void }) {
   const { t } = useTranslation()
+  const localeID = useId()
+  const activationCodeID = useId()
+  const activationCodeErrorID = `${activationCodeID}-error`
   const locale = setupState?.currentLocale ?? i18n.language
   const mutation = useMutation({
     mutationFn: (input: BootstrapInput) => createSetupSession({ body: { data: input } }),
@@ -249,7 +261,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
           <form.Field name="locale">
             {field => (
               <Field>
-                <FieldLabel>{t('setup.language')}</FieldLabel>
+                <FieldLabel htmlFor={localeID}>{t('setup.language')}</FieldLabel>
                 <Select
                   value={field.state.value || locale}
                   onValueChange={value => {
@@ -259,7 +271,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                       if (form.getFieldValue('locale') === value) void i18n.changeLanguage(value)
                     })
                   }}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id={localeID} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -279,8 +291,8 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
               const error = field.state.meta.errors[0]?.message
               return (
                 <Field>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <FieldLabel>{t('setup.activation_code')}</FieldLabel>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <FieldLabel htmlFor={activationCodeID}>{t('setup.activation_code')}</FieldLabel>
                     <button
                       className="link text-sm leading-5 disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={printActivationCode.isPending}
@@ -290,6 +302,8 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                     </button>
                   </div>
                   <Input
+                    id={activationCodeID}
+                    aria-describedby={error ? activationCodeErrorID : undefined}
                     aria-invalid={error ? true : undefined}
                     autoComplete="one-time-code"
                     name={field.name}
@@ -297,7 +311,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                     onBlur={field.handleBlur}
                     onChange={event => field.handleChange(event.target.value.toUpperCase())}
                   />
-                  {error ? <UiFieldError>{error}</UiFieldError> : null}
+                  {error ? <UiFieldError id={activationCodeErrorID}>{error}</UiFieldError> : null}
                 </Field>
               )
             }}
@@ -329,17 +343,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
     queryFn: () => setupPlugins()
   })
 
-  useEffect(() => {
-    if (query.data) model.initialize('setup-plugins', query.data.enabledPluginIDs)
-  }, [model, query.data])
-
-  // The effect seeds the model after paint, so the frame that first carries
-  // `query.data` reads the server selection directly — otherwise every
-  // already-enabled plugin would flash unchecked once.
-  const seeded = model.sourceKey.value === 'setup-plugins'
-  const selectedIDs: ReadonlySet<string> = seeded
-    ? model.selectedPluginIDs.value
-    : new Set(query.data?.enabledPluginIDs ?? [])
+  const selectedIDs = model.selectedPluginIDs.value
   const mutation = useMutation({
     mutationFn: () => updateSetupPlugins({ body: { data: model.submission() } }),
     onSuccess: onContinue
@@ -536,6 +540,7 @@ function SSOIdentityForm({
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const [callbackCopied, setCallbackCopied] = useState(false)
+  const [customizeCallback, setCustomizeCallback] = useState(false)
   const providerIDControlID = useId()
   const providerIDErrorID = `${providerIDControlID}-error`
   const providerIDHintID = `${providerIDControlID}-hint`
@@ -564,6 +569,7 @@ function SSOIdentityForm({
     const result = identitySchema(t('setup.adapter_required'), t('setup.provider_id_invalid')).safeParse(draft)
     if (!result.success) {
       model.setValidationError(result.error.issues[0]?.message)
+      setCustomizeCallback(true)
       return
     }
 
@@ -586,33 +592,6 @@ function SSOIdentityForm({
     <>
       <ErrorBlock error={mutation.error} />
       <form className="grid gap-6" onSubmit={submitIdentity}>
-        <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor={providerIDControlID}>
-              {t('setup.provider_id')}
-              <span className="ml-1 font-normal text-muted-foreground">{t('common.required')}</span>
-            </FieldLabel>
-            <Input
-              id={providerIDControlID}
-              aria-describedby={
-                model.validationError.value ? `${providerIDHintID} ${providerIDErrorID}` : providerIDHintID
-              }
-              aria-invalid={model.validationError.value ? true : undefined}
-              value={model.providerID.value}
-              onChange={event => {
-                mutation.reset()
-                model.providerID.value = event.target.value
-                setCallbackCopied(false)
-                model.setValidationError()
-              }}
-            />
-            <FieldDescription id={providerIDHintID}>{t('setup.provider_id_hint')}</FieldDescription>
-            {model.validationError.value ? (
-              <UiFieldError id={providerIDErrorID}>{model.validationError.value}</UiFieldError>
-            ) : null}
-          </Field>
-        </FieldGroup>
-
         <Field aria-labelledby="oidc-callback-url-label" aria-describedby="oidc-callback-url-hint">
           <FieldTitle id="oidc-callback-url-label">{t('setup.oidc_callback_url')}</FieldTitle>
           <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-center">
@@ -642,6 +621,40 @@ function SSOIdentityForm({
             </a>
           </div>
         </Field>
+
+        <Collapsible className="grid gap-3" open={customizeCallback} onOpenChange={setCustomizeCallback}>
+          <CollapsibleTrigger className="text-left text-sm text-muted-foreground underline underline-offset-4">
+            {t('setup.customize_callback_url')}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor={providerIDControlID}>
+                  {t('setup.provider_id')}
+                  <span className="ml-1 font-normal text-muted-foreground">{t('common.required')}</span>
+                </FieldLabel>
+                <Input
+                  id={providerIDControlID}
+                  aria-describedby={
+                    model.validationError.value ? `${providerIDHintID} ${providerIDErrorID}` : providerIDHintID
+                  }
+                  aria-invalid={model.validationError.value ? true : undefined}
+                  value={model.providerID.value}
+                  onChange={event => {
+                    mutation.reset()
+                    model.providerID.value = event.target.value
+                    setCallbackCopied(false)
+                    model.setValidationError()
+                  }}
+                />
+                <FieldDescription id={providerIDHintID}>{t('setup.provider_id_hint')}</FieldDescription>
+                {model.validationError.value ? (
+                  <UiFieldError id={providerIDErrorID}>{model.validationError.value}</UiFieldError>
+                ) : null}
+              </Field>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
         <section className="grid gap-5">
           <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">

@@ -1,8 +1,9 @@
 import { t } from 'i18next'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useState, type RefObject } from 'react'
-import { contentKeys, pageAPI, pageChildrenQuery, pageQuery, type Page } from './content-api'
+import { principalUID } from '../common/browser-context'
+import { contentKeys, pageAPI, pageQuery, pageSearchQuery, type Page } from './content-api'
 import { ContentError } from './content-primitives'
 
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
@@ -21,11 +22,12 @@ export function MovePageDialog({
   const currentTarget = page.parent_id ?? (page.private_owner_uid ? `private:${page.private_owner_uid}` : 'space')
   const [target, setTarget] = useState(currentTarget)
   const [selectedPage, setSelectedPage] = useState<Page>()
-  const privatePages = useInfiniteQuery(pageChildrenQuery('private'))
+  const destinations = useQuery(pageSearchQuery('', { exclude_subtree_of: page.id, required_action: 'page_edit' }))
   const currentParent = useQuery({ ...pageQuery(page.parent_id ?? ''), enabled: Boolean(page.parent_id) })
   const client = useQueryClient()
-  const canCreateSpace = privatePages.data?.pages[0]?.can_create_space === true
-  const privateOwner = privatePages.data?.pages[0]?.principal_uid
+  const canCreateSpace = destinations.data?.can_create_space === true
+  const canCreatePrivate = destinations.data?.can_create_private === true
+  const privateOwner = destinations.data?.principal_uid ?? principalUID()
   const privateTarget = privateOwner ? `private:${privateOwner}` : undefined
   const privateLocation = target.startsWith('private:')
   const waitingForIdentity = privateLocation && !privateOwner
@@ -45,18 +47,16 @@ export function MovePageDialog({
     }
   })
   const validTarget =
-    (target === privateTarget && privatePages.data?.pages[0]?.can_create_private === true) ||
+    (target === privateTarget && canCreatePrivate) ||
     (target === 'space' && canCreateSpace) ||
     selectedPage?.id === target
   const targetTitle =
     target === 'space'
       ? t('pod.content.space')
       : privateLocation
-        ? privateOwner
-          ? target === privateTarget
-            ? 'Private'
-            : t('pod.content.shared_with_me')
-          : t('pod.content.loading_private')
+        ? !privateOwner || target === privateTarget
+          ? t('pod.content.private')
+          : t('pod.content.shared_with_me')
         : selectedPage?.title ||
           (target === page.parent_id ? currentParent.data?.page.title : undefined) ||
           t('pod.content.untitled')
@@ -76,8 +76,8 @@ export function MovePageDialog({
               requiredAction="page_edit"
               roots={[
                 ...(canCreateSpace ? [{ id: 'space', title: t('pod.content.space') }] : []),
-                ...(privateTarget && privatePages.data?.pages[0]?.can_create_private
-                  ? [{ id: privateTarget, title: 'Private', private: true }]
+                ...(privateTarget && canCreatePrivate
+                  ? [{ id: privateTarget, title: t('pod.content.private'), private: true }]
                   : [])
               ]}
               selected={target}
@@ -97,13 +97,7 @@ export function MovePageDialog({
               {t('pod.content.the_page_and_its_subpages_move_together_pages_with_inherited')}
             </p>
           )}
-          {waitingForIdentity && !privatePages.error && <p role="status">{t('pod.content.loading_private')}</p>}
-          <ContentError
-            error={move.error || (privateLocation ? privatePages.error : undefined)}
-            retry={() => {
-              if (privateLocation) void privatePages.refetch()
-            }}
-          />
+          <ContentError error={move.error} />
         </div>
         <DialogFooter>
           <Button variant="ghost" disabled={move.isPending} onClick={close}>

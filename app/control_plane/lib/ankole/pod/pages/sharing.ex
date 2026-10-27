@@ -10,13 +10,14 @@ defmodule Ankole.Pod.Pages.Sharing do
            {:ok, page} <- Pages.fetch(id),
            {:ok, _} <- Access.authorize_reachable(page, "page_manage", reachable),
            {:ok, provenance} <- Access.access_provenance_in_tx(actor, id, reachable: reachable),
-           {:ok, subjects} <- sharing_subjects(actor, reachable: reachable) do
+           catalog = all_subjects(),
+           {:ok, subjects} <- sharing_subjects(actor, reachable: reachable, subjects: catalog) do
         {:ok,
          %{
            inherit_permissions: page.inherit_permissions,
            sharing_version: sharing_version(page),
            subjects: subjects,
-           grants: grouped_grants(Access.page_grants(id), provenance)
+           grants: grouped_grants(Access.page_grants(id), provenance, catalog)
          }}
       end
     end)
@@ -41,7 +42,7 @@ defmodule Ankole.Pod.Pages.Sharing do
     with {:ok, page} <- Pages.lock(id),
          {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "page_manage"),
          :ok <- sharing_cas(page, Ankole.Attrs.get(attrs, :sharing_version)),
-         {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged), page.id),
+         {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged), page),
          {:ok, page} <-
            Access.update_anchor_in_tx(page, :sharing, %{
              inherit_permissions:
@@ -86,8 +87,8 @@ defmodule Ankole.Pod.Pages.Sharing do
 
       agents =
         agent_grants
-        |> grouped_grants()
-        |> Enum.filter(&(&1.kind == :agent and &1.principal_uid in agent_uids))
+        |> Enum.filter(&(&1.principal_uid in agent_uids))
+        |> grouped_grants([], subjects)
 
       {:ok,
        %{
@@ -181,9 +182,9 @@ defmodule Ankole.Pod.Pages.Sharing do
     if expected == sharing_version(page), do: :ok, else: {:error, :sharing_conflict}
   end
 
-  defp normalize_grants(:unchanged, _id), do: {:ok, :unchanged}
+  defp normalize_grants(:unchanged, _page), do: {:ok, :unchanged}
 
-  defp normalize_grants(grants, id) when is_list(grants) do
+  defp normalize_grants(grants, page) when is_list(grants) do
     Enum.reduce_while(grants, {:ok, []}, fn grant, {:ok, acc} ->
       if is_map(grant) do
         owner =
@@ -203,7 +204,8 @@ defmodule Ankole.Pod.Pages.Sharing do
              true <-
                not Map.has_key?(owner, :source_page_id) or source_action in Access.page_actions(),
              :ok <- eligible_collaborator(owner),
-             {:ok, actions} <- grant_actions(grant) do
+             {:ok, actions} <- grant_actions(grant),
+             true <- meaningful_actions?(page, scope, actions) do
           owner =
             if Map.has_key?(owner, :source_page_id),
               do: Map.put(owner, :source_action, source_action),
@@ -212,7 +214,10 @@ defmodule Ankole.Pod.Pages.Sharing do
           suffix = if scope == "container", do: "**", else: "page"
 
           attrs =
-            Map.merge(owner, %{resource_pattern: "pod:**:#{id}:#{suffix}", condition: condition})
+            Map.merge(owner, %{
+              resource_pattern: "pod:**:#{page.id}:#{suffix}",
+              condition: condition
+            })
 
           {:cont, {:ok, Enum.map(actions, &Map.put(attrs, :action, &1)) ++ acc}}
         else
@@ -224,7 +229,12 @@ defmodule Ankole.Pod.Pages.Sharing do
     end)
   end
 
-  defp normalize_grants(_, _id), do: {:error, :invalid_grants}
+  defp normalize_grants(_, _page), do: {:error, :invalid_grants}
+
+  defp meaningful_actions?(%{type: type}, "self", actions) when type != :base,
+    do: "page_write_records" not in actions or "page_edit" in actions or "page_manage" in actions
+
+  defp meaningful_actions?(_page, _scope, _actions), do: true
 
   defp grant_actions(grant) do
     role = Ankole.Attrs.get(grant, :role)
@@ -287,7 +297,7 @@ defmodule Ankole.Pod.Pages.Sharing do
     uid = Ankole.AuthZ.Actor.uid(actor)
 
     with {:ok, scope} <- Access.collaborator_scope(actor) do
-      subjects = all_subjects()
+      subjects = Keyword.get_lazy(opts, :subjects, &all_subjects/0)
 
       if scope == :shared do
         result =
@@ -355,9 +365,7 @@ defmodule Ankole.Pod.Pages.Sharing do
     principals ++ groups
   end
 
-  defp grouped_grants(grants, provenance \\ []) do
-    subjects = all_subjects()
-
+  defp grouped_grants(grants, provenance, subjects) do
     grants
     |> Enum.group_by(
       &{&1.principal_uid, &1.group_id, &1.source_page_id, &1.source_action, &1.target_scope,

@@ -25,7 +25,12 @@ export function ActorLabel({ actor }: { actor?: ConsoleActorRef | null }) {
   })
   const tenant = tenants.data?.find(item => item.id === actor?.tenant_id)
   const principal = author.data
-  const label = tenant && principal ? `${tenant.display_name} / ${principalLabel(principal)}` : (actor?.uid ?? '—')
+  const label =
+    tenant && principal
+      ? `${tenant.display_name} / ${principalLabel(principal)}`
+      : principal
+        ? principalLabel(principal)
+        : (actor?.uid ?? '—')
 
   return <span title={actor ? `${actor.tenant_id} / ${actor.uid}` : undefined}>{label}</span>
 }

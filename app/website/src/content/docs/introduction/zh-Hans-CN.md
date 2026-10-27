@@ -51,7 +51,7 @@ Ankole 适用于能通过数字系统执行，并产生可供检查的证据和�
 
 ## 当前状态
 
-Ankole 已在生产环境中运行，是一套完整的企业级 Agent Harness。企业可以在自己的基础设施上托管控制面、Pod 工作空间、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、内核、公司大脑和运维控制台。
+Ankole 已在生产环境中运行，是一套完整的企业级 Agent Harness。企业可以在自己的基础设施上托管控制面、Pod 工作空间、Function Runtime（`ankole-function-runtime`）、Agent Computer Worker、内核、公司大脑和运维控制台。关键代码和重要状态机经过形式化验证，端到端测试覆盖消息路由、故障恢复、并发和升级路径。
 
 Ankole 不提供公共 API 兼容性契约。版本发布可能包含破坏性变更。
 

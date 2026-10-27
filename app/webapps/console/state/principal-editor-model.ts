@@ -69,10 +69,10 @@ export const PrincipalEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
-    draftError(): PrincipalDraftError | undefined {
+    draftError(requireEmail = false): PrincipalDraftError | undefined {
       if (!displayName.value.trim()) return 'display_name_required'
       const trimmedEmail = email.value.trim()
-      if (!trimmedEmail) return undefined
+      if (!trimmedEmail) return requireEmail ? 'email_invalid' : undefined
       if (!emailSchema.safeParse(trimmedEmail).success) return 'email_invalid'
       return undefined
     },

@@ -7,6 +7,26 @@ defmodule Ankole.Principals.PodAdministrationTest do
   alias Ankole.IdentityProviders.DirectoryAccess
   alias Ankole.Principals.{HumanAccess, PodAdministration}
 
+  test "recent authentication uses its expiry even when the issuing node clock is ahead" do
+    principal = human_fixture().principal
+    now = System.system_time(:second)
+
+    for time <- [now + 1, now, now - 899] do
+      assert :ok =
+               Ankole.Authn.AddOns.SiteCredentialBinding.recent(
+                 Actor.new(principal, authn: %{"authenticated_at" => time})
+               )
+    end
+
+    assert {:error, :reauthentication_required} =
+             Ankole.Authn.AddOns.SiteCredentialBinding.recent(
+               Actor.new(principal, authn: %{"authenticated_at" => now - 901})
+             )
+
+    assert {:error, :reauthentication_required} =
+             Ankole.Authn.AddOns.SiteCredentialBinding.recent(Actor.new(principal))
+  end
+
   test "Pod restoration clears a provider suspension after current directory verification" do
     admin = human_fixture().principal
     member = human_fixture().principal
@@ -155,7 +175,7 @@ defmodule Ankole.Principals.PodAdministrationTest do
     save =
       Ash.ActionInput.for_action(
         Ankole.Principals.PodAdminOperations,
-        :save_provider,
+        :create_provider,
         %{
           provider_id: "lark-scope",
           adapter_id: "lark",

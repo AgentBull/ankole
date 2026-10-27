@@ -69,11 +69,13 @@ export function ChatHomeView({
                   key={room.id}
                   className="pod-chat-recent-row"
                   to={podLocation(`/conversations/${room.id}`).pathname}>
-                  <span className="pod-chat-avatar-cluster">
-                    {room.agents.slice(0, 2).map(agent => (
-                      <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
-                    ))}
-                  </span>
+                  {room.agents.length > 0 && (
+                    <span className="pod-chat-avatar-cluster">
+                      {room.agents.slice(0, 2).map(agent => (
+                        <ChatAvatar key={agent.uid} name={agent.displayName} src={agent.avatarURL} agent />
+                      ))}
+                    </span>
+                  )}
                   <span className="pod-chat-recent-copy">
                     <span className="pod-chat-recent-title">{room.title}</span>
                     <span className="pod-chat-subtle">{room.agents.map(agent => agent.displayName).join(', ')}</span>

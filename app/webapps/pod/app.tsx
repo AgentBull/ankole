@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { SidebarInset, SidebarProvider, SidebarTrigger, TooltipProvider, useSidebar } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import {
@@ -18,6 +18,7 @@ import { ContentListRoute } from './page-navigation'
 import { ContentProvider } from './content-context'
 import { ContentError } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
+import { podKeys, type ConversationDetail } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
 import { prefetchBase } from './base-api'
 import { podLocation, podRouteID } from '../common/browser-context'
@@ -28,6 +29,40 @@ import './pod.css'
 import { SlotGate, validateSlotIDs } from '../common/slots'
 import { PodSlotsContext, usePodSlots, podSettingsSections, type PodAppSlots } from './slots'
 export type { PodAppSlots } from './slots'
+
+const contentScopeTitleKeys: Record<string, string> = {
+  all: 'pod.content.all_pages',
+  space: 'pod.content.space',
+  private: 'pod.content.private',
+  shared: 'pod.content.shared_with_me',
+  recent: 'pod.content.recently_visited',
+  favorites: 'pod.content.favorites',
+  trash: 'pod.content.trash',
+  search: 'pod.content.search_pages'
+}
+
+export function podRouteTitle(
+  pathname: string,
+  t: (key: string) => string,
+  conversationTitle?: string
+): string | undefined {
+  if (pathname.startsWith('/pages/')) return undefined
+  let label: string | undefined
+  if (pathname === '/me' || pathname.startsWith('/me/')) {
+    label = t('pod.account.title')
+  } else if (pathname === '/settings' || pathname.startsWith('/settings/')) {
+    label = t('pod.settings.title')
+  } else if (pathname === '/') {
+    label = t('pod.sidebar.tabs.chat')
+  } else if (pathname.startsWith('/conversations/')) {
+    label = conversationTitle?.trim() || t('pod.sidebar.tabs.chat')
+  } else if (pathname.startsWith('/content/')) {
+    const scope = decodeURIComponent(pathname.slice('/content/'.length).split('/')[0] ?? '')
+    const key = contentScopeTitleKeys[scope]
+    label = key ? t(key) : t('pod.sidebar.tabs.home')
+  }
+  return label ? `${label} · Ankole` : undefined
+}
 const routeFeedback = { pendingComponent: PodRouteLoading, pendingMs: 0, errorComponent: PodRouteError }
 const LazyChatRoute = lazyRouteComponent(() => import('./chat-page'), 'ChatRoute')
 const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'PageRoute')
@@ -124,12 +159,35 @@ function PodRouteError({ error }: { error: unknown }) {
 }
 
 function PodShell() {
+  const { t } = useTranslation()
+  const client = useQueryClient()
   const { accountNavigation } = usePodSlots()
   const location = useLocation()
   const navigate = useNavigate()
   const [commandOpen, setCommandOpen] = useState(false)
   const commandReturnFocus = useRef<HTMLElement | null>(null)
   const focusedChatLocation = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const conversationSegment = location.pathname.startsWith('/conversations/')
+      ? decodeURIComponent(location.pathname.slice('/conversations/'.length).split('/')[0] ?? '')
+      : undefined
+    const conversationID = conversationSegment ? (podRouteID(conversationSegment) ?? conversationSegment) : undefined
+    const syncTitle = () => {
+      let conversationTitle: string | undefined
+      if (conversationID) {
+        conversationTitle =
+          client.getQueryData<ConversationDetail>(podKeys.detail(conversationID))?.conversation.title ||
+          client
+            .getQueryData<{ conversations: Array<{ id: string; title: string }> }>(podKeys.conversations)
+            ?.conversations.find(item => item.id === conversationID)?.title
+      }
+      const next = podRouteTitle(location.pathname, t, conversationTitle)
+      if (next) document.title = next
+    }
+    syncTitle()
+    if (!conversationID) return
+    return client.getQueryCache().subscribe(() => syncTitle())
+  }, [client, location.pathname, t])
   const openCommand = useCallback(() => {
     commandReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setCommandOpen(true)

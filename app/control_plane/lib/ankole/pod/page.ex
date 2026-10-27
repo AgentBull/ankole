@@ -101,6 +101,11 @@ defmodule Ankole.Pod.Page do
   end
 
   relationships do
+    belongs_to :saved_from_message, Ankole.Conversations.Message do
+      define_attribute?(false)
+      source_attribute(:saved_from_message_id)
+    end
+
     has_many :children, __MODULE__ do
       source_attribute(:id)
       destination_attribute(:parent_id)

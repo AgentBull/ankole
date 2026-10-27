@@ -3,9 +3,8 @@ defmodule Ankole.Conversations.Delivery.SecretFilter do
   Removes installation secrets before provider-visible output leaves Conversations.Delivery.
 
   The filter replaces exact values of the operator-configured WorkerEnv
-  secrets that the Agent's Worker can receive; no other installation secret
-  reaches a Worker. It does not classify output by syntax. JWTs, bearer-token
-  examples, private-key examples, and credential assignments remain unchanged
+  secrets that the Agent's Worker can receive. It does not classify output by
+  syntax. JWTs, bearer-token examples, private-key examples, and credential assignments remain unchanged
   unless their value equals one of those secrets.
 
   Short values and adapter-minted provider tokens stay outside the set. Reading

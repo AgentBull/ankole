@@ -9,9 +9,6 @@ import type {
   ActivateBrowserAccountData,
   ActivateBrowserAccountErrors,
   ActivateBrowserAccountResponses,
-  BeginInvitationLoginData,
-  BeginInvitationLoginErrors,
-  BeginInvitationLoginResponses,
   BrowserSessionData,
   BrowserSessionErrors,
   BrowserSessionResponses,
@@ -177,19 +174,6 @@ export const acceptInvitation = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * beginInvitationLogin operation on browser_invitation resource
- */
-export const beginInvitationLogin = <ThrowOnError extends boolean = true>(
-  options: Options<BeginInvitationLoginData, ThrowOnError>
-): RequestResult<BeginInvitationLoginResponses, BeginInvitationLoginErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<BeginInvitationLoginResponses, BeginInvitationLoginErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/browser/invitations/{token}/sessions',
-    ...options
   })
 
 /**

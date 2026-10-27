@@ -70,32 +70,29 @@ defmodule AnkoleWeb.PodURLTest do
     login_uri = URI.parse(login)
     assert login_uri.host in [nil, conn.host]
     assert login_uri.path == "/sessions/new"
-    flow = login_uri.query |> URI.decode_query() |> Map.fetch!("flow")
+    assert URI.decode_query(login_uri.query) == %{"return_to" => path}
 
-    assert {:ok, %{tenant_id: id, request: %{"return_to" => ^path}}} =
-             AnkoleWeb.Session.login_transaction(conn, flow)
-
-    assert id == ctx.tenant.id
+    shell = conn |> recycle() |> Map.put(:host, conn.host) |> get(login)
+    html = html_response(shell, 200)
+    assert html =~ "entrypoints/auth.tsx"
 
     assert Enum.any?(
-             get_resp_header(conn, "set-cookie"),
+             get_resp_header(shell, "set-cookie"),
              &String.contains?(String.downcase(&1), "domain=ankole.localhost")
            )
 
-    shell = conn |> recycle() |> get(login)
-    html = html_response(shell, 200)
-    assert html =~ "entrypoints/auth.tsx"
     [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, html)
     origin = PodURL.origin(conn, ctx.tenant)
 
     sent =
       shell
       |> recycle()
+      |> Map.put(:host, conn.host)
       |> put_private(:plug_skip_csrf_protection, false)
       |> put_req_header("origin", origin)
       |> put_req_header("x-csrf-token", csrf)
       |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: flow,
+        returnTo: path,
         email: "deep-link@example.org"
       })
 
@@ -114,7 +111,6 @@ defmodule AnkoleWeb.PodURLTest do
       |> put_req_header("origin", PodURL.origin(conn, foreign))
       |> put_req_header("x-csrf-token", csrf)
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })
@@ -124,11 +120,11 @@ defmodule AnkoleWeb.PodURLTest do
     verified =
       sent
       |> recycle()
+      |> Map.put(:host, conn.host)
       |> put_private(:plug_skip_csrf_protection, false)
       |> put_req_header("origin", origin)
       |> put_req_header("x-csrf-token", csrf)
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })
@@ -212,13 +208,37 @@ defmodule AnkoleWeb.PodURLTest do
              {:ok, {:pod, ctx.tenant.id}}
   end
 
-  test "a login flow cannot render on another tenant's host even with its proof cookies", ctx do
+  test "an OIDC authorization request cannot render on another tenant's host even with its proof cookies",
+       ctx do
     foreign = Ankole.DataCase.create_tenant()
-    conn = ctx.conn |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost") |> get("/")
-    login = redirected_to(conn)
+
+    {:ok, %{client: client}} =
+      Ankole.OIDC.create_client(%{
+        name: "Pod host binding RP",
+        type: "public",
+        enabled: true,
+        redirect_uris: ["https://rp.example.test/callback"],
+        scopes: ["openid"]
+      })
+
+    conn =
+      ctx.conn
+      |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost")
+      |> init_test_session(%{})
+      |> AnkoleWeb.Session.ensure_browser()
+
+    {:ok, request} =
+      Ankole.OIDC.AuthorizationRequests.begin(
+        AnkoleWeb.Session.browser_reference(conn),
+        client.id,
+        %{"client_id" => client.id, "scope" => "openid"}
+      )
 
     denied =
-      conn |> recycle() |> Map.put(:host, foreign.slug <> ".ankole.localhost") |> get(login)
+      conn
+      |> recycle()
+      |> Map.put(:host, foreign.slug <> ".ankole.localhost")
+      |> get("/sessions/new?oauth_request=" <> request.id)
 
     assert html_response(denied, 401) =~ "entrypoints/auth.tsx"
   end
@@ -230,7 +250,7 @@ defmodule AnkoleWeb.PodURLTest do
             "/setup",
             "/site-admin-console",
             "/sessions/new?return_to=%2Fcontent%2Fspace",
-            "/sessions/new?flow=old-bound-flow",
+            "/sessions/new?oauth_request=old-bound-request",
             "/api/v2/pod/agents"
           ] do
         response = get(build_conn(), "http://127.0.0.1:4002" <> path)
@@ -261,10 +281,12 @@ defmodule AnkoleWeb.PodURLTest do
       destination = redirected_to(redirected)
       assert URI.parse(destination).host == ctx.tenant.slug <> ".ankole.localhost"
       login = get(build_conn(), destination)
-      assert redirected_to(login) =~ "/sessions/new?flow="
+      assert html_response(login, 200) =~ "entrypoints/auth.tsx"
       assert login.resp_cookies["_ankole_key"].domain == "ankole.localhost"
 
-      stale = get(build_conn(), "http://127.0.0.1:4002/sessions/new?flow=old-bound-flow")
+      stale =
+        get(build_conn(), "http://127.0.0.1:4002/sessions/new?oauth_request=old-bound-request")
+
       assert response(stale, 401) =~ "sign-in address changed"
       assert get_resp_header(stale, "location") == []
       api = get(build_conn(), "http://127.0.0.1:4002/api/v2/pod/agents")

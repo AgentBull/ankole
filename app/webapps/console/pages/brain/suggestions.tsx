@@ -19,22 +19,25 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiLightbulbLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
+import { useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   approveBrainSuggestionMutation,
+  listBrainObjectTypesOptions,
   listBrainSuggestionsInfiniteOptions,
   rejectBrainSuggestionMutation
 } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { ListBrainSuggestionsResponse } from '../../api/v2/generated/types.gen'
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
+import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
+const BRAIN_PRIMITIVES = ['concept', 'entity', 'media', 'temporal', 'annotation'] as const
 
 type BrainSuggestion = Flat<NonNullable<ListBrainSuggestionsResponse['data']>[number]>
 
@@ -55,6 +58,14 @@ export function BrainSuggestionsPage() {
   })
   const rows = suggestions.data ?? []
 
+  const objectTypes = useQuery({
+    ...listBrainObjectTypesOptions(),
+    enabled: Boolean(approveTarget)
+  })
+  const selectableObjectTypes = Array.from(
+    new Set([...(objectTypes.data?.types ?? []), ...(approveTarget?.target_type ? [approveTarget.target_type] : [])])
+  )
+
   const approve = useMutation({
     ...approveBrainSuggestionMutation(),
     onSuccess: () => {
@@ -65,6 +76,11 @@ export function BrainSuggestionsPage() {
       setTargetType('')
     },
     onError: error => toast.error(requestErrorMessage(error))
+  })
+  const approveGuard = useDialogDiscardGuard({
+    dirty: Boolean(approveTarget) && Boolean(primitive || slugPrefix.trim() || targetType),
+    onOpenChange: open => !open && setApproveTarget(undefined),
+    pending: approve.isPending
   })
   const reject = useMutation({
     ...rejectBrainSuggestionMutation(),
@@ -160,40 +176,60 @@ export function BrainSuggestionsPage() {
         ))}
       </ResourceListPage>
 
-      <Dialog
-        open={Boolean(approveTarget)}
-        onOpenChange={open => !approve.isPending && !open && setApproveTarget(undefined)}>
+      <Dialog open={Boolean(approveTarget)} onOpenChange={approveGuard.requestOpenChange}>
         <DialogContent closeLabel={t('common.close')} showCloseButton={!approve.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.approve_title', { term: approveTarget?.term ?? '' })}</DialogTitle>
             <DialogDescription>{t('console.brain.approve_description')}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.approve_primitive')}
-              <Input
-                placeholder={approveTarget?.kind ?? ''}
-                value={primitive}
-                onChange={event => setPrimitive(event.target.value)}
-              />
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.approve_slug_prefix')}
+            <LabeledField label={t('console.brain.approve_primitive')}>
+              <Select value={primitive} onValueChange={value => setPrimitive(value ?? '')}>
+                <SelectTrigger aria-label={t('console.brain.approve_primitive')} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">
+                    {t('console.brain.primitive_default', { defaultValue: 'Default (concept)' })}
+                  </SelectItem>
+                  {BRAIN_PRIMITIVES.map(item => (
+                    <SelectItem key={item} value={item}>
+                      {t(`console.brain.primitive_${item}`, { defaultValue: item })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </LabeledField>
+            <LabeledField label={t('console.brain.approve_slug_prefix')}>
               <Input
                 className="font-mono"
                 spellCheck={false}
                 value={slugPrefix}
                 onChange={event => setSlugPrefix(event.target.value)}
               />
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.approve_target_type')}
-              <Input
-                placeholder={approveTarget?.target_type ?? ''}
-                value={targetType}
-                onChange={event => setTargetType(event.target.value)}
-              />
-            </label>
+            </LabeledField>
+            <LabeledField label={t('console.brain.approve_target_type')}>
+              <Select value={targetType} onValueChange={value => setTargetType(value ?? '')}>
+                <SelectTrigger aria-label={t('console.brain.approve_target_type')} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent emptyLabel={objectTypes.isLoading ? t('common.loading') : t('common.select_empty')}>
+                  <SelectItem value="">
+                    {approveTarget?.target_type
+                      ? t('console.brain.target_type_suggested', {
+                          defaultValue: 'Suggested ({$type})',
+                          type: approveTarget.target_type
+                        })
+                      : t('console.brain.target_type_default', { defaultValue: 'Default (note)' })}
+                  </SelectItem>
+                  {selectableObjectTypes.map(typeName => (
+                    <SelectItem key={typeName} value={typeName}>
+                      {typeName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </LabeledField>
           </div>
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />} disabled={approve.isPending}>
@@ -220,6 +256,11 @@ export function BrainSuggestionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <DiscardConfirmDialog
+        open={approveGuard.confirming}
+        onDiscard={approveGuard.confirmDiscard}
+        onKeep={approveGuard.keepEditing}
+      />
 
       <Dialog
         open={Boolean(rejectTarget)}

@@ -109,7 +109,7 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
       |> put_req_header("accept", "text/html")
       |> get("/sessions/new?return_to=/me")
 
-    signed_in = complete_lark(entry)
+    signed_in = complete_lark(entry, %{"return_to" => "/me"})
     assert_receive :lark_code_exchanged
     assert redirected_to(signed_in) == "/me"
     authentication = WebSession.pod_session(signed_in)
@@ -160,12 +160,15 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
       |> api_post("/api/v2/pod/me/reauthentication", %{})
 
     path = api_response(entry, 201)["loginURL"]
-    flow = URI.decode_query(URI.parse(path).query)["flow"]
+    reauth = URI.decode_query(URI.parse(path).query)["reauth"]
     page = entry |> recycle() |> put_req_header("accept", "text/html") |> get(path)
-    choices = api_get(browser_api_conn(page), "/api/v2/browser/identity-providers?flow=" <> flow)
+
+    choices =
+      api_get(browser_api_conn(page), "/api/v2/browser/identity-providers", %{"reauth" => reauth})
+
     assert api_response(choices, 200)["identities"] == []
 
-    renewed = complete_lark_flow(entry, flow)
+    renewed = complete_lark(entry, %{"reauth" => reauth, "return_to" => "/me"})
     assert_receive :lark_code_exchanged
     assert redirected_to(renewed) == "/me"
     assert WebSession.pod_session(renewed)["principal_uid"] == uid
@@ -198,9 +201,9 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
     page = signed_in |> recycle() |> put_req_header("accept", "text/html") |> get("/me")
     entry = api_post(browser_api_conn(page), "/api/v2/pod/me/reauthentication", %{})
     path = api_response(entry, 201)["loginURL"]
-    flow = URI.decode_query(URI.parse(path).query)["flow"]
+    reauth = URI.decode_query(URI.parse(path).query)["reauth"]
 
-    rejected = complete_lark_flow(entry, flow, "other-code")
+    rejected = complete_lark(entry, %{"reauth" => reauth, "return_to" => "/me"}, "other-code")
     assert json_response(rejected, 400)["error"] == "login_subject_mismatch"
     assert_receive :lark_code_exchanged
     assert [] == Principals.list_external_identities!(query: [filter: [provider: "lark-main"]])
@@ -265,7 +268,7 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
 
     target_url = URI.parse(api_response(activated, 201)["podURL"])
     assert target_url.host == URI.parse(AnkoleWeb.PodURL.origin(activated, target)).host
-    flow = URI.decode_query(target_url.query)["flow"]
+    invitation = URI.decode_query(target_url.query)["invitation"]
 
     target_page =
       activated
@@ -274,7 +277,7 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
       |> put_req_header("accept", "text/html")
       |> get(target_url.path <> "?" <> target_url.query)
 
-    joined = complete_lark_flow(target_page, flow)
+    joined = complete_lark(target_page, %{"invitation" => invitation})
     assert_receive :lark_code_exchanged
     assert redirected_to(joined) == "/"
     uid = WebSession.pod_session(joined)["principal_uid"]
@@ -295,17 +298,12 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
            end)
   end
 
-  defp complete_lark(entry) do
-    flow = URI.decode_query(URI.parse(redirected_to(entry)).query)["flow"]
-    complete_lark_flow(entry, flow)
-  end
-
-  defp complete_lark_flow(entry, flow, code \\ "carol-code") do
+  defp complete_lark(entry, params, code \\ "carol-code") do
     authorization =
       entry
       |> recycle()
       |> put_req_header("accept", "text/html")
-      |> get("/sessions/oidc/lark-main/authorization", %{"flow" => flow})
+      |> get("/sessions/oidc/lark-main/authorization", params)
 
     state = URI.decode_query(URI.parse(redirected_to(authorization)).query)["state"]
 
@@ -316,16 +314,11 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
   end
 
   defp email_login(conn, tenant, email) do
-    entry =
+    page =
       conn |> pod_conn(tenant) |> put_req_header("accept", "text/html") |> get("/sessions/new")
-
-    path = redirected_to(entry)
-    flow = URI.decode_query(URI.parse(path).query)["flow"]
-    page = entry |> recycle() |> put_req_header("accept", "text/html") |> get(path)
 
     sent =
       api_post(browser_api_conn(page), "/api/v2/browser/sessions/email-otp/challenges", %{
-        flow: flow,
         email: email
       })
 
@@ -336,7 +329,6 @@ defmodule Ankole.Authn.LarkCredentialBindingTest do
       sent
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
-        flow: flow,
         challengeID: challenge,
         code: code
       })

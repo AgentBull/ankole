@@ -107,7 +107,11 @@ fn image_user_error_code(code: &str) -> bool {
 
 fn public_message(error: &StreamError) -> &'static str {
     if error.provider_status == Some(429) {
-        return "The image generation provider rate limit was exceeded.";
+        return if error.stage == "image_generation" {
+            "The image generation provider rate limit was exceeded."
+        } else {
+            "The model provider rate limit was exceeded."
+        };
     }
     if image_user_error_code(&error.code) {
         return "The image request was rejected.";
@@ -116,7 +120,11 @@ fn public_message(error: &StreamError) -> &'static str {
         error.code.as_str(),
         "first_byte_timeout" | "idle_timeout" | "total_timeout"
     ) {
-        return "The image generation provider timed out.";
+        return if error.stage == "image_generation" {
+            "The image generation provider timed out."
+        } else {
+            "The model provider timed out."
+        };
     }
     if matches!(
         error.code.as_str(),
@@ -131,7 +139,11 @@ fn public_message(error: &StreamError) -> &'static str {
         return "The hosted response exceeded the internal main-model round limit.";
     }
 
-    "The hosted image generation request failed."
+    if error.stage == "image_generation" {
+        "The hosted image generation request failed."
+    } else {
+        "The hosted model request failed."
+    }
 }
 
 fn public_kind(error: &StreamError) -> (&'static str, &str) {
@@ -212,6 +224,30 @@ mod tests {
         let redacted = redact_hosted_error(error);
 
         assert_eq!(redacted.stage, "connect");
+    }
+
+    #[test]
+    fn main_model_failures_do_not_claim_image_generation_failed() {
+        for (status, code, expected) in [
+            (
+                Some(429),
+                "provider_status_rejected",
+                "The model provider rate limit was exceeded.",
+            ),
+            (None, "total_timeout", "The model provider timed out."),
+            (
+                Some(503),
+                "provider_status_rejected",
+                "The hosted model request failed.",
+            ),
+        ] {
+            let mut error = StreamError::new(code, "connect", "provider detail");
+            error.provider_status = status;
+            assert_eq!(
+                to_public_openai_error_json(&redact_hosted_error(error))["message"],
+                expected
+            );
+        }
     }
 
     #[test]

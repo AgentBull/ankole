@@ -7,31 +7,30 @@ defimpl Ankole.Authn.Strategy, for: Ankole.Authn.Strategies.Otp do
     do:
       Ankole.Authn.Domain.request_otp(
         params.browser,
-        params.flow,
         params.email,
         params.source,
         opts |> Keyword.merge(sender_opts) |> Keyword.put(:sender, sender)
       )
 
   def action(_strategy, :verify, params, opts) do
-    case Keyword.fetch(opts, :complete) do
-      {:ok, complete} ->
-        Ankole.Authn.Domain.verify_otp_with(
+    case Keyword.pop(opts, :complete) do
+      {nil, rest} ->
+        Ankole.Authn.Domain.verify_otp(
           params.browser,
-          params.flow,
           params.challenge_id,
           params.code,
           params.source,
-          complete
+          rest
         )
 
-      :error ->
-        Ankole.Authn.Domain.verify_otp(
+      {complete, rest} ->
+        Ankole.Authn.Domain.verify_otp_with(
           params.browser,
-          params.flow,
           params.challenge_id,
           params.code,
-          params.source
+          params.source,
+          complete,
+          rest
         )
     end
   end

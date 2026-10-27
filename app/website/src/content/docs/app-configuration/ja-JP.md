@@ -74,7 +74,6 @@ Site key は保存済みの値、次にバージョンのデフォルトを使�
 |---|---|---|
 | `pod.allow_external_guests` | Tenant | 招待された外部ゲストによる共有 Pod ページへのアクセスを許可する。デフォルト `true` |
 | `pod.applet.limits` | Tenant | Applet 呼び出しの上限（デフォルト `timeout_ms: 60000`、`heap_mb: 128`） |
-| `pod.applet.ai_agent_uid` | Tenant | Applet の `ctx.ai` 呼び出しにモデルプロファイルと使用量を提供する有効な Agent。空の場合は Applet AI を無効にする |
 | `pod.base.limits` | Tenant | Base のクエリおよびレコード上限（デフォルト `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
 | `pod.trash_retention_days` | Tenant | 削除されたページを自動完全削除するまでの正の整数の保持日数（デフォルト `30`）、または自動完全削除なしで保持する `"unlimited"` |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する最近のドキュメント変更バッチ数。デフォルト `1000` |

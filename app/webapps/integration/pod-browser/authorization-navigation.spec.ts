@@ -114,7 +114,7 @@ test('navigation fetches a branch on expansion, follows its cursor, and searches
   }
 })
 
-test('sharing exposes four roles and preserves read-only advanced grants through CAS recovery and removal', async ({
+test('sharing offers useful roles and preserves read-only advanced grants through CAS recovery and removal', async ({
   browser
 }) => {
   const owner = await browser.newContext({ baseURL: state.base_url }),
@@ -160,12 +160,21 @@ test('sharing exposes four roles and preserves read-only advanced grants through
     await expect(viewerPage.getByRole('textbox', { name: '条件（CEL）', exact: true })).toHaveCount(0)
     await expect(viewerPage.getByRole('combobox', { name: '共享对象', exact: true })).toHaveCount(0)
     await expect(viewerPage.locator('code')).toHaveText(expression)
+    const blockedWrite = Promise.withResolvers<void>()
+    const releaseWrite = Promise.withResolvers<void>()
+    await viewerPage.route(`**/api/v2/pod/pages/${targetID}/sharing`, async route => {
+      if (route.request().method() !== 'PUT') return route.continue()
+      blockedWrite.resolve()
+      await releaseWrite.promise
+      await route.continue()
+    })
     await viewerPage.getByRole('checkbox').first().check()
+    await blockedWrite.promise
     await requestWithSharingVersion(ownerPage, `/pages/${targetID}/sharing`, 'PUT', {
       inherit_permissions: true,
       grants
     })
-    await viewerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    releaseWrite.resolve()
     await viewerPage.getByRole('button', { name: '保留我的设置并读取最新版本', exact: true }).click()
     await expect(viewerPage.locator('code')).toHaveText(expression)
     const savedSharing = viewerPage.waitForResponse(
@@ -188,16 +197,17 @@ test('sharing exposes four roles and preserves read-only advanced grants through
     await ownerPage.goto(pageRoute(targetID))
     await ownerPage.getByRole('button', { name: '分享', exact: true }).click()
     await ownerPage.getByRole('combobox', { name: '授予权限', exact: true }).click()
-    await expect(ownerPage.getByRole('option')).toHaveCount(4)
-    await ownerPage.getByRole('option', { name: '可提交数据', exact: true }).click()
+    const roleList = ownerPage.getByRole('listbox').last()
+    await expect(roleList.getByRole('option')).toHaveCount(3)
+    await expect(roleList.getByRole('option', { name: '可提交数据', exact: true })).toHaveCount(0)
+    await ownerPage.keyboard.press('Escape')
     const advanced = ownerPage.locator('li').filter({ has: ownerPage.getByText(sourceTitle, { exact: true }) })
-    await advanced.getByRole('button', { name: '移除', exact: true }).click()
     const removedSharing = ownerPage.waitForResponse(
       response =>
         response.request().method() === 'PUT' &&
         new URL(response.url()).pathname === `/api/v2/pod/pages/${targetID}/sharing`
     )
-    await ownerPage.getByRole('button', { name: '保存分享设置', exact: true }).click()
+    await advanced.getByRole('button', { name: '移除', exact: true }).click()
     await expect(ownerPage.getByRole('button', { name: '保存分享设置', exact: true })).toHaveCount(0)
     expect((await removedSharing).status()).toBe(200)
     const removed = await request<{ grants: { source_page_id?: string }[] }>(ownerPage, `/pages/${targetID}/sharing`)

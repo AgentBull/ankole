@@ -217,7 +217,6 @@ defmodule AnkoleWeb.BrowserSetup do
     action :request_email_setup, :map do
       constraints(
         fields: [
-          flow: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
           challengeID: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false]
         ]
       )
@@ -234,7 +233,6 @@ defmodule AnkoleWeb.BrowserSetup do
 
     action :verify_email_setup, :map do
       constraints(fields: [returnTo: [type: :string, allow_nil?: false]])
-      argument(:flow, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       argument(:challengeID, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       argument(:code, :string, allow_nil?: false, sensitive?: true, constraints: [trim?: false])
       transaction?(false)
@@ -466,12 +464,11 @@ defmodule AnkoleWeb.BrowserSetup do
 
   defp perform_request_email_setup(conn, params) do
     with :ok <- require_setup_session(conn),
-         {:ok, conn, transaction} <- WebSession.begin_login(conn, :console, %{}),
+         conn = WebSession.ensure_browser(conn),
          browser = WebSession.browser_reference(conn),
          {:ok, cipher} <-
            Ankole.SecretKeyBase.seal(Ankole.JSON.encode!(params["mail"]), "authn.setup", [
-             browser["id"],
-             transaction.id
+             browser["id"]
            ]),
          {:ok, sent} <-
            Ankole.Authn.Info.run(
@@ -480,15 +477,15 @@ defmodule AnkoleWeb.BrowserSetup do
              :request,
              %{
                browser: browser,
-               flow: transaction.id,
                email: params["email"],
                source: to_string(:inet.ntoa(conn.remote_ip))
              },
              purpose: "setup",
              mail: params["mail"],
+             locale: I18n.negotiate_locale(Plug.Conn.get_req_header(conn, "accept-language")),
              ceremony_context: %{"mail" => cipher, "display_name" => params["display_name"]}
            ) do
-      BrowserAPI.ok(conn, %{flow: transaction.id, challengeID: sent.challenge_id})
+      BrowserAPI.ok(conn, %{challengeID: sent.challenge_id})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> AnkoleWeb.BrowserAPI.Error.login(reason)
@@ -499,7 +496,6 @@ defmodule AnkoleWeb.BrowserSetup do
     browser = WebSession.browser_reference(conn)
 
     with :ok <- require_setup_session(conn),
-         {:ok, %{purpose: :console}} <- WebSession.login_transaction(conn, params["flow"]),
          {:ok, completed} <-
            Ankole.Authn.Info.run(
              Ankole.Principals.SiteCredential,
@@ -507,7 +503,6 @@ defmodule AnkoleWeb.BrowserSetup do
              :verify,
              %{
                browser: browser,
-               flow: params["flow"],
                challenge_id: params["challengeID"],
                code: params["code"],
                source: to_string(:inet.ntoa(conn.remote_ip))
@@ -533,8 +528,7 @@ defmodule AnkoleWeb.BrowserSetup do
 
     with {:ok, settings_json} <-
            Ankole.SecretKeyBase.unseal(challenge.ceremony_context["mail"], "authn.setup", [
-             browser["id"],
-             challenge.login_transaction_id
+             browser["id"]
            ]),
          {:ok, settings} <- Ankole.JSON.decode(settings_json),
          {:ok, %{principal: principal}} <-
@@ -551,19 +545,20 @@ defmodule AnkoleWeb.BrowserSetup do
          {:ok, mail_write} <-
            Ankole.AppConfigure.put_global_by_key_in_tx("authn.email.mail", settings),
          {:ok, completed} <-
-           Ankole.BrowserSessions.complete_site_login_in_tx(
+           Ankole.BrowserSessions.authenticate_site_in_tx(
              browser,
-             challenge.login_transaction_id,
+             :console,
              "email_otp",
              %{
                challenge_id: challenge.id,
-               browser_id: browser["id"],
-               flow: challenge.login_transaction_id
+               browser_id: browser["id"]
              }
            ) do
       {:ok, Map.merge(completed, %{mail_write: mail_write, completed_write: completed_write})}
     end
   end
+
+  defp complete_email_setup_in_tx(_conn, _challenge), do: {:error, :invalid_code}
 
   # Shared gate for every setup-mutating endpoint. Two conditions, both required:
   # setup must not already be complete (409 if it is — bootstrap can't run twice),

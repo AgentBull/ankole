@@ -65,6 +65,15 @@ defmodule Ankole.Brain.ChunkerTest do
       end
     end
 
+    test "CJK chunks carry the configured trailing context without whitespace" do
+      text = Enum.map_join(0x4E00..0x4E50, &<<&1::utf8>>)
+      settings = Map.merge(@chunking, %{"chunk_size" => 20, "chunk_overlap" => 6})
+      [first, second | _] = Chunker.chunk_text(text, settings)
+
+      assert String.starts_with?(second.text, String.slice(first.text, -6, 6))
+      assert String.contains?(second.text, String.slice(text, String.length(first.text), 20))
+    end
+
     test "token cap holds on dense text under the char cap" do
       chunking = Map.put(@chunking, "max_tokens", 60)
       text = String.duplicate("知识空间中的一段稠密中文内容。", 40)
