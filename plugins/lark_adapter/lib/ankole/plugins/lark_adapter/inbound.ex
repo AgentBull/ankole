@@ -252,6 +252,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                   when is_list(attachments) ->
                     attachments
 
+                  # An ignored group entry stays in its inbound batch without a
+                  # Message. A later reply can promote it, so it needs its bytes.
+                  %{status: :ignored, inbound_batch: %{}} ->
+                    input.attachments
+
                   _other ->
                     nil
                 end

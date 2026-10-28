@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.34 (2026-10-28)
+
+- Download a Feishu file or image that a group member sends without a mention
+  when the binding ignores unaddressed group messages. A later reply that
+  mentions the Agent and quotes the file now gives the Agent the stored file.
+  Before, the attachment stayed `pending` and the Agent saw only the file name.
+
 ## Version 2.0.0-alpha.33 (2026-10-28)
 
 - Fail an Automation Job run that stays `running` after its attempt deadline
