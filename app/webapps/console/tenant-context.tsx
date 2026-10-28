@@ -7,7 +7,7 @@ import {
 import { Link as RouterLink, useNavigate as useBaseNavigate, useRouter, type AnyRouter } from '@tanstack/react-router'
 import { createContext, useContext, type ComponentProps, type ReactNode } from 'react'
 import { toURLSearchParams, useSearchParams as useBaseSearchParams } from '../common/router'
-import { selectDataTenant } from '../common/browser-session'
+import { dataTenantID, selectDataTenant } from '../common/browser-session'
 import {
   consoleTenantPage,
   replaceTenantSearch,
@@ -62,10 +62,10 @@ export const useSearchParams: typeof useBaseSearchParams = () => {
 export const Link = ((props: ComponentProps<typeof RouterLink>) => {
   const tenant = useConsoleTenant()
   const router = useRouter()
-  if (!tenant) return <RouterLink {...props} />
-  const current = Object.fromEntries(
-    tenantSearchParams(new URLSearchParams(router.latestLocation.searchStr), tenant.id)
-  )
+  const tenantID = tenant?.id ?? (typeof window === 'undefined' ? null : dataTenantID())
+  if (!tenantID) return <RouterLink {...props} />
+  const params = new URLSearchParams(router.latestLocation.searchStr)
+  const current = Object.fromEntries(tenant ? tenantSearchParams(params, tenant.id) : params)
   const search =
     typeof props.search === 'function'
       ? Reflect.apply(props.search, undefined, [current])
@@ -78,7 +78,7 @@ export const Link = ((props: ComponentProps<typeof RouterLink>) => {
     <RouterLink<AnyRouter, string, string, string, string>
       {...props}
       reloadDocument
-      search={site ? search : { ...search, data_tenant: tenant.id }}
+      search={site ? search : { ...search, data_tenant: tenantID }}
     />
   )
 }) as typeof RouterLink
