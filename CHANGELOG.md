@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.33 (2026-10-28)
+
+- Fail an Automation Job run that stays `running` after its attempt deadline
+  when no Oban job owns it. Such runs used the Agent's running slots, and when
+  `automation_jobs.max_running_per_agent` runs leaked, every new run of the
+  Agent stayed queued with no error. Runs that leaked before this version fail
+  within five minutes after the upgrade and send their failure notice when
+  `wake_on_failure` is set.
+
 ## Version 2.0.0-alpha.32 (2026-10-27)
 
 - Record the verified authentication time for each OIDC authorization code and use it in ID Tokens and refresh context, including email reauthentication.

@@ -543,6 +543,38 @@ defmodule Ankole.AutomationJobs do
   end
 
   @doc """
+  Fails each running attempt of the current tenant that passed the
+  `ExecuteRun` RPC deadline, with an unknown execution outcome.
+
+  `ExecuteRun` records this result while its Oban job exists. The sweep records
+  it for a run whose Oban job ended first, so that the run does not keep an
+  Agent running slot.
+  """
+  @spec expire_attempts(keyword()) :: :ok | {:error, term()}
+  def expire_attempts(opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    deadline = DateTime.add(now, -ExecuteRun.attempt_deadline_ms(), :millisecond)
+
+    Run
+    |> Ash.Query.filter(status == :running and started_at <= ^deadline)
+    |> Ash.Query.sort(started_at: :asc, id: :asc)
+    |> Ash.Query.limit(100)
+    |> Ankole.Ash.read!()
+    |> Enum.reduce_while(:ok, fn run, :ok ->
+      case infrastructure_failure(
+             run.id,
+             run.attempt_id,
+             :execution_outcome_unknown,
+             :exhausted,
+             now: now
+           ) do
+        {:ok, _run_or_stale} -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc """
   Appends one durable owner-session event from a live run attempt.
   """
   @spec emit_event(

@@ -46,6 +46,10 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
 
   def run(%Oban.Job{}), do: {:cancel, :missing_automation_job_run_id}
 
+  @doc "Returns the time after an attempt start when its outcome is unknown."
+  @spec attempt_deadline_ms() :: pos_integer()
+  def attempt_deadline_ms, do: @rpc_timeout_ms
+
   # A prior wake may have sent the script before its process or node died.
   # Keep its attempt fence; starting another attempt could repeat effects.
   defp await_running_attempt(run, oban_job) do

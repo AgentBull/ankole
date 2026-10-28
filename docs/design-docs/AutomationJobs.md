@@ -213,6 +213,15 @@ indefinitely. Likewise, if Human authorization is revoked between attempts,
 admission marks the run `failed` and commits any configured failure notice
 instead of stranding a queued run without a valid retry owner.
 
+A running attempt that passes its RPC deadline (the ten-minute run limit plus
+ten seconds) has an unknown outcome. The Oban job marks the run `failed` with
+that reason and does not start another attempt. If a node stops during the last
+permitted Oban attempt, Oban discards the job, and the run loses this owner.
+The `ExpireAttempts` cron job runs every five minutes in each tenant and records
+the same failure for every running attempt past its deadline, so a run without
+an Oban job cannot keep a slot of `automation_jobs.max_running_per_agent`. The
+attempt UUID fences the two writers, and the second write is stale.
+
 `WorkerAdmission` tracks Worker liveness. Whenever it marks a route unusable or
 replaces a Worker incarnation, it immediately aborts pending RPC waits on that
 route so the Oban attempt can fail and retry without waiting out the ten-minute
@@ -299,5 +308,6 @@ conversation Turns stay outside this view.
   including start, cancellation, completion, and infrastructure recovery.
 - Never retry script failures.
 - Retry infrastructure failures up to five total attempts.
+- Fail every running attempt past its RPC deadline, also when its Oban job is gone.
 - Resolve `emitEvent` only after the emitted Signal is durable in PostgreSQL.
 - Store no script state, DAG, mutex, or trigger schedule inside Automation Jobs.
