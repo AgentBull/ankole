@@ -692,7 +692,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
 
     times =
       Ankole.OIDC.RefreshToken
-      |> Repo.all()
+      |> Ankole.Ash.read!()
       |> Enum.map(& &1.context["auth_time"])
       |> Enum.sort()
 

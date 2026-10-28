@@ -149,10 +149,11 @@ create or extend the OIDC session and mint a 60-second authorization code via
 `/oauth/authorize/resume` consumes the bound `AuthorizationRequest` once and
 calls `Grants.authorize_in_tx/2` in the same transaction. PostgreSQL stores
 only the code's SHA-256 digest and PKCE challenge, never the plaintext code.
-Each code also records the verified authentication time used for that
-authorization. A fresh authentication can reuse the RP Session while its new
-code records the new time. Codes issued before that authentication keep their
-own time, and an unknown authentication time stays null.
+Ankole records the verified authentication time for each authorization code.
+Ankole can reuse the RP Session after fresh authentication and records the new
+time on the resulting code. Ankole preserves the recorded time for codes issued
+before that authentication. When the authentication time is unknown, Ankole
+stores null.
 
 Inside the authorization transaction, Ankole acquires the tenant parent lock
 before the browser serializer and the live Human lock, then locks the Client
@@ -202,8 +203,8 @@ a family's initial refresh token is inserted inside the authorization-code
 exchange transaction, calling `RefreshStore.insert/1` outside a transaction
 raises `TransactionRequired`; code-store callbacks themselves are single
 statements.
-Each refresh token carries the authentication time from its authorization code
-in its immutable protocol context.
+Ankole copies the authentication time from each authorization code into the
+refresh token's immutable protocol context.
 
 In PostgreSQL, the refresh-family row holds the absolute 30-day deadline and a
 sticky revocation timestamp, while each token row stores its SHA-256 digest,

@@ -176,6 +176,10 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
   test "only providers that can force authentication enter the fresh provider list", %{
     client: client
   } do
+    previous_sources = Application.get_env(:ankole, :site_identity_sources, [])
+    Application.put_env(:ankole, :site_identity_sources, [])
+    on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous_sources) end)
+
     {:ok, _} =
       IdentityProviders.save_provider(
         "google",
