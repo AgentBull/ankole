@@ -6,12 +6,20 @@ import type { AppConfigurationItem } from '../api/configuration-types'
  */
 const SETTING_GROUPS = [
   { id: 'brain', prefix: 'brain.' },
-  { id: 'observability', prefix: 'observability.traces.' }
+  { id: 'observability', prefix: 'observability.traces.' },
+  { id: 'smtp', prefix: 'authn.email.mail' },
+  { id: 'otp', prefix: 'authn.email.' },
+  { id: 'turnstile', prefix: 'saas.turnstile.' },
+  { id: 'pod-access', prefix: 'pod.allow_external_guests' }
 ] as const
 
 /** Keys whose value another console surface writes. The list sends the operator there. */
 const SETTING_OWNER_ROUTES: Record<string, string> = {
-  'principals.identity_providers.active': '/identity'
+  'principals.identity_providers.active': '/identity',
+  'plugins.enabled_ids': '/agent-library?scope=__global__&tab=control-plane-plugins',
+  'ai_agent.library.agent_plugin_defaults': '/agent-library?scope=__global__&tab=agent-plugins',
+  'ai_agent.library.skill_defaults': '/agent-library?scope=__global__&tab=skills',
+  'saas.require_invitation_code': '/invitation-codes?focus=require-invitation-code'
 }
 
 export type SettingGroupID = (typeof SETTING_GROUPS)[number]['id']
@@ -36,7 +44,15 @@ export function settingGroup(id: string) {
 }
 
 export function settingOwnerRoute(key: string): string | undefined {
-  return SETTING_OWNER_ROUTES[key]
+  return (
+    SETTING_OWNER_ROUTES[key] ??
+    (key.startsWith('principals.identity_providers.') &&
+    key !== 'principals.identity_providers.directory_full_sync_interval_minutes'
+      ? '/identity'
+      : key.startsWith('signals.') && key !== 'signals.show_dead_letter_error_details'
+        ? '/signals'
+        : undefined)
+  )
 }
 
 export function settingDescription(
@@ -49,11 +65,8 @@ export function settingDescription(
 }
 
 /**
- * Splits the list into what an operator changes and what the Installation owns.
- *
- * Ownership comes from the server's own `editable`, which carries `console_writable`. A key that
- * the release bootstrap generates or that another surface writes therefore leaves the main list
- * without a second list of key names to keep in step here.
+ * Groups daily editing tasks, retaining read-only members as task dependencies.
+ * Other installation-owned keys remain available in the registry view.
  */
 export function settingRows(items: AppConfigurationItem[]): SettingRows {
   const grouped = new Map<SettingGroupID, AppConfigurationItem[]>()
@@ -61,10 +74,10 @@ export function settingRows(items: AppConfigurationItem[]): SettingRows {
   const singles: AppConfigurationItem[] = []
 
   for (const item of items) {
-    const groupID = item.editable ? settingGroupID(item.key) : undefined
+    const groupID = settingGroupID(item.key)
 
-    if (!item.editable) managed.push(item)
-    else if (groupID) grouped.set(groupID, [...(grouped.get(groupID) ?? []), item])
+    if (groupID) grouped.set(groupID, [...(grouped.get(groupID) ?? []), item])
+    else if (!item.editable) managed.push(item)
     else singles.push(item)
   }
 

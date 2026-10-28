@@ -15,13 +15,18 @@ index 5936e05..aa0c5c3 100644
 +
  end Erlang.lists
 diff --git a/Lean/Lynx/Modules/Erlang/maps.lean b/Lean/Lynx/Modules/Erlang/maps.lean
-index 210f9d0..a2fb4d8 100644
+index 210f9d0..e5e3926 100644
 --- a/Lean/Lynx/Modules/Erlang/maps.lean
 +++ b/Lean/Lynx/Modules/Erlang/maps.lean
-@@ -36,6 +36,20 @@ open Lynx
+@@ -36,6 +36,25 @@ open Lynx
    | .map entries => .ok (Term.list ((Term.mapEntries entries).map fun entry => .tuple #[entry.1, entry.2]))
    | input => .error (.error (.tuple #[.atom "badmap", input]))
  
++/-- Keys enumerate the same visible entries as the unordered map iterator. -/
++@[expose] def «keys/1» : Term → Except Exception Term
++  | .map entries => .ok (Term.list ((Term.mapEntries entries).map Prod.fst))
++  | input => .error (.error (.tuple #[.atom "badmap", input]))
++
 +/-- An opaque iterator over the visible map bindings. The enumeration order is
 +that of `to_list/1`; callers must not depend on the VM's unspecified map order. -/
 +@[expose] def «iterator/1» : Term → Except Exception Term
@@ -39,19 +44,50 @@ index 210f9d0..a2fb4d8 100644
  /-- Fold over the visible bindings in the order `to_list/1` returns them.
  Unordered iterators from `iterator/1` fold like their map. Ordered and partially
  traversed iterators are not modeled, so folding them does not return. -/
+diff --git a/Lean/Lynx/Runner.lean b/Lean/Lynx/Runner.lean
+index 37a6d62..15e7fae 100644
+--- a/Lean/Lynx/Runner.lean
++++ b/Lean/Lynx/Runner.lean
+@@ -1876,7 +1876,7 @@ private def inputImports (files : Array Json) (entry : Json) (env : Lean.Environ
+   let moduleName ← str entry "module"
+   (← arr entry "imports").mapM fun j => do
+     let name ← j.getStr?
+-    let name := if name.startsWith "Erlang." &&
++    let name := if (name.startsWith "Erlang." || name == "Elixir.Access") &&
+         (name == moduleName || !files.any (fun file => (str file "module").toOption == some name)) then
+       "Lynx.Modules." ++ name
+       else name
+diff --git a/Lean/Lynx/Term/Compare.lean b/Lean/Lynx/Term/Compare.lean
+index 82e8b40..26fa7ff 100644
+--- a/Lean/Lynx/Term/Compare.lean
++++ b/Lean/Lynx/Term/Compare.lean
+@@ -667,6 +667,11 @@ end Lynx.Term
+ 
+ namespace Lynx.Term
+ 
++@[simp] theorem compare_atoms (a b : String) :
++    compare (.atom a) (.atom b) = Ord.compare a b := by
++  rw [compare_eq_step]
++  rfl
++
+ @[simp] theorem compare_reference (a b : Nat) :
+     compare (.reference a) (.reference b) = Ord.compare a b := by
+   rw [compare_eq_step]
 diff --git a/Lean/modules.json b/Lean/modules.json
-index 610f859..4195bf5 100644
+index 610f859..c1e8761 100644
 --- a/Lean/modules.json
 +++ b/Lean/modules.json
-@@ -1,6 +1,6 @@
- {"math": {"floor/1": {"pure": true}, "ceil/1": {"pure": true}},
+@@ -1,6 +1,7 @@
+-{"math": {"floor/1": {"pure": true}, "ceil/1": {"pure": true}},
++{"Elixir.Access": {"get/2": {"pure": true}, "get/3": {"pure": true}},
++ "math": {"floor/1": {"pure": true}, "ceil/1": {"pure": true}},
   "maps":
 - {"update/3": {"pure": true},
-+ {"iterator/1": {"pure": true}, "next/1": {"pure": true}, "update/3": {"pure": true},
++ {"keys/1": {"pure": true}, "iterator/1": {"pure": true}, "next/1": {"pure": true}, "update/3": {"pure": true},
    "to_list/1": {"pure": true},
    "put/3": {"pure": true},
    "new/0": {"pure": true},
-@@ -8,7 +8,7 @@
+@@ -8,7 +9,7 @@
    "get/2": {"pure": true},
    "from_list/1": {"pure": true},
    "fold/3": {"pure": false}},
@@ -60,3 +96,28 @@ index 610f859..4195bf5 100644
   "erts_internal":
   {"mc_refill/1": {"pure": true}, "mc_iterator/1": {"pure": true}},
   "erlang":
+diff --git a/Lean/Lynx/Modules/Elixir/Access.lean b/Lean/Lynx/Modules/Elixir/Access.lean
+new file mode 100644
+--- /dev/null
++++ b/Lean/Lynx/Modules/Elixir/Access.lean
+@@ -0,0 +1,20 @@
++module
++public import Lynx.Term
++@[expose] public section
++namespace Elixir.Access
++open Lynx
++
++/-- The plain-map and nil cases of Elixir Access.get/3. Struct callbacks and
++keyword lists are outside this model and cannot complete a proof. -/
++def «get/3» (container key default : Term) : Except Exception Term :=
++  match container with
++  | .map entries =>
++    match Term.mapLookup entries (.atom "__struct__") with
++    | some _ => .error .exhausted
++    | none => .ok ((Term.mapLookup entries key).getD default)
++  | .atom "nil" => .ok default
++  | _ => .error .exhausted
++
++def «get/2» (container key : Term) : Except Exception Term :=
++  «get/3» container key (.atom "nil")
++end Elixir.Access

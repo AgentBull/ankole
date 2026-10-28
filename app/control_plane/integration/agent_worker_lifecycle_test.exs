@@ -322,7 +322,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     name = wait_for_entrypoint!(provider, uid, first.generation)
     write_markers!(name)
 
-    key = "agent_computer.worker.ready_timeout"
+    key = "agent_workers.ready_timeout_seconds"
 
     previous =
       Sandbox.unboxed_run(Repo, fn ->

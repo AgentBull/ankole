@@ -3,7 +3,12 @@ import i18n, { loadLocale } from '../../common/i18n'
 import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/configuration-types'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import { seedEditorDraft } from '../use-editor-draft'
-import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from './setting-editor-model'
+import {
+  encryptedSettingValue,
+  SettingEditorModel,
+  settingDecryptedDraft,
+  syncConsoleLocaleIfPrivileged
+} from './setting-editor-model'
 
 beforeAll(() => loadLocale('en-US'))
 const t = i18n.getFixedT('en-US')
@@ -218,6 +223,58 @@ describe('SettingEditorModel', () => {
       expect(model.dirty.value).toBe(true)
     })
   }
+
+  test('switches the Console UI locale only when saving i18n.default_locale for the privileged tenant', async () => {
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    const documentElement = { lang: 'en-US' }
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { documentElement }
+    })
+
+    try {
+      await loadLocale('en-US')
+      await i18n.changeLanguage('en-US')
+
+      // Editing a non-privileged data tenant does not switch the Console UI language.
+      await syncConsoleLocaleIfPrivileged({
+        scope: 'tenant',
+        key: 'i18n.default_locale',
+        value: 'ja-JP',
+        selectedTenantID: 'tenant-customer',
+        privilegedTenantID: 'tenant-privileged'
+      })
+      expect(i18n.language).toBe('en-US')
+      expect(documentElement.lang).toBe('en-US')
+
+      // Editing with default (null) data context targets the privileged home tenant.
+      await syncConsoleLocaleIfPrivileged({
+        scope: 'tenant',
+        key: 'i18n.default_locale',
+        value: 'zh-Hans-CN',
+        selectedTenantID: null,
+        privilegedTenantID: undefined
+      })
+      expect(i18n.language).toBe('zh-Hans-CN')
+      expect(documentElement.lang).toBe('zh-Hans-CN')
+
+      // Editing with explicit privileged tenant selection also switches the Console UI.
+      await syncConsoleLocaleIfPrivileged({
+        scope: 'tenant',
+        key: 'i18n.default_locale',
+        value: 'ko-KR',
+        selectedTenantID: 'tenant-privileged',
+        privilegedTenantID: 'tenant-privileged'
+      })
+      expect(i18n.language).toBe('ko-KR')
+      expect(documentElement.lang).toBe('ko-KR')
+    } finally {
+      await loadLocale('en-US')
+      await i18n.changeLanguage('en-US')
+      if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument)
+      else Reflect.deleteProperty(globalThis, 'document')
+    }
+  })
 })
 
 function item(value: unknown, encrypted = false): AppConfigurationItem {

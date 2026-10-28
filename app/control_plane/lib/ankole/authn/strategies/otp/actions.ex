@@ -18,29 +18,56 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
     with {:ok, session} <- BrowserSessions.lock_browser_in_tx(browser),
          {:ok, context} <- challenge_context(browser, opts),
          :ok <- site_resend_cooldown(context, target),
-         :ok <- RateLimiter.take(limits("send", target, source)) do
+         deliver? = deliverable?(context, target),
+         :ok <- RateLimiter.take(limits("send", target, source, deliver?)) do
       id = Ash.UUIDv7.generate()
-      code = SecretDigest.code()
-      digest = SecretDigest.digest(id, code)
       now = DateTime.utc_now()
 
-      with {:ok, challenge} <-
-             Ankole.Ash.create(Challenge, :reserve_in_tx, %{
-               id: id,
-               strategy: "email_otp",
-               purpose: context.purpose,
-               browser_session_id: session.id,
-               tenant_id: context.tenant_id,
-               principal_uid: context.principal_uid,
-               target: target,
-               secret_digest: digest,
-               challenge_started_at: now,
-               ceremony_context: context.ceremony_context
-             }) do
-        {:ok, %{challenge: challenge, code: code, digest: digest}}
+      if deliver? do
+        code = SecretDigest.code()
+        digest = SecretDigest.digest(id, code)
+
+        with {:ok, challenge} <-
+               Ankole.Ash.create(Challenge, :reserve_in_tx, %{
+                 id: id,
+                 strategy: "email_otp",
+                 purpose: context.purpose,
+                 browser_session_id: session.id,
+                 tenant_id: context.tenant_id,
+                 principal_uid: context.principal_uid,
+                 target: target,
+                 secret_digest: digest,
+                 challenge_started_at: now,
+                 ceremony_context: context.ceremony_context
+               }) do
+          {:ok, %{deliver?: true, challenge: challenge, code: code, digest: digest}}
+        end
+      else
+        {:ok, ttl} = Config.get("code_ttl_seconds")
+        expiry = DateTime.add(now, ttl)
+
+        with {:ok, challenge} <-
+               Ankole.Ash.create(Challenge, :reserve_in_tx, %{
+                 id: id,
+                 strategy: "email_otp",
+                 purpose: context.purpose,
+                 browser_session_id: session.id,
+                 tenant_id: context.tenant_id,
+                 principal_uid: context.principal_uid,
+                 target: target,
+                 secret_digest: nil,
+                 challenge_started_at: now,
+                 expires_at: expiry,
+                 ceremony_context: context.ceremony_context
+               }),
+             {:ok, _} <- invalidate_previous(challenge) do
+          {:ok, %{deliver?: false, challenge: challenge}}
+        end
       end
     end
   end
+
+  defp deliver(_target, %{deliver?: false}, _opts), do: :ok
 
   defp deliver(target, reserved, opts) do
     case Keyword.get(opts, :sender, Mailer).send(:email, target, reserved.code, opts) do
@@ -52,6 +79,60 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
         _ = Ankole.Ash.destroy(reserved.challenge, :expire_in_tx)
         error
     end
+  end
+
+  defp deliverable?(%{purpose: purpose}, _target)
+       when purpose in ["setup", "bind_credential", "step_up"],
+       do: true
+
+  defp deliverable?(%{purpose: "login", login_purpose: login_purpose} = context, target) do
+    ceremony = context.ceremony_context
+    reauth_uid = ceremony["reauthentication_principal_uid"]
+    invitation_id = ceremony["invitation_id"]
+    target_tenant_id = context.tenant_id || ceremony["target_tenant_id"]
+
+    cond do
+      is_binary(reauth_uid) and is_binary(target_tenant_id) ->
+        match?(
+          %{uid: ^reauth_uid},
+          Ankole.Principals.resolve_email_otp_principal(target_tenant_id, target)
+        )
+
+      login_purpose == :console ->
+        case Ankole.Principals.resolve_email_otp_principal(context.tenant_id, target) do
+          %{uid: uid} -> Ankole.AuthZ.site_admin_member?(uid)
+          nil -> false
+        end
+
+      is_binary(invitation_id) and is_binary(target_tenant_id) ->
+        invitation_deliverable?(target_tenant_id, invitation_id, target)
+
+      login_purpose in [:pod, :oauth] ->
+        not is_nil(Ankole.Principals.resolve_email_otp_principal(context.tenant_id, target))
+
+      login_purpose == :site ->
+        true
+    end
+  end
+
+  defp invitation_deliverable?(tenant_id, invitation_id, target) do
+    Repo.with_tenant(tenant_id, fn ->
+      case Ankole.Principals.invitation_for_login(invitation_id) do
+        {:ok, %{invited_email: invited}} when is_binary(invited) ->
+          invited == target
+
+        {:ok, %{invited_email: nil, membership: membership}} ->
+          not is_nil(Ankole.Principals.resolve_email_otp_principal(tenant_id, target)) or
+            Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+              %{status: :active, membership: membership},
+              "email_otp",
+              %{verified_email: target}
+            )
+
+        _ ->
+          false
+      end
+    end)
   end
 
   defp site_resend_cooldown(%{purpose: "login", login_purpose: :site}, target) do
@@ -66,7 +147,7 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
         Challenge
         |> Ash.Query.filter(
           target == ^target and purpose == "login" and is_nil(tenant_id) and
-            challenge_started_at > ^cutoff
+            is_nil(verified_at) and challenge_started_at > ^cutoff
         )
         |> Ash.Query.sort(challenge_started_at: :desc)
         |> Ash.Query.limit(1)
@@ -121,6 +202,7 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
           "mode" => Atom.to_string(mode),
           "started_revision" => Keyword.get(merged, :started_revision),
           "return_to" => Keyword.get(merged, :return_to) || "/",
+          "target_tenant_id" => Keyword.get(merged, :target_tenant_id),
           "oauth_request_id" => Keyword.get(merged, :oauth_request_id),
           "invitation_id" => Keyword.get(merged, :invitation_id),
           "expected_authentication_id" => Keyword.get(merged, :expected_authentication_id),
@@ -206,6 +288,8 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
     Ankole.Ash.update_where(query, :invalidate_in_tx, %{})
   end
 
+  defp activate(%{deliver?: false, challenge: challenge}), do: {:ok, challenge}
+
   defp activate(%{challenge: challenge, digest: digest}) do
     {:ok, ttl} = Config.get("code_ttl_seconds")
     expiry = DateTime.add(challenge.challenge_started_at, ttl)
@@ -245,13 +329,17 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
         if context["oauth_request_id"] || context["expected_authentication_id"],
           do: context["started_revision"]
 
+      target_tenant_id = context["target_tenant_id"]
+      reauth_uid = context["reauthentication_principal_uid"]
+
       login_opts =
         [
           mode: mode,
           started_revision: started_revision,
           oauth_request_id: context["oauth_request_id"],
           expected_authentication_id: context["expected_authentication_id"],
-          reauthentication_principal_uid: context["reauthentication_principal_uid"]
+          reauthentication_principal_uid: reauth_uid,
+          target_tenant_id: target_tenant_id
         ]
         |> Keyword.reject(fn {_key, value} -> is_nil(value) end)
 
@@ -268,7 +356,7 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
           {:ok,
            Map.merge(completed, %{
              purpose: login_purpose,
-             tenant_id: challenge.tenant_id,
+             tenant_id: completed.browser.active_tenant_id,
              ceremony_context: challenge.ceremony_context
            })}
         end
@@ -292,20 +380,41 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
   defp with_challenge_tenant(nil, fun), do: Repo.without_tenant(fun)
   defp with_challenge_tenant(tenant_id, fun), do: Repo.with_tenant(tenant_id, fun)
 
-  defp accept_invitation(
-         %{
-           tenant_id: tenant_id,
-           ceremony_context: %{"invitation_id" => id}
-         } = challenge
-       )
-       when is_binary(tenant_id) and is_binary(id) do
-    case Ankole.Principals.accept_site_invitation_in_tx(id, proof(challenge)) do
-      {:ok, _} -> :ok
-      error -> error
+  defp accept_invitation(challenge) do
+    context = challenge.ceremony_context
+    tenant_id = challenge.tenant_id || context["target_tenant_id"]
+    invitation_id = context["invitation_id"] || pending_target_invitation(challenge, tenant_id)
+
+    if is_binary(tenant_id) and is_binary(invitation_id) do
+      Repo.with_tenant(tenant_id, fn ->
+        case Ankole.Principals.accept_site_invitation_in_tx(invitation_id, proof(challenge)) do
+          {:ok, _} -> :ok
+          error -> error
+        end
+      end)
+    else
+      :ok
     end
   end
 
-  defp accept_invitation(_challenge), do: :ok
+  defp pending_target_invitation(
+         %{ceremony_context: %{"login_purpose" => "site"} = context} = challenge,
+         tenant_id
+       )
+       when is_binary(tenant_id) do
+    if is_nil(context["reauthentication_principal_uid"]) and
+         is_nil(Ankole.Principals.resolve_email_otp_principal(tenant_id, challenge.target)) do
+      case Enum.find(
+             Ankole.Principals.pending_invitations(challenge.target),
+             &(&1.tenant_id == tenant_id)
+           ) do
+        nil -> nil
+        invitation -> invitation.id
+      end
+    end
+  end
+
+  defp pending_target_invitation(_challenge, _tenant_id), do: nil
 
   def verify_with(browser, id, code, source, complete, opts \\ []) do
     host_tenant_id = Keyword.get(opts, :host_tenant_id)
@@ -426,13 +535,14 @@ defmodule Ankole.Authn.Strategies.Otp.Actions do
        else: {:error, :invalid_email}
   end
 
-  defp limits(kind, target, source) do
-    {:ok, seconds} = Config.get(kind <> "_window_seconds")
+  defp limits(kind, target, source, deliver? \\ true) do
+    {:ok, policy} = Config.get(kind <> "_limits")
+    seconds = policy["window_seconds"]
     scopes = [{"email", target}, {"source", source}]
-    scopes = if kind == "send", do: scopes ++ [{"channel", "smtp"}], else: scopes
+    scopes = if kind == "send" and deliver?, do: scopes ++ [{"channel", "smtp"}], else: scopes
 
     Enum.map(scopes, fn {scope, value} ->
-      {:ok, maximum} = Config.get(kind <> "_" <> scope <> "_limit")
+      maximum = policy["per_" <> scope]
       {kind <> ":" <> scope, value, maximum, seconds}
     end)
   end

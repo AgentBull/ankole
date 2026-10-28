@@ -1,6 +1,7 @@
 module
 public import Lynx.Modules.Erlang.maps
 public import Lynx.Modules.Erlang.lists
+public import Lynx.Modules.Elixir.Access
 @[expose] public section
 namespace Ankole.RuntimeSupport
 open Lynx
@@ -31,4 +32,24 @@ theorem empty_keyword_search (key : Term) (index : Int) (positive : 0 < index) :
 theorem unmodeled_keyword_search_fails (key index head tail : Term) :
     Erlang.lists.«keyfind/3» key index (.cons head tail) = .error .exhausted := by
   cases index <;> rfl
+theorem keys_preserve_iterator_entries (entries : List (Term × Term)) :
+    Erlang.maps.«keys/1» (.map entries) =
+      .ok (Term.list ((Term.mapEntries entries).map Prod.fst)) := rfl
+
+theorem access_plain_map (entries : List (Term × Term)) (key fallback : Term)
+    (plain : Term.mapLookup entries (.atom "__struct__") = none) :
+    Elixir.Access.«get/3» (.map entries) key fallback =
+      .ok ((Term.mapLookup entries key).getD fallback) := by
+  simp [Elixir.Access.«get/3», plain]
+
+theorem access_default_is_nil (container key : Term) :
+    Elixir.Access.«get/2» container key = Elixir.Access.«get/3» container key (.atom "nil") := rfl
+
+theorem access_nil (key fallback : Term) :
+    Elixir.Access.«get/3» (.atom "nil") key fallback = .ok fallback := rfl
+
+theorem unmodeled_struct_access_fails (entries : List (Term × Term)) (key fallback tag : Term)
+    (struct : Term.mapLookup entries (.atom "__struct__") = some tag) :
+    Elixir.Access.«get/3» (.map entries) key fallback = .error .exhausted := by
+  simp [Elixir.Access.«get/3», struct]
 end Ankole.RuntimeSupport

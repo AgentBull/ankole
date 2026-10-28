@@ -1,8 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@ankole/uikit/components/card'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { BrandIcon } from '../common/brand'
 import { ThemeToggle } from '../common/theme-toggle'
-import logoDark from './logo-dark.svg'
 import backgroundImageURL from './marjan-taghipour-0fof1Z4CwQo-unsplash.jpg'
 
 /** Shared setup panel frame used by every step. */
@@ -27,9 +27,7 @@ export function SetupLayout({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center bg-gray-80">
-              <img src={logoDark} className="size-5" alt="" />
-            </span>
+            <BrandIcon className="size-8 shrink-0" />
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">Ankole</p>
               <p className="truncate text-xs text-muted-foreground">{t('setup.product_label')}</p>

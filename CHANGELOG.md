@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 2.0.0-alpha.35 (2026-10-28)
+
+- Complete targeted site-credential sign-in through the existing UID-ordered Principal admission flow, preserving site access for non-members and explicit errors for disabled or policy-rejected members. Centralize browser login targets and build-selected login URLs.
+- Organize AppConfigure into one editing scope, task forms, and a read-only searchable registry. Commit grouped edits atomically, preserve site and workspace ownership, show real reset fallbacks and persistent restart/index status, inspect consumed Agent overrides, and test SMTP drafts without changing the saved transport. Migrate Worker namespaces, combine OTP limit policies, and separate Brain deletion retention from memory decay.
+- Preserve custom tool identities and text inputs through Anthropic request schemas, tool choices, streamed responses, and history replay. Add production-code bounded checks for PTC replay, Worker message ordering, and provider tool aliases, plus a Lean proof that cumulative ACKs stop at a sequence gap.
+- Verify production Base field-version checks, tool call/result identity, formula-copy metadata, and aggregate reference byte budgets with Lean; expand bounded counterexample searches and exercise failed-batch rollback against both inline and physical Base storage.
+- Render the site Console and Console sign-in in the privileged Pod's `i18n.default_locale` (falling back to `en-US`), and immediately switch the Console UI language when updating or resetting the privileged Pod's `i18n.default_locale` in Console Settings.
+- Render the Ankole brand icon and favicon across the Console, Setup, sign-in, session, and invitation screens as well as verification and invitation emails, drop the redundant "Control plane" subtitle from the Console header, and separate `@ankole/uikit` primary action ink fills from the `#FF4669` brand accent palette so primary buttons stay distinct from destructive actions.
+- Skip SMTP delivery on ineligible email OTP login challenges while keeping the standard code-sent response: Console logins deliver only to `siteadmin` members, Pod and OAuth logins without an invitation deliver only to existing members (including disabled or SSO-gated members so verification surfaces `account_disabled` or `login_policy_rejected`), directed invitations deliver only to the invited email, and `/me` reauthentications deliver only to the pinned member. Restrict `purpose="site"` sign-in and registration to editions with a site sign-in host (disabling public site registration in FOSS), and clear site resend cooldowns once a site challenge is verified.
+
 ## Version 2.0.0-alpha.34 (2026-10-28)
 
 - Scope `i18n.default_locale` strictly to each Pod workspace (`:pod` AppConfigure scope), migrating any existing site-level default locale to Pods without an override and rejecting site-level or per-Agent writes.

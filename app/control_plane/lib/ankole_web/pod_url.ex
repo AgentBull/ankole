@@ -24,6 +24,43 @@ defmodule AnkoleWeb.PodURL do
     end
   end
 
+  def login_url(conn, tenant, params \\ %{}) do
+    if @host_policy,
+      do: apply(@host_policy, :login_url, [tenant, params]),
+      else: append_query(origin(conn, tenant) <> "/sessions/new", params)
+  end
+
+  def membership_login_url(conn, tenant, reason, params) do
+    if @host_policy,
+      do: apply(@host_policy, :membership_login_url, [conn, tenant, reason, params]),
+      else: {:ok, login_url(conn, tenant, params)}
+  end
+
+  def oidc_authorization_url(conn, tenant, provider_id) do
+    origin(conn, tenant) <>
+      "/sessions/oidc/" <> URI.encode(provider_id) <> "/authorization"
+  end
+
+  def oauth_return_to(conn, request) do
+    if @host_policy do
+      {:ok, tenant} = Tenants.get(request.tenant_id)
+
+      if Ankole.OIDC.LoginPolicy.authorization_ready?(request),
+        do: origin(conn, tenant) <> "/oauth/authorize/resume?oauth_request=" <> request.id,
+        else: login_url(conn, tenant, %{"oauth_request" => request.id})
+    else
+      path =
+        if Ankole.OIDC.LoginPolicy.authorization_ready?(request),
+          do: "/oauth/authorize/resume",
+          else: "/sessions/new"
+
+      path <> "?oauth_request=" <> request.id
+    end
+  end
+
+  defp append_query(url, params) when map_size(params) == 0, do: url
+  defp append_query(url, params), do: url <> "?" <> URI.encode_query(params)
+
   def local_host(%URI{host: host}) when is_binary(host) do
     host = host |> String.downcase() |> String.trim_trailing(".")
     suffix = "." <> domain()

@@ -5,52 +5,29 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure** では、デプロイインスタンスを稼働させたまま管理者が変更できる実行時設定を管理できます。たとえば、会話履歴の自動圧縮、Agent の同時実行上限、組織ディレクトリの同期間隔、プラグインの有効／無効切り替えなどが含まれます。
+サイト管理者は **Console → AppConfigure** でサイト既定値、ワークスペース方針、共有ランタイム設定を管理します。Pod 管理者は Pod 設定で許可された管理機能を使用します。
 
-なお、LLM Provider、Identity Provider、チャットチャネル、環境変数にはそれぞれ専用の Console ページが用意されているため、AppConfigure 側で重複して設定する必要はありません。
+## 設定を探して範囲を選ぶ
 
-## AppConfigure と環境変数
+編集前に**サイト設定と既定値**または**現在のワークスペースの上書き**を選びます。データのワークスペース名は常に表示されます。サイト既定値は上書きのないワークスペースに適用される値であり、強制的な上限ではありません。
 
-AppConfigure の設定値は PostgreSQL に保存され、稼働中の Ankole の製品動作を制御します。ほとんどの設定変更は保存後に始まる処理から即座に反映されるため、再デプロイは不要です。
+既定のタスク表示では、関連設定を一つのフォームで編集し、有効状態・上書き・適用状況を確認できます。読み取り専用のキー一覧では、登録済みキーとパターンの範囲、値の出所、暗号化状態、管理画面を確認できます。検索はフォーム内のフィールドや旧キー名にも対応し、該当フィールドを開きます。管理リンクは担当する Console 画面とタブに移動します。
 
-一方、[デプロイ環境変数](../environment-variables/)は control plane や PostgreSQL の起動パラメータ、および Worker バックエンドの初期構成に使われます。これらを変更した場合は、対象プロセスの再起動が必要です。
+サイト設定は保存済みサイト値、コードの既定値の順に解決します。テナント設定は、実際に対応する Agent 上書き、ワークスペース上書き、サイト既定値、コードの既定値の順です。Pod 設定はワークスペース値とコードの既定値だけを使用します。対応する五つのキーでは Agent の適用値を読み取り専用で確認できます。
 
-Skill、コマンドラインツール、または MCP サービスに API キーなどのカスタム値を渡したい場合は、[Agent 環境変数](../worker-env/)を使用してください。
+## 変更とリセット
 
-## 設定の探し方
+一つの範囲で単位を確認して保存します。グループ設定は一括で確定し、一項目でも拒否されるとすべて変更せず、下書きを保持します。秘密情報は明示的に表示するまでマスクされます。リセット確認には現在値と、上書き解除後の実際の値・出所が表示されます。同じ値でも、保存した上書きは解除するまで独立した設定です。
 
-AppConfigure ページでは、関連する設定項目がカテゴリごとにグループ化されています。キー名や説明文で検索できるほか、各グループを展開して一覧で確認することもできます。
+時間は保存単位を変えずに読みやすい単位で入力できます。出力上限の指定なし（`null`）と数値上限を区別し、無応答タイムアウトは明示的に無効（`0`）にできます。削除データの保持期間を短くする場合は、完全削除の影響を表示します。
 
-各設定行は、次のいずれかの状態を持ちます。
+Trace と Control Plane Plugin の再起動待ち表示は、実行中プロセスと保存値が一致するまで残ります。Brain の Tick は共有 BM25 インデックスを毎分確認し、トークナイザーの変更時に再構築します。検索の中断や書き込み待ちが発生する場合があります。失敗時は Brain のヘルス画面とサーバーの Tick ログを確認してください。
 
-- **編集可能:** 行を開いて、その場で値を変更できます。
-- **読み取り専用:** 現在の値を確認できますが、この画面からは変更できません。
-- **別の場所で管理:** 表示されている管理リンクから、その設定を担当する専用の Console ページへ移動できます。
+SMTP は保存前の下書きでテスト送信でき、保存設定や OTP を変更しません。パスワードを入力しなければ保存済みの値を保持します。成功はメール転送サービスが受け付けたことを意味し、下書きを変えると結果は無効になります。SaaS の Turnstile は両方のキーを保持したまま無効にできます。
 
-設定キーは不変の識別子であり、説明欄にはそのキーが何を制御するか、また数値にどの単位（秒、ミリ秒、行数など）を使うかが記載されています。
+## 環境変数との違い
 
-## 適用範囲と値の出所を理解する
-
-各設定キーには **Site**、**Tenant**、または **Pod** のスコープがあります。Site キーはサイト全体の共有インフラを制御し、Tenant キーはサイト既定値を継承しつつ選択中のテナントの動作を制御します。Pod キーは各 Pod ワークスペース固有の設定であり、サイト既定値は持ちません。Console 上ではサイト既定値とテナントごとの上書き値（override）が区別して表示されます（Agent 単位の上書きはサポートしていません）。
-
-Site キーでは「保存済みの値 → バージョンの既定値」の優先順で値が使われます。Tenant キーでは「テナントの上書き値 → 同一キーのサイト既定値 → バージョンの既定値」の順で解決され、Pod キーでは「ワークスペースの保存値 → バージョンの既定値」の順で解決されます。**Reset to default** を実行すると、選択中のスコープに保存された上書き値が削除されます。現在有効になっている値がどこから来ているかは、一覧の Source 列で確認できます。
-
-## 設定の変更
-
-1. 目的の設定項目または設定グループを開きます。
-2. フィールドの説明を読み、適用スコープと数値の単位を確認します。
-3. 必要な値を入力して保存します。
-4. 一覧画面に戻り、該当行に上書き状態が反映されていることを確認します。
-
-よく使われる設定には専用の入力フォームが用意されており、一部の高度な設定では JSON エディタを使用します。JSON を編集する際は既存のフィールド構造を保ち、用途がわからないフィールドを不用意に削除しないでください。
-
-ほとんどの変更は後続の作業から自動的に適用されます。画面上に「次回起動時に反映される」旨の案内が表示されている項目については、都合のよいタイミングで control plane を再起動してください。
-
-## 設定のリセット
-
-カスタム値が不要になったら、対象の設定を開いて **Reset to default** を選択します。これにより保存済みの上書き値が削除され、現在インストールされているバージョンで定義された既定値に戻るようになります。
-
-このリセット操作は、「現在の既定値と同じ数値を手動で入力して保存する」こととは意味が異なります。リセットしておけば将来のバージョンアップで既定値が変更された際に新しい既定値へ自動的に追従しますが、カスタム値として保存した場合は元の値が固定されたままになります。
+AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後続の処理に適用します。[デプロイ環境変数](../environment-variables/)は起動基盤を設定します。ツール用の認証情報は [Agent 環境変数](../worker-env/)で管理してください。
 
 ## 現在の組み込み AppConfigure キー
 
@@ -65,7 +42,7 @@ Site キーでは「保存済みの値 → バージョンの既定値」の優�
 | `ai_agent.inactivity_timeout_ms` | Tenant | モデルまたは Provider からの応答が途絶えた際、turn を終了するまでの待機時間（ミリ秒） |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Agent Plugin の既定の有効／無効状態 |
 | `ai_agent.library.skill_defaults` | Tenant | Skill の既定の有効／無効状態 |
-| `agent_computer.background_agent_job.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。既定値 `3`、有効範囲 `1`〜`64` |
+| `background_agent_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる BackgroundAgentJob の上限。既定値 `3`、有効範囲 `1`〜`64` |
 | `automation_jobs.max_running_per_agent` | Tenant | 1 つの Agent あたり同時に実行できる自動化スクリプトの上限。既定値 `10`、有効範囲 `1`〜`64` |
 
 ### Pod、Base、Applet
@@ -75,7 +52,7 @@ Site キーでは「保存済みの値 → バージョンの既定値」の優�
 | `pod.allow_external_guests` | Tenant | 招待された外部ゲストによる共有 Pod ページへのアクセスを許可するかどうか。既定値 `true` |
 | `pod.applet.limits` | Tenant | Applet 呼び出しの制限値（既定値 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | Tenant | Base のクエリおよびレコード制限値（既定値 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
-| `pod.trash_retention_days` | Tenant | 削除されたページをゴミ箱から自動完全削除するまでの保持日数（正の整数、既定値 `30`）、または自動削除を行わない `"unlimited"` |
+| `pod.trash_retention_days` | Tenant | 削除されたページをゴミ箱から自動完全削除するまでの保持日数（正の整数、既定値 `30`） |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する直近のドキュメント変更バッチ数。既定値 `1000` |
 
 ### Workflow
@@ -98,7 +75,8 @@ Site キーでは「保存済みの値 → バージョンの既定値」の優�
 | `brain.rerank_model` | Tenant | 検索結果の rerank に使用する Provider とモデル。空欄の場合はスコア融合後の順序がそのまま使われる |
 | `brain.search_tokenizer` | Site | BM25 トークナイザー（`icu`、`jieba`、`lindera_japanese`、`lindera_korean`）。変更後は BM25 インデックスの再構築が必要 |
 | `brain.chunking` | Tenant | Source チャンクのサイズ、オーバーラップ、入力上限 |
-| `brain.forgetting` | Tenant | 知識種別ごとの減衰半減期および論理削除（soft-delete）データの完全消去間隔 |
+| `brain.forgetting` | テナント | 記憶の種類ごとの減衰半減期 |
+| `brain.soft_delete_retention_hours` | テナント | Dreaming がソフト削除したオブジェクトを完全削除するまでの保持時間。既定 `72` 時間 |
 | `brain.dreaming_task_cron` | Tenant | 知識の統合処理（Dreaming）を定期実行するスケジュール |
 | `brain.self_healing_task_cron` | Tenant | 古くなったチャンク、embedding、検索インデックスの投影を再構築するスケジュール |
 | `brain.signal_channel_batch_idle_time` | Tenant | 未処理のチャットメッセージが学習処理へ送られるまでのアイドル秒数（会話終了時にも学習が開始される） |
@@ -125,13 +103,8 @@ Langfuse、LangSmith、VictoriaTraces およびその他の OTLP/HTTP レシー�
 |---|---|---|
 | `authn.email.mail` | Site、暗号化 | パスワードレス Email OTP サインイン用の SMTP 配信設定（`server`、`from`、`port`、`ssl`、および任意の認証情報）。空の場合は Email OTP が無効になる |
 | `authn.email.code_ttl_seconds` | Site | 認証コードの有効秒数。既定値 `600` |
-| `authn.email.send_window_seconds` | Site | Email OTP コード送信のレート制限ウィンドウ秒数。既定値 `60` |
-| `authn.email.send_email_limit` | Site | 送信ウィンドウ内で同一メールアドレス宛てに送信できる最大コード数。既定値 `3` |
-| `authn.email.send_source_limit` | Site | 送信ウィンドウ内で同一送信元アドレスから要求できる最大コード数。既定値 `20` |
-| `authn.email.send_channel_limit` | Site | 送信ウィンドウ内でチャネル全体に送信できる最大コード数。既定値 `100` |
-| `authn.email.failure_window_seconds` | Site | コード検証失敗のレート制限ウィンドウ秒数。既定値 `600` |
-| `authn.email.failure_email_limit` | Site | 失敗ウィンドウ内で同一メールアドレスに対して許容される最大検証失敗回数。既定値 `10` |
-| `authn.email.failure_source_limit` | Site | 失敗ウィンドウ内で同一送信元アドレスに対して許容される最大検証失敗回数。既定値 `100` |
+| `authn.email.send_limits` | サイト | 共通の送信時間枠とメールアドレス・送信元・チャネルごとの上限 |
+| `authn.email.failure_limits` | サイト | 共通の検証失敗時間枠とメールアドレス・送信元ごとの上限 |
 | `principals.pod_login_policy` | Tenant、別の場所で管理 | Pod メンバーのログインおよび招待ポリシー（`allow_email_otp`、`allow_member_credential_change`、`allowed_email_domains`、`require_sso_for_members`、`allow_invite_links`）。Pod Settings で管理 |
 
 ### Identity、Plugin、機能フラグ、tenant のデフォルト値
@@ -152,13 +125,13 @@ Langfuse、LangSmith、VictoriaTraces およびその他の OTLP/HTTP レシー�
 | キー | 適用範囲 | 用途 |
 |---|---|---|
 | `runtime_fabric.worker_auth_key` | Site、読み取り専用 | 初回起動時に control plane が生成するインストール識別キー。Lark プロファイルの命名などに使われ、Worker の認証情報としては使われない |
-| `agent_computer.worker.ready_timeout` | Site | Worker が `ready` にならないまま待機を許容する秒数。超過すると新しいキャッシュディスクで再構築される。既定値は `600`（10 分） |
-| `worker.rendered_fetch_idle_ttl_ms` | Tenant | 組み込み `web_fetch` のレンダリングフォールバック用ブラウザをアイドル保持する時間（ミリ秒） |
+| `agent_workers.ready_timeout_seconds` | Site | Worker が `ready` にならないまま待機を許容する秒数。超過すると新しいキャッシュディスクで再構築される。既定値は `600`（10 分） |
+| `agent_workers.rendered_fetch_idle_ttl_ms` | Tenant | 組み込み `web_fetch` のレンダリングフォールバック用ブラウザをアイドル保持する時間（ミリ秒） |
 | `security.ssrf_filter` | Site | モデル主導の fetch リクエストに対して、プライベート IP、ループバック、リンクローカル、CGNAT アドレスへのアクセスを遮断するかどうか |
 
 なお、`security.ssrf_filter` をオフにした場合でも、クラウドメタデータエンドポイントへのアクセスは常に遮断されます。
 
-`agent_computer.worker.ready_timeout` は、起動後に準備完了へ進まないインスタンスを自動復旧するための設定です。アイドル状態のインスタンス解放については、provider YAML の `idleReleaseAfter` で設定します。詳しくは [Worker](../worker-management/) を参照してください。
+`agent_workers.ready_timeout_seconds` は、起動後に準備完了へ進まないインスタンスを自動復旧するための設定です。アイドル状態のインスタンス解放については、provider YAML の `idleReleaseAfter` で設定します。詳しくは [Worker](../worker-management/) を参照してください。
 
 ### 初回セットアップの状態
 

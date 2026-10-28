@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Dreaming do
   @moduledoc """
-  Instance-level maintenance of the knowledge space.
+  Workspace-level maintenance of the knowledge space.
 
   Phases run in order; one failing phase is recorded and the round
   continues. Products use the shared write contracts: consolidation marks
@@ -550,7 +550,7 @@ defmodule Ankole.Brain.Dreaming do
 
   @doc false
   def phase_purge do
-    ttl_hours = Map.get(Config.forgetting(), "purge_soft_delete_ttl_hours", 72)
+    ttl_hours = Config.soft_delete_retention_hours()
     threshold = DateTime.add(DateTime.utc_now(), -round(ttl_hours * 3600), :second)
 
     {:ok, purged} =

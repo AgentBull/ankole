@@ -219,13 +219,13 @@ html.js-reveal [data-reveal='wipe']:not(.is-in) {
   --tw-prose-body: var(--foreground);
   --tw-prose-headings: var(--foreground);
   --tw-prose-lead: var(--muted-foreground);
-  --tw-prose-links: var(--primary);
+  --tw-prose-links: var(--color-brand-60);
   --tw-prose-bold: var(--foreground);
   --tw-prose-counters: var(--muted-foreground);
   --tw-prose-bullets: var(--muted-foreground);
   --tw-prose-hr: var(--border);
   --tw-prose-quotes: var(--foreground);
-  --tw-prose-quote-borders: var(--primary);
+  --tw-prose-quote-borders: var(--color-brand-60);
   --tw-prose-captions: var(--muted-foreground);
   --tw-prose-kbd: var(--foreground);
   --tw-prose-code: var(--foreground);
@@ -243,7 +243,7 @@ html.js-reveal [data-reveal='wipe']:not(.is-in) {
   --tw-prose-invert-bullets: var(--muted-foreground);
   --tw-prose-invert-hr: var(--border);
   --tw-prose-invert-quotes: var(--foreground);
-  --tw-prose-invert-quote-borders: var(--primary);
+  --tw-prose-invert-quote-borders: var(--color-brand-40);
   --tw-prose-invert-captions: var(--muted-foreground);
   --tw-prose-invert-kbd: var(--foreground);
   --tw-prose-invert-code: var(--foreground);

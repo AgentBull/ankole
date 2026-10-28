@@ -610,6 +610,55 @@ defmodule Ankole.AIAgent.LibraryTest do
              "Public description."
   end
 
+  test "agent plugin sources and default templates cache per library root within TTL" do
+    root_a = tmp_library_root!("cache-root-a")
+    root_b = tmp_library_root!("cache-root-b")
+    library_a = Path.join(root_a, "library")
+    library_b = Path.join(root_b, "library")
+
+    write_skill!(Path.join([library_a, "skills", "alpha"]), "alpha", "Alpha skill.", "# Alpha")
+    write_skill!(Path.join([library_b, "skills", "beta"]), "beta", "Beta skill.", "# Beta")
+    write_agent_plugin!(library_a, "plugin-alpha", "plugin-alpha-skill")
+    write_agent_plugin!(library_b, "plugin-beta", "plugin-beta-skill")
+    File.mkdir_p!(Path.join(library_a, "templates"))
+    File.mkdir_p!(Path.join(library_b, "templates"))
+    File.write!(Path.join([library_a, "templates", "SOUL.md"]), "Soul A v1")
+    File.write!(Path.join([library_b, "templates", "SOUL.md"]), "Soul B v1")
+
+    previous = Application.get_env(:ankole, Ankole.AIAgent.Library, [])
+    on_exit(fn -> Application.put_env(:ankole, Ankole.AIAgent.Library, previous) end)
+
+    Application.put_env(:ankole, Ankole.AIAgent.Library,
+      library_root: library_a,
+      internal_skills_root: nil,
+      source_cache_ttl_ms: 300_000
+    )
+
+    assert {:ok, [%{id: "plugin-alpha"}]} =
+             AgentPlugins.SourceReader.read_trusted_agent_plugins()
+
+    assert SourceReader.load_default_soul_template() == "Soul A v1"
+
+    File.write!(Path.join([library_a, "templates", "SOUL.md"]), "Soul A v2")
+    File.rm_rf!(Path.join([library_a, "agent-plugins", "plugin-alpha"]))
+
+    assert {:ok, [%{id: "plugin-alpha"}]} =
+             AgentPlugins.SourceReader.read_trusted_agent_plugins()
+
+    assert SourceReader.load_default_soul_template() == "Soul A v1"
+
+    Application.put_env(:ankole, Ankole.AIAgent.Library,
+      library_root: library_b,
+      internal_skills_root: nil,
+      source_cache_ttl_ms: 300_000
+    )
+
+    assert {:ok, [%{id: "plugin-beta"}]} =
+             AgentPlugins.SourceReader.read_trusted_agent_plugins()
+
+    assert SourceReader.load_default_soul_template() == "Soul B v1"
+  end
+
   defp tmp_library_root!(name) do
     root =
       Path.join([

@@ -153,6 +153,9 @@ import type {
   ForkBrainObjectData,
   ForkBrainObjectErrors,
   ForkBrainObjectResponses,
+  GetAgentAppConfigurationData,
+  GetAgentAppConfigurationErrors,
+  GetAgentAppConfigurationResponses,
   GetAgentData,
   GetAgentErrors,
   GetAgentLibraryCapabilitiesData,
@@ -464,6 +467,9 @@ import type {
   UpdateAgentWorkerEnvResponses,
   UpdateAppConfigurationData,
   UpdateAppConfigurationErrors,
+  UpdateAppConfigurationGroupData,
+  UpdateAppConfigurationGroupErrors,
+  UpdateAppConfigurationGroupResponses,
   UpdateAppConfigurationResponses,
   UpdateBrainObjectData,
   UpdateBrainObjectErrors,
@@ -1399,6 +1405,24 @@ export const restoreBrainObject = <ThrowOnError extends boolean = false>(
       ...options.headers
     }
   })
+
+/**
+ * update_app_configuration_group operation on app_configuration_operation resource
+ */
+export const updateAppConfigurationGroup = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAppConfigurationGroupData, ThrowOnError>
+): RequestResult<UpdateAppConfigurationGroupResponses, UpdateAppConfigurationGroupErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateAppConfigurationGroupResponses, UpdateAppConfigurationGroupErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/app-configurations/groups/{group}',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
 
 /**
  * list_automation_jobs operation on automation_job resource
@@ -2467,6 +2491,18 @@ export const listBrainContradictions = <ThrowOnError extends boolean = false>(
   (options?.client ?? client).get<ListBrainContradictionsResponses, ListBrainContradictionsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/contradictions',
+    ...options
+  })
+
+/**
+ * get_agent_app_configuration operation on app_configuration_operation resource
+ */
+export const getAgentAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentAppConfigurationData, ThrowOnError>
+): RequestResult<GetAgentAppConfigurationResponses, GetAgentAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAgentAppConfigurationResponses, GetAgentAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}/agents/{agent_uid}',
     ...options
   })
 

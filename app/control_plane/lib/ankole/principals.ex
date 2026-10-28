@@ -214,6 +214,9 @@ defmodule Ankole.Principals do
     to: Ankole.Principals.SiteCredentials,
     as: :pending_memberships
 
+  defdelegate resolve_email_otp_principal(tenant_id, email),
+    to: Ankole.Principals.SiteCredentials
+
   defdelegate create_invitation(uid, attrs), to: Ankole.Principals.Invitations, as: :create
   defdelegate list_invitations(), to: Ankole.Principals.Invitations, as: :list
   defdelegate revoke_invitation(id), to: Ankole.Principals.Invitations, as: :revoke

@@ -48,6 +48,21 @@ defmodule Ankole.AuthZ.Grants do
     end
   end
 
+  def upsert_permission_grants([]), do: {:ok, []}
+
+  def upsert_permission_grants(attrs_list) when is_list(attrs_list) do
+    :ok = Ankole.Repo.require_transaction()
+
+    with {:ok, normalized} <-
+           attrs_list |> Enum.map(&grant_attrs/1) |> Ankole.Attrs.collect_results(),
+         :ok <- lock_pod?(Enum.any?(normalized, &grant_affects_pod?/1)),
+         :ok <- allow_guest_shares(normalized),
+         {:ok, grants} <- upsert_grant_batches(normalized),
+         :ok <- refresh_targets(Enum.map(grants, & &1.target_page_id)) do
+      {:ok, grants}
+    end
+  end
+
   def update_permission_grant(%Grant{id: id}, attrs), do: update_permission_grant(id, attrs)
 
   def update_permission_grant(id, attrs) do
@@ -164,6 +179,65 @@ defmodule Ankole.AuthZ.Grants do
     end)
   end
 
+  defp allow_guest_shares(normalized) do
+    normalized
+    |> Enum.uniq_by(&{Map.get(&1, :principal_uid), page_action?(Map.get(&1, :action))})
+    |> Enum.reduce_while(:ok, fn attrs, :ok ->
+      case allow_guest_share(attrs) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp upsert_grant_batches(normalized) do
+    normalized
+    |> Enum.chunk_by(&permission_grant_identity/1)
+    |> Enum.reduce_while({:ok, []}, fn batch, {:ok, acc} ->
+      identity = permission_grant_identity(hd(batch))
+
+      case Ankole.Ash.create_all(deduplicate_grant_batch(batch, identity), Grant, :upsert_in_tx,
+             upsert_identity: identity
+           ) do
+        {:ok, grants} -> {:cont, {:ok, Enum.reverse(grants, acc)}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, grants} -> {:ok, Enum.reverse(grants)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp deduplicate_grant_batch(batch, identity) do
+    batch
+    |> Enum.reverse()
+    |> Enum.uniq_by(&grant_natural_key(&1, identity))
+    |> Enum.reverse()
+  end
+
+  defp grant_natural_key(attrs, :principal_rule) do
+    uid =
+      case Ankole.PrincipalKey.normalize_optional(Map.get(attrs, :principal_uid)) do
+        {:ok, normalized} -> normalized
+        _invalid -> Map.get(attrs, :principal_uid)
+      end
+
+    {uid, Map.get(attrs, :resource_pattern), Map.get(attrs, :action),
+     Map.get(attrs, :condition, "true")}
+  end
+
+  defp grant_natural_key(attrs, :userset_rule) do
+    {Map.get(attrs, :source_page_id), Map.get(attrs, :source_action),
+     Map.get(attrs, :resource_pattern), Map.get(attrs, :action),
+     Map.get(attrs, :condition, "true")}
+  end
+
+  defp grant_natural_key(attrs, :group_rule) do
+    {Map.get(attrs, :group_id), Map.get(attrs, :resource_pattern), Map.get(attrs, :action),
+     Map.get(attrs, :condition, "true")}
+  end
+
   defp allow_guest_share(%{principal_uid: uid, action: action})
        when is_binary(uid) and action in ~w(page_view page_write_records page_edit page_manage) do
     with {:ok, principal} <- Ankole.Principals.get_principal(uid) do
@@ -225,27 +299,19 @@ defmodule Ankole.AuthZ.Grants do
     do: upsert_admin_grants(admin_group, ["tenant_console:**"])
 
   defp upsert_admin_grants(admin_group, patterns) do
-    rules =
+    attrs_list =
       for pattern <- patterns,
-          action <- @console_admin_actions,
-          do: {pattern, action}
-
-    Enum.reduce_while(rules, {:ok, []}, fn {pattern, action}, {:ok, acc} ->
-      case upsert_permission_grant(%{
-             group_id: admin_group.id,
-             resource_pattern: pattern,
-             action: action,
-             description: "Built-in console administrator grant",
-             metadata: %{"built_in" => "console_admin"}
-           }) do
-        {:ok, grant} -> {:cont, {:ok, [grant | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+          action <- @console_admin_actions do
+        %{
+          group_id: admin_group.id,
+          resource_pattern: pattern,
+          action: action,
+          description: "Built-in console administrator grant",
+          metadata: %{"built_in" => "console_admin"}
+        }
       end
-    end)
-    |> case do
-      {:ok, grants} -> {:ok, Enum.reverse(grants)}
-      {:error, _reason} = error -> error
-    end
+
+    upsert_permission_grants(attrs_list)
   end
 
   defp grant_attrs(attrs) do

@@ -146,7 +146,7 @@ export default function QuickStartTabs({ ariaLabel = 'Quick start', labels, depl
           <p className="text-sm text-muted-foreground">{labels.k8sBody}</p>
           <a
             href={deploymentHref}
-            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary no-underline hover:underline dark:text-brand-40">
+            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-60 no-underline hover:underline dark:text-brand-40">
             {labels.k8sLink}
             <RiArrowRightLine className="size-4" />
           </a>

@@ -35,6 +35,7 @@ defmodule Ankole.Brain.Health do
       enabled: safe(fn -> Config.enabled?() end, false),
       maintainer_agent_uid: safe(fn -> Config.maintainer_agent_uid() end, nil),
       config: config_statuses(),
+      search_indexes: Ankole.Brain.SearchIndexes.configuration_status(),
       models: %{
         embedding: model_status(safe(fn -> Config.embedding_model() end, nil)),
         rerank: model_status(safe(fn -> Config.rerank_model() end, nil)),

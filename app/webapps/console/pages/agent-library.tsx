@@ -85,12 +85,19 @@ export function AgentLibraryPage() {
   const { i18n, t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
-  const [tab, setTab] = useState<AgentLibraryTab>('agent-plugins')
+  const tab = (searchParams.get('tab') ?? 'agent-plugins') as AgentLibraryTab
+  const setTab = (next: AgentLibraryTab) =>
+    setSearchParams(previous => {
+      const params = new URLSearchParams(previous)
+      params.set('tab', next)
+      return params
+    })
+  const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
   const [pluginQuery, setPluginQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
-  const data = useLibraryCapabilities(scope)
-  const capabilityMutations = useCapabilityMutations(scope)
+  const data = useLibraryCapabilities(scope, defaultsScope)
+  const capabilityMutations = useCapabilityMutations(scope, defaultsScope)
   const lessons = useSkillLessons(scope)
   const controlPlaneMutation = useControlPlanePluginMutation()
 
@@ -107,8 +114,12 @@ export function AgentLibraryPage() {
     i18n.language
   )
   const setScope = (value: string) => {
-    if (value === GLOBAL_LIBRARY_SCOPE) setSearchParams({})
-    else setSearchParams({ scope: value })
+    setSearchParams(previous => {
+      const params = new URLSearchParams(previous)
+      if (value === GLOBAL_LIBRARY_SCOPE) params.delete('scope')
+      else params.set('scope', value)
+      return params
+    })
   }
 
   return (
@@ -119,7 +130,30 @@ export function AgentLibraryPage() {
         actions={
           <>
             <RefreshButton />
-            <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+            {activeTab !== 'control-plane-plugins' ? (
+              <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+            ) : null}
+            {scope === GLOBAL_LIBRARY_SCOPE && activeTab === 'control-plane-plugins' ? (
+              <Badge variant="secondary">{t('console.settings.scope_global')}</Badge>
+            ) : scope === GLOBAL_LIBRARY_SCOPE ? (
+              <Select
+                value={defaultsScope}
+                onValueChange={value =>
+                  setSearchParams(previous => {
+                    const params = new URLSearchParams(previous)
+                    params.set('defaults_scope', String(value))
+                    return params
+                  })
+                }>
+                <SelectTrigger aria-label={t('console.settings.editing_context')} className="w-52">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="global">{t('console.settings.site_context')}</SelectItem>
+                  <SelectItem value="tenant">{t('console.settings.tenant_context')}</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
           </>
         }
       />
@@ -217,13 +251,17 @@ export function AgentPluginDetailPage() {
   const { pluginID = '' } = useParams({ strict: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
-  const data = useLibraryCapabilities(scope)
-  const mutations = useCapabilityMutations(scope)
+  const data = useLibraryCapabilities(scope, searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant')
+  const mutations = useCapabilityMutations(scope, searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant')
   const lessons = useSkillLessons(scope)
   const plugin = data.capabilities?.agent_plugins.find(item => item.id === pluginID)
   const setScope = (value: string) => {
-    if (value === GLOBAL_LIBRARY_SCOPE) setSearchParams({})
-    else setSearchParams({ scope: value })
+    setSearchParams(previous => {
+      const params = new URLSearchParams(previous)
+      if (value === GLOBAL_LIBRARY_SCOPE) params.delete('scope')
+      else params.set('scope', value)
+      return params
+    })
   }
 
   return (
@@ -232,7 +270,7 @@ export function AgentPluginDetailPage() {
       <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="grid gap-3">
           <BackLink
-            to={agentLibraryScopeQuery('/agent-library', scope)}
+            to={agentLibraryScopeQuery('/agent-library', scope, searchParams)}
             label={t('console.agent_library_capabilities.back')}
           />
           <div>
@@ -247,6 +285,11 @@ export function AgentPluginDetailPage() {
         <div className="flex flex-wrap items-end gap-2">
           <RefreshButton />
           <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+          {scope === GLOBAL_LIBRARY_SCOPE ? (
+            <Badge variant="secondary">
+              {t(`console.settings.scope_${searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'}`)}
+            </Badge>
+          ) : null}
         </div>
       </header>
 
@@ -371,6 +414,7 @@ function AgentPluginCard({
   scope: string
 }) {
   const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
   const name = humanizeAgentPluginID(plugin.id)
   return (
     // `h-full` plus `mt-auto` below keeps the footers of two cards in one grid row
@@ -381,7 +425,7 @@ function AgentPluginCard({
         <CardTitle className="normal-case">
           <Link
             className="hover:underline"
-            {...linkTarget(agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope))}>
+            {...linkTarget(agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope, searchParams))}>
             {name}
           </Link>
         </CardTitle>
@@ -415,7 +459,7 @@ function AgentPluginCard({
         <Link
           aria-label={t('common.view_details_for', { name })}
           className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
-          {...linkTarget(agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope))}>
+          {...linkTarget(agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope, searchParams))}>
           {t('console.agent_library_capabilities.view_details')}
         </Link>
       </CardContent>
@@ -856,11 +900,11 @@ function LoadingCards() {
   )
 }
 
-function useLibraryCapabilities(scope: string) {
+function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant' = 'tenant') {
   const global = scope === GLOBAL_LIBRARY_SCOPE
   const agentsQuery = useQuery(agentListOptions())
   const globalQuery = useQuery({
-    ...getGlobalLibraryCapabilitiesOptions(),
+    ...getGlobalLibraryCapabilitiesOptions({ query: { defaults_scope: defaultsScope } }),
     enabled: global
   })
   const agentQuery = useQuery({
@@ -882,7 +926,7 @@ function useLibraryCapabilities(scope: string) {
   }
 }
 
-function useCapabilityMutations(scope: string) {
+function useCapabilityMutations(scope: string, defaultsScope: 'global' | 'tenant' = 'tenant') {
   const { t } = useTranslation()
 
   const success = () => {
@@ -914,12 +958,18 @@ function useCapabilityMutations(scope: string) {
     pending: globalPlugin.isPending || agentPlugin.isPending || globalSkill.isPending || agentSkill.isPending,
     setAgentPlugin(id: string, enabled: boolean | null) {
       if (scope === GLOBAL_LIBRARY_SCOPE) {
-        globalPlugin.mutate({ path: { id }, body: { data: { enabled: enabled === true } } })
+        globalPlugin.mutate({
+          path: { id },
+          body: { data: { enabled: enabled === true, defaults_scope: defaultsScope } }
+        })
       } else agentPlugin.mutate({ path: { agent_uid: scope, id }, body: { data: { enabled } } })
     },
     setSkill(id: string, enabled: boolean | null) {
       if (scope === GLOBAL_LIBRARY_SCOPE) {
-        globalSkill.mutate({ path: { id }, body: { data: { enabled: enabled === true } } })
+        globalSkill.mutate({
+          path: { id },
+          body: { data: { enabled: enabled === true, defaults_scope: defaultsScope } }
+        })
       } else agentSkill.mutate({ path: { agent_uid: scope, id }, body: { data: { enabled } } })
     }
   }

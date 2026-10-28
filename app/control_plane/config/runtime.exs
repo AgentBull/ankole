@@ -208,9 +208,17 @@ if config_env() == :dev do
   end
 end
 
-# File-service bytes (attachments and drive files). Tests keep
-# the per-partition directory from config/test.exs.
-if config_env() != :test do
+# File-service bytes (attachments and drive files). Each test partition gets
+# its own runtime directory even when sharing a compiled build tree.
+if config_env() == :test do
+  partition = Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")
+
+  config :ankole, Ankole.ObjectStore,
+    spec: %{
+      scheme: "fs",
+      root: Path.join(System.tmp_dir!(), "ankole-test-files#{partition}")
+    }
+else
   files_store_spec = Ankole.Config.Bootstrap.files_store_spec()
 
   cond do

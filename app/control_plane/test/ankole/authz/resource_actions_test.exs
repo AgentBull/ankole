@@ -120,4 +120,61 @@ defmodule Ankole.AuthZ.ResourceActionsTest do
       updated
     )
   end
+
+  test "batch grant upserts deduplicate natural keys and update metadata idempotently" do
+    %{principal: human} = human_fixture()
+
+    {:ok, group} =
+      AuthZ.create_principal_group(%{name: unique_uid("batch-grants"), display_name: "Batch"})
+
+    assert {:ok, grants} =
+             Repo.transact(fn _repo ->
+               Ankole.AuthZ.Grants.upsert_permission_grants([
+                 %{
+                   group_id: group.id,
+                   resource_pattern: "tenant_console:**",
+                   action: "read",
+                   description: "Initial",
+                   metadata: %{"rev" => 1}
+                 },
+                 %{
+                   group_id: group.id,
+                   resource_pattern: "tenant_console:**",
+                   action: "read",
+                   description: "Latest in batch",
+                   metadata: %{"rev" => 2}
+                 },
+                 %{
+                   principal_uid: human.uid,
+                   resource_pattern: "site_console:**",
+                   action: "read",
+                   description: "Principal read"
+                 }
+               ])
+             end)
+
+    assert length(grants) == 2
+
+    [group_grant, principal_grant] = grants
+    assert group_grant.description == "Latest in batch"
+    assert group_grant.metadata == %{"rev" => 2}
+    assert principal_grant.principal_uid == human.uid
+
+    assert {:ok, [repeated_group_grant]} =
+             Repo.transact(fn _repo ->
+               Ankole.AuthZ.Grants.upsert_permission_grants([
+                 %{
+                   group_id: group.id,
+                   resource_pattern: "tenant_console:**",
+                   action: "read",
+                   description: "Updated across tx",
+                   metadata: %{"rev" => 3}
+                 }
+               ])
+             end)
+
+    assert repeated_group_grant.id == group_grant.id
+    assert repeated_group_grant.description == "Updated across tx"
+    assert repeated_group_grant.metadata == %{"rev" => 3}
+  end
 end

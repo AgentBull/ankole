@@ -46,7 +46,7 @@ Before moving an Agent's `primary` profile to a larger model, try tuning `model_
 - **Unbind unused web slots.** Leave `web_search` unbound on internal-only Agents so the model cannot invoke external search.
 - **Prefer `web_fetch` over `web_search` when you already know the URL.** Fetching a known URL takes a single call, whereas searching incurs a search call plus follow-up fetches.
 
-The `worker.rendered_fetch_idle_ttl_ms` [AppConfigure](../app-configuration/) key sets the idle timeout before the Worker releases an idle browser-sidecar route used for rendered `web_fetch` calls. Adjusting this key controls how long the Worker retains browser memory rather than caching URL responses.
+The `agent_workers.rendered_fetch_idle_ttl_ms` [AppConfigure](../app-configuration/) key sets the idle timeout before the Worker releases an idle browser-sidecar route used for rendered `web_fetch` calls. Adjusting this key controls how long the Worker retains browser memory rather than caching URL responses.
 
 ## Lever 4: agent-loop budgets
 
@@ -82,10 +82,10 @@ Background Agent Jobs consume tokens across execution attempts and concurrent sl
 |---|---|---|
 | `max_execution_attempts` | 5 | Maximum execution attempts before a job transitions to `failed` |
 | `max_consecutive_turn_failures` | 5 | Consecutive turn failures before a job stops |
-| `max_running_per_agent` | 3 (default) | Concurrent running jobs per Agent, configurable per tenant via `agent_computer.background_agent_job.max_running_per_agent` (`1..64`) |
+| `max_running_per_agent` | 3 (default) | Concurrent running jobs per Agent, configurable per tenant via `background_agent_jobs.max_running_per_agent` (`1..64`) |
 | retry delay | ~30s | Minimum delay between retry attempts |
 
-If a job hits transient failures, Ankole retries it up to five times—consuming tokens on each attempt—whereas configuration errors fail immediately without retrying. Lower `agent_computer.background_agent_job.max_running_per_agent` (or instruct the Agent in its persona to run one job at a time) whenever a tenant does not need three concurrent background model loops per Agent.
+If a job hits transient failures, Ankole retries it up to five times—consuming tokens on each attempt—whereas configuration errors fail immediately without retrying. Lower `background_agent_jobs.max_running_per_agent` (or instruct the Agent in its persona to run one job at a time) whenever a tenant does not need three concurrent background model loops per Agent.
 
 ## Lever 7: per-Agent token quota
 

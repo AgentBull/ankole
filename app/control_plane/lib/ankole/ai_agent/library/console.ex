@@ -9,9 +9,25 @@ defmodule Ankole.AIAgent.Library.Console do
   authz do
     scope(:site_console)
     resolve_param(:agent_uid, :principal_key)
-    allow(:global_capabilities, resource: "site_console:agent_library", action: "read")
-    allow(:set_global_plugin, resource: "site_console:agent_library", action: "update")
-    allow(:set_global_skill, resource: "site_console:agent_library", action: "update")
+
+    allow(:global_capabilities,
+      resource: "site_console:agent_library",
+      action: "read",
+      permissions: &__MODULE__.Actions.default_read_permissions/4
+    )
+
+    allow(:set_global_plugin,
+      resource: "site_console:agent_library",
+      action: "update",
+      permissions: &__MODULE__.Actions.default_plugin_permissions/4
+    )
+
+    allow(:set_global_skill,
+      resource: "site_console:agent_library",
+      action: "update",
+      permissions: &__MODULE__.Actions.default_skill_permissions/4
+    )
+
     allow(:agent_capabilities, resource: "site_console:agent:{agent_uid}:library", action: "read")
     allow(:set_agent_plugin, resource: "site_console:agent:{agent_uid}:library", action: "update")
     allow(:set_agent_skill, resource: "site_console:agent:{agent_uid}:library", action: "update")
@@ -33,12 +49,26 @@ defmodule Ankole.AIAgent.Library.Console do
     action :global_capabilities,
            Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryCapabilitiesResponse do
       transaction?(false)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
       run(__MODULE__.Actions)
     end
 
     action :set_global_plugin,
            Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryCapabilitiesResponse do
       transaction?(false)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
       argument(:id, :string, allow_nil?: false)
       argument(:enabled, :boolean, allow_nil?: false)
       run(__MODULE__.Actions)
@@ -47,6 +77,13 @@ defmodule Ankole.AIAgent.Library.Console do
     action :set_global_skill,
            Ankole.AIAgent.Library.ConsoleTypes.AgentLibraryCapabilitiesResponse do
       transaction?(false)
+
+      argument(:defaults_scope, :atom,
+        constraints: [one_of: [:global, :tenant]],
+        default: :tenant,
+        allow_nil?: false
+      )
+
       argument(:id, :string, allow_nil?: false)
       argument(:enabled, :boolean, allow_nil?: false)
       run(__MODULE__.Actions)

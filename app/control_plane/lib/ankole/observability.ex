@@ -76,6 +76,30 @@ defmodule Ankole.Observability do
   @spec provider() :: Provider.implementation() | nil
   def provider, do: :persistent_term.get(@runtime_key, nil)
 
+  @doc "Compares the saved settings with this process's attempted and applied boot configuration."
+  def configuration_status do
+    if Process.whereis(__MODULE__),
+      do:
+        GenServer.call(__MODULE__, {:configuration_status, config_fingerprint(runtime_config())}),
+      else: "unknown"
+  end
+
+  defp config_fingerprint(config), do: :crypto.hash(:sha256, :erlang.term_to_binary(config))
+
+  def validate_settings(read) do
+    with {:ok, enabled} <- read.(@enabled_key) do
+      if enabled do
+        with {:ok, provider} when is_binary(provider) <- read.(@provider_key),
+             {:ok, endpoint} when is_binary(endpoint) <- read.(@endpoint_key),
+             {:ok, _headers} <- read.(@headers_key),
+             do: :ok,
+             else: (_ -> {:error, :incomplete_trace_configuration})
+      else
+        :ok
+      end
+    end
+  end
+
   if Mix.env() == :test do
     @doc false
     @spec put_provider_for_test(Provider.implementation() | nil) :: :ok
@@ -305,8 +329,10 @@ defmodule Ankole.Observability do
     set_runtime_config(nil)
     set_exporter = Keyword.get(opts, :set_exporter, &set_exporter/1)
 
+    attempted = runtime_config()
+
     enabled? =
-      case runtime_config() do
+      case attempted do
         {:ok, :disabled} ->
           false
 
@@ -333,7 +359,24 @@ defmodule Ankole.Observability do
           false
       end
 
-    {:ok, %{enabled?: enabled?}}
+    {:ok,
+     %{
+       enabled?: enabled?,
+       attempted: config_fingerprint(attempted),
+       disabled?: attempted == {:ok, :disabled}
+     }}
+  end
+
+  @impl true
+  def handle_call({:configuration_status, desired}, _from, state) do
+    status =
+      cond do
+        desired != state.attempted -> "pending_restart"
+        state.enabled? or state.disabled? -> "applied"
+        true -> "failed"
+      end
+
+    {:reply, status, state}
   end
 
   @impl true

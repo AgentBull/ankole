@@ -208,7 +208,7 @@ full Job lifecycle.
 
 ### Change Capability Settings through the Console
 
-The Console API exposes tenant defaults and per-Agent effective capabilities
+The Console API exposes site defaults, tenant defaults, and per-Agent effective capabilities
 through six JSON:API endpoints (`application/vnd.api+json`):
 
 - `GET /api/v2/agent-library/capabilities`
@@ -218,13 +218,20 @@ through six JSON:API endpoints (`application/vnd.api+json`):
 - `PUT /api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id`
 - `PUT /api/v2/agents/:agent_uid/library-capabilities/skills/:id`
 
-Writes to tenant defaults accept `{ "data": { "enabled": boolean } }`, while
-per-Agent writes accept `{ "data": { "enabled": boolean | null } }` (where
+Default reads accept `defaults_scope=global|tenant`, and default writes accept
+`{ "data": { "enabled": boolean, "defaults_scope": "global" | "tenant" } }`.
+Omitting the scope selects tenant inheritance. Site-default operations additionally
+require the corresponding AppConfigure read or update grants. Library validates
+catalog existence before storing a choice and broadcasts site changes to active
+tenants. Raw Console writes to the two AppConfigure default maps are rejected.
+The Library UI preserves the selected scope and tab through detail links.
+
+Per-Agent writes accept `{ "data": { "enabled": boolean | null } }` (where
 `null` clears the override and restores inheritance). Each capability row
 reports three boolean fields:
 
-- `global_default_enabled` (the effective default for the selected tenant,
-  including site inheritance)
+- `global_default_enabled` (the default in the selected site or tenant context;
+  tenant context includes site inheritance)
 - `override_enabled`
 - `effective_enabled`
 

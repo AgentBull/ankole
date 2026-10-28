@@ -10,20 +10,30 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
     input.action.name |> action(input.arguments) |> Ankole.Errors.wrap(&describe/1)
   end
 
-  defp action(:global_capabilities, _args), do: Library.global_capabilities()
+  defp action(:global_capabilities, args) do
+    with {:ok, defaults} <- AgentPlugins.Config.defaults(args.defaults_scope),
+         do: Library.global_capabilities(agent_library_defaults: defaults)
+  end
+
   defp action(:agent_capabilities, args), do: Library.capabilities_for_agent(args.agent_uid)
 
   defp action(:set_global_plugin, args) do
-    with {:ok, _value} <- AgentPlugins.set_global_default(args.id, args.enabled),
-         {:ok, capabilities} <- Library.global_capabilities(),
-         :ok <- RuntimeCapabilityChanges.notify_global({:agent_plugin, args.id}),
+    with {:ok, _value} <-
+           AgentPlugins.set_global_default(args.id, args.enabled,
+             config_scope: args.defaults_scope
+           ),
+         {:ok, capabilities} <- action(:global_capabilities, args),
+         :ok <- notify_defaults(args.defaults_scope, {:agent_plugin, args.id}),
          do: {:ok, capabilities}
   end
 
   defp action(:set_global_skill, args) do
-    with {:ok, _value} <- Library.set_global_skill_default(args.id, args.enabled),
-         {:ok, capabilities} <- Library.global_capabilities(),
-         :ok <- RuntimeCapabilityChanges.notify_global({:skill, args.id}),
+    with {:ok, _value} <-
+           Library.set_global_skill_default(args.id, args.enabled,
+             config_scope: args.defaults_scope
+           ),
+         {:ok, capabilities} <- action(:global_capabilities, args),
+         :ok <- notify_defaults(args.defaults_scope, {:skill, args.id}),
          do: {:ok, capabilities}
   end
 
@@ -62,6 +72,35 @@ defmodule Ankole.AIAgent.Library.Console.Actions do
              args.expected_content_hash
            ),
          do: {:ok, %{library_document: document}}
+  end
+
+  def default_read_permissions(args, _attrs, resource, action),
+    do:
+      default_permissions(
+        args,
+        resource,
+        action,
+        ~w(ai_agent.library.agent_plugin_defaults ai_agent.library.skill_defaults)
+      )
+
+  def default_plugin_permissions(args, _attrs, resource, action),
+    do: default_permissions(args, resource, action, ["ai_agent.library.agent_plugin_defaults"])
+
+  def default_skill_permissions(args, _attrs, resource, action),
+    do: default_permissions(args, resource, action, ["ai_agent.library.skill_defaults"])
+
+  defp default_permissions(args, resource, action, keys) do
+    if args["defaults_scope"] in [:global, "global"],
+      do: [{resource, action} | Enum.map(keys, &{"site_console:app_configuration:#{&1}", action})],
+      else: [{resource, action}]
+  end
+
+  defp notify_defaults(:tenant, capability),
+    do: RuntimeCapabilityChanges.notify_global(capability)
+
+  defp notify_defaults(:global, capability) do
+    Ankole.Tenants.map_active(fn -> RuntimeCapabilityChanges.notify_global(capability) end)
+    :ok
   end
 
   defp describe(reason) when reason in [:not_found, :agent_plugin_not_found, :skill_not_found],

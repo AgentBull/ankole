@@ -14,6 +14,7 @@ export const BRAIN_KEYS = {
   searchTokenizer: 'brain.search_tokenizer',
   chunking: 'brain.chunking',
   forgetting: 'brain.forgetting',
+  retention: 'brain.soft_delete_retention_hours',
   dreamingTaskCron: 'brain.dreaming_task_cron',
   selfHealingTaskCron: 'brain.self_healing_task_cron',
   signalChannelBatchIdleTime: 'brain.signal_channel_batch_idle_time',
@@ -35,8 +36,7 @@ export const BRAIN_FORGETTING_FIELDS = [
   'preference_halflife_days',
   'commitment_halflife_days',
   'belief_halflife_days',
-  'fact_halflife_days',
-  'purge_soft_delete_ttl_hours'
+  'fact_halflife_days'
 ] as const
 
 export const BRAIN_MAX_EMBEDDING_DIMENSIONS = 4096

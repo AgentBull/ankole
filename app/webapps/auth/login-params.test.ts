@@ -10,11 +10,12 @@ test('readLoginSearch returns empty query, context, and authorizationParams on p
 
 test('readLoginSearch maps ceremony query parameters for providers, email OTP, and SSO authorization', () => {
   const parsed = readLoginSearch(
-    '?oauth_request=018f0000-0000-7000-8000-000000000001&purpose=console&return_to=%2Fme&prompt=login&switch=1&reauth=ticket&invitation_token=inv-token'
+    '?oauth_request=018f0000-0000-7000-8000-000000000001&purpose=console&tenant_id=018f0000-0000-7000-8000-000000000099&return_to=%2Fme&prompt=login&switch=1&reauth=ticket&invitation_token=inv-token'
   )
   expect(parsed.query).toEqual({
     oauth_request: '018f0000-0000-7000-8000-000000000001',
     purpose: 'console',
+    tenant_id: '018f0000-0000-7000-8000-000000000099',
     prompt: 'login',
     switch: '1',
     reauth: 'ticket',
@@ -23,12 +24,14 @@ test('readLoginSearch maps ceremony query parameters for providers, email OTP, a
   expect(parsed.context).toEqual({
     oauthRequest: '018f0000-0000-7000-8000-000000000001',
     purpose: 'console',
+    tenantID: '018f0000-0000-7000-8000-000000000099',
     returnTo: '/me',
     prompt: 'login',
     reauth: 'ticket',
     invitationToken: 'inv-token'
   })
   expect(parsed.authorizationParams.get('switch')).toBeNull()
+  expect(parsed.authorizationParams.get('tenant_id')).toBeNull()
   expect(parsed.authorizationParams.get('oauth_request')).toBe('018f0000-0000-7000-8000-000000000001')
   expect(parsed.authorizationParams.get('return_to')).toBe('/me')
   expect(parsed.authorizationParams.get('invitation_token')).toBe('inv-token')
@@ -37,4 +40,5 @@ test('readLoginSearch maps ceremony query parameters for providers, email OTP, a
 test('loginContextKey isolates distinct ceremonies while remaining stable across plain reloads', () => {
   expect(loginContextKey({})).toBe(loginContextKey(undefined))
   expect(loginContextKey({ oauthRequest: 'req-a' })).not.toBe(loginContextKey({ oauthRequest: 'req-b' }))
+  expect(loginContextKey({ tenantID: 'pod-a' })).not.toBe(loginContextKey({ tenantID: 'pod-b' }))
 })

@@ -16,7 +16,7 @@ defmodule AnkoleWeb.AuthController do
     now = DateTime.utc_now()
 
     with {:ok, true} <- SetupConfig.completed?(),
-         {:ok, target} <- AnkoleWeb.BrowserAuth.resolve_login_target(conn, params),
+         {:ok, target} <- AnkoleWeb.BrowserAuth.Targets.resolve(conn, params),
          :ok <- ensure_upstream_target(target),
          conn = WebSession.ensure_browser(conn),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
@@ -119,7 +119,7 @@ defmodule AnkoleWeb.AuthController do
              end)
            ) do
       conn = WebSession.put_authentication(conn, browser, authentication)
-      redirect(conn, to: callback_return_to(consumed, oauth_request))
+      redirect(conn, external: callback_return_to(conn, consumed, oauth_request))
     else
       {:error, reason} -> login_error(conn, reason)
     end
@@ -187,15 +187,10 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  def oauth_return_to(%{id: id} = request) do
-    if LoginPolicy.authorization_ready?(request),
-      do: "/oauth/authorize/resume?oauth_request=" <> id,
-      else: "/sessions/new?oauth_request=" <> id
-  end
+  defp callback_return_to(conn, %{purpose: :oauth}, oauth_request),
+    do: AnkoleWeb.PodURL.oauth_return_to(conn, oauth_request)
 
-  defp callback_return_to(%{purpose: :oauth}, oauth_request), do: oauth_return_to(oauth_request)
-
-  defp callback_return_to(oidc_state, _oauth_request),
+  defp callback_return_to(_conn, oidc_state, _oauth_request),
     do: WebSession.safe_return_to(oidc_state.return_to)
 
   defp login_error(conn, {:missing, key}), do: error(conn, 422, "#{key} is required")

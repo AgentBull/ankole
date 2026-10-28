@@ -5,52 +5,29 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure**에서는 대화 히스토리 압축 기준, Agent 실행 한도, 디렉터리 동기화 주기, 플러그인 스위치처럼 서비스 운영 중에 관리자가 실시간으로 조정할 수 있는 런타임 설정을 관리합니다.
+사이트 관리자는 **Console → AppConfigure**에서 사이트 기본값, 워크스페이스 정책과 공유 실행 설정을 관리합니다. Pod 관리자는 Pod 설정에 부여된 기존 관리 권한을 사용합니다.
 
-LLM 제공자, Identity Provider, 채팅 채널, 환경 변수는 각각 전용 Console 페이지에서 관리하므로 AppConfigure에서 설정하지 않습니다.
+## 설정 찾기와 범위 선택
 
-## AppConfigure와 환경 변수
+편집 전에 **사이트 설정 및 기본값** 또는 **현재 워크스페이스 재정의**를 선택하세요. 데이터 워크스페이스 이름은 항상 표시됩니다. 사이트 기본값은 재정의가 없는 워크스페이스에 적용되며 강제 상한은 아닙니다.
 
-AppConfigure 설정은 PostgreSQL에 영구 저장되어 실행 중인 Ankole 인스턴스의 제품 동작을 제어합니다. 대부분의 항목은 저장 즉시 이후 작업부터 반영되므로 재배포할 필요가 없습니다.
+기본 작업 보기에서는 관련 설정을 한 폼에서 편집하고 활성 상태, 재정의와 적용 상태를 확인합니다. 읽기 전용 키 목록은 등록된 키와 동적 규칙의 범위, 값 출처, 암호화 상태와 담당 관리 화면을 보여 줍니다. 검색은 폼 내부 필드와 이전 키 이름도 찾아 해당 필드를 엽니다. 관리 링크는 관련 Console 화면과 탭으로 이동합니다.
 
-반면 [배포 환경 변수](../environment-variables/)는 컨트롤 플레인과 PostgreSQL 연결을 부트스트랩하고 Worker 백엔드를 초기화하는 데 사용됩니다. 배포 환경 변수를 변경한 뒤에는 영향을 받는 프로세스를 재시작해야 적용됩니다.
+사이트 설정은 저장된 사이트 값, 코드 기본값 순서로 해석합니다. 테넌트 설정은 실제 지원되는 Agent 재정의, 워크스페이스 재정의, 사이트 기본값, 코드 기본값 순서입니다. Pod 설정은 워크스페이스 값과 코드 기본값만 사용합니다. 지원되는 다섯 키에서는 Agent 적용 값을 읽기 전용으로 조회할 수 있습니다.
 
-Skill, 명령줄 도구, 또는 MCP 서비스에 전달할 외부 API 키 같은 사용자 지정 값은 [Agent 환경 변수](../worker-env/)에 등록하세요.
+## 변경과 초기화
 
-## 설정 찾기
+한 범위에서 단위를 확인한 뒤 저장하세요. 그룹 설정은 한 번에 커밋되며 필드 하나가 거부되면 전체를 변경하지 않고 초안을 유지합니다. 비밀 값은 명시적으로 표시하기 전까지 가려집니다. 초기화 확인창은 현재 값과 재정의 제거 후 실제 값 및 출처를 보여 줍니다. 기본값과 같은 값을 저장한 경우에도 재정의를 제거할 때까지 독립 설정으로 유지합니다.
 
-AppConfigure 페이지는 연관된 설정을 기능 그룹별로 묶어 보여 줍니다. 키 이름이나 설명으로 바로 검색하거나 그룹을 펼쳐 관련 항목들을 한눈에 확인할 수 있습니다.
+시간은 저장 단위를 유지하면서 읽기 쉬운 단위로 입력합니다. 출력 제한 없음(`null`)과 숫자 상한을 구분하고, 무응답 시간 제한은 명시적으로 끌 수 있습니다(`0`). 삭제 데이터 보관 기간을 줄이면 영구 삭제에 미치는 영향을 안내합니다.
 
-각 설정 행은 다음 세 가지 상태 중 하나로 표시됩니다.
+Trace와 Control Plane Plugin의 재시작 대기 상태는 실행 프로세스와 저장 값이 일치할 때까지 표시합니다. Brain Tick은 공유 BM25 인덱스를 매분 확인하고 토크나이저가 변경되면 다시 만듭니다. 유지보수 중 검색을 사용할 수 없거나 쓰기가 대기할 수 있습니다. 실패하면 Brain 상태 화면과 서버 Tick 로그를 확인하세요.
 
-- **편집 가능(Editable):** 행을 클릭해 이 화면에서 값을 바로 수정할 수 있습니다.
-- **읽기 전용(Read-only):** 현재 적용된 상태만 조회할 수 있으며 이 화면에서 직접 수정할 수 없습니다.
-- **다른 곳에서 관리(Managed elsewhere):** 안내 링크를 따라가면 해당 설정을 담당하는 전용 Console 페이지로 이동합니다.
+SMTP는 저장 전 초안으로 테스트 메일을 보내며 저장 설정이나 OTP를 변경하지 않습니다. 비밀번호를 새로 입력하지 않으면 저장된 값을 유지합니다. 성공은 메일 전송 서비스가 수락했다는 뜻이며 초안을 바꾸면 결과가 무효화됩니다. SaaS Turnstile은 두 키를 보관한 채 사용을 중지할 수 있습니다.
 
-키(Key)는 코드에서 참조하는 고정 식별자이며, 설명란에는 해당 키가 제어하는 동작과 숫자 값의 단위가 안내됩니다.
+## 환경 변수와의 차이
 
-## 범위와 출처 이해하기
-
-모든 설정 키는 **사이트**, **테넌트**, 또는 **Pod** 범위를 가집니다. 사이트 키는 전체 공유 인프라 동작을 제어하고, 테넌트 키는 사이트 기본값을 상속하면서 현재 선택된 테넌트의 동작을 제어하며, Pod 키는 사이트 기본값 없이 각 Pod 워크스페이스에만 귀속됩니다. Console에서는 사이트 기본값과 테넌트별 재정의(override)를 구분해 표시하며, 개별 Agent 단위의 재정의는 지원하지 않습니다.
-
-사이트 범위 키는 저장된 재정의 값이 있으면 그 값을 쓰고, 없으면 현재 버전의 기본값을 적용합니다. 테넌트 범위 키는 테넌트 재정의 값 → 동일 키의 사이트 기본값 → 현재 버전의 기본값 순서로 해석되며, Pod 범위 키는 워크스페이스 저장 값 → 현재 버전의 기본값 순서로 바로 해석됩니다. **Reset to default**를 누르면 선택한 범위에 저장된 재정의가 제거되며, 목록의 Source 열에서 현재 적용된 값의 출처를 확인할 수 있습니다.
-
-## 설정 변경
-
-1. 변경할 설정 행이나 설정 그룹을 엽니다.
-2. 필드 설명을 읽어 적용 범위와 입력 단위를 확인합니다.
-3. 원하는 값으로 수정한 뒤 저장합니다.
-4. 목록 화면으로 돌아와 해당 행에 재정의(override) 표시가 나타나는지 확인합니다.
-
-일반적인 설정은 전용 입력 폼을 제공하며, 복합 구조를 가진 일부 고급 설정은 JSON 편집기를 사용합니다. JSON을 편집할 때는 기존 필드 구조를 유지하고 역할을 정확히 모르는 필드는 임의로 삭제하지 마세요.
-
-대부분의 변경 사항은 저장 직후 새로 시작되는 작업부터 적용됩니다. 만약 화면에 다음 시작 시 반영된다는 안내가 표시되면 점검 시점에 맞춰 컨트롤 플레인을 재시작하세요.
-
-## 설정 초기화
-
-지정해 둔 사용자 지정 값을 거두고 원래 기본값으로 되돌리려면 해당 설정을 열고 **Reset to default**를 선택하세요. 저장된 재정의가 삭제되면서 현재 설치된 Ankole 버전에 선언된 기본값이 다시 적용됩니다.
-
-설정을 초기화하는 것과 현재 기본값 숫자를 직접 입력해 저장하는 것은 이후 업그레이드 시 다르게 동작합니다. 초기화 상태로 두면 새 버전에서 기본값이 조정될 때 변경된 기본값을 자동으로 따르지만, 값을 직접 입력해 저장해 두면 업그레이드 후에도 입력한 값이 그대로 고정됩니다.
+AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경은 이후 작업에 적용됩니다. [배포 환경 변수](../environment-variables/)는 시작 기반을 설정합니다. 도구에 필요한 인증 정보는 [Agent 환경 변수](../worker-env/)에서 관리하세요.
 
 ## 현재 내장 AppConfigure 키
 
@@ -65,7 +42,7 @@ AppConfigure 페이지는 연관된 설정을 기능 그룹별로 묶어 보여 
 | `ai_agent.inactivity_timeout_ms` | 테넌트 | 응답이 없는 모델이나 제공자를 기다린 뒤 턴을 종료하기까지의 제한 시간(밀리초) |
 | `ai_agent.library.agent_plugin_defaults` | 테넌트 | Agent Plugin의 기본 활성화 상태 |
 | `ai_agent.library.skill_defaults` | 테넌트 | Skill의 기본 활성화 상태 |
-| `agent_computer.background_agent_job.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 BackgroundAgentJob 수(기본값 `3`, 유효 범위 `1`–`64`) |
+| `background_agent_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 BackgroundAgentJob 수(기본값 `3`, 유효 범위 `1`–`64`) |
 | `automation_jobs.max_running_per_agent` | 테넌트 | Agent당 동시 실행 가능한 최대 자동화 스크립트 수(기본값 `10`, 유효 범위 `1`–`64`) |
 
 ### Pod, Base 및 Applet
@@ -75,7 +52,7 @@ AppConfigure 페이지는 연관된 설정을 기능 그룹별로 묶어 보여 
 | `pod.allow_external_guests` | 테넌트 | 초대받은 외부 게스트가 공유된 Pod 페이지에 접근하도록 허용할지 여부(기본값 `true`) |
 | `pod.applet.limits` | 테넌트 | Applet 실행 한도(기본값 `timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | 테넌트 | Base 쿼리 및 레코드 한도(기본값 `query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `pod.trash_retention_days` | 테넌트 | 휴지통으로 이동한 페이지를 영구 삭제하기 전까지 보관하는 일수(양의 정수, 기본값 `30`) 또는 자동 삭제 없이 무기한 보관하는 `"unlimited"` |
+| `pod.trash_retention_days` | 테넌트 | 휴지통으로 이동한 페이지를 영구 삭제하기 전까지 보관하는 일수(양의 정수, 기본값 `30`) |
 | `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수(기본값 `1000`) |
 
 ### Workflow
@@ -98,7 +75,8 @@ Workflow 생성 시 이 설정보다 높은 값을 요청할 수는 없습니다
 | `brain.rerank_model` | 테넌트 | 검색 결과 재정렬(rerank)에 사용할 Provider와 모델입니다. 비워 두면 하이브리드 융합 순서를 그대로 유지합니다. |
 | `brain.search_tokenizer` | 사이트 | BM25 검색 토크나이저(`icu`, `jieba`, `lindera_japanese`, `lindera_korean`). 값을 변경한 뒤에는 BM25 인덱스를 재구축해야 합니다. |
 | `brain.chunking` | 테넌트 | Source 문서의 청크 크기, 중첩 길이(overlap), 최대 입력 크기 상한입니다. |
-| `brain.forgetting` | 테넌트 | 지식 유형별 중요도 감쇠 반감기와 소프트 삭제 항목의 영구 정리(purge) 주기입니다. |
+| `brain.forgetting` | 테넌트 | 기억 유형별 감쇠 반감기 |
+| `brain.soft_delete_retention_hours` | 테넌트 | Dreaming이 소프트 삭제 객체를 영구 삭제하기 전 보관 시간. 기본 `72`시간 |
 | `brain.dreaming_task_cron` | 테넌트 | 정기 지식 통합(Dreaming) 작업의 실행 스케줄입니다. |
 | `brain.self_healing_task_cron` | 테넌트 | 오래된 청크, 임베딩, 검색 인덱스 투영을 재구축하는 자가 복구 스케줄입니다. |
 | `brain.signal_channel_batch_idle_time` | 테넌트 | 대화방의 대기 메시지가 학습 배치로 넘어가기까지의 유휴 대기 시간(초)입니다. 대화가 종료될 때도 즉시 학습이 시작됩니다. |
@@ -125,13 +103,8 @@ Langfuse, LangSmith, VictoriaTraces 및 기타 OTLP/HTTP 수집기 연동 방법
 |---|---|---|
 | `authn.email.mail` | 사이트, 암호화 | 패스워드리스 Email OTP 로그인용 SMTP 발송 설정(`server`, `from`, `port`, `ssl` 및 선택적 자격 증명). 비워 두면 Email OTP 로그인이 비활성화됨 |
 | `authn.email.code_ttl_seconds` | 사이트 | 이메일 인증 코드 유효 시간(초, 기본값 `600`) |
-| `authn.email.send_window_seconds` | 사이트 | Email OTP 발송 속도 제한 윈도우(초, 기본값 `60`) |
-| `authn.email.send_email_limit` | 사이트 | 발송 윈도우당 단일 이메일 주소로 보낼 수 있는 최대 코드 수(기본값 `3`) |
-| `authn.email.send_source_limit` | 사이트 | 발송 윈도우당 단일 출발지 IP에서 요청할 수 있는 최대 코드 수(기본값 `20`) |
-| `authn.email.send_channel_limit` | 사이트 | 발송 윈도우당 전체 채널에서 발송할 수 있는 최대 코드 수(기본값 `100`) |
-| `authn.email.failure_window_seconds` | 사이트 | 인증 코드 검증 실패 속도 제한 윈도우(초, 기본값 `600`) |
-| `authn.email.failure_email_limit` | 사이트 | 실패 윈도우당 단일 이메일 주소에 허용되는 최대 검증 실패 횟수(기본값 `10`) |
-| `authn.email.failure_source_limit` | 사이트 | 실패 윈도우당 단일 출발지 IP에 허용되는 최대 검증 실패 횟수(기본값 `100`) |
+| `authn.email.send_limits` | 사이트 | 공유 전송 시간 범위와 이메일, 요청 출처 및 채널별 한도 |
+| `authn.email.failure_limits` | 사이트 | 공유 인증 실패 시간 범위와 이메일 및 요청 출처별 한도 |
 | `principals.pod_login_policy` | 테넌트, 다른 곳에서 관리 | Pod 구성원 로그인 및 초대 정책(`allow_email_otp`, `allow_member_credential_change`, `allowed_email_domains`, `require_sso_for_members`, `allow_invite_links`). Pod Settings에서 관리 |
 
 ### Identity, 플러그인, 기능 플래그 및 테넌트 기본값
@@ -152,13 +125,13 @@ Langfuse, LangSmith, VictoriaTraces 및 기타 OTLP/HTTP 수집기 연동 방법
 | 키 | 범위 | 용도 |
 |---|---|---|
 | `runtime_fabric.worker_auth_key` | 사이트, 읽기 전용 | 컨트롤 플레인 최초 기동 시 생성되는 설치 식별 키로 Lark 프로필 이름 등에 쓰이며 개별 Worker 자격 증명은 아님 |
-| `agent_computer.worker.ready_timeout` | 사이트 | 시작된 Worker가 `ready` 상태에 도달할 때까지 기다리는 최대 시간(초, 기본값 `600`). 초과 시 새 캐시 디스크로 인스턴스를 재생성함 |
-| `worker.rendered_fetch_idle_ttl_ms` | 테넌트 | 내장 `web_fetch` 브라우저 렌더링 폴백 인스턴스의 유휴 유지 시간(밀리초) |
+| `agent_workers.ready_timeout_seconds` | 사이트 | 시작된 Worker가 `ready` 상태에 도달할 때까지 기다리는 최대 시간(초, 기본값 `600`). 초과 시 새 캐시 디스크로 인스턴스를 재생성함 |
+| `agent_workers.rendered_fetch_idle_ttl_ms` | 테넌트 | 내장 `web_fetch` 브라우저 렌더링 폴백 인스턴스의 유휴 유지 시간(밀리초) |
 | `security.ssrf_filter` | 사이트 | 모델이 호출하는 URL fetch 요청에서 사설망(private), 루프백(loopback), 링크 로컬(link-local), CGNAT 대역 접근을 차단할지 여부 |
 
 참고로 `security.ssrf_filter`를 끄더라도 클라우드 인스턴스 메타데이터 주소 접근은 항상 차단됩니다.
 
-`agent_computer.worker.ready_timeout`은 기동이 지연되어 준비 완료 상태에 이르지 못한 비정상 인스턴스를 복구하기 위한 설정이며, 정상 유휴 인스턴스의 자동 회수는 provider YAML의 `idleReleaseAfter` 항목으로 제어합니다. 자세한 내용은 [Worker](../worker-management/)를 참조하세요.
+`agent_workers.ready_timeout_seconds`은 기동이 지연되어 준비 완료 상태에 이르지 못한 비정상 인스턴스를 복구하기 위한 설정이며, 정상 유휴 인스턴스의 자동 회수는 provider YAML의 `idleReleaseAfter` 항목으로 제어합니다. 자세한 내용은 [Worker](../worker-management/)를 참조하세요.
 
 ### 최초 실행 상태
 

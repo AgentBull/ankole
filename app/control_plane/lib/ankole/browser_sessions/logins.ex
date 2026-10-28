@@ -150,7 +150,8 @@ defmodule Ankole.BrowserSessions.Logins do
          {:ok, %{subject_id: subject_id, auth_time: auth_time} = verified} <-
            Ankole.IdentityProviders.SiteSources.authenticate(provider_id, proof),
          :ok <- site_flow_policy(context, oauth_request, provider_id, verified),
-         {:ok, principals} <- site_principals(context.tenant_id, provider_id, verified),
+         {:ok, principals} <-
+           site_principals_for_context(context, provider_id, subject_id, verified),
          :ok <- ensure_console_admin(context, principals) do
       persist_login(
         ref,
@@ -172,7 +173,7 @@ defmodule Ankole.BrowserSessions.Logins do
 
     with true <- Ankole.AuthZ.Actor.tenant_id(actor) == tenant_id,
          {:ok, browser} <- Identity.fetch_browser(ref, true),
-         {:ok, principals} <- site_principals(tenant_id, proof.provider_id, proof) do
+         {:ok, principals} <- site_principals(tenant_id, proof.provider_id, proof, :pod) do
       context = build_context(browser, :pod, tenant_id, mode: :add)
 
       persist_login(
@@ -239,6 +240,7 @@ defmodule Ankole.BrowserSessions.Logins do
       started_revision: Keyword.get(opts, :started_revision) || browser.revision,
       expected_authentication_id: Keyword.get(opts, :expected_authentication_id),
       reauthentication_principal_uid: Keyword.get(opts, :reauthentication_principal_uid),
+      target_tenant_id: tenant_id || Keyword.get(opts, :target_tenant_id),
       oauth_request_id: Keyword.get(opts, :oauth_request_id),
       oidc_state_id: Keyword.get(opts, :oidc_state_id)
     }
@@ -334,7 +336,17 @@ defmodule Ankole.BrowserSessions.Logins do
          )
   end
 
-  defp site_principals(target_tenant_id, provider_id, proof) do
+  defp site_principals_for_context(context, provider_id, subject_id, verified) do
+    case site_principals(context.target_tenant_id, provider_id, verified, context.purpose) do
+      {:error, :not_a_member} when is_binary(context.reauthentication_principal_uid) ->
+        expected_subject(context, provider_id, subject_id, [])
+
+      other ->
+        other
+    end
+  end
+
+  defp site_principals(target_tenant_id, provider_id, proof, purpose) do
     bindings =
       provider_id
       |> Ankole.Principals.list_site_credentials(proof.subject_id)
@@ -342,9 +354,7 @@ defmodule Ankole.BrowserSessions.Logins do
 
     candidate =
       if target_tenant_id && not List.keymember?(bindings, target_tenant_id, 0) do
-        proof
-        |> Ankole.Principals.pending_site_memberships()
-        |> Enum.find(&(&1.tenant_id == target_tenant_id))
+        resolve_target_candidate(target_tenant_id, provider_id, proof)
       end
 
     targets = if candidate, do: [{candidate.tenant_id, candidate.uid} | bindings], else: bindings
@@ -360,13 +370,27 @@ defmodule Ankole.BrowserSessions.Logins do
     end)
     |> case do
       {:ok, principals} ->
-        if target_tenant_id && not Enum.any?(principals, &(&1.tenant_id == target_tenant_id)),
-          do: {:error, :not_a_member},
-          else: {:ok, principals}
+        if purpose != :site and is_binary(target_tenant_id) and
+             not Enum.any?(principals, &(&1.tenant_id == target_tenant_id)),
+           do: {:error, :not_a_member},
+           else: {:ok, principals}
 
       error ->
         error
     end
+  end
+
+  defp resolve_target_candidate(target_tenant_id, "email_otp", proof),
+    do:
+      Ankole.Principals.resolve_email_otp_principal(
+        target_tenant_id,
+        Map.get(proof, :verified_email)
+      )
+
+  defp resolve_target_candidate(target_tenant_id, _provider_id, proof) do
+    proof
+    |> Ankole.Principals.pending_site_memberships()
+    |> Enum.find(&(&1.tenant_id == target_tenant_id))
   end
 
   defp persist_login(
@@ -417,7 +441,10 @@ defmodule Ankole.BrowserSessions.Logins do
            Ankole.Ash.update(browser, :record_login_in_tx, %{
              revision: max(browser.revision, authentication.revision),
              active_authentication_id: authentication.id,
-             active_tenant_id: context.tenant_id,
+             active_tenant_id:
+               if(Enum.any?(principals, &(&1.tenant_id == context.target_tenant_id)),
+                 do: context.target_tenant_id
+               ),
              expires_at:
                if(DateTime.compare(browser.expires_at, authentication.expires_at) == :gt,
                  do: browser.expires_at,
@@ -500,16 +527,18 @@ defmodule Ankole.BrowserSessions.Logins do
   end
 
   defp expected_subject(
-         %{purpose: :pod, reauthentication_principal_uid: uid} = context,
+         %{purpose: purpose, reauthentication_principal_uid: uid} = context,
          _provider_id,
          _subject_id,
          principals
        )
-       when is_binary(uid) do
+       when purpose in [:pod, :site] and is_binary(uid) do
+    target_tenant_id = context.target_tenant_id
+
     case Identity.read_authentication(context.expected_authentication_id) do
       %Authentication{revoked_at: nil, revision: revision}
       when revision <= context.started_revision ->
-        if Enum.any?(principals, &(&1.uid == uid and &1.tenant_id == context.tenant_id)),
+        if Enum.any?(principals, &(&1.uid == uid and &1.tenant_id == target_tenant_id)),
           do: :ok,
           else: {:error, :login_subject_mismatch}
 

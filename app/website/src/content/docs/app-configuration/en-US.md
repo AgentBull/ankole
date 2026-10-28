@@ -5,44 +5,29 @@ section: User guide
 order: 43
 ---
 
-In **Console → AppConfigure**, administrators can adjust runtime settings while the deployment instance stays online—including conversation-history compaction, Agent execution limits, directory synchronization intervals, and plugin switches. Dedicated Console pages manage LLM Providers, Identity Providers, chat channels, and Worker environment variables, so do not configure those resources here.
+In **Console → AppConfigure**, site administrators manage site defaults, workspace policies, and shared runtime parameters. Pod administrators use their existing Pod Settings permissions.
+
+## Find and scope a setting
+
+Choose **Site configuration and defaults** or **Current workspace overrides** before editing. The page always names the data workspace. A site default affects workspaces without an override; it does not impose a maximum on workspace values.
+
+**By task** is the default view. Related settings open one form with an operational summary. **Read-only registry** lists every registered key and pattern, its scope, value source, encryption, and management owner. Search reaches fields inside grouped forms and former key names, and opens the matching field. Named management links open the relevant Console page and tab.
+
+Site keys use the stored site value and then the code default. Tenant keys resolve an explicitly consumed Agent override, the workspace override, the site default, then the code default. Pod keys use only the workspace value and the code default. Five supported Agent override keys have read-only Agent inspection; this does not create an Agent configuration editor.
+
+## Change and reset a setting
+
+Edit one scope at a time, review the field's units, and save. Grouped tasks commit together: a rejected field leaves the whole task unchanged and preserves the draft. Secrets stay masked unless explicitly revealed. Reset confirmation shows the current value, the actual fallback value, and its source. Reset removes an override even when it equals the fallback; manually saving the same number keeps an independent override.
+
+Time fields offer readable units while preserving storage units. Output limits distinguish no explicit limit (`null`) from a numeric cap, and inactivity timeout controls explicitly support disabled (`0`). Reducing deletion retention shows the consequences before saving.
+
+Trace and Control Plane Plugin changes retain a restart-required status until the serving process matches the saved settings. Brain's background Tick checks the shared BM25 indexes every minute and rebuilds them when the tokenizer changes; maintenance may interrupt retrieval or block writes. Check the Brain health page and server Tick logs if repair fails.
+
+The SMTP form can test the current draft without changing saved mail settings or creating an OTP. Omitting the password keeps the saved password. Test acceptance means transport acceptance; changing the draft invalidates its displayed test result. In SaaS, the Turnstile switch disables challenges while retaining both saved keys.
 
 ## AppConfigure and environment variables
 
-Ankole stores AppConfigure settings in PostgreSQL to govern product behavior while the instance runs; most changes apply to subsequent work without requiring a redeployment. By contrast, [deployment environment variables](../environment-variables/) bootstrap the control plane, PostgreSQL, and the Worker backend, so you must restart the affected process after changing one. When a Skill, CLI tool, or MCP service needs a custom value such as an API key, configure [Agent environment variables](../worker-env/) instead.
-
-## Find a setting
-
-AppConfigure groups related settings together. Search by key name or description, or expand a group to inspect its settings side by side.
-
-Each row appears in one of three states:
-
-- **Editable:** open the row and update the value directly.
-- **Read-only:** view the current runtime state; the value cannot be edited here.
-- **Managed elsewhere:** follow the link to the dedicated Console page that owns the setting.
-
-Each row displays its stable key alongside a description explaining what the setting controls and what unit numeric fields expect.
-
-## Understand scope and source
-
-Every key has **Site**, **Tenant**, or **Pod** scope: site keys govern shared deployment infrastructure, tenant keys govern behavior for the selected tenant with optional site-wide defaults, and Pod keys belong strictly to each Pod workspace without inheriting a site value. The Console displays site defaults and tenant overrides separately; per-Agent overrides are not supported in AppConfigure.
-
-When resolving a site key, Ankole checks for a stored site value first and falls back to the compiled version default. When resolving a tenant key, Ankole checks the tenant override first, then any stored site default for that key, and finally the version default; Pod keys check the workspace value and fall back directly to the version default. Selecting **Reset to default** removes the override at the selected scope, and the **Source** column shows which layer currently applies.
-
-## Change a setting
-
-1. Open the setting or setting group.
-2. Read the field descriptions and confirm the scope and units.
-3. Update the values you need and save.
-4. Return to the list and confirm that the row indicates an active override.
-
-Common settings provide a structured form, whereas advanced composite settings open in a JSON editor—keep the existing object structure intact and leave unfamiliar fields unchanged. Most updates apply immediately to subsequent work; if the UI notes that a key takes effect on next boot, restart the control plane during a suitable maintenance window.
-
-## Reset a setting
-
-To return a setting to its built-in default, open the row and select **Reset to default**. Ankole deletes the stored override at the selected scope and falls back to the default declared by the installed version.
-
-Resetting differs from manually saving today's default number as a custom value: a reset key automatically adopts updated defaults in future Ankole versions, whereas a stored custom value stays pinned.
+AppConfigure stores declared product settings in PostgreSQL. Most changes affect subsequent work. [Deployment environment variables](../environment-variables/) provide bootstrap infrastructure, while custom tool credentials belong in [Agent environment variables](../worker-env/).
 
 ## Current built-in AppConfigure keys
 
@@ -57,7 +42,7 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
 | `ai_agent.library.skill_defaults` | Tenant | Default enablement for Skills |
-| `agent_computer.background_agent_job.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
+| `background_agent_jobs.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
 | `automation_jobs.max_running_per_agent` | Tenant | Maximum concurrently running automation scripts per Agent; default `10`, valid range `1`–`64` |
 
 ### Pod, Base, and Applet
@@ -67,7 +52,7 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `pod.allow_external_guests` | Tenant | Allow invited external guests to access shared Pod pages; default `true` |
 | `pod.applet.limits` | Tenant | Applet invocation limits (`timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | Tenant | Base query and record limits (`query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `pod.trash_retention_days` | Tenant | Positive integer days to retain deleted pages before automatic purge (default `30`), or `"unlimited"` to retain deleted pages without automatic purge |
+| `pod.trash_retention_days` | Tenant | Positive integer days to retain deleted pages before automatic purge (default `30`) |
 | `pod.ot_replay_window` | Tenant | Number of recent document change batches retained for OT replay; default `1000` |
 
 ### Workflows
@@ -90,7 +75,8 @@ Updates to these keys apply to newly started Workflow work. An individual run ma
 | `brain.rerank_model` | Tenant | Provider and model for reranking search results; an empty value keeps the fusion order |
 | `brain.search_tokenizer` | Site | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
 | `brain.chunking` | Tenant | Source chunk size, overlap, and input limits |
-| `brain.forgetting` | Tenant | Knowledge-decay half-lives and the soft-delete purge interval |
+| `brain.forgetting` | Tenant | Decay half-lives for each memory kind |
+| `brain.soft_delete_retention_hours` | Tenant | Hours before Dreaming permanently purges soft-deleted Objects; default `72` |
 | `brain.dreaming_task_cron` | Tenant | Schedule for regular knowledge consolidation |
 | `brain.self_healing_task_cron` | Tenant | Schedule for rebuilding stale chunk, embedding, and search-index projections |
 | `brain.signal_channel_batch_idle_time` | Tenant | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |
@@ -117,13 +103,8 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 |---|---|---|
 | `authn.email.mail` | Site, encrypted | SMTP mail transport (`server`, `from`, `port`, `ssl`, and optional credentials) for passwordless Email OTP sign-in; empty disables Email OTP |
 | `authn.email.code_ttl_seconds` | Site | Verification-code lifetime in seconds; default `600` |
-| `authn.email.send_window_seconds` | Site | Rate-limit window in seconds for sending Email OTP codes; default `60` |
-| `authn.email.send_email_limit` | Site | Maximum codes sent to one email address per send window; default `3` |
-| `authn.email.send_source_limit` | Site | Maximum codes sent from one source address per send window; default `20` |
-| `authn.email.send_channel_limit` | Site | Maximum codes sent across the channel per send window; default `100` |
-| `authn.email.failure_window_seconds` | Site | Rate-limit window in seconds for failed code verifications; default `600` |
-| `authn.email.failure_email_limit` | Site | Maximum failed verifications for one email address per failure window; default `10` |
-| `authn.email.failure_source_limit` | Site | Maximum failed verifications from one source address per failure window; default `100` |
+| `authn.email.send_limits` | Site | Shared send window and maxima per email, source, and channel |
+| `authn.email.failure_limits` | Site | Shared failure window and maxima per email and source |
 | `principals.pod_login_policy` | Tenant, managed elsewhere | Pod member login and invitation policy (`allow_email_otp`, `allow_member_credential_change`, `allowed_email_domains`, `require_sso_for_members`, `allow_invite_links`); managed in Pod Settings |
 
 ### Identity, Plugins, feature flags, and tenant defaults
@@ -144,13 +125,13 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 | Key | Scope | Purpose |
 |---|---|---|
 | `runtime_fabric.worker_auth_key` | Site, read-only | Installation key that the control plane generates at first start; it names Lark profiles, and it is not a Worker credential |
-| `agent_computer.worker.ready_timeout` | Site | Seconds that a Worker may stay not ready before it is rebuilt with a new cache disk; default `600` (10 minutes) |
-| `worker.rendered_fetch_idle_ttl_ms` | Tenant | Idle lifetime for the built-in `web_fetch` rendered fallback |
+| `agent_workers.ready_timeout_seconds` | Site | Seconds that a Worker may stay not ready before it is rebuilt with a new cache disk; default `600` (10 minutes) |
+| `agent_workers.rendered_fetch_idle_ttl_ms` | Tenant | Idle lifetime for the built-in `web_fetch` rendered fallback |
 | `security.ssrf_filter` | Site | Whether model-controlled fetches reject private, loopback, link-local, and CGNAT addresses |
 
 Ankole rejects requests to cloud metadata addresses even when `security.ssrf_filter` is disabled.
 
-`agent_computer.worker.ready_timeout` governs how long the control plane waits on an observed unready Worker before rebuilding it, whereas idle Worker release is configured per pool via `idleReleaseAfter` in the provider YAML; see [Workers](../worker-management/).
+`agent_workers.ready_timeout_seconds` governs how long the control plane waits on an observed unready Worker before rebuilding it, whereas idle Worker release is configured per pool via `idleReleaseAfter` in the provider YAML; see [Workers](../worker-management/).
 
 ### First-run state
 

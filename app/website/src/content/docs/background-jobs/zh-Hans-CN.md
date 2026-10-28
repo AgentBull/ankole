@@ -85,7 +85,7 @@ Workflow 与后台 Agent 任务都能帮主 Agent 分担工作，但各自适用
 
 ## 常见问题
 
-- **任务长时间停在 `queued`**：请检查该 Agent 的 Worker 实例是否已正常就绪，并确认同一 Agent 名下是否已有其他后台任务占满了并发槽位上限（`agent_computer.background_agent_job.max_running_per_agent`）。
+- **任务长时间停在 `queued`**：请检查该 Agent 的 Worker 实例是否已正常就绪，并确认同一 Agent 名下是否已有其他后台任务占满了并发槽位上限（`background_agent_jobs.max_running_per_agent`）。
 - **任务刚启动就立即变为 `failed`**：请检查该 Agent 已保存的“后台 Agent 任务”模型档案配置是否完整，以及所选 Provider 的凭据池是否有可用密钥。
 - **状态显示 `waiting_on_user`，但聊天窗口没收到提问、主 Agent 也没代答**：请检查原会话关联的信号路由规则及外部聊天渠道连接是否正常、消息能否成功投递。
 - **任务已显示 `succeeded`，但没有发回聊天窗口**：先确认派发任务时是否指定了静默模式；若并非静默执行，点开任务详情确认结果已正常生成后，再排查原会话的信号路由规则。

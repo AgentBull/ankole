@@ -7,6 +7,8 @@ defmodule Ankole.Authn.MembershipStoriesTest do
   alias Ankole.Principals.{HumanAccess, PodLoginPolicy}
   alias AnkoleWeb.Session, as: WebSession
 
+  @host_policy Application.compile_env(:ankole, :host_policy)
+
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
@@ -34,12 +36,17 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     first = human_fixture(%{email: "independent-a@example.test"}).principal
     second = human_fixture(%{email: "independent-b@example.test"}).principal
 
-    page = conn |> pod_conn(tenant) |> get("/sessions/new") |> browser_api_conn()
+    page =
+      conn |> pod_conn(tenant) |> get("/sessions/new") |> follow_login() |> browser_api_conn()
+
+    tenant_extra = if @host_policy, do: %{tenantID: tenant.id}, else: %{}
 
     sent_first =
-      api_post(page, "/api/v2/browser/sessions/email-otp/challenges", %{
-        email: "independent-a@example.test"
-      })
+      api_post(
+        page,
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(tenant_extra, :email, "independent-a@example.test")
+      )
 
     first_id = api_response(sent_first, 201)["challengeID"]
     first_code = delivered_code("independent-a@example.test")
@@ -47,9 +54,10 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     sent_second =
       sent_first
       |> recycle_api()
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        email: "independent-b@example.test"
-      })
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(tenant_extra, :email, "independent-b@example.test")
+      )
 
     second_id = api_response(sent_second, 201)["challengeID"]
     second_code = delivered_code("independent-b@example.test")
@@ -90,13 +98,17 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       signed_in
       |> put_req_header("accept", "text/html")
       |> get("/sessions/new?switch=1")
+      |> follow_login()
       |> browser_api_conn()
+
+    tenant_extra = if @host_policy, do: %{tenantID: tenant.id}, else: %{}
 
     sent =
       login_page
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        email: "returning-member@example.test"
-      })
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(tenant_extra, :email, "returning-member@example.test")
+      )
 
     challenge_id = api_response(sent, 201)["challengeID"]
     code = delivered_code("returning-member@example.test")
@@ -337,7 +349,7 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     assert [%{identifier: "new-login@example.test", provider: "email_otp"}] =
              Principals.principal_site_credentials(person.uid)
 
-    assert Repo.get!(Ankole.Principals.HumanUser, person.uid).email == "original@example.test"
+    assert Repo.get!(Ankole.Principals.HumanUser, person.uid).email == "new-login@example.test"
     # The old login address stops authorizing this Pod after its replacement.
     refute BrowserSessions.identity(reference, tenant.id)
     conn = verified
@@ -388,19 +400,31 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     entry = api_post(conn, "/api/v2/pod/me/reauthentication", %{})
     path = api_response(entry, 201)["loginURL"]
     reauth = URI.decode_query(URI.parse(path).query)["reauth"]
-    page = entry |> recycle() |> put_req_header("accept", "text/html") |> get(path)
+
+    page =
+      entry |> recycle() |> put_req_header("accept", "text/html") |> get(path) |> follow_login()
+
     conn = browser_api_conn(page)
-    providers = api_get(conn, "/api/v2/browser/identity-providers", %{"reauth" => reauth})
+
+    provider_query =
+      if @host_policy,
+        do: %{"tenant_id" => tenant.id, "reauth" => reauth},
+        else: %{"reauth" => reauth}
+
+    providers = api_get(conn, "/api/v2/browser/identity-providers", provider_query)
     assert api_response(providers, 200)["identities"] == []
+
+    reauth_payload =
+      if @host_policy do
+        %{tenantID: tenant.id, reauth: reauth, returnTo: "/me", email: "reauth@example.test"}
+      else
+        %{reauth: reauth, returnTo: "/me", email: "reauth@example.test"}
+      end
 
     sent =
       providers
       |> recycle_api()
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        reauth: reauth,
-        returnTo: "/me",
-        email: "reauth@example.test"
-      })
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", reauth_payload)
 
     challenge = api_response(sent, 201)["challengeID"]
     code = delivered_code("reauth@example.test")
@@ -413,8 +437,16 @@ defmodule Ankole.Authn.MembershipStoriesTest do
         code: code
       })
 
-    assert URI.parse(api_response(verified, 201)["returnTo"]).path == "/me"
-    assert WebSession.pod_session(verified)["principal_uid"] == person.uid
+    return_to = api_response(verified, 201)["returnTo"]
+    assert URI.parse(return_to).path == "/me"
+
+    entered =
+      verified
+      |> recycle()
+      |> delete_req_header("accept")
+      |> get(return_to)
+
+    assert WebSession.pod_session(entered)["principal_uid"] == person.uid
   end
 
   test "reauthentication pins the initiating tab and rejects another Human without reviving its code",
@@ -432,8 +464,13 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       |> recycle()
       |> put_req_header("accept", "text/html")
       |> get("/sessions/new?switch=1")
+      |> follow_login()
 
-    {other_conn, _, _} = verify_email_on_page(entry, "other-member@example.test", %{})
+    tenant_extra = if @host_policy, do: %{tenantID: tenant.id}, else: %{}
+
+    {other_conn, _, _} =
+      verify_email_on_page(entry, "other-member@example.test", tenant_extra)
+
     assert %{"returnTo" => _} = api_response(other_conn, 201)
     other_ref = WebSession.authentication_reference(other_conn)
     assert BrowserSessions.identity(other_ref, tenant.id)["principal_uid"] == other.uid
@@ -441,6 +478,8 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     pinned =
       other_conn
       |> recycle_api()
+      |> pod_conn(tenant)
+      |> put_req_header("origin", AnkoleWeb.PodURL.origin(other_conn, tenant))
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(owner_ref))
       |> put_req_header("x-csrf-token", owner_csrf)
       |> api_post("/api/v2/pod/me/reauthentication", %{})
@@ -456,47 +495,67 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       |> recycle()
       |> put_req_header("accept", "text/html")
       |> get(path)
+      |> follow_login()
 
     denied_selection =
       reauth_page
       |> browser_api_conn()
-      |> api_post("/api/v2/browser/sessions/identity-selection", %{
-        reauth: reauth,
-        returnTo: "/me",
-        authenticationRef: BrowserSessions.encode_reference(other_ref)
-      })
+      |> api_post(
+        "/api/v2/browser/sessions/identity-selection",
+        Map.merge(tenant_extra, %{
+          reauth: reauth,
+          returnTo: "/me",
+          authenticationRef: BrowserSessions.encode_reference(other_ref)
+        })
+      )
 
     assert api_error(denied_selection, 403)["code"] == "reauthentication_required"
 
-    {rejected, challenge, code} =
-      verify_email_on_page(reauth_page, "other-member@example.test", %{
-        reauth: reauth,
-        returnTo: "/me"
-      })
+    silent_other =
+      reauth_page
+      |> browser_api_conn()
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.merge(tenant_extra, %{
+          reauth: reauth,
+          returnTo: "/me",
+          email: "other-member@example.test"
+        })
+      )
 
-    assert api_error(rejected, 400)["code"] == "login_subject_mismatch"
-    assert Repo.get!(Ankole.Authn.Challenge, challenge).verified_at
+    challenge = api_response(silent_other, 201)["challengeID"]
+    refute_receive {:smtp_message, _, ["other-member@example.test"], _}, 100
+    assert is_nil(Repo.get!(Ankole.Authn.Challenge, challenge).secret_digest)
 
-    repeated =
-      rejected
+    rejected =
+      silent_other
       |> recycle_api()
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
         challengeID: challenge,
-        code: code
+        code: "000000"
       })
 
-    assert api_error(repeated, 401)["code"] == "invalid_code"
+    assert api_error(rejected, 401)["code"] == "invalid_code"
     assert BrowserSessions.identity(owner_ref, tenant.id)["principal_uid"] == owner.uid
     assert BrowserSessions.identity(other_ref, tenant.id)["principal_uid"] == other.uid
 
     {verified, _, _} =
-      verify_email_on_page(reauth_page, "pinned-owner@example.test", %{
-        reauth: reauth,
-        returnTo: "/me"
-      })
+      verify_email_on_page(
+        reauth_page,
+        "pinned-owner@example.test",
+        Map.merge(tenant_extra, %{reauth: reauth, returnTo: "/me"})
+      )
 
-    assert URI.parse(api_response(verified, 201)["returnTo"]).path == "/me"
-    assert WebSession.pod_session(verified)["principal_uid"] == owner.uid
+    return_to = api_response(verified, 201)["returnTo"]
+    assert URI.parse(return_to).path == "/me"
+
+    entered =
+      verified
+      |> recycle()
+      |> delete_req_header("accept")
+      |> get(return_to)
+
+    assert WebSession.pod_session(entered)["principal_uid"] == owner.uid
     assert BrowserSessions.identity(other_ref, tenant.id)["principal_uid"] == other.uid
   end
 
@@ -543,12 +602,12 @@ defmodule Ankole.Authn.MembershipStoriesTest do
       |> pod_conn(tenant)
       |> init_test_session(%{})
       |> get("/sessions/new")
+      |> follow_login()
       |> browser_api_conn()
 
-    sent =
-      api_post(conn, "/api/v2/browser/sessions/email-otp/challenges", %{
-        email: email
-      })
+    payload = if @host_policy, do: %{tenantID: tenant.id, email: email}, else: %{email: email}
+
+    sent = api_post(conn, "/api/v2/browser/sessions/email-otp/challenges", payload)
 
     challenge = api_response(sent, 201)["challengeID"]
     code = delivered_code(email)
@@ -565,9 +624,19 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     assert URI.parse(target).path == "/"
     assert URI.parse(target).host == tenant.slug <> ".ankole.localhost"
     reference = WebSession.authentication_reference(verified)
-    page = verified |> recycle() |> put_req_header("accept", "text/html") |> get("/")
+
+    page =
+      verified
+      |> recycle()
+      |> pod_conn(tenant)
+      |> put_req_header("accept", "text/html")
+      |> get("/")
+
     {browser_api_conn(page), reference}
   end
+
+  defp follow_login(%{status: 302} = conn), do: conn |> recycle() |> get(redirected_to(conn))
+  defp follow_login(conn), do: conn
 
   defp browser_api_conn(page) do
     [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.resp_body)

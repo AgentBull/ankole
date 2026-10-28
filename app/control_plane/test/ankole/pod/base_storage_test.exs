@@ -11,6 +11,90 @@ defmodule Ankole.Pod.BaseStorageTest do
     %{actor: actor, page: page, table: table, primary: primary}
   end
 
+  for mode <- [:inline, :physical] do
+    test "#{mode} disjoint patches commute and a rejected batch preserves every stored row",
+         ctx do
+      if unquote(mode) == :physical do
+        assert {:ok, _} =
+                 Bases.create_field(ctx.actor, ctx.table.id, %{
+                   name: "Peer",
+                   type: "link",
+                   config: %{"table_id" => ctx.table.id}
+                 })
+      end
+
+      {:ok, number} =
+        Bases.create_field(ctx.actor, ctx.table.id, %{name: "Count", type: "number"})
+
+      {:ok, flag} =
+        Bases.create_field(ctx.actor, ctx.table.id, %{name: "Checked", type: "checkbox"})
+
+      for order <- [[number.id, flag.id], [flag.id, number.id]] do
+        {:ok, %{records: [record, unrelated]}} =
+          Bases.write_records(ctx.actor, ctx.table.id, %{
+            creates: [
+              %{data: %{ctx.primary.id => "原始 🌱", number.id => 7, flag.id => true}},
+              %{data: %{ctx.primary.id => "untouched", number.id => 99}}
+            ]
+          })
+
+        values = %{number.id => 0, flag.id => false}
+
+        for id <- order do
+          assert {:ok, _} =
+                   Bases.write_records(ctx.actor, ctx.table.id, %{
+                     updates: [
+                       %{
+                         id: record.id,
+                         data: %{id => values[id]},
+                         expected_versions: %{id => record.versions[id]}
+                       }
+                     ]
+                   })
+        end
+
+        assert {:ok, %{records: before}} =
+                 Bases.query(ctx.actor, ctx.table.id, %{})
+
+        saved = Enum.find(before, &(&1["id"] == record.id))
+        other = Enum.find(before, &(&1["id"] == unrelated.id))
+        assert saved["data"] == Map.merge(record.data, values)
+
+        assert saved["versions"] ==
+                 Map.merge(record.versions, %{number.id => 2, flag.id => 2})
+
+        assert other["data"] == unrelated.data
+        assert other["versions"] == unrelated.versions
+        {:ok, table_before} = Bases.get_table(ctx.actor, ctx.table.id)
+        assert table_before.table.storage_mode == unquote(mode)
+
+        assert {:error, {:field_conflict, _}} =
+                 Bases.write_records(ctx.actor, ctx.table.id, %{
+                   creates: [%{data: %{ctx.primary.id => "must roll back"}}],
+                   updates: [
+                     %{
+                       id: record.id,
+                       data: %{number.id => 8},
+                       expected_versions: %{number.id => 2}
+                     },
+                     %{
+                       id: record.id,
+                       data: %{flag.id => true},
+                       expected_versions: %{flag.id => 1}
+                     }
+                   ]
+                 })
+
+        assert {:ok, %{records: ^before}} =
+                 Bases.query(ctx.actor, ctx.table.id, %{})
+
+        {:ok, table_after} = Bases.get_table(ctx.actor, ctx.table.id)
+        assert table_after.table.record_count == table_before.table.record_count
+        assert table_after.table.data_version == table_before.table.data_version
+      end
+    end
+  end
+
   test "single-valued links have independent constraints across fields and tables", ctx do
     {:ok, target} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "People"})
     {:ok, other} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "Other work"})

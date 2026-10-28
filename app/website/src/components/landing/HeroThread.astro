@@ -1,5 +1,6 @@
 ---
 import { RiBookmarkLine, RiFileTextLine } from '@remixicon/react'
+import logo from '../../assets/logo.svg'
 import type { Locale } from '../../i18n/config'
 import { t } from '../../i18n/utils'
 
@@ -100,7 +101,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 		</li>
 
 		<li class={`${ROW} pb-3`} data-replay style="--step:5;--hold:0.55s">
-			<span class={`${AVATAR} bg-brand-60 text-white dark:bg-brand-50`} aria-hidden="true">A</span>
+			<img src={logo.src} alt="" width="28" height="28" class="size-7 shrink-0 select-none" aria-hidden="true" />
 			<span class="flex items-baseline gap-2">
 				<span class="text-[13px] font-semibold text-foreground">{t(lang, 'thread.agent')}</span>
 				<span

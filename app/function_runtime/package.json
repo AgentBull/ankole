@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test test/unit.test.ts",
+    "test": "bun test test/unit.test.ts test/ptc-replay.test.ts",
     "test:integration": "bun test test/runtime.test.ts",
     "type-check": "bun check -p tsconfig.json --noEmit",
     "test:native": "bun test/native/run.ts"

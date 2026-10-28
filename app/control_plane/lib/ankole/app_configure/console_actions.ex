@@ -10,6 +10,23 @@ defmodule Ankole.AppConfigure.ConsoleActions do
     input |> execute(scope) |> Errors.wrap(&describe/1)
   end
 
+  defp execute(%{action: %{name: :console_update_group}, arguments: args}, scope),
+    do: AppConfigure.console_update_group(scope, args.group, args.values, args.reset_keys)
+
+  defp execute(%{action: %{name: :console_agent_resolution}, arguments: args}, :tenant),
+    do: item(AppConfigure.console_agent_resolution(args.key, args.agent_uid))
+
+  defp execute(
+         %{action: %{name: :console_test_mail}, arguments: %{key: "authn.email.mail"} = args},
+         :global
+       ) do
+    with :ok <- Ankole.AppConfigure.Groups.mail_test(args.settings, args.recipient),
+         do: {:ok, %{accepted: true}}
+  end
+
+  defp execute(%{action: %{name: :console_test_mail}}, _scope),
+    do: {:error, :invalid_configuration_group}
+
   defp execute(%{action: %{name: :console_list}}, scope) do
     with {:ok, items} <- AppConfigure.list_console_items(scope),
          do: {:ok, %{app_configurations: items}}
@@ -57,6 +74,32 @@ defmodule Ankole.AppConfigure.ConsoleActions do
 
   defp describe(:missing_value),
     do: {"A value is required", [%{path: "value", message: "is required"}]}
+
+  defp describe({:configuration_group_field, key, reason}) do
+    {message, fields} = describe(reason) || {"Value is invalid", []}
+
+    details =
+      case fields do
+        [] -> [%{path: key, message: message}]
+        fields -> Enum.map(fields, &Map.update!(&1, :path, fn path -> key <> "." <> path end))
+      end
+
+    {key <> ": " <> message, details}
+  end
+
+  defp describe(:invalid_configuration_group),
+    do: {"This task contains an invalid configuration key or conflicting edits", []}
+
+  defp describe(:incomplete_trace_configuration),
+    do: {"Choose a trace provider and endpoint before enabling trace export", []}
+
+  defp describe(:incomplete_turnstile_configuration),
+    do: {"Save a site key and secret key before enabling Turnstile", []}
+
+  defp describe(:invalid_test_recipient), do: {"Enter a valid test email recipient", []}
+
+  defp describe(:mail_unavailable),
+    do: {"The test email could not be delivered. Check the draft mail settings", []}
 
   defp describe({:invalid_integer_range, key, min, max}),
     do:

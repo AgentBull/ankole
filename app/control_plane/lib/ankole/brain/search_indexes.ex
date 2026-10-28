@@ -53,6 +53,25 @@ defmodule Ankole.Brain.SearchIndexes do
     "lindera_korean" => "pdb.lindera('korean')"
   }
 
+  @maintenance_key {__MODULE__, :maintenance}
+
+  @doc "Reads the actual shared BM25 definitions without performing index DDL."
+  def configuration_status do
+    cast = Map.fetch!(@tokenizer_casts, Config.search_tokenizer())
+
+    current? =
+      Enum.all?(@bm25_indexes, fn {index, _, _} ->
+        definition = index_definition(index)
+
+        is_binary(definition) and String.contains?(definition, cast_marker(cast)) and
+          index_usable?(index)
+      end)
+
+    if current?, do: "applied", else: :persistent_term.get(@maintenance_key, "pending_rebuild")
+  rescue
+    _ -> "unknown"
+  end
+
   @doc """
   Ensures every retrieval index exists, is valid, and (for BM25) uses the
   configured tokenizer, rebuilding when a check fails. Returns the actions
@@ -60,6 +79,17 @@ defmodule Ankole.Brain.SearchIndexes do
   """
   @spec ensure_current() :: {:ok, [map()]} | {:error, term()}
   def ensure_current do
+    :persistent_term.put(@maintenance_key, "rebuilding")
+    result = do_ensure_current()
+    :persistent_term.erase(@maintenance_key)
+    result
+  rescue
+    error ->
+      :persistent_term.put(@maintenance_key, "failed")
+      reraise error, __STACKTRACE__
+  end
+
+  defp do_ensure_current do
     case Map.fetch(@tokenizer_casts, Config.search_tokenizer()) do
       {:ok, cast} ->
         bm25_actions =

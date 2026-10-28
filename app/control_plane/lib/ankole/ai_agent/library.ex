@@ -182,10 +182,7 @@ defmodule Ankole.AIAgent.Library do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- shipped_skill_sources(),
-         {:ok, _soul} <- seed_agent_document_in_tx(agent_uid, "soul"),
-         {:ok, _mission} <- seed_agent_document_in_tx(agent_uid, "mission"),
-         {:ok, _design} <- seed_agent_document_in_tx(agent_uid, "design"),
-         {:ok, _policy} <- seed_agent_document_in_tx(agent_uid, "confidentiality_policy"),
+         :ok <- seed_agent_documents_in_tx(agent_uid),
          {:ok, _result} <- sync_agent_skills_in_tx(agent_uid, sources, now) do
       :ok
     end
@@ -552,29 +549,30 @@ defmodule Ankole.AIAgent.Library do
   end
 
   # The upsert keeps the operator overrides. Only the changed rows are written.
+  defp upsert_agent_skill_rows(_agent_uid, [], _now), do: :ok
+
   defp upsert_agent_skill_rows(agent_uid, source_rows, now) do
-    source_rows
-    |> Enum.map(fn row ->
-      row
-      |> Map.take([
-        :skill_name,
-        :source_kind,
-        :agent_plugin_id,
-        :relative_path,
-        :default_enabled,
-        :description,
-        :metadata,
-        :content_hash,
-        :synced_at
-      ])
-      |> Map.merge(%{agent_uid: agent_uid, inserted_at: now, updated_at: now})
-    end)
-    |> Enum.reduce_while(:ok, fn input, :ok ->
-      case Ankole.Ash.create(AgentSkill, :sync, input) do
-        {:ok, _skill} -> {:cont, :ok}
-        {:error, _error} = error -> {:halt, error}
-      end
-    end)
+    inputs =
+      Enum.map(source_rows, fn row ->
+        row
+        |> Map.take([
+          :skill_name,
+          :source_kind,
+          :agent_plugin_id,
+          :relative_path,
+          :default_enabled,
+          :description,
+          :metadata,
+          :content_hash,
+          :synced_at
+        ])
+        |> Map.merge(%{agent_uid: agent_uid, inserted_at: now, updated_at: now})
+      end)
+
+    case Ankole.Ash.create_all(inputs, AgentSkill, :sync) do
+      {:ok, _skills} -> :ok
+      {:error, _error} = error -> error
+    end
   end
 
   defp agent_skill_hash(rows) do
@@ -584,14 +582,26 @@ defmodule Ankole.AIAgent.Library do
     |> SourceReader.hash()
   end
 
-  defp seed_agent_document_in_tx(agent_uid, kind) do
-    with {:ok, spec} <- agent_document_spec(kind) do
-      upsert_agent_document_in_tx(
-        agent_uid,
-        spec,
-        spec.fallback,
-        %{"source" => "app_template"}
-      )
+  defp seed_agent_documents_in_tx(agent_uid) do
+    with {:ok, specs} <-
+           @agent_document_kinds
+           |> Enum.map(&agent_document_spec/1)
+           |> Ankole.Attrs.collect_results() do
+      inputs =
+        Enum.map(specs, fn spec ->
+          %{
+            agent_uid: agent_uid,
+            path: spec.path,
+            source_kind: spec.kind,
+            content: spec.fallback,
+            metadata: %{"source" => "app_template"}
+          }
+        end)
+
+      case Ankole.Ash.create_all(inputs, AgentLibraryContainerEntry, :put) do
+        {:ok, _entries} -> :ok
+        {:error, _error} = error -> error
+      end
     end
   end
 

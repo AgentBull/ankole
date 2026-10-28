@@ -3,7 +3,6 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -42,6 +41,7 @@ import { useEffect, useRef, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useLocation, useMatches } from '@tanstack/react-router'
 import { SlotGate } from '../common/slots'
+import { BrandIcon } from '../common/brand'
 import { ThemeToggle } from '../common/theme-toggle'
 import { endSiteSession } from '../common/browser-session'
 import { ConsoleReadiness } from './console-readiness'
@@ -194,11 +194,11 @@ function ConsoleFrame() {
                 showCloseButton={false}
                 className="data-[side=left]:w-[min(320px,88vw)] bg-ground p-0 text-foreground">
                 <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
-                  <div className="grid min-w-0 gap-0.5">
-                    <SheetTitle className="truncate text-base text-foreground">{t('console.title')}</SheetTitle>
-                    <SheetDescription className="truncate text-muted-foreground">
-                      {t('console.control_plane')}
-                    </SheetDescription>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <BrandIcon className="size-6 shrink-0" />
+                    <SheetTitle className="truncate text-[13px] font-semibold text-foreground">
+                      {t('console.title')}
+                    </SheetTitle>
                   </div>
                   <SheetClose
                     render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
@@ -209,19 +209,9 @@ function ConsoleFrame() {
                 <ConsoleNavigation mobile onNavigate={() => setNavigationOpen(false)} />
               </SheetContent>
             </Sheet>
-            {/* The brand mark repeats the sign-in screen's letter mark. It used to
-                be the same gear the "AppConfigure" nav item carries, which read as
-                a link into settings rather than as the product. */}
             <Link to="/" className="flex min-w-0 items-center gap-2.5 rounded-control py-1 pr-1.5">
-              <span
-                className="grid size-6 shrink-0 place-items-center rounded-mini bg-primary text-xs font-semibold text-primary-foreground"
-                aria-hidden>
-                A
-              </span>
-              <span className="flex min-w-0 items-baseline gap-2">
-                <h1 className="truncate text-[13px] font-semibold tracking-normal">{t('console.title')}</h1>
-                <span className="hidden truncate text-xs text-fg-tertiary sm:inline">{t('console.control_plane')}</span>
-              </span>
+              <BrandIcon className="size-6 shrink-0" />
+              <h1 className="truncate text-[13px] font-semibold tracking-normal">{t('console.title')}</h1>
             </Link>
             <SidebarTrigger
               label={toggleLabel}

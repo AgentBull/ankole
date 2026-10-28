@@ -23,18 +23,36 @@ defmodule Ankole.AuthZ.Root do
     # operator admin even if added to the group. `status == :active` denies a
     # suspended/disabled human without having to scrub group memberships. A
     # malformed uid normalizes to an error and is treated as "not admin".
+    site_admin_membership?(principal_uid, true)
+  end
+
+  @doc """
+  Returns true when the principal is a human member of the built-in admin group,
+  including principals whose access is currently disabled.
+  """
+  @spec site_admin_member?(String.t()) :: boolean()
+  def site_admin_member?(principal_uid), do: site_admin_membership?(principal_uid, false)
+
+  defp site_admin_membership?(principal_uid, active_only?) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, tenant} <- Ankole.Tenants.privileged() do
       admin_group_name = Root.admin_group_name()
 
       Repo.with_tenant(tenant.id, fn ->
-        Membership
-        |> Ash.Query.filter(
-          principal_uid == ^principal_uid and group.name == ^admin_group_name and
-            group.built_in == true and group.kind == :static and principal.type == :human and
-            principal.status == :active and principal.membership == :member
-        )
-        |> Ankole.Ash.exists?()
+        query =
+          Membership
+          |> Ash.Query.filter(
+            principal_uid == ^principal_uid and group.name == ^admin_group_name and
+              group.built_in == true and group.kind == :static and principal.type == :human and
+              principal.membership == :member
+          )
+
+        query =
+          if active_only?,
+            do: Ash.Query.filter(query, principal.status == :active),
+            else: query
+
+        Ankole.Ash.exists?(query)
       end)
     else
       {:error, _reason} -> false

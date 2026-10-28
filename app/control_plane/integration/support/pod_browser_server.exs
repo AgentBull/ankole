@@ -115,8 +115,13 @@ smtp = Ankole.Authn.SMTPFixture.start(collector)
     "cacertfile" => smtp.ca_path
   })
 
-for key <- ["send_email_limit", "send_source_limit", "send_channel_limit"],
-    do: Ankole.AppConfigure.put_global_by_key("authn.email." <> key, 1000)
+{:ok, _} =
+  Ankole.AppConfigure.put_global_by_key("authn.email.send_limits", %{
+    "window_seconds" => 60,
+    "per_email" => 1000,
+    "per_source" => 1000,
+    "per_channel" => 1000
+  })
 
 System.at_exit(fn _ ->
   Ankole.Authn.SMTPFixture.stop(smtp)

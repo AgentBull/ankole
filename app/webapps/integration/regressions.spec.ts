@@ -514,12 +514,16 @@ test('a settings group reopened during a save does not reuse its old draft', asy
   await input.fill('https://new.example.test')
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click()
   await expect.poll(() => writes.length).toBe(1)
+  expect(new URL(writes[0]!.request().url()).pathname).toBe('/api/v2/site/app-configurations/groups/observability')
+  expect(writes[0]!.request().postDataJSON()).toEqual({
+    data: { values: { 'observability.traces.otlp_endpoint': 'https://new.example.test' }, reset_keys: [] }
+  })
   await page.goBack()
   const discard = page.getByRole('button', { name: 'Discard changes', exact: true })
   await expect.poll(async () => new URL(page.url()).pathname === '/settings' || (await discard.isVisible())).toBe(true)
   if (await discard.isVisible()) await discard.click()
   await edit.click()
   endpoint = 'https://new.example.test'
-  await writes[0]!.fulfill({ json: { app_configuration: setting('observability.traces.otlp_endpoint', endpoint) } })
+  await writes[0]!.fulfill({ json: { app_configurations: [setting('observability.traces.otlp_endpoint', endpoint)] } })
   await expect(input).toHaveValue(endpoint)
 })

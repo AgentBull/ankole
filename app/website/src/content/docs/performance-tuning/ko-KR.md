@@ -19,7 +19,7 @@ Driver는 모델 응답이나 도구 실행을 기다리는 동안 DB 연결을 
 | `POOL_SIZE`(Compose/Helm에서는 `ANKOLE_DATABASE_POOL_SIZE`) | 10 | replica당 `Ankole.Repo` control-plane 데이터베이스 연결 풀 크기 |
 | `BASE_DB_URLS`(`ankole_pool_size`) | 샤드당 10(dev/test에서는 `2`) | replica당 각 `Ankole.Pod.BaseRepo` Base 샤드 연결 풀 크기 |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | 번들 PostgreSQL 서버의 `max_connections` |
-| `agent_computer.background_agent_job.max_running_per_agent` | 3 | 테넌트 범위 내 Agent당 동시 실행 가능한 최대 Background Agent Job 수 |
+| `background_agent_jobs.max_running_per_agent` | 3 | 테넌트 범위 내 Agent당 동시 실행 가능한 최대 Background Agent Job 수 |
 | `idleReleaseAfter` | 6개 공급자 모두 `15m`(`never`로 유휴 중지 비활성화 가능) | Worker가 유휴 상태로 전환되어 중지되고 CPU·메모리를 반납하기까지의 대기 시간 |
 
 ## 대기 중인 경계를 조정하기

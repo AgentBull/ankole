@@ -103,9 +103,11 @@ defmodule Ankole.Pod.BaseRepo do
     with_shard(shard, fn ->
       schema = tenant_schema!()
 
-      names =
-        query!("SELECT tablename FROM pg_tables WHERE schemaname=$1 ORDER BY tablename", [schema]).rows
-        |> List.flatten()
+      [[exists?, names]] =
+        query!(
+          "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1), ARRAY(SELECT tablename FROM pg_tables WHERE schemaname=$1 ORDER BY tablename)",
+          [schema]
+        ).rows
 
       for batch <- Enum.chunk_every(names, 100) do
         {:ok, :ok} =
@@ -123,11 +125,15 @@ defmodule Ankole.Pod.BaseRepo do
           end)
       end
 
-      transact(fn ->
-        query!("SET LOCAL lock_timeout = '15s'", [])
-        query!("DROP SCHEMA IF EXISTS \"#{schema}\" CASCADE", [])
+      if exists? do
+        transact(fn ->
+          query!("SET LOCAL lock_timeout = '15s'", [])
+          query!("DROP SCHEMA IF EXISTS \"#{schema}\" CASCADE", [])
+          {:ok, :ok}
+        end)
+      else
         {:ok, :ok}
-      end)
+      end
     end)
   end
 end

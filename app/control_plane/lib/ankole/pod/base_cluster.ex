@@ -31,15 +31,16 @@ defmodule Ankole.Pod.BaseCluster do
     [[version]] = Repo.query!("SELECT current_setting('server_version_num')::integer", []).rows
     if version < 180_000, do: raise("Ankole requires PostgreSQL 18 or later")
 
-    configured = Enum.map(databases(), & &1.id)
+    shards = databases()
+    configured = Enum.map(shards, & &1.id)
     assigned = Ankole.Tenants.assigned_base_db_ids()
     missing = assigned -- configured
     if missing != [], do: raise("BASE_DB_URLS omits assigned shards: #{inspect(missing)}")
 
-    children =
-      for shard <- databases() do
-        initialize!(shard, collation)
+    initialize_shards!(shards, collation)
 
+    children =
+      for shard <- shards do
         Supervisor.child_spec(
           {BaseRepo,
            [
@@ -54,6 +55,27 @@ defmodule Ankole.Pod.BaseCluster do
       end
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp initialize_shards!([], _collation), do: :ok
+
+  defp initialize_shards!(shards, collation) do
+    shards
+    |> Enum.map(fn shard ->
+      spawn_monitor(fn -> initialize!(shard, collation) end)
+    end)
+    |> Enum.each(fn {pid, ref} ->
+      receive do
+        {:DOWN, ^ref, :process, ^pid, :normal} ->
+          :ok
+
+        {:DOWN, ^ref, :process, ^pid, {exception, stacktrace}} when is_exception(exception) ->
+          reraise(exception, stacktrace)
+
+        {:DOWN, ^ref, :process, ^pid, reason} ->
+          exit(reason)
+      end
+    end)
   end
 
   def check_identity!(connection, expected) do

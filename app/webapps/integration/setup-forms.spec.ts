@@ -115,6 +115,7 @@ test('the first administrator completes setup only after SMTP configuration and 
       mail: { server: 'smtp.example.test', port: 587, from: 'login@example.test' }
     })
   expect(verified).toBeUndefined()
+  await expect(page.locator('[data-slot="input-otp-slot"]')).toHaveCount(6)
   await page.getByRole('textbox', { name: '6-digit email code', exact: true }).fill('123456')
   await page.getByRole('button', { name: 'Verify code and complete setup', exact: true }).click()
   await expect

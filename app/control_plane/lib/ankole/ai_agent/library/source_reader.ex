@@ -144,55 +144,69 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   Loads the default SOUL template, falling back to a minimal builtin value.
   """
   @spec load_default_soul_template() :: String.t()
-  def load_default_soul_template do
-    templates_root()
-    |> Path.join(@soul_file)
-    |> File.read()
-    |> case do
-      {:ok, content} -> content
-      {:error, _reason} -> @fallback_soul
-    end
-  end
+  def load_default_soul_template, do: load_default_template(@soul_file, @fallback_soul)
 
   @doc """
   Loads the default MISSION template, falling back to an empty document.
   """
   @spec load_default_mission_template() :: String.t()
-  def load_default_mission_template do
-    templates_root()
-    |> Path.join(@mission_file)
-    |> File.read()
-    |> case do
-      {:ok, content} -> content
-      {:error, _reason} -> @fallback_mission
-    end
-  end
+  def load_default_mission_template, do: load_default_template(@mission_file, @fallback_mission)
 
   @doc """
   Loads the default DESIGN template, falling back to an empty document.
   """
   @spec load_default_design_template() :: String.t()
-  def load_default_design_template do
-    templates_root()
-    |> Path.join(@design_file)
-    |> File.read()
-    |> case do
-      {:ok, content} -> content
-      {:error, _reason} -> @fallback_design
-    end
-  end
+  def load_default_design_template, do: load_default_template(@design_file, @fallback_design)
 
   @doc """
   Loads the default confidentiality policy template, falling back to an empty document.
   """
   @spec load_default_confidentiality_policy_template() :: String.t()
   def load_default_confidentiality_policy_template do
-    templates_root()
-    |> Path.join(@confidentiality_policy_file)
-    |> File.read()
-    |> case do
+    load_default_template(@confidentiality_policy_file, @fallback_confidentiality_policy)
+  end
+
+  defp load_default_template(filename, fallback) do
+    root = templates_root()
+    ttl_ms = source_cache_ttl_ms()
+
+    if ttl_ms > 0 do
+      load_default_template_cached(root, filename, fallback, ttl_ms)
+    else
+      read_default_template(root, filename, fallback)
+    end
+  end
+
+  defp load_default_template_cached(root, filename, fallback, ttl_ms) do
+    key = {__MODULE__, :default_template, filename}
+    now_ms = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get(key, nil) do
+      %{expires_at_ms: expires_at_ms, root: ^root, content: content}
+      when now_ms < expires_at_ms ->
+        content
+
+      _cache_miss ->
+        case File.read(Path.join(root, filename)) do
+          {:ok, content} ->
+            :persistent_term.put(key, %{
+              expires_at_ms: now_ms + ttl_ms,
+              root: root,
+              content: content
+            })
+
+            content
+
+          {:error, _reason} ->
+            fallback
+        end
+    end
+  end
+
+  defp read_default_template(root, filename, fallback) do
+    case File.read(Path.join(root, filename)) do
       {:ok, content} -> content
-      {:error, _reason} -> @fallback_confidentiality_policy
+      {:error, _reason} -> fallback
     end
   end
 
@@ -569,7 +583,9 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp source_cache_ttl_ms do
+  @doc false
+  @spec source_cache_ttl_ms() :: non_neg_integer()
+  def source_cache_ttl_ms do
     case Keyword.get(library_config(), :source_cache_ttl_ms, 30_000) do
       ttl when is_integer(ttl) and ttl > 0 -> ttl
       _ttl -> 0

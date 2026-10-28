@@ -96,7 +96,7 @@ defmodule Ankole.Sessions.TurnEnvelopeTest do
     {:ok, _} = Ankole.AppConfigure.put_global(Ankole.Security.SSRFFilter.definition(), true)
 
     {:ok, _} =
-      Ankole.AppConfigure.put_tenant_by_key("worker.rendered_fetch_idle_ttl_ms", 600_000)
+      Ankole.AppConfigure.put_tenant_by_key("agent_workers.rendered_fetch_idle_ttl_ms", 600_000)
 
     assert %FabricProto.Envelope{body: {:turn_start, start}} = turn_start(%{})
 

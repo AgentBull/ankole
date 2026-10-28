@@ -1000,7 +1000,11 @@ WebSocket, and synchronous Responses uniformly):
 
 - A program runs until it finishes or hits its first unanswered batch of nested
   tool calls; resuming replays the program from the start against recorded
-  tool answers.
+  tool answers. The runner consumes each recorded answer only when the next
+  call has the same namespace, name, and JSON arguments; object-key order does
+  not affect equality. A replay mismatch remains a failed step even if the
+  program catches the exception. Failed steps expose no pending calls, and a
+  completed step must have consumed every recorded answer.
 - Nested calls carry their `programmatic` caller scope, and Agent Computer runs
   a call only when its frozen descriptor permits `programmatic` callers—turning
   direct-only or malformed calls into explicit tool errors before they cross the
@@ -1041,7 +1045,12 @@ single wire alias—keeping names matching `[A-Za-z0-9_-]{1,64}` unchanged,
 encoding others as a readable prefix plus a 12-character BLAKE3 hash (distinct
 from the Codex JavaScript global-name rule, rejecting alias collisions), and
 restoring `namespace` and `name` before events enter the public Responses
-stream.
+stream. For custom tools, both adapters declare an object with one required
+string field, `input`, and restore the public `custom_tool_call` with its raw
+text input. They buffer the provider's JSON fragments until the complete text
+can be decoded, then emit `response.custom_tool_call_input.done`. Explicit tool
+choices and replayed custom call/result pairs use the same wire identity and
+input wrapper.
 
 `ResponseStream` is the single owner of public events, sequence numbers, loop
 advancement, and PostgreSQL commits—accumulating public text and reasoning

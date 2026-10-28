@@ -1,5 +1,317 @@
 use super::super::*;
 
+struct IdentityCase {
+    namespace: Option<&'static str>,
+    name: String,
+    custom: bool,
+    wrapped: bool,
+}
+
+impl IdentityCase {
+    fn declaration(&self) -> Value {
+        let mut tool = if self.custom {
+            json!({"type": "custom", "name": self.name, "format": {"type": "text"}})
+        } else {
+            json!({"type": "function", "name": self.name, "parameters": {"type": "object"}})
+        };
+        if self.wrapped {
+            tool = json!({"type": "function", "function": tool});
+        }
+        match self.namespace {
+            Some(namespace) => json!({"type": "namespace", "name": namespace, "tools": [tool]}),
+            None => tool,
+        }
+    }
+}
+
+fn identity_resolver(kind: APIResolverKind, declarations: Vec<Value>) -> APIResolver {
+    APIResolver::new(
+        kind,
+        ResponseContext {
+            model: "provider-test".to_string(),
+            request: json!({"tools": declarations}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    )
+}
+
+fn wire_names(body: &Map<String, Value>) -> Vec<&str> {
+    body.get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|tool| {
+            tool.get("function")
+                .unwrap_or(tool)
+                .get("name")
+                .and_then(Value::as_str)
+                .expect("every emitted tool must have a wire name")
+        })
+        .collect()
+}
+
+#[test]
+fn bounded_tool_sets_reject_alias_collisions_or_roundtrip_every_identity() {
+    // These representatives cover root/default/named namespaces, underscore
+    // joins, custom/function collisions, nested declarations and byte limits.
+    // Enumerate every ordered list of zero to three entries, with repetition.
+    let cases: Vec<_> = [
+        (None, "lookup".to_owned(), false, false),
+        (Some("functions"), "lookup".to_owned(), false, false),
+        (Some("alpha"), "lookup".to_owned(), false, false),
+        (None, "alpha__lookup".to_owned(), false, false),
+        (Some("alpha_"), "lookup".to_owned(), false, false),
+        (Some("alpha"), "_lookup".to_owned(), false, false),
+        (Some("alpha"), "lookup".to_owned(), true, false),
+        (Some("beta"), "lookup".to_owned(), true, false),
+        (None, "$lookup".to_owned(), true, false),
+        (None, "查找😀".to_owned(), false, false),
+        (None, "x".repeat(64), false, false),
+        (None, "x".repeat(65), false, false),
+        (Some("alpha"), "x".repeat(64), false, false),
+        (None, "plain".to_owned(), false, true),
+        (Some("beta"), "lookup".to_owned(), false, false),
+        (None, "alpha_lookup".to_owned(), false, false),
+    ]
+    .into_iter()
+    .map(|(namespace, name, custom, wrapped)| IdentityCase {
+        namespace,
+        name,
+        custom,
+        wrapped,
+    })
+    .collect();
+    let mut checked = 0;
+    let mut accepted = 0;
+    let mut rejected = 0;
+    for kind in [
+        APIResolverKind::OpenAIChatCompletions,
+        APIResolverKind::AnthropicMessages,
+    ] {
+        // Derive each alias through the real adapter in isolation. The oracle
+        // checks composition and reversal without copying the alias algorithm.
+        let aliases: Vec<String> = cases
+            .iter()
+            .map(|case| {
+                let body = identity_resolver(kind, vec![case.declaration()])
+                    .build_body()
+                    .unwrap();
+                let names = wire_names(&body);
+                assert_eq!(names.len(), 1);
+                names[0].to_owned()
+            })
+            .collect();
+        for length in 0..=3 {
+            for mut encoding in 0..cases.len().pow(length) {
+                let indices: Vec<_> = (0..length)
+                    .map(|_| {
+                        let index = encoding % cases.len();
+                        encoding /= cases.len();
+                        index
+                    })
+                    .collect();
+                let expected_names: Vec<_> = indices.iter().map(|&i| aliases[i].as_str()).collect();
+                let unique: BTreeSet<_> = expected_names.iter().copied().collect();
+                let mut resolver = identity_resolver(
+                    kind,
+                    indices.iter().map(|&i| cases[i].declaration()).collect(),
+                );
+                let body = resolver.build_body();
+                checked += 1;
+                if unique.len() != expected_names.len() {
+                    assert_eq!(body.unwrap_err().code, "tool_namespace_alias_collision");
+                    rejected += 1;
+                    continue;
+                }
+                let body = body.unwrap();
+                assert_eq!(wire_names(&body), expected_names);
+                for name in &expected_names {
+                    assert!(!name.is_empty() && name.len() <= 64);
+                    assert!(
+                        name.bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                    );
+                }
+                accepted += 1;
+                if indices.is_empty() {
+                    continue;
+                }
+                let calls: Vec<_> = indices
+                    .iter()
+                    .enumerate()
+                    .map(|(position, &i)| {
+                        let input = if cases[i].custom { json!({"input": "payload"}) } else { json!({"x": 1}) };
+                        let id = format!("call_{position}");
+                        if kind == APIResolverKind::OpenAIChatCompletions {
+                            json!({"id": id, "type": "function", "function": {
+                                "name": aliases[i], "arguments": sonic_rs::to_string(&input).unwrap()
+                            }})
+                        } else {
+                            json!({"id": id, "type": "tool_use", "name": aliases[i], "input": input})
+                        }
+                    })
+                    .collect();
+                let response = if kind == APIResolverKind::OpenAIChatCompletions {
+                    json!({"id": "response", "choices": [{"message": {"role": "assistant", "tool_calls": calls}, "finish_reason": "tool_calls"}]})
+                } else {
+                    json!({"id": "response", "content": calls, "stop_reason": "tool_use", "usage": {}})
+                };
+                let response = resolver.normalize_body(200, response).unwrap();
+                let output = response["output"].as_array().unwrap();
+                assert_eq!(output.len(), indices.len());
+                for (position, (&i, output)) in indices.iter().zip(output).enumerate() {
+                    let original = &cases[i];
+                    assert_eq!(output["name"], original.name);
+                    assert_eq!(
+                        output.get("namespace").and_then(Value::as_str),
+                        original.namespace
+                    );
+                    assert_eq!(output["call_id"], format!("call_{position}"));
+                    assert_eq!(
+                        output["type"],
+                        if original.custom {
+                            "custom_tool_call"
+                        } else {
+                            "function_call"
+                        },
+                        "{kind:?} identity {i} in {indices:?}"
+                    );
+                    if original.custom {
+                        assert_eq!(output["input"], "payload");
+                    } else {
+                        let arguments: Value =
+                            sonic_rs::from_str(output["arguments"].as_str().unwrap()).unwrap();
+                        assert_eq!(arguments, json!({"x": 1}));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 8738);
+    assert!(accepted > 0 && rejected > 0);
+}
+
+#[test]
+fn anthropic_custom_tools_preserve_schema_choice_replay_and_fragmented_input() {
+    let input = "line one\nquote \" and slash \\ 😀";
+    let encoded = sonic_rs::to_string(&json!({"input": input})).unwrap();
+    for namespace in [None, Some("editing")] {
+        let case = IdentityCase {
+            namespace,
+            name: "apply_patch".to_owned(),
+            custom: true,
+            wrapped: false,
+        };
+        let mut choice = json!({"type": "custom", "name": case.name});
+        let mut previous = json!({
+            "type": "custom_tool_call", "call_id": "previous", "name": case.name, "input": input
+        });
+        if let Some(namespace) = namespace {
+            choice["namespace"] = json!(namespace);
+            previous["namespace"] = json!(namespace);
+        }
+        let context = ResponseContext {
+            model: "provider-test".to_string(),
+            request: json!({
+                "tools": [case.declaration()],
+                "tool_choice": choice,
+                "input": [previous, {"type": "custom_tool_call_output", "call_id": "previous", "output": "done"}]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+        let resolver = APIResolver::new(APIResolverKind::AnthropicMessages, context.clone());
+        let body = Value::Object(resolver.build_body().unwrap());
+        let alias = body["tools"][0]["name"].as_str().unwrap();
+        assert_eq!(
+            body["tools"][0]["input_schema"]["properties"]["input"]["type"],
+            "string"
+        );
+        assert_eq!(
+            body["tools"][0]["input_schema"]["required"],
+            json!(["input"])
+        );
+        assert_eq!(
+            body["tools"][0]["input_schema"]["additionalProperties"],
+            false
+        );
+        assert_eq!(body["tool_choice"], json!({"type": "tool", "name": alias}));
+        assert_eq!(
+            body["messages"][0]["content"][0],
+            json!({
+                "type": "tool_use", "id": "previous", "name": alias, "input": {"input": input}
+            })
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0],
+            json!({
+                "type": "tool_result", "tool_use_id": "previous", "content": "done"
+            })
+        );
+
+        // Exercise every UTF-8-safe split of the JSON wrapper, including inside
+        // JSON escape sequences. Only the completed text belongs in public events.
+        for split in (0..=encoded.len()).filter(|&split| encoded.is_char_boundary(split)) {
+            let mut resolver =
+                APIResolver::new(APIResolverKind::AnthropicMessages, context.clone());
+            let mut events = Vec::new();
+            for event in [
+                json!({"type": "message_start", "message": {"id": "response", "model": "provider-test"}}),
+                json!({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "current", "name": alias, "input": {}}}),
+                json!({"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": &encoded[..split]}}),
+                json!({"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": &encoded[split..]}}),
+                json!({"type": "content_block_stop", "index": 0}),
+                json!({"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {}}),
+                json!({"type": "message_stop"}),
+            ] {
+                events.extend(resolver.ingest(event).unwrap());
+            }
+            assert!(!events.iter().any(|event| {
+                event["type"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("response.function_call_arguments.")
+            }));
+            let input_events: Vec<_> = events
+                .iter()
+                .filter(|event| event["type"] == "response.custom_tool_call_input.done")
+                .collect();
+            assert_eq!(input_events.len(), 1);
+            assert_eq!(input_events[0]["input"], input);
+            for event_type in ["response.output_item.added", "response.output_item.done"] {
+                let item = &events
+                    .iter()
+                    .find(|event| event["type"] == event_type)
+                    .unwrap()["item"];
+                assert_eq!(item["type"], "custom_tool_call");
+                assert_eq!(item["name"], "apply_patch");
+                assert_eq!(item.get("namespace").and_then(Value::as_str), namespace);
+                assert_eq!(item["call_id"], "current");
+                assert!(item.get("arguments").is_none());
+                assert_eq!(
+                    item["input"],
+                    if event_type.ends_with("done") {
+                        input
+                    } else {
+                        ""
+                    }
+                );
+            }
+            let terminal = events
+                .iter()
+                .find(|event| event["type"] == "response.completed")
+                .unwrap();
+            let item = &terminal["response"]["output"][0];
+            assert_eq!(item["type"], "custom_tool_call");
+            assert_eq!(item["input"], input);
+            assert_eq!(item.get("namespace").and_then(Value::as_str), namespace);
+        }
+    }
+}
+
 #[test]
 fn openai_chat_emulates_and_restores_namespaced_custom_tool_calls() {
     let patch = "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n";

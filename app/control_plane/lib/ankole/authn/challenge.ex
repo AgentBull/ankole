@@ -62,7 +62,8 @@ defmodule Ankole.Authn.Challenge do
         :secret_digest,
         :ceremony_context,
         :max_attempts,
-        :challenge_started_at
+        :challenge_started_at,
+        :expires_at
       ])
     end
 

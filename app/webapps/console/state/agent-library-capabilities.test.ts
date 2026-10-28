@@ -95,5 +95,12 @@ describe('Agent Library capability state', () => {
       '/agent-library/agent-plugins/office?scope=agent%2Fa'
     )
     expect(humanizeAgentPluginID('deep-research')).toBe('Deep Research')
+    expect(
+      agentLibraryScopeQuery(
+        '/agent-library',
+        GLOBAL_LIBRARY_SCOPE,
+        new URLSearchParams('scope=an-agent&defaults_scope=global&tab=skills')
+      )
+    ).toBe('/agent-library?defaults_scope=global&tab=skills')
   })
 })

@@ -3,6 +3,7 @@ import type { LoginProvidersData } from '../common/api/generated/types.gen'
 
 export interface LoginContext {
   oauthRequest?: string
+  tenantID?: string
   purpose?: string
   returnTo?: string
   prompt?: string
@@ -33,6 +34,7 @@ export function readLoginSearch(search = window.location.search): {
 } {
   const params = new URLSearchParams(search)
   const oauthRequest = readParam(params, 'oauth_request')
+  const tenantID = readParam(params, 'tenant_id')
   const purpose = readParam(params, 'purpose')
   const returnTo = readParam(params, 'return_to')
   const prompt = readParam(params, 'prompt')
@@ -43,6 +45,7 @@ export function readLoginSearch(search = window.location.search): {
 
   const query: NonNullable<LoginProvidersData['query']> = compactRecord({
     oauth_request: oauthRequest,
+    tenant_id: tenantID,
     purpose,
     prompt,
     switch: switchAccount,
@@ -53,6 +56,7 @@ export function readLoginSearch(search = window.location.search): {
 
   const context: LoginContext = compactRecord({
     oauthRequest,
+    tenantID,
     purpose,
     returnTo,
     prompt,
@@ -77,6 +81,7 @@ export function loginContextKey(context?: LoginContext): string {
     origin,
     pathname,
     context?.oauthRequest ?? '',
+    context?.tenantID ?? '',
     context?.purpose ?? '',
     context?.reauth ?? '',
     context?.invitation ?? '',
