@@ -35,7 +35,6 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     )
 
     setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     # OpenRouter provider routing preferences (`order`, `only`, `ignore`,
     # `allow_fallbacks`, `require_parameters`, ...). The map goes to the request
@@ -79,6 +78,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> common_headers(ctx)
     |> UniversalAIRequest.bearer_auth()
     |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+    |> UniversalAIRequest.rename_provider_option("textVerbosity", "verbosity")
     |> put_prompt_cache_key(ctx)
     |> put_session_id(ctx)
     |> put_anthropic_cache_control(ctx)

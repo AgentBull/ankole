@@ -44,7 +44,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
     setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
     setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     language_model do
       api_resolver(:openai_chat_completions)

@@ -35,8 +35,6 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
       scope: :request
     )
 
-    setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
     setting(:taskType, scope: :request, advanced: true)
     setting(:title, scope: :request, advanced: true)
     setting(:outputDimensionality, type: :integer, scope: :request, advanced: true)

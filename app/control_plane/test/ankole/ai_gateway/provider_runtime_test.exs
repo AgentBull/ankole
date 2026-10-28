@@ -849,6 +849,33 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
            ]
   end
 
+  test "turn start specs declare no native tools for an OpenAI Chat Completions endpoint" do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
+    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-chat-hosted-tools",
+               provider_kind: "openai",
+               connection_options: %{"endpoint_kind" => "chat_completions"},
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-chat-hosted-tools",
+               model: "gpt-5"
+             })
+
+    # Chat Completions accepts only function and custom tools, so the default
+    # provider-hosted capabilities declare nothing on this endpoint.
+    assert {:ok, turn_start_spec} =
+             Context.runtime(%{agent_uid: agent.uid, session_id: "session-openai-chat-tools"})
+
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
+  end
+
   test "turn start specs declare hosted web search for a Responses endpoint the Agent leaves to it" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)

@@ -117,6 +117,22 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   end
 
   @doc """
+  Moves one request-scoped provider option to the field name that the upstream
+  accepts. Provider modules use it after option normalization, which can
+  return an error.
+  """
+  @spec rename_provider_option(t() | {:error, term()}, binary(), binary()) ::
+          t() | {:error, term()}
+  def rename_provider_option({:error, _reason} = error, _public_key, _native_key), do: error
+
+  def rename_provider_option(%__MODULE__{} = request, public_key, native_key) do
+    case Map.pop(request.provider_options || %{}, public_key) do
+      {nil, _options} -> request
+      {value, options} -> put_provider_options(request, Map.put(options, native_key, value))
+    end
+  end
+
+  @doc """
   Adds or replaces a header while preserving ordered header output.
 
   `nil` and blank values are no-ops so provider prepare code can compose auth

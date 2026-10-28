@@ -362,7 +362,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
                context_length: 262_144,
                provider_options: %{
                  "reasoningEffort" => "xhigh",
-                 "strictJSONSchema" => true,
                  "textVerbosity" => "low"
                }
              })

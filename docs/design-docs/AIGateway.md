@@ -213,6 +213,17 @@ Every declared provider setting belongs to one of three scopes:
 - `credential` — encrypted inside each individual pool entry.
 - `request` — stored in plaintext on a model profile or passed per request.
 
+A provider declares a `request` setting only when its prepare code writes the
+value to an upstream field. Public names stay camelCase, and prepare code moves
+each value to the native field name: OpenAI-family providers send
+`promptCacheKey`, `promptCacheRetention`, and `contextManagement` as
+`prompt_cache_key`, `prompt_cache_retention`, and `context_management`,
+OpenRouter sends `textVerbosity` as `verbosity`, and Claude sends `inferenceGeo`
+as `inference_geo`. OpenAI Chat Completions rejects the Responses-only options
+`reasoningSummary`, `truncation`, and `contextManagement` with
+`unsupported_provider_option`. Claude accepts the `reasoningEffort` values
+`low`, `medium`, `high`, and `xhigh`, and sends `xhigh` as `max`.
+
 Only `credential` settings may set `encrypted: true`; `ProviderDSL` rejects
 `encrypted` in `connection` or `request` scopes at compile/declaration time.
 `select` settings restrict values to a closed option list, whereas `string`
@@ -241,10 +252,13 @@ Language-model capabilities can also declare `supports_parallel_tool_calls` and
 support depends on how an endpoint is configured rather than on the provider
 kind as a whole, the provider row itself declares that capability:
 
-- On an `openai_compatible` row, `endpoint_kind` determines hosted web search:
-  connections using the Responses wire advertise `web_search`, whereas Chat
-  Completions connections do not. `TurnPolicy` reads `endpoint_kind` so Main
-  Turns and Background Agent Jobs expose identical hosted tools. Across all
+- On every row, `endpoint_kind` determines native hosted tools: connections
+  using the Responses wire advertise `web_search`, and also `image_generation`
+  when the kind declares `supports_native_image_generation`. Chat Completions
+  connections, including an `openai` row set to `chat_completions`, advertise
+  neither, because Chat Completions accepts only function and custom tools.
+  `TurnPolicy` reads `endpoint_kind` so Main Turns and Background Agent Jobs
+  expose identical hosted tools. Across all
   boundaries, Ankole accepts only `image_generation`, `web_search`, and `brain`
   as turn hosted-tool types (`brain` depends solely on the site's
   `brain.enabled` flag because AIGateway executes it locally across every
@@ -1422,7 +1436,8 @@ caller, validating up front that `output_compression` is set only when
 
 - **Native execution**: When the main LLM provider's Responses capability
   declares `supports_native_image_generation` (such as OpenAI and
-  `chatgpt_subscription`), that provider executes image generation natively
+  `chatgpt_subscription`) and its row uses the Responses wire, that provider
+  executes image generation natively
   without resolving or validating any fallback `image_generate` profile—so a
   stale fallback configuration never blocks ordinary chats.
 - **Hosted fallback**: When the main provider lacks native support, AIGateway

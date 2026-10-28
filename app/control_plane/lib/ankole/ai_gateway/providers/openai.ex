@@ -52,7 +52,6 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     setting(:promptCacheKey, scope: :request, advanced: true)
     setting(:promptCacheRetention, scope: :request, advanced: true)
     setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
-    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     setting(:textVerbosity,
       type: :select,
@@ -61,17 +60,13 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     )
 
     setting(:truncation, scope: :request, advanced: true)
-    setting(:systemMessageMode, scope: :request, advanced: true)
-    setting(:forceReasoning, type: :boolean, scope: :request, advanced: true)
     setting(:contextManagement, type: :map, scope: :request, advanced: true)
-    setting(:allowedTools, scope: :request, advanced: true)
 
     language_model do
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
       supports_native_image_generation()
-      supports_native_web_search()
     end
   end
 

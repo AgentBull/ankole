@@ -11,6 +11,8 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
 
   @reasoning_summary_values ~w(auto concise detailed)
   @text_verbosity_values ~w(low medium high)
+  # OpenAI Chat Completions rejects these Responses request fields.
+  @responses_only_options ~w(reasoningSummary truncation contextManagement)
 
   @type endpoint :: :responses | :chat_completions
 
@@ -32,24 +34,35 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
       (request.provider_options || %{})
       |> put_nested_option("reasoningSummary", "reasoning", "summary")
       |> put_nested_option("textVerbosity", "text", "verbosity")
-      |> rename_option("serviceTier", "service_tier")
+      |> rename_common_options()
+      |> rename_option("contextManagement", "context_management")
 
     UniversalAIRequest.put_provider_options(request, options)
   end
 
   def put_provider_options(%UniversalAIRequest{} = request, :chat_completions) do
-    case Map.pop(request.provider_options || %{}, "reasoningSummary") do
-      {nil, options} ->
+    options = request.provider_options || %{}
+
+    case Enum.find(@responses_only_options, &Map.has_key?(options, &1)) do
+      nil ->
         UniversalAIRequest.put_provider_options(
           request,
           options
           |> rename_option("textVerbosity", "verbosity")
-          |> rename_option("serviceTier", "service_tier")
+          |> rename_common_options()
         )
 
-      {_value, _options} ->
-        {:error, {:unsupported_provider_option, "reasoningSummary", "chat_completions"}}
+      option ->
+        {:error, {:unsupported_provider_option, option, "chat_completions"}}
     end
+  end
+
+  # Both OpenAI wires accept these fields under their snake_case names.
+  defp rename_common_options(options) do
+    options
+    |> rename_option("serviceTier", "service_tier")
+    |> rename_option("promptCacheKey", "prompt_cache_key")
+    |> rename_option("promptCacheRetention", "prompt_cache_retention")
   end
 
   defp put_nested_option(options, public_key, object_key, native_key) do

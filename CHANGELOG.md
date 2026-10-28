@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 2.1.0-alpha.3 (2026-10-28)
+
+- Stop declaring native image generation and web search to an OpenAI provider
+  that uses Chat Completions. Chat Completions rejected those tools, so every
+  Agent turn on such a provider failed.
+- Send model profile request options under the field names that each upstream
+  accepts, such as `prompt_cache_key`, `verbosity`, and `inference_geo`. Reject
+  Responses-only options on Chat Completions.
+- Remove request options that had no upstream field: `strictJSONSchema`, the
+  OpenAI `systemMessageMode`, `forceReasoning`, and `allowedTools`, the Google AI
+  Studio `textVerbosity`, and the Claude `structuredOutputMode`,
+  `toolStreaming`, `taskBudget`, `anthropicBeta`, and `contextManagement`. A
+  model profile that stores one of them now fails validation. Before, the
+  upstream rejected the request. Remove the option from the profile.
+- Remove the Claude `none` and `minimal` reasoning effort values, which
+  Anthropic does not accept.
+
 ## Version 2.1.0-alpha.1 (2026-10-28)
 
 - Show tenant-owned Site Console collections across all tenants and let operators
