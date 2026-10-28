@@ -123,19 +123,19 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> recycle()
       |> api_put(~p"/api/v2/browser/setup/brain-packs", %{
         "displayName" => "Acme",
-        "slug" => "acme",
+        "slug" => "qa-company",
         "packs" => ["legal"]
       })
 
     assert api_response(conn, 200) == %{
              "displayName" => "Acme",
-             "slug" => "acme",
+             "slug" => "qa-company",
              "packs" => ["legal"]
            }
 
     assert {:ok, updated} = Ankole.Tenants.get(tenant.id)
     assert updated.display_name == "Acme"
-    assert updated.slug == "acme"
+    assert updated.slug == "qa-company"
     assert WebSession.setup_brain_packs(conn) == ["legal"]
   end
 

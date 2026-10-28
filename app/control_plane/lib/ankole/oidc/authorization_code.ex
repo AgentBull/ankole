@@ -40,6 +40,7 @@ defmodule Ankole.OIDC.AuthorizationCode do
 
     attribute(:scope, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:nonce, :string, public?: true, constraints: [trim?: false, allow_empty?: true])
+    attribute(:auth_time, :integer, public?: true)
 
     attribute(:code_challenge, :string,
       public?: true,
@@ -67,6 +68,7 @@ defmodule Ankole.OIDC.AuthorizationCode do
         :redirect_uri,
         :scope,
         :nonce,
+        :auth_time,
         :code_challenge,
         :expires_at
       ])

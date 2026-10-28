@@ -489,6 +489,52 @@ defmodule Ankole.AutomationJobsTest do
     assert :ok = execute(run, attempt: 4)
   end
 
+  test "the sweep fails an expired attempt that has no Oban job and frees its running slot" do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key("automation_jobs.max_running_per_agent", 1)
+
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source, wake_on_failure: true)
+    orphan = enqueue!(job, trigger_event("orphaned-attempt"))
+    waiting = enqueue!(job, trigger_event("blocked-by-orphan"))
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-orphan-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
+    assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(orphan.id)
+    Repo.delete_all(Oban.Job)
+    assert {:ok, %{status: :waiting_for_worker}} = AutomationJobs.start_attempt(waiting.id)
+
+    assert :ok = AutomationJobs.expire_attempts()
+    assert %Run{status: :running} = Repo.reload!(orphan)
+
+    deadline = DateTime.add(attempt.started_at, ExecuteRun.attempt_deadline_ms(), :millisecond)
+    assert :ok = AutomationJobs.expire_attempts(now: deadline)
+
+    assert %Run{status: :failed, attempt_id: nil, error: error} = Repo.reload!(orphan)
+    assert error =~ "execution outcome unknown"
+
+    assert %Signal{type: "automation_job.run_failed"} =
+             Repo.get_by!(Signal,
+               agent_uid: agent.uid,
+               session_id: source.session_id,
+               type: "automation_job.run_failed"
+             )
+
+    assert {:ok, %{run: %Run{status: :running}}} = AutomationJobs.start_attempt(waiting.id)
+
+    assert {:ok, :stale} =
+             AutomationJobs.infrastructure_failure(
+               orphan.id,
+               attempt.attempt_id,
+               :execution_outcome_unknown,
+               :exhausted
+             )
+  end
+
   test "creation requires main.ts in the drive folder" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)

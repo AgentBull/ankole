@@ -4,7 +4,10 @@ defmodule AnkoleWeb.PodAppletFrameControllerTest do
   alias Ankole.Files, as: Drive
   alias Ankole.Pod.{Files, Pages}
 
-  test "frame modules revalidate privately and reject a stale publication", %{conn: conn} do
+  test "frame modules revalidate privately and reject a stale publication", %{
+    conn: conn,
+    tenant: tenant
+  } do
     {conn, uid} = console_conn_with_principal(conn)
     actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
     {:ok, page} = Pages.create(actor, %{type: "applet", private_owner_uid: uid})
@@ -44,6 +47,16 @@ defmodule AnkoleWeb.PodAppletFrameControllerTest do
     assert get_resp_header(response, "x-frame-options") == ["SAMEORIGIN"]
     assert get_resp_header(response, "content-security-policy") == []
     assert get_resp_header(response, "content-disposition") == []
+
+    index =
+      conn
+      |> recycle_api()
+      |> get("/pod/applet-frame/#{reference}/#{page.id}/1/index.html")
+
+    assert html_response(index, 200) =~ "parent.__ANKOLE_APPLET_HOST__.prepare(window)"
+
+    anonymous = build_conn() |> pod_conn(tenant) |> get(url)
+    assert response(anonymous, 401)
 
     current = conn |> recycle_api() |> get("/pod/applet-frame/current/#{page.id}/1/main.js")
     assert response(current, 200) == "export {}"

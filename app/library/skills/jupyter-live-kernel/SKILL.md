@@ -52,7 +52,7 @@ bash "$BOOTSTRAP"
 uv pip install --python "$AGENT_PYTHON" <package>
 ```
 
-The bootstrap uses the image Python interpreter and adds the image package directory through a `.pth` file. The env stores only package deltas. If a saved env uses a different Python version, set `ANKOLE_AGENT_PYTHON_ENV` to a new directory; the bootstrap preserves the old directory.
+The bootstrap uses the image's `/usr/local/bin/python` wrapper and adds the image package directory through a `.pth` file. Repeated runs use that interpreter, including from an active Agent environment. The env stores only package deltas. If a saved env uses a different Python version, set `ANKOLE_AGENT_PYTHON_ENV` to a new directory; the bootstrap preserves the old directory.
 
 ## File Analysis And Artifact Delivery
 

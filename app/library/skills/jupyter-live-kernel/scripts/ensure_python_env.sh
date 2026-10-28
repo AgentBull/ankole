@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ENV_DIR="${ANKOLE_AGENT_PYTHON_ENV:-${HOME}/.ankole/python}"
-IMAGE_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+IMAGE_PYTHON=/usr/local/bin/python
 
 if [ ! -x "$ENV_DIR/bin/python" ]; then
   mkdir -p "$(dirname "$ENV_DIR")"

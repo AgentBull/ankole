@@ -61,7 +61,14 @@ it('the per-Agent Python bootstrap inherits the image packages without a downloa
     for (let attempt = 0; attempt < 2; attempt++) {
       const result = Bun.spawnSync(
         agentProcessArgv(['bash', '/repo/app/library/skills/jupyter-live-kernel/scripts/ensure_python_env.sh']),
-        { env: { ...process.env, ANKOLE_AGENT_PYTHON_ENV: environment, UV_OFFLINE: '1' } }
+        {
+          env: {
+            ...process.env,
+            ANKOLE_AGENT_PYTHON_ENV: environment,
+            UV_OFFLINE: '1',
+            ...(attempt === 1 ? { PATH: `${environment}/bin:${process.env.PATH}` } : {})
+          }
+        }
       )
       expect(result.stderr.toString()).not.toContain('missing packages')
       expect(result.exitCode, result.stderr.toString()).toBe(0)

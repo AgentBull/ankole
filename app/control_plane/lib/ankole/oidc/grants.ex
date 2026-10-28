@@ -12,7 +12,7 @@ defmodule Ankole.OIDC.Grants do
   @doc """
   Issues an authorization code in the caller's transaction.
 
-  `BrowserSessions.consume_authorization/4` runs its `issue` callback in its
+  `Ankole.OIDC.AuthorizationRequests.consume/4` runs its `issue` callback in its
   transaction, so that callback issues the code with this function.
   """
   def authorize_in_tx(params, authentication) do
@@ -30,7 +30,11 @@ defmodule Ankole.OIDC.Grants do
              code_challenge: params["code_challenge"],
              subject: authentication["principal_uid"],
              scope: String.split(params["scope"], " ", trim: true),
-             claims: %{"session_id" => session.id, "nonce" => params["nonce"]}
+             claims: %{
+               "session_id" => session.id,
+               "nonce" => params["nonce"],
+               "auth_time" => authentication["auth_time"]
+             }
            }) do
       {:ok, code}
     end
@@ -113,7 +117,7 @@ defmodule Ankole.OIDC.Grants do
            Attesto.IDToken.mint(OIDC.attesto_config(), principal.uid, client.id,
              sid: session.id,
              nonce: grant.claims["nonce"],
-             auth_time: session.auth_time,
+             auth_time: grant.claims["auth_time"],
              access_token: access.token,
              extra_claims: Claims.project(principal, human, scope)
            ),
@@ -137,7 +141,7 @@ defmodule Ankole.OIDC.Grants do
                  subject: grant.subject,
                  client_id: grant.client_id,
                  scope: grant.scope,
-                 auth_time: session.auth_time,
+                 auth_time: grant.claims["auth_time"],
                  claims: %{"session_id" => session.id}
                },
                ttl: @refresh_ttl,

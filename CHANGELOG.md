@@ -6,6 +6,21 @@
 - Let Pod administrators view and update their workspace's `defaultLocale` in Pod Settings (`/api/v2/pod/admin/settings`), render Pod and Pod sign-in HTML shells in each Pod's configured locale, and negotiate `Accept-Language` (falling back to `en-US`) on tenant-independent HTML shells and site-wide email OTP deliveries.
 - Layer the Pod and Console workspaces as rounded paper sheets above a ground-level collapsible sidebar, move compact Home/Chat tabs and quick actions into the Pod sidebar header, interleave visited Pages (`visited_at`) and active Conversations in Recently Visited, and surface Favorites inline above the Space tree.
 
+## Version 2.0.0-alpha.33 (2026-10-28)
+
+- Fail an Automation Job run that stays `running` after its attempt deadline
+  when no Oban job owns it. Such runs used the Agent's running slots, and when
+  `automation_jobs.max_running_per_agent` runs leaked, every new run of the
+  Agent stayed queued with no error. Runs that leaked before this version fail
+  within five minutes after the upgrade and send their failure notice when
+  `wake_on_failure` is set.
+
+## Version 2.0.0-alpha.32 (2026-10-27)
+
+- Record the verified authentication time for each OIDC authorization code and use it in ID Tokens and refresh context, including email reauthentication.
+- Keep unchanged PPTX chart data linked to its original workbook cells when series are added or removed. Preserve other workbook cells and correct scatter and bubble values.
+- Keep image Python packages available when the per-Agent Python bootstrap runs from an active Agent environment.
+
 ## Version 2.0.0-alpha.30 (2026-10-28)
 
 - Collect the company name, editable tenant slug, and business packs during Setup, and explain how business selections shape the Company Brain ontology.
