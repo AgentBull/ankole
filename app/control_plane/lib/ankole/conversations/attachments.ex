@@ -261,6 +261,22 @@ defmodule Ankole.Conversations.Attachments do
   defp put_attachment_id(attachment, _index, _existing_attachments), do: attachment
 
   @doc """
+  Applies the stored-bytes rule of `prepare_in_tx/5` without a Message.
+
+  An attachment that `existing` stored replaces its later form without bytes.
+  The caller holds the entry lock.
+  """
+  @spec keep_stored([map()], [map()]) :: [map()]
+  def keep_stored(attachments, existing) do
+    attachments
+    |> Enum.with_index()
+    |> Enum.map(fn {attachment, index} ->
+      stored = matching_existing_attachment(attachment, index, existing)
+      if stored?(stored) and not stored?(attachment), do: stored, else: attachment
+    end)
+  end
+
+  @doc """
   Names in the Agent's drive every stored attachment that an Signal
   payload shows to the Agent and that the drive does not name yet.
 

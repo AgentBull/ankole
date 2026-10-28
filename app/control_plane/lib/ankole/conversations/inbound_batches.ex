@@ -12,6 +12,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   require Ash.Query
 
+  alias Ankole.Conversations.Attachments
   alias Ankole.Signals.Signal
 
   import Ankole.Conversations.MessageInput,
@@ -989,13 +990,15 @@ defmodule Ankole.Conversations.InboundBatches do
   defp batch_entry_content_signature(entry), do: entry
 
   defp inbound_batch_entry(fact, mirror_entry, policy, type, now) do
-    attachments = if mirror_entry, do: mirror_entry.message.attachments, else: fact.attachments
+    attachments =
+      if mirror_entry, do: mirror_entry.message.attachments, else: unmirrored_attachments(fact)
+
     document_id = if mirror_entry, do: mirror_entry.message.id, else: nil
 
     content_hash =
       if mirror_entry,
         do: mirror_entry.external_ref.content_hash,
-        else: Ankole.Attrs.digest([fact.text, fact.attachments])
+        else: Ankole.Attrs.digest([fact.text, attachments])
 
     %{
       "agent_uid" => fact.agent_uid,
@@ -1031,6 +1034,26 @@ defmodule Ankole.Conversations.InboundBatches do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  # An ignored entry has no Message that keeps its stored files. A provider
+  # redelivery must not replace them, so the last observation of the same
+  # provider message supplies them.
+  defp unmirrored_attachments(
+         %{attachments: [_ | _] = attachments, provider_message_id: provider_message_id} = fact
+       )
+       when is_binary(provider_message_id) do
+    case entry_snapshot(
+           fact.agent_uid,
+           fact.binding_name,
+           fact.conversation_id,
+           provider_message_id
+         ) do
+      %{"attachments" => [_ | _] = existing} -> Attachments.keep_stored(attachments, existing)
+      _no_observation -> attachments
+    end
+  end
+
+  defp unmirrored_attachments(fact), do: fact.attachments
 
   defp batch_signal_fact(%InboundBatch{} = batch, channel, type, now) do
     entries = batch.entries

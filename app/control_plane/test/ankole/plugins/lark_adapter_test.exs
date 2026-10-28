@@ -1405,6 +1405,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, [%{status: :ignored}]} =
                Ankole.SignalsFixtures.finalize_due_inbound_batch_events(now: batch.available_at)
 
+      stub_lark_requests(parent, fn _request ->
+        {:json, 400, %{"code" => 400, "msg" => "download unavailable"}}
+      end)
+
+      assert {:ok, [%{status: :ignored, inbound_batch: redelivered_batch}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", ignored, [consumer])
+
+      assert [redelivered] = redelivered_batch.entries
+      assert redelivered["attachments"] == stored["attachments"]
+
       addressed =
         receive_event()
         |> Map.put(:id, "evt_ignored_file_reply")

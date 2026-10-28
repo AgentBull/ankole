@@ -6,6 +6,7 @@
   when the binding ignores unaddressed group messages. A later reply that
   mentions the Agent and quotes the file now gives the Agent the stored file.
   Before, the attachment stayed `pending` and the Agent saw only the file name.
+  A redelivered event keeps the stored file, also when its new download fails.
 
 ## Version 2.0.0-alpha.33 (2026-10-28)
 
