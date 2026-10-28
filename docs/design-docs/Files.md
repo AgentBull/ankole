@@ -301,7 +301,9 @@ in PostgreSQL. After streaming the bytes through
 `Conversations.Attachments.store_attachment/3`, the adapter records a completed
 or failed observation under the same provider identity. Completed attachments
 record `blob_ref`, drive `path`, and byte `size`, and later webhook redeliveries
-cannot overwrite stored bytes with a pending or failed state.
+cannot overwrite stored bytes with a pending or failed state. The same rule
+applies to an ignored group entry that has no Message: its inbound batch entry
+keeps the stored bytes of the last observation of that provider message.
 
 Inbound paths are scoped by the public Conversation UUID at
 `chats/<conversation_id>/inbox/<digest>/<filename>` rather than raw provider
