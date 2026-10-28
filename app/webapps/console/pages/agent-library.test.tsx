@@ -6,6 +6,7 @@ import i18n, { loadLocale } from '../../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import { listControlPlanePluginsQueryKey } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { getGlobalLibraryCapabilitiesQueryKey } from '../api/v2/generated/@tanstack/react-query.gen'
+import { listAgentsQueryKey } from '../api/v2/generated/@tanstack/react-query.gen'
 import { GLOBAL_LIBRARY_SCOPE } from '../state/agent-library-capabilities'
 import { AgentLibraryPage } from './agent-library'
 
@@ -18,6 +19,7 @@ test.each(
         scope,
         defaultsScope,
         source: 'site plugins',
+        visible: scope === GLOBAL_LIBRARY_SCOPE,
         key: listControlPlanePluginsQueryKey(),
         data: { control_plane_plugins: [] }
       },
@@ -25,14 +27,23 @@ test.each(
         scope,
         defaultsScope,
         source: 'defaults',
+        visible: scope === GLOBAL_LIBRARY_SCOPE,
         key: getGlobalLibraryCapabilitiesQueryKey({ query: { defaults_scope: defaultsScope } }),
         data: { agent_plugins: [], skills: [] }
+      },
+      {
+        scope,
+        defaultsScope,
+        source: 'Agent selector',
+        visible: defaultsScope === 'tenant' || scope === 'agent-a',
+        key: listAgentsQueryKey(),
+        data: { data: [] }
       }
     ])
   )
 )(
   'a cached $source error is visible only in its library scope ($defaultsScope/$scope)',
-  async ({ scope, defaultsScope, key, data }) => {
+  async ({ scope, defaultsScope, key, data, visible }) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
     client
       .getQueryCache()
@@ -56,7 +67,7 @@ test.each(
           <RouterProvider router={router} />
         </QueryClientProvider>
       )
-      expect(html.includes('library unavailable')).toBe(scope === GLOBAL_LIBRARY_SCOPE)
+      expect(html.includes('library unavailable')).toBe(visible)
       expect(html.includes(`aria-label="${i18n.t('console.agent_library_capabilities.scope')}"`)).toBe(
         !(scope === GLOBAL_LIBRARY_SCOPE && defaultsScope === 'global')
       )

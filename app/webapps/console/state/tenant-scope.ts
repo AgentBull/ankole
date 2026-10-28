@@ -1,6 +1,6 @@
 import type { QueryKey, UseMutationOptions } from '@tanstack/react-query'
 import { coreConsoleRouteScopes } from '../slots'
-import { GLOBAL_LIBRARY_SCOPE } from './agent-library-capabilities'
+import { GLOBAL_LIBRARY_SCOPE, isSiteLibraryDefaults } from './agent-library-capabilities'
 
 const collections = new Set([
   '/',
@@ -46,7 +46,7 @@ export function consoleTenantPage(path: string, search: URLSearchParams): 'site'
   if (path === '/agent-library' || path.startsWith('/agent-library/')) {
     const scope = search.get('scope')
     if (scope && scope !== GLOBAL_LIBRARY_SCOPE) return 'record'
-    if (search.get('defaults_scope') === 'global') return 'site'
+    if (isSiteLibraryDefaults(scope || GLOBAL_LIBRARY_SCOPE, search.get('defaults_scope') ?? 'tenant')) return 'site'
   }
   if (collections.has(path)) return 'collection'
   return tenantRoots.has(path.split('/')[1]!) ? 'record' : 'site'

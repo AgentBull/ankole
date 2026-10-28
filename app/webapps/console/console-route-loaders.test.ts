@@ -4,8 +4,26 @@ import { backgroundAgentJobsOptions } from './api/background-agent-jobs'
 import { resourceID } from './console-primitives'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { conversationListOptions } from './pages/conversations'
+import { getGlobalLibraryCapabilitiesOptions } from './api/v2/generated/@tanstack/react-query.gen'
+import { listControlPlanePluginsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 
 describe('console route identifiers', () => {
+  test('prefetches site library defaults without a tenant Agent catalog', async () => {
+    const requests: unknown[] = []
+    const queryClient = {
+      ensureQueryData: (options: unknown) => {
+        requests.push(options)
+        return Promise.resolve({})
+      }
+    } as unknown as QueryClient
+    await createConsoleRouteLoaders(queryClient).agentLibrary({ location: { searchStr: '?defaults_scope=global' } })
+    expect(requests).toEqual([
+      expect.objectContaining({
+        queryKey: getGlobalLibraryCapabilitiesOptions({ query: { defaults_scope: 'global' } }).queryKey
+      }),
+      expect.objectContaining({ queryKey: listControlPlanePluginsOptions().queryKey })
+    ])
+  })
   test('uses the lower bound from the owning API', () => {
     expect(resourceID('999', 1)).toBe(999)
     expect(resourceID('999', 1000)).toBeUndefined()

@@ -71,6 +71,7 @@ import { ConfirmDeleteButton, SaveButton } from '../console-form'
 import { ResourceSearch } from '../console-list-page'
 import {
   GLOBAL_LIBRARY_SCOPE,
+  isSiteLibraryDefaults,
   type AgentLibraryTab,
   agentLibraryOverrideValue,
   agentLibraryScopeQuery,
@@ -97,7 +98,7 @@ export function AgentLibraryPage() {
       return params
     })
   const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
-  const siteDefaults = scope === GLOBAL_LIBRARY_SCOPE && defaultsScope === 'global'
+  const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
   const [pluginQuery, setPluginQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
@@ -260,7 +261,7 @@ export function AgentPluginDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
-  const siteDefaults = scope === GLOBAL_LIBRARY_SCOPE && defaultsScope === 'global'
+  const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
   const data = useLibraryCapabilities(scope, defaultsScope, false)
   const mutations = useCapabilityMutations(scope, defaultsScope)
   const lessons = useSkillLessons(scope)
@@ -912,7 +913,8 @@ function LoadingCards() {
 
 function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant', showControlPlane: boolean) {
   const global = scope === GLOBAL_LIBRARY_SCOPE
-  const agentsQuery = useQuery(agentListOptions())
+  const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
+  const agentsQuery = useQuery({ ...agentListOptions(), enabled: !siteDefaults })
   const globalQuery = useQuery({
     ...getGlobalLibraryCapabilitiesOptions({ query: { defaults_scope: defaultsScope } }),
     enabled: global
@@ -932,10 +934,10 @@ function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant
     controlPlanePlugins: controlPlaneQuery.data?.control_plane_plugins ?? [],
     controlPlaneLoading: controlPlaneQuery.isLoading,
     error:
-      agentsQuery.error ??
+      (siteDefaults ? null : agentsQuery.error) ??
       (global ? globalQuery.error : agentQuery.error) ??
       (global && showControlPlane ? controlPlaneQuery.error : null),
-    loading: agentsQuery.isLoading || (global ? globalQuery.isLoading : agentQuery.isLoading)
+    loading: (!siteDefaults && agentsQuery.isLoading) || (global ? globalQuery.isLoading : agentQuery.isLoading)
   }
 }
 
