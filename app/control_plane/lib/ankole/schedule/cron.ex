@@ -6,6 +6,7 @@ defmodule Ankole.Schedule.Cron do
   alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
   alias Ankole.AutomationJobs
+  alias Ankole.Principals.WorkAccess
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Delivery
   alias Ankole.Schedule.Normalizer
@@ -47,9 +48,13 @@ defmodule Ankole.Schedule.Cron do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, attrs} <- Normalizer.cron_schedule_attrs(attrs, now, opts) do
-      attrs = Ankole.Principals.WorkAccess.inherit(attrs)
+      attrs =
+        case Keyword.fetch(opts, :authorization) do
+          {:ok, authorization} -> WorkAccess.merge(attrs, authorization)
+          :error -> WorkAccess.inherit(attrs)
+        end
 
-      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+      with :ok <- WorkAccess.check_attrs_in_tx(attrs),
            :ok <- validate_native_delivery_in_tx(attrs.agent_uid, attrs.delivery),
            :ok <-
              AutomationJobs.validate_bindable_in_tx(
@@ -210,17 +215,17 @@ defmodule Ankole.Schedule.Cron do
   end
 
   @doc false
-  # The Console creates a schedule for the Console Principal (the actor).
-  def console_create_in_tx(args, actor) do
-    created_by =
-      if actor,
-        do: %{
-          "kind" => "operator_api",
-          "principal_uid" => actor |> Ankole.ActorRef.from_principal() |> to_string()
-        },
-        else: %{"kind" => "operator_api"}
+  # The administrator is the audit actor; the selected Agent runs this service work.
+  def console_create_in_tx(args, %Ankole.Principals.Principal{} = actor) do
+    created_by = %{
+      "kind" => "operator_api",
+      "principal_uid" => actor |> Ankole.ActorRef.from_principal() |> to_string()
+    }
 
-    case create_cron_schedule_in_tx(args, created_by: created_by) do
+    case create_cron_schedule_in_tx(args,
+           created_by: created_by,
+           authorization: WorkAccess.service()
+         ) do
       {:ok, %{cron_schedule: schedule}} -> {:ok, console_result(schedule)}
       error -> Ankole.Errors.not_found(error, [:not_found], CronSchedule)
     end

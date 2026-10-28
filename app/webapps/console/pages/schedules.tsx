@@ -751,7 +751,10 @@ export function ScheduleCronEditorPage() {
         ) : null
       }>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <LabeledField label={t('console.agents.agent')} required={!editing}>
+        <LabeledField
+          label={t('console.agents.agent')}
+          required={!editing}
+          description={!editing ? t('console.schedules.agent_execution_hint') : undefined}>
           {editing ? (
             <ReadOnlyValue>
               {selectedAgent

@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.35 (2026-10-28)
+
+- Run Site Console cron schedules with the selected Agent's service authority
+  and keep the administrator as the recorded creator. Active and paused Console
+  rules that still use their verified creator as the Human authorizer become
+  service work, together with matching pending fires. Paused rules stay paused.
+
 ## Version 2.0.0-alpha.34 (2026-10-28)
 
 - Scope `i18n.default_locale` strictly to each Pod workspace (`:pod` AppConfigure scope), migrating any existing site-level default locale to Pods without an override and rejecting site-level or per-Agent writes.

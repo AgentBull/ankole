@@ -190,6 +190,98 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
              |> json_response(200)
   end
 
+  test "a Console cron keeps its cross-tenant administrator as author and fires with service authority",
+       %{conn: conn, tenant: privileged_tenant} do
+    {conn, admin_uid} = console_conn_with_principal(conn)
+    assert {:ok, %{id: privileged_id}} = Ankole.Tenants.privileged()
+    assert privileged_id == privileged_tenant.id
+
+    data_tenant = Ankole.DataCase.create_tenant()
+    refute data_tenant.id == privileged_tenant.id
+
+    {agent, body} =
+      Repo.with_tenant(data_tenant.id, fn ->
+        %{principal: agent} = agent_fixture()
+        {agent, cron_body(agent.uid, "cross-tenant-owner", "cross-tenant-service")}
+      end)
+
+    headers = [{"x-ankole-tenant", data_tenant.id}]
+    path = "/api/v2/agents/#{agent.uid}/cron-schedules"
+    created = conn |> request(:post, path, body, headers) |> json_response(201)
+
+    expected_author = %{
+      "kind" => "operator_api",
+      "principal_uid" => "ankole:#{privileged_tenant.id}:principal/#{admin_uid}"
+    }
+
+    assert created["created_by"] == expected_author
+
+    Repo.with_tenant(data_tenant.id, fn ->
+      assert {:ok, rule} = Schedule.get_cron_schedule(created["id"])
+      assert rule.created_by == expected_author
+
+      assert %{
+               authorization_kind: "service",
+               human_uid: nil,
+               human_access_version: nil
+             } = rule
+    end)
+
+    assert %{"errors" => [%{"source" => %{"pointer" => "/data/created_by"}}]} =
+             conn
+             |> request(:post, path, Map.put(body, "created_by", %{"kind" => "service"}), headers)
+             |> json_response(400)
+
+    manual =
+      conn
+      |> request(
+        :post,
+        "#{path}/#{created["id"]}/runs",
+        %{"idempotency_key" => "cross-tenant-manual"},
+        headers
+      )
+      |> json_response(201)
+
+    Repo.with_tenant(data_tenant.id, fn ->
+      assert {:ok, rule} = Schedule.get_cron_schedule(created["id"])
+      assert [pending] = Schedule.list_cron_runs(rule.id)
+      assert pending.id == manual["id"]
+
+      assert {:ok, %{status: :fired, scheduled_event: manual_event, signal: manual_signal}} =
+               Schedule.fire_due_event(pending.id, now: pending.due_at)
+
+      assert {:ok, %{status: :fired, scheduled_event: automatic_event, signal: automatic_signal}} =
+               Schedule.fire_cron(rule.id, now: rule.next_fire_at)
+
+      for {event, signal} <- [
+            {manual_event, manual_signal},
+            {automatic_event, automatic_signal}
+          ] do
+        for work <- [event, signal] do
+          assert %{
+                   authorization_kind: "service",
+                   human_uid: nil,
+                   human_access_version: nil
+                 } = work
+
+          assert work.tenant_id == data_tenant.id
+          assert work.agent_uid == agent.uid
+          assert work.session_id == "cron:#{rule.id}"
+        end
+
+        assert event.signal_id == signal.id
+        assert Ankole.Sessions.Scheduled.produced_signal?(signal)
+
+        assert :ok =
+                 Ankole.Sessions.Tools.authorize_call(
+                   %{agent_uid: agent.uid, event: signal},
+                   "finish_scheduled",
+                   %{"outcome" => "reply", "reply" => "Scheduled work completed."}
+                 )
+      end
+    end)
+  end
+
   test "admin lists and cancels the checkbacks of one Agent", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
@@ -249,9 +341,10 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
     assert conn |> get(~p"/api/v2/cron-schedules") |> json_response(401)
   end
 
-  defp request(conn, method, path, data \\ nil) do
+  defp request(conn, method, path, data \\ nil, headers \\ []) do
     conn
     |> recycle_api()
+    |> merge_req_headers(headers)
     |> put_req_header("accept", @json_api)
     |> put_req_header("content-type", @json_api)
     |> dispatch(@endpoint, method, path, if(data, do: Jason.encode!(%{data: data}), else: ""))

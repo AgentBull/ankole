@@ -1654,6 +1654,7 @@ unmatched_sender_policy_invalid = "未匹配发信人策略无效。"
 description = "把聊天渠道和其他信号源收到的消息或事件交给指定 Agent。"
 
 [console.schedules]
+agent_execution_hint = "所选 Agent 使用自身权限执行计划，Ankole 会记录创建计划的管理员。"
 interval = "间隔"
 interval_unit = "间隔单位"
 unit_seconds = "秒"

@@ -1653,6 +1653,7 @@ unmatched_sender_policy_invalid = "未一致送信者ポリシーが無効です
 description = "Channel Provider やその他のシグナルソースからのメッセージとイベントを Agent にルーティングします。"
 
 [console.schedules]
+agent_execution_hint = "選択した Agent が自身の権限でこのスケジュールを実行します。Ankole はスケジュールを作成した管理者を記録します。"
 interval = "間隔"
 interval_unit = "間隔の単位"
 unit_seconds = "秒"

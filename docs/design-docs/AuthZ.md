@@ -313,6 +313,8 @@ When an Agent acts on behalf of a Human—across main turns, Workflow tasks,
 scheduled work, and Background Agent Jobs—AuthZ requires the Human's `invoke`
 grant for each tool and intersects the Human's and Agent's permissions for Pod
 access. Autonomous service work uses the Agent's own permissions.
+Site Console cron creation schedules service work for the selected Agent and
+records the administrator as the audit actor.
 
 If a persisted CEL expression or resource pattern is corrupt or invalid at
 evaluation time, the Rust kernel skips that group or grant, records a

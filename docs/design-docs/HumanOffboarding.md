@@ -334,20 +334,21 @@ Human work authorization is distinct from Agent ownership and Session routing:
 neither an Agent's creator, nor a task's title, nor a reply channel determines
 which Human account must stay active for a piece of work to run.
 
-Instead, the control plane derives the authorizing Human from the authenticated
-source input and propagates that provenance across child tasks, scheduled rules,
-automation triggers, retries, and crash recovery. Because this association is a
-control-plane security fact rather than a model-writable parameter, each work
-subsystem persists its own authorization columns so checks remain authoritative
-after restarts or source cleanup.
+For Human-derived work, the control plane derives the authorizing Human from
+the authenticated source input and propagates that provenance across child
+tasks, scheduled rules, automation triggers, retries, and crash recovery. Each
+work subsystem stores this control-plane authorization fact in its own columns.
+These records remain authoritative across restarts and source cleanup.
 
 When a Human is disabled, all future work tied to that Human stops even if the
 task invokes tools using an Agent or bot credential: an Agent token never
 substitutes for an active Human authorizer. Conversely, independent service or
 system work with no Human dependency continues under its own `service`
-authorization, and disabling one sender in a shared room rejects only that
-sender's pending inputs without disabling the shared Agent or Session. If a work
-record lacks sufficient provenance (`review_required`), Ankole blocks execution
+authorization. Site Console cron creation selects service authorization and
+records the administrator separately in `created_by`. Disabling one sender in
+a shared room rejects only that sender's pending inputs without disabling the
+shared Agent or Session. If a work record lacks sufficient provenance
+(`review_required`), Ankole blocks execution
 until an operator classifies it rather than assuming independent service
 authority.
 
@@ -355,7 +356,8 @@ Every durable work table stores three columns enforced by PostgreSQL check
 constraints (`authorization_kind`, `human_uid`, and `human_access_version`):
 
 - `human` requires both `human_uid` and a captured `human_access_version`.
-- `service` requires an evidenced non-Human source.
+- `service` requires an evidenced Agent or system execution source, including
+  the Site Console cron creation action.
 - `review_required` blocks execution until an operator classifies the record.
 
 `Ankole.Principals.WorkAccess` validates these fields inside the owning
@@ -514,8 +516,9 @@ its API permissions, webhook subscriptions, full admission scope, and initial
 baseline diff while preserving existing Principal UIDs and identity bindings.
 
 Ankole assigns `authorization_kind = review_required` to work without verified
-provenance, to Console cron rules carrying only `created_by.principal_uid`, and
-to events from non-Human senders that lack evidenced service provenance.
+execution provenance. The control plane requires evidence of an Agent or system
+execution source before it assigns service authorization. `created_by` records
+the audit actor.
 
 When execution admission first encounters a queued Signal with
 `review_required`, it transitions that Signal to `dead_letter` with
