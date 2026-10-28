@@ -2,6 +2,9 @@
 
 ## Version 2.0.0-alpha.35 (2026-10-28)
 
+- Install the official OfficeCLI 1.0.159 Linux binaries with SHA-256 checks.
+  Remove the local OfficeCLI patches and the .NET build from the Worker image.
+
 - Run Site Console cron schedules with the selected Agent's service authority
   and keep the administrator as the recorded creator. Active and paused Console
   rules that still use their verified creator as the Human authorizer become

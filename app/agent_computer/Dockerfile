@@ -1,33 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG BASE_IMAGE
-ARG OFFICECLI_VERSION=v1.0.158
-
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402 AS officecli-build
-
-ARG OFFICECLI_VERSION
-ARG TARGETARCH
-
-WORKDIR /src
-ADD --checksum=sha256:ef610ee83e81a13f39edaa1b7fa6eaa2697d90c2c1ed8e2c30f994a86bb7c1d7 \
-  https://github.com/iOfficeAI/OfficeCLI/archive/2900a4a20f49d6a94384d6ea7fb8cc0120999825.tar.gz /tmp/officecli.tar.gz
-COPY app/agent_computer/scripts/officecli-v1.0.158-screenshot.patch /tmp/officecli-screenshot.patch
-COPY app/agent_computer/scripts/officecli-v1.0.158-data.patch /tmp/officecli-data.patch
-COPY app/agent_computer/scripts/officecli-v1.0.158-editable-charts.patch /tmp/officecli-editable-charts.patch
-
-RUN --mount=type=cache,target=/root/.nuget/packages \
-  set -eux; \
-  tar -xzf /tmp/officecli.tar.gz --strip-components=1; \
-  git apply /tmp/officecli-screenshot.patch; \
-  git apply /tmp/officecli-data.patch; \
-  git apply /tmp/officecli-editable-charts.patch; \
-  case "${TARGETARCH}" in \
-    amd64) officecli_rid=linux-x64 ;; \
-    arm64) officecli_rid=linux-arm64 ;; \
-    *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-  esac; \
-  dotnet publish src/officecli/officecli.csproj -c Release -r "${officecli_rid}" -o /out --nologo; \
-  test "$(OFFICECLI_SKIP_UPDATE=1 /out/officecli --version)" = "${OFFICECLI_VERSION#v}"
+ARG OFFICECLI_VERSION=v1.0.159
 
 FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
 
@@ -193,11 +167,18 @@ RUN set -eux; \
   test "$(mcporter --version)" = "${MCPORTER_VERSION}"; \
   rm -f "$mcporter_package"
 
-COPY --from=officecli-build /out/officecli /usr/local/bin/officecli
-
 RUN set -eux; \
+  case "${TARGETARCH}" in \
+    amd64) officecli_arch=x64; officecli_sha256=92d9aeed324d91ed2a107f7f8dc7468829b14390a66cf2bbdfb25c40beac50ea ;; \
+    arm64) officecli_arch=arm64; officecli_sha256=a27778548f2820771f54a70887af3c3ec214fe60e63b32836b09b3f3e2c4c493 ;; \
+    *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL --retry 3 --retry-delay 2 \
+    "https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/officecli-linux-${officecli_arch}" \
+    -o /usr/local/bin/officecli; \
+  echo "${officecli_sha256}  /usr/local/bin/officecli" | sha256sum -c -; \
   chmod +x /usr/local/bin/officecli; \
-  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"
+  test "$(OFFICECLI_SKIP_UPDATE=1 officecli --version)" = "${OFFICECLI_VERSION#v}"
 
 # Typst is not packaged for Debian trixie, so the pinned release binary is
 # installed here.
