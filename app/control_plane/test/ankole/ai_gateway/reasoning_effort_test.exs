@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.ReasoningEffortTest do
   @claude_map %{"low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "max"}
 
   test "normalizes OpenAI reasoning effort values and keeps a missing value missing" do
-    assert ReasoningEffort.values() == ~w(none minimal low medium high xhigh max ultra)
+    assert ReasoningEffort.Levels.values() == ~w(none minimal low medium high xhigh max ultra)
     assert ReasoningEffort.normalize(nil) == {:ok, nil}
     assert ReasoningEffort.normalize(:minimal) == {:ok, "minimal"}
     assert ReasoningEffort.normalize(" XHIGH ") == {:ok, "xhigh"}
@@ -43,7 +43,7 @@ defmodule Ankole.AIGateway.ReasoningEffortTest do
     ctx = %{provider_options: %{"reasoningEffort" => "minimal"}}
     provider_map = %{"low" => "low", "medium" => "medium", "high" => "high"}
 
-    assert ReasoningEffort.values(provider_map) == ~w(low medium high)
+    assert ReasoningEffort.Levels.values(provider_map) == ~w(low medium high)
 
     assert {:error, {:reasoning_effort, {:unsupported, "minimal", ["low", "medium", "high"]}}} =
              ReasoningEffort.provider_options(ctx,

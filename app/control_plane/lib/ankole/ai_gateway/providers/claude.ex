@@ -38,7 +38,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
     setting(:reasoningEffort,
       type: :select,
-      options: ReasoningEffort.values(@reasoning_effort_map),
+      options: ReasoningEffort.Levels.values(@reasoning_effort_map),
       scope: :request
     )
 

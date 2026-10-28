@@ -29,7 +29,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
 
     setting(:reasoningEffort,
       type: :select,
-      options: ReasoningEffort.values(),
+      options: ReasoningEffort.Levels.values(),
       scope: :request
     )
 

@@ -13,20 +13,15 @@ defmodule Ankole.AIGateway.ReasoningEffort do
 
   alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
+  alias Ankole.AIGateway.ReasoningEffort.Levels
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @openai_values ~w(none minimal low medium high xhigh max ultra)
+  @openai_values Levels.values()
   @native_keys ~w(reasoning reasoning_effort output_config)
   @default_effort "high"
 
   @typedoc "Provider-native location for the aligned reasoning effort value."
   @type target :: :reasoning | :reasoning_effort | :output_config
-
-  @doc "Returns the canonical values accepted by Ankole, optionally narrowed by a provider map."
-  @spec values(map() | nil) :: [String.t()]
-  def values(map \\ nil)
-  def values(nil), do: @openai_values
-  def values(map) when is_map(map), do: Enum.filter(@openai_values, &Map.has_key?(map, &1))
 
   @doc """
   Normalizes one public OpenAI-style reasoning effort value. A missing value
@@ -122,7 +117,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
 
   # The public names whose provider-native value the model accepts.
   defp model_values(native_values, map) do
-    Enum.filter(values(map), fn effort ->
+    Enum.filter(Levels.values(map), fn effort ->
       case map_effort(effort, map) do
         {:ok, mapped} -> mapped in native_values
         {:error, _reason} -> false
@@ -154,7 +149,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
         {:ok, mapped}
 
       :error ->
-        {:error, {:reasoning_effort, {:unsupported, effort, values(map)}}}
+        {:error, {:reasoning_effort, {:unsupported, effort, Levels.values(map)}}}
     end
   end
 end
