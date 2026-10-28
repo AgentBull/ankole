@@ -29,8 +29,8 @@ export function watchPageRealtime(
   page: { revoked(): void; failed(error: Error): void }
 ) {
   let disposed = false
+  let timedOut = false
   let close: (() => void) | undefined
-  let joining: ReturnType<typeof setTimeout> | undefined
   const revoke = () => {
     if (disposed) return
     page.revoked()
@@ -44,15 +44,18 @@ export function watchPageRealtime(
     else page.failed(new Error(t('pod.content.the_realtime_connection_is_temporarily_unavailable_you_can_still_view')))
     close?.()
   }
+  // The token request, the socket, and the Phoenix join can each stay pending, so the deadline covers all of them.
+  const joining = setTimeout(() => {
+    timedOut = true
+    failed()
+  }, pageJoinTimeoutMs)
   void realtime
     .join(`page:${pageID}`)
     .then(handle => {
-      if (disposed) return handle.close()
+      if (disposed || timedOut) return handle.close()
       close = handle.close
       handle.on('changes', () => void client.invalidateQueries({ queryKey: contentKeys.page(pageID) }))
       handle.on('access_revoked', revoke)
-      // Phoenix keeps a join pending while the socket cannot open, so the page stops waiting and offers a reconnection.
-      joining = setTimeout(failed, pageJoinTimeoutMs)
       void handle.ready.then(() => clearTimeout(joining), failed)
     })
     .catch(failed)

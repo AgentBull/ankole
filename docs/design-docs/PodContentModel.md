@@ -165,9 +165,9 @@ For file uploads, selecting a file captures both the file and the loaded Page
 revision, freezing the picker while the upload is in flight and keeping the
 selection for retry on failure. Transient realtime disconnects leave loaded file
 previews visible with a reconnect action, hiding content only upon an
-authoritative access denial. If the page topic join does not complete in 10
-seconds, the page shows the same reconnect action. This also applies when the
-socket does not open. Likewise, Applet bundle-load errors and live connection
+authoritative access denial. If the realtime token request, the socket, and the
+page topic join do not all complete in 10 seconds, the page shows the same
+reconnect action. Likewise, Applet bundle-load errors and live connection
 drops expose separate retry actions so reconnecting never unmounts the running
 Applet.
 

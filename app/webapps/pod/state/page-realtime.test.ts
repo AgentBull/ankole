@@ -14,7 +14,19 @@ function pageTopic() {
   void ready.catch(() => {})
   const closed = jest.fn()
   const handle: TopicHandle = { ready, push: async () => undefined as never, on: () => () => {}, close: closed }
-  return { settle, closed, realtime: { join: async () => handle, watchVersion: () => () => {} } }
+  let deliver!: (handle: TopicHandle) => void
+  const delivered = new Promise<TopicHandle>(resolve => (deliver = resolve))
+  let pending = false
+  return {
+    settle,
+    closed,
+    /** Keep join() pending, as while the realtime token request or the socket has not completed. */
+    holdJoin() {
+      pending = true
+    },
+    deliverHandle: () => deliver(handle),
+    realtime: { join: () => (pending ? delivered : Promise.resolve(handle)), watchVersion: () => () => {} }
+  }
 }
 
 async function watched(topic: ReturnType<typeof pageTopic>) {
@@ -48,5 +60,19 @@ test('a page join that completes in time keeps its topic open', async () => {
   jest.advanceTimersByTime(20_000)
   expect(page.failed).not.toHaveBeenCalled()
   expect(topic.closed).not.toHaveBeenCalled()
+  stop()
+})
+
+test('a join that has no handle after 10 seconds offers a reconnection and closes the late handle', async () => {
+  jest.useFakeTimers()
+  const topic = pageTopic()
+  topic.holdJoin()
+  const { page, stop } = await watched(topic)
+  jest.advanceTimersByTime(10_000)
+  expect(page.failed).toHaveBeenCalledTimes(1)
+  topic.deliverHandle()
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(topic.closed).toHaveBeenCalled()
   stop()
 })
