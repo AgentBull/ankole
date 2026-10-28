@@ -323,7 +323,11 @@ export function SettingsList() {
               window.location.assign(
                 router.buildLocation({
                   to: '/settings',
-                  search: { scope: String(next), view: params.get('view') ?? undefined }
+                  search: {
+                    scope: String(next),
+                    view: params.get('view') ?? undefined,
+                    q: params.get('q') ?? undefined
+                  }
                 }).href
               )
             }>
