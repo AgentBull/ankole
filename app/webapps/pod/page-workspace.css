@@ -17,7 +17,7 @@
 .pod-page-content {
   width: min(100%, 856px);
   margin-inline: auto;
-  padding: 72px 48px 140px;
+  padding: 40px 48px 120px;
 }
 
 .pod-page[data-page-type='base'] .pod-page-content,

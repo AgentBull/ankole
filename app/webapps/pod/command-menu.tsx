@@ -20,8 +20,7 @@ import { browserSession } from '../common/api/generated/sdk.gen'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
 import { conversationSearchQuery } from './api'
 import { pageSearchQuery } from './content-api'
-import { ContentError, typeLabels } from './content-primitives'
-import { scopeIcons, scopeLabels } from './page-navigation'
+import { ContentError, scopeIcons, scopeLabels, typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
 import { pageAncestors } from './state/page-location'
 
@@ -166,43 +165,47 @@ export function PodCommandMenu({
                 </CommandItem>
               )}
             </CommandGroup>
-            <CommandGroup heading={t('pod.content.all_pages')}>
-              {pageResults.map(page => {
-                const title = page.title || t('pod.content.untitled')
-                const parent = pageAncestors(page, pagesByID)
-                  .map(page => page.title || t('pod.content.untitled'))
-                  .join(' / ')
-                return (
-                  <CommandItem
-                    key={page.id}
-                    value={`page:${page.id}`}
-                    keywords={[title, typeLabels[page.type]]}
-                    onSelect={() => void choose(`/pages/${page.id}`)}>
-                    <PageIcon page={page} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{title}</span>
-                      {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
-                    </span>
-                    <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-            <CommandGroup heading={t('pod.sidebar.tabs.chat')}>
-              {conversationResults.map(conversation => {
-                const title = conversation.title.trim() || t('pod.content.untitled')
-                return (
-                  <CommandItem
-                    key={conversation.id}
-                    value={`chat:${conversation.id}`}
-                    keywords={[title]}
-                    onSelect={() => void choose(`/conversations/${conversation.id}`)}>
-                    <RiChat3Line aria-hidden />
-                    <span className="truncate">{title}</span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
+            {pageResults.length > 0 && (
+              <CommandGroup heading={t('pod.content.all_pages')}>
+                {pageResults.map(page => {
+                  const title = page.title || t('pod.content.untitled')
+                  const parent = pageAncestors(page, pagesByID)
+                    .map(page => page.title || t('pod.content.untitled'))
+                    .join(' / ')
+                  return (
+                    <CommandItem
+                      key={page.id}
+                      value={`page:${page.id}`}
+                      keywords={[title, typeLabels[page.type]]}
+                      onSelect={() => void choose(`/pages/${page.id}`)}>
+                      <PageIcon page={page} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{title}</span>
+                        {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
+                      </span>
+                      <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            )}
+            {conversationResults.length > 0 && (
+              <CommandGroup heading={t('pod.sidebar.tabs.chat')}>
+                {conversationResults.map(conversation => {
+                  const title = conversation.title.trim() || t('pod.content.untitled')
+                  return (
+                    <CommandItem
+                      key={conversation.id}
+                      value={`chat:${conversation.id}`}
+                      keywords={[title]}
+                      onSelect={() => void choose(`/conversations/${conversation.id}`)}>
+                      <RiChat3Line aria-hidden />
+                      <span className="truncate">{title}</span>
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            )}
           </CommandList>
         </Command>
         {(pages.isPending || conversations.isPending) && (

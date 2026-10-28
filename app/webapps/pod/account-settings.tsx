@@ -96,258 +96,262 @@ export function AccountSettings() {
     error => requestErrorCode(error) === 'reauthentication_required'
   )
   return (
-    <main className="mx-auto w-full max-w-3xl overflow-auto p-6 grid gap-6 content-start">
-      <h1 className="text-2xl">{t('pod.account.title')}</h1>
-      <ErrorBlock error={accountError} />
-      {needsReauthentication && (
-        <Button variant="outline" disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
-          {t('pod.account.reauthenticate')}
-        </Button>
-      )}
-      <Card>
-        <CardHeader>
-          <h2>{t('pod.account.profile')}</h2>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="grid gap-3"
-            onSubmit={event => {
-              event.preventDefault()
-              profile.mutate()
-            }}>
-            <Label htmlFor="profile-name">{t('auth.member_name')}</Label>
-            <Input
-              id="profile-name"
-              required
-              maxLength={160}
-              disabled={profile.isPending}
-              autoComplete="name"
-              value={model.displayName.value ?? me.data?.displayName ?? ''}
-              onChange={event => {
-                profile.reset()
-                model.displayName.value = event.target.value
-              }}
-            />
-            <Button
-              type="submit"
-              disabled={
-                profile.isPending ||
-                !me.data ||
-                model.displayName.value === undefined ||
-                !model.displayName.value.trim() ||
-                model.displayName.value.trim() === me.data.displayName
-              }>
-              {t('common.save')}
-            </Button>
-            {profile.isSuccess && model.displayName.value === undefined && (
-              <p role="status">{t('pod.settings.saved')}</p>
-            )}
-          </form>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <h2>{t('pod.account.login_email')}</h2>
-          <p>{t('auth.personal_email_notice')}</p>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {me.data?.credentials.map(credential => (
-            <div key={credential.id} className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="break-all">{credential.identifier}</span>
-                {credential.provider !== 'email_otp' && (
-                  <Badge variant="secondary">{humanizeTechnicalLabel(credential.provider)}</Badge>
-                )}
-              </div>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto grid w-full max-w-3xl content-start gap-6 px-6 pt-2 pb-10">
+        <h1 className="text-2xl">{t('pod.account.title')}</h1>
+        <ErrorBlock error={accountError} />
+        {needsReauthentication && (
+          <Button variant="outline" disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
+            {t('pod.account.reauthenticate')}
+          </Button>
+        )}
+        <Card>
+          <CardHeader>
+            <h2>{t('pod.account.profile')}</h2>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="grid gap-3"
+              onSubmit={event => {
+                event.preventDefault()
+                profile.mutate()
+              }}>
+              <Label htmlFor="profile-name">{t('auth.member_name')}</Label>
+              <Input
+                id="profile-name"
+                required
+                maxLength={160}
+                disabled={profile.isPending}
+                autoComplete="name"
+                value={model.displayName.value ?? me.data?.displayName ?? ''}
+                onChange={event => {
+                  profile.reset()
+                  model.displayName.value = event.target.value
+                }}
+              />
               <Button
-                variant="outline"
-                disabled={!me.data.credentialChangeAllowed || me.data.credentials.length <= 1 || unbind.isPending}
-                onClick={() => {
-                  unbind.reset()
-                  model.confirmUnbind.value = credential.id
-                }}>
-                {t('pod.account.unbind')}
+                type="submit"
+                disabled={
+                  profile.isPending ||
+                  !me.data ||
+                  model.displayName.value === undefined ||
+                  !model.displayName.value.trim() ||
+                  model.displayName.value.trim() === me.data.displayName
+                }>
+                {t('common.save')}
               </Button>
-            </div>
-          ))}
-          {me.data && me.data.credentials.length <= 1 && (
-            <p className="text-sm text-muted-foreground">{t('common.authn.last_login_method')}</p>
-          )}
-          {me.data?.credentialChangeAllowed ? (
-            !model.challengeID.value ? (
-              <form
-                className="grid gap-3"
-                onSubmit={event => {
-                  event.preventDefault()
-                  request.mutate(false)
-                }}>
-                <Label htmlFor="binding-email">{t('pod.account.new_email')}</Label>
-                <Input
-                  id="binding-email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  disabled={request.isPending}
-                  value={model.email.value}
-                  onChange={event => {
-                    model.email.value = event.target.value
-                    request.reset()
-                    verify.reset()
-                  }}
-                />
-                <Button type="submit" variant="outline" disabled={request.isPending}>
-                  {t('auth.send_code')}
+              {profile.isSuccess && model.displayName.value === undefined && (
+                <p role="status">{t('pod.settings.saved')}</p>
+              )}
+            </form>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <h2>{t('pod.account.login_email')}</h2>
+            <p>{t('auth.personal_email_notice')}</p>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {me.data?.credentials.map(credential => (
+              <div key={credential.id} className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="break-all">{credential.identifier}</span>
+                  {credential.provider !== 'email_otp' && (
+                    <Badge variant="secondary">{humanizeTechnicalLabel(credential.provider)}</Badge>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  disabled={!me.data.credentialChangeAllowed || me.data.credentials.length <= 1 || unbind.isPending}
+                  onClick={() => {
+                    unbind.reset()
+                    model.confirmUnbind.value = credential.id
+                  }}>
+                  {t('pod.account.unbind')}
                 </Button>
-              </form>
-            ) : (
-              <form
-                className="grid gap-3"
-                onSubmit={event => {
-                  event.preventDefault()
-                  verify.mutate()
-                }}>
-                <p role="status" className="text-sm text-muted-foreground">
-                  {t('auth.code_sent', { email: model.email.value })}
-                </p>
-                <Label htmlFor="binding-code">{t('auth.email_code')}</Label>
-                <Input
-                  id="binding-code"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  required
-                  autoFocus
-                  disabled={verify.isPending || request.isPending}
-                  value={model.code.value}
-                  onChange={event => {
-                    model.code.value = event.target.value
-                    verify.reset()
-                  }}
-                />
-                <Button type="submit" disabled={verify.isPending || request.isPending || model.code.value.length !== 6}>
-                  {t('pod.account.bind_email')}
-                </Button>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={request.isPending || verify.isPending}
-                    onClick={() => request.mutate(true)}>
-                    {t('auth.resend_code')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={request.isPending || verify.isPending}
-                    onClick={() => {
+              </div>
+            ))}
+            {me.data && me.data.credentials.length <= 1 && (
+              <p className="text-sm text-muted-foreground">{t('common.authn.last_login_method')}</p>
+            )}
+            {me.data?.credentialChangeAllowed ? (
+              !model.challengeID.value ? (
+                <form
+                  className="grid gap-3"
+                  onSubmit={event => {
+                    event.preventDefault()
+                    request.mutate(false)
+                  }}>
+                  <Label htmlFor="binding-email">{t('pod.account.new_email')}</Label>
+                  <Input
+                    id="binding-email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    disabled={request.isPending}
+                    value={model.email.value}
+                    onChange={event => {
+                      model.email.value = event.target.value
                       request.reset()
                       verify.reset()
-                      model.challengeID.value = undefined
-                      model.code.value = ''
-                    }}>
-                    {t('auth.change_email')}
+                    }}
+                  />
+                  <Button type="submit" variant="outline" disabled={request.isPending}>
+                    {t('auth.send_code')}
                   </Button>
-                </div>
-              </form>
-            )
-          ) : (
-            <p>{t('pod.account.credential_change_disabled')}</p>
-          )}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <h2>{t('pod.account.exit')}</h2>
-        </CardHeader>
-        <CardContent>
-          {me.data?.managed ? (
-            <p>{t('pod.account.managed_exit')}</p>
-          ) : (
-            <Button
-              variant="destructive"
-              onClick={() => {
-                exit.reset()
-                model.confirmExit.value = true
-              }}>
-              {t('pod.account.exit')}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-      <Dialog
-        open={Boolean(model.confirmUnbind.value)}
-        onOpenChange={open => {
-          if (!open && !unbind.isPending) {
-            unbind.reset()
-            model.confirmUnbind.value = undefined
-          }
-        }}>
-        <DialogContent>
-          <DialogTitle>{t('pod.account.unbind')}</DialogTitle>
-          <p>
-            {t('pod.account.unbind_description', {
-              email: me.data?.credentials.find(item => item.id === model.confirmUnbind.value)?.identifier
-            })}
-          </p>
-          <ErrorBlock error={unbind.error} />
-          {requestErrorCode(unbind.error) === 'reauthentication_required' && (
-            <Button disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
-              {t('pod.account.reauthenticate')}
-            </Button>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={unbind.isPending}
-              onClick={() => {
-                unbind.reset()
-                model.confirmUnbind.value = undefined
-              }}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={unbind.isPending}
-              onClick={() => unbind.mutate(model.confirmUnbind.value!)}>
-              {t('pod.account.unbind')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={model.confirmExit.value}
-        onOpenChange={open => {
-          if (!exit.isPending) {
-            if (!open) exit.reset()
-            model.confirmExit.value = open
-          }
-        }}>
-        <DialogContent>
-          <DialogTitle>{t('pod.account.exit')}</DialogTitle>
-          <p>{t('pod.account.exit_description')}</p>
-          <ErrorBlock error={exit.error} />
-          {requestErrorCode(exit.error) === 'reauthentication_required' && (
-            <Button disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
-              {t('pod.account.reauthenticate')}
-            </Button>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={exit.isPending}
-              onClick={() => {
-                exit.reset()
-                model.confirmExit.value = false
-              }}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" disabled={exit.isPending} onClick={() => exit.mutate()}>
-              {t('pod.account.confirm_exit')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </main>
+                </form>
+              ) : (
+                <form
+                  className="grid gap-3"
+                  onSubmit={event => {
+                    event.preventDefault()
+                    verify.mutate()
+                  }}>
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {t('auth.code_sent', { email: model.email.value })}
+                  </p>
+                  <Label htmlFor="binding-code">{t('auth.email_code')}</Label>
+                  <Input
+                    id="binding-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    autoFocus
+                    disabled={verify.isPending || request.isPending}
+                    value={model.code.value}
+                    onChange={event => {
+                      model.code.value = event.target.value
+                      verify.reset()
+                    }}
+                  />
+                  <Button
+                    type="submit"
+                    disabled={verify.isPending || request.isPending || model.code.value.length !== 6}>
+                    {t('pod.account.bind_email')}
+                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={request.isPending || verify.isPending}
+                      onClick={() => request.mutate(true)}>
+                      {t('auth.resend_code')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={request.isPending || verify.isPending}
+                      onClick={() => {
+                        request.reset()
+                        verify.reset()
+                        model.challengeID.value = undefined
+                        model.code.value = ''
+                      }}>
+                      {t('auth.change_email')}
+                    </Button>
+                  </div>
+                </form>
+              )
+            ) : (
+              <p>{t('pod.account.credential_change_disabled')}</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <h2>{t('pod.account.exit')}</h2>
+          </CardHeader>
+          <CardContent>
+            {me.data?.managed ? (
+              <p>{t('pod.account.managed_exit')}</p>
+            ) : (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  exit.reset()
+                  model.confirmExit.value = true
+                }}>
+                {t('pod.account.exit')}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+        <Dialog
+          open={Boolean(model.confirmUnbind.value)}
+          onOpenChange={open => {
+            if (!open && !unbind.isPending) {
+              unbind.reset()
+              model.confirmUnbind.value = undefined
+            }
+          }}>
+          <DialogContent>
+            <DialogTitle>{t('pod.account.unbind')}</DialogTitle>
+            <p>
+              {t('pod.account.unbind_description', {
+                email: me.data?.credentials.find(item => item.id === model.confirmUnbind.value)?.identifier
+              })}
+            </p>
+            <ErrorBlock error={unbind.error} />
+            {requestErrorCode(unbind.error) === 'reauthentication_required' && (
+              <Button disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
+                {t('pod.account.reauthenticate')}
+              </Button>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                disabled={unbind.isPending}
+                onClick={() => {
+                  unbind.reset()
+                  model.confirmUnbind.value = undefined
+                }}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={unbind.isPending}
+                onClick={() => unbind.mutate(model.confirmUnbind.value!)}>
+                {t('pod.account.unbind')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={model.confirmExit.value}
+          onOpenChange={open => {
+            if (!exit.isPending) {
+              if (!open) exit.reset()
+              model.confirmExit.value = open
+            }
+          }}>
+          <DialogContent>
+            <DialogTitle>{t('pod.account.exit')}</DialogTitle>
+            <p>{t('pod.account.exit_description')}</p>
+            <ErrorBlock error={exit.error} />
+            {requestErrorCode(exit.error) === 'reauthentication_required' && (
+              <Button disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
+                {t('pod.account.reauthenticate')}
+              </Button>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                disabled={exit.isPending}
+                onClick={() => {
+                  exit.reset()
+                  model.confirmExit.value = false
+                }}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="destructive" disabled={exit.isPending} onClick={() => exit.mutate()}>
+                {t('pod.account.confirm_exit')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
   )
 }

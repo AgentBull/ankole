@@ -52,31 +52,57 @@ defmodule Ankole.I18n do
   end
 
   @doc """
-  Returns the site default used by shared catalog fallback.
+  Returns the release fallback locale tag used by shared catalog fallback.
   """
   @spec default_locale() :: Localize.LanguageTag.t()
   defdelegate default_locale, to: Localize
 
   @doc """
-  Returns the configured default locale id.
+  Returns the current Pod's configured default locale id.
 
-  Browser/setup surfaces need the persisted catalog id, while
-  `default_locale/0` returns Localize's site-wide language tag.
+  Browser, Pod, and setup surfaces read this persisted catalog id within the
+  active tenant context, while `default_locale/0` returns Localize's release
+  fallback tag.
   """
   @spec configured_default_locale() :: {:ok, String.t()} | {:error, term()}
   def configured_default_locale, do: Config.default_locale()
 
   @doc """
-  Persists the current tenant's default locale.
+  Validates a locale against the loaded catalog and returns its canonical id.
+  """
+  @spec validate_locale(locale()) :: {:ok, String.t()} | {:error, :unavailable_locale}
+  def validate_locale(locale) do
+    case Resolver.exact_loaded_locale(locale, Resolver.loaded()) do
+      nil -> {:error, :unavailable_locale}
+      loaded_locale -> {:ok, loaded_locale}
+    end
+  end
 
-  The public write path validates against the loaded catalog before it touches
-  AppConfigure. Tenant writes do not change the shared catalog or site default.
+  @doc """
+  Persists the current Pod's default locale.
+
+  The public write path validates against the loaded catalog before it writes to
+  AppConfigure.
   """
   @spec put_default_locale(locale()) :: {:ok, String.t()} | {:error, term()}
   def put_default_locale(locale) do
     with {:ok, loaded_locale} <- loaded_locale(locale),
          {:ok, persisted} <- Config.put_default_locale(loaded_locale) do
       {:ok, persisted}
+    end
+  end
+
+  @doc """
+  Persists the current Pod's default locale inside the caller's transaction.
+
+  Callers refresh the AppConfigure cache after commit with
+  `Ankole.AppConfigure.cache_committed_write/1`.
+  """
+  @spec put_default_locale_in_tx(locale()) ::
+          {:ok, Ankole.AppConfigure.committed_write()} | {:error, term()}
+  def put_default_locale_in_tx(locale) do
+    with {:ok, loaded_locale} <- validate_locale(locale) do
+      Config.put_default_locale_in_tx(loaded_locale)
     end
   end
 

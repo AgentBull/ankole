@@ -250,8 +250,15 @@ defmodule Ankole.Authn.Mailer do
 
   defp resolve_locale(opts) do
     I18n.negotiate_locale(Keyword.get(opts, :locale)) ||
-      tenant_locale(Keyword.get(opts, :tenant_id) || Ankole.Repo.tenant_id()) ||
+      resolved_tenant_locale(opts) ||
       default_site_locale()
+  end
+
+  defp resolved_tenant_locale(opts) do
+    case Keyword.fetch(opts, :tenant_id) do
+      {:ok, tenant_id} -> tenant_locale(tenant_id)
+      :error -> tenant_locale(Ankole.Repo.tenant_id())
+    end
   end
 
   defp tenant_locale(tenant_id) when is_binary(tenant_id) do

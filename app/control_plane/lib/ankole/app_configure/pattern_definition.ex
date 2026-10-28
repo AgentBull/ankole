@@ -29,7 +29,7 @@ defmodule Ankole.AppConfigure.PatternDefinition do
           default_value: term(),
           description: String.t() | nil,
           generator: (-> term()) | nil,
-          scope: :tenant | :global,
+          scope: :pod | :tenant | :global,
           console_writable: boolean()
         }
 

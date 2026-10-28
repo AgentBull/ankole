@@ -64,7 +64,8 @@ defmodule AnkoleWeb.SpaControllerTest do
     browser_count = Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count)
 
     conn = conn |> pod_conn(tenant) |> get(~p"/sessions/new")
-    assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!("auth")
+    assert html_response(conn, 200) =~ "http://assets.test/#{String.trim_leading(source, "/")}"
     assert get_resp_header(conn, "location") == []
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count) == browser_count
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
@@ -161,6 +162,71 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     assert html_response(conn, 200) =~
              ~s(<meta name="ankole-features" content="{&quot;fixture.shell&quot;:true}">)
+  end
+
+  test "each Pod's sign-in and workspace HTML shells render in that Pod's configured locale", %{
+    conn: conn,
+    tenant: first_tenant
+  } do
+    {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+
+    second_tenant =
+      Ankole.DataCase.create_tenant(%{
+        slug: "pod-ja-#{System.unique_integer([:positive])}",
+        display_name: "Tokyo Pod"
+      })
+
+    Ankole.Repo.with_tenant(first_tenant.id, fn ->
+      {:ok, "zh-Hans-CN"} = Ankole.I18n.put_default_locale("zh-Hans-CN")
+    end)
+
+    Ankole.Repo.with_tenant(second_tenant.id, fn ->
+      {:ok, "ja-JP"} = Ankole.I18n.put_default_locale("ja-JP")
+    end)
+
+    first_login_html =
+      conn
+      |> pod_conn(first_tenant)
+      |> put_req_header("accept-language", "ja,en-US;q=0.8")
+      |> get(~p"/sessions/new")
+      |> html_response(200)
+
+    second_login_html =
+      conn |> pod_conn(second_tenant) |> get(~p"/sessions/new") |> html_response(200)
+
+    assert first_login_html =~ ~s(<html lang="zh-Hans-CN">)
+    assert second_login_html =~ ~s(<html lang="ja-JP">)
+
+    first_pod_html =
+      conn
+      |> pod_conn(first_tenant)
+      |> active_admin_conn()
+      |> get(~p"/")
+      |> html_response(200)
+
+    assert first_pod_html =~ ~s(<html lang="zh-Hans-CN">)
+  end
+
+  test "site Console and its sign-in negotiate language independently of the privileged Pod", %{
+    conn: conn
+  } do
+    {:ok, "ko-KR"} = Ankole.I18n.put_default_locale("ko-KR")
+    {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+    admin = active_admin_conn(conn)
+
+    for {base, path} <- [{conn, "/sessions/new?purpose=console"}, {admin, "/site-admin-console"}],
+        {accept_language, locale} <- [
+          {"ja,en-US;q=0.8", "ja-JP"},
+          {"fr-FR", "en-US"},
+          {nil, "en-US"}
+        ] do
+      request =
+        if accept_language,
+          do: put_req_header(base, "accept-language", accept_language),
+          else: base
+
+      assert request |> get(path) |> html_response(200) =~ ~s(<html lang="#{locale}">)
+    end
   end
 
   defp assert_pod_login(conn, tenant, return_to) do

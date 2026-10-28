@@ -80,13 +80,15 @@ const PagePicker = lazy(() => import('./page-picker').then(module => ({ default:
 
 export function PageRoute() {
   const pageID = podRouteID(useParams({ strict: false }).pageID) ?? ''
-  const { state: sidebarState, isMobile } = useSidebar()
-  const navigation =
-    isMobile || sidebarState === 'collapsed' ? (
-      <header className="flex h-11 shrink-0 items-center px-3">
-        <SidebarTrigger label={t('pod.sidebar.expand')} />
-      </header>
-    ) : null
+  const { state: sidebarState } = useSidebar()
+  const navigation = (
+    <header className="flex h-11 shrink-0 items-center px-3">
+      <SidebarTrigger
+        className={sidebarState === 'expanded' ? 'md:hidden' : undefined}
+        label={t('pod.sidebar.expand')}
+      />
+    </header>
+  )
   const page = useQuery(pageQuery(pageID))
   const client = useQueryClient()
   const visited = useRef<string | null>(null)

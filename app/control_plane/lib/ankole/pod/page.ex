@@ -98,6 +98,8 @@ defmodule Ankole.Pod.Page do
       public?: true,
       constraints: [one_of: [:view, :contribute, :edit, :manage]]
     )
+
+    calculate(:visited_at, Ankole.Ash.Types.Timestamptz, expr(nil), public?: true)
   end
 
   relationships do

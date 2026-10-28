@@ -85,8 +85,8 @@ destructive confirmations focus Cancel initially; tall dialogs scroll their body
 while pinning the header and action bar, and property pickers stay anchored to
 their trigger field.
 
-Clicking the sidebar search button or pressing Command/Control+K opens a single
-quick-navigation menu linking to Pages, Chats, and content roots without
+Clicking the sidebar search icon button or pressing Command/Control+K opens a
+single quick-navigation menu linking to Pages, Chats, and content roots without
 mutating or discarding an unfinished Chat draft. Both the menu and the dedicated
 search view share title-and-body Page search, and the search view persists its
 query in the `q` URL parameter across result clicks, Back navigation, and
@@ -97,6 +97,19 @@ Chat messages. Within content lists, `J` and `K` move focus while text inputs
 preserve normal typing and IME keys; desktop lists use compact row density and
 touch layouts expand hit targets.
 
+The Pod shell layers a rounded paper sheet (`main`) above the ground-level
+sidebar (`Home` and `Chat` segmented tabs at top-left, paired with search,
+quick-create, and sidebar-collapse icon buttons at top-right; when the desktop
+sidebar collapses, the expand trigger flows into the 44 px sheet header without
+shifting content vertically). In `Home`, `Recently visited` interleaves visited
+Pages (ordered by `page_user_states.visited_at`) with recent Conversations
+(ordered by `lastActivityAt`) both inline in the sidebar and in `/content/recent`;
+opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
+the user's navigation context stays stable. `Favorites` renders inline above the
+`Space` and `Private` trees whenever the user has favorited Pages, while the
+account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
+The Pod and Console share sidebar controls. Command/Control+B toggles the
+sidebar while leaving shortcuts inside editable controls to those controls.
 Ordinary Pod controls use paper styling rather than state colors to mark the
 active view, and high-frequency menus and keyboard shortcuts respond without
 artificial delay. On mobile, closing a Chat panel keeps its content mounted

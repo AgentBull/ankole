@@ -11,7 +11,6 @@ type State = {
   console_url: string
   tenant_id: string
   tenant_slug: string
-  original_site_locale: string
   report_id: string
   base_id: string
   table_id: string

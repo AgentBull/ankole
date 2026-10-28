@@ -99,11 +99,12 @@ test('room navigation persists pinning, text search, one inline rename and an in
         .filter({ has: row })
         .getByRole('heading', { name: '置顶', exact: true })
     ).toBeVisible()
-    const search = page.getByRole('textbox', { name: '搜索会话和消息…', exact: true })
-    await search.fill('verified evidence')
-    await expect(row).toBeVisible()
-    await expect(page.locator('.pod-chat-row')).toHaveCount(1)
-    await search.fill('')
+    await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
+    const command = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
+    await command.getByRole('combobox', { name: '搜索或跳转', exact: true }).fill('verified evidence')
+    await expect(command.locator(`[cmdk-item][data-value="chat:${id}"]`)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(command).toHaveCount(0)
     let renames = 0
     page.on('request', incoming => {
       if (

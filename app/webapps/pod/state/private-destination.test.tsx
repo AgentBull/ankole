@@ -5,7 +5,8 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { renderToStaticMarkup } from 'react-dom/server'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import { contentKeys } from '../content-api'
-import { ContentListRoute, ContentNavigation } from '../page-navigation'
+import { ContentListRoute } from '../content-list'
+import { ContentNavigation } from '../page-navigation'
 import { loadLocale } from '../../common/i18n'
 
 beforeAll(() => loadLocale('en-US'))

@@ -125,8 +125,7 @@
 
 .pod-page-chat-header {
   flex-shrink: 0;
-  padding: 10px 14px 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px 14px;
 }
 
 .pod-page-chat-heading {
@@ -416,8 +415,7 @@
   margin-left: -8px;
 }
 .pod-room-header {
-  height: 48px;
-  border-bottom: 1px solid var(--border);
+  height: 44px;
 }
 .pod-room-header .pod-chat-header-title {
   text-align: left;
@@ -443,7 +441,7 @@
 }
 .pod-room-header.pod-page-chat-header {
   gap: 2px;
-  height: 48px;
+  height: 44px;
   padding: 0 10px;
 }
 .pod-page-chat-scope-trigger[data-slot='select-trigger'] {
@@ -580,35 +578,13 @@
   background-color: var(--foreground);
   color: var(--background);
 }
-.pod-chat-sidebar-search {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 2px 10px;
-}
-.pod-chat-sidebar-search-field {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-.pod-chat-sidebar-search input {
-  height: 30px;
-  padding-right: 26px;
-  font-size: 12px;
-}
-.pod-chat-sidebar-search-clear {
-  position: absolute;
-  top: 50%;
-  right: 3px;
-  transform: translateY(-50%);
-}
 .pod-chat-row-rename {
   flex: 1;
   height: 28px;
   font-size: 12px;
 }
 .pod-chat-section-label {
-  padding: 14px 8px 5px;
+  padding: 12px 8px 4px;
   font-size: 11px;
   font-weight: 500;
   color: var(--fg-tertiary);
@@ -620,8 +596,8 @@
   padding-right: 28px;
 }
 .pod-chat-row .pod-chat-avatar {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   font-size: 9px;
 }
 .pod-chat-row-status,
@@ -649,12 +625,14 @@
   display: block;
   width: 6px;
   height: 6px;
+  flex: none;
   border-radius: 50%;
   background: var(--info);
 }
 .pod-chat-status-waiting_choice {
   background: var(--warning);
 }
+.pod-chat-status-streaming,
 .pod-chat-status-running_background {
   background: var(--info);
   animation: pod-chat-pulse 1.5s ease-in-out infinite;
@@ -880,15 +858,18 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .pod-chat-status-streaming,
   .pod-chat-status-running_background {
     animation: none;
   }
 }
 
 .pod-chat-home-toolbar {
+  display: flex;
   flex-shrink: 0;
-  min-height: 16px;
-  padding: 8px 12px 0;
+  align-items: center;
+  height: 44px;
+  padding: 0 12px;
 }
 .pod-chat-draft-pages {
   display: flex;

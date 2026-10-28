@@ -28,7 +28,7 @@
 @theme static {
   --color-white: #ffffff;
   --color-black: #000000;
-  /* Tianbai (甜白) paper: a milky white between qingbai and ivory. */
+  /* Matte paper: a warm off-white surface with low glare for long reading and editing. */
   --color-paper: #fffefd;
 
   --color-brand-10: #fff0f6;
@@ -42,9 +42,9 @@
   --color-brand-90: #3f0b22;
   --color-brand-100: #240512;
 
-  /* The neutral ramp is tianbai (甜白), between qingbai and ivory. Light steps (paper, layers, lines)
-     lean very slightly warm; dark steps (ink) lean slightly cool. Each step keeps the contrast role of
-     its position: 50 stays at 3:1 or more against 10 and paper, and 60 and darker carry text. */
+  /* Paper-and-ink neutral ramp. Light steps (ground, paper, layers, lines) lean slightly warm;
+     dark steps (ink) lean slightly cool. Each step keeps the contrast role of its position:
+     50 stays at 3:1 or more against 10 and paper, and 60 and darker carry text. */
   --color-gray-10: #f4f4f2;
   --color-gray-20: #e5e4e1;
   --color-gray-30: #cbcac6;
@@ -309,8 +309,8 @@
      green success, blue in progress or information). Interaction states (focus, a checked or current
      item) use ink and shape. */
   --ring: var(--text-primary);
-  /* Content that a person selects takes the qingbai glaze. It differs from hover gray for every
-     common type of color vision. */
+  /* Content that a person selects takes a cool slate selection tint. It differs from hover gray for
+     every common type of color vision. */
   --selection: #cfe4f2;
 
   --sidebar: var(--ground);

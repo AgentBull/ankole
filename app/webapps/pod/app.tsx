@@ -14,7 +14,7 @@ import {
 } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { PodSidebar } from './sidebar'
-import { ContentListRoute } from './page-navigation'
+import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
 import { ContentError } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
@@ -276,7 +276,7 @@ function PodShell() {
 
 function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   const { t } = useTranslation()
-  const { state, isMobile } = useSidebar()
+  const { state } = useSidebar()
   const location = useLocation()
   const isLoading = useRouterState({ select: routerState => routerState.isLoading })
   const contentHeader =
@@ -285,17 +285,10 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
     location.pathname.startsWith('/conversations/')
   if (contentHeader && !pageFallback) return null
   if (!contentHeader && pageFallback) return null
-  if (!isMobile && state === 'expanded') {
-    return isLoading ? (
-      <span role="status" className="absolute top-3 left-3 text-xs text-fg-tertiary">
-        {t('pod.content.loading')}
-      </span>
-    ) : null
-  }
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-2 px-3">
-      <SidebarTrigger label={t('pod.sidebar.expand')} />
+      <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
       {isLoading && (
         <span role="status" className="text-xs text-fg-tertiary">
           {t('pod.content.loading')}

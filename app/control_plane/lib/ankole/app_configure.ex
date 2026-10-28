@@ -250,6 +250,7 @@ defmodule Ankole.AppConfigure do
   def update_global_in_tx(%Definition{} = definition, updater)
       when is_function(updater, 1) do
     with {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- ensure_scope(registered, @global_scope),
          :ok <- lock_global_key(registered.key),
          {:ok, current} <- current_global_value_in_tx(registered),
          {:ok, next_value} <- run_global_updater(updater, current) do
@@ -271,7 +272,8 @@ defmodule Ankole.AppConfigure do
   @spec get_global_by_key_in_tx(String.t()) ::
           {:ok, term()} | :error | {:error, term()}
   def get_global_by_key_in_tx(key) when is_binary(key) do
-    with {:ok, registered} <- Registry.require_key(key) do
+    with {:ok, registered} <- Registry.require_key(key),
+         :ok <- ensure_scope(registered, @global_scope) do
       load_global_row(registered, key, read_row(@global_scope, key))
     end
   end
@@ -285,7 +287,8 @@ defmodule Ankole.AppConfigure do
   @spec lock_global_by_key_in_tx(String.t()) ::
           {:ok, term()} | :error | {:error, term()}
   def lock_global_by_key_in_tx(key) when is_binary(key) do
-    with {:ok, registered} <- Registry.require_key(key) do
+    with {:ok, registered} <- Registry.require_key(key),
+         :ok <- ensure_scope(registered, @global_scope) do
       row =
         SiteConfig
         |> Ash.Query.filter(scope == ^@global_scope and key == ^key)
@@ -336,7 +339,8 @@ defmodule Ankole.AppConfigure do
   """
   @spec delete_global(Definition.t()) :: :ok | {:error, term()}
   def delete_global(%Definition{} = definition) do
-    with {:ok, registered} <- Registry.require_definition(definition) do
+    with {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- ensure_scope(registered, @global_scope) do
       delete(@global_scope, registered.key)
     end
   end
@@ -380,7 +384,8 @@ defmodule Ankole.AppConfigure do
   """
   @spec delete_global_by_key(String.t()) :: :ok | {:error, term()}
   def delete_global_by_key(key) when is_binary(key) do
-    with {:ok, _registered} <- Registry.require_key(key) do
+    with {:ok, registered} <- Registry.require_key(key),
+         :ok <- ensure_scope(registered, @global_scope) do
       delete(@global_scope, key)
     end
   end
@@ -388,19 +393,28 @@ defmodule Ankole.AppConfigure do
   @doc """
   Lists the AppConfigure entries that the console may display in one scope.
 
-  Exact definitions are always listed. Pattern definitions are listed as
-  read-only policy rows. A concrete pattern key is listed when a row exists
-  for it in this scope or, for a tenant, in the global scope it inherits.
+  Exact definitions are always listed except Pod-only definitions in site scope.
+  Pattern definitions are listed as read-only policy rows. A concrete pattern key
+  is listed when a row exists for it in this scope or, for a tenant, in the
+  global scope it inherits.
   """
   @spec list_console_items(:global | :tenant) :: {:ok, [console_item()]}
   def list_console_items(scope) do
     rows = scope_rows(scope)
     inherited = if scope == :tenant, do: scope_rows(:global), else: %{}
-    definitions = Registry.list_definitions()
-    exact_keys = MapSet.new(definitions, & &1.key)
+
+    definitions =
+      Registry.list_definitions()
+      |> Enum.reject(&(scope == :global and &1.scope == :pod))
+
+    exact_keys = MapSet.new(Registry.list_definitions(), & &1.key)
 
     exact = Enum.map(definitions, &console_item(scope, &1, :exact, &1.key, rows[&1.key]))
-    patterns = Enum.map(Registry.list_patterns(), &console_pattern_policy_item/1)
+
+    patterns =
+      Registry.list_patterns()
+      |> Enum.reject(&(scope == :global and &1.scope == :pod))
+      |> Enum.map(&console_pattern_policy_item/1)
 
     concrete =
       for {key, _row} <- Map.merge(inherited, rows),
@@ -503,6 +517,14 @@ defmodule Ankole.AppConfigure do
   end
 
   defp resolution_scopes(%{scope: :global}, _opts), do: [@global_scope]
+
+  defp resolution_scopes(%{scope: :pod} = definition, opts) do
+    if Keyword.get(opts, :scope) == :global do
+      {:error, {:pod_scope_only, definition_key(definition)}}
+    else
+      [tenant_scope()]
+    end
+  end
 
   defp resolution_scopes(_definition, opts) do
     cond do
@@ -712,23 +734,36 @@ defmodule Ankole.AppConfigure do
   def ensure_scope(%{scope: :global} = definition, scope) when scope != @global_scope,
     do: {:error, {:global_scope_only, definition_key(definition)}}
 
+  def ensure_scope(%{scope: :pod}, @tenant_scope_prefix <> _), do: :ok
+
+  def ensure_scope(%{scope: :pod} = definition, _scope),
+    do: {:error, {:pod_scope_only, definition_key(definition)}}
+
   def ensure_scope(_definition, _scope), do: :ok
 
-  # A tenant does not see a global-scope pattern that its owner manages. A
-  # concrete pattern key is visible while a row backs it.
+  # A tenant does not see a global-scope pattern that its owner manages, and the
+  # site scope does not list or inspect Pod-only definitions. A concrete pattern
+  # key is visible while a row backs it.
   defp console_definition(scope, key) do
     case Registry.classify_key(key) do
+      {:ok, {:exact, %Definition{scope: :pod}}} when scope == :global ->
+        {:error, {:pod_scope_only, key}}
+
       {:ok, {:exact, definition}} ->
         {:ok, {:exact, definition}}
+
+      {:ok, {:pattern, %PatternDefinition{scope: :pod}}} when scope == :global ->
+        {:error, {:pod_scope_only, key}}
 
       {:ok, {:pattern, %PatternDefinition{scope: :global, console_writable: false}}}
       when scope == :tenant ->
         {:error, {:key_managed_by_owner, key}}
 
       {:ok, {:pattern, pattern}} ->
-        if scope_row(scope, key) || (scope == :tenant && scope_row(:global, key)),
-          do: {:ok, {:pattern_concrete, pattern}},
-          else: {:error, {:pattern_key_not_editable, key}}
+        if scope_row(scope, key) ||
+             (scope == :tenant and pattern.scope != :pod and not is_nil(scope_row(:global, key))),
+           do: {:ok, {:pattern_concrete, pattern}},
+           else: {:error, {:pattern_key_not_editable, key}}
 
       {:error, _reason} = error ->
         error
@@ -776,7 +811,8 @@ defmodule Ankole.AppConfigure do
         editable:
           definition.console_writable and (scope == :global or definition.scope != :global) and
             (kind == :exact or not is_nil(row) or
-               (scope == :tenant and not is_nil(scope_row(:global, key)))),
+               (scope == :tenant and definition.scope != :pod and
+                  not is_nil(scope_row(:global, key)))),
         default_present: definition.default?,
         overridden: not is_nil(row)
       }
@@ -804,7 +840,7 @@ defmodule Ankole.AppConfigure do
     source =
       cond do
         row -> Atom.to_string(scope)
-        scope == :tenant and scope_row(:global, key) -> "global"
+        scope == :tenant and definition.scope != :pod and scope_row(:global, key) -> "global"
         definition.default? -> "default"
         true -> "missing"
       end

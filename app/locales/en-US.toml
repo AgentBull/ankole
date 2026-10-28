@@ -34,7 +34,7 @@ skill_learning_enabled = "Whether skill lessons are learned from job trajectorie
 skill_learning_reflection_threshold = "Unconsumed signal jobs (mid-run human input or failed calls) an agent must accumulate before one skill-lesson reflection job starts. Minimum 2."
 
 [app_configure.descriptions.i18n]
-default_locale = "Default locale used when rendering Ankole text."
+default_locale = "Default locale used when rendering Ankole text in this space."
 
 [app_configure.descriptions.observability.traces]
 enabled = "When true, the control plane exports process-wide OpenTelemetry traces to the configured OTLP endpoint after restart."
@@ -350,6 +350,8 @@ description = "MISSION defines responsibility, SOUL defines working character, D
 access_sections = "Access sections"
 hide_secret = "Hide value"
 open_navigation = "Open navigation"
+collapse_navigation = "Hide navigation"
+expand_navigation = "Show navigation"
 refresh = "Refresh"
 refreshing = "Refreshing"
 reveal_secret = "Reveal value"
@@ -2470,6 +2472,7 @@ collapse = "Hide sidebar"
 expand = "Show sidebar"
 sign_out = "Sign out"
 chat_empty = "No chats yet."
+recent_empty = "No recent activity yet."
 account = "Account"
 account_menu = "Account menu: {$name}, {$tenant}"
 accounts = "Organizations"
@@ -3142,6 +3145,8 @@ confirm_exit = "Confirm leaving this space"
 
 [pod.settings]
 space_profile = "Space profile"
+default_locale = "Space language"
+default_locale_hint = "Default language for the interface, notifications, and Agent messages in this space."
 sign_in_policy = "Sign-in policy"
 role_admin = "Administrator"
 status_active = "Active"

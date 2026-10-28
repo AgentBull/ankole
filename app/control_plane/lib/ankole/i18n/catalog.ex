@@ -2,10 +2,9 @@ defmodule Ankole.I18n.Catalog do
   @moduledoc """
   Owns the process that loads Ankole translation catalogs.
 
-  This GenServer is the single write point for runtime catalog state. AppConfigure
-  stores the operator's selected locale id, but this module proves that the id is
-  backed by a loaded locale file before writing it into Localize. Keeping that
-  split avoids a config engine that needs to know about catalog files.
+  This GenServer is the single write point for runtime catalog state. Each Pod
+  stores its own `i18n.default_locale` in AppConfigure, while this module keeps
+  the loaded catalog set and release fallback locale synchronized with Localize.
   """
 
   use GenServer
@@ -33,16 +32,16 @@ defmodule Ankole.I18n.Catalog do
   end
 
   @doc """
-  Re-applies the effective default locale from AppConfigure.
+  Re-applies the release fallback locale against the loaded catalog set.
 
-  This does not scan files. It is the cheap path used after the stored default
-  changes and the loaded catalog set is already current.
+  This does not scan files. It refreshes Localize's fallback locale and clears
+  cached lookup chains when runtime catalog state changes.
   """
   @spec reload() :: :ok | {:error, term()}
   def reload, do: GenServer.call(@name, :reload)
 
   @doc """
-  Re-scans locale files and applies the effective default locale.
+  Re-scans locale files and applies the release fallback locale.
 
   This is the heavier path for application/test changes where the TOML files
   themselves may have changed.
@@ -56,7 +55,7 @@ defmodule Ankole.I18n.Catalog do
     state = %__MODULE__{locales_dir: locales_dir}
 
     with :ok <- load_catalog(locales_dir),
-         :ok <- apply_config_default_locale() do
+         :ok <- apply_release_default_locale() do
       {:ok, state}
     else
       {:error, reason} -> {:stop, reason}
@@ -65,14 +64,14 @@ defmodule Ankole.I18n.Catalog do
 
   @impl true
   def handle_call(:reload, _from, state) do
-    {:reply, apply_config_default_locale(), state}
+    {:reply, apply_release_default_locale(), state}
   end
 
   @impl true
   def handle_call(:reload_locales, _from, state) do
     result =
       with :ok <- load_catalog(state.locales_dir),
-           :ok <- apply_config_default_locale() do
+           :ok <- apply_release_default_locale() do
         :ok
       end
 
@@ -120,34 +119,13 @@ defmodule Ankole.I18n.Catalog do
     exception -> {:error, exception}
   end
 
-  # Recheck the stored value against this release's catalog. A value written
-  # before catalog validation, or a locale removed by a release, can be invalid.
-  defp apply_config_default_locale do
-    with {:ok, configured} <-
-           Ankole.AppConfigure.get(Config.default_locale_definition(), scope: :global),
-         {:ok, tag} <- language_tag_for_loaded_locale(configured) do
+  # Verify the release fallback locale against the loaded catalog before
+  # publishing it to Localize.
+  defp apply_release_default_locale do
+    with {:ok, tag} <- language_tag_for_loaded_locale(Config.release_default_locale()) do
       {:ok, _tag} = Localize.put_default_locale(tag)
       Resolver.clear_chain_cache()
       :ok
-    else
-      {:error, {:storage_error, "global", "i18n.default_locale", :unavailable_locale}} ->
-        Logging.warning(
-          "i18n.catalog.default_unavailable",
-          "Stored default locale is unavailable; using release default",
-          %{locale: "en-US"}
-        )
-
-        with {:ok, tag} <- language_tag_for_loaded_locale("en-US"),
-             {:ok, _} <- Localize.put_default_locale(tag) do
-          Resolver.clear_chain_cache()
-          :ok
-        end
-
-      {:error, %ArgumentError{} = error} ->
-        {:error, error}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

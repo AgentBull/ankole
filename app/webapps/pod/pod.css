@@ -1,6 +1,6 @@
 .pod-shell {
   color: var(--foreground);
-  background: var(--background);
+  background: var(--ground);
 }
 
 body:has(.pod-shell) [data-slot='dialog-content'] {
@@ -95,61 +95,32 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 
 .pod-sidebar-header {
   gap: 0;
-  padding: 8px 8px 8px;
+  height: 44px;
+  justify-content: center;
+  padding: 0 6px;
 }
 
 .pod-sidebar-top {
   display: flex;
+  min-height: 28px;
   align-items: center;
-  gap: 2px;
+  justify-content: space-between;
+  gap: 4px;
 }
 
-/* Search is a slot: a light field with a 3:1 bottom line, so it reads as a place to type. */
-.pod-search-slot {
+.pod-sidebar-top-actions {
   display: flex;
-  min-width: 0;
-  height: 28px;
-  flex: 1;
-  cursor: pointer;
+  flex: none;
   align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 8px;
-  border: 1px solid var(--field-edge);
-  border-bottom-color: var(--field-border);
-  border-radius: var(--radius-control);
-  background: var(--field);
-  color: var(--fg-tertiary);
-  font-size: 13px;
-  text-align: left;
-  transition: background-color var(--duration-feedback) var(--ease-productive);
-}
-
-.pod-search-slot:hover {
-  background: var(--field-hover);
-  color: var(--fg-secondary);
-}
-
-.pod-search-slot > svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
-.pod-search-slot > span {
-  flex: 1;
-}
-
-.pod-search-slot kbd {
-  flex: none;
-  font-size: 11px;
-  line-height: 16px;
+  gap: 1px;
 }
 
 /* A selection is an object in a slot: the tab list is the slot and the open tab is paper. */
 .pod-sidebar-tabs[data-slot='tabs-list'] {
-  display: flex;
-  width: 100%;
-  height: 30px;
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  height: 28px;
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-control);
@@ -159,12 +130,21 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 
 .pod-sidebar-tabs [data-slot='tabs-trigger'] {
   height: 24px;
-  flex: 1;
+  flex: none;
   justify-content: center;
+  gap: 5px;
   border: 1px solid transparent;
   border-radius: var(--radius-mini);
   padding-inline: 8px;
   color: var(--fg-tertiary);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.pod-sidebar-tabs [data-slot='tabs-trigger'] > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .pod-sidebar-tabs [data-slot='tabs-trigger']:hover {
@@ -181,7 +161,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 
 .pod-navigation {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .pod-nav-places {
@@ -247,6 +227,18 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   border-radius: 1px;
   background: var(--foreground);
   content: '';
+}
+
+/* Shortcut entries (Recents and Favorites) defer the primary paper card to the canonical page tree. */
+.pod-nav-link[data-shortcut='true'][aria-current='page'] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.pod-nav-link[data-shortcut='true'][aria-current='page']::before {
+  display: none;
 }
 
 .pod-nav-section {
@@ -384,20 +376,28 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 }
 
 .pod-sidebar-footer {
-  gap: 0;
-  padding: 6px 8px 8px;
-  border-top: 1px solid var(--sidebar-border);
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 2px;
+}
+
+.pod-footer-action[data-active] {
+  border-color: var(--control-edge);
+  border-bottom-color: var(--control-base);
+  background: var(--control);
+  color: var(--foreground);
 }
 
 .pod-account-trigger {
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 40px;
+  min-height: 32px;
   cursor: pointer;
   align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
+  gap: 7px;
+  padding: 3px 6px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   color: var(--foreground);
@@ -412,8 +412,8 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 
 .pod-account-mark {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   flex: none;
   place-items: center;
   border: 1px solid var(--control-edge);
@@ -421,7 +421,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   border-radius: var(--radius-control);
   background: var(--control);
   color: var(--foreground);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -435,6 +435,12 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   line-height: 16px;
 }
 
+.pod-account-trigger .pod-account-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+
 .pod-account-text small {
   color: var(--fg-tertiary);
   font-size: 11px;
@@ -442,10 +448,24 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 }
 
 .pod-account-chevron {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: none;
   color: var(--fg-tertiary);
+}
+
+.pod-recent-chat-avatar {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  place-items: center;
+}
+
+.pod-recent-chat-avatar .pod-chat-avatar {
+  width: 17px;
+  height: 17px;
+  font-size: 9px;
 }
 
 .pod-account-menu[data-slot='dropdown-menu-content'] {
@@ -511,18 +531,38 @@ body:has(.pod-shell) .pod-command-dialog[data-slot='dialog-content'] {
 
 /* The mobile sidebar is portaled outside the Pod shell. */
 body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
+  .pod-sidebar-header {
+    height: 52px;
+    padding: 6px 10px;
+  }
+
   .pod-nav-link,
   .pod-nav-section-heading,
   .pod-tree-row,
   .pod-tree-link,
   .pod-conversations [data-sidebar='menu-button'],
-  .pod-search-slot,
-  .pod-sidebar-tabs [data-slot='tabs-trigger'] {
+  .pod-account-trigger {
     min-height: 40px;
   }
 
+  [data-horizontal] .pod-sidebar-tabs[data-slot='tabs-list'],
   .pod-sidebar-tabs[data-slot='tabs-list'] {
-    height: auto;
+    height: 40px;
+    padding: 3px;
+  }
+
+  .pod-sidebar-tabs [data-slot='tabs-trigger'] {
+    height: 34px;
+    min-height: 34px;
+    padding-inline: 10px;
+  }
+
+  .pod-sidebar-top-actions > *,
+  .pod-sidebar-footer .pod-footer-action {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
   }
 
   .pod-nav-section-heading > a {

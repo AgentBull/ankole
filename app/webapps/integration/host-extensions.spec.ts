@@ -6,6 +6,7 @@ test('FixturePodModule loads on selection and returns to General when its featur
     route.fulfill({
       json: {
         displayName: 'Fixture Pod',
+        defaultLocale: 'en-US',
         allowExternalGuests: true,
         emailAvailable: true,
         loginPolicy: { allowed_email_domains: [], allow_email_otp: true }
@@ -90,6 +91,7 @@ test('inactive Plugins contribute neither Pod tabs nor a login challenge', async
     route.fulfill({
       json: {
         displayName: 'Fixture Pod',
+        defaultLocale: 'en-US',
         allowExternalGuests: true,
         emailAvailable: true,
         loginPolicy: { allowed_email_domains: [], allow_email_otp: true }

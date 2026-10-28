@@ -685,6 +685,47 @@ defmodule Ankole.AppConfigureTest do
              AppConfigure.resolve(definition)
   end
 
+  test "pod scope definitions resolve only tenant rows and reject global or agent scope", %{
+    prefix: prefix
+  } do
+    tenant_scope = "tenant:" <> Repo.tenant_id!()
+    key_name = key(prefix, "pod-only")
+
+    definition =
+      AppConfigure.define(
+        key: key_name,
+        encrypted: false,
+        scope: :pod,
+        schema: Ankole.AppConfigure.Schema.non_empty_string(),
+        default_value: "default"
+      )
+
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
+
+    assert {:error, {:pod_scope_only, ^key_name}} =
+             AppConfigure.put_global(definition, "global")
+
+    assert {:error, {:pod_scope_only, ^key_name}} =
+             AppConfigure.resolve(definition, scope: :global)
+
+    assert {:error, {:pod_scope_only, ^key_name}} =
+             Ankole.Ash.create(AppConfig, :put, %{
+               scope: "agent:some-agent",
+               key: key_name,
+               input: "agent"
+             })
+
+    insert_row!("global", key_name, %{"type" => "plaintext", "value" => "stale-global"})
+
+    assert {:ok, %{value: "default", source: :default, scope: nil}} =
+             AppConfigure.resolve(definition)
+
+    assert {:ok, "pod-value"} = AppConfigure.put_tenant_by_key(key_name, "pod-value")
+
+    assert {:ok, %{value: "pod-value", source: :tenant, scope: ^tenant_scope}} =
+             AppConfigure.resolve(definition)
+  end
+
   test "invalid scoped rows stop fallback instead of inheriting global", %{prefix: prefix} do
     tenant_scope = "tenant:" <> Repo.tenant_id!()
 

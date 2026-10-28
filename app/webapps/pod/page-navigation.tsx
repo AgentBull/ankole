@@ -9,7 +9,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  Input,
   Popover,
   PopoverContent,
   PopoverTitle,
@@ -23,75 +22,24 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import {
-  RiArrowRightSLine,
-  RiDeleteBinLine,
-  RiFolderLine,
-  RiHistoryLine,
-  RiLockLine,
-  RiMoreFill,
-  RiNodeTree,
-  RiShareLine,
-  RiStarLine
-} from '@remixicon/react'
+import { Link, useLocation, useNavigate, useParams } from '@tanstack/react-router'
+import { RiArrowRightSLine, RiChat3Line, RiMoreFill, RiNodeTree, RiShareLine } from '@remixicon/react'
 import { authenticationRef, podID, podLocation, podRouteID } from '../common/browser-context'
-import { useSearchParams } from '../common/router'
 import { requestErrorMessage } from '../common/request-errors'
-import { NavigationModel, type NavigationScope } from './state/navigation'
-import { pageAncestors } from './state/page-location'
+import { podKeys } from './api'
+import { podConversations } from './api/generated/sdk.gen'
+import { ChatAvatar } from './chat/chat-avatar'
+import { ChatRowStatus } from './chat/chat-sidebar'
+import { mergeRecentEntries, NavigationModel, type NavigationScope } from './state/navigation'
 import { canMovePage, dropAvailability, dropRequest, rootRequest } from './state/page-move'
-import {
-  contentKeys,
-  pageAPI,
-  pagesQuery,
-  pageChildrenQuery,
-  pageSearchQuery,
-  cachedPages,
-  type Page,
-  type PageScope
-} from './content-api'
+import { contentKeys, pageAPI, pagesQuery, pageChildrenQuery, cachedPages, type Page } from './content-api'
 import { contentError } from './content-errors'
-import { ContentError, typeLabels } from './content-primitives'
+import { ContentError, scopeLabels } from './content-primitives'
 import { CreatePageButton } from './page-create-menu'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { MovePageDialog } from './page-move-dialog'
 import { SpaceSettingsButton } from './space-settings'
 import { PageIcon } from './page-icon'
-
-export const scopeLabels: Record<PageScope, string> = {
-  get all() {
-    return t('pod.content.all_pages')
-  },
-  get space() {
-    return t('pod.content.space')
-  },
-  get private() {
-    return t('pod.content.private')
-  },
-  get shared() {
-    return t('pod.content.shared_with_me')
-  },
-  get recent() {
-    return t('pod.content.recently_visited')
-  },
-  get favorites() {
-    return t('pod.content.favorites')
-  },
-  get trash() {
-    return t('pod.content.trash')
-  }
-}
-
-export const scopeIcons = {
-  all: RiFolderLine,
-  space: RiFolderLine,
-  private: RiLockLine,
-  shared: RiShareLine,
-  recent: RiHistoryLine,
-  favorites: RiStarLine,
-  trash: RiDeleteBinLine
-}
 
 const pageTree = 'pod-pages'
 
@@ -113,6 +61,7 @@ function usePageTree(): PageTreeContextValue {
 
 export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   useSignals()
+  const location = useLocation()
   const model = useModel(() => new NavigationModel(podID(), authenticationRef()))
   const preferences = model.preferences.value
   useEffect(() => {
@@ -126,7 +75,8 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   }, [model])
   const favorites = useQuery(pagesQuery('favorites'))
   const actions = usePageActions()
-  const favoriteIDs = useMemo(() => new Set(favorites.data?.pages.map(page => page.id)), [favorites.data])
+  const favoritePages = favorites.data?.pages ?? []
+  const favoriteIDs = useMemo(() => new Set(favoritePages.map(page => page.id)), [favoritePages])
   const autoScroll = useTreeAutoScroll<HTMLElement>(pageTree)
   const scrollContainer = useCallback(
     (node: HTMLElement | null) => autoScroll(node?.closest<HTMLElement>('[data-sidebar="content"]') ?? null),
@@ -139,24 +89,24 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
     togglePage: model.togglePage,
     onNavigate
   }
+  const sharedPath = podLocation('/content/shared').pathname
+  const favoritesPath = podLocation('/content/favorites').pathname
   return (
     <PageTreeContext value={tree}>
-      <div ref={scrollContainer} className="pod-navigation">
-        <nav aria-label={t('pod.content.page_navigation')} className="pod-nav-places">
-          {(['shared', 'recent', 'favorites', 'trash'] as const).map(scope => {
-            const Icon = scopeIcons[scope]
-            return (
-              <Link
-                key={scope}
-                className="pod-nav-link"
-                to={podLocation(`/content/${scope}`).pathname}
-                onClick={onNavigate}>
-                <Icon aria-hidden />
-                <span>{scopeLabels[scope]}</span>
-              </Link>
-            )
-          })}
-        </nav>
+      <nav ref={scrollContainer} aria-label={t('pod.content.page_navigation')} className="pod-navigation">
+        <RecentNavigationSection
+          open={preferences.rootOpen.recent}
+          onToggle={() => model.toggleRoot('recent')}
+          onNavigate={onNavigate}
+        />
+        {(favoritePages.length > 0 || location.pathname === favoritesPath) && (
+          <FavoritesNavigationSection
+            pages={favoritePages}
+            open={preferences.rootOpen.favorites}
+            onToggle={() => model.toggleRoot('favorites')}
+            onNavigate={onNavigate}
+          />
+        )}
         {(['space', 'private'] as const).map(scope => (
           <NavigationTree
             key={scope}
@@ -165,8 +115,182 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
             onToggleRoot={() => model.toggleRoot(scope)}
           />
         ))}
-      </div>
+        <div className="pod-nav-places">
+          <Link
+            className="pod-nav-link"
+            to={sharedPath}
+            aria-current={location.pathname === sharedPath ? 'page' : undefined}
+            onClick={onNavigate}>
+            <RiShareLine aria-hidden />
+            <span className="truncate">{scopeLabels.shared}</span>
+          </Link>
+        </div>
+      </nav>
     </PageTreeContext>
+  )
+}
+
+function RecentNavigationSection({
+  open,
+  onToggle,
+  onNavigate
+}: {
+  open: boolean
+  onToggle(): void
+  onNavigate?: () => void
+}) {
+  const { t } = useTranslation()
+  const location = useLocation()
+  const { pageID: routePageID } = useParams({ strict: false })
+  const activePageID = podRouteID(routePageID)
+  const recentPages = useQuery(pagesQuery('recent'))
+  const recentRooms = useQuery({
+    queryKey: [...podKeys.conversations, 'recent', 'sidebar'],
+    queryFn: ({ signal }) => podConversations({ query: { order: 'recent', limit: 10 }, signal })
+  })
+  const entries = useMemo(
+    () => mergeRecentEntries(recentPages.data?.pages ?? [], recentRooms.data?.conversations ?? []).slice(0, 5),
+    [recentPages.data?.pages, recentRooms.data?.conversations]
+  )
+  const recentPath = podLocation('/content/recent').pathname
+  const pending = recentPages.isPending && recentRooms.isPending
+  return (
+    <section aria-label={scopeLabels.recent} className="pod-nav-section">
+      <div className="pod-nav-section-heading">
+        <button
+          type="button"
+          className="pod-tree-toggle"
+          aria-label={scopeLabels.recent}
+          aria-expanded={open}
+          onClick={onToggle}>
+          <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
+        </button>
+        <Link
+          className="min-w-0 flex-1 truncate"
+          to={recentPath}
+          aria-current={location.pathname === recentPath ? 'page' : undefined}
+          onClick={onNavigate}>
+          {scopeLabels.recent}
+        </Link>
+      </div>
+      {open &&
+        (pending ? (
+          <p role="status" className="pod-tree-empty">
+            {t('pod.content.loading')}
+          </p>
+        ) : entries.length > 0 ? (
+          <ul className="pod-nav-places">
+            {entries.map(entry => {
+              if (entry.kind === 'page') {
+                const active = activePageID === entry.page.id
+                return (
+                  <li key={`page:${entry.id}`} className="min-w-0">
+                    <Link
+                      className="pod-nav-link"
+                      data-shortcut="true"
+                      to={podLocation(`/pages/${entry.page.id}`).pathname}
+                      aria-current={active ? 'page' : undefined}
+                      onClick={onNavigate}>
+                      <PageIcon page={entry.page} />
+                      <span className="min-w-0 flex-1 truncate">{entry.page.title || t('pod.content.untitled')}</span>
+                    </Link>
+                  </li>
+                )
+              }
+              const target = podLocation(`/conversations/${entry.room.id}`).pathname
+              const active = location.pathname === target
+              return (
+                <li key={`chat:${entry.id}`} className="min-w-0">
+                  <Link
+                    className="pod-nav-link"
+                    to={target}
+                    state={{ keepSidebarTab: 'home' } as never}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={onNavigate}>
+                    {entry.room.agents.length > 0 ? (
+                      <span className="pod-recent-chat-avatar">
+                        <ChatAvatar
+                          name={entry.room.agents[0]!.displayName}
+                          src={entry.room.agents[0]!.avatarURL}
+                          agent
+                        />
+                      </span>
+                    ) : (
+                      <RiChat3Line aria-hidden />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{entry.room.title}</span>
+                    <ChatRowStatus status={entry.room.rowStatus} />
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="pod-tree-empty">{t('pod.sidebar.recent_empty')}</p>
+        ))}
+    </section>
+  )
+}
+
+function FavoritesNavigationSection({
+  pages,
+  open,
+  onToggle,
+  onNavigate
+}: {
+  pages: Page[]
+  open: boolean
+  onToggle(): void
+  onNavigate?: () => void
+}) {
+  const { t } = useTranslation()
+  const location = useLocation()
+  const { pageID: routePageID } = useParams({ strict: false })
+  const activePageID = podRouteID(routePageID)
+  const favoritesPath = podLocation('/content/favorites').pathname
+  return (
+    <section aria-label={scopeLabels.favorites} className="pod-nav-section">
+      <div className="pod-nav-section-heading">
+        <button
+          type="button"
+          className="pod-tree-toggle"
+          aria-label={scopeLabels.favorites}
+          aria-expanded={open}
+          onClick={onToggle}>
+          <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
+        </button>
+        <Link
+          className="min-w-0 flex-1 truncate"
+          to={favoritesPath}
+          aria-current={location.pathname === favoritesPath ? 'page' : undefined}
+          onClick={onNavigate}>
+          {scopeLabels.favorites}
+        </Link>
+      </div>
+      {open &&
+        (pages.length > 0 ? (
+          <ul className="pod-nav-places">
+            {pages.map(page => {
+              const active = activePageID === page.id
+              return (
+                <li key={page.id} className="min-w-0">
+                  <Link
+                    className="pod-nav-link"
+                    data-shortcut="true"
+                    to={podLocation(`/pages/${page.id}`).pathname}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={onNavigate}>
+                    <PageIcon page={page} />
+                    <span className="min-w-0 flex-1 truncate">{page.title || t('pod.content.untitled')}</span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
+        ))}
+    </section>
   )
 }
 
@@ -564,266 +688,5 @@ function PageRenameField({ page, onDone }: { page: Page; onDone(): void }) {
         }
       }}
     />
-  )
-}
-
-function formatPageTimestamp(iso: string | null | undefined, locale?: string): string {
-  if (!iso) return ''
-  const time = Date.parse(iso)
-  if (Number.isNaN(time)) return ''
-  const now = Date.now()
-  const diffSeconds = Math.round((time - now) / 1000)
-  const absSeconds = Math.abs(diffSeconds)
-  try {
-    const rtf = new Intl.RelativeTimeFormat(locale || undefined, { numeric: 'auto' })
-    if (absSeconds < 60) return rtf.format(0, 'minute')
-    if (absSeconds < 3600) return rtf.format(Math.round(diffSeconds / 60), 'minute')
-    if (absSeconds < 86400) return rtf.format(Math.round(diffSeconds / 3600), 'hour')
-    if (absSeconds < 7 * 86400) return rtf.format(Math.round(diffSeconds / 86400), 'day')
-    const date = new Date(time)
-    const sameYear = date.getFullYear() === new Date(now).getFullYear()
-    return new Intl.DateTimeFormat(locale || undefined, {
-      ...(sameYear ? {} : { year: 'numeric' }),
-      month: 'short',
-      day: 'numeric'
-    }).format(date)
-  } catch {
-    return new Date(time).toLocaleDateString()
-  }
-}
-
-export function ContentListRoute() {
-  const { scope = 'space' } = useParams({ strict: false })
-  const effectiveScope: PageScope =
-    scope === 'search' ? 'all' : Object.hasOwn(scopeLabels, scope) ? (scope as PageScope) : 'space'
-  const search = scope === 'search' || effectiveScope === 'all'
-  const trash = effectiveScope === 'trash'
-  const [searchParams, setSearchParams] = useSearchParams()
-  const query = searchParams.get('q') ?? ''
-  const [inputQuery, setInputQuery] = useState(query)
-  const lastPushedQuery = useRef(query)
-  useEffect(() => {
-    if (query !== lastPushedQuery.current) {
-      lastPushedQuery.current = query
-      setInputQuery(query)
-    }
-  }, [query])
-  useEffect(() => {
-    lastPushedQuery.current = query
-    setInputQuery(query)
-    // Reset local input when navigating between list scopes.
-  }, [scope])
-  useEffect(() => {
-    if (!(search || trash) || inputQuery === query) return
-    const timer = window.setTimeout(() => {
-      lastPushedQuery.current = inputQuery
-      setSearchParams(
-        current => {
-          if (inputQuery) current.set('q', inputQuery)
-          else current.delete('q')
-          return current
-        },
-        { replace: true, preventScrollReset: true }
-      )
-    }, 180)
-    return () => window.clearTimeout(timer)
-  }, [inputQuery, query, search, setSearchParams, trash])
-  const { i18n } = useTranslation()
-  const debouncing = (search || trash) && inputQuery !== query
-  const rootScope = !search && (effectiveScope === 'space' || effectiveScope === 'private')
-  const listing = useQuery({ ...pagesQuery(effectiveScope, trash ? query : ''), enabled: !rootScope && !search })
-  const searched = useQuery({ ...pageSearchQuery(query), enabled: search })
-  const roots = useInfiniteQuery({
-    ...pageChildrenQuery(effectiveScope === 'private' ? 'private' : 'space'),
-    enabled: rootScope
-  })
-  const pages = rootScope
-    ? {
-        ...roots,
-        data: roots.data
-          ? { ...roots.data.pages[0]!, pages: roots.data.pages.flatMap(batch => batch.pages) }
-          : undefined
-      }
-    : search
-      ? searched
-      : listing
-  const client = useQueryClient()
-  const navigate = useNavigate()
-  const restore = useMutation({
-    mutationFn: pageAPI.restore,
-    onSuccess: async ({ page }) => {
-      await client.invalidateQueries({ queryKey: contentKeys.all })
-      toast.success(t('pod.content.page_restored'), {
-        action: {
-          label: t('pod.content.open_page'),
-          onClick: () => void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
-        }
-      })
-    }
-  })
-  const rows: Page[] | undefined = pages.data?.pages
-  const pagesByID = new Map(
-    [...cachedPages(client), ...(rows ?? []), ...(searched.data?.ancestors ?? [])].map(page => [page.id, page])
-  )
-  return (
-    <section
-      className="pod-content-list h-full overflow-auto px-6 py-6 md:px-10"
-      onKeyDown={event => {
-        if (
-          event.nativeEvent.isComposing ||
-          event.nativeEvent.keyCode === 229 ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.metaKey ||
-          event.shiftKey ||
-          (event.key !== 'j' && event.key !== 'k') ||
-          !(event.target instanceof HTMLElement) ||
-          event.target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]')
-        ) {
-          return
-        }
-        const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-pod-list-item]:not([disabled])')]
-        const current = rows.indexOf(document.activeElement as HTMLElement)
-        if (current < 0 || rows.length < 2) return
-        event.preventDefault()
-        const next = rows[(current + (event.key === 'j' ? 1 : -1) + rows.length) % rows.length]!
-        next.focus()
-        next.scrollIntoView({ block: 'nearest' })
-      }}>
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">
-          {search ? t('pod.content.search_pages') : scopeLabels[effectiveScope]}
-        </h1>
-        {effectiveScope !== 'trash' &&
-          (effectiveScope === 'private'
-            ? pages.data?.can_create_private !== false
-            : pages.data?.can_create_space === true) && (
-            <CreatePageButton
-              scope={effectiveScope === 'private' ? 'private' : 'space'}
-              privateOwner={pages.data?.principal_uid}
-            />
-          )}
-      </div>
-      {(search || trash) && (
-        <Input
-          key={scope}
-          autoFocus={search}
-          aria-label={trash ? t('pod.content.search_trash') : t('pod.content.search_pages')}
-          className="mb-5 max-w-xl"
-          placeholder={
-            trash ? t('pod.content.search_titles_in_trash') : t('pod.content.search_titles_and_document_content')
-          }
-          value={inputQuery}
-          onChange={event => setInputQuery(event.target.value)}
-        />
-      )}
-      <ContentError error={pages.error || restore.error} retry={() => void pages.refetch()} />
-      {pages.isPending || (debouncing && !rows?.length) ? (
-        <p role="status">{t('pod.content.loading')}</p>
-      ) : (
-        <ul className="space-y-1">
-          {rows?.map(page => {
-            const parent = !rootScope
-              ? pageAncestors(page, pagesByID)
-                  .map(ancestor => ancestor.title || t('pod.content.untitled'))
-                  .join(' / ')
-              : ''
-            const showPrivateBadge = !rootScope && Boolean(page.private_owner_uid)
-            const timestamp = !rootScope
-              ? formatPageTimestamp(trash ? (page.deleted_at ?? page.updated_at) : page.updated_at, i18n.language)
-              : ''
-            const description = [
-              typeLabels[page.type],
-              showPrivateBadge ? t('pod.content.private') : '',
-              parent,
-              timestamp
-            ]
-              .filter(Boolean)
-              .join(' · ')
-            return (
-              <li
-                key={page.id}
-                className={trash ? 'flex min-h-8 items-center justify-between gap-3 py-0.5' : undefined}>
-                {trash ? (
-                  <span className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1">
-                    <PageIcon page={page} />
-                    <span className="min-w-0 flex-1">
-                      <span id={`pod-trash-title-${page.id}`} className="block truncate">
-                        {page.title || t('pod.content.untitled')}
-                      </span>
-                      {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
-                    </span>
-                    {showPrivateBadge && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
-                        <RiLockLine aria-hidden className="size-3" />
-                        {t('pod.content.private')}
-                      </span>
-                    )}
-                    {timestamp && <span className="shrink-0 text-xs text-fg-tertiary">{timestamp}</span>}
-                    <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
-                  </span>
-                ) : (
-                  <Link
-                    data-pod-list-item
-                    className="pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-[13px] leading-5 text-foreground no-underline hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-                    aria-label={page.title || t('pod.content.untitled')}
-                    aria-description={description}
-                    to={podLocation(`/pages/${page.id}`).pathname}>
-                    <PageIcon page={page} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{page.title || t('pod.content.untitled')}</span>
-                      {parent && <span className="block truncate text-xs text-fg-tertiary">{parent}</span>}
-                    </span>
-                    {showPrivateBadge && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
-                        <RiLockLine aria-hidden className="size-3" />
-                        {t('pod.content.private')}
-                      </span>
-                    )}
-                    {timestamp && <span className="shrink-0 text-xs text-fg-tertiary">{timestamp}</span>}
-                    <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
-                  </Link>
-                )}
-                {effectiveScope === 'trash' ? (
-                  <Button
-                    data-pod-list-item
-                    aria-describedby={`pod-trash-title-${page.id}`}
-                    size="sm"
-                    variant="outline"
-                    disabled={!!page.purge_started_at || restore.isPending}
-                    onClick={() => restore.mutate(page.id)}>
-                    {page.purge_started_at
-                      ? t('pod.content.purging')
-                      : restore.isPending && restore.variables === page.id
-                        ? t('pod.content.restoring')
-                        : t('pod.content.restore')}
-                  </Button>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      {rootScope && roots.hasNextPage && (
-        <Button
-          className="mt-4"
-          variant="outline"
-          disabled={roots.isFetching}
-          onClick={() => void roots.fetchNextPage()}>
-          {t('pod.content.load_more_pages')}
-        </Button>
-      )}
-      {!pages.isPending && !debouncing && !pages.error && !rows?.length && (
-        <p className="py-10 text-sm text-fg-tertiary">
-          {query
-            ? trash
-              ? t('pod.content.no_matching_pages_in_trash')
-              : t('pod.content.no_pages_you_can_view_were_found')
-            : trash
-              ? t('pod.content.trash_is_empty')
-              : t('pod.content.no_pages_yet')}
-        </p>
-      )}
-    </section>
   )
 }

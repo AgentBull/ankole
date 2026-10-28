@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.34 (2026-10-28)
+
+- Scope `i18n.default_locale` strictly to each Pod workspace (`:pod` AppConfigure scope), migrating any existing site-level default locale to Pods without an override and rejecting site-level or per-Agent writes.
+- Let Pod administrators view and update their workspace's `defaultLocale` in Pod Settings (`/api/v2/pod/admin/settings`), render Pod and Pod sign-in HTML shells in each Pod's configured locale, and negotiate `Accept-Language` (falling back to `en-US`) on tenant-independent HTML shells and site-wide email OTP deliveries.
+- Layer the Pod and Console workspaces as rounded paper sheets above a ground-level collapsible sidebar, move compact Home/Chat tabs and quick actions into the Pod sidebar header, interleave visited Pages (`visited_at`) and active Conversations in Recently Visited, and surface Favorites inline above the Space tree.
+
 ## Version 2.0.0-alpha.30 (2026-10-28)
 
 - Collect the company name, editable tenant slug, and business packs during Setup, and explain how business selections shape the Company Brain ontology.

@@ -2,7 +2,42 @@ import { t } from 'i18next'
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
-import type { PageRole, PageType } from './content-api'
+import type { PageRole, PageScope, PageType } from './content-api'
+import { RiDeleteBinLine, RiFolderLine, RiHistoryLine, RiLockLine, RiShareLine, RiStarLine } from '@remixicon/react'
+
+export const scopeLabels: Record<PageScope, string> = {
+  get all() {
+    return t('pod.content.all_pages')
+  },
+  get space() {
+    return t('pod.content.space')
+  },
+  get private() {
+    return t('pod.content.private')
+  },
+  get shared() {
+    return t('pod.content.shared_with_me')
+  },
+  get recent() {
+    return t('pod.content.recently_visited')
+  },
+  get favorites() {
+    return t('pod.content.favorites')
+  },
+  get trash() {
+    return t('pod.content.trash')
+  }
+}
+
+export const scopeIcons = {
+  all: RiFolderLine,
+  space: RiFolderLine,
+  private: RiLockLine,
+  shared: RiShareLine,
+  recent: RiHistoryLine,
+  favorites: RiStarLine,
+  trash: RiDeleteBinLine
+}
 
 export const typeLabels: Record<PageType, string> = {
   get doc() {

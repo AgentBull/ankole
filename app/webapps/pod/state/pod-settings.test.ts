@@ -18,6 +18,7 @@ test('PodSettingsModel tracks dirty state across normalized loginPolicy and doma
   // Partial loginPolicy mocks (such as host-extensions) normalize cleanly without becoming dirty.
   model.initialize('pod-1', {
     displayName: 'Acme Space',
+    defaultLocale: 'en-US',
     allowExternalGuests: false,
     emailAvailable: true,
     loginPolicy: {
@@ -26,7 +27,13 @@ test('PodSettingsModel tracks dirty state across normalized loginPolicy and doma
     } as PodAdminSettingsResponse['loginPolicy']
   })
   expect(model.dirty.value).toBe(false)
+  expect(model.defaultLocale.value).toBe('en-US')
   expect(model.domains.value).toBe('example.com, sub.example.com')
+
+  model.defaultLocale.value = 'zh-Hans-CN'
+  expect(model.dirty.value).toBe(true)
+  model.defaultLocale.value = 'en-US'
+  expect(model.dirty.value).toBe(false)
 
   // Whitespace and casing changes that produce the same domain list stay clean.
   model.domains.value = ' EXAMPLE.COM , sub.example.com '
@@ -38,6 +45,7 @@ test('PodSettingsModel tracks dirty state across normalized loginPolicy and doma
 
   model.commitSaved({
     displayName: 'Acme Space',
+    defaultLocale: 'ja-JP',
     allowExternalGuests: false,
     loginPolicy: {
       ...model.policy.value,
@@ -45,6 +53,7 @@ test('PodSettingsModel tracks dirty state across normalized loginPolicy and doma
     }
   })
   expect(model.dirty.value).toBe(false)
+  expect(model.defaultLocale.value).toBe('ja-JP')
 
   model.policy.value = { ...model.policy.value, require_sso_for_members: true }
   expect(model.dirty.value).toBe(true)

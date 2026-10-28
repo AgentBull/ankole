@@ -54,7 +54,7 @@ stores, and exposes a single key:
 - a stable key name
 - a value schema
 - the `encrypted` storage policy
-- the ownership policy: `global` values only, or `tenant` values with Agent overrides
+- the ownership policy: `global` (site-wide only), `pod` (`tenant:<id>` only, falling back directly to the code default), or `tenant` (`tenant:<id>` with optional Agent overrides and site inheritance)
 - an optional default value
 - an optional generator
 - an optional description
@@ -124,29 +124,41 @@ accident, while genuine JSON objects and arrays are stored as structured data.
 Any subsystem that needs a different encrypted scalar type must supply its own
 dedicated editor.
 
-## Site and Tenant Values
+## Site, Pod, and Tenant Values
 
 Stored rows use one of three scopes: `global`, `tenant:<tenant_id>`, or
-`agent:<agent_uid>`. A `global` definition accepts only site-wide values. A
-`tenant` definition resolves values in priority order: an Agent override first
-(when the caller passes `agent_id`), then the current tenant's value, then the
-site value, and finally the code default. When resolving an Agent override, the
-Agent must belong to the current process's tenant; tenant reads always require
-that bound process context, and a request payload cannot select a different
-tenant.
+`agent:<agent_uid>`. Each definition's ownership policy governs which scopes
+AppConfigure reads and accepts:
 
-Some namespaces narrow this general model. Identity-provider settings
-(`principals.identity_providers.*`) belong strictly to a tenant (`tenant:<id>`)
-without inheriting a site default; the generic settings endpoints reject writes
-to these keys so the identity-provider subsystem can validate platform
-application assignments. Conversely, Signal binding secrets use `global` scope
-because each key embeds a hash of the globally unique Agent UID and binding
-name, and the Signal binding lifecycle deletes them when the binding is removed.
+- A `global` definition accepts only site-wide values in `site_app_configurations`
+  and resolves `"global"` followed by the code default.
+- A `pod` definition (such as `i18n.default_locale`) belongs strictly to a Pod
+  workspace (`tenant:<tenant_id>` in `app_configurations`). AppConfigure rejects
+  `global` and `agent:<uid>` reads, writes, and deletes for `pod` keys, omits
+  them from the site configuration catalog, and resolves `tenant:<tenant_id>`
+  followed directly by the code default without consulting site storage.
+- A `tenant` definition resolves values in priority order: an Agent override
+  first (when the caller passes `agent_id`), then the current tenant's value,
+  then the site value, and finally the code default.
+
+When resolving a `pod`, `tenant`, or Agent value, the caller must hold an active
+`Ankole.Repo` tenant context (and any `agent_id` must belong to that tenant); a
+request payload cannot select a different tenant.
+
+Some namespaces narrow write access further. Identity-provider settings
+(`principals.identity_providers.*`) belong strictly to `tenant:<id>` without
+inheriting a site default, and the generic settings endpoints reject writes to
+these keys so the identity-provider subsystem can validate platform application
+assignments. Conversely, Signal binding secrets use `global` scope because each
+key embeds a hash of the globally unique Agent UID and binding name, and the
+Signal binding lifecycle deletes them when the binding is removed.
 
 In the Console, the settings page displays the site value and the current tenant
 value in separate columns, writing site values through
-`/api/v2/site/app-configurations` and tenant values through
-`/api/v2/app-configurations` under the same validation and encryption rules.
+`/api/v2/site/app-configurations` and tenant or Pod values through
+`/api/v2/app-configurations` under the same validation and encryption rules. For
+`pod` keys, the site column stays blank and resetting a tenant value restores
+the code default directly.
 
 During fallback resolution, AppConfigure moves to the next scope tier only when
 no row exists at the current tier. If a row is corrupt or cannot be decrypted,

@@ -519,6 +519,7 @@ export type PodPage = {
      * Field included by default.
      */
     updated_at: string
+    visited_at?: string | null
   }
   id: string
   /**
@@ -595,6 +596,10 @@ export type PodPageType = {
    * Field included by default.
    */
   updated_at: string
+  /**
+   * Field included by default.
+   */
+  visited_at?: string | null
 }
 
 /**
@@ -3998,6 +4003,7 @@ export type PodAdminSettingsResponses = {
    */
   200: {
     allowExternalGuests: boolean
+    defaultLocale: string
     displayName: string
     emailAvailable: boolean
     loginPolicy: {
@@ -4019,6 +4025,7 @@ export type UpdatePodAdminSettingsData = {
   body: {
     data: {
       allowExternalGuests: boolean
+      defaultLocale: string
       displayName: string
       loginPolicy: {
         allow_email_otp: boolean
@@ -4049,6 +4056,7 @@ export type UpdatePodAdminSettingsResponses = {
    */
   200: {
     allowExternalGuests: boolean
+    defaultLocale: string
     displayName: string
     emailAvailable: boolean
     loginPolicy: {

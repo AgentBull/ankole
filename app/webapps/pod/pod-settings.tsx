@@ -37,6 +37,7 @@ import { ConfigFields, defaultConfig, localizedText, setPath } from '../common/c
 import { ErrorBlock } from '../common/error-block'
 import { authenticationRef, podID, principalUID } from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
+import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
 import * as api from './api/generated/sdk.gen'
 import type { PodAdminMembersResponse, PodMemberAccessReviewResponse } from './api/generated/types.gen'
 import { cachedPages, contentKeys, type PageDetail } from './content-api'
@@ -65,32 +66,34 @@ export function PodSettings() {
   const model = useModel(PodSettingsModel)
   const tabs = usePodSlots().settingsTabs ?? []
   return (
-    <main className="mx-auto w-full max-w-5xl overflow-auto p-6 grid gap-6 content-start">
-      <h1 className="text-2xl">{t('pod.settings.title')}</h1>
-      <Tabs
-        value={model.section.value}
-        onValueChange={value => {
-          model.section.value = value
-        }}>
-        <TabsList>
-          {podSettingsSections.map(section => (
-            <TabsTrigger key={section} value={section}>
-              {t(`pod.settings.${section}`)}
-            </TabsTrigger>
-          ))}
-          {tabs.map(slot => (
-            <ExtensionTabTrigger key={slot.id} slot={slot} />
-          ))}
-        </TabsList>
-      </Tabs>
-      {model.section.value === 'general' && <GeneralSettings model={model} />}
-      {model.section.value === 'members' && <Members model={model} />}
-      {model.section.value === 'invitations' && <Invitations model={model} />}
-      {model.section.value === 'providers' && <Providers model={model} />}
-      {tabs.map(slot => (
-        <ExtensionTabPanel key={slot.id} slot={slot} model={model} />
-      ))}
-    </main>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto grid w-full max-w-5xl content-start gap-6 px-6 pt-2 pb-10">
+        <h1 className="text-2xl">{t('pod.settings.title')}</h1>
+        <Tabs
+          value={model.section.value}
+          onValueChange={value => {
+            model.section.value = value
+          }}>
+          <TabsList>
+            {podSettingsSections.map(section => (
+              <TabsTrigger key={section} value={section}>
+                {t(`pod.settings.${section}`)}
+              </TabsTrigger>
+            ))}
+            {tabs.map(slot => (
+              <ExtensionTabTrigger key={slot.id} slot={slot} />
+            ))}
+          </TabsList>
+        </Tabs>
+        {model.section.value === 'general' && <GeneralSettings model={model} />}
+        {model.section.value === 'members' && <Members model={model} />}
+        {model.section.value === 'invitations' && <Invitations model={model} />}
+        {model.section.value === 'providers' && <Providers model={model} />}
+        {tabs.map(slot => (
+          <ExtensionTabPanel key={slot.id} slot={slot} model={model} />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -122,7 +125,7 @@ function SettingsTabPanel({ slot, model, visible }: { slot: PodSettingsTabSlot; 
 
 function GeneralSettings({ model }: { model: Model }) {
   useSignals()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const settings = useQuery({ queryKey: keys.settings, queryFn: () => api.podAdminSettings() })
   useEffect(() => {
@@ -132,6 +135,7 @@ function GeneralSettings({ model }: { model: Model }) {
     mutationFn: () => {
       const payload = {
         displayName: model.displayName.value.trim(),
+        defaultLocale: model.defaultLocale.value,
         allowExternalGuests: model.guests.value,
         loginPolicy: {
           ...model.policy.value,
@@ -140,9 +144,14 @@ function GeneralSettings({ model }: { model: Model }) {
       }
       return api.updatePodAdminSettings({ body: { data: payload } }).then(() => payload)
     },
-    onSuccess: payload => {
+    onSuccess: async payload => {
       model.commitSaved(payload)
-      toast.success(t('pod.settings.saved'))
+      if (i18n.language !== payload.defaultLocale) {
+        await loadLocale(payload.defaultLocale)
+        document.documentElement.lang = payload.defaultLocale
+        await i18n.changeLanguage(payload.defaultLocale)
+      }
+      toast.success(i18n.t('pod.settings.saved'))
       void client.invalidateQueries({ queryKey: keys.settings })
       void client.invalidateQueries({ queryKey: ['pod-session'] })
     }
@@ -171,6 +180,34 @@ function GeneralSettings({ model }: { model: Model }) {
                 model.displayName.value = event.target.value
               }}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="space-default-locale">
+              {t('pod.settings.default_locale', { defaultValue: 'Space language' })}
+            </Label>
+            <Select
+              value={model.defaultLocale.value}
+              onValueChange={locale => {
+                if (!locale) return
+                save.reset()
+                model.defaultLocale.value = locale
+              }}>
+              <SelectTrigger id="space-default-locale" className="w-full sm:max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableLocaleIDs().map(locale => (
+                  <SelectItem key={locale} value={locale}>
+                    {nativeLocaleLabel(locale)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('pod.settings.default_locale_hint', {
+                defaultValue: 'Default language for the interface, notifications, and Agent messages in this space.'
+              })}
+            </p>
           </div>
           <label className="flex items-center gap-3 text-sm">
             <Checkbox

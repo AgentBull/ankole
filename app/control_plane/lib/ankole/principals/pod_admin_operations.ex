@@ -56,6 +56,7 @@ defmodule Ankole.Principals.PodAdminOperations do
   ]
   @settings [
     displayName: [type: :string, allow_nil?: false],
+    defaultLocale: [type: :string, allow_nil?: false],
     allowExternalGuests: [type: :boolean, allow_nil?: false],
     loginPolicy: [type: :map, constraints: [fields: @policy], allow_nil?: false],
     emailAvailable: [type: :boolean, allow_nil?: false]
@@ -108,6 +109,7 @@ defmodule Ankole.Principals.PodAdminOperations do
         constraints: [min_length: 1, max_length: 160]
       )
 
+      argument(:defaultLocale, :string, allow_nil?: false)
       argument(:allowExternalGuests, :boolean, allow_nil?: false)
       argument(:loginPolicy, :map, constraints: [fields: @policy], allow_nil?: false)
       transaction?(false)

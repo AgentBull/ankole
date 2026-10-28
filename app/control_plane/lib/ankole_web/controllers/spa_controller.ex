@@ -8,8 +8,7 @@ defmodule AnkoleWeb.SpaController do
 
   use AnkoleWeb, :controller
 
-  alias Ankole.AppConfigure
-  alias Ankole.I18n.Config, as: I18nConfig
+  alias Ankole.I18n
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.Version
   alias AnkoleWeb.Session, as: WebSession
@@ -31,7 +30,25 @@ defmodule AnkoleWeb.SpaController do
   end
 
   def logout_confirmation(conn, _params), do: render_spa(conn, :sessions)
-  def join(conn, _params), do: render_spa(conn, :sessions)
+
+  def join(conn, params) do
+    conn =
+      if is_nil(Ankole.Repo.tenant_id()) and is_binary(params["token"]) do
+        case Ankole.Principals.locate_invitation(params["token"]) do
+          {:ok, %{tenant_id: tenant_id}} ->
+            :ok = Ankole.Repo.put_tenant_id(tenant_id)
+            assign(conn, :login_tenant_id, tenant_id)
+
+          _ ->
+            conn
+        end
+      else
+        conn
+      end
+
+    render_spa(conn, :sessions)
+  end
+
   def logged_out(conn, _params), do: render_spa(conn, :sessions)
   def logout_error(conn, _params), do: render_spa(conn, :sessions)
 
@@ -213,7 +230,7 @@ defmodule AnkoleWeb.SpaController do
   end
 
   defp spa_document(conn, %{entry: entry, title: title}) do
-    locale = app_locale()
+    locale = app_locale(conn, entry)
 
     # The shell is built as iodata so Phoenix can send it without a separate
     # template layer. That keeps Phoenix as a thin HTML boundary while Vite
@@ -339,17 +356,36 @@ defmodule AnkoleWeb.SpaController do
   defp request_origin(conn),
     do: URI.to_string(%URI{scheme: to_string(conn.scheme), host: conn.host, port: conn.port})
 
-  # The authentication and administration shells belong to the site, including
-  # logout errors without a verified client or tenant. Read their locale explicitly
-  # from the site configuration. If that locale can't be read we
-  # still must emit a valid document, so fall back to a sane default rather than
-  # failing the whole shell render over a presentation attribute.
-  defp app_locale do
-    case AppConfigure.get(I18nConfig.default_locale_definition(), scope: :global) do
+  # These entries belong to the Pod bound by their controller. Setup uses the
+  # privileged Pod; the site Console's database context does not select its language.
+  defp app_locale(_conn, entry) when entry in ["pod", "saas-pod", "setup"],
+    do: pod_locale()
+
+  defp app_locale(conn, "auth") do
+    host_tenant =
+      case conn.assigns[:host_context] do
+        {:pod, tenant_id} -> tenant_id
+        _ -> nil
+      end
+
+    tenant_id = conn.assigns[:login_tenant_id] || host_tenant
+
+    if conn.params["purpose"] != "console" and is_binary(tenant_id),
+      do: Ankole.Repo.with_tenant(tenant_id, &pod_locale/0),
+      else: request_locale(conn)
+  end
+
+  defp app_locale(conn, _entry), do: request_locale(conn)
+
+  defp pod_locale do
+    case I18n.configured_default_locale() do
       {:ok, locale} -> locale
       {:error, _reason} -> "en-US"
     end
   end
+
+  defp request_locale(conn),
+    do: I18n.negotiate_locale(get_req_header(conn, "accept-language")) || "en-US"
 
   defp html_escape(value),
     do: value |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()

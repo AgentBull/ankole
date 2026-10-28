@@ -537,7 +537,7 @@ export function SettingEditorDrawer() {
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
-              {scope === 'tenant'
+              {scope === 'tenant' && item?.scope !== 'pod'
                 ? t('console.settings.restore_tenant_description', { key })
                 : item?.default_present
                   ? t('console.settings.restore_default_description', { key })
@@ -780,7 +780,7 @@ export function SettingGroupDrawer() {
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
-              {scope === 'tenant'
+              {scope === 'tenant' && restoreItem?.scope !== 'pod'
                 ? t('console.settings.restore_tenant_description', { key: restoreItem?.key ?? '' })
                 : restoreItem?.default_present
                   ? t('console.settings.restore_default_description', { key: restoreItem.key })

@@ -42,6 +42,7 @@ function useSidebar() {
 
 function SidebarProvider({
   defaultOpen = true,
+  mobileBreakpoint,
   open: openProp,
   onOpenChange: setOpenProp,
   className,
@@ -50,10 +51,11 @@ function SidebarProvider({
   ...props
 }: React.ComponentProps<'div'> & {
   defaultOpen?: boolean
+  mobileBreakpoint?: number
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(mobileBreakpoint)
   const [openMobile, setOpenMobile] = React.useState(false)
 
   const [_open, _setOpen] = React.useState(defaultOpen)
@@ -78,14 +80,23 @@ function SidebarProvider({
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.repeat ||
+        event.altKey ||
+        event.shiftKey
+      ) {
+        return
+      }
       if (
         event.target instanceof Element &&
         event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
       ) {
         return
       }
-      if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
+      if (event.key.toLowerCase() === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
         toggleSidebar()
       }
@@ -175,7 +186,7 @@ function Sidebar({
           <SheetHeader className="sr-only">
             <SheetTitle>{mobileTitle}</SheetTitle>
           </SheetHeader>
-          <div className={cn('flex h-full w-full flex-col', variant !== 'sidebar' && 'p-2')}>{children}</div>
+          <div className={cn('flex h-full w-full flex-col', variant === 'floating' && 'p-2')}>{children}</div>
         </SheetContent>
       </Sheet>
     )
@@ -192,7 +203,7 @@ function Sidebar({
       <div
         data-slot="sidebar-gap"
         className={cn(
-          'relative w-(--sidebar-width) bg-transparent',
+          'relative w-(--sidebar-width) bg-transparent transition-[width] duration-(--duration-feedback) ease-productive motion-reduce:transition-none',
           'group-data-[collapsible=offcanvas]:w-0',
           'group-data-[side=right]:rotate-180',
           variant === 'floating' || variant === 'inset'
@@ -204,10 +215,13 @@ function Sidebar({
         data-slot="sidebar-container"
         data-side={side}
         className={cn(
-          'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex',
-          variant === 'floating' || variant === 'inset'
+          'fixed inset-y-0 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-(--duration-feedback) ease-productive motion-reduce:transition-none data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex',
+          variant === 'inset' ? 'z-0 py-1.5 pl-1.5 pr-1' : 'z-10',
+          variant === 'floating'
             ? 'p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]'
-            : 'group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l',
+            : variant === 'inset'
+              ? 'group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]'
+              : 'group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l',
           className
         )}
         {...props}>
@@ -278,7 +292,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<'main'>) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        'relative flex w-full min-w-0 flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-1.5 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-panel md:peer-data-[variant=inset]:shadow-[0_0_0_1px_var(--color-border),0_1px_3px_rgb(38_40_42/0.04)] md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-1.5',
+        'relative flex w-full min-w-0 flex-1 flex-col bg-background transition-[margin] duration-(--duration-feedback) ease-productive motion-reduce:transition-none md:peer-data-[variant=inset]:z-10 md:peer-data-[variant=inset]:m-1.5 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-panel md:peer-data-[variant=inset]:shadow-[0_0_0_1px_var(--color-border),0_1px_3px_rgb(38_40_42/0.05),0_4px_12px_rgb(38_40_42/0.025)] md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-1.5 dark:md:peer-data-[variant=inset]:shadow-[0_0_0_1px_var(--color-border),0_2px_8px_rgb(0_0_0/0.32)]',
         className
       )}
       {...props}

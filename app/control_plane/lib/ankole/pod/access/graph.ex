@@ -30,7 +30,8 @@ defmodule Ankole.Pod.Access.Graph do
 
   def project_permissions(page, bits) do
     actions = for action <- @actions, band(bits, action_bit(action)) != 0, do: action
-    %{page | role: role_for_actions(bits), actions: actions}
+    visited_at = if match?(%Ash.NotLoaded{}, page.visited_at), do: nil, else: page.visited_at
+    %{page | role: role_for_actions(bits), actions: actions, visited_at: visited_at}
   end
 
   def visibility_ids(reachable, required_bits \\ 1) do

@@ -26,7 +26,7 @@ defmodule Ankole.AppConfigure.Definition do
           default_value: term(),
           description: String.t() | nil,
           generator: (-> term()) | nil,
-          scope: :tenant | :global,
+          scope: :pod | :tenant | :global,
           console_writable: boolean()
         }
 
@@ -166,6 +166,7 @@ defmodule Ankole.AppConfigure.Definition do
     case Map.fetch(attrs, :scope) do
       {:ok, :global} -> {:ok, :global}
       {:ok, :tenant} -> {:ok, :tenant}
+      {:ok, :pod} -> {:ok, :pod}
       {:ok, nil} -> {:ok, :global}
       {:ok, _scope} -> {:error, :invalid_scope}
       :error -> {:ok, :global}

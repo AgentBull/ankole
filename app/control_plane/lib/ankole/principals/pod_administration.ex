@@ -6,10 +6,12 @@ defmodule Ankole.Principals.PodAdministration do
 
   def settings do
     with {:ok, tenant} <- Tenants.get(Repo.tenant_id!()),
+         {:ok, default_locale} <- Ankole.I18n.configured_default_locale(),
          {:ok, policy} <- PodLoginPolicy.get() do
       {:ok,
        %{
          displayName: tenant.display_name,
+         defaultLocale: default_locale,
          allowExternalGuests: Ankole.Pod.Config.allow_external_guests?(),
          loginPolicy: policy,
          emailAvailable: Ankole.Authn.Mailer.configured?()
@@ -18,7 +20,8 @@ defmodule Ankole.Principals.PodAdministration do
   end
 
   def update_settings(actor, args) do
-    with {:ok, policy} <- PodLoginPolicy.validate(Ankole.JSON.plain(args.loginPolicy)),
+    with {:ok, default_locale} <- Ankole.I18n.validate_locale(args.defaultLocale),
+         {:ok, policy} <- PodLoginPolicy.validate(Ankole.JSON.plain(args.loginPolicy)),
          {:ok, {tenant, writes}} <-
            Repo.transact_top_level(fn ->
              with :ok <-
@@ -27,6 +30,7 @@ defmodule Ankole.Principals.PodAdministration do
                     Tenants.change_profile_in_tx(Repo.tenant_id!(), %{
                       display_name: args.displayName
                     }),
+                  {:ok, locale_write} <- Ankole.I18n.put_default_locale_in_tx(default_locale),
                   {:ok, guests} <-
                     AppConfigure.put_tenant_by_key_in_tx(
                       "pod.allow_external_guests",
@@ -34,13 +38,14 @@ defmodule Ankole.Principals.PodAdministration do
                     ),
                   {:ok, login} <-
                     AppConfigure.put_tenant_by_key_in_tx("principals.pod_login_policy", policy),
-                  do: {:ok, {tenant, [guests, login]}}
+                  do: {:ok, {tenant, [locale_write, guests, login]}}
            end),
          :ok <- Enum.each(writes, &AppConfigure.cache_committed_write/1),
          :ok <- Ankole.Pod.Pages.broadcast_access() do
       {:ok,
        %{
          displayName: tenant.display_name,
+         defaultLocale: default_locale,
          allowExternalGuests: args.allowExternalGuests,
          loginPolicy: policy,
          emailAvailable: Ankole.Authn.Mailer.configured?()

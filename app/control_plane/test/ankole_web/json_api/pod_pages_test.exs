@@ -432,6 +432,38 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     assert Enum.map(candidates["pages"], & &1["id"]) == [destination.id]
   end
 
+  test "recent scope exposes each page's visited_at timestamp in visit order", %{conn: conn} do
+    {owner, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    {:ok, first} = Ankole.Pod.Pages.create(actor, %{title: "First page"})
+    {:ok, second} = Ankole.Pod.Pages.create(actor, %{title: "Second page"})
+
+    assert %{"user_state" => %{"visited_at" => first_visited}} =
+             owner
+             |> send_json(:put, "/pages/#{first.id}/user-state", %{visited: true})
+             |> json_response(200)
+
+    Process.sleep(5)
+
+    assert %{"user_state" => %{"visited_at" => second_visited}} =
+             owner
+             |> send_json(:put, "/pages/#{second.id}/user-state", %{visited: true})
+             |> json_response(200)
+
+    assert %{
+             "pages" => [
+               %{"id" => second_id, "visited_at" => ^second_visited},
+               %{"id" => first_id, "visited_at" => ^first_visited}
+             ]
+           } =
+             owner
+             |> recycle_json()
+             |> get("/api/v2/pod/pages", %{scope: "recent"})
+             |> json_response(200)
+
+    assert [second_id, first_id] == [second.id, first.id]
+  end
+
   defp recycle_json(conn) do
     conn
     |> recycle_api()

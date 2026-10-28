@@ -47,6 +47,12 @@ defmodule Ankole.AppConfigure.ConsoleActions do
   defp describe({:key_managed_by_owner, _}),
     do: {"Use the owning settings page to change this value", []}
 
+  defp describe({:pod_scope_only, _}),
+    do: {"This setting belongs to a Pod and has no site value", []}
+
+  defp describe({:global_scope_only, _}),
+    do: {"This setting is site-wide and cannot be overridden per tenant", []}
+
   defp describe(:not_encrypted), do: {"This setting is not encrypted", []}
 
   defp describe(:missing_value),

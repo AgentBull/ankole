@@ -8134,7 +8134,7 @@ export type ListAppConfigurationsResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }>
@@ -8938,7 +8938,7 @@ export type ResetAppConfigurationResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
@@ -8982,7 +8982,7 @@ export type GetAppConfigurationResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
@@ -9033,7 +9033,7 @@ export type UpdateAppConfigurationResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }

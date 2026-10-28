@@ -15,7 +15,13 @@ defmodule Ankole.I18n.Config do
   @default_locales_dir "../locales"
 
   @doc """
-  Returns the declared AppConfigure definition for the default locale.
+  Returns the release fallback locale id (`"en-US"`).
+  """
+  @spec release_default_locale() :: String.t()
+  def release_default_locale, do: @default_locale
+
+  @doc """
+  Returns the declared AppConfigure definition for a Pod's default locale.
 
   Generic AppConfigure writes use the same catalog availability check as the
   dedicated locale UI.
@@ -23,12 +29,12 @@ defmodule Ankole.I18n.Config do
   @spec default_locale_definition() :: Definition.t()
   def default_locale_definition do
     AppConfigure.define(
-      scope: :tenant,
+      scope: :pod,
       key: @default_locale_key,
       encrypted: false,
       schema: Schema.new(&validate_locale/1),
       default_value: @default_locale,
-      description: "Default locale used when rendering Ankole text."
+      description: "Default locale used when rendering Ankole text in this Pod."
     )
   end
 
@@ -57,7 +63,7 @@ defmodule Ankole.I18n.Config do
   def definitions, do: [default_locale_definition()]
 
   @doc """
-  Reads the effective default locale through AppConfigure.
+  Reads the current Pod's effective default locale through AppConfigure.
   """
   @spec default_locale() :: {:ok, String.t()} | {:error, term()}
   def default_locale do
@@ -65,14 +71,21 @@ defmodule Ankole.I18n.Config do
   end
 
   @doc """
-  Persists the current tenant's default locale through AppConfigure.
+  Persists the current Pod's default locale through AppConfigure.
 
   Use `Ankole.I18n.put_default_locale/1` to validate the loaded catalog before
-  writing. The tenant value does not replace Localize's shared site default.
+  writing.
   """
   @spec put_default_locale(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_default_locale(locale) do
     AppConfigure.put_tenant_by_key(default_locale_definition().key, locale)
+  end
+
+  @doc false
+  @spec put_default_locale_in_tx(String.t()) ::
+          {:ok, AppConfigure.committed_write()} | {:error, term()}
+  def put_default_locale_in_tx(locale) do
+    AppConfigure.put_tenant_by_key_in_tx(default_locale_definition().key, locale)
   end
 
   @doc """

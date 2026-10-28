@@ -76,10 +76,12 @@ export const PodSettingsModel = createModel(() => {
   const source = signal<string>()
   const savedSettings = signal<{
     displayName: string
+    defaultLocale: string
     allowExternalGuests: boolean
     loginPolicy: NormalizedLoginPolicy
   }>()
   const displayName = signal('')
+  const defaultLocale = signal('en-US')
   const guests = signal(true)
   const policy = signal<PodAdminSettingsResponse['loginPolicy']>({
     allow_email_otp: true,
@@ -106,15 +108,19 @@ export const PodSettingsModel = createModel(() => {
   const config = signal<JsonObject>({})
   const preservedSecrets = signal<string[]>([])
 
-  const commitSaved = (data: Pick<PodAdminSettingsResponse, 'displayName' | 'allowExternalGuests' | 'loginPolicy'>) => {
+  const commitSaved = (
+    data: Pick<PodAdminSettingsResponse, 'displayName' | 'defaultLocale' | 'allowExternalGuests' | 'loginPolicy'>
+  ) => {
     const normalized = normalizeLoginPolicy(data.loginPolicy)
     batch(() => {
       savedSettings.value = {
         displayName: data.displayName,
+        defaultLocale: data.defaultLocale,
         allowExternalGuests: Boolean(data.allowExternalGuests),
         loginPolicy: normalized
       }
       displayName.value = data.displayName
+      defaultLocale.value = data.defaultLocale
       guests.value = Boolean(data.allowExternalGuests)
       policy.value = { ...data.loginPolicy, ...normalized }
       domains.value = normalized.allowed_email_domains.join(', ')
@@ -128,6 +134,7 @@ export const PodSettingsModel = createModel(() => {
     const currentDomains = parseAllowedDomains(domains.value)
     return (
       displayName.value !== base.displayName ||
+      defaultLocale.value !== base.defaultLocale ||
       guests.value !== base.allowExternalGuests ||
       currentPolicy.allow_email_otp !== base.loginPolicy.allow_email_otp ||
       currentPolicy.allow_member_credential_change !== base.loginPolicy.allow_member_credential_change ||
@@ -139,6 +146,7 @@ export const PodSettingsModel = createModel(() => {
 
   return {
     displayName,
+    defaultLocale,
     guests,
     policy,
     domains,

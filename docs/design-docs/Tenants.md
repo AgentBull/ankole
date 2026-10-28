@@ -294,10 +294,11 @@ administrators. Initial site bootstrap places the first administrator in both
 `siteadmin` and `pod_admin`, while creating an additional tenant places its
 initial administrator in that tenant's `pod_admin`.
 
-Pod settings govern the workspace display name, Guest admission, login policies,
-member directory, credential assistance, invitations, and enterprise identity
-providers, whereas personal account settings cover verified login-method updates
-and self-service exit for unmanaged members (directory-synced members leave
+Pod settings govern the workspace display name, default language
+(`i18n.default_locale`), Guest admission, login policies, member directory,
+credential assistance, invitations, and enterprise identity providers, whereas
+personal account settings cover verified login-method updates and self-service
+exit for unmanaged members (directory-synced members leave
 through organization offboarding); see [Authentication](Authentication.md).
 
 ## Pod work entry

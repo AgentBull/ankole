@@ -32,7 +32,7 @@ test('a long chat restores its reading anchor and bottom intent after switching 
 
     await page.getByRole('tab', { name: '对话', exact: true }).click()
     const switchAway = async () => {
-      await page.locator('.pod-chat-sidebar').getByRole('button', { name: '新对话', exact: true }).click()
+      await page.locator('.pod-chat-sidebar').getByRole('link', { name: '新对话', exact: true }).click()
       await expect(page.locator('.pod-chat-home').getByRole('heading', { level: 1 })).toContainText('Browser owner')
     }
     const returnToChat = async () => {

@@ -284,7 +284,7 @@ test('private work moves, shares, searches, favorites and restores through the r
     await owner.getByRole('main').getByRole('link', { name: title }).click()
     await pageAction(owner, '移到回收站')
     await expect(owner).toHaveURL(state.base_url + route(state.report_id))
-    await owner.getByRole('navigation', { name: '页面导航' }).getByRole('link', { name: '回收站', exact: true }).click()
+    await owner.locator('.pod-sidebar-footer').getByRole('link', { name: '回收站', exact: true }).click()
     const row = owner.getByRole('main').getByRole('listitem').filter({ hasText: title })
     await row.getByRole('button', { name: '恢复', exact: true }).click()
     await expect(row).toHaveCount(0)
@@ -310,7 +310,13 @@ test('Private creation and moves wait for identity after delayed and failed read
       json: { error: { code: 'private_unavailable', message: 'Private temporarily unavailable' } }
     })
   await owner.route('**/api/v2/pod/pages**', async intercepted => {
-    if (new URL(intercepted.request().url()).searchParams.get('scope') !== 'private' || mode === 'pass') {
+    const url = new URL(intercepted.request().url())
+    const identityRead =
+      url.searchParams.get('scope') === 'private' ||
+      (url.pathname === '/api/v2/pod/pages/search' &&
+        url.searchParams.get('required_action') === 'page_edit' &&
+        url.searchParams.has('exclude_subtree_of'))
+    if (!identityRead || mode === 'pass') {
       await intercepted.continue()
     } else if (mode === 'hold') held.push(intercepted)
     else await fail(intercepted)
@@ -366,7 +372,13 @@ test('Private creation and moves wait for identity after delayed and failed read
     await expect(owner.getByRole('dialog').getByRole('option', { name: '私人页面', exact: true })).toHaveCount(0)
     const submitMove = owner.getByRole('dialog').getByRole('button', { name: '移动', exact: true })
     await expect(submitMove).toBeDisabled()
-    await expect.poll(() => held.length).toBeGreaterThan(0)
+    await expect
+      .poll(() =>
+        held.some(
+          intercepted => new URL(intercepted.request().url()).searchParams.get('exclude_subtree_of') === shared.id
+        )
+      )
+      .toBe(true)
     await rejectHeld()
     await expect(owner.getByRole('dialog').getByRole('alert')).toBeVisible({ timeout: 15000 })
     await expect(submitMove).toBeDisabled()

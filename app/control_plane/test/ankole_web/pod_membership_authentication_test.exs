@@ -379,12 +379,56 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
       |> recycle()
       |> api_put("/api/v2/pod/admin/settings", %{
         displayName: settings["displayName"],
+        defaultLocale: settings["defaultLocale"],
         allowExternalGuests: settings["allowExternalGuests"],
         loginPolicy: policy
       })
 
     assert api_error(conn, 400)["code"] == "administrator_lockout"
     assert {:ok, %{"require_sso_for_members" => false}} = Ankole.Principals.PodLoginPolicy.get()
+  end
+
+  test "Pod administrators read and update their Pod's defaultLocale without affecting other Pods",
+       %{conn: conn} do
+    other_tenant =
+      Ankole.DataCase.create_tenant(%{slug: "other-locale-pod", display_name: "Other"})
+
+    admin = member("locale-admin@example.org")
+    {:ok, _} = Repo.transact(fn -> AuthZ.add_pod_admin_in_tx(admin.uid) end)
+    conn = login(conn, "locale-admin@example.org", :pod)
+
+    settings = conn |> api_get("/api/v2/pod/admin/settings") |> api_response(200)
+    assert settings["defaultLocale"] == "en-US"
+
+    rejected =
+      conn
+      |> recycle()
+      |> api_put("/api/v2/pod/admin/settings", %{
+        displayName: settings["displayName"],
+        defaultLocale: "fr-FR",
+        allowExternalGuests: settings["allowExternalGuests"],
+        loginPolicy: settings["loginPolicy"]
+      })
+
+    assert api_error(rejected, 422)["code"] == "unavailable_locale"
+
+    updated =
+      conn
+      |> recycle()
+      |> api_put("/api/v2/pod/admin/settings", %{
+        displayName: settings["displayName"],
+        defaultLocale: "ko-KR",
+        allowExternalGuests: settings["allowExternalGuests"],
+        loginPolicy: settings["loginPolicy"]
+      })
+      |> api_response(200)
+
+    assert updated["defaultLocale"] == "ko-KR"
+    assert Ankole.I18n.configured_default_locale() == {:ok, "ko-KR"}
+
+    Repo.with_tenant(other_tenant.id, fn ->
+      assert Ankole.I18n.configured_default_locale() == {:ok, "en-US"}
+    end)
   end
 
   test "Pod provider creation cannot overwrite a connection and editing keeps its identity", %{

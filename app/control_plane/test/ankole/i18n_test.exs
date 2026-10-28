@@ -99,8 +99,11 @@ defmodule Ankole.I18nTest do
              ) == "en-US"
     end
 
-    test "put_default_locale/1 persists in the current tenant without replacing the site value",
+    test "put_default_locale/1 persists per Pod and rejects site-level reads and writes",
          %{tenant: tenant} do
+      definition = Config.default_locale_definition()
+      assert definition.scope == :pod
+
       assert {:ok, "zh-Hans-CN"} = I18n.put_default_locale("zh-Hans-CN")
       assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
 
@@ -110,60 +113,116 @@ defmodule Ankole.I18nTest do
                    where: row.tenant_id == ^tenant.id and row.key == "i18n.default_locale"
                )
 
-      assert {:ok, "en-US"} = AppConfigure.put_global(Config.default_locale_definition(), "en-US")
+      assert {:error, {:pod_scope_only, "i18n.default_locale"}} =
+               AppConfigure.put_global(definition, "en-US")
+
+      assert {:error, {:pod_scope_only, "i18n.default_locale"}} =
+               AppConfigure.put_global_by_key("i18n.default_locale", "en-US")
+
+      assert {:error, {:pod_scope_only, "i18n.default_locale"}} =
+               AppConfigure.delete_global(definition)
+
+      assert {:error, {:pod_scope_only, "i18n.default_locale"}} =
+               AppConfigure.get(definition, scope: :global)
+
       assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
     end
 
-    test "a stored unavailable global default does not prevent catalog boot or reload" do
-      definition = Config.default_locale_definition()
-      assert {:ok, "en-US"} = AppConfigure.put_global(definition, "en-US")
-      schema = AppConfig.for_scope("global")
+    test "put_default_locale_in_tx/1 validates and commits inside the caller's transaction" do
+      assert {:error, :unavailable_locale} = I18n.put_default_locale_in_tx("fr-FR")
 
-      Repo.update_all(
-        from(row in schema, where: row.scope == "global" and row.key == ^definition.key),
-        set: [value: %{"type" => "plaintext", "value" => "fr-FR"}]
-      )
+      assert {:ok, write} =
+               Repo.transact_top_level(fn ->
+                 I18n.put_default_locale_in_tx("ja-JP")
+               end)
 
-      Cache.clear_for_test()
-
-      log =
-        capture_log([format: "$metadata $message\n", metadata: [:event]], fn ->
-          assert :ok = Ankole.I18n.Catalog.reload()
-          # init loads the release catalog before reading the same persisted row.
-          assert {:ok, _state} = Ankole.I18n.Catalog.init([])
-        end)
-
-      assert log =~ "i18n.catalog.default_unavailable"
-
-      assert Ankole.I18n.Resolver.exact_loaded_locale(
-               I18n.default_locale(),
-               Ankole.I18n.Resolver.loaded()
-             ) == "en-US"
-
-      assert Repo.get_by!(schema, scope: "global", key: definition.key).value["value"] == "fr-FR"
-      assert {:ok, "en-US"} = AppConfigure.put_global(definition, "en-US")
+      assert {:ok, "ja-JP"} = AppConfigure.cache_committed_write(write)
+      assert I18n.configured_default_locale() == {:ok, "ja-JP"}
     end
 
-    test "direct AppConfigure writes reject unavailable active defaults before persistence" do
-      restore_default_locale = fn ->
-        {:ok, "en-US"} = AppConfigure.put_global(Config.default_locale_definition(), "en-US")
-        :ok = Ankole.I18n.Catalog.reload()
-      end
-
-      on_exit(restore_default_locale)
-
-      assert {:error, :unavailable_locale} =
-               AppConfigure.put_global(Config.default_locale_definition(), "fr-FR")
-
-      assert {:error, :unavailable_locale} =
-               AppConfigure.put_global_by_key("i18n.default_locale", "fr-FR")
-
+    test "direct AppConfigure tenant writes reject unavailable locales before persistence" do
       assert {:error, :unavailable_locale} =
                AppConfigure.put_tenant_by_key("i18n.default_locale", "fr-FR")
 
       assert :ok = Ankole.I18n.Catalog.reload()
+    end
 
-      restore_default_locale.()
+    test "ScopeDefaultLocaleToPod migration copies legacy site locale only to Pods without overrides",
+         %{tenant: first} do
+      second =
+        create_tenant(%{
+          slug: "locale-migrated-#{Ecto.UUID.generate()}",
+          display_name: "Migrated Pod"
+        })
+
+      {:ok, "ja-JP"} = I18n.put_default_locale("ja-JP")
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      {1, _} =
+        Repo.insert_all(Ankole.AppConfigure.SiteConfig, [
+          %{
+            scope: "global",
+            key: "i18n.default_locale",
+            value: %{"type" => "plaintext", "value" => "zh-Hans-CN"},
+            inserted_at: now,
+            updated_at: now
+          }
+        ])
+
+      {1, _} =
+        Repo.with_tenant(second.id, fn ->
+          Repo.insert_all(AppConfig, [
+            %{
+              tenant_id: second.id,
+              scope: "agent:legacy-agent",
+              key: "i18n.default_locale",
+              value: %{"type" => "plaintext", "value" => "ko-KR"},
+              inserted_at: now,
+              updated_at: now
+            }
+          ])
+        end)
+
+      unless Code.ensure_loaded?(Ankole.Repo.Migrations.ScopeDefaultLocaleToPod) do
+        Code.require_file(
+          Path.expand(
+            "../../priv/repo/migrations/20261028020000_scope_default_locale_to_pod.exs",
+            __DIR__
+          )
+        )
+      end
+
+      Repo.without_tenant(fn ->
+        Ecto.Migration.Runner.run(
+          Repo,
+          Repo.config(),
+          20_261_028_020_000,
+          Ankole.Repo.Migrations.ScopeDefaultLocaleToPod,
+          :forward,
+          :up,
+          :up,
+          log: false
+        )
+      end)
+
+      Cache.clear_for_test()
+
+      refute Repo.get_by(Ankole.AppConfigure.SiteConfig,
+               scope: "global",
+               key: "i18n.default_locale"
+             )
+
+      Repo.with_tenant(second.id, fn ->
+        refute Repo.get_by(AppConfig, scope: "agent:legacy-agent", key: "i18n.default_locale")
+      end)
+
+      Repo.with_tenant(first.id, fn ->
+        assert I18n.configured_default_locale() == {:ok, "ja-JP"}
+      end)
+
+      Repo.with_tenant(second.id, fn ->
+        assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
+      end)
     end
   end
 

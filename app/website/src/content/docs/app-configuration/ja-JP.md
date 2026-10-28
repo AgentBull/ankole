@@ -31,9 +31,9 @@ AppConfigure ページでは、関連する設定項目がカテゴリごとに�
 
 ## 適用範囲と値の出所を理解する
 
-各設定キーには **Site** または **Tenant** のスコープがあります。Site キーはサイト全体の共有インフラを制御し、Tenant キーは選択中のテナントの動作を制御します。Console 上ではサイト既定値とテナントごとの上書き値（override）が区別して表示されます（Agent 単位の上書きはサポートしていません）。
+各設定キーには **Site**、**Tenant**、または **Pod** のスコープがあります。Site キーはサイト全体の共有インフラを制御し、Tenant キーはサイト既定値を継承しつつ選択中のテナントの動作を制御します。Pod キーは各 Pod ワークスペース固有の設定であり、サイト既定値は持ちません。Console 上ではサイト既定値とテナントごとの上書き値（override）が区別して表示されます（Agent 単位の上書きはサポートしていません）。
 
-Site キーでは「保存済みの値 → バージョンの既定値」の優先順で値が使われます。Tenant キーでは「テナントの上書き値 → 同一キーのサイト既定値 → バージョンの既定値」の順で解決されます。**Reset to default** を実行すると、選択中のスコープに保存された上書き値が削除されます。現在有効になっている値がどこから来ているかは、一覧の Source 列で確認できます。
+Site キーでは「保存済みの値 → バージョンの既定値」の優先順で値が使われます。Tenant キーでは「テナントの上書き値 → 同一キーのサイト既定値 → バージョンの既定値」の順で解決され、Pod キーでは「ワークスペースの保存値 → バージョンの既定値」の順で解決されます。**Reset to default** を実行すると、選択中のスコープに保存された上書き値が削除されます。現在有効になっている値がどこから来ているかは、一覧の Source 列で確認できます。
 
 ## 設定の変更
 
@@ -145,7 +145,7 @@ Langfuse、LangSmith、VictoriaTraces およびその他の OTLP/HTTP レシー�
 | `features.<flag>` | Site | OpenFeature ベースの機能公開ポリシー（`{enabled, percent, targets}`、`Ankole.Features.Config`） |
 | `signals.show_dead_letter_error_details` | Site | Conversation に投稿される dead letter 通知に、文字数制限およびマスク処理済みの Session turn エラー詳細を含めるかどうか。既定値 `false` |
 | `system.timezone` | Tenant | スケジュール実行など control plane 機能で使用する既定タイムゾーン |
-| `i18n.default_locale` | Tenant | Ankole インターフェースの既定表示言語 |
+| `i18n.default_locale` | Pod | この Pod ワークスペースのインターフェース、通知メール、Agent メッセージの既定表示言語（Pod 管理者は Pod Settings からも変更可能） |
 
 ### Worker、web 読み取り、セキュリティ
 

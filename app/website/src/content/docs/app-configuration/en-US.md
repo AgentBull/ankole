@@ -25,9 +25,9 @@ Each row displays its stable key alongside a description explaining what the set
 
 ## Understand scope and source
 
-Every key has either **Site** or **Tenant** scope: site keys govern shared deployment infrastructure, while tenant keys govern behavior for the selected tenant. The Console displays site defaults and tenant overrides separately; per-Agent overrides are not supported in AppConfigure.
+Every key has **Site**, **Tenant**, or **Pod** scope: site keys govern shared deployment infrastructure, tenant keys govern behavior for the selected tenant with optional site-wide defaults, and Pod keys belong strictly to each Pod workspace without inheriting a site value. The Console displays site defaults and tenant overrides separately; per-Agent overrides are not supported in AppConfigure.
 
-When resolving a site key, Ankole checks for a stored site value first and falls back to the compiled version default. When resolving a tenant key, Ankole checks the tenant override first, then any stored site default for that key, and finally the version default. Selecting **Reset to default** removes the override at the selected scope, and the **Source** column shows which layer currently applies.
+When resolving a site key, Ankole checks for a stored site value first and falls back to the compiled version default. When resolving a tenant key, Ankole checks the tenant override first, then any stored site default for that key, and finally the version default; Pod keys check the workspace value and fall back directly to the version default. Selecting **Reset to default** removes the override at the selected scope, and the **Source** column shows which layer currently applies.
 
 ## Change a setting
 
@@ -137,7 +137,7 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 | `features.<flag>` | Site | Feature availability policy (`{enabled, percent, targets}`) backing OpenFeature (`Ankole.Features.Config`) |
 | `signals.show_dead_letter_error_details` | Site | Whether dead-letter notices sent to Conversations include bounded, redacted Session turn error details; default `false` |
 | `system.timezone` | Tenant | Default time zone for schedules and other control-plane features |
-| `i18n.default_locale` | Tenant | Default language for the Ankole interface |
+| `i18n.default_locale` | Pod | Default language for the interface, notifications, and Agent messages in this Pod; Pod administrators can also update it in Pod Settings |
 
 ### Workers, web reading, and security
 

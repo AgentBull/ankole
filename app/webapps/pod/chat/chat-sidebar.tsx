@@ -1,7 +1,5 @@
 import {
   Button,
-  buttonVariants,
-  cn,
   Input,
   SidebarMenu,
   SidebarMenuButton,
@@ -22,18 +20,16 @@ import {
 } from '@ankole/uikit'
 import {
   RiAddLine,
-  RiCloseLine,
   RiMoreLine,
   RiPushpinLine,
   RiNotificationOffLine,
   RiNotificationLine,
   RiDeleteBinLine,
-  RiLogoutBoxLine,
-  RiLoader4Line
+  RiLogoutBoxLine
 } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { useDeferredValue, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import { podKeys, chatError } from '../api'
@@ -48,7 +44,7 @@ import { contentError } from '../content-errors'
 import type { RoomUpdate } from './room-api'
 import { ChatAvatar } from './chat-avatar'
 
-type RoomRow = NonNullable<Awaited<ReturnType<typeof podConversations>>>['conversations'][number]
+export type RoomRow = NonNullable<Awaited<ReturnType<typeof podConversations>>>['conversations'][number]
 export function conversationSection(
   date: string | null | undefined,
   now = new Date()
@@ -70,8 +66,6 @@ export function ChatSidebar() {
     navigate = useNavigate(),
     location = useLocation()
   const { isMobile, setOpenMobile } = useSidebar()
-  const [search, setSearch] = useState(''),
-    query = useDeferredValue(search)
   const [deleting, setDeleting] = useState<RoomRow>(),
     [leaving, setLeaving] = useState<RoomRow>(),
     [renaming, setRenaming] = useState<string>()
@@ -82,9 +76,9 @@ export function ChatSidebar() {
     return restore
   }
   const rooms = useInfiniteQuery({
-    queryKey: [...podKeys.conversations, 'sidebar', query],
+    queryKey: [...podKeys.conversations, 'sidebar'],
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) => podConversations({ query: { query, cursor: pageParam, limit: 40 }, signal }),
+    queryFn: ({ pageParam, signal }) => podConversations({ query: { cursor: pageParam, limit: 40 }, signal }),
     getNextPageParam: last => last.nextCursor ?? undefined
   })
   const onError = (error: unknown) => toast.error(requestErrorMessage(contentError(chatError(error))))
@@ -132,40 +126,17 @@ export function ChatSidebar() {
   const close = () => {
     if (isMobile) setOpenMobile(false)
   }
+  const newChatPath = podLocation('/').pathname
   return (
     <div className="pod-chat-sidebar">
-      <div className="pod-chat-sidebar-search">
-        <div className="pod-chat-sidebar-search-field">
-          <Input
-            value={search}
-            onChange={event => setSearch(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === 'Escape' && search) {
-                event.preventDefault()
-                setSearch('')
-              }
-            }}
-            placeholder={t('pod.chat_room.search_chats')}
-            aria-label={t('pod.chat_room.search_chats')}
-          />
-          {search && (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              className="pod-chat-sidebar-search-clear"
-              aria-label={t('common.clear')}
-              onClick={() => setSearch('')}>
-              <RiCloseLine aria-hidden />
-            </Button>
-          )}
-        </div>
+      <div className="pb-1">
         <Link
-          to={podLocation('/').pathname}
-          className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}
-          aria-label={t('pod.chat.new_conversation')}
-          title={t('pod.chat.new_conversation')}
+          to={newChatPath}
+          className="pod-nav-link"
+          aria-current={location.pathname === newChatPath ? 'page' : undefined}
           onClick={close}>
           <RiAddLine aria-hidden />
+          <span className="truncate">{t('pod.chat.new_conversation')}</span>
         </Link>
       </div>
       {rooms.isPending && (
@@ -279,9 +250,7 @@ export function ChatSidebar() {
           </section>
         ))}
       {!rooms.isPending && !rooms.error && !sections.size && (
-        <p className="p-2 text-fg-tertiary">
-          {t(search.trim() ? 'pod.chat_room.no_matches' : 'pod.sidebar.chat_empty')}
-        </p>
+        <p className="p-2 text-fg-tertiary">{t('pod.sidebar.chat_empty')}</p>
       )}
       {rooms.hasNextPage && (
         <Button
@@ -399,16 +368,12 @@ function ChatRenameField({ room, onDone }: { room: RoomRow; onDone(): void }) {
   )
 }
 
-function ChatRowStatus({ status }: { status: RoomRow['rowStatus'] }) {
+export function ChatRowStatus({ status }: { status: RoomRow['rowStatus'] }) {
   const { t } = useTranslation()
   if (status === 'idle') return null
   return (
     <span role="img" aria-label={t(`pod.chat_room.status_${status}`)} title={t(`pod.chat_room.status_${status}`)}>
-      {status === 'streaming' ? (
-        <RiLoader4Line className="size-3.5 animate-spin" />
-      ) : (
-        <span className={`pod-chat-status-dot pod-chat-status-${status}`} />
-      )}
+      <span className={`pod-chat-status-dot pod-chat-status-${status}`} />
     </span>
   )
 }

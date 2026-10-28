@@ -35,7 +35,7 @@ skill_learning_enabled = "是否从任务轨迹学习技能教训并随技能下
 skill_learning_reflection_threshold = "触发一次技能教训反思任务前，Agent 需要积累的未消费信号任务数（运行中人工介入或失败调用）。最小 2。"
 
 [app_configure.descriptions.i18n]
-default_locale = "渲染 Ankole 文本时使用的默认语言区域。"
+default_locale = "本空间渲染 Ankole 界面与消息时使用的默认语言。"
 
 [app_configure.descriptions.observability.traces]
 enabled = "启用后，控制面在重启后向配置的 OTLP 端点导出进程级 OpenTelemetry trace。"
@@ -351,6 +351,8 @@ description = "MISSION 定义职责，SOUL 定义工作特质，DESIGN 提供视
 access_sections = "访问控制分区"
 hide_secret = "隐藏内容"
 open_navigation = "打开导航"
+collapse_navigation = "收起导航"
+expand_navigation = "展开导航"
 refresh = "刷新"
 refreshing = "正在刷新"
 reveal_secret = "显示内容"
@@ -2407,6 +2409,7 @@ collapse = "收起侧栏"
 expand = "展开侧栏"
 sign_out = "退出登录"
 chat_empty = "还没有对话。"
+recent_empty = "还没有最近访问记录。"
 account = "账户"
 account_menu = "账户菜单：{$name}，{$tenant}"
 accounts = "组织"
@@ -3079,6 +3082,8 @@ confirm_exit = "确认退出该空间"
 
 [pod.settings]
 space_profile = "空间资料"
+default_locale = "空间默认语言"
+default_locale_hint = "用于本空间界面、邮件通知与 Agent 消息的默认显示语言。"
 sign_in_policy = "登录策略"
 role_admin = "管理员"
 status_active = "正常"

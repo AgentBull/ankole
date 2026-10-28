@@ -15,6 +15,7 @@ defmodule AnkoleWeb.BrowserAPI.Error do
   def login({:missing, key}), do: {:error, new(422, "#{key} is required")}
   def login(:invalid_code), do: {:error, new(401, :invalid_code)}
   def login(:invalid_email), do: {:error, new(422, :invalid_email)}
+  def login(:unavailable_locale), do: {:error, new(422, :unavailable_locale)}
   def login(:mail_unavailable), do: {:error, new(503, :mail_unavailable)}
 
   def login(reason) when reason in [:login_expired, :browser_session_expired],

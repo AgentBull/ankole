@@ -194,18 +194,31 @@ defmodule Ankole.Pod.Pages.Queries do
           {:ok, pages}
 
         ids ->
+          visited_at = query.context[:pod_visited_at] || %{}
           pages = Map.new(pages, &{&1.id, &1})
-          {:ok, Enum.flat_map(ids, fn id -> if page = pages[id], do: [page], else: [] end)}
+
+          {:ok,
+           Enum.flat_map(ids, fn id ->
+             if page = pages[id] do
+               [%{page | visited_at: Map.get(visited_at, id)}]
+             else
+               []
+             end
+           end)}
       end
     end
   end
 
   defp list_query(scope, actor, term) when scope in ["recent", "favorites"] do
     with {:ok, reachable} <- Access.reachable_anchors(actor) do
-      ids = state_page_ids(scope, actor, term, reachable)
+      rows = state_page_ids(scope, actor, term, reachable)
+      ids = Enum.map(rows, &elem(&1, 0))
+      visited_at = Map.new(rows)
 
       query =
-        Page |> Ash.Query.filter(id in ^ids) |> Ash.Query.set_context(%{pod_state_order: ids})
+        Page
+        |> Ash.Query.filter(id in ^ids)
+        |> Ash.Query.set_context(%{pod_state_order: ids, pod_visited_at: visited_at})
 
       {:ok, query}
     end
@@ -256,7 +269,7 @@ defmodule Ankole.Pod.Pages.Queries do
 
     Repo.query!(
       """
-      SELECT p.id::text FROM page_user_states state
+      SELECT p.id::text, state.visited_at FROM page_user_states state
       JOIN pages p ON p.tenant_id = $1::text::uuid AND p.id = state.page_id
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
       WHERE state.tenant_id = $1::text::uuid AND state.principal_uid = $2::text
@@ -268,7 +281,7 @@ defmodule Ankole.Pod.Pages.Queries do
       """,
       [Repo.tenant_id!(), uid, anchors, own, term]
     ).rows
-    |> Enum.map(&hd/1)
+    |> Enum.map(fn [id, visited_at] -> {id, visited_at} end)
   end
 
   defp list_trash(%Ankole.AuthZ.Actor{} = actor, term, context, cursor, collected) do

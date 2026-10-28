@@ -1155,7 +1155,7 @@ export type ListSiteAppConfigurationsResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }>
@@ -1200,7 +1200,7 @@ export type ResetSiteAppConfigurationResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
@@ -1245,7 +1245,7 @@ export type GetSiteAppConfigurationResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
@@ -1296,7 +1296,7 @@ export type UpdateSiteAppConfigurationResponses = {
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
-      scope: 'global' | 'tenant'
+      scope: 'global' | 'tenant' | 'pod'
       source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }

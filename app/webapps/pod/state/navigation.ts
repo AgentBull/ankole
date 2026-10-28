@@ -2,7 +2,35 @@ import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import { createModel, signal } from '@preact/signals-react'
 
 export type NavigationScope = 'space' | 'private'
-type Preferences = { rootOpen: Record<NavigationScope, boolean>; expanded: Set<string> }
+export type CollapsibleSection = NavigationScope | 'recent' | 'favorites'
+
+export type RecentEntry<
+  P extends { id: string; visited_at?: string | null; updated_at?: string },
+  R extends { id: string; lastActivityAt?: string | null }
+> =
+  | { kind: 'page'; id: string; timestamp: string | undefined; time: number; page: P }
+  | { kind: 'conversation'; id: string; timestamp: string | undefined; time: number; room: R }
+
+export function mergeRecentEntries<
+  P extends { id: string; visited_at?: string | null; updated_at?: string },
+  R extends { id: string; lastActivityAt?: string | null }
+>(pages: P[], conversations: R[]): RecentEntry<P, R>[] {
+  const entries: RecentEntry<P, R>[] = [
+    ...pages.map((page): RecentEntry<P, R> => {
+      const timestamp = page.visited_at ?? page.updated_at
+      const parsed = timestamp ? Date.parse(timestamp) : NaN
+      return { kind: 'page', id: page.id, timestamp, time: Number.isNaN(parsed) ? 0 : parsed, page }
+    }),
+    ...conversations.map((room): RecentEntry<P, R> => {
+      const timestamp = room.lastActivityAt ?? undefined
+      const parsed = timestamp ? Date.parse(timestamp) : NaN
+      return { kind: 'conversation', id: room.id, timestamp, time: Number.isNaN(parsed) ? 0 : parsed, room }
+    })
+  ]
+  return entries.sort((left, right) => right.time - left.time || left.id.localeCompare(right.id))
+}
+
+type Preferences = { rootOpen: Record<CollapsibleSection, boolean>; expanded: Set<string> }
 type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>
 
 function browserStorage(): PreferenceStorage | undefined {
@@ -17,7 +45,12 @@ function decode(raw: string | null): Preferences {
   const saved = raw ? recordValue(safeJsonParse(raw).unwrapOr(undefined)) : undefined
   const rootOpen = recordValue(saved?.rootOpen)
   return {
-    rootOpen: { space: rootOpen?.space !== false, private: rootOpen?.private !== false },
+    rootOpen: {
+      recent: rootOpen?.recent !== false,
+      favorites: rootOpen?.favorites !== false,
+      space: rootOpen?.space !== false,
+      private: rootOpen?.private !== false
+    },
     expanded: new Set<string>(
       Array.isArray(saved?.expanded) ? saved.expanded.filter((id: unknown) => typeof id === 'string' && id) : []
     )
@@ -53,7 +86,7 @@ export const NavigationModel = createModel(
       restore(raw: string | null) {
         preferences.value = decode(raw)
       },
-      toggleRoot(scope: NavigationScope) {
+      toggleRoot(scope: CollapsibleSection) {
         const current = preferences.peek()
         save({ ...current, rootOpen: { ...current.rootOpen, [scope]: !current.rootOpen[scope] } })
       },

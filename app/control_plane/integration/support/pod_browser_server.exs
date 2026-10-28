@@ -37,25 +37,12 @@ Logger.configure(level: :warning)
 alias Ankole.{AuthZ, BrowserSessions, Repo}
 require Ash.Query
 
-# This dedicated test database defaults to Chinese labels for its browser selectors.
-{:ok, original_site_locale} =
-  Ankole.AppConfigure.get(Ankole.I18n.Config.default_locale_definition(), scope: :global)
-
-{:ok, _} =
-  Ankole.AppConfigure.put_global_by_key(
-    "i18n.default_locale",
-    System.get_env("POD_BROWSER_LOCALE", "zh-Hans-CN")
-  )
-
-System.at_exit(fn _ ->
-  Ankole.AppConfigure.put_global_by_key("i18n.default_locale", original_site_locale)
-end)
-
 alias Ankole.Pod.{Bases, Pages}
 alias AnkoleWeb.Session, as: WebSession
 
 tenant = Ankole.DataCase.create_tenant()
 Repo.put_tenant_id(tenant.id)
+{:ok, _} = Ankole.I18n.put_default_locale(System.get_env("POD_BROWSER_LOCALE", "zh-Hans-CN"))
 origin = AnkoleWeb.PodURL.origin(%{scheme: :http, port: port}, tenant)
 console_origin = AnkoleWeb.PodURL.site_origin(%{scheme: :http, port: port})
 
@@ -97,7 +84,7 @@ collector =
         {:smtp_message, _, [target | _], message} ->
           text = Ankole.Authn.SMTPFixture.text(message)
 
-          case Regex.run(~r/code is (\d{6})/, text) do
+          case Regex.run(~r/\b(\d{6})\b/, text) do
             [_, code] ->
               target = to_string(target)
               revision = get_in(codes, [target, :revision]) || 0
@@ -738,7 +725,6 @@ state = %{
   console_url: console_origin <> AnkoleWeb.SiteAdminConsole.path(),
   tenant_id: tenant.id,
   tenant_slug: tenant.slug,
-  original_site_locale: original_site_locale,
   report_id: report.id,
   base_id: data_page.id,
   table_id: table.id,

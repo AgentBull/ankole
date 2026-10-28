@@ -34,7 +34,7 @@ skill_learning_enabled = "작업 궤적에서 스킬 교훈을 학습해 스킬�
 skill_learning_reflection_threshold = "스킬 교훈 리플렉션 작업을 시작하기 전에 Agent가 누적해야 하는 미소비 신호 작업 수(실행 중 사람 개입 또는 실패한 호출). 최소 2."
 
 [app_configure.descriptions.i18n]
-default_locale = "Ankole 텍스트를 렌더링할 때 사용되는 기본 로캘입니다."
+default_locale = "이 스페이스에서 Ankole 화면과 메시지를 표시할 때 사용하는 기본 로캘입니다."
 
 [app_configure.descriptions.observability.traces]
 enabled = "활성화하면 컨트롤 플레인이 재시작 후 구성된 OTLP 엔드포인트로 프로세스 전역 OpenTelemetry 트레이스를 내보냅니다."
@@ -350,6 +350,8 @@ description = "MISSION은 책임을, SOUL은 작업 성격을 정의하며, DESI
 access_sections = "접근 섹션"
 hide_secret = "값 숨기기"
 open_navigation = "탐색 열기"
+collapse_navigation = "탐색 닫기"
+expand_navigation = "탐색 열기"
 refresh = "새로고침"
 refreshing = "새로고침 중"
 reveal_secret = "값 표시"
@@ -2407,6 +2409,7 @@ collapse = "사이드바 닫기"
 expand = "사이드바 열기"
 sign_out = "로그아웃"
 chat_empty = "아직 채팅이 없습니다."
+recent_empty = "아직 최근 방문 기록이 없습니다."
 account = "계정"
 account_menu = "계정 메뉴: {$name}, {$tenant}"
 accounts = "조직"
@@ -3080,6 +3083,8 @@ confirm_exit = "스페이스 나가기 확인"
 [pod.settings]
 invitation_code = "초대 코드: {$code}"
 space_profile = "스페이스 프로필"
+default_locale = "스페이스 언어"
+default_locale_hint = "이 스페이스의 화면, 알림 메일, Agent 메시지에 적용되는 기본 언어입니다."
 sign_in_policy = "로그인 정책"
 role_admin = "관리자"
 status_active = "활성"
