@@ -541,7 +541,8 @@ Operator settings are declared under `brain.*` `AppConfigure` keys:
 
 - **Site keys:** `embedding_model` (with dimensions) and `search_tokenizer`.
 - **Tenant keys** (inheriting site defaults when unset): `enabled`,
-  `maintainer_agent_uid`, `rerank_model`, `chunking`, `forgetting`, the Dreaming
+  `maintainer_agent_uid`, `rerank_model`, `chunking`, `forgetting`,
+  `soft_delete_retention_hours`, the Dreaming
   and self-healing cron expressions, `signal_channel_batch_idle_time`,
   `skill_learning_enabled`, and `skill_learning_reflection_threshold`.
 
@@ -556,6 +557,14 @@ Agent. If the maintainer Agent is disabled, Brain reports unhealthy and halts
 all model calls and control-plane URL fetches until an active Agent is restored
 or selected, while keeping stored pages and lexical recall available.
 
+`brain.forgetting` contains the five per-kind half-lives in days. The separate
+`brain.soft_delete_retention_hours` setting controls how long soft-deleted Objects
+remain eligible for restoration before Dreaming permanently removes them.
+Reducing it can make existing Objects immediately eligible at the next purge.
+The workspace editor shows the shared site embedding model and tokenizer as
+read-only dependencies, and displays the effective scheduler timezone without
+changing Pod-administrator permissions.
+
 ## Retrieval index recovery
 
 Brain requires `pg_search` `0.25.11`, which is pinned in the development and
@@ -569,6 +578,15 @@ missing, invalid, or unready indexes. Because PostgreSQL catalog flags can still
 mark an index valid when its native `pg_search` reader fails at query time,
 `recall` surfaces the error for operator recovery rather than silently returning
 empty results or bypassing the knowledge boundary.
+
+The one-minute site Tick checks the saved tokenizer against actual BM25 index
+definitions and usable flags before scheduling workspace work. The Console and
+Brain health page expose `pending_rebuild`, `rebuilding`, `applied`, `failed`, or
+`unknown` from that lifecycle. Reads perform no DDL. A tokenizer change is applied
+by this maintenance path; rebuilding can interrupt retrieval and block writes.
+Failed Tick jobs are recorded in server logs and retried by Oban. Running
+`Ankole.Brain.SearchIndexes.ensure_current/0` from the release console performs
+the same check and repair for manual operator recovery.
 
 When a BM25 index reader fails, identify the affected index from the failing
 query, confirm that the underlying base table is readable, and rebuild the index

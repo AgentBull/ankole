@@ -34,6 +34,7 @@ defmodule AnkoleWeb.BrowserInvitation do
           displayName: [type: :string, allow_nil?: false],
           membership: [type: :atom, allow_nil?: false, constraints: [one_of: [:member, :guest]]],
           podURL: [type: :string, allow_nil?: false],
+          emailLoginURL: [type: :string, allow_nil?: false],
           emailOTPAvailable: [type: :boolean, allow_nil?: false],
           oidcProviders: [
             type: {:array, :map},
@@ -87,11 +88,20 @@ defmodule AnkoleWeb.BrowserInvitation do
         {:ok, policy} = Ankole.Principals.PodLoginPolicy.get()
         {:ok, providers} = Ankole.IdentityProviders.Login.list_login_providers()
 
+        pod_origin = AnkoleWeb.PodURL.origin(conn, tenant)
+
+        email_login_url =
+          AnkoleWeb.PodURL.login_url(conn, tenant, %{
+            "switch" => "1",
+            "invitation_token" => token
+          })
+
         BrowserAPI.ok(conn, %{
           tenantID: tenant.id,
           displayName: tenant.display_name,
           membership: invitation.membership,
-          podURL: AnkoleWeb.PodURL.origin(conn, tenant) <> "/",
+          podURL: pod_origin <> "/",
+          emailLoginURL: email_login_url,
           emailOTPAvailable:
             Ankole.Authn.Mailer.configured?() and policy["allow_email_otp"] and
               (invitation.membership == :guest or not policy["require_sso_for_members"]),

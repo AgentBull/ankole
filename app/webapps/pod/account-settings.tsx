@@ -27,6 +27,8 @@ import {
 } from './api/generated/sdk.gen'
 import { AccountSettingsModel } from './state/account-settings'
 import { replaceAuthentication } from '../common/browser-context'
+import { CodeSentStatus } from '../common/code-sent-status'
+import { EmailOtpInput } from '../common/email-otp-input'
 import { ErrorBlock } from '../common/error-block'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -205,24 +207,17 @@ export function AccountSettings() {
                   className="grid gap-3"
                   onSubmit={event => {
                     event.preventDefault()
+                    if (verify.isPending || request.isPending || model.code.value.length !== 6) return
                     verify.mutate()
                   }}>
-                  <p role="status" className="text-sm text-muted-foreground">
-                    {t('auth.code_sent', { email: model.email.value })}
-                  </p>
+                  <CodeSentStatus email={model.email.value} />
                   <Label htmlFor="binding-code">{t('auth.email_code')}</Label>
-                  <Input
+                  <EmailOtpInput
                     id="binding-code"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    required
-                    autoFocus
                     disabled={verify.isPending || request.isPending}
                     value={model.code.value}
-                    onChange={event => {
-                      model.code.value = event.target.value
+                    onChange={value => {
+                      model.code.value = value
                       verify.reset()
                     }}
                   />

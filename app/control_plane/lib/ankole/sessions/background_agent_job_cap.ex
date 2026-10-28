@@ -7,7 +7,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobCap do
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
 
-  @agent_cap_key "agent_computer.background_agent_job.max_running_per_agent"
+  @agent_cap_key "background_agent_jobs.max_running_per_agent"
   @agent_cap_default 3
   @agent_cap_maximum 64
 

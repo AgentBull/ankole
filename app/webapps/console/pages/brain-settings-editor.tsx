@@ -2,6 +2,7 @@ import { useQuery, Link } from '../tenant-context'
 import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
+  Button,
   CreatableCombobox,
   CronEditor,
   Input,
@@ -42,6 +43,7 @@ import {
   type BrainModelDraft
 } from '../state/brain-setting-editor'
 import { settingDescription } from '../state/setting-groups'
+import { SettingValueEditor } from './setting-value-editors'
 import { SettingGroupField } from './setting-group-field'
 import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { aiGatewayProviders } from '../state/provider-settings'
@@ -92,6 +94,19 @@ export function BrainSettingsEditor({
         description={(item && settingDescription(t, item)) ?? ''}
         saving={saving}
         onRestore={onRestore}>
+        {key === BRAIN_KEYS.maintainerAgentUID && (!maintainerAgentUID || selectedAgent?.status === 'disabled') ? (
+          <p role="status" className="text-sm text-warning-foreground">
+            {t('console.settings.maintainer_warning')}
+          </p>
+        ) : null}
+        {key === BRAIN_KEYS.searchTokenizer ? (
+          <p className="text-sm text-muted-foreground">
+            {t('console.settings.index_rebuild_hint')}{' '}
+            <Link className="link" to="/brain/health">
+              {t('console.settings.index_health')}
+            </Link>
+          </p>
+        ) : null}
         {children}
       </SettingGroupField>
     )
@@ -135,6 +150,15 @@ export function BrainSettingsEditor({
               ))}
             </SelectContent>
           </Select>
+          {maintainerAgentUID ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-fit"
+              onClick={() => onDraftChange(BRAIN_KEYS.maintainerAgentUID, 'null')}>
+              {t('console.settings.clear_maintainer')}
+            </Button>
+          ) : null}
           {maintainerAgentUID ? (
             <Link
               className="link w-fit text-sm"
@@ -210,6 +234,18 @@ export function BrainSettingsEditor({
         />
       )}
 
+      {itemsByKey.get(BRAIN_KEYS.retention)
+        ? field(
+            BRAIN_KEYS.retention,
+            t('console.settings.brain_retention'),
+            <SettingValueEditor
+              item={itemsByKey.get(BRAIN_KEYS.retention)!}
+              value={drafts[BRAIN_KEYS.retention] ?? ''}
+              onChange={value => onDraftChange(BRAIN_KEYS.retention, value)}
+            />
+          )
+        : null}
+      <p className="text-xs text-muted-foreground">{t('console.settings.embedding_change_hint')}</p>
       {BRAIN_CRON_KEYS.map(key =>
         field(
           key,
@@ -230,13 +266,13 @@ export function BrainSettingsEditor({
       {field(
         BRAIN_KEYS.signalChannelBatchIdleTime,
         t('console.settings.brain_signal_channel_batch_idle_time'),
-        <Input
-          aria-label={t('console.settings.brain_signal_channel_batch_idle_time')}
-          min={1}
-          type="number"
-          value={brainNumberDraft(drafts[BRAIN_KEYS.signalChannelBatchIdleTime])}
-          onChange={event => onDraftChange(BRAIN_KEYS.signalChannelBatchIdleTime, brainNumberText(event.target.value))}
-        />
+        itemsByKey.get(BRAIN_KEYS.signalChannelBatchIdleTime) ? (
+          <SettingValueEditor
+            item={itemsByKey.get(BRAIN_KEYS.signalChannelBatchIdleTime)!}
+            value={drafts[BRAIN_KEYS.signalChannelBatchIdleTime] ?? ''}
+            onChange={value => onDraftChange(BRAIN_KEYS.signalChannelBatchIdleTime, value)}
+          />
+        ) : null
       )}
 
       {field(
@@ -333,7 +369,7 @@ function BrainModelFieldGroup({
                     providerID === draft.providerID ? { ...draft, providerID } : { ...draft, providerID, model: '' }
                   )
                 }}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger data-setting-field="provider_id" className="w-full">
                   <SelectValue placeholder={t('console.settings.brain_model_provider_placeholder')} />
                 </SelectTrigger>
                 <SelectContent emptyLabel={providersLoading ? t('common.loading') : t('common.select_empty')}>
@@ -367,6 +403,7 @@ function BrainModelFieldGroup({
             {requiresDimensions ? (
               <LabeledField label={t('console.settings.brain_model_dimensions')} required>
                 <Input
+                  data-setting-field="dimensions"
                   max={BRAIN_MAX_EMBEDDING_DIMENSIONS}
                   min={1}
                   required
@@ -376,7 +413,7 @@ function BrainModelFieldGroup({
                 />
               </LabeledField>
             ) : null}
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-2" data-setting-field="provider_options">
               <JSONObjectField
                 label={t('console.settings.brain_model_provider_options')}
                 name="provider_options"
@@ -409,6 +446,7 @@ function NumberMapInputs({
       {fields.map(field => (
         <LabeledField key={field} label={t(`${labelPrefix}${field}`)} required>
           <Input
+            data-setting-field={field}
             min={0}
             required
             type="number"

@@ -2,17 +2,11 @@
 
 This document sets out Ankole's deliberate architectural boundaries, trust assumptions, and failure-recovery limits. Each subsystem's design document covers the underlying protocol in full detail.
 
-## Tenants Share Site Infrastructure
-
-A single Ankole site can host multiple tenants. `Ankole.Repo` scopes Principal, AuthZ, Conversation, and Brain queries to the active tenant context and immediately fails any query that omits that context, though site administrators can switch into any tenant's context for administration.
-
-Even so, multi-tenancy in Ankole is an organizational boundary, not a hostile-code sandbox. Every tenant on a site trusts the site operator and shares the control-plane PostgreSQL cluster (with tenant-assigned Base shards), AI model providers, Worker providers, `ankole-function-runtime`, and compiled Control Plane Plugins. When two organizations cannot share infrastructure or trust the same operator, run separate Ankole deployments. See [Tenants](design-docs/Tenants.md).
-
 ## A Worker Is One Agent's Dedicated Computer
 
 Each Agent gets its own dedicated Worker instance—Agents never share a Worker container, persistent Home volume, cache disk, or Worker credential. Inside that container, the container boundary itself is the sole security boundary: shell commands, the Codex app-server, Automation scripts, and the headless browser all run as `uid 1000` without `sudo` or an inner nested sandbox.
 
-Ankole does not try to defend a Worker against its own Agent. Within user space, an Agent can install local tools, modify `/workspace`, or even break its own user-space environment (though it cannot install root system packages). That is intentional: the Worker's runtime credential represents only that single Agent, whose shell commands already have access to all of that Agent's files and scoped tokens. If a Worker fails to become ready within `agent_computer.worker.ready_timeout`, the control plane replaces it with a fresh container and a clean cache disk.
+Ankole does not try to defend a Worker against its own Agent. Within user space, an Agent can install local tools, modify `/workspace`, or even break its own user-space environment (though it cannot install root system packages). That is intentional: the Worker's runtime credential represents only that single Agent, whose shell commands already have access to all of that Agent's files and scoped tokens. If a Worker fails to become ready within `agent_workers.ready_timeout_seconds`, the control plane replaces it with a fresh container and a clean cache disk.
 
 Treat Worker containers as first-party, single-Agent compute; on Kubernetes, operators who want stronger host isolation can attach a `gVisor` `RuntimeClass` to the Worker Pod template. Compromising a Worker lets an attacker act as that one Agent, never as another Agent. By contrast, the control plane holds the Docker socket or Kubernetes namespace Role used to launch Workers, so protect the control plane as root-equivalent infrastructure.
 

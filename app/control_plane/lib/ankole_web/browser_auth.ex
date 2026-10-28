@@ -21,7 +21,8 @@ defmodule AnkoleWeb.BrowserAuth do
   end
 
   alias Ankole.Ash.Types.{PrincipalKey, UUIDv7}
-  alias AnkoleWeb.BrowserAPI
+  alias AnkoleWeb.BrowserAuth.Targets
+  alias AnkoleWeb.{BrowserAPI, PodURL}
 
   resource do
     require_primary_key?(false)
@@ -146,6 +147,7 @@ defmodule AnkoleWeb.BrowserAuth do
       constraints(fields: @login)
       argument(:authenticationRef, :string, allow_nil?: false)
       argument(:oauthRequest, UUIDv7)
+      argument(:tenantID, UUIDv7)
       argument(:returnTo, :string)
       argument(:prompt, :string)
       argument(:reauth, :string)
@@ -192,6 +194,7 @@ defmodule AnkoleWeb.BrowserAuth do
 
       argument(:oauth_request, UUIDv7)
       argument(:purpose, :string)
+      argument(:tenant_id, UUIDv7)
       argument(:prompt, :string)
       argument(:switch, :string)
       argument(:reauth, :string)
@@ -214,6 +217,7 @@ defmodule AnkoleWeb.BrowserAuth do
       argument(:email, :string, allow_nil?: false)
       argument(:oauthRequest, UUIDv7)
       argument(:purpose, :string)
+      argument(:tenantID, UUIDv7)
       argument(:returnTo, :string)
       argument(:prompt, :string)
       argument(:reauth, :string)
@@ -227,20 +231,33 @@ defmodule AnkoleWeb.BrowserAuth do
     end
 
     action :resolve_pod_login, :map do
-      constraints(fields: [loginURL: [type: :string, allow_nil?: false]])
+      constraints(
+        fields: [
+          tenantID: [type: UUIDv7, allow_nil?: false],
+          displayName: [type: :string, allow_nil?: false],
+          providers: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  providerID: [type: :string, allow_nil?: false],
+                  adapterID: [type: :string, allow_nil?: false],
+                  pluginID: [type: :string],
+                  displayName: [type: Ankole.Ash.Types.StringMap, allow_nil?: false],
+                  authorizationURL: [type: :string, allow_nil?: false]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
       argument(:slug, :string, allow_nil?: false)
       transaction?(false)
 
       run(fn input, _ ->
-        case Ankole.Tenants.active_by_slug(input.arguments.slug) do
-          {:ok, tenant} ->
-            BrowserAPI.ok(input.context.conn, %{
-              loginURL: AnkoleWeb.PodURL.origin(input.context.conn, tenant) <> "/sessions/new"
-            })
-
-          _ ->
-            BrowserAPI.error(404, :pod_not_found)
-        end
+        perform_resolve_pod_login(input.context.conn, input.arguments.slug)
       end)
     end
 
@@ -270,187 +287,6 @@ defmodule AnkoleWeb.BrowserAuth do
       end)
     end
   end
-
-  def login_context(conn, params) when is_map(params) do
-    case resolve_login_target(conn, params) do
-      {:ok, target} ->
-        if is_nil(target.tenant_id), do: WebSession.put_privileged_tenant()
-        Plug.Conn.assign(conn, :login_target, {:ok, target})
-
-      {:error, _} = error ->
-        _ = WebSession.put_privileged_tenant()
-        Plug.Conn.assign(conn, :login_target, error)
-    end
-  end
-
-  def resolve_login_target(conn, params) when is_map(params) do
-    oauth_request = non_empty(params["oauthRequest"] || params["oauth_request"])
-    purpose = non_empty(params["purpose"])
-
-    cond do
-      not is_nil(oauth_request) ->
-        resolve_oauth_target(conn, oauth_request)
-
-      purpose == "console" ->
-        resolve_console_target(conn, params)
-
-      purpose == "site" or
-          (is_nil(purpose) and conn.assigns[:default_login_purpose] == :site and
-             not match?({:pod, _}, conn.assigns[:host_context])) ->
-        resolve_site_target(conn, params)
-
-      purpose in [nil, "pod"] ->
-        resolve_pod_target(conn, params)
-
-      true ->
-        {:error, :login_expired}
-    end
-  end
-
-  defp resolve_oauth_target(conn, id) do
-    with {:ok, request} <- AuthorizationRequests.get(WebSession.browser_reference(conn), id),
-         :ok <- verify_pod_host(conn, request.tenant_id),
-         :ok <- Ankole.Repo.put_tenant_id(request.tenant_id) do
-      {:ok,
-       %{
-         purpose: :oauth,
-         tenant_id: request.tenant_id,
-         mode: Map.get(conn.assigns, :browser_login_mode, :replace),
-         oauth_request: request,
-         oauth_request_id: request.id,
-         request_params: request.request,
-         return_to: AnkoleWeb.AuthController.oauth_return_to(request),
-         started_revision: request.started_revision,
-         expected_authentication_id: request.expected_authentication_id,
-         reauthentication_principal_uid: nil,
-         invitation_id: nil
-       }}
-    end
-  end
-
-  defp resolve_console_target(conn, params) do
-    if match?({:pod, _}, conn.assigns[:host_context]) do
-      {:error, :login_expired}
-    else
-      with :ok <- WebSession.put_privileged_tenant() do
-        prompt = if params["prompt"] == "login", do: ["login"], else: []
-
-        {:ok,
-         %{
-           purpose: :console,
-           tenant_id: Ankole.Repo.tenant_id!(),
-           mode: Map.get(conn.assigns, :browser_login_mode, :replace),
-           oauth_request: nil,
-           oauth_request_id: nil,
-           request_params: %{"prompt" => prompt},
-           return_to: default_return_to(:console, params["returnTo"] || params["return_to"]),
-           started_revision: nil,
-           expected_authentication_id: nil,
-           reauthentication_principal_uid: nil,
-           invitation_id: nil
-         }}
-      end
-    end
-  end
-
-  defp resolve_site_target(conn, params) do
-    if match?({:pod, _}, conn.assigns[:host_context]) do
-      {:error, :login_expired}
-    else
-      with :ok <- WebSession.put_privileged_tenant() do
-        {:ok,
-         %{
-           purpose: :site,
-           tenant_id: nil,
-           mode: :add,
-           oauth_request: nil,
-           oauth_request_id: nil,
-           request_params: %{},
-           return_to: default_return_to(:site, params["returnTo"] || params["return_to"]),
-           started_revision: nil,
-           expected_authentication_id: nil,
-           reauthentication_principal_uid: nil,
-           invitation_id: nil
-         }}
-      end
-    end
-  end
-
-  defp resolve_pod_target(conn, params) do
-    with {:ok, tenant_id} <- pod_target_tenant(conn),
-         :ok <- Ankole.Repo.put_tenant_id(tenant_id),
-         {:ok, reauth} <- resolve_reauth(conn, params, tenant_id),
-         {:ok, invitation_id} <- resolve_invitation(conn, params, tenant_id) do
-      reauthenticate? = not is_nil(reauth)
-      prompt = if params["prompt"] == "login", do: ["login"], else: []
-
-      {:ok,
-       %{
-         purpose: :pod,
-         tenant_id: tenant_id,
-         mode: :add,
-         oauth_request: nil,
-         oauth_request_id: nil,
-         request_params: %{"prompt" => prompt, "reauthenticate" => reauthenticate?},
-         return_to: default_return_to(:pod, params["returnTo"] || params["return_to"]),
-         started_revision: reauth && reauth.started_revision,
-         expected_authentication_id: reauth && reauth.authentication_id,
-         reauthentication_principal_uid: reauth && reauth.uid,
-         invitation_id: invitation_id
-       }}
-    end
-  end
-
-  defp pod_target_tenant(conn) do
-    case AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn) do
-      {:ok, tenant_id} -> {:ok, tenant_id}
-      _ -> {:error, :login_expired}
-    end
-  end
-
-  defp verify_pod_host(%{assigns: %{host_context: {:pod, host_tenant_id}}}, tenant_id)
-       when host_tenant_id != tenant_id,
-       do: {:error, :login_expired}
-
-  defp verify_pod_host(_conn, _tenant_id), do: :ok
-
-  defp resolve_reauth(conn, params, tenant_id) do
-    case non_empty(params["reauth"]) do
-      nil -> {:ok, nil}
-      ticket -> WebSession.unseal_reauthentication(conn, ticket, tenant_id)
-    end
-  end
-
-  defp resolve_invitation(conn, params, tenant_id) do
-    sealed = non_empty(params["invitation"])
-    token = non_empty(params["invitationToken"] || params["invitation_token"])
-
-    cond do
-      not is_nil(sealed) ->
-        with {:ok, id} <- WebSession.unseal_membership_invitation(conn, sealed, tenant_id),
-             {:ok, _} <- Ankole.Principals.invitation_for_login(id),
-             do: {:ok, id}
-
-      not is_nil(token) ->
-        with {:ok, %{id: id, tenant_id: ^tenant_id}} <- Ankole.Principals.locate_invitation(token),
-             {:ok, _} <- Ankole.Principals.invitation_for_login(id) do
-          {:ok, id}
-        else
-          _ -> {:error, :login_expired}
-        end
-
-      true ->
-        {:ok, nil}
-    end
-  end
-
-  defp default_return_to(:console, nil), do: AnkoleWeb.SiteAdminConsole.path()
-  defp default_return_to(:site, nil), do: "/account"
-  defp default_return_to(:pod, nil), do: "/"
-  defp default_return_to(_, value), do: WebSession.safe_return_to(value)
-
-  defp non_empty(value) when is_binary(value) and value != "", do: value
-  defp non_empty(_), do: nil
 
   defp perform_logout_confirmation(conn, %{"id" => id}) do
     with {:ok, request} <-
@@ -642,6 +478,35 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
+  defp perform_resolve_pod_login(conn, slug) do
+    case Ankole.Tenants.active_by_slug(slug) do
+      {:ok, tenant} ->
+        {:ok, providers} =
+          Ankole.Repo.with_tenant(tenant.id, fn ->
+            Ankole.IdentityProviders.Login.list_login_providers()
+          end)
+
+        BrowserAPI.ok(conn, %{
+          tenantID: tenant.id,
+          displayName: tenant.display_name || tenant.slug,
+          providers:
+            Enum.map(providers, fn provider ->
+              %{
+                providerID: provider["provider_id"],
+                adapterID: provider["adapter_id"],
+                pluginID: provider["plugin_id"],
+                displayName: provider["display_name"],
+                authorizationURL:
+                  PodURL.oidc_authorization_url(conn, tenant, provider["provider_id"])
+              }
+            end)
+        })
+
+      _ ->
+        BrowserAPI.error(404, :pod_not_found)
+    end
+  end
+
   defp activate_or_login(conn, reference, tenant) do
     case activate_membership(reference, tenant.id) do
       :ok ->
@@ -650,14 +515,14 @@ defmodule AnkoleWeb.BrowserAuth do
              do: {:ok, conn, AnkoleWeb.PodURL.origin(conn, tenant) <> "/"}
 
       {:error, reason} when reason in [:login_policy_rejected, :reauthentication_required] ->
-        begin_membership_login(conn, reference, tenant)
+        begin_membership_login(conn, reference, tenant, reason)
 
       error ->
         error
     end
   end
 
-  defp begin_membership_login(conn, reference, tenant) do
+  defp begin_membership_login(conn, reference, tenant, reason) do
     with {:ok, %{purpose: :site} = authentication} <-
            BrowserSessions.get_authentication(reference) do
       Ankole.Repo.with_tenant(tenant.id, fn ->
@@ -667,8 +532,8 @@ defmodule AnkoleWeb.BrowserAuth do
           |> Enum.find(&(&1.tenant_id == tenant.id))
 
         with {:ok, _} <- Ankole.Principals.invitation_for_login(invitation && invitation.id),
-             {:ok, query} <- membership_login_query(conn, invitation, tenant.id) do
-          {:ok, conn, AnkoleWeb.PodURL.origin(conn, tenant) <> "/sessions/new?" <> query}
+             {:ok, ticket} <- seal_optional_invitation(conn, invitation, tenant.id) do
+          membership_login_destination(conn, tenant, reason, ticket)
         end
       end)
     else
@@ -677,19 +542,17 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
-  defp membership_login_query(_conn, nil, _tenant_id),
-    do: {:ok, URI.encode_query(%{"switch" => "1", "prompt" => "login"})}
+  defp seal_optional_invitation(_conn, nil, _tenant_id), do: {:ok, nil}
 
-  defp membership_login_query(conn, invitation, tenant_id) do
-    with {:ok, ticket} <-
-           WebSession.seal_membership_invitation(conn, invitation.id, tenant_id) do
-      {:ok,
-       URI.encode_query(%{
-         "switch" => "1",
-         "prompt" => "login",
-         "invitation" => ticket
-       })}
-    end
+  defp seal_optional_invitation(conn, invitation, tenant_id),
+    do: WebSession.seal_membership_invitation(conn, invitation.id, tenant_id)
+
+  defp membership_login_destination(conn, tenant, reason, ticket) do
+    params = %{"switch" => "1", "prompt" => "login"}
+    params = if ticket, do: Map.put(params, "invitation", ticket), else: params
+
+    with {:ok, url} <- PodURL.membership_login_url(conn, tenant, reason, params),
+         do: {:ok, conn, url}
   end
 
   defp activate_membership(reference, tenant_id) do
@@ -761,7 +624,7 @@ defmodule AnkoleWeb.BrowserAuth do
   end
 
   defp select_target_identity(conn, reference, params) do
-    case non_empty(params["oauthRequest"]) do
+    case params["oauthRequest"] do
       id when is_binary(id) ->
         with {:ok, request} <-
                AuthorizationRequests.select_identity(
@@ -769,22 +632,23 @@ defmodule AnkoleWeb.BrowserAuth do
                  id,
                  reference
                ),
-             :ok <- verify_pod_host(conn, request.tenant_id) do
-          {:ok, AnkoleWeb.AuthController.oauth_return_to(request)}
+             :ok <- Targets.verify_pod_host(conn, request.tenant_id) do
+          {:ok, PodURL.oauth_return_to(conn, request)}
         end
 
       nil ->
-        with {:ok, target} <- resolve_pod_target(conn, params),
-             false <- LoginPolicy.reauthentication_required?(target.request_params),
-             %{} = auth <- BrowserSessions.identity(reference, target.tenant_id),
-             true <- LoginPolicy.can_reuse?(auth, target.request_params),
+        with {:ok, tenant_id, return_to, request_params} <-
+               select_identity_target(conn, params),
+             false <- LoginPolicy.reauthentication_required?(request_params),
+             %{} = auth <- BrowserSessions.identity(reference, tenant_id),
+             true <- LoginPolicy.can_reuse?(auth, request_params),
              {:ok, _} <-
                BrowserSessions.activate(
                  WebSession.browser_reference(conn),
                  reference,
-                 target.tenant_id
+                 tenant_id
                ) do
-          {:ok, target.return_to}
+          {:ok, return_to}
         else
           true -> {:error, :reauthentication_required}
           false -> {:error, :reauthentication_required}
@@ -794,18 +658,44 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
+  defp select_identity_target(conn, params) do
+    case Targets.resolve(conn, params) do
+      {:ok, %{purpose: :site, target_tenant: %Ankole.Tenants.Tenant{} = tenant} = target} ->
+        {:ok, tenant.id, PodURL.origin(conn, tenant) <> target.return_to, target.request_params}
+
+      {:ok, %{purpose: :pod} = target} ->
+        {:ok, target.tenant_id, target.return_to, target.request_params}
+
+      {:ok, _} ->
+        {:error, :login_expired}
+
+      error ->
+        error
+    end
+  end
+
   defp perform_identity_providers(conn, params) do
-    with {:ok, target} <- resolve_login_target(conn, params),
-         {:ok, providers} <- providers_for_target(target) do
+    with {:ok, target} <- Targets.resolve(conn, params),
+         {:ok, providers} <- providers_for_target(conn, target) do
+      policy_tenant_id = target.tenant_id || Map.get(target, :target_tenant_id)
+
+      require_sso? =
+        if is_binary(policy_tenant_id) do
+          Ankole.Repo.with_tenant(policy_tenant_id, fn ->
+            elem(Ankole.Principals.PodLoginPolicy.get(), 1)["require_sso_for_members"]
+          end)
+        else
+          false
+        end
+
       BrowserAPI.ok(conn, %{
         identity: current_identity(conn),
         identities: identity_choices(conn, target),
         purpose: Atom.to_string(target.purpose),
-        requireSSOForMembers:
-          not is_nil(target.tenant_id) and
-            elem(Ankole.Principals.PodLoginPolicy.get(), 1)["require_sso_for_members"],
+        requireSSOForMembers: require_sso?,
         selectAccount:
           target.purpose == :pod or
+            (target.purpose == :site and is_binary(Map.get(target, :target_tenant_id))) or
             (target.purpose == :oauth and LoginPolicy.selection_required?(target.request_params)),
         providers:
           Enum.map(providers, fn provider ->
@@ -844,6 +734,21 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
+  defp identity_choices(
+         conn,
+         %{purpose: :site, target_tenant_id: tenant_id} = target
+       )
+       when is_binary(tenant_id) do
+    if LoginPolicy.reauthentication_required?(target.request_params) or
+         not is_nil(target.invitation_id) do
+      []
+    else
+      Ankole.Repo.with_tenant(tenant_id, fn ->
+        list_tenant_identities(conn, tenant_id, fn _ -> :ok end)
+      end)
+    end
+  end
+
   defp identity_choices(_, _), do: []
 
   defp list_tenant_identities(conn, tenant_id, allow_source) do
@@ -877,21 +782,61 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
-  defp providers_for_target(%{purpose: purpose}) when purpose in [:console, :pod],
+  defp providers_for_target(_conn, %{purpose: :console}),
     do: LoginPolicy.login_providers()
 
-  defp providers_for_target(%{purpose: :oauth, oauth_request: request}) do
-    with {:ok, client} <- Ankole.OIDC.get_active_client(request.request["client_id"]),
-         do: LoginPolicy.providers(client, request.request)
+  defp providers_for_target(conn, %{purpose: :pod}) do
+    with {:ok, providers} <- LoginPolicy.login_providers() do
+      if conn.assigns[:pod_email_otp_disabled] == true,
+        do: {:ok, Enum.reject(providers, &(&1["provider_id"] == "email_otp"))},
+        else: {:ok, providers}
+    end
   end
 
-  defp providers_for_target(%{purpose: :site}),
+  defp providers_for_target(conn, %{purpose: :oauth, oauth_request: request}) do
+    with {:ok, client} <- Ankole.OIDC.get_active_client(request.request["client_id"]),
+         {:ok, providers} <- LoginPolicy.providers(client, request.request) do
+      {:ok, tenant} = Ankole.Tenants.get(request.tenant_id)
+
+      {:ok,
+       Enum.map(providers, &provider_login_path(conn, tenant, &1))
+       |> Enum.reject(
+         &(&1["provider_id"] == "email_otp" and conn.assigns[:pod_email_otp_disabled] == true)
+       )}
+    end
+  end
+
+  defp providers_for_target(
+         conn,
+         %{purpose: :site, target_tenant: %Ankole.Tenants.Tenant{} = tenant}
+       ) do
+    {:ok, oidc} =
+      Ankole.Repo.with_tenant(tenant.id, fn ->
+        Ankole.IdentityProviders.Login.list_login_providers()
+      end)
+
+    oidc_providers = Enum.map(oidc, &provider_login_path(conn, tenant, &1))
+
+    {:ok, oidc_providers ++ Ankole.IdentityProviders.SiteSources.providers()}
+  end
+
+  defp providers_for_target(_conn, %{purpose: :site}),
     do: {:ok, Ankole.IdentityProviders.SiteSources.providers()}
+
+  defp provider_login_path(conn, tenant, %{"kind" => "oidc"} = provider) do
+    Map.put(
+      provider,
+      "login_path",
+      PodURL.oidc_authorization_url(conn, tenant, provider["provider_id"])
+    )
+  end
+
+  defp provider_login_path(_conn, _tenant, provider), do: provider
 
   defp perform_request_email_otp(conn, params) do
     with {:ok, true} <- SetupConfig.completed?(),
-         {:ok, target} <- resolve_login_target(conn, params),
-         :ok <- ensure_otp_target_pending(target),
+         {:ok, target} <- Targets.resolve(conn, params),
+         :ok <- ensure_otp_target_allowed(conn, target),
          conn = WebSession.ensure_browser(conn),
          {:ok, sent} <-
            Ankole.Authn.Info.run(
@@ -905,6 +850,7 @@ defmodule AnkoleWeb.BrowserAuth do
              },
              login_purpose: target.purpose,
              tenant_id: target.tenant_id,
+             target_tenant_id: Map.get(target, :target_tenant_id),
              locale:
                Ankole.I18n.negotiate_locale(Plug.Conn.get_req_header(conn, "accept-language")),
              mode: target.mode,
@@ -922,11 +868,15 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
-  defp ensure_otp_target_pending(%{purpose: :oauth, oauth_request: %{status: status}})
+  defp ensure_otp_target_allowed(%{assigns: %{pod_email_otp_disabled: true}}, %{purpose: purpose})
+       when purpose in [:pod, :oauth],
+       do: {:error, :identity_provider_not_allowed}
+
+  defp ensure_otp_target_allowed(_conn, %{purpose: :oauth, oauth_request: %{status: status}})
        when status != :pending,
        do: {:error, :login_expired}
 
-  defp ensure_otp_target_pending(_target), do: :ok
+  defp ensure_otp_target_allowed(_conn, _target), do: :ok
 
   defp perform_verify_email_otp(conn, params) do
     host_tenant_id =
@@ -957,8 +907,8 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
-  defp verified_return_to(_conn, %{purpose: :oauth, oauth_request: request}),
-    do: AnkoleWeb.AuthController.oauth_return_to(request)
+  defp verified_return_to(conn, %{purpose: :oauth, oauth_request: request}),
+    do: PodURL.oauth_return_to(conn, request)
 
   defp verified_return_to(conn, %{purpose: :pod, tenant_id: tenant_id} = completed) do
     {:ok, tenant} = Ankole.Tenants.get(tenant_id)
@@ -966,6 +916,16 @@ defmodule AnkoleWeb.BrowserAuth do
     AnkoleWeb.PodURL.origin(conn, tenant) <>
       WebSession.safe_return_to(completed.ceremony_context["return_to"])
   end
+
+  defp verified_return_to(conn, %{purpose: :site, tenant_id: tenant_id} = completed)
+       when is_binary(tenant_id) do
+    {:ok, tenant} = Ankole.Tenants.get(tenant_id)
+
+    PodURL.origin(conn, tenant) <>
+      WebSession.safe_return_to(completed.ceremony_context["return_to"])
+  end
+
+  defp verified_return_to(_conn, %{purpose: :site}), do: "/account"
 
   defp verified_return_to(_conn, completed),
     do: WebSession.safe_return_to(completed.ceremony_context["return_to"])

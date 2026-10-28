@@ -48,19 +48,7 @@
 .ak-auth-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   margin-bottom: 12px;
-}
-
-.ak-auth-brand > span {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  color: var(--primary-foreground);
-  background: var(--primary);
-  font-size: 14px;
-  font-weight: 700;
 }
 
 .ak-login-list {

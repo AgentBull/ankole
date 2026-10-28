@@ -6,6 +6,8 @@ import { useMutation } from '@tanstack/react-query'
 import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestSetupEmailOtp, verifySetupEmailOtp } from '../common/api/generated/sdk.gen'
+import { CodeSentStatus } from '../common/code-sent-status'
+import { EmailOtpInput } from '../common/email-otp-input'
 import { ErrorBlock } from '../common/error-block'
 import { EmailAdminModel } from './state/email-admin-model'
 
@@ -131,29 +133,23 @@ export function EmailAdminForm() {
           className="grid gap-4 border-t border-border/70 pt-5"
           onSubmit={event => {
             event.preventDefault()
+            if (pending || model.code.value.length !== 6) return
             verify.mutate()
           }}>
-          <p role="status" className="text-sm text-muted-foreground">
-            {t('auth.code_sent', { email: model.email.value })}
-          </p>
-          <Field className="max-w-xs">
+          <CodeSentStatus email={model.email.value} />
+          <Field>
             <FieldLabel htmlFor={`${id}-code`}>{t('auth.email_code')}</FieldLabel>
-            <Input
+            <EmailOtpInput
               id={`${id}-code`}
-              pattern="[0-9]{6}"
-              maxLength={6}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              autoFocus
-              required
+              disabled={pending}
               value={model.code.value}
-              onChange={event => {
-                model.code.value = event.target.value
+              onChange={value => {
+                model.code.value = value
               }}
             />
           </Field>
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending || model.code.value.length !== 6}>
               {t('setup.verify_complete')}
             </Button>
           </div>

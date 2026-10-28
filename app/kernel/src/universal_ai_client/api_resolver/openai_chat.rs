@@ -452,7 +452,7 @@ impl ChatState {
         {
             let argument_event = self.tool_calls.get_mut(&index).and_then(|call| {
                 call.arguments.push_str(arguments);
-                (!chat_provider_custom_tool(context, &call.name))
+                (!provider_custom_tool(context, &call.name))
                     .then(|| (call.id.clone(), call.output_index))
             });
             if let Some((item_id, output_index)) = argument_event {
@@ -530,7 +530,7 @@ impl ChatState {
 
         if completed {
             for call in self.tool_calls.values().cloned().collect::<Vec<_>>() {
-                if chat_provider_custom_tool(context, &call.name) {
+                if provider_custom_tool(context, &call.name) {
                     events.push(self.event(
                         "response.custom_tool_call_input.done",
                         json!({
@@ -1671,74 +1671,6 @@ fn chat_function_call_item(context: &ResponseContext, call: &ToolCall, status: &
     restore_tool_namespace(context, &mut item);
     restore_custom_tool(context, &mut item);
     item
-}
-
-fn restore_custom_tool(context: &ResponseContext, item: &mut Value) {
-    let Some(name) = item.get("name").and_then(Value::as_str) else {
-        return;
-    };
-    let namespace = item.get("namespace").and_then(Value::as_str);
-    if !chat_custom_tool(context, namespace, name) {
-        return;
-    }
-
-    let input = item
-        .get("arguments")
-        .and_then(Value::as_str)
-        .map(custom_tool_input)
-        .unwrap_or_default();
-    let Some(item) = item.as_object_mut() else {
-        return;
-    };
-    item.insert("type".to_string(), json!("custom_tool_call"));
-    item.insert("input".to_string(), json!(input));
-    item.remove("arguments");
-}
-
-pub(super) fn custom_tool_input(arguments: &str) -> String {
-    sonic_rs::from_str::<Value>(arguments)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("input")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| arguments.to_string())
-}
-
-fn chat_custom_tool(context: &ResponseContext, namespace: Option<&str>, name: &str) -> bool {
-    context
-        .request
-        .get("tools")
-        .or_else(|| context.provider_options.get("tools"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .any(|tool| match tool.get("type").and_then(Value::as_str) {
-            Some("custom") => {
-                namespace.is_none() && tool.get("name").and_then(Value::as_str) == Some(name)
-            }
-            Some("namespace") => {
-                tool.get("name").and_then(Value::as_str) == namespace
-                    && tool
-                        .get("tools")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .any(|child| {
-                            child.get("type").and_then(Value::as_str) == Some("custom")
-                                && child.get("name").and_then(Value::as_str) == Some(name)
-                        })
-            }
-            _other => false,
-        })
-}
-
-fn chat_provider_custom_tool(context: &ResponseContext, flattened_name: &str) -> bool {
-    tool_for_flattened_name(context, flattened_name).is_some_and(|(_namespace, tool)| {
-        tool.get("type").and_then(Value::as_str) == Some("custom")
-    })
 }
 
 fn chat_function_tool(function: &Map<String, Value>, tool: &Map<String, Value>) -> Value {

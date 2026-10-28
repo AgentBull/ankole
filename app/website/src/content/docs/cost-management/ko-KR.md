@@ -45,7 +45,7 @@ Codex 추론 강도 설정을 지원하는 프로바이더에서 `model_reasonin
 - **웹 접근이 필요 없는 Agent에서는 바인딩을 해제하세요.** 사내 데이터만 다루는 어시스턴트에는 `web_search`를 연결하지 않는 편이 좋습니다. 프로필이 연결되어 있으면 모델은 언제든 해당 도구를 호출할 수 있는 것으로 간주합니다.
 - **확인할 URL을 이미 알고 있다면 `web_search` 대신 `web_fetch`를 사용하세요.** 정해진 주소를 바로 가져오면 호출 한 번으로 끝나지만, 검색을 실행하면 검색 호출 비용에 더해 결과 페이지를 읽으려는 후속 `web_fetch` 호출까지 연달아 붙습니다.
 
-참고로 `worker.rendered_fetch_idle_ttl_ms` AppConfigure 키는 렌더링 기반 `web_fetch`에 쓰이는 유휴 브라우저 사이드카 라우트를 정리하기까지의 대기 시간(idle timeout)을 제어할 뿐, URL 응답 캐시로 동작하지는 않습니다.
+참고로 `agent_workers.rendered_fetch_idle_ttl_ms` AppConfigure 키는 렌더링 기반 `web_fetch`에 쓰이는 유휴 브라우저 사이드카 라우트를 정리하기까지의 대기 시간(idle timeout)을 제어할 뿐, URL 응답 캐시로 동작하지는 않습니다.
 
 ## 레버 4: agent-loop 예산
 
@@ -81,7 +81,7 @@ Workflow 전체를 묶는 별도의 일괄 토큰 한도나 금액 예산은 없
 |---|---|---|
 | `max_execution_attempts` | 5 | 최대 5회 시도 후 `failed` 처리 |
 | `max_consecutive_turn_failures` | 5 | 작업을 중단하기 전 허용하는 연속 턴 실패 횟수 |
-| `max_running_per_agent` | 3 (기본값) | Agent당 동시 실행 Job 상한. 테넌트별로 `agent_computer.background_agent_job.max_running_per_agent`(`1..64`)에서 조정 가능 |
+| `max_running_per_agent` | 3 (기본값) | Agent당 동시 실행 Job 상한. 테넌트별로 `background_agent_jobs.max_running_per_agent`(`1..64`)에서 조정 가능 |
 | retry delay | ~30s | 재시도 사이의 최소 대기 간격 |
 
 일시적인 오류로 다섯 번 연속 실패하는 작업은 다섯 번 실행한 만큼의 토큰을 소비합니다. 일반적인 상황에서는 기본 상한만으로도 과도한 재시도를 막을 수 있으며, 설정 오류는 즉시 실패 처리된 뒤 멈춥니다. 특히 눈여겨볼 항목은 세 번째인 `max_running_per_agent`입니다. 한 Agent가 세 개의 Job을 동시에 돌리면 세 개의 모델 루프가 한꺼번에 토큰을 소비합니다. 그만한 병렬 처리가 필요하지 않다면 상한 값을 낮추거나 페르소나에 “한 번에 하나의 작업만 진행하라”고 명시하는 편이 훨씬 경제적입니다.

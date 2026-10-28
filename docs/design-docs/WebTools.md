@@ -18,7 +18,7 @@ through the semantic `web_search.default` and `web_fetch.default` selectors.
 
 The Elixir control plane owns foreground tool schemas, provider dispatch,
 cancellation, paginated result windows, the run-local page cache, and the
-`security.ssrf_filter` and `worker.rendered_fetch_idle_ttl_ms` settings. Agent
+`security.ssrf_filter` and `agent_workers.rendered_fetch_idle_ttl_ms` settings. Agent
 Computer owns the rendered `web_fetch` fallback and the web-tool implementations
 for Codex Jobs.
 
@@ -123,7 +123,7 @@ Once the call finishes—whether by succeeding, failing, or cancelling—the Wor
 purges the temporary route and deletes its artifact directory; if cleanup fails,
 Agent Computer restarts the browser daemon and retries the purge once. Temporary
 routes live strictly in Worker memory with no PostgreSQL footprint, and
-`worker.rendered_fetch_idle_ttl_ms` (default 30 minutes, configurable from 5
+`agent_workers.rendered_fetch_idle_ttl_ms` (default 30 minutes, configurable from 5
 minutes through 24 hours without changing the model schema) bounds how long an
 idle route may linger before automatic eviction.
 

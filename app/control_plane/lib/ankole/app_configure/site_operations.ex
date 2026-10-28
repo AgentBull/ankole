@@ -14,6 +14,14 @@ defmodule Ankole.AppConfigure.SiteOperations do
     allow(:console_update, resource: "site_console:app_configuration:{key}", action: "update")
     allow(:console_delete, resource: "site_console:app_configuration:{key}", action: "reset")
     allow(:console_decrypt, resource: "site_console:app_configuration:{key}", action: "decrypt")
+
+    allow(:console_update_group,
+      resource: "site_console:app_configurations",
+      action: "update",
+      permissions: &Ankole.AppConfigure.Groups.permissions/4
+    )
+
+    allow(:console_test_mail, resource: "site_console:app_configuration:{key}", action: "update")
   end
 
   resource do
@@ -27,6 +35,30 @@ defmodule Ankole.AppConfigure.SiteOperations do
   end
 
   actions do
+    action :console_update_group, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          app_configurations: [type: {:array, Ankole.AppConfigure.ConsoleItem}, allow_nil?: false]
+        ]
+      )
+
+      argument(:group, :string, allow_nil?: false)
+      argument(:values, :map, allow_nil?: false, default: %{}, sensitive?: true)
+      argument(:reset_keys, {:array, :string}, allow_nil?: false, default: [])
+      run({Ankole.AppConfigure.ConsoleActions, scope: :global})
+    end
+
+    action :console_test_mail, :map do
+      transaction?(false)
+      constraints(fields: [accepted: [type: :boolean, allow_nil?: false]])
+      argument(:key, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:settings, :map, allow_nil?: false, sensitive?: true)
+      argument(:recipient, :string, allow_nil?: false)
+      run({Ankole.AppConfigure.ConsoleActions, scope: :global})
+    end
+
     action :console_list, :map do
       transaction?(false)
 

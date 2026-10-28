@@ -3508,6 +3508,7 @@ export type SetGlobalLibraryPluginData = {
    */
   body: {
     data: {
+      defaults_scope: 'global' | 'tenant'
       enabled: boolean
     }
   }
@@ -5527,6 +5528,7 @@ export type SetGlobalLibrarySkillData = {
    */
   body: {
     data: {
+      defaults_scope: 'global' | 'tenant'
       enabled: boolean
     }
   }
@@ -6528,6 +6530,69 @@ export type RestoreBrainObjectResponses = {
 }
 
 export type RestoreBrainObjectResponse = RestoreBrainObjectResponses[keyof RestoreBrainObjectResponses]
+
+export type UpdateAppConfigurationGroupData = {
+  /**
+   * Request body for the update_app_configuration_group operation on app_configuration_operation resource
+   */
+  body: {
+    data: {
+      reset_keys: Array<string>
+      values: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    group: string
+  }
+  query?: never
+  url: '/api/v2/app-configurations/groups/{group}'
+}
+
+export type UpdateAppConfigurationGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateAppConfigurationGroupError =
+  UpdateAppConfigurationGroupErrors[keyof UpdateAppConfigurationGroupErrors]
+
+export type UpdateAppConfigurationGroupResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configurations: Array<{
+      agent_override_supported?: boolean | null
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
+      scope: 'global' | 'tenant' | 'pod'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }>
+  }
+}
+
+export type UpdateAppConfigurationGroupResponse =
+  UpdateAppConfigurationGroupResponses[keyof UpdateAppConfigurationGroupResponses]
 
 export type ListAutomationJobsData = {
   body?: never
@@ -8080,6 +8145,7 @@ export type GetBrainHealthResponses = {
           provider_id?: string | null
         }
       }
+      search_indexes: string
       signals: {
         oldest_pending_age_seconds?: number | null
         pending_channels: number
@@ -8123,19 +8189,26 @@ export type ListAppConfigurationsResponses = {
    */
   200: {
     app_configurations: Array<{
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }>
   }
@@ -8927,19 +9000,26 @@ export type ResetAppConfigurationResponses = {
    */
   200: {
     app_configuration: {
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
   }
@@ -8971,19 +9051,26 @@ export type GetAppConfigurationResponses = {
    */
   200: {
     app_configuration: {
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
   }
@@ -9022,19 +9109,26 @@ export type UpdateAppConfigurationResponses = {
    */
   200: {
     app_configuration: {
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
   }
@@ -10027,7 +10121,9 @@ export type ListAiGatewayConversationsResponse =
 export type GetGlobalLibraryCapabilitiesData = {
   body?: never
   path?: never
-  query?: never
+  query?: {
+    defaults_scope?: 'global' | 'tenant'
+  }
   url: '/api/v2/agent-library/capabilities'
 }
 
@@ -10294,6 +10390,59 @@ export type ListBrainContradictionsResponses = {
 }
 
 export type ListBrainContradictionsResponse = ListBrainContradictionsResponses[keyof ListBrainContradictionsResponses]
+
+export type GetAgentAppConfigurationData = {
+  body?: never
+  path: {
+    agent_uid: string
+    key: string
+  }
+  query?: never
+  url: '/api/v2/app-configurations/{key}/agents/{agent_uid}'
+}
+
+export type GetAgentAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAgentAppConfigurationError = GetAgentAppConfigurationErrors[keyof GetAgentAppConfigurationErrors]
+
+export type GetAgentAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      agent_override_supported?: boolean | null
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
+      scope: 'global' | 'tenant' | 'pod'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type GetAgentAppConfigurationResponse =
+  GetAgentAppConfigurationResponses[keyof GetAgentAppConfigurationResponses]
 
 export type CancelWebhookEndpointData = {
   body?: never

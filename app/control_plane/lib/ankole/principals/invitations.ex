@@ -152,9 +152,16 @@ defmodule Ankole.Principals.Invitations do
            else: (_ -> {:error, :human_access_revoked})
     else
       candidate =
-        proof
-        |> SiteCredentials.pending_memberships()
-        |> Enum.find(&(&1.tenant_id == Repo.tenant_id!()))
+        if proof.provider_id == "email_otp" do
+          SiteCredentials.resolve_email_otp_principal(
+            Repo.tenant_id!(),
+            Map.get(proof, :verified_email)
+          )
+        else
+          proof
+          |> SiteCredentials.pending_memberships()
+          |> Enum.find(&(&1.tenant_id == Repo.tenant_id!()))
+        end
 
       join_member(candidate, invitation, proof)
     end

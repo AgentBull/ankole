@@ -562,7 +562,153 @@ describe('RuntimeFabric channel transport', () => {
     })
     expect(() => fabric.receive(5)).toThrow(RuntimeFabricTransportError)
   })
+
+  it(
+    'exhausts two-push outcome, cancellation and disconnect orderings',
+    () =>
+      withoutFabricLogs(async () => {
+        const events = ['first_ok', 'second_error', 'first_abort', 'second_timeout', 'disconnect'] as const
+        let checked = 0
+        for (const order of permutations(events)) {
+          const { socket, fabric } = await connectReady()
+          const controller = new AbortController()
+          const actual: Array<string | undefined> = [undefined, undefined]
+          const expected: Array<string | undefined> = [undefined, undefined]
+          const settled = [0, 0]
+          const sends = [0, 1].map(index =>
+            fabric
+              .sendEnvelope(rpcRequestEnvelope('actor_turn.complete'), index === 0 ? { signal: controller.signal } : {})
+              .then(
+                () => {
+                  actual[index] = 'ok'
+                  settled[index]!++
+                },
+                (error: RuntimeFabricTransportError) => {
+                  actual[index] = error.code
+                  settled[index]!++
+                }
+              )
+          )
+          try {
+            await tick()
+            const pushes = socket.current!.pushes.filter(push => push.event === 'durable')
+            expect(pushes.map(seqOf)).toEqual([1, 2])
+            for (const event of order) {
+              switch (event) {
+                case 'first_ok':
+                  expected[0] ??= 'ok'
+                  pushes[0]!.reply('ok', { acked_seq: 2 })
+                  break
+                case 'second_error':
+                  expected[1] ??= 'rejected'
+                  pushes[1]!.reply('error', { reason: 'run_closed', acked_seq: 2 })
+                  break
+                case 'first_abort':
+                  expected[0] ??= 'socket_closed'
+                  controller.abort()
+                  break
+                case 'second_timeout':
+                  expected[1] ??= 'timeout'
+                  pushes[1]!.reply('timeout')
+                  break
+                case 'disconnect':
+                  expected[0] ??= 'socket_closed'
+                  expected[1] ??= 'socket_closed'
+                  socket.close()
+                  break
+              }
+              await tick()
+              expect(actual).toEqual(expected)
+              expect(settled).toEqual(expected.map(outcome => (outcome === undefined ? 0 : 1)))
+            }
+            await Promise.all(sends)
+            checked++
+          } finally {
+            fabric.stop()
+          }
+        }
+        expect(checked).toBe(120)
+      }),
+    30_000
+  )
+
+  it(
+    'exhausts old-connection callbacks around every new-push outcome',
+    () =>
+      withoutFabricLogs(async () => {
+        let checked = 0
+        for (const status of ['ok', 'error', 'timeout'] as const) {
+          for (const order of permutations(['old_ok', 'old_error', 'old_timeout', 'current'] as const)) {
+            const { socket, fabric } = await connectReady()
+            try {
+              const before = fabric.sendEnvelope(rpcRequestEnvelope('actor_turn.complete')).catch(error => error)
+              await tick()
+              const channel = socket.current!
+              const oldPush = channel.pushes.at(-1)!
+              socket.close()
+              expect(await before).toMatchObject({ code: 'socket_closed' })
+              socket.open()
+              channel.joinPush!.reply('ok', { connection_id: 'connection-2' })
+              let result: string | undefined
+              const after = fabric.sendEnvelope(rpcRequestEnvelope('actor_turn.complete')).then(
+                () => {
+                  result = 'ok'
+                },
+                (error: RuntimeFabricTransportError) => {
+                  result = error.code
+                }
+              )
+              await tick()
+              const current = channel.pushes.at(-1)!
+              expect(seqOf(oldPush)).toBe(1)
+              expect(seqOf(current)).toBe(1)
+              let completed = false
+              for (const event of order) {
+                if (event === 'current') {
+                  completed = true
+                  current.reply(status, { reason: 'run_closed', acked_seq: 1 })
+                } else if (event === 'old_ok') {
+                  oldPush.reply('ok', { acked_seq: 99, message_credit: 0, byte_credit: 0 })
+                } else if (event === 'old_error') {
+                  oldPush.reply('error', { reason: 'bad_sequence', expected: 100 })
+                } else oldPush.reply('timeout')
+                await tick()
+                expect(result).toBe(completed ? (status === 'error' ? 'rejected' : status) : undefined)
+                expect(fabric.isReady).toBe(true)
+                expect(socket.current).toBe(channel)
+              }
+              await after
+              checked++
+            } finally {
+              fabric.stop()
+            }
+          }
+        }
+        expect(checked).toBe(72)
+      }),
+    30_000
+  )
 })
+
+async function withoutFabricLogs(check: () => Promise<void>) {
+  const info = spyOn(workerLogger, 'info').mockImplementation(() => undefined)
+  const warning = spyOn(workerLogger, 'warning').mockImplementation(() => undefined)
+  try {
+    await check()
+  } finally {
+    info.mockRestore()
+    warning.mockRestore()
+  }
+}
+
+function* permutations<T>(items: readonly T[]): Generator<T[]> {
+  if (items.length === 0) yield []
+  else {
+    for (let index = 0; index < items.length; index++) {
+      for (const rest of permutations(items.filter((_, other) => other !== index))) yield [items[index]!, ...rest]
+    }
+  }
+}
 
 type Options = Parameters<typeof createChannelTransport>[1]
 

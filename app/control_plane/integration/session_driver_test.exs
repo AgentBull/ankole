@@ -3422,7 +3422,7 @@ defmodule Ankole.Sessions.DriverTest do
               fn _, _, metadata, parent ->
                 if self() != parent and
                      String.contains?(metadata.query, "FROM \"site_app_configurations\"") and
-                     "worker.rendered_fetch_idle_ttl_ms" in metadata.params do
+                     "agent_workers.rendered_fetch_idle_ttl_ms" in metadata.params do
                   refute Repo.in_transaction?()
                   send(parent, {:acquisition_blocked, self()})
 
@@ -3664,7 +3664,7 @@ defmodule Ankole.Sessions.DriverTest do
   test "Worker readiness wakes a Job after a simultaneous capacity wait", %{key: key} do
     assert {:ok, 1} =
              Ankole.AppConfigure.put_tenant_by_key(
-               "agent_computer.background_agent_job.max_running_per_agent",
+               "background_agent_jobs.max_running_per_agent",
                1
              )
 

@@ -47,14 +47,41 @@ exchange and token verification run outside the database transaction first, so
 that identity admission, invitation acceptance, and browser session completion
 can commit together in a single transaction afterward.
 
-When starting an OTP ceremony, the OTP strategy first reserves a challenge
-digest in a database transaction and sends the code through its `Sender` only
-after that transaction commits. Once delivery succeeds, `Ankole.Authn` activates
-the challenge if the stored digest still matches the reservation; activation
+When starting an OTP ceremony, the OTP strategy first reserves a challenge in a
+database transaction and sends the code through its `Sender` only after that
+transaction commits. For login challenges, `Ankole.Authn` evaluates whether the
+normalized target email is eligible to receive mail before generating a secret
+digest:
+
+- `console` logins deliver codes only when the email resolves in the privileged
+  tenant to a Human member of `siteadmin` (through either a bound `email_otp`
+  credential or a unique unbound pending Human).
+- `pod` and `oauth` logins without an invitation deliver codes only when the
+  email resolves to an existing Human in the target tenant, including disabled
+  members and members whose Pod policy requires enterprise SSO so that
+  submitting the code surfaces `account_disabled` or `login_policy_rejected`.
+- Public link invitations deliver codes when the email matches an existing
+  tenant Human or satisfies the Pod's login policy for the invited role and
+  email domain, whereas directed email invitations deliver codes only when the
+  submitted email matches the invitation's target address.
+- Pinned reauthentications deliver codes only when the email resolves in the
+  target tenant to the pinned Human Principal.
+- `site` logins deliver codes to any syntactically valid email address so users
+  can verify an address before selecting, joining, or creating a Pod.
+
+Once `Sender` delivery succeeds for an eligible target, `Ankole.Authn` activates
+the challenge if the stored digest matches the reservation; activation
 invalidates any earlier unused codes for the same browser group, tenant,
 purpose, and normalized target email, while leaving codes for other email
 addresses untouched. If delivery fails, `Ankole.Authn` discards the new
-reservation so the previous code stays usable.
+reservation so the previous code stays usable. When a login target is
+ineligible, `Ankole.Authn` commits an unmatchable challenge (`secret_digest:
+nil` with a normal expiry timestamp), invalidates earlier unused codes in the
+same scope, and records the request against per-email and per-source send limits
+while skipping `Sender` delivery and global `"smtp"` channel quota deduction;
+the HTTP response returns the challenge ID and expiry so the sign-in UI presents
+the standard code-sent state without disclosing account or administrator
+membership.
 
 `authn_challenges` tracks active and completed ceremonies. Each row stores the
 browser group, optional tenant and Principal, strategy, purpose, factor stage,
@@ -95,7 +122,11 @@ GenServer, which verifies every window before incrementing counters atomically.
 When the table reaches capacity, the GenServer evicts expired entries while
 keeping valid populated keys and verification checks working. Because PostgreSQL
 owns each challenge's per-ceremony attempt budget, a node restart can clear the
-in-memory rate windows without resetting any challenge's attempt count.
+in-memory rate windows without resetting any challenge's attempt count. When
+`authn.email.send_limits` configures `site_resend_cooldown_seconds`,
+`Ankole.Authn` enforces that per-email resend interval across unverified `site`
+login challenges; verifying a `site` challenge clears the cooldown for that
+challenge so the user can immediately start a reauthentication ceremony.
 
 For browser rendering, the Auth HTML shell embeds public feature-flag decisions
 in its `ankole-features` meta element—evaluating flags in the site context for
@@ -124,7 +155,23 @@ sender address, optional username and password, TLS mode, and optional CA file
 verification, and saving the setting validates field types, port ranges, and the
 sender address. Email OTP is available whenever `authn.email.mail` is configured
 or when local development runs `Swoosh.Adapters.Local`, which keeps delivered
-messages in memory and serves a mailbox preview at `/dev/mailbox`.
+messages in memory and serves a mailbox preview at `/dev/mailbox`. When both
+`/dev/mailbox` and `Swoosh.Adapters.Local` are active, SPA HTML shells include
+`ankole-dev-mailbox` so code-sent prompts append a link to open `/dev/mailbox`.
+
+The Console SMTP form can send a test through the current draft without saving
+it or issuing a login challenge. The form reads only public transport fields and
+password presence; omitting the password keeps the saved credential, while an
+explicit replacement or empty password replaces it. Test acceptance reports
+transport acceptance, not delivery to an inbox, and editing the draft invalidates
+the displayed test result.
+
+Email verification policies use global `authn.email.code_ttl_seconds`,
+`authn.email.send_limits`, and `authn.email.failure_limits`. The send policy has
+one `window_seconds` and independent `per_email`, `per_source`, and `per_channel`
+maxima. The failure policy shares its own window across `per_email` and
+`per_source`. Every field is a positive integer up to 86,400; no numeric ordering
+between independent counters is required. The Console saves this task atomically.
 
 First-run setup can establish the first administrator through either enterprise
 SSO or SMTP email verification. On the SSO path, setup completes when a real
@@ -174,15 +221,27 @@ a new-member slot). For enterprise logins, identity admission and invitation
 acceptance commit in a single transaction inside the target tenant. If
 activating a pending Pod requires an additional verification step or enterprise
 SSO, `/api/v2/browser/authentications/current` seals a 10-minute
-`browser.invitation` ticket for `/sessions/new`, and completing the resulting
-OTP challenge or OIDC flow accepts the invitation. Creating an email invitation
-requires configured SMTP; Ankole sends the email after the creation transaction
-commits and revokes the invitation if delivery fails.
+`browser.invitation` ticket and returns a redirect URL: when a Pod login policy
+rejects email activation on an edition with a shared site sign-in host and the
+target Pod has a single active OIDC provider, Ankole redirects directly to that
+provider's OIDC authorization URL; otherwise it directs the browser to
+`/sessions/new` on the edition's canonical sign-in host, and completing the
+resulting OTP challenge or OIDC flow accepts the invitation. Creating an email
+invitation requires configured SMTP; Ankole sends the email after the creation
+transaction commits and revokes the invitation if delivery fails.
 
 The shared browser API serves invitation preview, login, and acceptance under
 `/api/v2/browser/invitations`, while `/join/:token` displays the target Pod,
-offered role, and available verification methods. Pod administrators manage
-invitations under `/api/v2/pod/admin`.
+offered role, and available verification methods (using `emailLoginURL` from the
+preview response to route email verification to the edition's sign-in entry).
+Pod administrators manage invitations under `/api/v2/pod/admin`.
+
+Enterprise SSO workspace lookup returns the resolved `tenantID`. The browser
+keeps `return_to` only when that ID matches the current login target; selecting
+a different workspace or starting without a bound target uses the workspace root.
+The browser may retain `prompt`, but it never copies an OAuth request or pinned
+reauthentication/invitation ticket into workspace lookup results. OAuth login
+uses its already resolved tenant providers without offering workspace lookup.
 
 ## Login policy and member control
 

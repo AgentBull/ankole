@@ -50,6 +50,15 @@ defmodule Ankole.AppConfigure do
     routes do
       base_route "/app-configurations", Ankole.AppConfigure.ConsoleOperations do
         route(:get, "/", :console_list, name: "list_app_configurations")
+
+        route(:put, "/groups/:group", :console_update_group,
+          name: "update_app_configuration_group"
+        )
+
+        route(:get, "/:key/agents/:agent_uid", :console_agent_resolution,
+          name: "get_agent_app_configuration"
+        )
+
         route(:get, "/:key", :console_show, name: "get_app_configuration")
         route(:put, "/:key", :console_update, name: "update_app_configuration")
         route(:delete, "/:key", :console_delete, name: "reset_app_configuration")
@@ -161,11 +170,11 @@ defmodule Ankole.AppConfigure do
   end
 
   @doc "Reads a declared key and its effective default through the caller's transaction."
-  @spec get_by_key_in_tx(String.t()) :: {:ok, term()} | :error | {:error, term()}
-  def get_by_key_in_tx(key) do
+  @spec get_by_key_in_tx(String.t(), keyword()) :: {:ok, term()} | :error | {:error, term()}
+  def get_by_key_in_tx(key, opts \\ []) do
     with {:ok, definition} <- Registry.require_key(key) do
       definition
-      |> resolution_scopes([])
+      |> resolution_scopes(opts)
       |> resolve_scopes_in_tx(definition, key)
       |> value_result()
     end
@@ -440,7 +449,8 @@ defmodule Ankole.AppConfigure do
   @spec console_update(:global | :tenant, String.t(), map()) ::
           {:ok, console_item()} | {:error, term()}
   def console_update(scope, key, attrs) when is_binary(key) and is_map(attrs) do
-    with {:ok, {_kind, definition}} <- writable_console_definition(scope, key) do
+    with false <- Ankole.AppConfigure.Groups.managed?(key),
+         {:ok, {_kind, definition}} <- writable_console_definition(scope, key) do
       case fetch_console_update_value(attrs) do
         {:ok, value} ->
           with {:ok, _value} <- put_scope_value(scope, key, value),
@@ -451,16 +461,124 @@ defmodule Ankole.AppConfigure do
             do: console_detail(scope, key),
             else: {:error, :missing_value}
       end
+    else
+      true -> {:error, {:key_managed_by_owner, key}}
+      error -> error
     end
   end
 
   @doc "Deletes one console-editable value so normal resolution falls back."
   @spec console_delete(:global | :tenant, String.t()) :: {:ok, console_item()} | {:error, term()}
   def console_delete(scope, key) when is_binary(key) do
-    with {:ok, {kind, definition}} <- writable_console_definition(scope, key),
-         :ok <- delete_scope_value(scope, key),
-         do: {:ok, console_item(scope, definition, kind, key, nil)}
+    with false <- Ankole.AppConfigure.Groups.managed?(key),
+         {:ok, {kind, definition}} <- writable_console_definition(scope, key),
+         :ok <- delete_scope_value(scope, key) do
+      {:ok, console_item(scope, definition, kind, key, nil)}
+    else
+      true -> {:error, {:key_managed_by_owner, key}}
+      error -> error
+    end
   end
+
+  @doc "Commits a declared editing task and publishes its projection only after the whole transaction succeeds."
+  def console_update_group(scope, group, values, reset_keys)
+      when is_map(values) and is_list(reset_keys) do
+    allowed = Ankole.AppConfigure.Groups.keys(group)
+    touched = Map.keys(values) ++ reset_keys
+
+    with true <- allowed != [] and touched != [] and Enum.all?(touched, &(&1 in allowed)),
+         true <- MapSet.disjoint?(MapSet.new(Map.keys(values)), MapSet.new(reset_keys)),
+         {:ok, _} <-
+           Repo.transact_top_level(
+             fn ->
+               with :ok <- lock_console_group(scope, allowed),
+                    :ok <- write_console_group(scope, group, values, reset_keys),
+                    :ok <-
+                      Ankole.AppConfigure.Groups.validate(
+                        group,
+                        &console_value_in_tx(scope, &1)
+                      ) do
+                 {:ok, touched}
+               end
+             end,
+             after_commit: fn keys ->
+               Enum.each(keys, &refresh_cache_after_commit(storage_scope(scope), &1))
+               Ankole.AppConfigure.Groups.after_commit(scope, keys)
+             end
+           ) do
+      with {:ok, items} <- list_console_items(scope),
+           do: {:ok, %{app_configurations: Enum.filter(items, &(&1.key in allowed))}}
+    else
+      false -> {:error, :invalid_configuration_group}
+      error -> error
+    end
+  end
+
+  defp console_value_in_tx(:global, key), do: get_by_key_in_tx(key, scope: :global)
+  defp console_value_in_tx(:tenant, key), do: get_by_key_in_tx(key)
+
+  defp lock_console_group(scope, keys) do
+    Enum.reduce_while(Enum.sort(keys), :ok, fn key, :ok ->
+      case Ankole.AdvisoryLock.lock(Repo, "app_configure:#{storage_scope(scope)}:#{key}") do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp write_console_group(scope, group, values, resets) do
+    Enum.reduce_while(Enum.sort(Map.keys(values) ++ resets), :ok, fn key, :ok ->
+      result =
+        with {:ok, {_kind, definition}} <- writable_console_definition(scope, key) do
+          if key in resets do
+            query =
+              Ash.Query.filter(
+                AppConfig.for_scope(storage_scope(scope)),
+                scope == ^storage_scope(scope) and key == ^key
+              )
+
+            Ankole.Ash.destroy_where(query, :remove)
+          else
+            with {:ok, value} <-
+                   Ankole.AppConfigure.Groups.prepare_value(
+                     group,
+                     key,
+                     values[key],
+                     &console_value_in_tx(scope, &1)
+                   ),
+                 do: put_row(storage_scope(scope), key, definition, value)
+          end
+        end
+
+      case result do
+        {:ok, _} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:configuration_group_field, key, reason}}}
+      end
+    end)
+  end
+
+  @doc "Resolves an explicitly selected Agent without granting an Agent configuration write path."
+  def console_agent_resolution(key, agent_uid) do
+    with true <- agent_override_consumed?(key),
+         {:ok, {_kind, definition}} <- console_definition(:tenant, key),
+         {:ok, resolution} <- resolve_by_key(key, agent_id: agent_uid) do
+      item = console_item(:tenant, definition, :exact, key, nil)
+
+      {:ok,
+       Map.merge(item, %{
+         value: resolution.value,
+         source: Atom.to_string(resolution.source),
+         overridden: resolution.source == :agent
+       })}
+    else
+      false -> {:error, :agent_override_not_supported}
+      error -> error
+    end
+  end
+
+  defp agent_override_consumed?(key),
+    do:
+      key in ~w(ai_agent.max_output_tokens ai_agent.inactivity_timeout_ms ai_agent.max_iterations agent_workers.rendered_fetch_idle_ttl_ms security.ssrf_filter)
 
   @doc "Reveals one encrypted console-visible value on demand."
   @spec console_decrypt(:global | :tenant, String.t()) :: {:ok, term()} | {:error, term()}
@@ -801,6 +919,76 @@ defmodule Ankole.AppConfigure do
   # editable only while a row backs it. An encrypted value reports where it
   # comes from without decrypting it.
   defp console_item(scope, definition, kind, key, row) do
+    basic_console_item(scope, definition, kind, key, row)
+    |> Map.merge(console_fallback(scope, definition, key))
+    |> Map.put(:agent_override_supported, agent_override_consumed?(key))
+    |> add_public_mail(key)
+    |> add_runtime_status(key)
+  end
+
+  defp console_fallback(scope, definition, key) do
+    result =
+      if scope == :tenant and definition.scope != :pod,
+        do: resolve_by_key(key, scope: :global),
+        else: resolve_default(definition)
+
+    case result do
+      {:ok, resolution} ->
+        %{
+          fallback_present: key != "authn.email.mail" or not is_nil(resolution.value),
+          fallback_source: Atom.to_string(resolution.source)
+        }
+        |> then(
+          &if(definition.encrypted, do: &1, else: Map.put(&1, :fallback_value, resolution.value))
+        )
+
+      :error ->
+        %{fallback_present: false, fallback_source: "missing"}
+
+      {:error, _} ->
+        %{fallback_present: false, fallback_source: "error"}
+    end
+  end
+
+  defp add_public_mail(item, "authn.email.mail") do
+    case get_by_key("authn.email.mail", scope: :global) do
+      {:ok, settings} when is_map(settings) ->
+        Map.merge(item, %{
+          public_value: Map.take(settings, ~w(server from port ssl username cacertfile)),
+          secret_present: is_binary(settings["password"]) and settings["password"] != ""
+        })
+
+      _ ->
+        Map.merge(item, %{public_value: %{}, secret_present: false})
+    end
+  end
+
+  defp add_public_mail(item, _key), do: item
+
+  defp add_runtime_status(item, "observability.traces." <> _) do
+    Map.put(item, :runtime_status, Ankole.Observability.configuration_status())
+  end
+
+  defp add_runtime_status(item, "brain.search_tokenizer") do
+    Map.put(item, :runtime_status, Ankole.Brain.SearchIndexes.configuration_status())
+  end
+
+  defp add_runtime_status(item, "plugins.enabled_ids") do
+    status =
+      case Ankole.ControlPlanePlugins.list() do
+        {:ok, plugins} ->
+          if Enum.any?(plugins, & &1["restart_required"]), do: "pending_restart", else: "applied"
+
+        _ ->
+          "unknown"
+      end
+
+    Map.put(item, :runtime_status, status)
+  end
+
+  defp add_runtime_status(item, _key), do: item
+
+  defp basic_console_item(scope, definition, kind, key, row) do
     item =
       %{
         key: key,
@@ -854,9 +1042,7 @@ defmodule Ankole.AppConfigure do
     with {:ok, registered} <- Registry.require_definition(definition),
          :ok <- ensure_scope(registered, scope),
          {:ok, _} <-
-           Ankole.AdvisoryLock.lock(Repo, "app_configure:#{scope}:#{registered.key}",
-             hash: :extended
-           ),
+           Ankole.AdvisoryLock.lock(Repo, "app_configure:#{scope}:#{registered.key}"),
          {:ok, current} <- get_tenant_by_key_in_tx(registered.key),
          {:ok, next} <- run_global_updater(updater, current) do
       put_row(scope, registered.key, registered, next)

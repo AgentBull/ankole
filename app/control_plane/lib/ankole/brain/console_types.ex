@@ -51,6 +51,7 @@ defmodule Ankole.Brain.ConsoleTypes.BrainHealth do
         ],
         enabled: [type: :boolean, allow_nil?: false],
         maintainer_agent_uid: [type: :string, allow_nil?: true],
+        search_indexes: [type: :string, allow_nil?: false],
         models: [
           type: :map,
           allow_nil?: false,

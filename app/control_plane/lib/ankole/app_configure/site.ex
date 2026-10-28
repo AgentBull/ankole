@@ -14,6 +14,13 @@ defmodule Ankole.AppConfigure.Site do
     routes do
       base_route "/app-configurations", Ankole.AppConfigure.SiteOperations do
         route(:get, "/", :console_list, name: "list_site_app_configurations")
+
+        route(:put, "/groups/:group", :console_update_group,
+          name: "update_site_app_configuration_group"
+        )
+
+        route(:post, "/:key/tests", :console_test_mail, name: "test_site_authentication_mail")
+
         route(:get, "/:key", :console_show, name: "get_site_app_configuration")
         route(:put, "/:key", :console_update, name: "update_site_app_configuration")
         route(:delete, "/:key", :console_delete, name: "reset_site_app_configuration")

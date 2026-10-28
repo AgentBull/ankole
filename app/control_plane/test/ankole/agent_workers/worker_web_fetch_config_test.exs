@@ -21,12 +21,12 @@ defmodule Ankole.AgentWorkers.WorkerWebFetchConfigTest do
                WorkerWebFetchConfig.runtime_config(agent.uid)
 
       assert {:ok, 600_000} =
-               AppConfigure.put_tenant_by_key("worker.rendered_fetch_idle_ttl_ms", 600_000)
+               AppConfigure.put_tenant_by_key("agent_workers.rendered_fetch_idle_ttl_ms", 600_000)
 
       assert {:ok, %{ssrf_filter: ^ssrf?, rendered_fetch_idle_ttl_ms: 600_000}} =
                WorkerWebFetchConfig.runtime_config(agent.uid)
 
-      assert :ok = AppConfigure.delete_tenant_by_key("worker.rendered_fetch_idle_ttl_ms")
+      assert :ok = AppConfigure.delete_tenant_by_key("agent_workers.rendered_fetch_idle_ttl_ms")
     end
   end
 
@@ -35,7 +35,7 @@ defmodule Ankole.AgentWorkers.WorkerWebFetchConfigTest do
   } do
     %{principal: agent} = agent_fixture()
 
-    assert definition.key == "worker.rendered_fetch_idle_ttl_ms"
+    assert definition.key == "agent_workers.rendered_fetch_idle_ttl_ms"
 
     assert {:ok, %{value: 1_800_000, source: :default}} =
              WorkerWebFetchConfig.resolve(agent.uid)

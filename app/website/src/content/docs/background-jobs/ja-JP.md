@@ -87,7 +87,7 @@ Console の **Background Agent Jobs** を開くと、すべての Job が `queue
 
 ## よくある問題
 
-- **Job が `queued` のまま進まない:** 対象 Agent の Worker が `ready` になっているか、また同じ Agent の他の実行中 Job が同時実行上限（`agent_computer.background_agent_job.max_running_per_agent`）を使い切っていないか確認してください。
+- **Job が `queued` のまま進まない:** 対象 Agent の Worker が `ready` になっているか、また同じ Agent の他の実行中 Job が同時実行上限（`background_agent_jobs.max_running_per_agent`）を使い切っていないか確認してください。
 - **開始直後に `failed` になる:** Agent に保存されている Background Agent Jobs モデルプロファイルの設定と、選択した provider の認証情報プールの状態を確認してください。
 - **`waiting_on_user` なのに質問が届かず、Agent も自動回答していない:** 元の会話に紐付くシグナルルーティングルールと Channel Provider の接続状態を確認してください。
 - **`succeeded` になったのにチャットへ結果が返ってこない:** まず「サイレント実行」を指示していなかったか確認してください。通知ありで依頼していた場合は、Job 詳細画面に結果が出力されているかを見たうえで、元の会話のルーティングルールを確認してください。

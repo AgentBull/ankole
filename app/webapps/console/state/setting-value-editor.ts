@@ -1,12 +1,55 @@
 import { isRecord, recordValue, safeJsonParse } from '@agentbull/active-support'
 
 export type SettingValueKind = 'boolean' | 'number' | 'string' | 'object' | 'structured'
-export type SettingEditorKind = 'aiGatewayCompaction' | 'timezone' | 'locale' | 'encrypted' | SettingValueKind
+export type SettingEditorKind =
+  | 'aiGatewayCompaction'
+  | 'timezone'
+  | 'locale'
+  | 'encrypted'
+  | 'optionalTokens'
+  | 'duration'
+  | 'limits'
+  | SettingValueKind
+
+export const SETTING_DURATIONS: Record<string, { seconds: number; min: number; max?: number }> = {
+  'ai_agent.inactivity_timeout_ms': { seconds: 0.001, min: 0 },
+  'agent_workers.rendered_fetch_idle_ttl_ms': { seconds: 0.001, min: 300000, max: 86400000 },
+  'agent_workers.ready_timeout_seconds': { seconds: 1, min: 1, max: 31536000 },
+  'brain.signal_channel_batch_idle_time': { seconds: 1, min: 1 },
+  'brain.soft_delete_retention_hours': { seconds: 3600, min: Number.MIN_VALUE },
+  'pod.trash_retention_days': { seconds: 86400, min: 1 },
+  'pod.base.limits.statement_timeout_ms': { seconds: 0.001, min: 1 },
+  'pod.applet.limits.timeout_ms': { seconds: 0.001, min: 1 },
+  'authn.email.code_ttl_seconds': { seconds: 1, min: 1, max: 86400 },
+  'principals.identity_providers.directory_full_sync_interval_minutes': { seconds: 60, min: 1 }
+}
+
+export const SETTING_DURATION_UNITS = [
+  { id: 'seconds', seconds: 1 },
+  { id: 'minutes', seconds: 60 },
+  { id: 'hours', seconds: 3600 },
+  { id: 'days', seconds: 86400 }
+] as const
+
+export function settingDurationParts(key: string, value: unknown) {
+  const policy = SETTING_DURATIONS[key]
+  if (!policy || typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const seconds = value * policy.seconds
+  const unit =
+    SETTING_DURATION_UNITS.toReversed().find(unit => seconds > 0 && seconds % unit.seconds === 0) ??
+    SETTING_DURATION_UNITS[0]
+  return { amount: seconds / unit.seconds, unit: unit.id }
+}
 
 const SPECIFIC_SETTING_EDITORS = new Map<string, SettingEditorKind>([
   ['ai_gateway.compaction', 'aiGatewayCompaction'],
   ['system.timezone', 'timezone'],
-  ['i18n.default_locale', 'locale']
+  ['i18n.default_locale', 'locale'],
+  ['ai_agent.max_output_tokens', 'optionalTokens'],
+  ...Object.keys(SETTING_DURATIONS).map(key => [key, 'duration'] as [string, SettingEditorKind]),
+  ...['pod.base.limits', 'pod.applet.limits', 'authn.email.send_limits', 'authn.email.failure_limits'].map(
+    key => [key, 'limits'] as [string, SettingEditorKind]
+  )
 ])
 
 /**

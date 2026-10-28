@@ -41,6 +41,7 @@ defmodule Ankole.MixProject do
     [
       preferred_envs: [
         precommit: :test,
+        "ankole.test": :test,
         "ankole.plugins.test": :test,
         "e2e.ai_gateway_real_provider": :test,
         "e2e.gate": :test,
@@ -342,7 +343,15 @@ defmodule Ankole.MixProject do
           "ecto.migrate --quiet",
           "run ../../tools/e2e/ai_gateway_real_provider_e2e.exs"
         ],
-        test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+        test: [
+          fn args ->
+            extra = Enum.filter(args, &(&1 in ["--no-compile", "--no-deps-check"]))
+            Mix.Task.run("app.config", extra)
+            Mix.Task.run("ecto.create", ["--quiet" | extra])
+            Mix.Task.run("ecto.migrate", ["--quiet" | extra])
+            Mix.Tasks.Test.run(args)
+          end
+        ],
         "assets.build": ["cmd --cd ../webapps bun run build"],
         "assets.deploy": ["assets.build", "phx.digest"],
         precommit: [

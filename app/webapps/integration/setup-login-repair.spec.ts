@@ -120,3 +120,33 @@ test('an in-flight code request freezes the email and a late lockout clears when
     release()
   }
 })
+
+test('code verification shows a local mailbox link only when ankole-dev-mailbox is present', async ({ page }) => {
+  await page.route('**/api/v2/browser/sessions/email-otp/challenges', route =>
+    route.fulfill({ json: { challengeID: 'challenge-1', expiresAt: '2099-01-01T00:00:00Z' } })
+  )
+
+  await page.goto('/login-repair')
+  await page.getByRole('textbox', { name: 'Email address', exact: true }).fill('dev@example.test')
+  await page.getByRole('button', { name: 'Send code', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('A code was sent to \u2068dev@example.test\u2069.')
+  await expect(page.getByRole('link', { name: 'View dev mailbox' })).toHaveCount(0)
+
+  await page.goto('/login-repair')
+  await page.evaluate(() => {
+    const meta = document.createElement('meta')
+    meta.name = 'ankole-dev-mailbox'
+    meta.content = '/dev/mailbox'
+    document.head.append(meta)
+  })
+  await page.getByRole('textbox', { name: 'Email address', exact: true }).fill('dev@example.test')
+  await page.getByRole('button', { name: 'Send code', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('A code was sent to \u2068dev@example.test\u2069.')
+  await expect(page.locator('[data-slot="input-otp-slot"]')).toHaveCount(6)
+  const codeInput = page.getByRole('textbox', { name: '6-digit email code', exact: true })
+  await codeInput.pressSequentially('12ab3456')
+  await expect(codeInput).toHaveValue('123456')
+  const mailboxLink = page.getByRole('link', { name: 'View dev mailbox', exact: true })
+  await expect(mailboxLink).toHaveAttribute('href', '/dev/mailbox')
+  await expect(mailboxLink).toHaveAttribute('target', '_blank')
+})

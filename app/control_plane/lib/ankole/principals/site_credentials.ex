@@ -24,6 +24,58 @@ defmodule Ankole.Principals.SiteCredentials do
     SiteCredential |> Ash.Query.filter(principal_uid == ^uid) |> Ankole.Ash.read!()
   end
 
+  def resolve_email_otp_principal(tenant_id, email) when is_binary(tenant_id) do
+    with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+         normalized when is_binary(normalized) <- Ankole.Principals.normalize_email(email) do
+      Ankole.Repo.with_tenant(tenant_id, fn ->
+        case SiteCredential
+             |> Ash.Query.filter(provider == "email_otp" and identifier == ^normalized)
+             |> Ankole.Ash.read_one!() do
+          %SiteCredential{principal_uid: uid} ->
+            case Ankole.Principals.get_principal(uid) do
+              {:ok, %{type: :human} = principal} -> principal
+              _ -> nil
+            end
+
+          nil ->
+            resolve_unbound_email_principal(normalized)
+        end
+      end)
+    else
+      _ -> nil
+    end
+  end
+
+  def resolve_email_otp_principal(_tenant_id, _email), do: nil
+
+  defp resolve_unbound_email_principal(email) do
+    contacts =
+      HumanUser
+      |> Ash.Query.filter(email == ^email)
+      |> Ankole.Ash.read!()
+
+    emails =
+      ExternalIdentity
+      |> Ash.Query.filter(
+        provider == "email" and external_id == ^email and
+          fragment("?->>'origin' = 'directory'", metadata)
+      )
+      |> Ankole.Ash.read!()
+
+    case (contacts ++ emails) |> Enum.map(& &1.principal_uid) |> Enum.uniq() do
+      [uid] ->
+        with {:ok, %{type: :human} = principal} <- Ankole.Principals.get_principal(uid),
+             false <- Enum.any?(for_principal(uid), &(&1.provider == "email_otp")) do
+          principal
+        else
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   def pending_memberships(proof) do
     email = Map.get(proof, :verified_email)
     phone = Map.get(proof, :verified_phone)

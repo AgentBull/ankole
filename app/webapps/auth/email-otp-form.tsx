@@ -1,5 +1,5 @@
 import { recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
-import { Button, Field, FieldLabel, Input, InputOTP, InputOTPGroup, InputOTPSlot } from '@ankole/uikit'
+import { Button, Field, FieldLabel, Input } from '@ankole/uikit'
 import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -7,6 +7,8 @@ import { useMutation } from '@tanstack/react-query'
 import { useId, useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestEmailOtp, verifyEmailOtp } from '../common/api/generated/sdk.gen'
+import { CodeSentStatus } from '../common/code-sent-status'
+import { EmailOtpInput } from '../common/email-otp-input'
 import { ErrorBlock } from '../common/error-block'
 import { classifyLoginError, LoginModel } from './state/login-model'
 import { SlotBoundary, SlotGate } from '../common/slots'
@@ -17,7 +19,6 @@ type EmailOtpFormProps = {
   context?: LoginContext
   sendLabel?: string
   compactVerification?: boolean
-  otpSlots?: boolean
   resendCooldownSeconds?: number
   persistChallenge?: boolean
   onStepChange?: (step: 'email' | 'code') => void
@@ -78,7 +79,6 @@ function EmailOtpFields({
   scope,
   sendLabel,
   compactVerification = false,
-  otpSlots = false,
   resendCooldownSeconds = 0,
   persistChallenge = false,
   onStepChange,
@@ -197,7 +197,9 @@ function EmailOtpFields({
       className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5"
       onSubmit={event => {
         event.preventDefault()
-        if (pending || waiting || (!challengeID && !challengeReady)) return
+        if (pending || waiting || (!challengeID && !challengeReady) || (challengeID && model.code.value.length !== 6)) {
+          return
+        }
         model.clearFormError()
         challengeID ? verify.mutate() : request.mutate()
       }}>
@@ -223,53 +225,19 @@ function EmailOtpFields({
       )}
       {challengeID && (
         <>
-          <p role="status" className="break-words text-sm text-muted-foreground">
-            {t('auth.code_sent', { email: model.email.value })}
-          </p>
+          <CodeSentStatus email={model.email.value} />
           <Field>
             <FieldLabel htmlFor={codeID}>{t('auth.email_code')}</FieldLabel>
-            {otpSlots ? (
-              <InputOTP
-                id={codeID}
-                name="code"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                autoComplete="one-time-code"
-                required
-                autoFocus
-                disabled={pending || waiting}
-                value={model.code.value}
-                containerClassName="min-w-0 w-full"
-                pasteTransformer={value => value.replace(/\D/g, '')}
-                onChange={value => {
-                  model.code.value = value
-                  model.clearFormError()
-                }}>
-                <InputOTPGroup className="grid w-full max-w-80 grid-cols-6 gap-2">
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <InputOTPSlot key={index} index={index} className="h-11 w-full text-base" />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            ) : (
-              <Input
-                id={codeID}
-                name="code"
-                inputMode="numeric"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                autoComplete="one-time-code"
-                required
-                autoFocus
-                disabled={pending || waiting}
-                value={model.code.value}
-                onChange={event => {
-                  model.code.value = event.target.value
-                  model.clearFormError()
-                }}
-              />
-            )}
+            <EmailOtpInput
+              id={codeID}
+              name="code"
+              disabled={pending || waiting}
+              value={model.code.value}
+              onChange={value => {
+                model.code.value = value
+                model.clearFormError()
+              }}
+            />
           </Field>
         </>
       )}

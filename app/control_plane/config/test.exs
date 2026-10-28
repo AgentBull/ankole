@@ -10,6 +10,9 @@ config :ankole, Ankole.Repo,
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
   ownership_timeout: 3_600_000,
+  timeout: 60_000,
+  queue_target: 5_000,
+  queue_interval: 5_000,
   # Startup children keep automatic Sandbox checkouts until test_helper switches
   # the pool to manual mode. Small CI runners need enough connections to boot.
   pool_size: max(20, System.schedulers_online() * 2)
@@ -21,8 +24,6 @@ config :ankole, AnkoleWeb.Endpoint,
 config :ankole, Ankole.OIDC.Config, issuer: "http://localhost:4002"
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
-
-config :ankole, Ankole.AIAgent.Library, source_cache_ttl_ms: 0
 
 # Unit tests replace HTTP at the provider boundary when they create Workers.
 config :ankole, Ankole.AgentWorkers,

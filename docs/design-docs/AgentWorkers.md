@@ -884,7 +884,7 @@ environment: `ANKOLE_AGENT_COMPUTER_IMAGE`,
 `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT`, and `ANKOLE_WORKER_INSTALLATION`, plus
 an optional `ANKOLE_WORKER_PROVIDERS_FILE` path for first-boot seed import. Once
 imported, PostgreSQL owns all provider locations, instance settings, and
-encrypted secrets (`agent_computer.worker.ready_timeout` lives in AppConfigure
+encrypted secrets (`agent_workers.ready_timeout_seconds` lives in AppConfigure
 with a 10-minute default, while `idleReleaseAfter` lives in provider YAML).
 
 Seed import runs only when `worker_providers` is completely empty, executing in

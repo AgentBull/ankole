@@ -83,7 +83,7 @@ If you only want to adjust the goal, message the Agent in the originating conver
 
 ## Common problems
 
-- **The Job stays `queued`:** check that the Agent's Worker is ready on **Console → Workers** and that sibling Jobs of the same Agent have not filled every running slot (`agent_computer.background_agent_job.max_running_per_agent`).
+- **The Job stays `queued`:** check that the Agent's Worker is ready on **Console → Workers** and that sibling Jobs of the same Agent have not filled every running slot (`background_agent_jobs.max_running_per_agent`).
 - **It fails immediately on start:** verify the Agent's **Background Agent Jobs** model profile and the bound provider's credential-pool health.
 - **It sits in `waiting_on_user`, but no question appeared in chat:** check the signal routing rule and Channel Provider for the originating conversation.
 - **It succeeded without posting back to chat:** confirm first that the prompt did not ask for silent execution; otherwise, open the Job to verify that a result was recorded and check the originating conversation's signal routing rule.

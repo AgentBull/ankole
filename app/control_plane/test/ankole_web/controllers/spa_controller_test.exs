@@ -42,9 +42,11 @@ defmodule AnkoleWeb.SpaControllerTest do
   end
 
   test "GET /setup serves setup before completion", %{conn: conn} do
-    conn = get(conn, ~p"/setup")
+    html = conn |> get(~p"/setup") |> html_response(200)
 
-    assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/setup.tsx)
+    assert html =~ ~s(http://assets.test/entrypoints/setup.tsx)
+    assert html =~ ~s(<link rel="icon" type="image/svg+xml" href="/images/logo.svg">)
+    assert html =~ ~s(<link rel="icon" href="/favicon.ico" sizes="48x48">)
   end
 
   test "GET /setup redirects home after completion", %{conn: conn} do
@@ -66,10 +68,22 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn = conn |> pod_conn(tenant) |> get(~p"/sessions/new")
     source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!("auth")
 
+    conn =
+      if @host_policy do
+        target = redirected_to(conn)
+        uri = URI.parse(target)
+        assert String.starts_with?(uri.host, "accounts.")
+        assert uri.path == "/sessions/new"
+        assert URI.decode_query(uri.query) == %{"tenant_id" => tenant.id}
+        conn |> recycle() |> get(target)
+      else
+        assert get_resp_header(conn, "location") == []
+        conn
+      end
+
     assert html_response(conn, 200) =~
              ~s(src="http://assets.test/#{String.trim_leading(source, "/")}")
 
-    assert get_resp_header(conn, "location") == []
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.Session, :count) == browser_count
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
     assert Ankole.Repo.aggregate(Ankole.OIDC.AuthorizationRequest, :count) == 0
@@ -131,7 +145,14 @@ defmodule AnkoleWeb.SpaControllerTest do
       |> active_admin_conn()
       |> get(~p"/sessions/new")
 
-    assert redirected_to(conn) == ~p"/"
+    if @host_policy do
+      accounts_target = redirected_to(conn)
+      assert URI.parse(accounts_target).path == "/sessions/new"
+      entered = conn |> recycle() |> get(accounts_target)
+      assert redirected_to(entered) == AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
+    else
+      assert redirected_to(conn) == ~p"/"
+    end
   end
 
   test "the site Console shell uses the backend's bound tenant for feature targeting", %{
@@ -192,10 +213,15 @@ defmodule AnkoleWeb.SpaControllerTest do
       |> pod_conn(first_tenant)
       |> put_req_header("accept-language", "ja,en-US;q=0.8")
       |> get(~p"/sessions/new")
+      |> follow_login_redirect()
       |> html_response(200)
 
     second_login_html =
-      conn |> pod_conn(second_tenant) |> get(~p"/sessions/new") |> html_response(200)
+      conn
+      |> pod_conn(second_tenant)
+      |> get(~p"/sessions/new")
+      |> follow_login_redirect()
+      |> html_response(200)
 
     assert first_login_html =~ ~s(<html lang="zh-Hans-CN">)
     assert second_login_html =~ ~s(<html lang="ja-JP">)
@@ -210,34 +236,91 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert first_pod_html =~ ~s(<html lang="zh-Hans-CN">)
   end
 
-  test "site Console and its sign-in negotiate language independently of the privileged Pod", %{
-    conn: conn
-  } do
+  test "site Console and its sign-in render in the privileged Pod's locale while tenant-less shells negotiate Accept-Language",
+       %{conn: conn} do
     {:ok, "ko-KR"} = Ankole.I18n.put_default_locale("ko-KR")
     {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
+
+    other_tenant =
+      Ankole.DataCase.create_tenant(%{
+        slug: "pod-zh-#{System.unique_integer([:positive])}",
+        display_name: "Shanghai Pod"
+      })
+
+    Ankole.Repo.with_tenant(other_tenant.id, fn ->
+      {:ok, "zh-Hans-CN"} = Ankole.I18n.put_default_locale("zh-Hans-CN")
+    end)
+
     admin = active_admin_conn(conn)
 
     for {base, path} <- [{conn, "/sessions/new?purpose=console"}, {admin, "/site-admin-console"}],
-        {accept_language, locale} <- [
+        accept_language <- ["ja,en-US;q=0.8", "fr-FR", nil] do
+      request =
+        if accept_language,
+          do: put_req_header(base, "accept-language", accept_language),
+          else: base
+
+      assert request |> get(path) |> html_response(200) =~ ~s(<html lang="ko-KR">)
+    end
+
+    for {accept_language, locale} <- [
           {"ja,en-US;q=0.8", "ja-JP"},
           {"fr-FR", "en-US"},
           {nil, "en-US"}
         ] do
       request =
         if accept_language,
-          do: put_req_header(base, "accept-language", accept_language),
-          else: base
+          do: put_req_header(conn, "accept-language", accept_language),
+          else: conn
 
-      assert request |> get(path) |> html_response(200) =~ ~s(<html lang="#{locale}">)
+      assert request |> get(~p"/sessions/logged-out") |> html_response(200) =~
+               ~s(<html lang="#{locale}">)
     end
   end
+
+  test "SPA shells advertise /dev/mailbox only when the local mailer adapter is active", %{
+    conn: conn
+  } do
+    previous = Application.get_env(:ankole, Ankole.Authn.Mailer)
+
+    on_exit(fn ->
+      if previous == nil,
+        do: Application.delete_env(:ankole, Ankole.Authn.Mailer),
+        else: Application.put_env(:ankole, Ankole.Authn.Mailer, previous)
+    end)
+
+    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.SMTP)
+    refute conn |> get(~p"/setup") |> html_response(200) =~ "ankole-dev-mailbox"
+
+    Application.put_env(:ankole, Ankole.Authn.Mailer, adapter: Swoosh.Adapters.Local)
+
+    assert conn |> get(~p"/setup") |> html_response(200) =~
+             ~s(<meta name="ankole-dev-mailbox" content="/dev/mailbox">)
+  end
+
+  defp follow_login_redirect(%{status: 302} = conn),
+    do: conn |> recycle() |> get(redirected_to(conn))
+
+  defp follow_login_redirect(conn), do: conn
 
   defp assert_pod_login(conn, tenant, return_to) do
     uri = URI.parse(redirected_to(conn))
     assert conn.host == URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
-    assert uri.host in [nil, conn.host]
-    assert uri.path == "/sessions/new"
-    assert URI.decode_query(uri.query) == %{"return_to" => return_to}
+
+    if @host_policy do
+      assert String.starts_with?(uri.host, "accounts.")
+      assert uri.path == "/sessions/new"
+
+      assert URI.decode_query(uri.query) == %{
+               "tenant_id" => tenant.id,
+               "return_to" => return_to
+             }
+    else
+      assert uri.host in [nil, conn.host]
+      assert uri.path == "/sessions/new"
+      assert URI.decode_query(uri.query) == %{"return_to" => return_to}
+    end
+
     assert Ankole.Repo.aggregate(Ankole.BrowserSessions.OidcState, :count) == 0
   end
 end

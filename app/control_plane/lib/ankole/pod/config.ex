@@ -61,6 +61,14 @@ defmodule Ankole.Pod.Config do
   def allow_external_guests?,
     do: AppConfigure.get_by_key("pod.allow_external_guests") == {:ok, true}
 
+  @doc "Publishes access changes for the configuration's actual affected workspace set."
+  def broadcast_guest_access(:tenant), do: Ankole.Pod.Pages.broadcast_access()
+
+  def broadcast_guest_access(:global) do
+    Ankole.Tenants.map_active(fn -> Ankole.Pod.Pages.broadcast_access() end)
+    :ok
+  end
+
   defp boolean(value) when is_boolean(value), do: {:ok, value}
   defp boolean(_), do: {:error, :invalid_boolean}
 

@@ -21,13 +21,14 @@
         background-color: #FFFFFF;
       }
       .ankole-link {
-        color: #B31B5D;
-        text-decoration: none;
+        color: #18191A;
+        text-decoration: underline;
+        text-underline-offset: 3px;
       }
       .ankole-cta {
         display: inline-block;
         padding: 11px 22px;
-        background-color: #B31B5D;
+        background-color: #18191A;
         color: #FFFFFF !important;
         border-radius: 4px;
         font-size: 15px;
@@ -64,8 +65,8 @@
           <mj-text>
             <table role="presentation" border="0" cellpadding="0" cellspacing="0">
               <tr>
-                <td width="34" height="34" align="center" valign="middle" bgcolor="#232526" style="background-color:#232526;border-radius:8px;width:34px;height:34px;text-align:center;vertical-align:middle;font-size:0;line-height:0;">
-                  <span style="display:inline-block;color:#B31B5D;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:18px;font-weight:800;line-height:34px;letter-spacing:-0.03em;">A</span>
+                <td width="34" height="34" valign="middle" style="width:34px;height:34px;vertical-align:middle;font-size:0;line-height:0;">
+                  <img src="cid:ankole-logo.png" alt="" width="34" height="34" border="0" style="display:block;width:34px;height:34px;border:0;border-radius:7.5px;" />
                 </td>
                 <td style="padding-left:10px;vertical-align:middle;">
                   <span style="color:#18191A;font-size:16px;font-weight:600;letter-spacing:-0.015em;line-height:1.2;">Ankole</span>

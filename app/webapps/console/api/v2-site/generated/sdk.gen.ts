@@ -111,11 +111,17 @@ import type {
   SuspendTenantData,
   SuspendTenantErrors,
   SuspendTenantResponses,
+  TestSiteAuthenticationMailData,
+  TestSiteAuthenticationMailErrors,
+  TestSiteAuthenticationMailResponses,
   TransferSiteAdministrationData,
   TransferSiteAdministrationErrors,
   TransferSiteAdministrationResponses,
   UpdateSiteAppConfigurationData,
   UpdateSiteAppConfigurationErrors,
+  UpdateSiteAppConfigurationGroupData,
+  UpdateSiteAppConfigurationGroupErrors,
+  UpdateSiteAppConfigurationGroupResponses,
   UpdateSiteAppConfigurationResponses,
   UpdateSiteWorkerEnvData,
   UpdateSiteWorkerEnvErrors,
@@ -387,6 +393,26 @@ export const listSiteAppConfigurations = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * update_site_app_configuration_group operation on site_app_configuration_operation resource
+ */
+export const updateSiteAppConfigurationGroup = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateSiteAppConfigurationGroupData, ThrowOnError>
+): RequestResult<UpdateSiteAppConfigurationGroupResponses, UpdateSiteAppConfigurationGroupErrors, ThrowOnError> =>
+  (options.client ?? client).put<
+    UpdateSiteAppConfigurationGroupResponses,
+    UpdateSiteAppConfigurationGroupErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/groups/{group}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * reset_site_app_configuration operation on site_app_configuration_operation resource
  */
 export const resetSiteAppConfiguration = <ThrowOnError extends boolean = false>(
@@ -440,6 +466,22 @@ export const decryptSiteAppConfiguration = <ThrowOnError extends boolean = false
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/site/app-configurations/{key}/decryptions',
     ...options
+  })
+
+/**
+ * test_site_authentication_mail operation on site_app_configuration_operation resource
+ */
+export const testSiteAuthenticationMail = <ThrowOnError extends boolean = false>(
+  options: Options<TestSiteAuthenticationMailData, ThrowOnError>
+): RequestResult<TestSiteAuthenticationMailResponses, TestSiteAuthenticationMailErrors, ThrowOnError> =>
+  (options.client ?? client).post<TestSiteAuthenticationMailResponses, TestSiteAuthenticationMailErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}/tests',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**

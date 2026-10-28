@@ -6,24 +6,52 @@ defmodule Ankole.Authn.Mailer do
   @behaviour Ankole.Authn.Sender
 
   import Swoosh.Email,
-    only: [new: 0, from: 2, to: 2, subject: 2, html_body: 2, text_body: 2, header: 3]
+    only: [
+      new: 0,
+      from: 2,
+      to: 2,
+      subject: 2,
+      html_body: 2,
+      text_body: 2,
+      header: 3,
+      attachment: 2
+    ]
 
   alias Ankole.Authn.Emails.{InvitationTemplate, VerificationCodeTemplate}
   alias Ankole.I18n
 
   @default_local_from "noreply@ankole.localhost"
   @sender_name "Ankole"
+  @logo_cid "ankole-logo.png"
+  @logo_path Path.join(__DIR__, "emails/logo.png")
+  @external_resource @logo_path
+  @logo_png File.read!(@logo_path)
+
+  def local_mailbox?, do: configured_adapter() == Swoosh.Adapters.Local
+
+  @doc "Sends an explicit transport test from a draft without issuing an OTP or saving configuration."
+  def send_test(recipient, opts) do
+    with {:ok, config, address, settings} <- resolve_transport(opts) do
+      new()
+      |> from({@sender_name, address})
+      |> to(recipient)
+      |> subject("Ankole email delivery test")
+      |> text_body(
+        "This test used the authentication email settings draft. No login code was issued."
+      )
+      |> header("Auto-Submitted", "auto-generated")
+      |> deliver_message(config, settings)
+    end
+  end
 
   def configured? do
-    case configured_adapter() do
-      Swoosh.Adapters.Local ->
-        true
-
-      _ ->
-        case Ankole.Authn.Config.get("mail") do
-          {:ok, settings} -> match?({:ok, _, _}, smtp_delivery_config(settings))
-          _ -> false
-        end
+    if local_mailbox?() do
+      true
+    else
+      case Ankole.Authn.Config.get("mail") do
+        {:ok, settings} -> match?({:ok, _, _}, smtp_delivery_config(settings))
+        _ -> false
+      end
     end
   end
 
@@ -80,6 +108,7 @@ defmodule Ankole.Authn.Mailer do
         |> subject(subject_line)
         |> html_body(html)
         |> text_body(text)
+        |> attachment(logo_attachment())
         |> header("Auto-Submitted", "auto-generated")
 
       deliver_message(message, delivery_config, settings)
@@ -135,10 +164,20 @@ defmodule Ankole.Authn.Mailer do
         |> subject(subject_line)
         |> html_body(html)
         |> text_body(text)
+        |> attachment(logo_attachment())
         |> header("Auto-Submitted", "auto-generated")
 
       deliver_message(message, delivery_config, settings)
     end
+  end
+
+  defp logo_attachment do
+    Swoosh.Attachment.new({:data, @logo_png},
+      filename: @logo_cid,
+      content_type: "image/png",
+      type: :inline,
+      cid: @logo_cid
+    )
   end
 
   defp deliver_message(message, delivery_config, settings) do

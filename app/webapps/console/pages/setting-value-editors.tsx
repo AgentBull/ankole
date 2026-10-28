@@ -8,7 +8,7 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { useMemo, type ComponentType } from 'react'
+import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { availableLocaleIDs, nativeLocaleLabel } from '../../common/i18n'
 import type { AppConfigurationItem } from '../api/configuration-types'
@@ -21,6 +21,9 @@ import {
   serializeAIGatewayCompactionDraft,
   settingEditorKind,
   settingStringDraft,
+  SETTING_DURATIONS,
+  SETTING_DURATION_UNITS,
+  settingDurationParts,
   type AIGatewayCompactionDraft,
   type SettingEditorKind
 } from '../state/setting-value-editor'
@@ -33,6 +36,7 @@ export type SettingValueEditorProps = {
     revealing: boolean
   }
   error?: string
+  required?: boolean
   item: AppConfigurationItem
   onChange: (value: string) => void
   value: string
@@ -50,6 +54,9 @@ export function SettingValueEditor(props: SettingValueEditorProps) {
   const kind = settingEditorKind(item.key, item.encrypted, item.value)
   const SpecificEditor = SPECIFIC_SETTING_EDITORS[kind]
 
+  if (kind === 'optionalTokens') return <OptionalTokensEditor {...props} />
+  if (kind === 'duration') return <DurationSettingEditor {...props} />
+  if (kind === 'limits') return <LimitsSettingEditor {...props} />
   if (SpecificEditor) return <SpecificEditor {...props} />
   if (kind === 'encrypted') return <EncryptedSettingEditor {...props} />
   if (kind === 'boolean') return <BooleanSettingEditor {...props} />
@@ -59,7 +66,164 @@ export function SettingValueEditor(props: SettingValueEditorProps) {
   return <StructuredSettingEditor {...props} />
 }
 
-function EncryptedSettingEditor({ decrypt, onChange, value }: SettingValueEditorProps) {
+function OptionalTokensEditor({ value, onChange }: SettingValueEditorProps) {
+  const { t } = useTranslation()
+  const enabled = value !== 'null'
+  return (
+    <div className="grid gap-3">
+      <label className="flex items-center gap-3">
+        <Switch
+          checked={enabled}
+          onCheckedChange={next => onChange(next ? '' : 'null')}
+          aria-label={t('console.settings.explicit_output_limit')}
+        />
+        {t(enabled ? 'console.settings.explicit_output_limit' : 'console.settings.no_explicit_limit')}
+      </label>
+      {enabled ? (
+        <Input
+          type="number"
+          min={1}
+          step={1}
+          required
+          value={value}
+          aria-label={t('console.settings.output_tokens')}
+          onChange={event => onChange(event.target.value)}
+        />
+      ) : null}
+      <p className="text-xs text-muted-foreground">{t('console.settings.model_limits_still_apply')}</p>
+    </div>
+  )
+}
+
+function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProps) {
+  const { t } = useTranslation()
+  const policy = SETTING_DURATIONS[item.key]!
+  const units = SETTING_DURATION_UNITS
+  const [unitID, setUnitID] = useState<string>(() => settingDurationParts(item.key, Number(value))?.unit ?? 'seconds')
+  const unit = units.find(candidate => candidate.id === unitID)!
+  const watchdog = item.key === 'ai_agent.inactivity_timeout_ms'
+  const enabled = !watchdog || value !== '0'
+  const numeric = value.trim() === '' ? '' : String((Number(value) * policy.seconds) / unit.seconds)
+  return (
+    <div className="grid gap-3">
+      {watchdog ? (
+        <label className="flex items-center gap-3">
+          <Switch
+            checked={enabled}
+            onCheckedChange={next => onChange(next ? '' : '0')}
+            aria-label={t('console.settings.enable_inactivity_timeout')}
+          />
+          {t(enabled ? 'console.settings.enable_inactivity_timeout' : 'console.settings.inactivity_timeout_disabled')}
+        </label>
+      ) : null}
+      {enabled ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            className="w-44"
+            type="number"
+            step="any"
+            required
+            min={(policy.min * policy.seconds) / unit.seconds}
+            max={policy.max === undefined ? undefined : (policy.max * policy.seconds) / unit.seconds}
+            value={numeric}
+            aria-label={t('console.settings.duration')}
+            onChange={event => {
+              const next = event.target.value
+              onChange(next === '' ? '' : String((Number(next) * unit.seconds) / policy.seconds))
+            }}
+          />
+          <Select value={unitID} onValueChange={next => next && setUnitID(String(next))}>
+            <SelectTrigger aria-label={t('console.settings.duration_unit')} className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {units.map(candidate => (
+                <SelectItem key={candidate.id} value={candidate.id}>
+                  {t(`console.settings.unit_${candidate.id}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {t('console.settings.stored_duration', {
+          value: value || '—',
+          unit:
+            policy.seconds === 0.001
+              ? t('console.settings.unit_milliseconds')
+              : policy.seconds === 60
+                ? t('console.settings.unit_minutes')
+                : policy.seconds === 3600
+                  ? t('console.settings.unit_hours')
+                  : policy.seconds === 86400
+                    ? t('console.settings.unit_days')
+                    : t('console.settings.unit_seconds')
+        })}
+      </p>
+      {['pod.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
+      numeric !== '' &&
+      Number(value) < Number(item.value) ? (
+        <p role="status" className="text-sm text-warning-foreground">
+          {t('console.settings.value_change', {
+            current: item.value,
+            next: Number(value),
+            unit: t(policy.seconds === 86400 ? 'console.settings.unit_days' : 'console.settings.unit_hours')
+          })}{' '}
+          · {t('console.settings.retention_warning')}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function LimitsSettingEditor({ item, value, onChange }: SettingValueEditorProps) {
+  const { t } = useTranslation()
+  let draft: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(value)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) draft = parsed
+  } catch {
+    /* The field keeps invalid drafts visible. */
+  }
+  const fields = Object.keys(item.value && typeof item.value === 'object' ? item.value : draft).sort((a, b) =>
+    a === 'window_seconds' ? -1 : b === 'window_seconds' ? 1 : a.localeCompare(b)
+  )
+  return (
+    <div className="grid gap-4">
+      {fields.map(field => (
+        <LabeledField key={field} label={t(`console.settings.limit_${field}`, { defaultValue: field })} required>
+          {SETTING_DURATIONS[`${item.key}.${field}`] ? (
+            <div data-setting-field={field}>
+              <DurationSettingEditor
+                item={{ ...item, key: `${item.key}.${field}`, value: draft[field] }}
+                value={draft[field] == null ? '' : String(draft[field])}
+                onChange={next => onChange(JSON.stringify({ ...draft, [field]: next === '' ? null : Number(next) }))}
+              />
+            </div>
+          ) : (
+            <Input
+              data-setting-field={field}
+              type="number"
+              min={1}
+              max={item.key.startsWith('authn.email.') ? 86400 : undefined}
+              step={1}
+              required
+              value={typeof draft[field] === 'number' ? String(draft[field]) : ''}
+              onChange={event =>
+                onChange(
+                  JSON.stringify({ ...draft, [field]: event.target.value === '' ? null : Number(event.target.value) })
+                )
+              }
+            />
+          )}
+        </LabeledField>
+      ))}
+    </div>
+  )
+}
+
+function EncryptedSettingEditor({ decrypt, onChange, value, required = true }: SettingValueEditorProps) {
   const { t } = useTranslation()
   // A pristine stored secret arrives as the mask sentinel in the draft itself;
   // rendering the draft verbatim keeps a cleared field visibly empty.
@@ -68,7 +232,7 @@ function EncryptedSettingEditor({ decrypt, onChange, value }: SettingValueEditor
       htmlFor="app-configuration-value"
       label={t('console.settings.value')}
       description={t('console.settings.encrypted_value_hint')}
-      required>
+      required={required}>
       <EncryptedValueInput
         id="app-configuration-value"
         className="font-mono"
@@ -110,10 +274,10 @@ function NumberSettingEditor({ onChange, value }: SettingValueEditorProps) {
   )
 }
 
-function StringSettingEditor({ onChange, value }: SettingValueEditorProps) {
+function StringSettingEditor({ onChange, value, required = true }: SettingValueEditorProps) {
   const { t } = useTranslation()
   return (
-    <LabeledField label={t('console.settings.value')} required>
+    <LabeledField label={t('console.settings.value')} required={required}>
       <Input value={settingStringDraft(value)} onChange={event => onChange(JSON.stringify(event.target.value))} />
     </LabeledField>
   )

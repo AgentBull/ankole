@@ -36,7 +36,13 @@ const tenantRoots = new Set(
 
 export function consoleTenantPage(path: string, search: URLSearchParams): 'site' | 'collection' | 'record' {
   if (['/brain', '/access'].includes(path)) return 'site'
-  if ((path.startsWith('/settings/') || path.startsWith('/worker-envs/')) && search.get('scope') === 'global') {
+  if (
+    (path === '/settings' || path.startsWith('/settings/') || path.startsWith('/worker-envs/')) &&
+    search.get('scope') === 'global'
+  ) {
+    return 'site'
+  }
+  if ((path === '/agent-library' || path.startsWith('/agent-library/')) && search.get('defaults_scope') === 'global') {
     return 'site'
   }
   if (collections.has(path)) return 'collection'

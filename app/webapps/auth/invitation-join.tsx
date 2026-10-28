@@ -2,6 +2,7 @@ import { Button, Card, CardContent, CardHeader, Skeleton } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { acceptInvitation, browserSession, previewInvitation } from '../common/api/generated/sdk.gen'
+import { BrandIcon } from '../common/brand'
 import { localizedText } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
@@ -34,8 +35,7 @@ export function InvitationJoin() {
         <CardHeader>
           <div className="ak-auth-heading">
             <div className="ak-auth-brand">
-              <span aria-hidden>A</span>
-              <p className="ak-eyebrow">Ankole</p>
+              <BrandIcon className="size-9" />
             </div>
             {preview.isPending ? (
               <Skeleton className="my-1 h-9 w-48" aria-hidden />
@@ -63,12 +63,7 @@ export function InvitationJoin() {
                 <Button
                   variant={hasSiteAuthentications ? 'outline' : 'default'}
                   disabled={busy}
-                  onClick={() => {
-                    const url = new URL('sessions/new', data.podURL)
-                    url.searchParams.set('switch', '1')
-                    url.searchParams.set('invitation_token', token())
-                    window.location.assign(url)
-                  }}>
+                  onClick={() => window.location.assign(data.emailLoginURL)}>
                   {t('auth.join_with_email')}
                 </Button>
               )}

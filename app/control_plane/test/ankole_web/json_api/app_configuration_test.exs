@@ -278,15 +278,26 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
     conn =
       conn
       |> console_conn()
-      |> api_put(~p"/api/v2/site/app-configurations/brain.embedding_model", %{
-        "value" => %{"provider_id" => "", "model" => "text-embedding", "dimensions" => 1024}
+      |> api_put(~p"/api/v2/site/app-configurations/groups/brain", %{
+        "values" => %{
+          "brain.embedding_model" => %{
+            "provider_id" => "",
+            "model" => "text-embedding",
+            "dimensions" => 1024
+          }
+        },
+        "reset_keys" => []
       })
 
     assert %{
              "errors" => [
                %{
-                 "detail" => "provider_id is invalid",
-                 "meta" => %{"details" => [%{"path" => "provider_id", "message" => "is invalid"}]}
+                 "detail" => "brain.embedding_model: provider_id is invalid",
+                 "meta" => %{
+                   "details" => [
+                     %{"path" => "brain.embedding_model.provider_id", "message" => "is invalid"}
+                   ]
+                 }
                }
              ]
            } = json_response(conn, 422)

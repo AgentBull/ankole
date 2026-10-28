@@ -32,6 +32,7 @@
     "control-plane:setup": "bun run --filter @ankole/control-plane setup",
     "control-plane:dev": "bun run --filter @ankole/control-plane dev",
     "control-plane:test": "bun run --filter @ankole/control-plane test",
+    "control-plane:test:stale": "bun run --filter @ankole/control-plane test:stale",
     "control-plane:test:plugins": "bun run --filter @ankole/control-plane test:plugins",
     "control-plane:routes": "bun run --filter @ankole/control-plane routes",
     "webapps": "bun run --filter @ankole/webapps",

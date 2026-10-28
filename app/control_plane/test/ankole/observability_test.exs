@@ -74,6 +74,16 @@ defmodule Ankole.ObservabilityTest do
     refute inspect(row) =~ "Basic secret"
     assert row.value["type"] == "cipher"
     refute row.value["value"] =~ "Basic secret"
+
+    # Crash reports may print the owner's state; restart comparisons retain a
+    # fingerprint rather than a second plaintext copy of the exporter headers.
+    assert {:ok, state} =
+             Observability.init(set_exporter: fn _ -> {:error, :fixture_startup_failure} end)
+
+    refute inspect(state) =~ "Basic secret"
+
+    assert {:reply, "failed", ^state} =
+             Observability.handle_call({:configuration_status, state.attempted}, nil, state)
   end
 
   test "the base endpoint rejects credentials, query parameters, fragments, and a trace path" do

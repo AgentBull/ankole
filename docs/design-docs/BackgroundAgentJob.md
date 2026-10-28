@@ -731,7 +731,7 @@ through the Signals domain interface and composition helpers:
 
 ### Concurrency, Worker Readiness, and Retry Budgets
 
-`agent_computer.background_agent_job.max_running_per_agent` caps concurrent
+`background_agent_jobs.max_running_per_agent` caps concurrent
 running Jobs per Agent (default `3`), and each Job has a budget of at most 5
 execution failures and 25 total slot claims (so infrastructure interruptions
 cannot burn the task's execution-failure budget). Only claiming a fresh Worker

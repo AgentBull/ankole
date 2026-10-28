@@ -5,6 +5,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   alias Ankole.AIAgent.Library.SourceReader, as: SkillSourceReader
 
   @default_library_root Path.expand("../../../../../../library", __DIR__)
+  @cache_key {__MODULE__, :trusted_agent_plugins}
   @manifest_path ".codex-plugin/plugin.json"
   @manifest_required ~w(name version description skills)
   @semver ~r/\A(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\z/
@@ -21,8 +22,43 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
 
   @spec read_trusted_agent_plugins(keyword()) :: {:ok, [agent_plugin_source()]} | {:error, term()}
   def read_trusted_agent_plugins(opts \\ []) do
-    opts
-    |> library_roots()
+    roots = library_roots(opts)
+    ttl_ms = SkillSourceReader.source_cache_ttl_ms()
+
+    if not Keyword.has_key?(opts, :roots) and ttl_ms > 0 do
+      read_trusted_agent_plugins_cached(roots, ttl_ms)
+    else
+      read_trusted_agent_plugins_uncached(roots)
+    end
+  end
+
+  defp read_trusted_agent_plugins_cached(roots, ttl_ms) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get(@cache_key, nil) do
+      %{expires_at_ms: expires_at_ms, roots: ^roots, result: {:ok, _plugins} = result}
+      when now_ms < expires_at_ms ->
+        result
+
+      _cache_miss ->
+        case read_trusted_agent_plugins_uncached(roots) do
+          {:ok, _plugins} = result ->
+            :persistent_term.put(@cache_key, %{
+              expires_at_ms: now_ms + ttl_ms,
+              roots: roots,
+              result: result
+            })
+
+            result
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
+  end
+
+  defp read_trusted_agent_plugins_uncached(roots) do
+    roots
     |> Enum.reduce_while({:ok, []}, fn root, {:ok, acc} ->
       case read_root(root) do
         {:ok, plugins} -> {:cont, {:ok, plugins ++ acc}}

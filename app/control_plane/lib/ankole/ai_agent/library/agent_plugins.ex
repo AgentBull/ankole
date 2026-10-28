@@ -126,7 +126,11 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     with :ok <- Contract.validate_identifier(agent_plugin_id),
          {:ok, agent_plugins} <- sources(opts),
          %{} <- Enum.find(agent_plugins, &(&1.id == agent_plugin_id)) do
-      Config.put_agent_plugin_default(agent_plugin_id, enabled)
+      Config.put_agent_plugin_default(
+        agent_plugin_id,
+        enabled,
+        Keyword.get(opts, :config_scope, :tenant)
+      )
     else
       nil -> {:error, :agent_plugin_not_found}
       {:error, _reason} = error -> error
@@ -143,7 +147,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   def set_global_skill_default(skill_id, enabled, opts) when is_boolean(enabled) do
     with {:ok, agent_plugins} <- sources(opts),
          true <- member_skill_id?(agent_plugins, skill_id) do
-      Config.put_skill_default(skill_id, enabled)
+      Config.put_skill_default(skill_id, enabled, Keyword.get(opts, :config_scope, :tenant))
     else
       false -> {:error, :skill_not_found}
       {:error, _reason} = error -> error

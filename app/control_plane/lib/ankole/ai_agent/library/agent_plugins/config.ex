@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   @moduledoc """
-  Installation-wide defaults for Agent Plugins and Skills.
+  Site defaults and tenant overrides for Agent Plugins and Skills.
 
   Agent-specific choices are sparse PostgreSQL overrides owned by the Agent
   Library. These two AppConfigure objects only define what an Agent inherits.
@@ -22,14 +22,17 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   @doc "Reads inherited defaults through the configuration cache."
   @spec defaults() ::
           {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
-  def defaults, do: defaults(&AppConfigure.get/1)
+  def defaults, do: read_defaults(&AppConfigure.get/1)
+
+  def defaults(:global), do: read_defaults(&AppConfigure.get(&1, scope: :global))
+  def defaults(:tenant), do: defaults()
 
   @doc "Reads current defaults from PostgreSQL without the configuration cache."
   @spec defaults_in_tx() ::
           {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
-  def defaults_in_tx, do: defaults(&AppConfigure.get_in_tx(&1))
+  def defaults_in_tx, do: read_defaults(&AppConfigure.get_in_tx(&1))
 
-  defp defaults(read) do
+  defp read_defaults(read) do
     with {:ok, agent_plugins} <- read.(agent_plugin_defaults_definition()),
          {:ok, skills} <- read.(skill_defaults_definition()) do
       {:ok, %{agent_plugins: agent_plugins, skills: skills}}
@@ -37,22 +40,30 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   end
 
   @spec put_agent_plugin_default(String.t(), boolean()) :: {:ok, map()} | {:error, term()}
-  def put_agent_plugin_default(agent_plugin_id, enabled) when is_boolean(enabled) do
-    update_default(agent_plugin_defaults_definition(), agent_plugin_id, enabled)
+  def put_agent_plugin_default(agent_plugin_id, enabled),
+    do: put_agent_plugin_default(agent_plugin_id, enabled, :tenant)
+
+  def put_agent_plugin_default(agent_plugin_id, enabled, scope) when is_boolean(enabled) do
+    update_default(agent_plugin_defaults_definition(), agent_plugin_id, enabled, scope)
   end
 
-  def put_agent_plugin_default(_agent_plugin_id, _enabled),
+  def put_agent_plugin_default(_agent_plugin_id, _enabled, _scope),
     do: {:error, :invalid_agent_plugin_default}
 
   @spec put_skill_default(String.t(), boolean()) :: {:ok, map()} | {:error, term()}
-  def put_skill_default(skill_id, enabled) when is_boolean(enabled) do
-    update_default(skill_defaults_definition(), skill_id, enabled)
+  def put_skill_default(skill_id, enabled), do: put_skill_default(skill_id, enabled, :tenant)
+
+  def put_skill_default(skill_id, enabled, scope) when is_boolean(enabled) do
+    update_default(skill_defaults_definition(), skill_id, enabled, scope)
   end
 
-  def put_skill_default(_skill_id, _enabled), do: {:error, :invalid_skill_default}
+  def put_skill_default(_skill_id, _enabled, _scope), do: {:error, :invalid_skill_default}
 
-  defp update_default(definition, id, enabled) do
-    AppConfigure.update_tenant(definition, fn values ->
+  defp update_default(definition, id, enabled, scope) do
+    update =
+      if scope == :global, do: &AppConfigure.update_global/2, else: &AppConfigure.update_tenant/2
+
+    update.(definition, fn values ->
       {:ok, Map.put(values, id, enabled)}
     end)
   end

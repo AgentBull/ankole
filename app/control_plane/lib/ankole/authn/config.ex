@@ -3,21 +3,34 @@ defmodule Ankole.Authn.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
 
+  @send_limits %{
+    "window_seconds" => 60,
+    "per_email" => 3,
+    "per_source" => 20,
+    "per_channel" => 100
+  }
+  @failure_limits %{"window_seconds" => 600, "per_email" => 10, "per_source" => 100}
+
   def definitions do
-    [definition("mail", Schema.new(&mail/1), nil, true)] ++
-      Enum.map(
-        [
-          {"code_ttl_seconds", 600},
-          {"send_window_seconds", 60},
-          {"send_email_limit", 3},
-          {"send_source_limit", 20},
-          {"send_channel_limit", 100},
-          {"failure_window_seconds", 600},
-          {"failure_email_limit", 10},
-          {"failure_source_limit", 100}
-        ],
-        fn {name, default} -> definition(name, Schema.new(&positive_integer/1), default) end
-      )
+    [
+      definition("mail", Schema.new(&mail/1), nil, true),
+      definition("code_ttl_seconds", Schema.new(&positive_integer/1), 600),
+      definition("send_limits", limits_schema(@send_limits), @send_limits),
+      definition("failure_limits", limits_schema(@failure_limits), @failure_limits)
+    ]
+  end
+
+  defp limits_schema(defaults) do
+    Schema.new(fn
+      values when is_map(values) ->
+        if Enum.sort(Map.keys(values)) == Enum.sort(Map.keys(defaults)) and
+             Enum.all?(Map.values(values), &match?({:ok, _}, positive_integer(&1))),
+           do: {:ok, values},
+           else: {:error, :invalid_otp_limits}
+
+      _ ->
+        {:error, :invalid_otp_limits}
+    end)
   end
 
   def get(name) do

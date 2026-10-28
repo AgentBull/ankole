@@ -26,6 +26,11 @@ test('tenant collections aggregate, records require a tenant, and site settings 
   expect(consoleTenantPage('/tenants/new', new URLSearchParams())).toBe('site')
   expect(consoleTenantPage('/settings/i18n.default_locale', new URLSearchParams('scope=tenant'))).toBe('record')
   expect(consoleTenantPage('/settings/brain.embedding_model', new URLSearchParams('scope=global'))).toBe('site')
+  expect(consoleTenantPage('/settings', new URLSearchParams('scope=global'))).toBe('site')
+  expect(consoleTenantPage('/agent-library', new URLSearchParams('defaults_scope=global'))).toBe('site')
+  expect(consoleTenantPage('/agent-library/agent-plugins/office', new URLSearchParams('defaults_scope=global'))).toBe(
+    'site'
+  )
   expect(tenantCollectionPath('/identity/shared')).toBe('/identity')
   expect(tenantCollectionPath('/identity/mappings/new')).toBe('/identity/mappings')
 })

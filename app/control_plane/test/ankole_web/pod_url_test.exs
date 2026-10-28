@@ -72,11 +72,37 @@ defmodule AnkoleWeb.PodURLTest do
     conn = ctx.conn |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost") |> get(path)
     login = redirected_to(conn)
     login_uri = URI.parse(login)
-    assert login_uri.host in [nil, conn.host]
-    assert login_uri.path == "/sessions/new"
-    assert URI.decode_query(login_uri.query) == %{"return_to" => path}
+    origin = PodURL.origin(conn, ctx.tenant)
 
-    shell = conn |> recycle() |> Map.put(:host, conn.host) |> get(login)
+    {shell, otp_origin, challenge_payload} =
+      if @host_policy do
+        assert String.starts_with?(login_uri.host, "accounts.")
+        assert login_uri.path == "/sessions/new"
+
+        assert URI.decode_query(login_uri.query) == %{
+                 "tenant_id" => ctx.tenant.id,
+                 "return_to" => path
+               }
+
+        shell = conn |> recycle() |> get(login)
+
+        otp_origin =
+          URI.to_string(%URI{
+            scheme: login_uri.scheme,
+            host: login_uri.host,
+            port: login_uri.port
+          })
+
+        {shell, otp_origin,
+         %{tenantID: ctx.tenant.id, returnTo: path, email: "deep-link@example.org"}}
+      else
+        assert login_uri.host in [nil, conn.host]
+        assert login_uri.path == "/sessions/new"
+        assert URI.decode_query(login_uri.query) == %{"return_to" => path}
+        shell = conn |> recycle() |> Map.put(:host, conn.host) |> get(login)
+        {shell, origin, %{returnTo: path, email: "deep-link@example.org"}}
+      end
+
     html = html_response(shell, 200)
     assert html =~ entry_source("auth")
 
@@ -86,19 +112,20 @@ defmodule AnkoleWeb.PodURLTest do
            )
 
     [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, html)
-    origin = PodURL.origin(conn, ctx.tenant)
+    otp_uri = URI.parse(otp_origin)
 
     sent =
       shell
       |> recycle()
-      |> Map.put(:host, conn.host)
-      |> put_private(:plug_skip_csrf_protection, false)
-      |> put_req_header("origin", origin)
-      |> put_req_header("x-csrf-token", csrf)
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        returnTo: path,
-        email: "deep-link@example.org"
+      |> Map.merge(%{
+        host: otp_uri.host,
+        port: otp_uri.port,
+        scheme: String.to_existing_atom(otp_uri.scheme)
       })
+      |> put_private(:plug_skip_csrf_protection, false)
+      |> put_req_header("origin", otp_origin)
+      |> put_req_header("x-csrf-token", csrf)
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", challenge_payload)
 
     challenge = api_response(sent, 201)["challengeID"]
     assert_receive {:smtp_message, _, ["deep-link@example.org"], message}, 5_000
@@ -124,9 +151,13 @@ defmodule AnkoleWeb.PodURLTest do
     verified =
       sent
       |> recycle()
-      |> Map.put(:host, conn.host)
+      |> Map.merge(%{
+        host: otp_uri.host,
+        port: otp_uri.port,
+        scheme: String.to_existing_atom(otp_uri.scheme)
+      })
       |> put_private(:plug_skip_csrf_protection, false)
-      |> put_req_header("origin", origin)
+      |> put_req_header("origin", otp_origin)
       |> put_req_header("x-csrf-token", csrf)
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
         challengeID: challenge,
@@ -136,13 +167,14 @@ defmodule AnkoleWeb.PodURLTest do
     return_to = origin <> path
     assert %{"returnTo" => ^return_to} = api_response(verified, 201)
 
+    rendered = verified |> recycle() |> delete_req_header("accept") |> get(return_to)
+    assert html_response(rendered, 200) =~ entry_source(pod_entry())
+
     assert %{"principal_uid" => uid, "tenant_id" => tenant_id} =
-             AnkoleWeb.Session.pod_session(verified)
+             AnkoleWeb.Session.pod_session(rendered)
 
     assert uid == member.uid
     assert tenant_id == ctx.tenant.id
-    rendered = verified |> recycle() |> delete_req_header("accept") |> get(return_to)
-    assert html_response(rendered, 200) =~ entry_source(pod_entry())
   end
 
   test "unknown tenants and noncanonical short UUID aliases fail closed", ctx do

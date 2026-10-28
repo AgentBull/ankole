@@ -6,6 +6,9 @@ defmodule AnkoleWeb.Plugs.RequestHost do
   @callback domain() :: String.t()
   @callback pod_origin(%Ankole.Tenants.Tenant{}) :: String.t()
   @callback canonical_origin(:site | {:pod, Ecto.UUID.t()}) :: String.t()
+  @callback login_url(Ankole.Tenants.Tenant.t() | nil, map()) :: String.t()
+  @callback membership_login_url(Plug.Conn.t(), Ankole.Tenants.Tenant.t(), atom(), map()) ::
+              {:ok, String.t()} | {:error, atom()}
   @policy Application.compile_env(:ankole, :host_policy)
 
   @doc "Returns the origin of the proxy-normalized request."

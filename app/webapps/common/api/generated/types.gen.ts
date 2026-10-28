@@ -184,6 +184,7 @@ export type LoginProvidersData = {
     purpose?: string
     reauth?: string
     switch?: string
+    tenant_id?: string
   }
   url: '/api/v2/browser/identity-providers'
 }
@@ -255,6 +256,7 @@ export type PreviewInvitationResponses = {
    */
   200: {
     displayName: string
+    emailLoginURL: string
     emailOTPAvailable: boolean
     membership: 'member' | 'guest'
     oidcProviders: Array<{
@@ -368,7 +370,17 @@ export type ResolvePodLoginResponses = {
    * Success
    */
   201: {
-    loginURL: string
+    displayName: string
+    providers: Array<{
+      adapterID: string
+      authorizationURL: string
+      displayName: {
+        [key: string]: string
+      }
+      pluginID?: string | null
+      providerID: string
+    }>
+    tenantID: string
   }
 }
 
@@ -483,6 +495,7 @@ export type RequestEmailOtpData = {
       purpose?: string | null
       reauth?: string | null
       returnTo?: string | null
+      tenantID?: string | null
     }
   }
   path?: never
@@ -558,6 +571,7 @@ export type SelectLoginIdentityData = {
       prompt?: string | null
       reauth?: string | null
       returnTo?: string | null
+      tenantID?: string | null
     }
   }
   path?: never

@@ -101,6 +101,7 @@ defmodule AnkoleWeb.BrowserAPI do
           query_params: [
             :oauth_request,
             :purpose,
+            :tenant_id,
             :prompt,
             :switch,
             :reauth,

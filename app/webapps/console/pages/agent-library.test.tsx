@@ -17,7 +17,7 @@ test.each(
     {
       scope,
       source: 'tenant defaults',
-      key: getGlobalLibraryCapabilitiesQueryKey(),
+      key: getGlobalLibraryCapabilitiesQueryKey({ query: { defaults_scope: 'tenant' } }),
       data: { agent_plugins: [], skills: [] }
     }
   ])

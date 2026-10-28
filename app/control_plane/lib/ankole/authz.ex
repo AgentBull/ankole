@@ -170,6 +170,7 @@ defmodule Ankole.AuthZ do
     as: :authorize_in_tx
 
   defdelegate site_admin?(uid), to: Root
+  defdelegate site_admin_member?(uid), to: Root
   defdelegate root_init_admin(uid), to: Root
   defdelegate ensure_can_disable_principal(uid), to: Store
   defdelegate pod_admin?(uid), to: Root

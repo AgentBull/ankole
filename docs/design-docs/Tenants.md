@@ -282,6 +282,9 @@ and record links carry that tenant into the destination document, including when
 the operator opens a new tab. The tenant filter can select one tenant or restore
 the aggregate view. Links to editors for site resources preserve that selection, and site
 queries share one cache entry across tenant sections.
+Settings open in tenant scope by default. Selecting site scope opens one site
+view while preserving the operator's tenant selection. Agent Library uses the
+same boundary for site defaults and tenant defaults.
 The browser preserves both standard and URL-safe Base64 cursors, including
 padding, in the URL history so reload and previous-page navigation keep the
 server's cursor intact.

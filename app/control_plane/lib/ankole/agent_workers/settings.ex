@@ -12,7 +12,7 @@ defmodule Ankole.AgentWorkers.Settings do
   def definitions do
     [
       AppConfigure.define(
-        key: "agent_computer.worker.ready_timeout",
+        key: "agent_workers.ready_timeout_seconds",
         scope: :global,
         encrypted: false,
         schema: Schema.new(&validate_seconds/1),

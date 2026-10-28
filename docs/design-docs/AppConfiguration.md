@@ -91,30 +91,59 @@ each value before publishing the committed entry to the cache. List and detail
 responses mask encrypted values; an operator can reveal a secret only through an
 authorized `POST /:key/decryptions` call.
 
-The Console settings list renders directly from these registered policies
-without maintaining a separate client-side list of key names:
+The Console is a site-administrator surface. Pod administrators use Pod Settings
+for their existing workspace administration tasks. Configuration grouping does
+not grant Pod administrators Console access or scheduling-timezone permissions.
 
-- Keys with `console_writable: false` appear inside a single collapsed group. An
-  operator can expand the group to inspect current values, and if another
-  Console page owns writes for a key, the row links directly to that page.
-- Keys that share a declared prefix, such as `observability.traces.`, collapse
-  into a single list row that opens a combined editor page for all members.
-  Individual keys remain the unit of persistence: the group editor validates all
-  modified drafts locally first, then writes each changed key in turn. Each
-  successful write updates that key's saved baseline; if the server rejects a
-  key, the editor halts the remaining batch, keeps the keys that already
-  succeeded, and preserves the failed and unsent drafts in the form.
+The settings page has one explicit editing context: site configuration and
+defaults, or overrides for the current data workspace. It names the workspace
+even when the global tenant switcher is hidden. A tenant definition's site value
+is an inheritable default, not an enforced ceiling. A stored override remains
+independent even when it equals its fallback.
+
+The default task view shows operational summaries, value sources, independent
+overrides, and pending runtime changes. Brain, trace export, email verification,
+SMTP, external guest access, and SaaS Turnstile have combined editors. The
+read-only registry view lists exact definitions, pattern policies, and existing
+concrete keys with scope, encryption, source, and read-only reasons. Authorized
+secret reveals remain explicit. Search matches keys, named form fields, localized
+descriptions, and migrated key aliases, then opens and focuses the matching task
+field. Named links open the owning Console page and its relevant tab.
+
+`PUT /groups/:group` accepts `data.values` and `data.reset_keys`. AppConfigure
+checks the closed task membership and each touched key's update or reset grant,
+locks the task's keys in order, validates the complete resulting configuration,
+and commits one PostgreSQL transaction. A rejected member or reset rolls back the
+whole batch. Cache refresh and visitor-access broadcasts run after commit.
+Individual keys remain the storage unit, while raw Console updates and resets
+of grouped keys are rejected. Library default maps also reject raw writes;
+Library validates Plugin and Skill existence and publishes capability changes.
+The external-guest task preserves both site defaults and per-workspace emergency
+administration, publishing access rechecks to the affected workspaces.
+
+The workspace Brain editor displays the site embedding model and tokenizer as
+read-only dependencies. Five actually consumed Agent override keys offer a
+read-only Agent inspection route, `GET /:key/agents/:agent_uid`; AppConfigure
+validates that the Agent belongs to the current data workspace before resolving
+its Agent, tenant, site, or code-default source. The Console does not expose an
+Agent override write through this route.
+
+Restore confirmation displays the stored value and actual next fallback value
+and source, masking secrets. It cannot proceed when fallback resolution fails.
+Time controls preserve storage units while presenting readable units; output
+limits and disabled inactivity timeouts have explicit controls for `null` and
+`0`. Retention reductions show irreversible-purge consequences before saving.
 
 Inside the Console UI, editor models manage drafts, client-side validation,
-request payloads, and asynchronous completion checks (plus batch state for
-prefix groups), while TanStack Query manages per-request state and cache
+request payloads, and asynchronous completion checks, while TanStack Query
+manages per-request state and cache
 invalidation. Editor models invoke request functions supplied by the page, and
 only the completion of the active request can close the editor. Decryption
 responses apply only to the draft that requested them: if the operator switches
 settings or edits the draft while decryption is in flight, the late response
 does not overwrite the current input. Likewise, save and restore responses
 advance the saved baseline without discarding edits made after the request
-started.
+started. Failed task requests trigger a readback while preserving the draft.
 
 When editing an encrypted setting through the generic editor, the UI treats the
 input as an opaque string unless the entire input parses as a valid JSON object
@@ -153,12 +182,10 @@ assignments. Conversely, Signal binding secrets use `global` scope because each
 key embeds a hash of the globally unique Agent UID and binding name, and the
 Signal binding lifecycle deletes them when the binding is removed.
 
-In the Console, the settings page displays the site value and the current tenant
-value in separate columns, writing site values through
-`/api/v2/site/app-configurations` and tenant or Pod values through
-`/api/v2/app-configurations` under the same validation and encryption rules. For
-`pod` keys, the site column stays blank and resetting a tenant value restores
-the code default directly.
+The Console writes site values through `/api/v2/site/app-configurations` and
+workspace values through `/api/v2/app-configurations` under the same validation
+and encryption rules. Each editor has one active context. For `pod` keys,
+resetting a workspace value restores the code default directly.
 
 During fallback resolution, AppConfigure moves to the next scope tier only when
 no row exists at the current tier. If a row is corrupt or cannot be decrypted,
@@ -374,6 +401,48 @@ writes, and typed transport actions delegate to `WorkerEnv`. AppConfigure keys
 are never exported as Worker environment variables; RuntimeFabric passes
 per-turn runtime facts separately under the reserved `ANKOLE_RUNTIME_` prefix,
 which operator `WorkerEnv` entries cannot use.
+
+## Task-specific application and feedback
+
+Trace export compares saved configuration with this process's attempted boot
+configuration and exporter state. The Console keeps `pending_restart` or `failed`
+visible until the process actually matches the saved settings. Control Plane
+Plugin status reuses the compiled Plugin registry's configured-versus-active
+projection. These observations describe the serving process.
+
+Brain tokenizer status compares the saved tokenizer with PostgreSQL's actual
+shared BM25 definitions and usable flags. The one-minute Brain Tick performs
+index maintenance; configuration reads perform no DDL. The health page reports
+pending maintenance, rebuilding, applied, failed, or unknown state. A failed
+maintenance attempt leaves its failure status until repair or a matching index
+is observed. Index maintenance can interrupt retrieval and block writes; server
+logs identify failed Tick jobs for recovery.
+
+The SMTP task returns a public projection of the encrypted object and a password
+presence flag. Omitting `password` preserves the saved password; an explicit
+replacement or empty string replaces it. `POST /authn.email.mail/tests` requires
+configuration-update permission, merges the saved password into the draft, and
+uses the real Mailer transport without writing configuration or issuing an OTP.
+Success means the transport accepted the message. The UI binds test feedback to
+the tested draft and permits saving independently of that test.
+
+SaaS Turnstile uses a separate `saas.turnstile.enabled` flag. Enabling requires
+both valid keys in the resulting task. Disabling preserves both credentials and
+does not require decrypting them.
+
+## Storage units and consolidated policies
+
+`authn.email.send_limits` contains `window_seconds`, `per_email`, `per_source`,
+and `per_channel`; `authn.email.failure_limits` contains `window_seconds`,
+`per_email`, and `per_source`. Each map is one policy with one shared time window
+and independently counted dimensions. The dimensions impose no numeric ordering.
+
+`brain.forgetting` holds five per-kind decay half-lives in days.
+`brain.soft_delete_retention_hours` separately controls permanent removal of
+soft-deleted Objects. Both retain tenant inheritance. Worker readiness uses
+`agent_workers.ready_timeout_seconds`, rendered-fetch idle release uses
+`agent_workers.rendered_fetch_idle_ttl_ms`, and the background job cap uses
+`background_agent_jobs.max_running_per_agent`.
 
 ## Startup Order
 

@@ -55,6 +55,7 @@ import {
   forgetBrainObject,
   forkBrainObject,
   getAgent,
+  getAgentAppConfiguration,
   getAgentLibraryCapabilities,
   getAgentTokenQuota,
   getAiGatewayConversation,
@@ -159,6 +160,7 @@ import {
   updateAgent,
   updateAgentWorkerEnv,
   updateAppConfiguration,
+  updateAppConfigurationGroup,
   updateBrainObject,
   updateBrainSource,
   updateCronSchedule,
@@ -320,6 +322,9 @@ import type {
   ForkBrainObjectData,
   ForkBrainObjectError,
   ForkBrainObjectResponse,
+  GetAgentAppConfigurationData,
+  GetAgentAppConfigurationError,
+  GetAgentAppConfigurationResponse,
   GetAgentData,
   GetAgentError,
   GetAgentLibraryCapabilitiesData,
@@ -631,6 +636,9 @@ import type {
   UpdateAgentWorkerEnvResponse,
   UpdateAppConfigurationData,
   UpdateAppConfigurationError,
+  UpdateAppConfigurationGroupData,
+  UpdateAppConfigurationGroupError,
+  UpdateAppConfigurationGroupResponse,
   UpdateAppConfigurationResponse,
   UpdateBrainObjectData,
   UpdateBrainObjectError,
@@ -2613,6 +2621,33 @@ export const restoreBrainObjectMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await restoreBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * update_app_configuration_group operation on app_configuration_operation resource
+ */
+export const updateAppConfigurationGroupMutation = (
+  options?: Partial<Options<UpdateAppConfigurationGroupData>>
+): UseMutationOptions<
+  UpdateAppConfigurationGroupResponse,
+  UpdateAppConfigurationGroupError,
+  Options<UpdateAppConfigurationGroupData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateAppConfigurationGroupResponse,
+    UpdateAppConfigurationGroupError,
+    Options<UpdateAppConfigurationGroupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateAppConfigurationGroup({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -4920,6 +4955,31 @@ export const listBrainContradictionsInfiniteOptions = (options?: Options<ListBra
   )
   return opts as Omit<typeof opts, 'initialData'>
 }
+
+export const getAgentAppConfigurationQueryKey = (options: Options<GetAgentAppConfigurationData>) =>
+  createQueryKey('getAgentAppConfiguration', options)
+
+/**
+ * get_agent_app_configuration operation on app_configuration_operation resource
+ */
+export const getAgentAppConfigurationOptions = (options: Options<GetAgentAppConfigurationData>) =>
+  queryOptions<
+    GetAgentAppConfigurationResponse,
+    GetAgentAppConfigurationError,
+    GetAgentAppConfigurationResponse,
+    ReturnType<typeof getAgentAppConfigurationQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgentAppConfiguration({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAgentAppConfigurationQueryKey(options)
+  })
 
 /**
  * cancel_webhook_endpoint operation on webhook_endpoint resource

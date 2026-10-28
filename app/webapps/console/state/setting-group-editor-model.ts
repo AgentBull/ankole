@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import type { AppConfigurationItem, JsonValue } from '../api/configuration-types'
 import { formatJSON, parseJSON } from '../console-primitives'
+import { encryptedSettingValue } from './setting-editor-model'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import {
   brainCanonicalDraft,
@@ -36,13 +37,14 @@ type SavedSetting = {
 }
 
 function draftText(kind: SettingGroupID, item: AppConfigurationItem): string {
-  if (kind === 'observability' && item.key === OBSERVABILITY_TRACE_KEYS.headers && item.present) {
-    return ENCRYPTED_VALUE_MASK
+  if (item.encrypted && kind !== 'smtp') {
+    return item.present ? ENCRYPTED_VALUE_MASK : ''
   }
+  if (kind === 'smtp') return formatJSON(item.public_value ?? {})
   return (kind === 'brain' ? brainCanonicalDraft(item.key, item.value) : undefined) ?? formatJSON(item.value ?? null)
 }
 
-/** Owns editable group values; Query owns the registry and each key's write. */
+/** Owns the task draft; one request commits all dirty fields in the task. */
 export const SettingGroupEditorModel = createModel(() => {
   let source = Symbol()
   let headersSource = Symbol()
@@ -153,7 +155,7 @@ export const SettingGroupEditorModel = createModel(() => {
     async save(
       items: AppConfigurationItem[],
       t: TFunction,
-      request: (key: string, value: JsonValue) => Promise<unknown>,
+      request: (values: Record<string, JsonValue>) => Promise<unknown>,
       onSaved: (count: number, clean: boolean) => void
     ) {
       validationError.value = undefined
@@ -197,7 +199,10 @@ export const SettingGroupEditorModel = createModel(() => {
             })
           }
         } else if (text !== initial.value[item.key]) {
-          const parsed = parseJSON(text, item.key)
+          const parsed =
+            item.encrypted && kind !== 'smtp'
+              ? { ok: true as const, value: encryptedSettingValue(text) }
+              : parseJSON(text, item.key)
           if (!parsed.ok) {
             validationError.value = parsed.error
             return
@@ -209,25 +214,20 @@ export const SettingGroupEditorModel = createModel(() => {
       const requestedSource = source
       saving.value = true
       try {
-        for (const entry of entries) {
-          if (source !== requestedSource) return
-          try {
-            await request(entry.key, entry.value)
-          } catch (error) {
-            if (source !== requestedSource) throw error
-            validationError.value = t('console.settings.group_save_failed', {
-              key: entry.key,
-              reason: requestErrorMessage(error)
-            })
-            return
-          }
-          if (source !== requestedSource) return
-          batch(() => {
+        try {
+          await request(Object.fromEntries(entries.map(entry => [entry.key, entry.value])))
+        } catch (error) {
+          if (source === requestedSource) validationError.value = requestErrorMessage(error)
+          throw error
+        }
+        if (source !== requestedSource) return
+        batch(() => {
+          for (const entry of entries) {
             initial.value = { ...initial.value, [entry.key]: entry.text }
             if (entry.model) initialBrainModels.value = { ...initialBrainModels.value, [entry.key]: entry.model }
             if (entry.headers) initialHeaderRows.value = entry.headers
-          })
-        }
+          }
+        })
         onSaved(entries.length, !dirty.peek())
       } finally {
         if (source === requestedSource) saving.value = false

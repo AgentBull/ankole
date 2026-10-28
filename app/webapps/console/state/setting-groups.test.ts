@@ -58,19 +58,24 @@ describe('setting groups', () => {
     expect(rows.groups[0]?.items.map(member => member.key)).toEqual(['observability.traces.enabled'])
   })
 
-  test('keeps a read-only group member out of the group it would otherwise join', () => {
+  test('keeps read-only dependencies visible inside their task', () => {
     const rows = settingRows([
       item('observability.traces.enabled'),
       item('observability.traces.provider', { editable: false })
     ])
 
-    expect(rows.groups[0]?.items.map(member => member.key)).toEqual(['observability.traces.enabled'])
-    expect(rows.managed.map(managed => managed.key)).toEqual(['observability.traces.provider'])
+    expect(rows.groups[0]?.items.map(member => member.key)).toEqual([
+      'observability.traces.enabled',
+      'observability.traces.provider'
+    ])
+    expect(rows.groups[0]?.items[1]?.editable).toBe(false)
+    expect(rows.managed).toEqual([])
   })
 
   test('sends the identity activation list to the page that writes it', () => {
     expect(settingOwnerRoute('principals.identity_providers.active')).toBe('/identity')
     expect(settingOwnerRoute('observability.traces.enabled')).toBeUndefined()
+    expect(settingOwnerRoute('principals.identity_providers.directory_full_sync_interval_minutes')).toBeUndefined()
   })
 })
 

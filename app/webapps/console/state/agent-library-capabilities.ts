@@ -71,6 +71,10 @@ export function humanizeAgentPluginID(id: string): string {
     .join(' ')
 }
 
-export function agentLibraryScopeQuery(path: string, scope: string): string {
-  return scope === GLOBAL_LIBRARY_SCOPE ? path : `${path}?scope=${encodeURIComponent(scope)}`
+export function agentLibraryScopeQuery(path: string, scope: string, current?: URLSearchParams): string {
+  const params = new URLSearchParams(current)
+  if (scope === GLOBAL_LIBRARY_SCOPE) params.delete('scope')
+  else params.set('scope', scope)
+  const query = params.toString()
+  return query ? `${path}?${query}` : path
 }

@@ -30,21 +30,27 @@ defmodule AnkoleWeb.MeOperations do
       transaction?(false)
 
       run(fn input, context ->
+        tenant_id = Actor.tenant_id(context.actor)
+
         with {:ok, ticket} <-
                AnkoleWeb.Session.seal_reauthentication(
                  input.context.conn,
                  Actor.uid(context.actor),
                  input.context.authentication_ref,
-                 Actor.tenant_id(context.actor)
-               ),
-             do:
-               {:ok,
-                %{
-                  loginURL:
-                    "/sessions/new?" <>
-                      URI.encode_query(%{"reauth" => ticket, "return_to" => "/me"})
-                }},
-             else: (error -> result(error))
+                 tenant_id
+               ) do
+          {:ok, tenant} = Ankole.Tenants.get(tenant_id)
+
+          login_url =
+            AnkoleWeb.PodURL.login_url(input.context.conn, tenant, %{
+              "reauth" => ticket,
+              "return_to" => "/me"
+            })
+
+          {:ok, %{loginURL: login_url}}
+        else
+          error -> result(error)
+        end
       end)
     end
 

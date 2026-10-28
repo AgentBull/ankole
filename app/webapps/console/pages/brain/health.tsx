@@ -77,7 +77,10 @@ export function BrainHealthPage() {
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
-                  <Link className="link text-sm" to="/settings/group/brain">
+                  <Link
+                    className="link text-sm"
+                    to="/settings/group/brain"
+                    search={{ scope: 'tenant', focus: 'brain.maintainer_agent_uid' }}>
                     {t('console.brain.configure')}
                   </Link>
                 </div>
@@ -94,6 +97,12 @@ export function BrainHealthPage() {
             <HealthItem label={t('console.brain.embedding_signature')}>
               <EmbeddingSignature value={snapshot.embedding_signature} />
             </HealthItem>
+            <HealthItem label={t('console.settings.brain_search_tokenizer')}>
+              <Badge variant={snapshot.search_indexes === 'applied' ? 'success' : 'warning'}>
+                {t(`console.settings.runtime_${snapshot.search_indexes}`)}
+              </Badge>
+            </HealthItem>
+            <p className="text-xs text-muted-foreground">{t('console.settings.index_rebuild_hint')}</p>
           </HealthSection>
 
           <HealthSection title={t('console.brain.health_signals')}>

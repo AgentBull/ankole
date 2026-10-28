@@ -224,6 +224,13 @@ already written to the closed socket without a reply fail with `socket_closed`
 auto-retrying writes whose outcome is unknown—domain handlers enforce their own
 idempotent completion and abort rules).
 
+The Channel advances its cumulative acknowledgement only across a contiguous
+prefix of completed sequence numbers. Each Worker push keeps its own business
+outcome: a later cumulative acknowledgement cannot turn an earlier rejection
+into success. The Worker accepts callbacks only for the current connection and
+settles each pending push once, so an old callback cannot complete a new push
+that reuses the sequence number after joining.
+
 Restarting the Worker process mints a fresh `incarnation_id`, and the control
 plane keeps no replay spool across process restarts:
 

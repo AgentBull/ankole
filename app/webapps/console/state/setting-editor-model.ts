@@ -1,9 +1,31 @@
 import { safeJsonParse } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { TFunction } from 'i18next'
+import i18n, { availableLocaleIDs, loadLocale } from '../../common/i18n'
 import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/configuration-types'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
+
+export async function syncConsoleLocaleIfPrivileged({
+  scope,
+  key,
+  value,
+  selectedTenantID,
+  privilegedTenantID
+}: {
+  scope: 'global' | 'tenant'
+  key: string
+  value: unknown
+  selectedTenantID: string | null
+  privilegedTenantID: string | undefined
+}): Promise<void> {
+  if (scope !== 'tenant' || key !== 'i18n.default_locale') return
+  if (selectedTenantID !== null && selectedTenantID !== privilegedTenantID) return
+  if (typeof value !== 'string' || !availableLocaleIDs().includes(value)) return
+  await loadLocale(value)
+  if (typeof document !== 'undefined') document.documentElement.lang = value
+  await i18n.changeLanguage(value)
+}
 
 export function settingDecryptedDraft(value: unknown): string {
   return typeof value === 'string' ? value : (JSON.stringify(value) ?? '')

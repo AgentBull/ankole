@@ -22,8 +22,15 @@ defmodule Ankole.AppConfigure.ConsoleItem do
         source: [
           type: :atom,
           allow_nil?: false,
-          constraints: [one_of: ~w(tenant global default pattern missing error)a]
+          constraints: [one_of: ~w(agent tenant global default pattern missing error)a]
         ],
+        fallback_present: [type: :boolean],
+        fallback_source: [type: :string],
+        fallback_value: [type: Ankole.Ash.Types.JSONValue],
+        agent_override_supported: [type: :boolean],
+        public_value: [type: Ankole.Ash.Types.JSONValue],
+        secret_present: [type: :boolean],
+        runtime_status: [type: :string],
         value: [type: Ankole.Ash.Types.JSONValue],
         error: [type: :string]
       ]

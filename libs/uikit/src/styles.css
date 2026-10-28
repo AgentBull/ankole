@@ -31,16 +31,17 @@
   /* Matte paper: a warm off-white surface with low glare for long reading and editing. */
   --color-paper: #fffefd;
 
-  --color-brand-10: #fff0f6;
-  --color-brand-20: #ffd6e8;
-  --color-brand-30: #ffadd1;
-  --color-brand-40: #f76aa7;
-  --color-brand-50: #d83d82;
-  --color-brand-60: #b31b5d;
-  --color-brand-70: #8f1248;
-  --color-brand-80: #681036;
-  --color-brand-90: #3f0b22;
-  --color-brand-100: #240512;
+  --color-brand-10: #fff0f3;
+  --color-brand-20: #ffd8e0;
+  --color-brand-30: #ffb0bf;
+  --color-brand-40: #ff7a93;
+  --color-brand-50: #ff4669;
+  --color-brand-60: #d61f46;
+  --color-brand-70: #a31434;
+  --color-brand-80: #750d24;
+  --color-brand-90: #4d0717;
+  --color-brand-100: #29040c;
+  --color-brand: var(--color-brand-50);
 
   /* Paper-and-ink neutral ramp. Light steps (ground, paper, layers, lines) lean slightly warm;
      dark steps (ink) lean slightly cool. Each step keeps the contrast role of its position:
@@ -235,6 +236,9 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-edge: var(--primary-edge);
+  --color-primary-active: var(--primary-active);
+  --color-primary-hover: var(--primary-hover);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
@@ -294,7 +298,10 @@
   --card-foreground: var(--text-primary);
   --popover: var(--layer-01);
   --popover-foreground: var(--text-primary);
-  --primary: var(--color-brand-60);
+  --primary: var(--color-gray-100);
+  --primary-hover: var(--color-gray-80);
+  --primary-active: var(--color-black);
+  --primary-edge: var(--color-black);
   --primary-foreground: var(--text-on-color);
   --secondary: var(--color-gray-80);
   --secondary-foreground: var(--text-on-color);
@@ -304,10 +311,10 @@
   --accent-foreground: var(--text-primary);
   --border: var(--border-subtle);
   --input: var(--field-border);
-  /* Berry is the brand: the brand mark and the primary action. It never marks a state, because next to red
-     it reads as an error. Status colors follow the common convention (red failure, amber needs a person,
-     green success, blue in progress or information). Interaction states (focus, a checked or current
-     item) use ink and shape. */
+  /* Coral (#ff4669) owns the brand mark and editorial accents, while primary actions and interaction states
+     (buttons, focus rings, checked or active items) use ink and shape so buttons stay distinct from destructive
+     red. Status colors follow the standard convention: red failure, amber needs a person, green success, and
+     blue in progress or information. */
   --ring: var(--text-primary);
   /* Content that a person selects takes a cool slate selection tint. It differs from hover gray for
      every common type of color vision. */
@@ -381,7 +388,7 @@
 
   /* The environment that shows what the ceramic transmits: a cool, a rose, a sage, and a warm light. */
   --fog-cool: rgb(196 224 238 / 0.78);
-  --fog-rose: rgb(255 210 226 / 0.64);
+  --fog-rose: rgb(255 210 220 / 0.64);
   --fog-sage: rgb(218 228 214 / 0.7);
   --fog-warm: rgb(255 228 200 / 0.62);
 }
@@ -425,8 +432,11 @@
   --card-foreground: var(--text-primary);
   --popover: var(--layer-01);
   --popover-foreground: var(--text-primary);
-  --primary: var(--color-brand-60);
-  --primary-foreground: var(--text-on-color);
+  --primary: var(--color-gray-10);
+  --primary-hover: var(--color-white);
+  --primary-active: var(--color-gray-20);
+  --primary-edge: var(--color-gray-30);
+  --primary-foreground: var(--color-gray-100);
   --secondary: var(--color-gray-60);
   --secondary-foreground: var(--text-on-color);
   --muted: var(--layer-02);
@@ -483,7 +493,7 @@
   --scrim: rgb(0 0 0 / 0.4);
 
   --fog-cool: rgb(30 96 122 / 0.55);
-  --fog-rose: rgb(130 30 78 / 0.4);
+  --fog-rose: rgb(140 28 54 / 0.36);
   --fog-sage: rgb(26 80 66 / 0.4);
   --fog-warm: rgb(110 70 30 / 0.3);
 }

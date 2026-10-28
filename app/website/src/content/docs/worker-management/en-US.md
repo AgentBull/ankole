@@ -64,7 +64,7 @@ Persistent Home (`/workspace`, including Codex threads under `/workspace/.codex`
 - Configure `idleReleaseAfter` in provider YAML (defaults to `15m` across all six providers; set `never` to disable idle release).
 - Memory-preserving providers (`lambda` and `function_compute`) suspend or pause idle Workers in place, whereas other providers delete the compute instance while keeping persistent Home and any dedicated cache volume.
 - Updating the Worker image or instance settings replaces Workers once they go idle; bumping the RuntimeFabric protocol version replaces Workers immediately and replaces stale paused instances instead of resuming them.
-- `agent_computer.worker.ready_timeout` (`600` seconds by default) triggers a rebuild when an already-observed platform instance fails to connect in time, without overriding an uncertain initial create.
+- `agent_workers.ready_timeout_seconds` (`600` seconds by default) triggers a rebuild when an already-observed platform instance fails to connect in time, without overriding an uncertain initial create.
 - Deleting an Agent waits for all Worker instances to terminate, wipes both Home and cache storage, and finally removes the Worker row; Ankole generates fresh server-side Agent UIDs and never reuses deleted UIDs.
 
 ## Diagnose a waiting Worker

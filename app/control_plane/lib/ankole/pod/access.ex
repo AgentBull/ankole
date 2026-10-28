@@ -590,18 +590,18 @@ defmodule Ankole.Pod.Access do
       |> Enum.filter(&(owner_match?(owner, &1) and &1.action not in wanted))
       |> remove_grants()
 
-      Enum.reduce_while(wanted, :ok, fn action, :ok ->
-        attrs =
+      attrs_list =
+        Enum.map(wanted, fn action ->
           Map.merge(
             owner,
             Map.merge(%{resource_pattern: pattern, action: action, condition: "true"}, opts)
           )
+        end)
 
-        case Grants.upsert_permission_grant(attrs) do
-          {:ok, _} -> {:cont, :ok}
-          error -> {:halt, error}
-        end
-      end)
+      case Grants.upsert_permission_grants(attrs_list) do
+        {:ok, _grants} -> :ok
+        {:error, _reason} = error -> error
+      end
     else
       :error -> {:error, :invalid_role}
     end

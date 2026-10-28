@@ -41,8 +41,10 @@ import {
   resumeTenant,
   startChatgptLogin,
   suspendTenant,
+  testSiteAuthenticationMail,
   transferSiteAdministration,
   updateSiteAppConfiguration,
+  updateSiteAppConfigurationGroup,
   updateSiteWorkerEnv,
   updateTenant,
   updateWorkerProvider
@@ -156,11 +158,17 @@ import type {
   SuspendTenantData,
   SuspendTenantError,
   SuspendTenantResponse,
+  TestSiteAuthenticationMailData,
+  TestSiteAuthenticationMailError,
+  TestSiteAuthenticationMailResponse,
   TransferSiteAdministrationData,
   TransferSiteAdministrationError,
   TransferSiteAdministrationResponse,
   UpdateSiteAppConfigurationData,
   UpdateSiteAppConfigurationError,
+  UpdateSiteAppConfigurationGroupData,
+  UpdateSiteAppConfigurationGroupError,
+  UpdateSiteAppConfigurationGroupResponse,
   UpdateSiteAppConfigurationResponse,
   UpdateSiteWorkerEnvData,
   UpdateSiteWorkerEnvError,
@@ -623,6 +631,33 @@ export const listSiteAppConfigurationsOptions = (options?: Options<ListSiteAppCo
   })
 
 /**
+ * update_site_app_configuration_group operation on site_app_configuration_operation resource
+ */
+export const updateSiteAppConfigurationGroupMutation = (
+  options?: Partial<Options<UpdateSiteAppConfigurationGroupData>>
+): UseMutationOptions<
+  UpdateSiteAppConfigurationGroupResponse,
+  UpdateSiteAppConfigurationGroupError,
+  Options<UpdateSiteAppConfigurationGroupData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateSiteAppConfigurationGroupResponse,
+    UpdateSiteAppConfigurationGroupError,
+    Options<UpdateSiteAppConfigurationGroupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateSiteAppConfigurationGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * reset_site_app_configuration operation on site_app_configuration_operation resource
  */
 export const resetSiteAppConfigurationMutation = (
@@ -718,6 +753,33 @@ export const decryptSiteAppConfigurationMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await decryptSiteAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * test_site_authentication_mail operation on site_app_configuration_operation resource
+ */
+export const testSiteAuthenticationMailMutation = (
+  options?: Partial<Options<TestSiteAuthenticationMailData>>
+): UseMutationOptions<
+  TestSiteAuthenticationMailResponse,
+  TestSiteAuthenticationMailError,
+  Options<TestSiteAuthenticationMailData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    TestSiteAuthenticationMailResponse,
+    TestSiteAuthenticationMailError,
+    Options<TestSiteAuthenticationMailData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await testSiteAuthenticationMail({
         ...options,
         ...fnOptions,
         throwOnError: true

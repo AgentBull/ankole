@@ -51,20 +51,44 @@ challenges, delivery, and rate-limit windows belong to
 
 `GET /sessions/new` serves the login shell directly without writing a database
 row. The shell determines its login target from the request host and query
-parameters (`purpose=console`, `return_to`, `switch=1`, `prompt=login`,
-`invitation_token`, sealed `reauth`, sealed `invitation`, or `oauth_request`).
+parameters (`purpose=console`, `tenant_id`, `return_to`, `switch=1`,
+`prompt=login`, `invitation_token`, sealed `reauth`, sealed `invitation`, or
+`oauth_request`).
+
+`AnkoleWeb.BrowserAuth.Targets` owns ceremony resolution. `AnkoleWeb.PodURL`
+uses the build-selected host policy to generate login destinations, enterprise
+SSO authorization URLs, and OAuth continuations. In SaaS, Pod login shells,
+including OAuth login and account selection, run on `accounts`; enterprise SSO
+authorization and callbacks run on the target Pod host, and successful OAuth
+login or selection returns to that Pod's `/oauth/authorize/resume` endpoint.
 
 Login ceremonies target either a specific tenant or the site:
 
 - `pod`, `console`, and `oauth` logins target one tenant. A Pod login resolves
-  its tenant from the host or an explicit target; a Console login targets the
-  privileged tenant and requires membership as a site administrator; and an
-  OAuth login uses the Client's tenant recorded on `AuthorizationRequest`.
+  its tenant from the host or an explicit `tenant_id`; a Console login targets
+  the privileged tenant and requires membership as a site administrator; and an
+  OAuth login uses the Client's tenant recorded on `AuthorizationRequest`. When
+  an edition sets `pod_email_otp_disabled` on Pod hosts, `loginProviders` and
+  email OTP challenge endpoints omit or reject both `pod` and `oauth` email OTP
+  while keeping tenant OIDC initiation and callbacks active.
 - Outbound enterprise SSO creates an `OidcState` row when the browser visits
   `/sessions/oidc/:provider_id/authorization`, and its callback completes
-  against that recorded tenant and provider.
-- A `site` login verifies a personal credential and lets the user choose among
-  their available Pods.
+  against that recorded tenant and provider. On shared site sign-in hosts,
+  `POST /api/v2/browser/pod-logins` resolves a workspace slug into its
+  `tenantID`, `displayName`, and active OIDC `providers` (including each provider's
+  `authorizationURL` on the workspace host) without exposing disabled tenants.
+- A `site` login runs only on editions whose non-Pod sign-in host sets
+  `default_login_purpose: :site` (self-hosted FOSS deployments authenticate
+  directly against `pod`, `console`, or `oauth` targets without public site
+  registration). Verifying a personal credential on a `site` login opens the
+  workspace chooser or, when the ceremony carries a target `tenant_id` (for
+  cross-host Pod sign-in, invitation acceptance, or personal-settings
+  reauthentication), enters that target Pod in the same completion transaction
+  when policy and membership allow. Site credential completion gathers the
+  target Pod's pending member together with existing credential bindings, locks
+  all candidate Principals in UID order, validates them, and records Pod access
+  in one pass. A missing target membership leaves the site proof available for
+  `/account`; a disabled target member or rejected target policy fails the login.
 
 Completing a Console login sets `console_authenticated` on the site proof, and
 subsequent Console requests still verify the privileged tenant, current Human
@@ -194,7 +218,10 @@ When OAuth triggers reauthentication for a selected account, Ankole pins that
 expected authentication ID on `AuthorizationRequest`. When a user starts
 reauthentication from personal settings (`/api/v2/pod/me/reauthentication`),
 Ankole seals a 10-minute `browser.reauth` ticket bound to the browser ID, tenant
-ID, Human UID, authentication ID, and `started_revision`. Another permitted
+ID, Human UID, authentication ID, and `started_revision`, and directs the
+browser to `/sessions/new` on the shared site sign-in host (with `tenant_id`)
+when configured or on the Pod host otherwise, returning to `/me` on the
+originating Pod host upon completion. Another permitted
 login source can satisfy that reauthentication only if it resolves to the same
 Human, and neither path can overwrite a target modified after
 `started_revision`. Logging out a single account increments that

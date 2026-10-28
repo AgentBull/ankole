@@ -321,7 +321,7 @@ function SectionContent({
                       href={link.href}
                       target={isExternalLink(link.href) ? '_blank' : undefined}
                       rel={isExternalLink(link.href) ? 'noopener noreferrer' : undefined}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline dark:text-brand-40">
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-60 underline-offset-4 hover:underline dark:text-brand-40">
                       {link.label}
                       <RiArrowRightLine aria-hidden="true" className="size-4" />
                     </a>
@@ -377,7 +377,7 @@ function FieldList({ fields }: { fields: QuickstartField[] }) {
         <div key={field.name} className="border-b border-border py-3">
           <dt className="font-mono text-xs text-foreground">{field.name}</dt>
           {field.value ? (
-            <dd className="mt-1 font-mono text-xs text-primary dark:text-brand-40">{field.value}</dd>
+            <dd className="mt-1 font-mono text-xs text-brand-60 dark:text-brand-40">{field.value}</dd>
           ) : null}
           <dd className="mt-1 text-sm leading-6 text-muted-foreground">{field.description}</dd>
         </div>

@@ -86,7 +86,7 @@ Console에서 **Background Agent Jobs** 페이지를 열면 대기 중(`queued`)
 
 ## 일반적인 문제
 
-- **Job이 계속 `queued` 상태에 머무름:** 해당 Agent의 Worker가 정상 기동되었는지, 같은 Agent의 다른 백그라운드 작업들이 동시 실행 슬롯(`agent_computer.background_agent_job.max_running_per_agent`)을 모두 점유하고 있지는 않은지 확인하세요.
+- **Job이 계속 `queued` 상태에 머무름:** 해당 Agent의 Worker가 정상 기동되었는지, 같은 Agent의 다른 백그라운드 작업들이 동시 실행 슬롯(`background_agent_jobs.max_running_per_agent`)을 모두 점유하고 있지는 않은지 확인하세요.
 - **시작 직후 바로 `failed`로 끝남:** Agent에 저장된 Background Agent Jobs 모델 프로필 구성과 연결된 provider의 자격 증명 풀 상태를 점검하세요.
 - **`waiting_on_user` 상태인데 질문도 안 오고 진행도 멈춤:** 원래 대화방의 시그널 라우팅 규칙과 외부 Channel Provider 연결 상태를 확인하세요.
 - **`succeeded`로 끝났는데 채팅방에 완료 보고가 오지 않음:** 처음 요청할 때 조용히 실행하라고 지시하지 않았는지 먼저 확인하고, 아니라면 상세 화면에 결과가 생성되어 있는지 확인한 뒤 원래 대화방의 라우팅 규칙을 점검하세요.

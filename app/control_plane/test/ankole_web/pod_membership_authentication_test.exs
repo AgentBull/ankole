@@ -5,6 +5,8 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
   alias Ankole.Principals.HumanAccess
   alias AnkoleWeb.Session, as: WebSession
 
+  @host_policy Application.compile_env(:ankole, :host_policy)
+
   setup %{tenant: tenant} do
     AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
@@ -53,14 +55,22 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
       |> init_test_session(%{})
       |> api_get("/api/v2/browser/invitations/" <> invitation_code)
 
-    assert %{"membership" => "guest", "tenantID" => id} = api_response(guest, 200)
+    assert %{"membership" => "guest", "tenantID" => id, "emailLoginURL" => email_login_url} =
+             api_response(guest, 200)
+
     assert id == tenant.id
+
+    if @host_policy do
+      assert String.starts_with?(URI.parse(email_login_url).host, "accounts.")
+    else
+      assert URI.parse(email_login_url).host ==
+               URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
+    end
 
     guest =
       guest
       |> recycle()
-      |> pod_conn(tenant)
-      |> verify("guest@example.org", %{invitationToken: token})
+      |> verify_for_tenant(tenant, "guest@example.org", %{invitationToken: token})
 
     assert %{"principal_uid" => uid} = WebSession.pod_session(guest)
     assert {:ok, %{membership: :guest}} = Principals.get_principal(uid)
@@ -73,16 +83,23 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
 
   test "a pending member is claimed without another proof, while a recycled email requires a new proof",
        %{conn: conn, tenant: tenant} do
-    conn = login(conn, "recycled@example.org", :site)
+    seed_tenant = Ankole.DataCase.create_tenant()
+    Repo.with_tenant(seed_tenant.id, fn -> member("recycled@example.org") end)
+
+    conn =
+      Repo.with_tenant(seed_tenant.id, fn ->
+        login(conn, "recycled@example.org", :pod)
+      end)
+
     ref = WebSession.authentication_reference(conn)
     previous = member("recycled@example.org")
-    conn = conn |> recycle() |> api_get("/api/v2/browser/session")
-    assert [%{"tenant" => %{"id" => id}}] = api_response(conn, 200)["pendingAccounts"]
+    session_conn = session_origin_conn(conn, seed_tenant) |> api_get("/api/v2/browser/session")
+
+    assert [%{"tenant" => %{"id" => id}}] = api_response(session_conn, 200)["pendingAccounts"]
     assert id == tenant.id
 
     conn =
-      conn
-      |> recycle()
+      session_origin_conn(session_conn, seed_tenant)
       |> api_post("/api/v2/browser/authentications/current", %{
         authenticationRef: BrowserSessions.encode_reference(ref),
         tenantID: tenant.id
@@ -97,8 +114,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     replacement = member("recycled@example.org")
 
     conn =
-      conn
-      |> recycle()
+      session_origin_conn(conn, seed_tenant)
       |> api_post("/api/v2/browser/authentications/current", %{
         authenticationRef: BrowserSessions.encode_reference(ref),
         tenantID: tenant.id
@@ -107,9 +123,21 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     %{"podURL" => url} = api_response(conn, 200)
     uri = URI.parse(url)
     assert uri.path == "/sessions/new"
-    assert URI.decode_query(uri.query) == %{"switch" => "1", "prompt" => "login"}
+
+    if @host_policy do
+      assert String.starts_with?(uri.host, "accounts.")
+
+      assert URI.decode_query(uri.query) == %{
+               "tenant_id" => tenant.id,
+               "switch" => "1",
+               "prompt" => "login"
+             }
+    else
+      assert URI.decode_query(uri.query) == %{"switch" => "1", "prompt" => "login"}
+    end
+
     assert [] == Principals.principal_site_credentials(replacement.uid)
-    conn = conn |> recycle() |> pod_conn(tenant) |> verify("recycled@example.org", %{})
+    conn = conn |> recycle() |> verify_for_tenant(tenant, "recycled@example.org", %{})
     assert WebSession.pod_session(conn)["principal_uid"] == replacement.uid
     assert {:ok, %{membership: :member}} = Principals.get_principal(replacement.uid)
     refute replacement.uid == previous.uid
@@ -118,9 +146,12 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
   test "a pending Guest invitation keeps its role and quota through the target Pod SSO login",
        %{conn: conn, tenant: original_tenant} do
     original = member("guest@example.org")
-    conn = login(conn, "guest@example.org", :site)
+    conn = login(conn, "guest@example.org", :pod)
     reference = WebSession.authentication_reference(conn)
-    assert {:ok, _} = BrowserSessions.claim_membership(reference, original_tenant.id)
+
+    assert BrowserSessions.identity(reference, original_tenant.id)["principal_uid"] ==
+             original.uid
+
     target = Ankole.DataCase.create_tenant()
 
     invitation =
@@ -166,7 +197,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
         created.invitation
       end)
 
-    conn = conn |> recycle() |> api_get("/api/v2/browser/session")
+    conn = session_origin_conn(conn, original_tenant) |> api_get("/api/v2/browser/session")
 
     assert [%{"requiresSSO" => true, "invitationID" => id}] =
              api_response(conn, 200)["pendingAccounts"]
@@ -174,8 +205,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     assert id == invitation.id
 
     conn =
-      conn
-      |> recycle()
+      session_origin_conn(conn, original_tenant)
       |> api_post("/api/v2/browser/authentications/current", %{
         authenticationRef: BrowserSessions.encode_reference(reference),
         tenantID: target.id
@@ -184,9 +214,16 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     %{"podURL" => url} = api_response(conn, 200)
     uri = URI.parse(url)
     assert uri.host == URI.parse(AnkoleWeb.PodURL.origin(conn, target)).host
-    assert uri.path == "/sessions/new"
     query = URI.decode_query(uri.query)
-    assert query["switch"] == "1"
+
+    if @host_policy do
+      assert uri.path == "/sessions/oidc/company-sso/authorization"
+      assert query["prompt"] == "login"
+    else
+      assert uri.path == "/sessions/new"
+      assert query["switch"] == "1"
+    end
+
     sealed_invitation = Map.fetch!(query, "invitation")
 
     assert WebSession.unseal_membership_invitation(conn, sealed_invitation, target.id) ==
@@ -195,17 +232,33 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     assert BrowserSessions.identity(reference, original_tenant.id)["principal_uid"] ==
              original.uid
 
-    conn =
-      conn
-      |> recycle()
-      |> pod_conn(target)
-      |> api_get(
-        "/api/v2/browser/identity-providers?" <>
-          URI.encode_query(%{"switch" => "1", "invitation" => sealed_invitation})
-      )
+    providers_conn =
+      if @host_policy do
+        conn
+        |> recycle()
+        |> accounts_conn()
+        |> api_get(
+          "/api/v2/browser/identity-providers?" <>
+            URI.encode_query(%{
+              "tenant_id" => target.id,
+              "switch" => "1",
+              "invitation" => sealed_invitation
+            })
+        )
+      else
+        conn
+        |> recycle()
+        |> pod_conn(target)
+        |> api_get(
+          "/api/v2/browser/identity-providers?" <>
+            URI.encode_query(%{"switch" => "1", "invitation" => sealed_invitation})
+        )
+      end
 
-    assert [%{"providerID" => "company-sso", "kind" => "oidc"}] =
-             api_response(conn, 200)["providers"]
+    oidc_providers =
+      Enum.filter(api_response(providers_conn, 200)["providers"], &(&1["kind"] == "oidc"))
+
+    assert [%{"providerID" => "company-sso", "kind" => "oidc"}] = oidc_providers
 
     Repo.with_tenant(target.id, fn ->
       assert {:ok, %{membership: :guest, used_count: 0}} =
@@ -344,7 +397,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
         "openid"
       )
 
-    conn = login(recycle(conn), "renew@example.org", :site)
+    conn = login(recycle(conn), "renew@example.org", :pod)
     assert WebSession.authentication_reference(conn) == original_ref
     {:ok, renewed} = BrowserSessions.get_authentication(original_ref)
     assert renewed.console_authenticated
@@ -476,6 +529,63 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     refute AuthZ.site_admin?(WebSession.pod_session(conn)["principal_uid"])
   end
 
+  test "directed email invitations silently skip OTP delivery for non-invited addresses", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    admin = member("invite-admin@example.org")
+    {:ok, _} = Repo.transact(fn -> AuthZ.add_pod_admin_in_tx(admin.uid) end)
+
+    {:ok, created} =
+      Principals.create_invitation(admin.uid, %{
+        kind: :email,
+        invited_email: "invited-only@example.org",
+        membership: :guest,
+        expires_at: DateTime.add(DateTime.utc_now(), 3600),
+        max_uses: 1
+      })
+
+    target_conn = if @host_policy, do: accounts_conn(conn), else: pod_conn(conn, tenant)
+
+    base_params =
+      if @host_policy,
+        do: %{tenantID: tenant.id, invitationToken: created.code},
+        else: %{invitationToken: created.code}
+
+    mismatched =
+      target_conn
+      |> init_test_session(%{})
+      |> api_post(
+        "/api/v2/browser/sessions/email-otp/challenges",
+        Map.put(base_params, :email, "wrong-person@example.org")
+      )
+
+    %{"challengeID" => bad_challenge} = api_response(mismatched, 200)
+    refute_receive {:email, _}
+
+    rejected =
+      %{
+        recycle(mismatched)
+        | host: target_conn.host,
+          port: target_conn.port,
+          scheme: target_conn.scheme
+      }
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        challengeID: bad_challenge,
+        code: "123456"
+      })
+
+    assert api_error(rejected, 401)["code"] == "invalid_code"
+
+    joined =
+      conn
+      |> init_test_session(%{})
+      |> verify_for_tenant(tenant, "invited-only@example.org", %{invitationToken: created.code})
+
+    assert %{"principal_uid" => uid} = WebSession.pod_session(joined)
+    assert {:ok, %{membership: :guest}} = Principals.get_principal(uid)
+  end
+
   for method <- [:get, :post, :put, :patch, :delete] do
     def unquote(:"api_#{method}")(conn, path, params \\ nil) do
       Repo.with_tenant(Repo.tenant_id!(), fn ->
@@ -490,23 +600,64 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     principal
   end
 
-  defp login(conn, email, purpose) do
-    conn =
-      if purpose == :pod do
-        {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
-        pod_conn(conn, tenant)
-      else
-        site_conn(conn)
-      end
+  defp accounts_conn(conn) do
+    site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
+    host = String.replace_prefix(site.host, "console.", "accounts.")
+    %{conn | host: host, port: site.port, scheme: String.to_existing_atom(site.scheme)}
+  end
 
+  defp session_origin_conn(conn, tenant) do
+    target = if @host_policy, do: accounts_conn(conn), else: pod_conn(conn, tenant)
+    %{recycle(conn) | host: target.host, port: target.port, scheme: target.scheme}
+  end
+
+  defp login(conn, email, :pod) do
+    {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
+    target = if @host_policy, do: accounts_conn(conn), else: pod_conn(conn, tenant)
+    conn = api_get(target, "/api/v2/browser/session")
+    session = get_session(conn)
+
+    conn =
+      %{recycle(conn) | host: target.host, port: target.port, scheme: target.scheme}
+      |> init_test_session(session)
+
+    verify_for_tenant(conn, tenant, email, %{})
+  end
+
+  defp login(conn, email, purpose) do
+    conn = site_conn(conn)
     conn = api_get(conn, "/api/v2/browser/session")
     session = get_session(conn)
-    conn = %{recycle(conn) | host: conn.host} |> init_test_session(session)
+
+    conn =
+      %{recycle(conn) | host: conn.host, port: conn.port, scheme: conn.scheme}
+      |> init_test_session(session)
+
     verify(conn, email, %{purpose: Atom.to_string(purpose)})
+  end
+
+  defp verify_for_tenant(conn, tenant, email, extra) do
+    if @host_policy do
+      target = accounts_conn(conn)
+
+      conn =
+        %{conn | host: target.host, port: target.port, scheme: target.scheme}
+        |> verify(email, Map.merge(extra, %{purpose: "site", tenantID: tenant.id}))
+
+      pod_conn(%{recycle(conn) | scheme: conn.scheme, port: conn.port}, tenant)
+      |> delete_req_header("accept")
+      |> get("/")
+    else
+      conn
+      |> pod_conn(tenant)
+      |> verify(email, extra)
+    end
   end
 
   defp verify(conn, email, extra) do
     host = conn.host
+    port = conn.port
+    scheme = conn.scheme
 
     conn =
       api_post(
@@ -520,7 +671,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     [_, code] = Regex.run(~r/code is (\d{6})/, body)
 
     conn =
-      %{recycle(conn) | host: host}
+      %{recycle(conn) | host: host, port: port, scheme: scheme}
       |> put_req_header("x-ankole-pod", Repo.tenant_id!())
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
         challengeID: challenge,

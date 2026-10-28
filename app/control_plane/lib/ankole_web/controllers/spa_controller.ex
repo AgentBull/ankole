@@ -15,6 +15,8 @@ defmodule AnkoleWeb.SpaController do
   alias AnkoleWeb.Assets
   alias AnkoleWeb.PodURL
 
+  @dev_routes Application.compile_env(:ankole, :dev_routes, false)
+
   # Maps each logical screen to its Vite entry bundle and document <title>. Note
   # the `:sessions` screen mounts the `auth` bundle — the route name and the
   # frontend entry name differ.
@@ -75,7 +77,7 @@ defmodule AnkoleWeb.SpaController do
          not is_nil(WebSession.site_admin_session(conn)) do
       redirect(conn, to: login_return_to(:console, params["return_to"]))
     else
-      render_spa(conn, :sessions)
+      conn |> assign(:console_login, true) |> render_spa(:sessions)
     end
   end
 
@@ -254,6 +256,12 @@ defmodule AnkoleWeb.SpaController do
       "    <meta name=\"ankole-response-status\" content=\"",
       to_string(conn.status || 200),
       "\">\n",
+      "    <link rel=\"icon\" type=\"image/svg+xml\" href=\"",
+      html_escape(~p"/images/logo.svg"),
+      "\">\n",
+      "    <link rel=\"icon\" href=\"",
+      html_escape(~p"/favicon.ico"),
+      "\" sizes=\"48x48\">\n",
       "    <title>",
       html_escape(title),
       "</title>\n",
@@ -273,6 +281,7 @@ defmodule AnkoleWeb.SpaController do
       login_tenant_meta(conn),
       authentication_meta(conn, entry),
       console_path_meta(entry),
+      dev_mailbox_meta(),
       "<meta name=\"ankole-active-plugins\" content=\"",
       Ankole.Plugins.list_active() |> Enum.map(& &1.id) |> Ankole.JSON.encode!() |> html_escape(),
       "\">\n",
@@ -339,6 +348,14 @@ defmodule AnkoleWeb.SpaController do
 
   defp console_path_meta(_entry), do: []
 
+  defp dev_mailbox_meta do
+    if @dev_routes and Ankole.Authn.Mailer.local_mailbox?() do
+      "    <meta name=\"ankole-dev-mailbox\" content=\"/dev/mailbox\">\n"
+    else
+      []
+    end
+  end
+
   defp setup_completed? do
     case SetupConfig.completed?() do
       # Failing closed to setup is intentional: a broken setup marker should not
@@ -356,10 +373,17 @@ defmodule AnkoleWeb.SpaController do
   defp request_origin(conn),
     do: URI.to_string(%URI{scheme: to_string(conn.scheme), host: conn.host, port: conn.port})
 
-  # These entries belong to the Pod bound by their controller. Setup uses the
-  # privileged Pod; the site Console's database context does not select its language.
-  defp app_locale(_conn, entry) when entry in ["pod", "saas-pod", "setup"],
+  # Pod workspaces render in their bound Pod's locale; Setup and the site Console
+  # bind and render in the privileged Pod's locale.
+  defp app_locale(_conn, entry) when entry in ["pod", "saas-pod", "setup", "console"],
     do: pod_locale()
+
+  defp app_locale(%{assigns: %{console_login: true}} = conn, "auth") do
+    case conn.assigns[:host_context] do
+      {:pod, tenant_id} -> Ankole.Repo.with_tenant(tenant_id, &pod_locale/0)
+      _ -> pod_locale()
+    end
+  end
 
   defp app_locale(conn, "auth") do
     host_tenant =
@@ -368,11 +392,10 @@ defmodule AnkoleWeb.SpaController do
         _ -> nil
       end
 
-    tenant_id = conn.assigns[:login_tenant_id] || host_tenant
-
-    if conn.params["purpose"] != "console" and is_binary(tenant_id),
-      do: Ankole.Repo.with_tenant(tenant_id, &pod_locale/0),
-      else: request_locale(conn)
+    case conn.assigns[:login_tenant_id] || host_tenant do
+      tenant_id when is_binary(tenant_id) -> Ankole.Repo.with_tenant(tenant_id, &pod_locale/0)
+      nil -> request_locale(conn)
+    end
   end
 
   defp app_locale(conn, _entry), do: request_locale(conn)

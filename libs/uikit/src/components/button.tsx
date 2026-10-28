@@ -8,9 +8,9 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // The one solid button of a view: berry, with a darker bottom edge.
+        // The one solid button of a view: high-contrast ink on paper (inverted in dark theme), keeping red strictly for destructive actions.
         default:
-          'border-primary border-b-brand-70 bg-primary text-primary-foreground hover:border-brand-70 hover:bg-brand-70 active:bg-brand-70',
+          'border-primary border-b-primary-edge bg-primary text-primary-foreground hover:border-primary-hover hover:border-b-primary-edge hover:bg-primary-hover active:border-primary-active active:bg-primary-active',
         // The normal button is a paper object. Pressed, it sinks into a slot.
         outline:
           'border-control-edge border-b-control-base bg-control text-foreground hover:bg-control-hover active:bg-field aria-expanded:bg-field',

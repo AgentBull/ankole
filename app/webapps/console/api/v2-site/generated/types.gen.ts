@@ -1144,19 +1144,26 @@ export type ListSiteAppConfigurationsResponses = {
    */
   200: {
     app_configurations: Array<{
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }>
   }
@@ -1164,6 +1171,69 @@ export type ListSiteAppConfigurationsResponses = {
 
 export type ListSiteAppConfigurationsResponse =
   ListSiteAppConfigurationsResponses[keyof ListSiteAppConfigurationsResponses]
+
+export type UpdateSiteAppConfigurationGroupData = {
+  /**
+   * Request body for the update_site_app_configuration_group operation on site_app_configuration_operation resource
+   */
+  body: {
+    data: {
+      reset_keys: Array<string>
+      values: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    group: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/groups/{group}'
+}
+
+export type UpdateSiteAppConfigurationGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSiteAppConfigurationGroupError =
+  UpdateSiteAppConfigurationGroupErrors[keyof UpdateSiteAppConfigurationGroupErrors]
+
+export type UpdateSiteAppConfigurationGroupResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configurations: Array<{
+      agent_override_supported?: boolean | null
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
+      scope: 'global' | 'tenant' | 'pod'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }>
+  }
+}
+
+export type UpdateSiteAppConfigurationGroupResponse =
+  UpdateSiteAppConfigurationGroupResponses[keyof UpdateSiteAppConfigurationGroupResponses]
 
 export type ResetSiteAppConfigurationData = {
   body?: never
@@ -1189,19 +1259,26 @@ export type ResetSiteAppConfigurationResponses = {
    */
   200: {
     app_configuration: {
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
   }
@@ -1234,19 +1311,26 @@ export type GetSiteAppConfigurationResponses = {
    */
   200: {
     app_configuration: {
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
   }
@@ -1285,19 +1369,26 @@ export type UpdateSiteAppConfigurationResponses = {
    */
   200: {
     app_configuration: {
+      agent_override_supported?: boolean | null
       default_present: boolean
       description?: string | null
       editable: boolean
       encrypted: boolean
       error?: string | null
+      fallback_present?: boolean | null
+      fallback_source?: string | null
+      fallback_value?: unknown | null
       key: string
       kind: 'exact' | 'pattern' | 'pattern_concrete'
       overridden: boolean
       pattern?: string | null
       pattern_id?: string | null
       present: boolean
+      public_value?: unknown | null
+      runtime_status?: string | null
       scope: 'global' | 'tenant' | 'pod'
-      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      secret_present?: boolean | null
+      source: 'agent' | 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
       value?: unknown | null
     }
   }
@@ -1339,6 +1430,46 @@ export type DecryptSiteAppConfigurationResponses = {
 
 export type DecryptSiteAppConfigurationResponse =
   DecryptSiteAppConfigurationResponses[keyof DecryptSiteAppConfigurationResponses]
+
+export type TestSiteAuthenticationMailData = {
+  /**
+   * Request body for the test_site_authentication_mail operation on site_app_configuration_operation resource
+   */
+  body: {
+    data: {
+      recipient: string
+      settings: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}/tests'
+}
+
+export type TestSiteAuthenticationMailErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type TestSiteAuthenticationMailError = TestSiteAuthenticationMailErrors[keyof TestSiteAuthenticationMailErrors]
+
+export type TestSiteAuthenticationMailResponses = {
+  /**
+   * Success
+   */
+  201: {
+    accepted: boolean
+  }
+}
+
+export type TestSiteAuthenticationMailResponse =
+  TestSiteAuthenticationMailResponses[keyof TestSiteAuthenticationMailResponses]
 
 export type ListControlPlanePluginsData = {
   body?: never

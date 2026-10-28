@@ -3,8 +3,8 @@ defmodule Ankole.EditionFixture.Router do
 
   pipeline :edition do
     plug :host_scope
-    plug :fixture_challenge
     plug :add_authentications
+    plug :fixture_challenge
   end
 
   pipeline :browser do
@@ -57,7 +57,7 @@ defmodule Ankole.EditionFixture.Router do
          _
        ) do
     params = if is_map(conn.body_params["data"]), do: conn.body_params["data"], else: %{}
-    conn = conn |> fetch_session() |> AnkoleWeb.BrowserAuth.login_context(params)
+    conn = conn |> fetch_session() |> AnkoleWeb.BrowserAuth.Targets.assign_context(params)
 
     if Ankole.Plugins.active?("fixture-challenge") and
          Ankole.Features.boolean_value("fixture.auth-challenge") and
@@ -68,7 +68,13 @@ defmodule Ankole.EditionFixture.Router do
 
   defp fixture_challenge(conn, _), do: conn
 
-  defp add_authentications(conn, _opts), do: Plug.Conn.assign(conn, :browser_login_mode, :add)
+  defp add_authentications(conn, _opts) do
+    conn = Plug.Conn.assign(conn, :browser_login_mode, :add)
+
+    if not match?({:pod, _}, conn.assigns[:host_context]),
+      do: Plug.Conn.assign(conn, :default_login_purpose, :site),
+      else: conn
+  end
 end
 
 defmodule Ankole.EditionFixture.Controller do
@@ -94,6 +100,12 @@ defmodule Ankole.EditionFixture.HostPolicy do
 
   def canonical_origin({:pod, "019a2b00-0000-7000-8000-000000000001"}),
     do: "https://pod.example.test"
+
+  def login_url(_tenant, params),
+    do: "https://site.example.test/sessions/new?" <> URI.encode_query(params)
+
+  def membership_login_url(_conn, tenant, _reason, params),
+    do: {:ok, login_url(tenant, params)}
 
   def classify(%URI{host: "site.example.test"}), do: {:ok, :site}
 

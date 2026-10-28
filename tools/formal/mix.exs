@@ -19,10 +19,29 @@ defmodule Mix.Tasks.Compile.AnkoleTargets do
     {Ankole.Conversations.Delivery.ReplyPresentation,
      "../../app/control_plane/lib/ankole/conversations/delivery/reply_presentation.ex"},
     {AnkoleWeb.PodStream, "../../app/control_plane/lib/ankole_web/pod_stream.ex"},
+    {AnkoleWeb.WorkerChannel,
+     "../../app/control_plane/lib/ankole_web/channels/worker_channel.ex"},
     {Ankole.Pod.Formula, "../../app/control_plane/lib/ankole/pod/formula.ex"},
+    {Ankole.Pod.Bases.Records, "../../app/control_plane/lib/ankole/pod/bases_records.ex"},
+    {Ankole.AIGateway.Artifacts.ReferenceBudget,
+     "../../app/control_plane/lib/ankole/ai_gateway/artifacts/reference_budget.ex"},
+    {Ankole.AIGateway.ResponseItems,
+     "../../app/control_plane/lib/ankole/ai_gateway/response_items.ex"},
+    {Ankole.AIGateway.ToolResultJournal,
+     "../../app/control_plane/lib/ankole/ai_gateway/tool_result_journal.ex"},
     {Ankole.Files.Path, "../../app/control_plane/lib/ankole/files/path.ex"},
     {Ankole.Pod.Files, "../../app/control_plane/lib/ankole/pod/files.ex"}
   ]
+
+  # The proof build exposes existing private calculations without changing their
+  # Erlang forms. Production keeps the original visibility and API.
+  @proof_exports %{
+    AnkoleWeb.WorkerChannel => [advance_acked: 2],
+    Ankole.Pod.Bases.Records => [field_cas: 3],
+    Ankole.AIGateway.ToolResultJournal => [
+      reconcile_tool_result_items: 2
+    ]
+  }
 
   @impl true
   def run(args) do
@@ -60,6 +79,13 @@ defmodule Mix.Tasks.Compile.AnkoleTargets do
       try do
         case Kernel.ParallelCompiler.compile_to_path(stale, dest, return_diagnostics: true) do
           {:ok, _modules, _diagnostics} ->
+            for {module, relative} <- @targets,
+                Path.expand(relative, __DIR__) in stale,
+                exports = @proof_exports[module],
+                not is_nil(exports) do
+              expose_calculations(module, exports, dest)
+            end
+
             {:ok, []}
 
           {:error, errors, _diagnostics} ->
@@ -75,6 +101,40 @@ defmodule Mix.Tasks.Compile.AnkoleTargets do
         Code.compiler_options(options)
       end
     end
+  end
+
+  defp expose_calculations(module, exports, dest) do
+    path = Path.join(dest, "#{module}.beam")
+
+    {:ok, {^module, [abstract_code: {:raw_abstract_v1, forms}]}} =
+      :beam_lib.chunks(String.to_charlist(path), [:abstract_code])
+
+    functions = for {:function, _, name, arity, _} <- forms, do: {name, arity}
+    true = Enum.all?(exports, &(&1 in functions))
+
+    exposed =
+      Enum.flat_map(forms, fn
+        {:attribute, line, :module, ^module} = form ->
+          [form, {:attribute, line, :export, exports}]
+
+        form ->
+          [form]
+      end)
+
+    {:ok, ^module, beam, _warnings} =
+      :compile.forms(exposed, [:return_errors, :return_warnings, :debug_info])
+
+    {:ok, {^module, [abstract_code: {:raw_abstract_v1, checked}]}} =
+      :beam_lib.chunks(beam, [:abstract_code])
+
+    # Fail the build if recompilation changes any function body, including its
+    # local callees. Only the export attribute may differ.
+    function_forms = fn entries -> Enum.filter(entries, &match?({:function, _, _, _, _}, &1)) end
+    true = function_forms.(forms) == function_forms.(checked)
+    File.write!(path, beam)
+    :code.purge(module)
+    :code.delete(module)
+    {:module, ^module} = :code.load_binary(module, String.to_charlist(path), beam)
   end
 
   defp stale?(source, beam) do

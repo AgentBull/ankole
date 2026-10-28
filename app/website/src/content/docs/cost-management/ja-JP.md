@@ -45,7 +45,7 @@ Codex の推論強度（`model_reasoning_effort`）に対応する Provider で�
 - **外部 Web を見る必要がない Agent ではプロファイルを外す:** 社内情報だけを扱うアシスタントには `web_search` を設定しないでください。プロファイルが設定されていること自体が、モデルにとって「いつでも検索してよい」という許可になります。
 - **対象 URL がわかっている場面では `web_search` より `web_fetch` を優先させる:** 既知の URL を直接読むなら 1 回の取得で済みますが、検索から入ると「検索 1 回 ＋ 見つけたページへの複数回の取得」に膨らみます。
 
-なお、AppConfigure の `worker.rendered_fetch_idle_ttl_ms` キーは、レンダリング版 `web_fetch` で使用するブラウザサイドカーを未使用時に解放するまでのアイドル待機時間を制御するものです（URL レスポンスのキャッシュ設定ではありません）。
+なお、AppConfigure の `agent_workers.rendered_fetch_idle_ttl_ms` キーは、レンダリング版 `web_fetch` で使用するブラウザサイドカーを未使用時に解放するまでのアイドル待機時間を制御するものです（URL レスポンスのキャッシュ設定ではありません）。
 
 ## レバー 4: agent ループの予算
 
@@ -81,7 +81,7 @@ Background Agent Job でもリトライや並列実行によってトークン�
 |---|---|---|
 | `max_execution_attempts` | `5` | `failed` 確定までに最大 5 回まで実行試行を行う |
 | `max_consecutive_turn_failures` | `5` | Turn 失敗が 5 回連続した時点で処理を打ち切る |
-| `max_running_per_agent` | `3`（既定値） | Agent ごとの同時実行ジョブ上限。テナント設定 `agent_computer.background_agent_job.max_running_per_agent`（`1..64`）で変更可能 |
+| `max_running_per_agent` | `3`（既定値） | Agent ごとの同時実行ジョブ上限。テナント設定 `background_agent_jobs.max_running_per_agent`（`1..64`）で変更可能 |
 | 再試行遅延 | 約 30 秒 | 試行間の最小クールダウン間隔 |
 
 一時的な障害で 5 回リトライしたジョブは、最大 5 回分のトークンを消費します（設定不備によるエラーは即座に失敗確定するため無駄なリトライは走りません）。運用上特に意識したいのは 3 つ目の同時実行数です。3 つのジョブを並行稼働させている Agent は、裏で 3 本のモデルループを同時に回しています。そこまでの並列処理が不要であれば、上限を下げるか「一度に 1 つずつ順番に進める」よう Agent の指示を整えるだけで消費を抑えられます。

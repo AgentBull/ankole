@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { loginProviders, selectLoginIdentity } from '../common/api/generated/sdk.gen'
 import type { LoginProvidersResponse } from '../common/api/generated/types.gen'
+import { BrandIcon } from '../common/brand'
 import { localizedText } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
@@ -59,6 +60,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
           data: {
             authenticationRef,
             oauthRequest: context.oauthRequest,
+            tenantID: context.tenantID,
             returnTo: context.returnTo,
             prompt: context.prompt,
             reauth: context.reauth
@@ -80,8 +82,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
         <CardHeader>
           <div className="ak-auth-heading">
             <div className="ak-auth-brand">
-              <span aria-hidden>A</span>
-              <p className="ak-eyebrow">Ankole</p>
+              <BrandIcon className="size-9" />
             </div>
             <h1>
               {verifying
@@ -134,10 +135,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
                   variant="outline"
                   key={provider.providerID}
                   onClick={() => {
-                    const url = new URL(
-                      `/sessions/oidc/${encodeURIComponent(provider.providerID)}/authorization`,
-                      window.location.origin
-                    )
+                    const url = new URL(provider.loginPath, window.location.origin)
                     url.search = authorizationParams.toString()
                     window.location.assign(url)
                   }}>

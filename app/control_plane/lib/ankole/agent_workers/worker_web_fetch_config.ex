@@ -13,7 +13,7 @@ defmodule Ankole.AgentWorkers.WorkerWebFetchConfig do
   alias Ankole.AppConfigure.Resolution
   alias Ankole.AppConfigure.Schema
 
-  @rendered_fetch_idle_ttl_ms_key "worker.rendered_fetch_idle_ttl_ms"
+  @rendered_fetch_idle_ttl_ms_key "agent_workers.rendered_fetch_idle_ttl_ms"
   @default_rendered_fetch_idle_ttl_ms 30 * 60 * 1_000
   @min_rendered_fetch_idle_ttl_ms 5 * 60 * 1_000
   @max_rendered_fetch_idle_ttl_ms 24 * 60 * 60 * 1_000

@@ -300,6 +300,19 @@ describe('real edge-runtime protocol', () => {
     ).toMatchObject({ error_code: 'program_pending_limit_exceeded' })
     expect(await run('throw Error("boom")')).toMatchObject({ error_code: 'program_execution_failed' })
   })
+  test('PTC cannot publish pending calls after catching a replay mismatch', async () => {
+    const memo = [{ namespace: 'test', name: 'lookup', arguments: { x: 1 }, output: 'recorded' }]
+    expect(
+      await run(
+        'try { await tools.lookup({x:2}); } catch {} await tools.lookup({x:1}); await tools.lookup({x:3});',
+        memo
+      )
+    ).toMatchObject({
+      status: 'failed',
+      error_code: 'program_replay_diverged',
+      pending_calls: []
+    })
+  })
   test('PTC parses source as a function body and rejects direct module imports', async () => {
     expect(await run('}; text(typeof Deno); const escape = async () => {')).toMatchObject({
       status: 'failed',

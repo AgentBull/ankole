@@ -20,6 +20,11 @@ export function podID(): string | undefined {
   return meta('ankole-pod')
 }
 
+export function devMailboxPath(): string | undefined {
+  const path = meta('ankole-dev-mailbox')
+  return path?.startsWith('/') && !path.startsWith('//') ? path : undefined
+}
+
 export function identityHeaders(): Record<string, string> {
   return compactRecord({
     'x-ankole-authentication': authenticationRef(),

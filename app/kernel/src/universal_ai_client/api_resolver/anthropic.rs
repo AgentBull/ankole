@@ -57,7 +57,7 @@ impl AnthropicState {
         let events = match value.get("type").and_then(Value::as_str) {
             Some("message_start") => self.message_start(context, &value),
             Some("content_block_start") => self.content_block_start(context, &value),
-            Some("content_block_delta") => self.content_block_delta(&value),
+            Some("content_block_delta") => self.content_block_delta(context, &value),
             Some("content_block_stop") => self.content_block_stop(context, &value),
             Some("message_delta") => {
                 self.message_delta(&value);
@@ -147,7 +147,7 @@ impl AnthropicState {
         }
     }
 
-    fn content_block_delta(&mut self, value: &Value) -> Vec<Value> {
+    fn content_block_delta(&mut self, context: &ResponseContext, value: &Value) -> Vec<Value> {
         let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
         let delta = value.get("delta").unwrap_or(&Value::Null);
 
@@ -178,7 +178,7 @@ impl AnthropicState {
                     .get("partial_json")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                self.tool_arguments_delta(index, partial)
+                self.tool_arguments_delta(context, index, partial)
             }
             _delta => Vec::new(),
         }
@@ -252,13 +252,23 @@ impl AnthropicState {
         (item_id, output_index)
     }
 
-    fn tool_arguments_delta(&mut self, index: usize, partial: &str) -> Vec<Value> {
+    fn tool_arguments_delta(
+        &mut self,
+        context: &ResponseContext,
+        index: usize,
+        partial: &str,
+    ) -> Vec<Value> {
         let (item_id, output_index) = {
             let Some(call) = self.tool_calls.get_mut(&index) else {
                 return Vec::new();
             };
 
             call.arguments.push_str(partial);
+            // The provider streams a JSON wrapper. Publish the decoded custom
+            // input when complete, as the Chat Completions adapter does.
+            if provider_custom_tool(context, &call.name) {
+                return Vec::new();
+            }
             (call.id.clone(), call.output_index)
         };
 
@@ -365,15 +375,28 @@ impl AnthropicState {
             return Vec::new();
         };
         self.tool_done_indices.insert(index);
-        vec![
-            self.event(
+        let custom = provider_custom_tool(context, &call.name);
+        let (event_type, payload) = if custom {
+            (
+                "response.custom_tool_call_input.done",
+                json!({
+                    "item_id": call.id,
+                    "output_index": call.output_index,
+                    "input": custom_tool_input(&call.arguments)
+                }),
+            )
+        } else {
+            (
                 "response.function_call_arguments.done",
                 json!({
                     "item_id": call.id,
                     "output_index": call.output_index,
                     "arguments": call.arguments
                 }),
-            ),
+            )
+        };
+        vec![
+            self.event(event_type, payload),
             self.event(
                 "response.output_item.done",
                 json!({
@@ -667,6 +690,7 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
                     "status": "completed"
                 });
                 restore_tool_namespace(context, &mut item);
+                restore_custom_tool(context, &mut item);
                 output.push(item);
             }
             _block => {}
@@ -840,8 +864,8 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
                             .and_then(|encoded| decode_anthropic_reasoning(context, encoded))
                             .unwrap_or_default();
                     }
-                    Some("function_call") => replay.push_assistant(vec![anthropic_tool_use(map)]),
-                    Some("function_call_output") => replay.push_user(json!([{
+                    Some("function_call" | "custom_tool_call") => replay.push_assistant(vec![anthropic_tool_use(map)]),
+                    Some("function_call_output" | "custom_tool_call_output") => replay.push_user(json!([{
                         "type": "tool_result",
                         "tool_use_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
                         "content": map.get("output").map(value_to_text).unwrap_or_default()
@@ -908,11 +932,14 @@ impl AnthropicReplay {
 }
 
 fn anthropic_tool_use(call: &Map<String, Value>) -> Value {
-    let input = call
-        .get("arguments")
-        .and_then(Value::as_str)
-        .and_then(|arguments| sonic_rs::from_str::<Value>(arguments).ok())
-        .unwrap_or_else(|| json!({}));
+    let input = if call.get("type").and_then(Value::as_str) == Some("custom_tool_call") {
+        json!({"input": call.get("input").map(value_to_text).unwrap_or_default()})
+    } else {
+        call.get("arguments")
+            .and_then(Value::as_str)
+            .and_then(|arguments| sonic_rs::from_str::<Value>(arguments).ok())
+            .unwrap_or_else(|| json!({}))
+    };
 
     let name = call
         .get("name")
@@ -1087,6 +1114,9 @@ fn anthropic_tools(tools: Option<&Value>) -> Result<Option<Value>, StreamError> 
             if map.get("type").and_then(Value::as_str) == Some("namespace") {
                 return anthropic_namespace_tools(map);
             }
+            if map.get("type").and_then(Value::as_str) == Some("custom") {
+                return vec![anthropic_custom_tool(map, "")];
+            }
             if let Some(function) = map.get("function").and_then(Value::as_object) {
                 let name = function
                     .get("name")
@@ -1133,6 +1163,9 @@ fn anthropic_namespace_tools(namespace: &Map<String, Value>) -> Vec<Value> {
         .flatten()
         .filter_map(|tool| {
             let tool = tool.as_object()?;
+            if tool.get("type").and_then(Value::as_str) == Some("custom") {
+                return Some(anthropic_custom_tool(tool, namespace_name));
+            }
             let function = tool
                 .get("function")
                 .and_then(Value::as_object)
@@ -1148,16 +1181,27 @@ fn anthropic_namespace_tools(namespace: &Map<String, Value>) -> Vec<Value> {
         .collect()
 }
 
+fn anthropic_custom_tool(tool: &Map<String, Value>, namespace: &str) -> Value {
+    let (description, parameters) = custom_tool_function_fields(tool);
+    let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+    json!({
+        "name": flattened_namespace_tool_name(namespace, name),
+        "description": description.as_str().unwrap_or_default(),
+        "input_schema": parameters
+    })
+}
+
 fn anthropic_function_call_item(context: &ResponseContext, call: &ToolCall, status: &str) -> Value {
     let mut item = function_call_item(call, status);
     restore_tool_namespace(context, &mut item);
+    restore_custom_tool(context, &mut item);
     item
 }
 
 fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
     match choice {
         Some(Value::Object(map)) => match map.get("type").and_then(Value::as_str) {
-            Some("function") => {
+            Some("function" | "custom") => {
                 let function = map
                     .get("function")
                     .and_then(Value::as_object)

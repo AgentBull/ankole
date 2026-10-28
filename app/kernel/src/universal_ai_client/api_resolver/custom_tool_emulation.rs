@@ -5,9 +5,9 @@ use super::*;
 /// upstream does not support the official OpenAI tool surface. The resolver
 /// then keeps two spaces consistent: the upstream space carries only function
 /// tools, and the client space keeps the official custom-tool shapes. The
-/// chat-completions resolver applies the same emulation unconditionally,
-/// because that wire has no custom tools at all; both resolvers share the
-/// field builders below.
+/// Chat Completions and Anthropic Messages apply text-tool emulation
+/// unconditionally, using the shared field builders and identity restoration
+/// below to keep their JSON tool inputs separate from public text inputs.
 pub(super) const EMULATE_CUSTOM_TOOLS_MARKER: &str = "__ankole_emulate_custom_tools";
 
 pub(super) fn custom_tool_emulation_requested(context: &ResponseContext) -> bool {
@@ -156,4 +156,72 @@ pub(super) fn lift_custom_tool_response(context: &ResponseContext, response: &mu
             lift_custom_tool_item(context, item);
         }
     }
+}
+
+pub(super) fn restore_custom_tool(context: &ResponseContext, item: &mut Value) {
+    let Some(name) = item.get("name").and_then(Value::as_str) else {
+        return;
+    };
+    let namespace = item.get("namespace").and_then(Value::as_str);
+    if !declared_custom_tool(context, namespace, name) {
+        return;
+    }
+
+    let input = item
+        .get("arguments")
+        .and_then(Value::as_str)
+        .map(custom_tool_input)
+        .unwrap_or_default();
+    let Some(item) = item.as_object_mut() else {
+        return;
+    };
+    item.insert("type".to_string(), json!("custom_tool_call"));
+    item.insert("input".to_string(), json!(input));
+    item.remove("arguments");
+}
+
+pub(super) fn custom_tool_input(arguments: &str) -> String {
+    sonic_rs::from_str::<Value>(arguments)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("input")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| arguments.to_string())
+}
+
+fn declared_custom_tool(context: &ResponseContext, namespace: Option<&str>, name: &str) -> bool {
+    context
+        .request
+        .get("tools")
+        .or_else(|| context.provider_options.get("tools"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|tool| match tool.get("type").and_then(Value::as_str) {
+            Some("custom") => {
+                namespace.is_none() && tool.get("name").and_then(Value::as_str) == Some(name)
+            }
+            Some("namespace") => {
+                tool.get("name").and_then(Value::as_str) == namespace
+                    && tool
+                        .get("tools")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .any(|child| {
+                            child.get("type").and_then(Value::as_str) == Some("custom")
+                                && child.get("name").and_then(Value::as_str) == Some(name)
+                        })
+            }
+            _other => false,
+        })
+}
+
+pub(super) fn provider_custom_tool(context: &ResponseContext, flattened_name: &str) -> bool {
+    tool_for_flattened_name(context, flattened_name).is_some_and(|(_namespace, tool)| {
+        tool.get("type").and_then(Value::as_str) == Some("custom")
+    })
 }

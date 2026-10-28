@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { logoutConfirmation } from '../common/api/generated/sdk.gen'
+import { BrandIcon } from '../common/brand'
 import { clearDataTenant } from '../common/browser-session'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { ThemeToggle } from '../common/theme-toggle'
@@ -40,8 +41,7 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
         <CardHeader>
           <div className="ak-auth-heading">
             <div className="ak-auth-brand">
-              <span aria-hidden>A</span>
-              <p className="ak-eyebrow">Ankole</p>
+              <BrandIcon className="size-9" />
             </div>
             <h1>{t(title)}</h1>
           </div>

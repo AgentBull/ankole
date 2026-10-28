@@ -8,6 +8,8 @@ defmodule AnkoleWeb.AuthControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
+  @host_policy Application.compile_env(:ankole, :host_policy)
+
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     Registry.clear_for_test()
@@ -190,14 +192,32 @@ defmodule AnkoleWeb.AuthControllerTest do
         display_name: "Method Switcher"
       })
 
+    otp_origin =
+      if @host_policy do
+        site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
+        URI.to_string(%{site | host: String.replace_prefix(site.host, "console.", "accounts.")})
+      else
+        AnkoleWeb.PodURL.origin(conn, tenant)
+      end
+
+    otp_uri = URI.parse(otp_origin)
+
+    otp_payload =
+      if @host_policy do
+        %{email: "switch-methods@example.com", tenantID: tenant.id, returnTo: "/content/space"}
+      else
+        %{email: "switch-methods@example.com", returnTo: "/content/space"}
+      end
+
     conn =
-      conn
-      |> pod_conn(tenant)
+      %{
+        conn
+        | host: otp_uri.host,
+          port: otp_uri.port,
+          scheme: String.to_existing_atom(otp_uri.scheme)
+      }
       |> init_test_session(%{})
-      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{
-        email: "switch-methods@example.com",
-        returnTo: "/content/space"
-      })
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", otp_payload)
 
     %{"challengeID" => challenge_id} = api_response(conn, 200)
     assert_receive {:email, %Swoosh.Email{text_body: body}}
@@ -230,7 +250,11 @@ defmodule AnkoleWeb.AuthControllerTest do
     verified =
       sso_retry
       |> recycle()
-      |> pod_conn(tenant)
+      |> Map.merge(%{
+        host: otp_uri.host,
+        port: otp_uri.port,
+        scheme: String.to_existing_atom(otp_uri.scheme)
+      })
       |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
         challengeID: challenge_id,
         code: code
@@ -238,6 +262,18 @@ defmodule AnkoleWeb.AuthControllerTest do
 
     assert %{"status" => "ok", "returnTo" => return_to} = api_response(verified, 200)
     assert String.ends_with?(return_to, "/content/space")
-    assert WebSession.pod_session(verified)["principal_uid"] == member.uid
+
+    entered =
+      if @host_policy do
+        verified
+        |> recycle()
+        |> delete_req_header("accept")
+        |> pod_conn(tenant)
+        |> get("/content/space")
+      else
+        verified
+      end
+
+    assert WebSession.pod_session(entered)["principal_uid"] == member.uid
   end
 end

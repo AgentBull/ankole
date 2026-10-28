@@ -82,6 +82,9 @@ test.each([
     </QueryClientProvider>
   )
   expect(html.includes(`aria-label="${i18n.t('console.tenants.data_context')}"`)).toBe(visible)
+  expect(html).toContain('fill="#FF4669"')
+  expect(html).toContain(`>${i18n.t('console.title')}</h1>`)
+  expect(html).not.toContain('Control plane')
   client.clear()
 })
 

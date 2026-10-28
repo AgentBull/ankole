@@ -1,6 +1,6 @@
 defmodule Ankole.SystemConfig do
   @moduledoc """
-  AppConfigure definitions for installation-wide runtime semantics.
+  AppConfigure timezone policy inherited by workspace schedulers.
   """
 
   alias Ankole.AppConfigure
@@ -13,7 +13,7 @@ defmodule Ankole.SystemConfig do
   @zoneinfo_path_marker "/zoneinfo/"
 
   @doc """
-  Returns the AppConfigure definition for the installation timezone.
+  Returns the tenant timezone definition with site inheritance.
   """
   @spec timezone_definition() :: Definition.t()
   def timezone_definition do
@@ -23,12 +23,13 @@ defmodule Ankole.SystemConfig do
       encrypted: false,
       schema: timezone_schema(),
       default_value: default_timezone(),
-      description: "Installation timezone used by control-plane scheduled semantics."
+      description:
+        "Scheduler timezone for this workspace, inheriting the site default when unset."
     )
   end
 
   @doc """
-  Returns the host system timezone used when no installation override exists.
+  Returns the host timezone used when no site or workspace override exists.
   """
   @spec default_timezone() :: String.t()
   def default_timezone do

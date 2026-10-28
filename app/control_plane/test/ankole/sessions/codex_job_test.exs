@@ -948,7 +948,7 @@ defmodule Ankole.Sessions.CodexJobTest do
   test "full Agent capacity preserves an old wait and does not start a new wait until a slot is free" do
     assert {:ok, 1} =
              Ankole.AppConfigure.put_tenant_by_key(
-               "agent_computer.background_agent_job.max_running_per_agent",
+               "background_agent_jobs.max_running_per_agent",
                1
              )
 
@@ -1025,7 +1025,7 @@ defmodule Ankole.Sessions.CodexJobTest do
   test "a ready Worker clears a Job wait even while Agent capacity is full" do
     assert {:ok, 1} =
              Ankole.AppConfigure.put_tenant_by_key(
-               "agent_computer.background_agent_job.max_running_per_agent",
+               "background_agent_jobs.max_running_per_agent",
                1
              )
 
