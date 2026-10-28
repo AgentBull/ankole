@@ -176,6 +176,10 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
   test "only providers that can force authentication enter the fresh provider list", %{
     client: client
   } do
+    previous_sources = Application.get_env(:ankole, :site_identity_sources, [])
+    Application.put_env(:ankole, :site_identity_sources, [])
+    on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous_sources) end)
+
     {:ok, _} =
       IdentityProviders.save_provider(
         "google",
@@ -203,24 +207,28 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
 
     {:ok, client} = OIDC.get_active_client(client.id)
     client = %{client | allowed_identity_provider_ids: []}
-    assert {:ok, all} = Ankole.OIDC.LoginPolicy.providers(client, %{})
 
-    native_sources =
-      for {id, _adapter} <- Application.get_env(:ankole, :site_identity_sources, []), do: id
-
-    assert MapSet.new(Enum.map(all, & &1["provider_id"])) ==
-             MapSet.new(["entra", "google", "slack"] ++ native_sources)
-
-    for request <- [
-          %{"prompt" => ["login"]},
-          %{"max_age" => 0},
-          %{"max_age" => 60},
-          %{"auth_time_essential?" => true}
+    for {mail, site_sources} <- [
+          {nil, []},
+          {%{"server" => "smtp.example.test", "from" => "login@example.test"}, ["email_otp"]}
         ] do
-      assert {:ok, fresh} = Ankole.OIDC.LoginPolicy.providers(client, request)
+      assert {:ok, _} = Ankole.Authn.Config.put_mail(mail)
+      assert {:ok, all} = Ankole.OIDC.LoginPolicy.providers(client, %{})
 
-      assert Enum.sort(Enum.map(fresh, & &1["provider_id"])) ==
-               Enum.sort(["entra"] ++ native_sources)
+      assert MapSet.new(Enum.map(all, & &1["provider_id"])) ==
+               MapSet.new(["entra", "google", "slack"] ++ site_sources)
+
+      for request <- [
+            %{"prompt" => ["login"]},
+            %{"max_age" => 0},
+            %{"max_age" => 60},
+            %{"auth_time_essential?" => true}
+          ] do
+        assert {:ok, fresh} = Ankole.OIDC.LoginPolicy.providers(client, request)
+
+        assert Enum.sort(Enum.map(fresh, & &1["provider_id"])) ==
+                 Enum.sort(["entra"] ++ site_sources)
+      end
     end
 
     for provider <- ["google", "slack"] do

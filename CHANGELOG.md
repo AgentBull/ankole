@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.32 (2026-10-27)
+
+- Record the verified authentication time for each OIDC authorization code and use it in ID Tokens and refresh context, including email reauthentication.
+- Keep unchanged PPTX chart data linked to its original workbook cells when series are added or removed. Preserve other workbook cells and correct scatter and bubble values.
+- Keep image Python packages available when the per-Agent Python bootstrap runs from an active Agent environment.
+
 ## Version 2.0.0-alpha.30 (2026-10-28)
 
 - Collect the company name, editable tenant slug, and business packs during Setup, and explain how business selections shape the Company Brain ontology.

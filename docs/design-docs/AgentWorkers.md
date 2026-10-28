@@ -151,6 +151,8 @@ patch should be retired once upstream `OfficeCLI` ships the guarantee):
 - Standard PPTX charts back their series with an embedded workbook, writing
   both cell references and matching value caches on creation and updating both
   together when a series changes.
+  Changes to the series count preserve cell references for unchanged data.
+  Only literal data uses free workbook columns; other cells stay unchanged.
 
 Ankole refuses to delete a provider while any Worker row still references it.
 At most one provider can be marked as the default; if no default exists and the
