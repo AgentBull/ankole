@@ -51,7 +51,7 @@ export function stringifyRouterSearch(search: Record<string, unknown>): string {
   return str ? `?${str}` : ''
 }
 
-function toURLSearchParams(
+export function toURLSearchParams(
   input: Exclude<SearchParamsInput, (prev: URLSearchParams) => URLSearchParams>
 ): URLSearchParams {
   if (

@@ -1,3 +1,4 @@
+import { useMutation, useQuery, Link, useSearchParams, useConsoleTenant } from '../tenant-context'
 import {
   Alert,
   AlertDescription,
@@ -31,11 +32,11 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInformationLine, RiRestartLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from '@tanstack/react-router'
-import { linkTarget, useSearchParams } from '../../common/router'
+import { useParams } from '@tanstack/react-router'
+import { linkTarget } from '../../common/router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   getAgentLibraryCapabilitiesOptions,
@@ -83,6 +84,8 @@ import {
 
 export function AgentLibraryPage() {
   const { i18n, t } = useTranslation()
+  const tenant = useConsoleTenant()
+  const showControlPlane = !tenant || tenant.first
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const [tab, setTab] = useState<AgentLibraryTab>('agent-plugins')
@@ -138,7 +141,7 @@ export function AgentLibraryPage() {
             {t('console.agent_library_capabilities.skills')}
             <TabCount value={data.capabilities?.skills.length ?? 0} />
           </TabsTrigger>
-          {scope === GLOBAL_LIBRARY_SCOPE ? (
+          {scope === GLOBAL_LIBRARY_SCOPE && showControlPlane ? (
             <TabsTrigger value="control-plane-plugins">
               {t('console.agent_library_capabilities.control_plane_plugins')}
               <TabCount value={data.controlPlanePlugins.length} />
@@ -187,8 +190,9 @@ export function AgentLibraryPage() {
           </CapabilityGrid>
         </TabsContent>
 
-        {scope === GLOBAL_LIBRARY_SCOPE ? (
+        {scope === GLOBAL_LIBRARY_SCOPE && showControlPlane ? (
           <TabsContent value="control-plane-plugins" className="grid min-w-0 gap-4">
+            <p className="text-sm text-muted-foreground">{t('console.settings.scope_global')}</p>
             <CapabilitySearch value={controlPlaneQuery} onChange={setControlPlaneQuery} kind="control_plane_plugins" />
             <CapabilityGrid
               loading={data.controlPlaneLoading}

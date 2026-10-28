@@ -1,3 +1,4 @@
+import { useQuery, Link } from './tenant-context'
 import { IDLE_REFRESH_MS, WAITING_REFRESH_MS } from './refresh-intervals'
 import {
   Button,
@@ -19,12 +20,12 @@ import {
   RiErrorWarningLine,
   RiListCheck3
 } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
+
 import type { TFunction } from 'i18next'
 import i18n from '../common/i18n'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import { linkTarget } from '../common/router'
 import { getConsoleReadinessOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import type { ConsoleReadinessResponse } from './api/runtime-types'

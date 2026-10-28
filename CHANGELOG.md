@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.1.0-alpha.1 (2026-10-28)
+
+- Show tenant-owned Site Console collections across all tenants and let operators
+  filter by tenant. Bind record forms, row actions, links, searches, and page
+  cursors to the selected tenant. Keep infrastructure settings at site scope.
+- Keep padded Base64 page cursors intact when operators reload a Console list or
+  return to its previous page. Show unknown Console routes without asking for a
+  tenant first.
+
 ## Version 2.0.0-alpha.35 (2026-10-28)
 
 - Install the official OfficeCLI 1.0.159 Linux binaries with SHA-256 checks.

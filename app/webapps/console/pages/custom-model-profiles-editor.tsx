@@ -1,9 +1,10 @@
+import { useMutation } from '../tenant-context'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Button, Input, Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation } from '@tanstack/react-query'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {

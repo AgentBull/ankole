@@ -1,3 +1,4 @@
+import { useMutation, useQuery, Link, useNavigate } from '../../tenant-context'
 import {
   Badge,
   Button,
@@ -15,10 +16,10 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { listBrainObjectTypesOptions, showBrainObjectOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { createBrainObjectMutation, updateBrainObjectMutation } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { BrainObjectPage } from '../../state/brain-object-editor-model'

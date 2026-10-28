@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link, useSearchParams, useNavigate } from '../tenant-context'
 import { uuidV4 } from '@agentbull/active-support'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
@@ -17,7 +18,6 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
   Textarea,
   toast
 } from '@ankole/uikit'
@@ -31,12 +31,12 @@ import {
 import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import i18n from '../../common/i18n'
-import { linkTarget, useSearchParams } from '../../common/router'
+import { linkTarget } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { listAgentSessionsOptions, listSignalBindingsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'

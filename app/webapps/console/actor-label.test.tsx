@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ActorLabel } from './actor-label'
 import { getPrincipalQueryKey } from './api/v2/generated/@tanstack/react-query.gen'
 import { listTenantsQueryKey } from './api/v2-site/generated/@tanstack/react-query.gen'
+import { ConsoleTenantContext } from './tenant-context'
 
 const authorTenant = '019a2b00-0000-7000-8000-000000000001'
 const actor = { tenant_id: authorTenant, uid: 'legacy@example.com' }
@@ -19,7 +20,10 @@ function client() {
 function render(client: QueryClient, reference: typeof actor | null | undefined = actor) {
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
-      <ActorLabel actor={reference} />
+      <ConsoleTenantContext
+        value={{ id: 'resource-tenant', display_name: 'Resource team', slug: 'resource', first: true }}>
+        <ActorLabel actor={reference} />
+      </ConsoleTenantContext>
     </QueryClientProvider>
   )
 }

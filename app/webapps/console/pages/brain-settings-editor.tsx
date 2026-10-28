@@ -1,3 +1,4 @@
+import { useQuery, Link } from '../tenant-context'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
   CreatableCombobox,
@@ -10,9 +11,9 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import {
   listAiGatewayModelsOptions,
   listAiGatewayProviderKindsOptions

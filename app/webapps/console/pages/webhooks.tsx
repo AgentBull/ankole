@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery } from '../tenant-context'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
@@ -10,11 +11,10 @@ import {
   DialogTitle,
   Input,
   TableCell,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { RiCheckLine, RiCloseCircleLine, RiFileCopyLine, RiWebhookLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'

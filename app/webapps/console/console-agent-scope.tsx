@@ -1,7 +1,8 @@
+import { useQuery, useSearchParams } from './tenant-context'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from '../common/router'
+
 import { agentListOptions } from './api/agents'
 import { resetCursorParams } from './state/cursor-pagination'
 
@@ -9,7 +10,7 @@ import { resetCursorParams } from './state/cursor-pagination'
  * The agent a list page is scoped to, held in `?agent=`. Without the
  * parameter the page covers every agent.
  *
- * The console list endpoints are instance-wide and take the selected
+ * The console list endpoints cover the current tenant and take the selected
  * agent as an optional filter. Pages pass `agentUID || undefined` straight
  * into that query parameter.
  */

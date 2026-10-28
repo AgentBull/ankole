@@ -84,3 +84,32 @@ test.each([
   expect(html.includes(`aria-label="${i18n.t('console.tenants.data_context')}"`)).toBe(visible)
   client.clear()
 })
+
+test.each(['/agents/no/such/page', '/identity/no/such/page'])(
+  'an unknown route at %s shows its fallback before a tenant is selected',
+  async pathname => {
+    const client = new QueryClient()
+    const root = createRootRoute({ component: ConsoleLayout })
+    const body = createRoute({ getParentRoute: () => root, id: 'console-body' })
+    const router = createRouter({
+      isServer: true,
+      routeTree: root.addChildren([
+        body.addChildren([
+          createRoute({ getParentRoute: () => body, path: 'agents/$uid', component: () => null }),
+          createRoute({ getParentRoute: () => body, path: 'identity', component: () => null }),
+          createRoute({ getParentRoute: () => body, path: '$', component: () => <p>Unknown route</p> })
+        ])
+      ]),
+      history: createMemoryHistory({ initialEntries: [pathname] })
+    })
+    await router.load()
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+    expect(html).toContain('Unknown route')
+    expect(html).not.toContain(i18n.t('console.tenants.choose_for_record'))
+    client.clear()
+  }
+)

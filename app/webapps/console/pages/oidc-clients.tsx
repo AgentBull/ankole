@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useEditorDraft } from '../use-editor-draft'
@@ -42,16 +43,15 @@ import {
   SelectValue,
   Switch,
   TableCell,
-  TableRow,
   Textarea,
   toast,
   useComboboxAnchor
 } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiKey2Line, RiRefreshLine } from '@remixicon/react'
-import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
+import { useIsMutating } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import {
   listAiGatewayModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   listAiGatewayProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions

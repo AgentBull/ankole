@@ -1,7 +1,8 @@
+import { useMutation, useQuery } from '../tenant-context'
 import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiEditLine } from '@remixicon/react'
-import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
+import { useIsMutating } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {

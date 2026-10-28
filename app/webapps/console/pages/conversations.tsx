@@ -1,3 +1,4 @@
+import { TableRow, useQuery, Link, useSearchParams } from '../tenant-context'
 import {
   Accordion,
   AccordionContent,
@@ -11,16 +12,15 @@ import {
   SelectValue,
   Skeleton,
   TableCell,
-  TableRow,
   cn
 } from '@ankole/uikit'
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
-import { useQuery } from '@tanstack/react-query'
+
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from '@tanstack/react-router'
-import { useSearchParams } from '../../common/router'
+import { useParams } from '@tanstack/react-router'
+
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
@@ -55,7 +55,7 @@ import {
 type ResponseItem = Record<string, unknown>
 
 /**
- * Conversations list page — instance-wide browser for AIGateway conversations.
+ * Conversations list page for the current tenant's AIGateway conversations.
  * The list is read-only; selecting a row opens the detail route that renders the
  * message thread.
  */

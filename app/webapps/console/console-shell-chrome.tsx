@@ -1,3 +1,4 @@
+import { useMutation, Link } from './tenant-context'
 import {
   Button,
   Sheet,
@@ -37,16 +38,16 @@ import {
   RiTimeLine,
   RiWebhookLine
 } from '@remixicon/react'
-import { useMutation } from '@tanstack/react-query'
+
 import { useEffect, useRef, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useLocation, useMatches } from '@tanstack/react-router'
+import { Outlet, useLocation, useMatches } from '@tanstack/react-router'
 import { SlotGate } from '../common/slots'
 import { ThemeToggle } from '../common/theme-toggle'
-import { endSiteSession } from '../common/browser-session'
+import { dataTenantID, endSiteSession } from '../common/browser-session'
 import { ConsoleReadiness } from './console-readiness'
 import { useConsoleSlots } from './slots'
-import { TenantSwitcher } from './tenant-switcher'
+import { ConsoleTenantContent, TenantSwitcher } from './tenant-switcher'
 
 /**
  * Routed console shell: the header, sidebar navigation, and page outlet every
@@ -230,14 +231,7 @@ function ConsoleFrame() {
             />
           </div>
           <div className="flex items-center gap-1.5">
-            {matchedSlotRoute ? (
-              <SlotGate slot={matchedSlotRoute}>
-                {enabled => (enabled && matchedSlotRoute.scope === 'site' ? null : <TenantSwitcher />)}
-              </SlotGate>
-            ) : (
-              <TenantSwitcher />
-            )}
-            <ConsoleReadiness />
+            {dataTenantID() ? <ConsoleReadiness /> : null}
             <ThemeToggle />
             <Tooltip>
               <TooltipTrigger
@@ -281,7 +275,26 @@ function ConsoleFrame() {
               'relative z-10 m-1.5 mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-panel bg-background p-4 shadow-[0_0_0_1px_var(--color-border),0_1px_3px_rgb(38_40_42/0.05),0_4px_12px_rgb(38_40_42/0.025)] transition-[margin] duration-(--duration-feedback) ease-productive motion-reduce:transition-none [scrollbar-gutter:stable] md:p-6 xl:p-8 dark:shadow-[0_0_0_1px_var(--color-border),0_2px_8px_rgb(0_0_0/0.32)]',
               sidebarCollapsed ? 'lg:ml-1.5' : 'lg:ml-0'
             )}>
-            <Outlet />
+            {matchedSlotRoute ? (
+              <SlotGate slot={matchedSlotRoute}>
+                {enabled =>
+                  enabled ? (
+                    <ConsoleTenantContent slot={matchedSlotRoute}>
+                      <Outlet />
+                    </ConsoleTenantContent>
+                  ) : (
+                    <div className="grid gap-6">
+                      <TenantSwitcher />
+                      <Outlet />
+                    </div>
+                  )
+                }
+              </SlotGate>
+            ) : (
+              <ConsoleTenantContent>
+                <Outlet />
+              </ConsoleTenantContent>
+            )}
           </main>
         </div>
       </>

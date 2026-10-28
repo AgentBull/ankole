@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useInfiniteQuery, useQuery, Link, useNavigate } from '../../tenant-context'
 import { ActorLabel } from '../../actor-label'
 import {
   Badge,
@@ -23,14 +24,13 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { RiBrainLine, RiCloseLine, RiEditLine, RiLoaderLine } from '@remixicon/react'
-import { keepPreviousData, useMutation, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { keepPreviousData } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
+import { Outlet, useParams } from '@tanstack/react-router'
 import { showBrainObjectOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import {
   forgetBrainObjectMutation,

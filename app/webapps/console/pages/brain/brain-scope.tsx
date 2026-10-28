@@ -1,3 +1,4 @@
+import { useQuery, Link } from '../../tenant-context'
 import {
   Badge,
   CreatableCombobox,
@@ -8,10 +9,10 @@ import {
   SelectTrigger,
   SelectValue
 } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import { agentListOptions } from '../../api/agents'
 import { fromDocument } from '../../api/json-api'
 import { listPrincipalGroupsOptions, listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'

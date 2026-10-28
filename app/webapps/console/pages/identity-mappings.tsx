@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, useNavigate } from '../tenant-context'
 import { principalLabel } from '../state/principal-label'
 import {
   Button,
@@ -13,15 +14,14 @@ import {
   DialogTitle,
   Input,
   TableCell,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { RiUserReceivedLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { useNavigate } from '@tanstack/react-router'
+
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'

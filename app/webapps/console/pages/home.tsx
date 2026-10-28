@@ -1,3 +1,4 @@
+import { useQuery, Link } from '../tenant-context'
 import { listIdentityProvidersOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { IDLE_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import { Button, buttonVariants, Skeleton, cn } from '@ankole/uikit'
@@ -12,10 +13,10 @@ import {
   RiServerLine,
   RiSparkling2Line
 } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
+
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation } from '@tanstack/react-router'
+import { useLocation } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import { linkTarget } from '../../common/router'
 import {

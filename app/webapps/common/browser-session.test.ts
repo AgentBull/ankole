@@ -124,6 +124,13 @@ test('cancelling a tenant switch cannot send an old draft to the requested tenan
   expect(requestedURL?.searchParams.get('data_tenant')).toBe('tenant-b')
 })
 
+test('switching an existing editor to another tenant leaves the old record route', () => {
+  selectDataTenant('tenant-b', '/operator/identity')
+  expect(requestedURL?.pathname).toBe('/operator/identity')
+  expect(requestedURL?.searchParams.get('data_tenant')).toBe('tenant-b')
+  expect(dataTenantID()).toBe('tenant-a')
+})
+
 test('a new document consumes the navigation request before creating its router', () => {
   selectDataTenant('tenant-b')
   currentURL = requestedURL!

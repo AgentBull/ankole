@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link } from '../tenant-context'
 import { principalLabel } from '../state/principal-label'
 import { HumanAccessSection } from './principal-access'
 import { WorkAccessReview } from './work-access-review'
@@ -14,14 +15,13 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
   toast
 } from '@ankole/uikit'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { RiKey2Line } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import {
   addPrincipalGroupMemberMutation,
   changeHumanMembershipMutation,
