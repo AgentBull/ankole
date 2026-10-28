@@ -156,7 +156,9 @@ media, video, locations, shared chats, and shared user cards:
   is the SHA-256 prefix and provider message/file keys stay in adapter metadata
   out of the path), and then submits `complete` or `failed` under the same
   provider message ID (retaining the provider reference without a local file on
-  failure).
+  failure). The adapter also downloads the file of an unaddressed group message
+  that the binding ignores. A later reply can promote that message, and the
+  promoted Message then carries the stored file.
 - The initial `pending` observation timestamp anchors the 1,200 ms batching
   quiet window so slow downloads do not push that window out. `Conversations`
   waits up to 4 seconds for downloads to finish before releasing queued work; if

@@ -1365,6 +1365,81 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.get!(InboundBatch, batch.id).entries == batch.entries
     end
 
+    test "ignore stores an unaddressed file for a later addressed reply" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      config = chat_config()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      stub_lark_requests(parent, fn request ->
+        assert request.request_path ==
+                 "/open-apis/im/v1/messages/om_ignored_file/resources/file_holdings"
+
+        {:binary, 200, "holdings bytes"}
+      end)
+
+      ignored =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_ignored_file",
+              "message_type" => "file",
+              "content" => ~s({"file_key":"file_holdings","file_name":"holdings.csv"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, [%{status: :ignored, inbound_batch: batch}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", ignored, [consumer])
+
+      assert Repo.aggregate(Message, :count) == 0
+      assert [stored] = batch.entries
+      assert stored["metadata"]["attachment_materialization"]["state"] == "complete"
+      assert [%{"blob_ref" => _blob_ref, "path" => _path}] = stored["attachments"]
+
+      assert {:ok, [%{status: :ignored}]} =
+               Ankole.SignalsFixtures.finalize_due_inbound_batch_events(now: batch.available_at)
+
+      addressed =
+        receive_event()
+        |> Map.put(:id, "evt_ignored_file_reply")
+        |> update_message(fn message ->
+          message
+          |> Map.put("message_id", "om_ignored_file_reply")
+          |> Map.put("parent_id", "om_ignored_file")
+          |> Map.put("content", ~s({"text":"@_user_1 Analyze this file"}))
+        end)
+
+      assert {:ok, [%{status: :accepted, inbound_batch: addressed_batch}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", addressed, [consumer])
+
+      assert {:ok, [%{signal: input}]} =
+               Ankole.SignalsFixtures.finalize_due_inbound_batch_events(
+                 now: addressed_batch.available_at
+               )
+
+      file_message =
+        input.message_id
+        |> then(&Repo.get_by!(Message, id: &1))
+        |> Map.fetch!(:reply_to_message_id)
+        |> then(&Repo.get_by!(Message, id: &1))
+
+      assert [attachment] = file_message.attachments
+
+      assert_stored_attachment!(
+        agent.uid,
+        external_conversation_id("lark:oc_group"),
+        attachment,
+        "holdings bytes",
+        "holdings.csv"
+      )
+    end
+
     test "message receive observes platform subject then emits a typed gateway input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)

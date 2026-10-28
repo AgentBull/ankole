@@ -5,6 +5,10 @@
 - Scope `i18n.default_locale` strictly to each Pod workspace (`:pod` AppConfigure scope), migrating any existing site-level default locale to Pods without an override and rejecting site-level or per-Agent writes.
 - Let Pod administrators view and update their workspace's `defaultLocale` in Pod Settings (`/api/v2/pod/admin/settings`), render Pod and Pod sign-in HTML shells in each Pod's configured locale, and negotiate `Accept-Language` (falling back to `en-US`) on tenant-independent HTML shells and site-wide email OTP deliveries.
 - Layer the Pod and Console workspaces as rounded paper sheets above a ground-level collapsible sidebar, move compact Home/Chat tabs and quick actions into the Pod sidebar header, interleave visited Pages (`visited_at`) and active Conversations in Recently Visited, and surface Favorites inline above the Space tree.
+- Download a Feishu file or image that a group member sends without a mention
+  when the binding ignores unaddressed group messages. A later reply that
+  mentions the Agent and quotes the file now gives the Agent the stored file.
+  Before, the attachment stayed `pending` and the Agent saw only the file name.
 
 ## Version 2.0.0-alpha.33 (2026-10-28)
 
