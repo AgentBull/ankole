@@ -1788,6 +1788,7 @@ unmatched_sender_policy_invalid = "미매칭 발신자 정책이 잘못되었습
 description = "Channel Providers 및 기타 신호 소스의 메시지와 이벤트를 Agent로 라우팅합니다."
 
 [console.schedules]
+agent_execution_hint = "선택한 Agent가 자신의 권한으로 이 일정을 실행합니다. Ankole은 일정을 만든 관리자를 기록합니다."
 interval = "간격"
 interval_unit = "간격 단위"
 unit_seconds = "초"

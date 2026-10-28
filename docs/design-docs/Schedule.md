@@ -59,9 +59,12 @@ Under [Human Offboarding](HumanOffboarding.md), both `scheduled_events` and
 `human_access_version`:
 
 - Checkbacks inherit authorization from their triggering Signal.
-- Cron creation reads the trusted `created_by` option from the authenticated
-  turn or Console Principal—ignoring any actor fields in the request body—and
-  subsequent fires inherit the rule's stored version.
+- Cron rules created in an Agent turn inherit the authenticated turn's work
+  authorization. Subsequent fires inherit the rule's stored version.
+- Site Console cron rules run as `service` work under the selected Agent's
+  permissions. `created_by` records the authenticated administrator for audit.
+  The creation action derives the administrator from the authenticated
+  Console Principal and supplies the service authorization.
 
 At fire admission, Schedule locks and verifies every associated Human *before*
 locking the event, cron rule, or bound Automation Job (locking both Humans in

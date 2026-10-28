@@ -141,18 +141,10 @@ and provider overrides for `ANKOLE_BUILTIN_SKILLS_ROOT` or
 
 The Worker image also installs its Chromium headless shell at
 `/usr/local/bin/chromium`, which `OfficeCLI` locates via `PATH` rather than
-`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE` or `PLAYWRIGHT_BROWSERS_PATH`. Ankole
-builds `OfficeCLI` from a pinned stable release with targeted patches (each
-patch should be retired once upstream `OfficeCLI` ships the guarantee):
-
-- In resident mode, failed screenshots exit with a nonzero code, and `OfficeCLI`
-  replaces an output PNG only after a non-empty capture succeeds—preserving any
-  existing PNG, file mode, and symlink on failure.
-- Standard PPTX charts back their series with an embedded workbook, writing
-  both cell references and matching value caches on creation and updating both
-  together when a series changes.
-  Changes to the series count preserve cell references for unchanged data.
-  Only literal data uses free workbook columns; other cells stay unchanged.
+`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE` or `PLAYWRIGHT_BROWSERS_PATH`. The Worker
+image installs the official stable `OfficeCLI` release binary for its Linux
+architecture. The Dockerfile pins the release version and the SHA-256 digest
+of each binary.
 
 Ankole refuses to delete a provider while any Worker row still references it.
 At most one provider can be marked as the default; if no default exists and the

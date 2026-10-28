@@ -1836,6 +1836,7 @@ unmatched_sender_policy_invalid = "Unmatched sender policy is invalid."
 description = "Route messages and events from Channel Providers and other signal sources to an Agent."
 
 [console.schedules]
+agent_execution_hint = "The selected Agent runs this schedule with its own permissions. Ankole records the administrator who creates it."
 interval = "Interval"
 interval_unit = "Interval unit"
 unit_seconds = "Seconds"

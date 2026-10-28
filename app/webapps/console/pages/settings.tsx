@@ -752,10 +752,12 @@ function SettingFallback({ item }: { item: AppConfigurationItem }) {
   const { t } = useTranslation()
   const display = (present: boolean, value: unknown) => {
     const duration = settingDurationParts(item.key, value)
-    if (present && item.key === 'ai_agent.max_output_tokens' && value == null)
-      {return t('console.settings.no_explicit_limit')}
-    if (present && item.key === 'ai_agent.inactivity_timeout_ms' && value === 0)
-      {return t('console.settings.inactivity_timeout_disabled')}
+    if (present && item.key === 'ai_agent.max_output_tokens' && value == null) {
+      return t('console.settings.no_explicit_limit')
+    }
+    if (present && item.key === 'ai_agent.inactivity_timeout_ms' && value === 0) {
+      return t('console.settings.inactivity_timeout_disabled')
+    }
     return !present
       ? t('console.settings.source_missing')
       : item.encrypted

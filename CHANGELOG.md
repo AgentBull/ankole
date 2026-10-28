@@ -10,6 +10,14 @@
 - Render the Ankole brand icon and favicon across the Console, Setup, sign-in, session, and invitation screens as well as verification and invitation emails, drop the redundant "Control plane" subtitle from the Console header, and separate `@ankole/uikit` primary action ink fills from the `#FF4669` brand accent palette so primary buttons stay distinct from destructive actions.
 - Skip SMTP delivery on ineligible email OTP login challenges while keeping the standard code-sent response: Console logins deliver only to `siteadmin` members, Pod and OAuth logins without an invitation deliver only to existing members (including disabled or SSO-gated members so verification surfaces `account_disabled` or `login_policy_rejected`), directed invitations deliver only to the invited email, and `/me` reauthentications deliver only to the pinned member. Restrict `purpose="site"` sign-in and registration to editions with a site sign-in host (disabling public site registration in FOSS), and clear site resend cooldowns once a site challenge is verified.
 
+- Install the official OfficeCLI 1.0.159 Linux binaries with SHA-256 checks.
+  Remove the local OfficeCLI patches and the .NET build from the Worker image.
+
+- Run Site Console cron schedules with the selected Agent's service authority
+  and keep the administrator as the recorded creator. Active and paused Console
+  rules that still use their verified creator as the Human authorizer become
+  service work, together with matching pending fires. Paused rules stay paused.
+
 ## Version 2.0.0-alpha.34 (2026-10-28)
 
 - Scope `i18n.default_locale` strictly to each Pod workspace (`:pod` AppConfigure scope), migrating any existing site-level default locale to Pods without an override and rejecting site-level or per-Agent writes.
