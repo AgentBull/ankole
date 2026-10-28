@@ -232,6 +232,8 @@ In responses, each Agent Plugin row nests its member Skills, while the top-level
 Skill list contains standalone and Agent-installed Skills. The Console renders
 Agent Plugins, standalone Skills, and installed Skills as distinct sections, and
 exposes Control Plane Plugins only at the deployment-instance (site) level.
+Each capability view reports errors from the queries that supply its available
+controls.
 
 ## Control Plane Plugins
 

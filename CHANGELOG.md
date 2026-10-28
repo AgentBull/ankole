@@ -6,6 +6,7 @@
   filter by tenant. Bind record forms, row actions, links, searches, and page
   cursors to the selected tenant. Share site infrastructure queries and preserve
   the tenant filter when operators open site settings.
+- Show Agent Library read errors for the selected capability scope.
 - Keep padded Base64 page cursors intact when operators reload a Console list or
   return to its previous page. Show unknown Console routes without asking for a
   tenant first.

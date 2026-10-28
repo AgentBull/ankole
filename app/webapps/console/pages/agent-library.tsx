@@ -882,7 +882,9 @@ function useLibraryCapabilities(scope: string, showControlPlane: boolean) {
     controlPlanePlugins: controlPlaneQuery.data?.control_plane_plugins ?? [],
     controlPlaneLoading: controlPlaneQuery.isLoading,
     error:
-      agentsQuery.error ?? globalQuery.error ?? agentQuery.error ?? (showControlPlane ? controlPlaneQuery.error : null),
+      agentsQuery.error ??
+      (global ? globalQuery.error : agentQuery.error) ??
+      (global && showControlPlane ? controlPlaneQuery.error : null),
     loading: agentsQuery.isLoading || (global ? globalQuery.isLoading : agentQuery.isLoading)
   }
 }
