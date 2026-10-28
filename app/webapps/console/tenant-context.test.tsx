@@ -10,20 +10,23 @@ import {
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ConsoleTenantContext, Link, TableRow, TenantTableRows } from './tenant-context'
 
-test('a link to a same-named resource carries the section tenant into its new document', async () => {
+test.each([
+  { path: '/identity/shared', search: { view: 'config' }, tenant: true },
+  { path: '/worker-envs/new', search: { scope: 'global' }, tenant: false }
+])('a record link keeps the owner scope of $path', async ({ path, search, tenant }) => {
   const root = createRootRoute({ component: Outlet })
   const index = createRoute({
     getParentRoute: () => root,
     path: '/identity',
     component: () => (
       <ConsoleTenantContext value={{ id: 'tenant-b', display_name: 'Tenant B', slug: 'tenant-b', first: true }}>
-        <Link to="/identity/shared" search={{ view: 'config' }}>
-          Shared provider
+        <Link to={path} search={search}>
+          Edit record
         </Link>
       </ConsoleTenantContext>
     )
   })
-  const detail = createRoute({ getParentRoute: () => root, path: '/identity/$provider', component: () => null })
+  const detail = createRoute({ getParentRoute: () => root, path, component: () => null })
   const router = createRouter({
     isServer: true,
     routeTree: root.addChildren([index, detail]),
@@ -31,8 +34,8 @@ test('a link to a same-named resource carries the section tenant into its new do
   })
   await router.load()
   const html = renderToStaticMarkup(<RouterProvider router={router} />)
-  expect(html).toContain('data_tenant=tenant-b')
-  expect(html).toContain('view=config')
+  expect(html.includes('data_tenant=tenant-b')).toBe(tenant)
+  expect(html).toContain(tenant ? 'view=config' : 'scope=global')
 })
 
 test('aggregate table rows expose their tenant without changing the resource cells', () => {

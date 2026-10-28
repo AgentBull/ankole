@@ -32,7 +32,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInformationLine, RiRestartLine } from '@remixicon/react'
-
+import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
@@ -92,7 +92,7 @@ export function AgentLibraryPage() {
   const [pluginQuery, setPluginQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
-  const data = useLibraryCapabilities(scope)
+  const data = useLibraryCapabilities(scope, showControlPlane)
   const capabilityMutations = useCapabilityMutations(scope)
   const lessons = useSkillLessons(scope)
   const controlPlaneMutation = useControlPlanePluginMutation()
@@ -221,7 +221,7 @@ export function AgentPluginDetailPage() {
   const { pluginID = '' } = useParams({ strict: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
-  const data = useLibraryCapabilities(scope)
+  const data = useLibraryCapabilities(scope, false)
   const mutations = useCapabilityMutations(scope)
   const lessons = useSkillLessons(scope)
   const plugin = data.capabilities?.agent_plugins.find(item => item.id === pluginID)
@@ -860,7 +860,7 @@ function LoadingCards() {
   )
 }
 
-function useLibraryCapabilities(scope: string) {
+function useLibraryCapabilities(scope: string, showControlPlane: boolean) {
   const global = scope === GLOBAL_LIBRARY_SCOPE
   const agentsQuery = useQuery(agentListOptions())
   const globalQuery = useQuery({
@@ -871,9 +871,9 @@ function useLibraryCapabilities(scope: string) {
     ...getAgentLibraryCapabilitiesOptions({ path: { agent_uid: scope } }),
     enabled: !global
   })
-  const controlPlaneQuery = useQuery({
+  const controlPlaneQuery = useBaseQuery({
     ...listControlPlanePluginsOptions(),
-    enabled: global
+    enabled: global && showControlPlane
   })
 
   return {
@@ -881,7 +881,8 @@ function useLibraryCapabilities(scope: string) {
     capabilities: global ? globalQuery.data : agentQuery.data,
     controlPlanePlugins: controlPlaneQuery.data?.control_plane_plugins ?? [],
     controlPlaneLoading: controlPlaneQuery.isLoading,
-    error: agentsQuery.error ?? globalQuery.error ?? agentQuery.error ?? controlPlaneQuery.error,
+    error:
+      agentsQuery.error ?? globalQuery.error ?? agentQuery.error ?? (showControlPlane ? controlPlaneQuery.error : null),
     loading: agentsQuery.isLoading || (global ? globalQuery.isLoading : agentQuery.isLoading)
   }
 }

@@ -280,7 +280,8 @@ operator has no data-tenant selection. Each tenant section uses a separate API
 request, query-cache key, filter, and paging cursor. Rows identify their tenant,
 and record links carry that tenant into the destination document, including when
 the operator opens a new tab. The tenant filter can select one tenant or restore
-the aggregate view.
+the aggregate view. Links to editors for site resources preserve that selection, and site
+queries share one cache entry across tenant sections.
 The browser preserves both standard and URL-safe Base64 cursors, including
 padding, in the URL history so reload and previous-page navigation keep the
 server's cursor intact.

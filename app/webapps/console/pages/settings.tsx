@@ -34,7 +34,7 @@ import {
   RiResetLeftLine,
   RiSettings3Line
 } from '@remixicon/react'
-import { useIsMutating } from '@tanstack/react-query'
+import { useIsMutating, useQuery as useBaseQuery } from '@tanstack/react-query'
 import { Fragment, useDeferredValue, useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useParams } from '@tanstack/react-router'
@@ -107,7 +107,7 @@ export function SettingsPage() {
 
 function SettingsList() {
   const { t } = useTranslation()
-  const globalList = useQuery(listSiteAppConfigurationsOptions())
+  const globalList = useBaseQuery(listSiteAppConfigurationsOptions())
   const tenantList = useQuery(listAppConfigurationsOptions())
   const globalItems = new Map((globalList.data?.app_configurations ?? []).map(item => [item.key, item]))
   const tenantItems = new Map((tenantList.data?.app_configurations ?? []).map(item => [item.key, item]))

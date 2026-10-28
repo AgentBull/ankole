@@ -57,7 +57,7 @@ export const useSearchParams: typeof useBaseSearchParams = () => {
   ]
 }
 
-/** A record link opens a document bound to the row's tenant, including in a new tab. */
+/** A record link preserves its owner scope when it opens a new document. */
 export const Link = ((props: ComponentProps<typeof RouterLink>) => {
   const tenant = useConsoleTenant()
   const router = useRouter()
@@ -71,11 +71,12 @@ export const Link = ((props: ComponentProps<typeof RouterLink>) => {
       : props.search === true
         ? current
         : props.search
+  const siteGlobal = search && typeof search === 'object' && 'scope' in search && search.scope === 'global'
   return (
     <RouterLink<AnyRouter, string, string, string, string>
       {...props}
       reloadDocument
-      search={{ ...search, data_tenant: tenant.id }}
+      search={siteGlobal ? search : { ...search, data_tenant: tenant.id }}
     />
   )
 }) as typeof RouterLink
