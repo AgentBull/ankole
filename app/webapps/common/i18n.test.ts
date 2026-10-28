@@ -34,8 +34,23 @@ test('activity labels, shared errors, and private extension labels resolve from 
     expect(i18n.t(key, { lng: 'ja-JP' })).toBe(get(japanese, key))
   }
   if (edition === 'saas') {
-    expect(get(english, 'saas.account.switch')).toBeString()
-    expect(i18n.t('saas.account.switch', { lng: 'ja-JP' })).toBe(get(english, 'saas.account.switch'))
+    for (const { locale, catalog } of catalogs) {
+      await loadLocale(locale)
+      for (const key of ['saas.account.switch', 'saas.account.slug_hint']) {
+        expect(get(catalog, key), `${locale}: ${key}`).toBeString()
+        expect(i18n.t(key, { lng: locale })).toBe(get(catalog, key))
+      }
+    }
+  }
+})
+
+test('a missing translation uses the English catalog', async () => {
+  await loadLocale('ja-JP')
+  i18n.addResource('en-US', 'fallback-test', 'label', 'English fallback')
+  try {
+    expect(i18n.t('label', { lng: 'ja-JP', ns: 'fallback-test' })).toBe('English fallback')
+  } finally {
+    i18n.removeResourceBundle('en-US', 'fallback-test')
   }
 })
 

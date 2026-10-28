@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.1.0-alpha.2 (2026-10-28)
+
+- Show the Pod page picker scope labels from the locale catalogs.
+- Make the full Pod mobile sidebar section link 40 px tall so the whole row
+  opens the section.
+- Offer the realtime reconnect action on a Pod page when its live connection
+  does not open in 10 seconds. Loaded file previews stay visible.
+
 ## Version 2.1.0-alpha.1 (2026-10-28)
 
 - Show tenant-owned Site Console collections across all tenants and let operators

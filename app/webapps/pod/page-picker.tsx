@@ -42,7 +42,7 @@ export function PagePicker({
   const byID = new Map([...pages, ...(remote.data?.ancestors ?? [])].map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
     const ancestors = pageAncestors(page, byID).map(parent => parent.title || t('pod.content.untitled'))
-    const scope = page.private_owner_uid ? t('pod.sidebar.private') : t('pod.sidebar.space')
+    const scope = page.private_owner_uid ? t('pod.content.private') : t('pod.content.space')
     return ancestors.length > 0 ? `${scope} / ${ancestors.join(' / ')}` : scope
   }
   return (

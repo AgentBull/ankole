@@ -567,6 +567,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 
   .pod-nav-section-heading > a {
     display: flex;
+    min-height: 40px;
     align-items: center;
   }
 
