@@ -16,6 +16,13 @@
   upstream rejected the request. Remove the option from the profile.
 - Remove the Claude `none` and `minimal` reasoning effort values, which
   Anthropic does not accept.
+- Send a reasoning effort only to models that accept one. A model without a
+  configured effort gets `high` only when the packaged model metadata marks it
+  as reasoning, so OpenAI models such as `gpt-4o` and `gpt-4.1` and Claude
+  models without effort levels, such as Claude Haiku 4.5, work again. A
+  configured effort that the model does not list fails before the request, for
+  example `xhigh` on Claude Opus 4.5. Models that the metadata does not describe
+  get only a configured effort.
 
 ## Version 2.1.0-alpha.1 (2026-10-28)
 

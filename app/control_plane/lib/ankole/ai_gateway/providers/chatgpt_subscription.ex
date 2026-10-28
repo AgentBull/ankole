@@ -42,7 +42,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
 
     setting(:reasoningEffort,
       type: :select,
-      default: ReasoningEffort.default(),
       options: ReasoningEffort.values(),
       scope: :request
     )

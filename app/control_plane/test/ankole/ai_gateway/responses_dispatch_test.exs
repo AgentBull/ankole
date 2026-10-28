@@ -1954,7 +1954,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
-    assert request.body["reasoning_effort"] == "high"
+    # No metadata describes this model, so only a chosen effort is sent.
+    refute Map.has_key?(request.body, "reasoning_effort")
     refute Map.has_key?(request.body, "reasoningEffort")
 
     assert get_in(http1_body, ["output", Access.at(0), "content", Access.at(0), "text"]) ==
@@ -1999,7 +2000,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["anthropic-version"] == "2023-06-01"
     assert request.body["model"] == "claude-sonnet-4-5"
     assert request.body["stream"] == true
-    assert request.body["output_config"] == %{"effort" => "high"}
+    # The packaged metadata lists no effort levels for this model.
+    refute Map.has_key?(request.body, "output_config")
     refute Map.has_key?(request.body, "effort")
 
     assert [%{"role" => "user", "content" => [%{"type" => "text", "text" => "hello"}]}] =

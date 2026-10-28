@@ -224,6 +224,18 @@ as `inference_geo`. OpenAI Chat Completions rejects the Responses-only options
 `unsupported_provider_option`. Claude accepts the `reasoningEffort` values
 `low`, `medium`, `high`, and `xhigh`, and sends `xhigh` as `max`.
 
+A request carries a reasoning effort only when the packaged `llm_db` model
+metadata allows it, because upstreams reject an effort for a model that does
+not reason. When neither the model profile nor the request chooses a value, a
+model that the metadata marks as reasoning gets `high`, provided that `high`
+is one of its listed effort levels. A Claude model qualifies only when the
+metadata lists effort levels. A chosen value is rejected with a
+`reasoning_effort` error when the metadata marks the model as not reasoning or
+does not list the value. A model that the metadata does not describe gets only a
+chosen value. OpenRouter, ChatGPT Subscription, and Volcengine Ark own their
+model catalogs, so their models get `high` when nothing chooses a value. This
+check reads only local metadata and adds no upstream request.
+
 Only `credential` settings may set `encrypted: true`; `ProviderDSL` rejects
 `encrypted` in `connection` or `request` scopes at compile/declaration time.
 `select` settings restrict values to a closed option list, whereas `string`

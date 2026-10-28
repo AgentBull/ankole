@@ -735,7 +735,7 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
     assert is_binary(openrouter["label"]["default"])
     assert "llm" in openrouter["capabilities"]
 
-    assert %{"scope" => "request", "type" => "select", "default" => "high", "options" => [_ | _]} =
+    assert %{"scope" => "request", "type" => "select", "default" => nil, "options" => [_ | _]} =
              Enum.find(openrouter["settings"], &(&1["key"] == "reasoningEffort"))
 
     assert %{"encrypted" => true, "scope" => "credential", "default" => nil} =
