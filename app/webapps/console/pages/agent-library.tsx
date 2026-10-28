@@ -97,6 +97,7 @@ export function AgentLibraryPage() {
       return params
     })
   const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
+  const siteDefaults = scope === GLOBAL_LIBRARY_SCOPE && defaultsScope === 'global'
   const [pluginQuery, setPluginQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
@@ -134,7 +135,7 @@ export function AgentLibraryPage() {
         actions={
           <>
             <RefreshButton />
-            {activeTab !== 'control-plane-plugins' ? (
+            {activeTab !== 'control-plane-plugins' && !siteDefaults ? (
               <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
             ) : null}
             {scope === GLOBAL_LIBRARY_SCOPE && activeTab === 'control-plane-plugins' ? (
@@ -259,6 +260,7 @@ export function AgentPluginDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
+  const siteDefaults = scope === GLOBAL_LIBRARY_SCOPE && defaultsScope === 'global'
   const data = useLibraryCapabilities(scope, defaultsScope, false)
   const mutations = useCapabilityMutations(scope, defaultsScope)
   const lessons = useSkillLessons(scope)
@@ -292,7 +294,7 @@ export function AgentPluginDetailPage() {
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <RefreshButton />
-          <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+          {!siteDefaults ? <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} /> : null}
           {scope === GLOBAL_LIBRARY_SCOPE ? (
             <Badge variant="secondary">
               {t(`console.settings.scope_${searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'}`)}

@@ -28,6 +28,7 @@ test('tenant collections aggregate, records require a tenant, and site settings 
   expect(consoleTenantPage('/settings/brain.embedding_model', new URLSearchParams('scope=global'))).toBe('site')
   expect(consoleTenantPage('/settings', new URLSearchParams('scope=global'))).toBe('site')
   expect(consoleTenantPage('/agent-library', new URLSearchParams('defaults_scope=global'))).toBe('site')
+  expect(consoleTenantPage('/agent-library', new URLSearchParams('defaults_scope=global&scope=agent-a'))).toBe('record')
   expect(consoleTenantPage('/agent-library/agent-plugins/office', new URLSearchParams('defaults_scope=global'))).toBe(
     'site'
   )
