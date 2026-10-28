@@ -30,8 +30,8 @@ export function applyDataTenantNavigation(): void {
 }
 
 /** A cancelled beforeunload must leave both this document and its tenant unchanged. */
-export function selectDataTenant(tenantID: string | null): void {
-  const url = new URL(window.location.href)
+export function selectDataTenant(tenantID: string | null, target?: string): void {
+  const url = new URL(target ?? window.location.href, window.location.href)
   url.searchParams.set('data_tenant', tenantID ?? '')
   window.location.assign(url)
 }

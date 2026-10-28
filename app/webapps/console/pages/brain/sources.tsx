@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useInfiniteQuery } from '../../tenant-context'
 import {
   Badge,
   Button,
@@ -15,11 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { RiInboxArchiveLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useInfiniteQuery } from '@tanstack/react-query'
+
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {

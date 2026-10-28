@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link, useSearchParams, useNavigate } from '../tenant-context'
 import { flushSync } from 'react-dom'
 import {
   Badge,
@@ -18,17 +19,16 @@ import {
   Input,
   Switch,
   TableCell,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { RiTerminalBoxLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useSearchParams } from '../../common/router'
+import { useParams } from '@tanstack/react-router'
+
 import {
   decryptWorkerEnvMutation,
   deleteWorkerEnvMutation,
@@ -124,7 +124,7 @@ export function WorkerEnvPlaintextConfirmDialog({
 
 export function WorkerEnvsListPage() {
   const { t } = useTranslation()
-  const globalList = useQuery(listSiteWorkerEnvsOptions())
+  const globalList = useBaseQuery(listSiteWorkerEnvsOptions())
   const tenantList = useQuery(listWorkerEnvsOptions())
   const globalItems = new Map((globalList.data?.worker_envs ?? []).map(item => [item.name, item]))
   const tenantItems = new Map((tenantList.data?.worker_envs ?? []).map(item => [item.name, item]))

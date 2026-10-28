@@ -1,7 +1,8 @@
+import { useMutation, useQuery } from '../tenant-context'
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useTranslation } from 'react-i18next'
 import {
   classifyWorkAccessMutation,

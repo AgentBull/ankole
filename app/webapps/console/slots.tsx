@@ -41,27 +41,29 @@ export interface ConsoleAppSlots {
 export const ConsoleSlotsContext = createContext<ConsoleAppSlots>({})
 export const useConsoleSlots = () => useContext(ConsoleSlotsContext)
 
-export const coreConsoleRouteRoots = [
-  'agents',
-  'tenants',
-  'agent-library',
-  'brain',
-  'providers',
-  'identity',
-  'oidc-clients',
-  'access',
-  'signals',
-  'schedules',
-  'webhooks',
-  'automation-jobs',
-  'settings',
-  'worker-providers',
-  'worker-envs',
-  'workers',
-  'background-agent-jobs',
-  'conversations',
-  '$'
-] as const
+export const coreConsoleRouteScopes = {
+  agents: 'tenant',
+  tenants: 'site',
+  'agent-library': 'tenant',
+  brain: 'tenant',
+  providers: 'site',
+  identity: 'tenant',
+  'oidc-clients': 'tenant',
+  access: 'tenant',
+  signals: 'tenant',
+  schedules: 'tenant',
+  webhooks: 'tenant',
+  'automation-jobs': 'tenant',
+  settings: 'tenant',
+  'worker-providers': 'site',
+  'worker-envs': 'tenant',
+  workers: 'tenant',
+  'background-agent-jobs': 'tenant',
+  conversations: 'tenant',
+  $: 'site'
+} as const satisfies Record<string, ConsoleRouteScope>
+
+export const coreConsoleRouteRoots = Object.keys(coreConsoleRouteScopes)
 
 export function normalizeConsoleSlotPath(path: string): string {
   return path.replace(/^\/+|\/+$/g, '')

@@ -1,7 +1,8 @@
+import { useMutation, useQuery } from '../tenant-context'
 import { match } from '@agentbull/active-support'
 import { Input, Progress, ProgressLabel, ProgressValue, Skeleton, cn, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {

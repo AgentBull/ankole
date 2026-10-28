@@ -1,3 +1,4 @@
+import { useMutation, useQuery } from '../tenant-context'
 import { isRecord, uuidV4 } from '@agentbull/active-support'
 import { ActorLabel } from '../actor-label'
 import {
@@ -16,7 +17,7 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {

@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useInfiniteQuery, Link, useSearchParams } from '../../tenant-context'
 import {
   Badge,
   Button,
@@ -23,15 +24,14 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  TableRow,
   Textarea,
   toast
 } from '@ankole/uikit'
 import { RiChatQuoteLine, RiLoaderLine, RiMore2Fill } from '@remixicon/react'
-import { keepPreviousData, useMutation, useInfiniteQuery } from '@tanstack/react-query'
+import { keepPreviousData } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import {
   forgetBrainClaimMutation,
   listBrainClaimsInfiniteOptions,
@@ -41,7 +41,7 @@ import {
 import type { ListBrainClaimsResponse } from '../../api/v2/generated/types.gen'
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
-import { useSearchParams } from '../../../common/router'
+
 import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../../console-form'
 import { formatConsoleDate } from '../../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'

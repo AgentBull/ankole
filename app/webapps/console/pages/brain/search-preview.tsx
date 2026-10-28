@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link } from '../../tenant-context'
 import { principalLabel } from '../../state/principal-label'
 import {
   Badge,
@@ -12,14 +13,13 @@ import {
   TableBody,
   TableCell,
   TableHead,
-  TableHeader,
-  TableRow
+  TableHeader
 } from '@ankole/uikit'
 import { RiCloseLine, RiLoaderLine, RiSearchEyeLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import { previewBrainSearchMutation } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../../api/json-api'

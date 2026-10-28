@@ -1,3 +1,4 @@
+import { useMutation, useQuery, Link, useSearchParams, useConsoleTenant } from '../tenant-context'
 import {
   Alert,
   AlertDescription,
@@ -31,11 +32,11 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInformationLine, RiRestartLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation as useBaseMutation, useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from '@tanstack/react-router'
-import { linkTarget, useSearchParams } from '../../common/router'
+import { useParams, useRouter } from '@tanstack/react-router'
+import { linkTarget } from '../../common/router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   getAgentLibraryCapabilitiesOptions,
@@ -70,6 +71,7 @@ import { ConfirmDeleteButton, SaveButton } from '../console-form'
 import { ResourceSearch } from '../console-list-page'
 import {
   GLOBAL_LIBRARY_SCOPE,
+  isSiteLibraryDefaults,
   type AgentLibraryTab,
   agentLibraryOverrideValue,
   agentLibraryScopeQuery,
@@ -83,6 +85,9 @@ import {
 
 export function AgentLibraryPage() {
   const { i18n, t } = useTranslation()
+  const router = useRouter()
+  const tenant = useConsoleTenant()
+  const showControlPlane = !tenant || tenant.first
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const tab = (searchParams.get('tab') ?? 'agent-plugins') as AgentLibraryTab
@@ -93,10 +98,11 @@ export function AgentLibraryPage() {
       return params
     })
   const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
+  const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
   const [pluginQuery, setPluginQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
-  const data = useLibraryCapabilities(scope, defaultsScope)
+  const data = useLibraryCapabilities(scope, defaultsScope, showControlPlane)
   const capabilityMutations = useCapabilityMutations(scope, defaultsScope)
   const lessons = useSkillLessons(scope)
   const controlPlaneMutation = useControlPlanePluginMutation()
@@ -130,7 +136,7 @@ export function AgentLibraryPage() {
         actions={
           <>
             <RefreshButton />
-            {activeTab !== 'control-plane-plugins' ? (
+            {activeTab !== 'control-plane-plugins' && !siteDefaults ? (
               <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
             ) : null}
             {scope === GLOBAL_LIBRARY_SCOPE && activeTab === 'control-plane-plugins' ? (
@@ -139,11 +145,13 @@ export function AgentLibraryPage() {
               <Select
                 value={defaultsScope}
                 onValueChange={value =>
-                  setSearchParams(previous => {
-                    const params = new URLSearchParams(previous)
-                    params.set('defaults_scope', String(value))
-                    return params
-                  })
+                  value &&
+                  window.location.assign(
+                    router.buildLocation({
+                      to: '/agent-library',
+                      search: { ...Object.fromEntries(searchParams), defaults_scope: String(value) }
+                    }).href
+                  )
                 }>
                 <SelectTrigger aria-label={t('console.settings.editing_context')} className="w-52">
                   <SelectValue />
@@ -172,7 +180,7 @@ export function AgentLibraryPage() {
             {t('console.agent_library_capabilities.skills')}
             <TabCount value={data.capabilities?.skills.length ?? 0} />
           </TabsTrigger>
-          {scope === GLOBAL_LIBRARY_SCOPE ? (
+          {scope === GLOBAL_LIBRARY_SCOPE && showControlPlane ? (
             <TabsTrigger value="control-plane-plugins">
               {t('console.agent_library_capabilities.control_plane_plugins')}
               <TabCount value={data.controlPlanePlugins.length} />
@@ -221,8 +229,9 @@ export function AgentLibraryPage() {
           </CapabilityGrid>
         </TabsContent>
 
-        {scope === GLOBAL_LIBRARY_SCOPE ? (
+        {scope === GLOBAL_LIBRARY_SCOPE && showControlPlane ? (
           <TabsContent value="control-plane-plugins" className="grid min-w-0 gap-4">
+            <p className="text-sm text-muted-foreground">{t('console.settings.scope_global')}</p>
             <CapabilitySearch value={controlPlaneQuery} onChange={setControlPlaneQuery} kind="control_plane_plugins" />
             <CapabilityGrid
               loading={data.controlPlaneLoading}
@@ -251,8 +260,10 @@ export function AgentPluginDetailPage() {
   const { pluginID = '' } = useParams({ strict: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
-  const data = useLibraryCapabilities(scope, searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant')
-  const mutations = useCapabilityMutations(scope, searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant')
+  const defaultsScope = searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'
+  const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
+  const data = useLibraryCapabilities(scope, defaultsScope, false)
+  const mutations = useCapabilityMutations(scope, defaultsScope)
   const lessons = useSkillLessons(scope)
   const plugin = data.capabilities?.agent_plugins.find(item => item.id === pluginID)
   const setScope = (value: string) => {
@@ -284,7 +295,7 @@ export function AgentPluginDetailPage() {
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <RefreshButton />
-          <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+          {!siteDefaults ? <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} /> : null}
           {scope === GLOBAL_LIBRARY_SCOPE ? (
             <Badge variant="secondary">
               {t(`console.settings.scope_${searchParams.get('defaults_scope') === 'global' ? 'global' : 'tenant'}`)}
@@ -900,9 +911,10 @@ function LoadingCards() {
   )
 }
 
-function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant' = 'tenant') {
+function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant', showControlPlane: boolean) {
   const global = scope === GLOBAL_LIBRARY_SCOPE
-  const agentsQuery = useQuery(agentListOptions())
+  const siteDefaults = isSiteLibraryDefaults(scope, defaultsScope)
+  const agentsQuery = useQuery({ ...agentListOptions(), enabled: !siteDefaults })
   const globalQuery = useQuery({
     ...getGlobalLibraryCapabilitiesOptions({ query: { defaults_scope: defaultsScope } }),
     enabled: global
@@ -911,9 +923,9 @@ function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant
     ...getAgentLibraryCapabilitiesOptions({ path: { agent_uid: scope } }),
     enabled: !global
   })
-  const controlPlaneQuery = useQuery({
+  const controlPlaneQuery = useBaseQuery({
     ...listControlPlanePluginsOptions(),
-    enabled: global
+    enabled: global && showControlPlane
   })
 
   return {
@@ -921,8 +933,11 @@ function useLibraryCapabilities(scope: string, defaultsScope: 'global' | 'tenant
     capabilities: global ? globalQuery.data : agentQuery.data,
     controlPlanePlugins: controlPlaneQuery.data?.control_plane_plugins ?? [],
     controlPlaneLoading: controlPlaneQuery.isLoading,
-    error: agentsQuery.error ?? globalQuery.error ?? agentQuery.error ?? controlPlaneQuery.error,
-    loading: agentsQuery.isLoading || (global ? globalQuery.isLoading : agentQuery.isLoading)
+    error:
+      (siteDefaults ? null : agentsQuery.error) ??
+      (global ? globalQuery.error : agentQuery.error) ??
+      (global && showControlPlane ? controlPlaneQuery.error : null),
+    loading: (!siteDefaults && agentsQuery.isLoading) || (global ? globalQuery.isLoading : agentQuery.isLoading)
   }
 }
 
@@ -1028,7 +1043,7 @@ function useSkillLessons(scope: string): SkillLessonsController | undefined {
 
 function useControlPlanePluginMutation() {
   const { t } = useTranslation()
-  return useMutation({
+  return useBaseMutation({
     ...configureControlPlanePluginMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_library_capabilities.saved_for_restart'))

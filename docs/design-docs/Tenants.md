@@ -275,6 +275,32 @@ selection stay intact). Signing out—or confirming an OIDC sign-out—clears th
 stored selection, cancelling OIDC sign-out keeps it, and another login session
 never inherits it.
 
+Tenant-owned Console collections show all active and suspended tenants when the
+operator has no data-tenant selection. Each tenant section uses a separate API
+request, query-cache key, filter, and paging cursor. Rows identify their tenant,
+and record links carry that tenant into the destination document, including when
+the operator opens a new tab. The tenant filter can select one tenant or restore
+the aggregate view. Links to editors for site resources preserve that selection, and site
+queries share one cache entry across tenant sections.
+Settings open in tenant scope by default. Selecting site scope opens one site
+view while preserving the operator's tenant selection. Agent Library uses the
+same boundary for site defaults and tenant defaults.
+The browser preserves both standard and URL-safe Base64 cursors, including
+padding, in the URL history so reload and previous-page navigation keep the
+server's cursor intact.
+
+Tenant-scoped Console extensions use the Console tenant-context hooks for
+queries, mutations, links, and search parameters. Site-scoped extensions use
+their site API contracts and render once.
+Unknown Console routes render the route fallback without a data-tenant
+selection.
+
+Record forms require a data-tenant selection before they load a draft or send a
+request. Creating a record binds it to that tenant. Switching tenants from an
+existing record opens the destination tenant's collection; it does not transfer
+the record. Site-owned resources, including tenants, AI providers, Worker
+providers, and site configuration values, use their site API contracts.
+
 Creating a tenant installs its workspace scaffold and selected Brain schema
 packs in one transaction. Transferring site privilege requires an active Human
 in the target tenant and runs under the standard administration lock order: in a

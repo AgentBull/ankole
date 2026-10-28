@@ -1,5 +1,6 @@
+import { useMutation, useQuery } from '../tenant-context'
 import { Badge, Button, Checkbox, Input, Textarea, toast } from '@ankole/uikit'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useTranslation } from 'react-i18next'
 import {
   listOidcLoginSourcesOptions,

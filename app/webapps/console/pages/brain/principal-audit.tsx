@@ -1,10 +1,11 @@
+import { TableRow, useQuery, Link } from '../../tenant-context'
 import { principalLabel } from '../../state/principal-label'
 import { ActorLabel } from '../../actor-label'
-import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Skeleton } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, Skeleton } from '@ankole/uikit'
+
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import { listBrainPrincipalKnowledgeOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../../api/json-api'

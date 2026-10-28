@@ -10,6 +10,10 @@ export type ControlPlanePluginItem = ListControlPlanePluginsResponse['control_pl
 
 export const GLOBAL_LIBRARY_SCOPE = '__global__'
 
+export function isSiteLibraryDefaults(scope: string, defaultsScope: string): boolean {
+  return scope === GLOBAL_LIBRARY_SCOPE && defaultsScope === 'global'
+}
+
 export type AgentLibraryTab = 'agent-plugins' | 'skills' | 'control-plane-plugins'
 export type AgentLibraryOverrideValue = 'inherit' | 'enabled' | 'disabled'
 

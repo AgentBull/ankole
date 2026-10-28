@@ -1,3 +1,5 @@
+import { useQuery, Link } from '../tenant-context'
+import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
   Button,
@@ -11,9 +13,9 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import {
   listAiGatewayModelsOptions,
   listAiGatewayProviderKindsOptions
@@ -66,9 +68,9 @@ export function BrainSettingsEditor({
   const { t } = useTranslation()
   const itemsByKey = new Map(items.map(item => [item.key, item]))
   const cronLabels = cronEditorLabels(t)
-  const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
-  const providerKinds = useQuery(listAiGatewayProviderKindsOptions())
-  const modelCatalog = useQuery(listAiGatewayModelsOptions())
+  const providers = useBaseQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
+  const providerKinds = useBaseQuery(listAiGatewayProviderKindsOptions())
+  const modelCatalog = useBaseQuery(listAiGatewayModelsOptions())
   const agents = useQuery(agentListOptions())
   const providerList = providers.data ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []

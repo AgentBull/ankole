@@ -1,21 +1,13 @@
-import {
-  Badge,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  TableCell,
-  TableRow
-} from '@ankole/uikit'
+import { TableRow, useMutation, useQuery, Link, useSearchParams, useConsoleTenant } from '../tenant-context'
+import { Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, TableCell } from '@ankole/uikit'
 import { useDeferredValue, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { useQuery as useBaseQuery } from '@tanstack/react-query'
+import { useRouter } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { RiSettings3Line } from '@remixicon/react'
 import { recordValue } from '@agentbull/active-support'
 import { dataTenantID } from '../../common/browser-session'
-import { linkTarget, useSearchParams } from '../../common/router'
+import { linkTarget } from '../../common/router'
 import {
   decryptAppConfigurationMutation,
   getAgentAppConfigurationOptions,
@@ -46,9 +38,10 @@ import { settingDecryptedDraft } from '../state/setting-editor-model'
 import { settingDurationParts } from '../state/setting-value-editor'
 
 function useSettingsTenantName() {
-  const tenants = useQuery({ ...listTenantsOptions(), select: document => fromDocument(document) })
-  const privileged = useQuery({ ...getPrivilegedTenantOptions(), select: document => fromDocument(document) })
-  const id = dataTenantID() ?? privileged.data?.id
+  const context = useConsoleTenant()
+  const tenants = useBaseQuery({ ...listTenantsOptions(), select: document => fromDocument(document) })
+  const privileged = useBaseQuery({ ...getPrivilegedTenantOptions(), select: document => fromDocument(document) })
+  const id = context?.id ?? dataTenantID() ?? privileged.data?.id
   return tenants.data?.find(item => item.id === id)?.display_name ?? id ?? '—'
 }
 
@@ -60,12 +53,13 @@ export function SettingsTenantContext() {
 
 export function SettingsList() {
   const { t } = useTranslation()
+  const router = useRouter()
   const [params, setParams] = useSearchParams()
   const scope = settingsScope(params)
   const registry = params.get('view') === 'registry'
   const query = params.get('q') ?? ''
   const deferredQuery = useDeferredValue(query)
-  const global = useQuery(listSiteAppConfigurationsOptions())
+  const global = useBaseQuery(listSiteAppConfigurationsOptions())
   const tenant = useQuery(listAppConfigurationsOptions())
   const tenantName = useSettingsTenantName()
   const globalItems = new Map((global.data?.app_configurations ?? []).map(item => [item.key, item]))
@@ -301,7 +295,11 @@ export function SettingsList() {
   return (
     <ResourceListPage
       title={t('console.settings.title')}
-      description={`${t(scope === 'global' ? 'console.settings.site_context' : 'console.settings.tenant_context')} · ${t('console.settings.data_tenant', { name: tenantName })}`}
+      description={
+        scope === 'global'
+          ? t('console.settings.site_context')
+          : `${t('console.settings.tenant_context')} · ${t('console.settings.data_tenant', { name: tenantName })}`
+      }
       columns={
         registry
           ? [t('console.settings.key'), t('console.settings.effective_value'), t('console.settings.registry_policy')]
@@ -318,7 +316,21 @@ export function SettingsList() {
       onClearFilters={() => update('q', '')}
       toolbar={
         <>
-          <Select value={scope} onValueChange={next => next && update('scope', String(next))}>
+          <Select
+            value={scope}
+            onValueChange={next =>
+              next &&
+              window.location.assign(
+                router.buildLocation({
+                  to: '/settings',
+                  search: settingsSearch(new URLSearchParams(router.latestLocation.searchStr), {
+                    scope: String(next),
+                    view: params.get('view') ?? undefined,
+                    q: params.get('q') ?? undefined
+                  })
+                }).href
+              )
+            }>
             <SelectTrigger aria-label={t('console.settings.editing_context')} className="w-52">
               <SelectValue />
             </SelectTrigger>

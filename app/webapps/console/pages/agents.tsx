@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
 import { principalLabel } from '../state/principal-label'
 import { ActorLabel } from '../actor-label'
 import { match, recordValue } from '@agentbull/active-support'
@@ -9,17 +10,16 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  TableRow,
   cn,
   toast
 } from '@ankole/uikit'
 import { RiPauseCircleLine, RiPlayCircleLine, RiRobot2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { listAgentModelProfilesOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import {
   listAiGatewayModelsOptions,
@@ -228,13 +228,13 @@ function AgentEditor({ uid }: { uid?: string }) {
   const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
   const owners = (principals.data ?? []).filter(principal => principal.type === 'human')
   const needsOwner = mode === 'new' && principals.isSuccess && owners.length === 0
-  const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
-  const workerProviders = useQuery({ ...listWorkerProvidersOptions(), select: workerProviderRecords })
-  const providerKinds = useQuery({
+  const providers = useBaseQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
+  const workerProviders = useBaseQuery({ ...listWorkerProvidersOptions(), select: workerProviderRecords })
+  const providerKinds = useBaseQuery({
     ...listAiGatewayProviderKindsOptions(),
     enabled: Boolean(uid)
   })
-  const modelCatalog = useQuery({
+  const modelCatalog = useBaseQuery({
     ...listAiGatewayModelsOptions(),
     enabled: Boolean(uid)
   })

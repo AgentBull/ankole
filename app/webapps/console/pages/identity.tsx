@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
 import { flushSync } from 'react-dom'
 import { DirectoryAccessSection } from './directory-access'
 import {
@@ -10,17 +11,16 @@ import {
   SelectValue,
   Switch,
   TableCell,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiRefreshLine, RiShieldKeyholeLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import {
   ConfigFields,
   type ConfigFieldDefinition,

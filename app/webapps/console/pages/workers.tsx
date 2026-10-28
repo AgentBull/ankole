@@ -1,10 +1,11 @@
+import { TableRow, useQuery, Link } from '../tenant-context'
 import { SETTLED_WORKERS_REFRESH_MS, WAITING_REFRESH_MS } from '../refresh-intervals'
-import { TableCell, TableRow } from '@ankole/uikit'
+import { TableCell } from '@ankole/uikit'
 import { RiServerLine } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
+
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import { type AgentWorkerItem, agentWorkerListOptions } from '../api/agent-workers'
 import { agentListOptions } from '../api/agents'
 import { StatusIndicator, type StatusTone } from '../console-form'

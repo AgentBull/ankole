@@ -1256,7 +1256,7 @@ one {{{$count} Skill}}
 skills = "Skills"
 title = "Agent Library"
 view_details = "View details"
-description = "Manage Agent Plugins and standalone Skills globally or override them for one Agent. Control Plane Plugin changes apply on restart."
+description = "Set site or tenant defaults for Agent Plugins and standalone Skills, or overrides for one Agent. Control Plane Plugins apply to the site and change on restart."
 
 [console.providers]
 access_token = "Access token"
@@ -2569,6 +2569,10 @@ assigned = "Worker provider assigned"
 description = "Each provider supplies Workers with one configuration. Select a provider when you create an Agent."
 
 [console.tenants]
+tenant = "Tenant"
+all = "All tenants"
+choose = "Choose tenant"
+choose_for_record = "Choose a tenant to view, create, or edit a record."
 title = "Tenants"
 new = "New tenant"
 name = "Name"
@@ -2576,7 +2580,7 @@ slug = "Slug"
 state = "State"
 empty = "No tenants"
 privileged = "Site administration"
-data_context = "Data context"
+data_context = "Tenant"
 active = "Active"
 suspended = "Suspended"
 deleting = "Deleting"

@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery } from '../tenant-context'
 import {
   Button,
   Input,
@@ -8,11 +9,10 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
   toast
 } from '@ankole/uikit'
 import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useEffect, useRef, useState, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import {

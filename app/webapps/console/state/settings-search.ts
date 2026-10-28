@@ -3,7 +3,7 @@ import { BRAIN_CHUNKING_FIELDS, BRAIN_FORGETTING_FIELDS } from './brain-setting-
 
 export type SettingsScope = 'global' | 'tenant'
 export function settingsScope(params: URLSearchParams): SettingsScope {
-  return params.get('scope') === 'tenant' ? 'tenant' : 'global'
+  return params.get('scope') === 'global' ? 'global' : 'tenant'
 }
 
 const FIELD_ALIASES: Record<string, string[]> = {

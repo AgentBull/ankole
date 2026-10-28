@@ -1,3 +1,4 @@
+import { useMutation, useQuery, Link, useNavigate, useSearchParams } from '../tenant-context'
 import {
   Badge,
   Button,
@@ -24,11 +25,16 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiCloseLine, RiLoaderLine, RiMore2Fill, RiResetLeftLine } from '@remixicon/react'
-import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useIsMutating,
+  useMutation as useBaseMutation,
+  useQuery as useBaseQuery,
+  useQueryClient
+} from '@tanstack/react-query'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Navigate, Outlet, useNavigate, useParams } from '@tanstack/react-router'
-import { linkTarget, useSearchParams } from '../../common/router'
+import { Navigate, Outlet, useParams } from '@tanstack/react-router'
+import { linkTarget } from '../../common/router'
 import { dataTenantID } from '../../common/browser-session'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
@@ -138,7 +144,7 @@ function SingleSettingEditorDrawer() {
     }) > 0
 
   const list = useQuery(api.index())
-  const privilegedTenant = useQuery({
+  const privilegedTenant = useBaseQuery({
     ...getPrivilegedTenantOptions(),
     select: document => fromDocument(document),
     enabled: scope === 'tenant' && key === 'i18n.default_locale'
@@ -468,7 +474,7 @@ export function SettingGroupDrawer() {
   })
   const errorPath = requestErrorDetailList(update.error).find(detail => typeof detail.path === 'string')?.path
   useSettingFocus(typeof errorPath === 'string' ? errorPath : searchParams.get('focus'), draftStatus === 'ready')
-  const testMail = useMutation({ ...testSiteAuthenticationMailMutation(), meta: { invalidates: false } })
+  const testMail = useBaseMutation({ ...testSiteAuthenticationMailMutation(), meta: { invalidates: false } })
   const decrypt = useMutation({
     meta: { invalidates: false },
     ...api.decrypt(),

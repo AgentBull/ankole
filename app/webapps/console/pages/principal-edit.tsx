@@ -1,10 +1,11 @@
+import { useMutation, useQuery, useNavigate } from '../tenant-context'
 import { Input, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { getPrincipalOptions, updateHumanMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../api/json-api'
 import { requestErrorCode } from '../../common/request-errors'

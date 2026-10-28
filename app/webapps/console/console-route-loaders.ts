@@ -30,7 +30,7 @@ import { principalListOptions } from './pages/principals'
 import { resourceID } from './console-primitives'
 import { checkbackListOptions, cronScheduleListOptions } from './pages/schedules'
 import { webhookEndpointListOptions } from './pages/webhooks'
-import { GLOBAL_LIBRARY_SCOPE } from './state/agent-library-capabilities'
+import { GLOBAL_LIBRARY_SCOPE, isSiteLibraryDefaults } from './state/agent-library-capabilities'
 
 export interface ConsoleRouteLoaderContext {
   location: { searchStr: string }
@@ -60,11 +60,17 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       ),
     agents: () => ensure(agentListOptions()).then(() => null),
     agentLibrary: ({ location }: ConsoleRouteLoaderContext) => {
-      const scope = new URLSearchParams(location.searchStr).get('scope') || GLOBAL_LIBRARY_SCOPE
-      const agents = ensure(agentListOptions())
+      const params = new URLSearchParams(location.searchStr)
+      const scope = params.get('scope') || GLOBAL_LIBRARY_SCOPE
+      const defaultsScope = params.get('defaults_scope') === 'global' ? 'global' : 'tenant'
+      const agents = isSiteLibraryDefaults(scope, defaultsScope) ? Promise.resolve() : ensure(agentListOptions())
 
       return scope === GLOBAL_LIBRARY_SCOPE
-        ? all(agents, ensure(getGlobalLibraryCapabilitiesOptions()), ensure(listControlPlanePluginsOptions()))
+        ? all(
+            agents,
+            ensure(getGlobalLibraryCapabilitiesOptions({ query: { defaults_scope: defaultsScope } })),
+            ensure(listControlPlanePluginsOptions())
+          )
         : all(
             agents,
             ensure(getAgentLibraryCapabilitiesOptions({ path: { agent_uid: scope } })),

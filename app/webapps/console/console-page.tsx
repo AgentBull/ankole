@@ -1,11 +1,14 @@
+import { Link, useConsoleTenant } from './tenant-context'
+
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@ankole/uikit'
 import { RiArrowLeftLine, RiRefreshLine } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+
 import { linkTarget } from '../common/router'
+import { ConsoleReadiness } from './console-readiness'
 
 /**
  * Names the browser tab and history entry after the page. The Phoenix shell
@@ -49,14 +52,29 @@ export function PageHeader({
   description?: string
   title: string
 }) {
+  const tenant = useConsoleTenant()
   return (
     <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
       <DocumentTitle title={title} />
       <div className="grid min-w-0 gap-1">
-        <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
-        {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
+        {!tenant || tenant.first ? (
+          <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
+        ) : null}
+        {description && (!tenant || tenant.first) ? (
+          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
+        ) : null}
+        {tenant ? (
+          <h3 className="text-base font-semibold">
+            {tenant.display_name} <span className="text-sm font-normal text-muted-foreground">({tenant.slug})</span>
+          </h3>
+        ) : null}
       </div>
-      {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div> : null}
+      {actions || tenant ? (
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          {tenant ? <ConsoleReadiness /> : null}
+          {actions}
+        </div>
+      ) : null}
     </div>
   )
 }

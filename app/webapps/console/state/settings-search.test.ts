@@ -14,8 +14,9 @@ describe('settings navigation and search', () => {
     expect(settingDurationParts('brain.soft_delete_retention_hours', 72)).toEqual({ amount: 3, unit: 'days' })
     expect(settingDurationParts('ai_agent.max_output_tokens', null)).toBeUndefined()
   })
-  test('starts in one site context even on a single-workspace installation', () => {
-    expect(settingsScope(new URLSearchParams())).toBe('global')
+  test('starts with tenant tasks and preserves an explicit site context', () => {
+    expect(settingsScope(new URLSearchParams())).toBe('tenant')
+    expect(settingsScope(new URLSearchParams('scope=global'))).toBe('global')
     expect(settingsScope(new URLSearchParams('scope=tenant'))).toBe('tenant')
     expect(
       settingsSearch(new URLSearchParams('scope=tenant&view=registry&q=otlp_endpoint'), {

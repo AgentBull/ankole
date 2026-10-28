@@ -67,7 +67,7 @@ function readCursorHistory(searchParams: URLSearchParams, cursorPrefix: string):
 
   return encoded
     .split(CURSOR_HISTORY_SEPARATOR)
-    .filter(part => part === ROOT_CURSOR || /^[A-Za-z0-9_-]+$/.test(part))
+    .filter(part => part === ROOT_CURSOR || /^[A-Za-z0-9_+/-]+={0,2}$/.test(part))
     .map(part => (part === ROOT_CURSOR ? '' : part))
 }
 

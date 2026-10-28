@@ -1,3 +1,5 @@
+import { TableRow, useQuery, Link, TenantTableRows, useConsoleTenant } from './tenant-context'
+
 import {
   Button,
   buttonVariants,
@@ -25,7 +27,6 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
   cn
 } from '@ankole/uikit'
 import {
@@ -36,10 +37,10 @@ import {
   RiPencilLine,
   RiSearchLine
 } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
+
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation } from '@tanstack/react-router'
+import { useLocation } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
 import { agentListOptions } from './api/agents'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
@@ -110,6 +111,8 @@ export function ResourceListPage({
   const hasError = Boolean(listError)
   // Hide a toolbar that can only search an empty source. Keep it when a filter
   // is active or one of its controls can broaden the server query.
+  const tenant = useConsoleTenant()
+  const displayColumns = tenant ? [t('console.tenants.tenant'), ...columns] : columns
   const showToolbar = Boolean(toolbar) && (toolbarCanRevealRows || isFiltered || !isEmpty || isLoading)
   // A list has one primary create action. Empty lists place it beside the
   // explanation; populated lists keep it in the page header. Filtered empty
@@ -195,8 +198,8 @@ export function ResourceListPage({
             containerLabel={t('console.table.region_label', { title })}>
             <TableHeader>
               <TableRow>
-                {columns.map(column => (
-                  <TableHead key={column}>{column}</TableHead>
+                {displayColumns.map((column, index) => (
+                  <TableHead key={`${index}:${column}`}>{column}</TableHead>
                 ))}
                 <TableHead className="w-0 text-right">
                   <span className="sr-only">{t('console.actions')}</span>
@@ -204,20 +207,22 @@ export function ResourceListPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading
-                ? Array.from({ length: 4 }, (_, rowIndex) => (
-                    <TableRow key={rowIndex}>
-                      {columns.map((column, columnIndex) => (
-                        <TableCell key={`${column}-${columnIndex}`}>
-                          <Skeleton className={cn('h-4', columnIndex === 0 ? 'w-28' : 'w-20')} />
-                        </TableCell>
-                      ))}
-                      <TableCell>
-                        <Skeleton className="ml-auto size-7" />
+              {isLoading ? (
+                Array.from({ length: 4 }, (_, rowIndex) => (
+                  <TableRow key={rowIndex}>
+                    {displayColumns.map((column, columnIndex) => (
+                      <TableCell key={`${column}-${columnIndex}`}>
+                        <Skeleton className={cn('h-4', columnIndex === 0 ? 'w-28' : 'w-20')} />
                       </TableCell>
-                    </TableRow>
-                  ))
-                : children}
+                    ))}
+                    <TableCell>
+                      <Skeleton className="ml-auto size-7" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TenantTableRows>{children}</TenantTableRows>
+              )}
             </TableBody>
           </Table>
         </div>

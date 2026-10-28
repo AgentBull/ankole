@@ -38,6 +38,16 @@ describe('cursor pagination', () => {
     expect(previousCursorParams(bothPaged, 'audit_').get('cursor')).toBe('list-two')
   })
 
+  test('preserves standard Base64 cursor padding through reload and previous-page navigation', () => {
+    const second = nextCursorParams(new URLSearchParams(), '+/8=')
+    const third = nextCursorParams(second, 'cursor-three')
+    const reloaded = new URLSearchParams(third.toString())
+
+    expect(cursorPageNumber(reloaded)).toBe(3)
+    expect(previousCursorParams(reloaded).get('cursor')).toBe('+/8=')
+    expect(cursorPageNumber(previousCursorParams(reloaded))).toBe(2)
+  })
+
   test('resetting clears only the matching cursor surface', () => {
     const params = new URLSearchParams(
       'owner=agent-one&cursor=list-page&cursor_history=~&audit_cursor=audit-page&audit_cursor_history=~'

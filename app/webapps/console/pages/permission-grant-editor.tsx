@@ -1,3 +1,4 @@
+import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
 import {
   Badge,
   buttonVariants,
@@ -9,16 +10,15 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
   Textarea,
   toast
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import {
   createPermissionGrantMutation,
   deletePermissionGrantMutation,

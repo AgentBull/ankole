@@ -1,9 +1,10 @@
+import { useQuery, Link, useSearchParams } from '../tenant-context'
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
-import { linkTarget, useSearchParams } from '../../common/router'
+
+import { linkTarget } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   backgroundActivityJobsOptions,

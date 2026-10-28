@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 2.1.0-alpha.1 (2026-10-28)
+
+- Show tenant-owned Site Console collections across all tenants and let operators
+  filter by tenant. Bind record forms, row actions, links, searches, and page
+  cursors to the selected tenant. Share site infrastructure queries and preserve
+  the tenant filter when operators open site settings.
+- Show Agent Library read errors for the selected capability scope.
+- Keep padded Base64 page cursors intact when operators reload a Console list or
+  return to its previous page. Show unknown Console routes without asking for a
+  tenant first.
+
 ## Version 2.0.0-alpha.35 (2026-10-28)
 
 - Complete targeted site-credential sign-in through the existing UID-ordered Principal admission flow, preserving site access for non-members and explicit errors for disabled or policy-rejected members. Centralize browser login targets and build-selected login URLs.

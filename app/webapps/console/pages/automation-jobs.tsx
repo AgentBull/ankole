@@ -1,20 +1,12 @@
+import { TableRow, useQuery, Link, useSearchParams } from '../tenant-context'
 import { ACTIVITY_REFRESH_MS } from '../refresh-intervals'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  Skeleton,
-  TableCell,
-  TableRow
-} from '@ankole/uikit'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Skeleton, TableCell } from '@ankole/uikit'
 import { RiCodeSSlashLine } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
+
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
-import { linkTarget, useSearchParams } from '../../common/router'
+
+import { linkTarget } from '../../common/router'
 import { fromDocument } from '../api/json-api'
 import {
   getAutomationJobOptions,

@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useSearchParams } from '../tenant-context'
 import { ACTIVITY_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Accordion,
@@ -43,10 +44,10 @@ import {
   RiUser3Line
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
-import { useMutation, useQuery } from '@tanstack/react-query'
+
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from '../../common/router'
+
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   backgroundAgentJobOptions,
