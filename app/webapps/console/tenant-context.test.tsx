@@ -11,9 +11,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ConsoleTenantContext, Link, TableRow, TenantTableRows } from './tenant-context'
 
 test.each([
-  { path: '/identity/shared', search: { view: 'config' }, tenant: true },
-  { path: '/worker-envs/new', search: { scope: 'global' }, tenant: false }
-])('a record link keeps the owner scope of $path', async ({ path, search, tenant }) => {
+  { path: '/identity/shared', search: { view: 'config' }, query: 'view=config', tenant: true },
+  { path: '/worker-envs/new', search: { scope: 'global' }, query: 'scope=global', tenant: false },
+  { path: '/providers', search: { view: 'catalog' }, query: 'view=catalog', tenant: false }
+])('a record link keeps the owner scope of $path', async ({ path, search, query, tenant }) => {
   const root = createRootRoute({ component: Outlet })
   const index = createRoute({
     getParentRoute: () => root,
@@ -29,13 +30,14 @@ test.each([
   const detail = createRoute({ getParentRoute: () => root, path, component: () => null })
   const router = createRouter({
     isServer: true,
+    basepath: '/operator',
     routeTree: root.addChildren([index, detail]),
-    history: createMemoryHistory({ initialEntries: ['/identity'] })
+    history: createMemoryHistory({ initialEntries: ['/operator/identity'] })
   })
   await router.load()
   const html = renderToStaticMarkup(<RouterProvider router={router} />)
   expect(html.includes('data_tenant=tenant-b')).toBe(tenant)
-  expect(html).toContain(tenant ? 'view=config' : 'scope=global')
+  expect(html).toContain(query)
 })
 
 test('aggregate table rows expose their tenant without changing the resource cells', () => {

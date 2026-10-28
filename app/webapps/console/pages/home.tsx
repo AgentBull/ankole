@@ -13,7 +13,7 @@ import {
   RiServerLine,
   RiSparkling2Line
 } from '@remixicon/react'
-
+import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from '@tanstack/react-router'
@@ -55,7 +55,7 @@ export function HomePage() {
     ...agentWorkerListOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
-  const providers = useQuery({
+  const providers = useBaseQuery({
     ...listAiGatewayProvidersOptions(),
     select: aiGatewayProviders,
     refetchInterval: LIST_REFRESH_MS

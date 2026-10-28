@@ -32,7 +32,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInformationLine, RiRestartLine } from '@remixicon/react'
-import { useQuery as useBaseQuery } from '@tanstack/react-query'
+import { useMutation as useBaseMutation, useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
@@ -985,7 +985,7 @@ function useSkillLessons(scope: string): SkillLessonsController | undefined {
 
 function useControlPlanePluginMutation() {
   const { t } = useTranslation()
-  return useMutation({
+  return useBaseMutation({
     ...configureControlPlanePluginMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_library_capabilities.saved_for_restart'))

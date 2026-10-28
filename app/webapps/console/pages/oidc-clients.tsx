@@ -48,7 +48,7 @@ import {
   useComboboxAnchor
 } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiKey2Line, RiRefreshLine } from '@remixicon/react'
-import { useIsMutating } from '@tanstack/react-query'
+import { useIsMutating, useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
@@ -208,16 +208,16 @@ export function OIDCClientEditorPage() {
     staleTime: 0
   })
   const groups = useQuery({ ...listPrincipalGroupsOptions(), select: data => fromDocument(data) })
-  const providers = useQuery({
+  const providers = useBaseQuery({
     ...listAiGatewayProvidersOptions(),
     select: aiGatewayProviders,
     enabled: aiGatewayEnabled
   })
-  const providerKinds = useQuery({
+  const providerKinds = useBaseQuery({
     ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
     enabled: aiGatewayEnabled
   })
-  const modelCatalog = useQuery({
+  const modelCatalog = useBaseQuery({
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: aiGatewayEnabled
   })
