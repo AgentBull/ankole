@@ -1066,6 +1066,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
     refute redirect_query(response)["code"]
   end
 
+  @tag :foss_sign_in
   test "select_account uses a held proof explicitly and separates two identities for one Client",
        %{conn: conn, tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)

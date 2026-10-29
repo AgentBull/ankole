@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.1.0-alpha.4 (2026-10-28)
+
+- Contributors: `ANKOLE_EDITION=saas mix test` skips the FOSS Pod sign-in
+  tests, because the SaaS edition signs in on the accounts host. The upstream
+  OIDC login tests accept the absolute Pod origin that the SaaS edition uses.
+
 ## Version 2.1.0-alpha.3 (2026-10-28)
 
 - Stop declaring native image generation and web search to an OpenAI provider
