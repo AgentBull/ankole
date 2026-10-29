@@ -95,7 +95,8 @@ visible ancestor breadcrumbs so users can tell identically named Pages apart,
 alongside consistent per-type Page icons across sidebars, pickers, embeds, and
 Chat messages. Within content lists, `J` and `K` move focus while text inputs
 preserve normal typing and IME keys; desktop lists use compact row density and
-touch layouts expand hit targets.
+touch layouts expand hit targets. Mobile sidebar section links have a minimum
+height of 40 px across the full link target.
 
 The Pod shell layers a rounded paper sheet (`main`) above the ground-level
 sidebar (`Home` and `Chat` segmented tabs at top-left, paired with search,
@@ -164,9 +165,11 @@ For file uploads, selecting a file captures both the file and the loaded Page
 revision, freezing the picker while the upload is in flight and keeping the
 selection for retry on failure. Transient realtime disconnects leave loaded file
 previews visible with a reconnect action, hiding content only upon an
-authoritative access denial. Likewise, Applet bundle-load errors and live
-connection drops expose separate retry actions so reconnecting never unmounts
-the running Applet.
+authoritative access denial. If the realtime token request, the socket, and the
+page topic join do not all complete in 10 seconds, the page shows the same
+reconnect action. Likewise, Applet bundle-load errors and live connection
+drops expose separate retry actions so reconnecting never unmounts the running
+Applet.
 
 ## Pages and access
 
