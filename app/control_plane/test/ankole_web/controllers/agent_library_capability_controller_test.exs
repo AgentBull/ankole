@@ -120,7 +120,10 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     global_lark_enabled =
       conn
       |> recycle_api()
-      |> api(:put, ~p"/api/v2/agent-library/agent-plugins/lark", %{"enabled" => true})
+      |> api(:put, ~p"/api/v2/agent-library/agent-plugins/lark", %{
+        "enabled" => true,
+        "defaults_scope" => "tenant"
+      })
       |> json_response(200)
 
     assert plugin(global_lark_enabled, "lark")["effective_enabled"] == true
@@ -205,7 +208,10 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
     assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
-             |> api(:put, ~p"/api/v2/agent-library/agent-plugins/missing", %{"enabled" => true})
+             |> api(:put, ~p"/api/v2/agent-library/agent-plugins/missing", %{
+               "enabled" => true,
+               "defaults_scope" => "tenant"
+             })
              |> json_response(404)
 
     assert %{"errors" => [%{"code" => "not_found"}]} =
