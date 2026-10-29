@@ -6,14 +6,12 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SessionsCase
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     CredentialPool.reset_for_test()
 
     {:ok, false} =

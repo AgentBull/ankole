@@ -3,7 +3,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
   import ExUnit.CaptureLog
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
@@ -32,7 +31,7 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    Cache.clear_for_test()
+    :ok
   end
 
   test "a broken tenant cannot prevent another tenant's periodic directory sync", %{

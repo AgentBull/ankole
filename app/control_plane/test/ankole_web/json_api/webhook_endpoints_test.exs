@@ -5,7 +5,6 @@ defmodule AnkoleWeb.JSONAPI.WebhookEndpointsTest do
   import Ecto.Query
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ.Grant
   alias Ankole.Repo
@@ -16,7 +15,6 @@ defmodule AnkoleWeb.JSONAPI.WebhookEndpointsTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

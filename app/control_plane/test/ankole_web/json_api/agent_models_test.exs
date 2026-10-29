@@ -4,14 +4,12 @@ defmodule AnkoleWeb.JSONAPI.AgentModelsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIGateway.Schemas.UsageRecord
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

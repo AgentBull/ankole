@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
@@ -16,7 +15,6 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
@@ -25,7 +23,6 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
 
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()
-      AppConfigureCache.clear_for_test()
     end)
 
     :ok

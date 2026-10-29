@@ -7,7 +7,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.SiteConfig
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ.Grant
   alias Ankole.Plugins.DingTalkAdapter.Config, as: DingTalkConfig
@@ -24,7 +23,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   setup do
     connections = LarkConnectionReconciler.registered_keys()
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok = SetupConfig.delete_bootstrap_activation_code()

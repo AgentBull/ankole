@@ -11,7 +11,6 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
   @moduletag host: :pod
 
   setup do
-    AppConfigure.Cache.clear_for_test()
     {:ok, true} = AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok
   end

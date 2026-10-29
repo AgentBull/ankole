@@ -2,7 +2,6 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
   use AnkoleWeb.ConnCase, async: false
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
   alias Ankole.IdentityProviders
@@ -10,7 +9,6 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

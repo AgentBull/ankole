@@ -129,7 +129,11 @@ defmodule Ankole.DataCase do
     case Keyword.fetch!(opts, :pool) do
       DBConnection.Ownership ->
         :ok = Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
-        on_exit(fn -> Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual) end)
+
+        on_exit(fn ->
+          Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)
+          Ankole.AppConfigure.Cache.clear_for_test()
+        end)
 
       DBConnection.ConnectionPool ->
         :ok
@@ -152,6 +156,8 @@ defmodule Ankole.DataCase do
       end
 
       Ecto.Adapters.SQL.Sandbox.stop_owner(pid)
+      # The global cache is shared by all tenants and outlives the rollback of a test.
+      Ankole.AppConfigure.Cache.clear_for_test()
     end)
   end
 

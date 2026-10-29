@@ -86,7 +86,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
 
     on_exit(fn ->
       # A saved Lark binding starts an asynchronous pass of the shared Lark
@@ -95,7 +94,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
       # a later test.
       :sys.get_state(ConnectionReconciler)
       AppConfigureRegistry.clear_for_test()
-      AppConfigureCache.clear_for_test()
     end)
 
     :ok

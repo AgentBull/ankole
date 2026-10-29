@@ -13,7 +13,6 @@ defmodule Ankole.I18nTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     :ok = Ankole.I18n.Catalog.reload_locales()
     put_test_catalogs()
 

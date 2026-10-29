@@ -10,7 +10,6 @@ defmodule Ankole.Pod.BasesTest do
     "statement_timeout_ms" => 5000
   }
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.base.limits", @limits)
     human = human_fixture().principal
 

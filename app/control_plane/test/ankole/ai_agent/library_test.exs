@@ -276,7 +276,6 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "skill lesson writes resolve cold AppConfigure defaults before opening a transaction" do
     %{principal: agent} = agent_fixture()
 
-    on_exit(fn -> Cache.clear_for_test() end)
     Cache.clear_for_test()
 
     assert {:ok, %AgentSkillLesson{content: "Cold-cache guidance."}} =

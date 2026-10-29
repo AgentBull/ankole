@@ -1,7 +1,6 @@
 defmodule Ankole.Brain.Jobs.TickTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Brain.Jobs.Dreaming
   alias Ankole.Brain.Jobs.SelfHealing
@@ -9,11 +8,9 @@ defmodule Ankole.Brain.Jobs.TickTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     on_exit(fn ->
       Registry.clear_for_test()
-      Cache.clear_for_test()
     end)
 
     :ok

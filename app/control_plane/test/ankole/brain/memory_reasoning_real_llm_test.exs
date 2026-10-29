@@ -5,7 +5,6 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   """
   use Ankole.AIGatewayCase
 
-  alias Ankole.AppConfigure
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Patterns
@@ -17,8 +16,6 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   @model System.get_env("ANKOLE_REAL_LLM_MODEL", "z-ai/glm-5.3-flash")
 
   setup do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     {:ok, _result} = SchemaPacks.install_packs([])
     api_key = System.fetch_env!("OPEN_ROUTER_API_KEY")
 

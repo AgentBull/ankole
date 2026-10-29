@@ -6,8 +6,6 @@ defmodule Ankole.Brain.RecallRerankTest do
   alias Ankole.Brain.SchemaPacks
 
   test "recall sends provider options and applies recency after rerank" do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     assert {:ok, _} = SchemaPacks.install_packs([])
     %{principal: agent} = agent_fixture()
     parent = self()

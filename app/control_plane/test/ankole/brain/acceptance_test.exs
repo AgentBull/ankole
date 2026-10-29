@@ -388,7 +388,6 @@ defmodule Ankole.Brain.AcceptanceTest do
   describe "source archive fence" do
     test "an archived signal channel source stops learning before extraction" do
       Ankole.AppConfigure.Cache.clear_for_test()
-      on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
       # The model is configured but must never be called: the archived gate
       # sits before the slice reaches extraction.

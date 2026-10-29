@@ -9,7 +9,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   alias Ankole.Plugins.Registry
   alias Ankole.Principals
 
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
 
   # Throwaway RSA pair shared with the kernel test fixtures; it protects nothing.
@@ -49,7 +48,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
     # Earlier suites in the same run may clear the global AppConfigure
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
   end

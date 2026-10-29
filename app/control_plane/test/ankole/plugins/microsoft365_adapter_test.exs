@@ -25,7 +25,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   alias Ankole.Plugins.Microsoft365Adapter.TeamsChannels
   alias Ankole.Plugins.Microsoft365Adapter.TeamsWebhook
 
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
 
   alias Ankole.Conversations.AdapterContext
@@ -48,7 +47,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     # Earlier suites in the same run may clear the global AppConfigure
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
     previous = Req.default_options()
     Req.Test.stub(__MODULE__, &default_microsoft_request/1)
     Req.default_options(plug: {Req.Test, __MODULE__})

@@ -5,7 +5,6 @@ defmodule AnkoleWeb.PodMovePermissionsControllerTest do
   alias Ankole.Pod.Pages
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 

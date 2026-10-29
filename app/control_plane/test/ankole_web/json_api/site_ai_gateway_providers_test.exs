@@ -8,7 +8,6 @@ defmodule AnkoleWeb.JSONAPI.SiteAIGatewayProvidersTest do
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
 
@@ -16,7 +15,6 @@ defmodule AnkoleWeb.JSONAPI.SiteAIGatewayProvidersTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     ModelMetadataCache.clear_for_test()
     :ok
   end

@@ -7,7 +7,6 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
 
   import Ecto.Query
 
-  alias Ankole.AppConfigure
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.ConversationsLearning
@@ -15,9 +14,6 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
   alias Ankole.Repo
 
   setup do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
-
     {:ok, _result} = SchemaPacks.install_packs([])
 
     %{principal: owner} = human_fixture()

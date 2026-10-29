@@ -8,7 +8,6 @@ defmodule AnkoleWeb.JSONAPI.SiteWorkerProvidersTest do
   alias Ankole.AgentWorkers.Lambda
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.Provider
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
 
@@ -16,7 +15,6 @@ defmodule AnkoleWeb.JSONAPI.SiteWorkerProvidersTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     %{providers_before: Repo.all(from p in Provider, order_by: p.provider_id)}
   end
 

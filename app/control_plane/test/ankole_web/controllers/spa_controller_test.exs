@@ -1,14 +1,12 @@
 defmodule AnkoleWeb.SpaControllerTest do
   use AnkoleWeb.ConnCase
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.Setup.Config, as: SetupConfig
 
   @host_policy Application.compile_env(:ankole, :host_policy)
 
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    Cache.clear_for_test()
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     {:ok, false} =
@@ -169,7 +167,6 @@ defmodule AnkoleWeb.SpaControllerTest do
         else: Application.put_env(:ankole, :feature_flags, flags)
 
       Ankole.AppConfigure.Registry.clear_for_test()
-      Cache.clear_for_test()
     end)
 
     {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)

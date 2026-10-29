@@ -18,9 +18,6 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.AgentWorkers.WorkerRoute
 
   setup do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
-
     {:ok, _result} = SchemaPacks.install_packs([])
 
     test_pid = self()

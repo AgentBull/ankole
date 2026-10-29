@@ -6,7 +6,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
@@ -114,7 +113,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   setup do
     Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
 

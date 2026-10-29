@@ -5,7 +5,6 @@ defmodule AnkoleWeb.JSONAPI.BackgroundAgentJobsTest do
   import Ecto.Query, warn: false
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -16,7 +15,6 @@ defmodule AnkoleWeb.JSONAPI.BackgroundAgentJobsTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

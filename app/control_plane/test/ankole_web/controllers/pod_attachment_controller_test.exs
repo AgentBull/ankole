@@ -10,7 +10,6 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
   alias AnkoleWeb.SessionCookies
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 

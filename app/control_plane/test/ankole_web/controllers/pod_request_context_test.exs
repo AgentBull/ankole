@@ -6,7 +6,6 @@ defmodule AnkoleWeb.PodRequestContextTest do
   @moduletag host: :pod
 
   setup %{conn: conn} do
-    Ankole.AppConfigure.Cache.clear_for_test()
     {conn, reader} = console_conn_with_principal(conn)
     owner = Ankole.PrincipalsFixtures.human_fixture().principal.uid
     %{conn: conn, reader: reader, owner: owner}

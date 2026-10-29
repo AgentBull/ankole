@@ -7,7 +7,6 @@ defmodule AnkoleWeb.SetupControllerTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ.Grant
   alias Ankole.IdentityProviders
@@ -28,7 +27,6 @@ defmodule AnkoleWeb.SetupControllerTest do
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
 

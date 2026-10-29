@@ -4,7 +4,6 @@ defmodule Ankole.OIDC.LoginPolicyTest do
 
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
 
     {:ok, _} =
       Ankole.IdentityProviders.save_provider(

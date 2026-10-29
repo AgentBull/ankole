@@ -5,7 +5,6 @@ defmodule Ankole.Signals.AdaptersTest do
   import Ankole.SignalsFixtures
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -75,11 +74,9 @@ defmodule Ankole.Signals.AdaptersTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    Cache.clear_for_test()
 
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()
-      Cache.clear_for_test()
     end)
 
     :ok

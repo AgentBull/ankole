@@ -5,7 +5,6 @@ defmodule Ankole.Pod.AppletsTest do
   alias Ankole.Files, as: Drive
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     owner = human_fixture().principal.uid
     reader = human_fixture().principal.uid
     %{owner: owner, reader: reader}

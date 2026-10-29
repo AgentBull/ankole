@@ -8,7 +8,6 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
   @host_policy Application.compile_env(:ankole, :host_policy)
 
   setup %{tenant: tenant} do
-    AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
     {:ok, true} = AppConfigure.put_global_by_key("setup.completed", true)

@@ -6,7 +6,6 @@ defmodule Ankole.Brain.SynthesisScopeTest do
   # the real recall boundary.
   use Ankole.AIGatewayCase
 
-  alias Ankole.AppConfigure
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
@@ -16,9 +15,6 @@ defmodule Ankole.Brain.SynthesisScopeTest do
   @analysis_body "Acme plans to cut the renewal to one seat."
 
   setup do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
-
     {:ok, _result} = SchemaPacks.install_packs([])
 
     test_pid = self()

@@ -7,7 +7,6 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
 
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 

@@ -17,9 +17,6 @@ defmodule Ankole.Brain.RecallVectorTest do
   @dimensions 8
 
   setup do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
-
     {:ok, _result} = SchemaPacks.install_packs([])
 
     base_url =

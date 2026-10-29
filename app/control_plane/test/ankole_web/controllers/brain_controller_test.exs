@@ -6,7 +6,6 @@ defmodule AnkoleWeb.BrainControllerTest do
   import ExUnit.CaptureLog
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
@@ -19,7 +18,6 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

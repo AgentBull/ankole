@@ -5,7 +5,6 @@ defmodule AnkoleWeb.PodControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.Conversations
   alias Ankole.Repo
   alias AnkoleWeb.Session, as: WebSession
@@ -30,7 +29,6 @@ defmodule AnkoleWeb.PodControllerTest do
   end
 
   setup do
-    Cache.clear_for_test()
     :ok
   end
 

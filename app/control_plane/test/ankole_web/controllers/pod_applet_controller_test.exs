@@ -6,7 +6,6 @@ defmodule AnkoleWeb.PodAppletControllerTest do
   alias Ankole.Files, as: Drive
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 
