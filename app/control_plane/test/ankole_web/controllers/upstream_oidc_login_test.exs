@@ -75,7 +75,9 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       auth_time = System.system_time(:second)
       stub_upstream(upstream["nonce"], %{"auth_time" => auth_time})
       conn = callback(conn, upstream)
-      assert redirected_to(conn) == "/oauth/authorize/resume?oauth_request=" <> oauth_request
+      # The SaaS edition redirects to the absolute Pod origin.
+      assert %URI{path: "/oauth/authorize/resume", query: query} = URI.parse(redirected_to(conn))
+      assert query == "oauth_request=" <> oauth_request
       assert WebSession.oauth_session(conn)["auth_time"] == auth_time
       assert WebSession.admin_session(conn) == nil
 
@@ -168,7 +170,9 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
     stub_upstream(upstream["nonce"], %{})
 
     conn = callback(conn, upstream)
-    assert redirected_to(conn) == "/oauth/authorize/resume?oauth_request=" <> oauth_request
+    # The SaaS edition redirects to the absolute Pod origin.
+    assert %URI{path: "/oauth/authorize/resume", query: query} = URI.parse(redirected_to(conn))
+    assert query == "oauth_request=" <> oauth_request
     assert %{"auth_time" => nil} = WebSession.oauth_session(conn)
     assert WebSession.admin_session(conn) == nil
   end

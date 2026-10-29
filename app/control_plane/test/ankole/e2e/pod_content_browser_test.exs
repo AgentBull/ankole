@@ -5,6 +5,8 @@ defmodule Ankole.E2E.PodContentBrowserTest do
   alias Ankole.E2E.PodContentBrowser
   alias Ankole.Principals
 
+  @moduletag :foss_sign_in
+
   test "the story browser receives a real email proof for its registered Human", ctx do
     assert {:ok, true} =
              Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)

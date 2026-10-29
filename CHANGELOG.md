@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.1.0-alpha.4 (2026-10-28)
+
+- Internal changes only.
+
 ## Version 2.1.0-alpha.3 (2026-10-28)
 
 - Stop declaring native image generation and web search to an OpenAI provider

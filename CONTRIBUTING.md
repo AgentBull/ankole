@@ -32,6 +32,8 @@ ANKOLE_EDITION=saas mix test
 MIX_TEST_PARTITION=edition_build mix test integration/edition_build_test.exs --trace
 ```
 
+With `ANKOLE_EDITION=saas`, `mix test` excludes the tests tagged `:foss_sign_in`. These tests cover the Pod sign-in pages, and the SaaS edition signs in on the accounts host instead.
+
 `edition_build_test.exs` spins up a labeled private fixture inside a temporary checkout to verify FOSS isolation, SaaS compilation and assets, private test discovery, fresh and upgraded databases, rollbacks, and a standalone release—exercising built Pod and Auth webapps over real HTTPS sessions, Principal authorization, generated API clients, and local SMTP (it tests build plumbing rather than certifying a commercial SaaS product). Before running it, install Chromium with `bunx playwright install chromium` and ensure `openssl` is on `PATH` for temporary TLS certificates.
 
 Docker builds for the control plane use Cargo to compile the native Rust Kernel and Torque libraries. To build a SaaS image from the public `Dockerfile`, pass `internals/` as a named build context:

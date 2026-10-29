@@ -88,6 +88,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     end
   end
 
+  @tag :foss_sign_in
   test "the Pod shell exposes the Principal selected by its authentication proof", ctx do
     for {reference, principal} <- [{ctx.a_ref, ctx.a}, {ctx.b_ref, ctx.b}] do
       chooser = chooser(ctx.signed, ctx.tenant)
@@ -109,6 +110,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     end
   end
 
+  @tag :foss_sign_in
   test "the existing Pod chooser switches a proven account and keeps an open tab pinned", ctx do
     shell = chooser(ctx.signed, ctx.tenant)
 
@@ -246,6 +248,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert session["consoleURL"] == ctx.site_origin <> "/site-admin-console"
   end
 
+  @tag :foss_sign_in
   test "a chooser cannot use another tenant's proof or a revoked account", ctx do
     shell = chooser(ctx.signed, ctx.tenant)
     foreign = Ankole.DataCase.create_tenant()
