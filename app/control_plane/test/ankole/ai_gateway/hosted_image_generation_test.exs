@@ -76,7 +76,17 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     assert {:ok, nil} =
              ImageGeneration.prepare(agent.uid, request,
-               main_runtime: %{"provider_kind" => "openai"}
+               main_runtime: %{"provider_kind" => "openai", "connection_options" => %{}}
+             )
+
+    # Chat Completions accepts no hosted tools, so the same kind on that endpoint
+    # needs the fallback profile, which this Agent does not have yet.
+    assert {:error, %{code: "unsupported_value"}} =
+             ImageGeneration.prepare(agent.uid, request,
+               main_runtime: %{
+                 "provider_kind" => "openai",
+                 "connection_options" => %{"endpoint_kind" => "chat_completions"}
+               }
              )
 
     provider_id = "unused-image-fallback-#{System.unique_integer([:positive])}"
@@ -120,7 +130,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     assert {:ok, nil} =
              ImageGeneration.prepare(agent.uid, request,
-               main_runtime: %{"provider_kind" => "openai"}
+               main_runtime: %{"provider_kind" => "openai", "connection_options" => %{}}
              )
 
     assert {:ok, %{profile: nil}} =
@@ -311,7 +321,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
         ] do
       assert {:error, error} =
                ImageGeneration.prepare(agent.uid, %{"tools" => [tool]},
-                 main_runtime: %{"provider_kind" => "openai"}
+                 main_runtime: %{"provider_kind" => "openai", "connection_options" => %{}}
                )
 
       assert error.param == "tools[0].output_compression"
@@ -334,7 +344,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                      }
                    ]
                  },
-                 main_runtime: %{"provider_kind" => "openai"}
+                 main_runtime: %{"provider_kind" => "openai", "connection_options" => %{}}
                )
     end
   end

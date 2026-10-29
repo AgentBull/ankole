@@ -1,5 +1,29 @@
 # Changelog
 
+## Version 2.1.0-alpha.3 (2026-10-28)
+
+- Stop declaring native image generation and web search to an OpenAI provider
+  that uses Chat Completions. Chat Completions rejected those tools, so every
+  Agent turn on such a provider failed.
+- Send model profile request options under the field names that each upstream
+  accepts, such as `prompt_cache_key`, `verbosity`, and `inference_geo`. Reject
+  Responses-only options on Chat Completions.
+- Remove request options that had no upstream field: `strictJSONSchema`, the
+  OpenAI `systemMessageMode`, `forceReasoning`, and `allowedTools`, the Google AI
+  Studio `textVerbosity`, and the Claude `structuredOutputMode`,
+  `toolStreaming`, `taskBudget`, `anthropicBeta`, and `contextManagement`. A
+  model profile that stores one of them now fails validation. Before, the
+  upstream rejected the request. Remove the option from the profile.
+- Remove the Claude `none` and `minimal` reasoning effort values, which
+  Anthropic does not accept.
+- Send a reasoning effort only to models that accept one. A model without a
+  configured effort gets `high` only when the packaged model metadata marks it
+  as reasoning, so OpenAI models such as `gpt-4o` and `gpt-4.1` and Claude
+  models without effort levels, such as Claude Haiku 4.5, work again. A
+  configured effort that the model does not list fails before the request, for
+  example `xhigh` on Claude Opus 4.5. Models that the metadata does not describe
+  get only a configured effort.
+
 ## Version 2.1.0-alpha.2 (2026-10-28)
 
 - Show the Pod page picker scope labels from the locale catalogs.

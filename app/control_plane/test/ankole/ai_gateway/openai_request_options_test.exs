@@ -4,9 +4,12 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Providers.AzureOpenAI
+  alias Ankole.AIGateway.PrepareContext
   alias Ankole.AIGateway.Providers.ChatGPTSubscription
+  alias Ankole.AIGateway.Providers.Claude
   alias Ankole.AIGateway.Providers.OpenAI
   alias Ankole.AIGateway.Providers.OpenAICompatible
+  alias Ankole.AIGateway.Providers.OpenRouter
   alias Ankole.AIGateway.UniversalAIRequest
 
   test "Azure Foundry v1 prepares both inference protocols, but other Foundry protocols remain rejected" do
@@ -99,7 +102,11 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
         "reasoning" => %{"effort" => "high"},
         "reasoningSummary" => "detailed",
         "serviceTier" => "fast",
-        "textVerbosity" => "low"
+        "textVerbosity" => "low",
+        "promptCacheKey" => "route-a",
+        "promptCacheRetention" => "24h",
+        "contextManagement" => [%{"type" => "compaction"}],
+        "truncation" => "auto"
       })
 
     assert %UniversalAIRequest{provider_options: options} =
@@ -108,28 +115,101 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
     assert options == %{
              "reasoning" => %{"effort" => "high", "summary" => "detailed"},
              "service_tier" => "fast",
-             "text" => %{"verbosity" => "low"}
+             "text" => %{"verbosity" => "low"},
+             "prompt_cache_key" => "route-a",
+             "prompt_cache_retention" => "24h",
+             "context_management" => [%{"type" => "compaction"}],
+             "truncation" => "auto"
            }
   end
 
-  test "maps Chat Completions verbosity and rejects a Responses-only summary" do
+  test "maps Chat Completions verbosity and rejects Responses-only options" do
     assert %UniversalAIRequest{provider_options: options} =
              request(%{
                "reasoning_effort" => "high",
                "serviceTier" => "flex",
-               "textVerbosity" => "medium"
+               "textVerbosity" => "medium",
+               "promptCacheKey" => "route-a",
+               "promptCacheRetention" => "24h"
              })
              |> OpenAIRequestOptions.put_provider_options(:chat_completions)
 
     assert options == %{
              "reasoning_effort" => "high",
              "service_tier" => "flex",
-             "verbosity" => "medium"
+             "verbosity" => "medium",
+             "prompt_cache_key" => "route-a",
+             "prompt_cache_retention" => "24h"
            }
 
-    assert {:error, {:unsupported_provider_option, "reasoningSummary", "chat_completions"}} =
-             request(%{"reasoningSummary" => "auto"})
-             |> OpenAIRequestOptions.put_provider_options(:chat_completions)
+    for {option, value} <- [
+          {"reasoningSummary", "auto"},
+          {"truncation", "auto"},
+          {"contextManagement", [%{"type" => "compaction"}]}
+        ] do
+      assert {:error, {:unsupported_provider_option, ^option, "chat_completions"}} =
+               request(%{option => value})
+               |> OpenAIRequestOptions.put_provider_options(:chat_completions)
+    end
+  end
+
+  test "request options reach other providers under their upstream field names" do
+    # These public names had no upstream field, so a stored value would only make
+    # the upstream reject the request.
+    for {provider_kind, option} <- [
+          {"openai", "strictJSONSchema"},
+          {"openai", "systemMessageMode"},
+          {"openai", "forceReasoning"},
+          {"openai", "allowedTools"},
+          {"azure_openai", "strictJSONSchema"},
+          {"openai_compatible", "strictJSONSchema"},
+          {"google_ai_studio_openai", "strictJSONSchema"},
+          {"google_ai_studio_openai", "textVerbosity"},
+          {"openrouter", "strictJSONSchema"},
+          {"claude", "structuredOutputMode"},
+          {"claude", "toolStreaming"},
+          {"claude", "taskBudget"},
+          {"claude", "anthropicBeta"},
+          {"claude", "contextManagement"}
+        ] do
+      assert {:error, _reason} =
+               Providers.validate_runtime_provider_options(provider_kind, %{option => true})
+    end
+
+    assert {:select, ~w(low medium high xhigh), false} = setting(Claude, :reasoningEffort)
+
+    claude =
+      prepared(Claude, %{"inferenceGeo" => "us", "speed" => "fast", "reasoningEffort" => "low"})
+
+    assert claude.provider_options == %{
+             "inference_geo" => "us",
+             "speed" => "fast",
+             "output_config" => %{"effort" => "low"}
+           }
+
+    openrouter =
+      prepared(OpenRouter, %{"textVerbosity" => "low", "reasoningEffort" => "medium"})
+
+    assert openrouter.provider_options == %{
+             "verbosity" => "low",
+             "reasoning" => %{"effort" => "medium"}
+           }
+  end
+
+  defp prepared(provider, provider_options) do
+    {:ok, ctx} =
+      PrepareContext.build(
+        provider.provider_definition(),
+        :language_model,
+        %{
+          "model" => "fixture-model",
+          "connection_options" => %{"api_key" => "fixture"},
+          "provider_options" => provider_options
+        },
+        %{"input" => "hello"}
+      )
+
+    provider.prepare_language_model(ctx)
   end
 
   defp request(provider_options) do

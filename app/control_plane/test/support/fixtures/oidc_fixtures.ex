@@ -22,9 +22,13 @@ defmodule Ankole.OIDCFixtures do
 
     # OIDC state tests issue many credentials for one Human. OTP abuse limits
     # have dedicated tests; this factory still sends and verifies each code.
-    for key <- ["send_email_limit", "send_source_limit", "send_channel_limit"] do
-      {:ok, _} = AppConfigure.put_global_by_key("authn.email." <> key, 10_000)
-    end
+    {:ok, _} =
+      AppConfigure.put_global_by_key("authn.email.send_limits", %{
+        "window_seconds" => 60,
+        "per_email" => 10_000,
+        "per_source" => 10_000,
+        "per_channel" => 10_000
+      })
 
     email = String.downcase(principal_uid) <> "@oidc-fixture.test"
 

@@ -9,9 +9,8 @@ defmodule Ankole.AIGateway.Providers.Claude do
   alias Ankole.AIGateway.UniversalAIRequest
 
   @anthropic_version "2023-06-01"
+  # Anthropic `output_config.effort` accepts low, medium, high, xhigh, and max.
   @reasoning_effort_map %{
-    "none" => "none",
-    "minimal" => "minimal",
     "low" => "low",
     "medium" => "medium",
     "high" => "high",
@@ -39,18 +38,12 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
     setting(:reasoningEffort,
       type: :select,
-      default: ReasoningEffort.default(),
-      options: ReasoningEffort.values(@reasoning_effort_map),
+      options: ReasoningEffort.Levels.values(@reasoning_effort_map),
       scope: :request
     )
 
-    setting(:structuredOutputMode, scope: :request, advanced: true)
-    setting(:toolStreaming, type: :boolean, scope: :request, advanced: true)
-    setting(:taskBudget, scope: :request, advanced: true)
     setting(:speed, scope: :request, advanced: true)
     setting(:inferenceGeo, scope: :request, advanced: true)
-    setting(:anthropicBeta, scope: :request, advanced: true)
-    setting(:contextManagement, type: :map, scope: :request, advanced: true)
 
     language_model do
       api_resolver(:anthropic_messages)
@@ -76,6 +69,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
       target: :output_config,
       map: @reasoning_effort_map
     )
+    |> UniversalAIRequest.rename_provider_option("inferenceGeo", "inference_geo")
   end
 
   # Anthropic-compatible gateways may accept OAuth-style bearer tokens, while

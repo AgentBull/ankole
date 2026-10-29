@@ -56,6 +56,31 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp provider_model_context_length(_runtime), do: nil
 
+  @doc """
+  Returns what the packaged model metadata says about reasoning for a runtime.
+
+  It reads only local metadata, so it never adds an upstream request. A provider
+  that owns its model catalog returns `:provider_catalog`, and a model that no
+  local metadata describes returns `nil`. Otherwise the map has `"enabled"`, and
+  `"effort"` lists the provider-native effort values when the metadata names
+  them.
+  """
+  @spec runtime_reasoning(map()) :: map() | :provider_catalog | nil
+  def runtime_reasoning(%{"provider" => %Provider{} = provider, "model" => model})
+      when is_binary(model) do
+    with {:ok, definition} <- Providers.fetch(provider.provider_kind),
+         false <- function_exported?(definition.module, :models_metadata_source, 1),
+         {:ok, source} <- llm_db_source(provider),
+         {:ok, metadata} <- source_model(provider, source, model, []) do
+      metadata["reasoning"]
+    else
+      true -> :provider_catalog
+      _missing -> nil
+    end
+  end
+
+  def runtime_reasoning(_runtime), do: nil
+
   @default_cache_ttl_ms :timer.hours(1)
 
   @base_supported_parameters ~w(
@@ -134,6 +159,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
         "max_completion_tokens" => nil
       },
       "supported_parameters" => fallback_supported_parameters(capability),
+      "reasoning" => nil,
       "default_parameters" => nil,
       "per_request_limits" => nil,
       "supported_voices" => nil,
@@ -457,6 +483,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
       "max_completion_tokens" => max_completion_tokens
     })
     |> Map.put("supported_parameters", supported_parameters_from_llm_db(model))
+    |> Map.put("reasoning", reasoning_from_llm_db(model))
     |> Map.put("knowledge_cutoff", model.knowledge)
     |> Map.put("expiration_date", llm_db_expiration_date(model))
     |> Map.put("links", llm_db_links(model))
@@ -613,6 +640,24 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp reasoning_capable?(_capabilities), do: false
+
+  defp reasoning_from_llm_db(%LLMDB.Model{capabilities: capabilities})
+       when is_map(capabilities) do
+    case Map.get(capabilities, :reasoning) do
+      %{enabled: true} = reasoning -> %{"enabled" => true, "effort" => llm_db_effort(reasoning)}
+      true -> %{"enabled" => true, "effort" => nil}
+      %{enabled: false} -> %{"enabled" => false}
+      false -> %{"enabled" => false}
+      _unknown -> nil
+    end
+  end
+
+  defp reasoning_from_llm_db(_model), do: nil
+
+  defp llm_db_effort(%{effort: %{supported: true, values: [_ | _] = values}}),
+    do: Enum.map(values, &to_string/1)
+
+  defp llm_db_effort(_reasoning), do: nil
 
   defp pricing_from_llm_db(%LLMDB.Model{} = model) do
     cost = model.cost || %{}

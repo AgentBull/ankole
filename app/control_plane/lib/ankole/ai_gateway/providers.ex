@@ -227,12 +227,16 @@ defmodule Ankole.AIGateway.Providers do
   @doc """
   Returns whether the selected language-model provider executes the public
   `image_generation` tool itself.
+
+  The kind declares the capability, and the configured row must speak the
+  Responses wire: a Chat Completions endpoint accepts only function and custom
+  tools.
   """
   @spec supports_native_image_generation?(map()) :: boolean()
-  def supports_native_image_generation?(%{"provider_kind" => provider_kind}) do
+  def supports_native_image_generation?(%{"provider_kind" => provider_kind} = model_ref) do
     with {:ok, provider} <- fetch(provider_kind),
          {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
-      capability.supports_native_image_generation?
+      capability.supports_native_image_generation? and responses_wire?(model_ref)
     else
       _error -> false
     end
@@ -243,31 +247,25 @@ defmodule Ankole.AIGateway.Providers do
   @doc """
   Returns whether the selected language-model provider runs web search itself.
 
-  A provider whose wire protocol always carries the capability declares it. A
-  generic OpenAI-compatible row cannot be known statically, because its endpoint
-  is whatever the operator pointed it at, so it counts when that row is configured
-  for the Responses wire, which is the protocol hosted web search belongs to.
-  An endpoint that claims the Responses wire and cannot serve hosted tools has
-  an incomplete protocol; that is an upstream error, not a case for an extra
-  connection switch.
+  Hosted web search belongs to the Responses wire, so a configured row counts
+  when it speaks that wire, whatever its kind. A Chat Completions endpoint
+  accepts only function and custom tools. An endpoint that claims the Responses
+  wire and cannot serve hosted tools has an incomplete protocol; that is an
+  upstream error, not a case for an extra connection switch.
 
   This answers only what the provider can do. Whether an Agent uses it is the
   Agent's `provider_hosted` setting.
   """
   @spec supports_native_web_search?(map()) :: boolean()
-  def supports_native_web_search?(%{"provider_kind" => provider_kind} = model_ref) do
-    declared? =
-      with {:ok, provider} <- fetch(provider_kind),
-           {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
-        capability.supports_native_web_search?
-      else
-        _error -> false
-      end
+  def supports_native_web_search?(model_ref), do: responses_wire?(model_ref)
 
-    declared? or ProviderConfigs.responses_endpoint?(model_ref)
-  end
+  # A resolved runtime carries the connection options of its row. A model
+  # reference only names the row, so ProviderConfigs reads it.
+  defp responses_wire?(%{"provider_kind" => provider_kind, "connection_options" => options})
+       when is_map(options),
+       do: responses_endpoint?(provider_kind, options)
 
-  def supports_native_web_search?(_runtime), do: false
+  defp responses_wire?(model_ref), do: ProviderConfigs.responses_endpoint?(model_ref)
 
   # Loads and validates a provider module's compiled definition.
   #

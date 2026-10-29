@@ -37,8 +37,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
     setting(:reasoningEffort,
       type: :select,
-      default: ReasoningEffort.default(),
-      options: ReasoningEffort.values(),
+      options: ReasoningEffort.Levels.values(),
       scope: :request
     )
 
@@ -50,7 +49,6 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     )
 
     setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
-    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     setting(:textVerbosity,
       type: :select,

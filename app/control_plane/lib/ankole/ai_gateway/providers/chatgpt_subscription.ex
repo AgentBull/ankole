@@ -42,8 +42,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
 
     setting(:reasoningEffort,
       type: :select,
-      default: ReasoningEffort.default(),
-      options: ReasoningEffort.values(),
+      options: ReasoningEffort.Levels.values(),
       scope: :request
     )
 
@@ -54,7 +53,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
       supports_native_image_generation()
-      supports_native_web_search()
     end
   end
 

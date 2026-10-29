@@ -213,6 +213,29 @@ Every declared provider setting belongs to one of three scopes:
 - `credential` — encrypted inside each individual pool entry.
 - `request` — stored in plaintext on a model profile or passed per request.
 
+A provider declares a `request` setting only when its prepare code writes the
+value to an upstream field. Public names stay camelCase, and prepare code moves
+each value to the native field name: OpenAI-family providers send
+`promptCacheKey`, `promptCacheRetention`, and `contextManagement` as
+`prompt_cache_key`, `prompt_cache_retention`, and `context_management`,
+OpenRouter sends `textVerbosity` as `verbosity`, and Claude sends `inferenceGeo`
+as `inference_geo`. OpenAI Chat Completions rejects the Responses-only options
+`reasoningSummary`, `truncation`, and `contextManagement` with
+`unsupported_provider_option`. Claude accepts the `reasoningEffort` values
+`low`, `medium`, `high`, and `xhigh`, and sends `xhigh` as `max`.
+
+A request carries a reasoning effort only when the packaged `llm_db` model
+metadata allows it, because upstreams reject an effort for a model that does
+not reason. When neither the model profile nor the request chooses a value, a
+model that the metadata marks as reasoning gets `high`, provided that `high`
+is one of its listed effort levels. A Claude model qualifies only when the
+metadata lists effort levels. A chosen value is rejected with a
+`reasoning_effort` error when the metadata marks the model as not reasoning or
+does not list the value. A model that the metadata does not describe gets only a
+chosen value. OpenRouter, ChatGPT Subscription, and Volcengine Ark own their
+model catalogs, so their models get `high` when nothing chooses a value. This
+check reads only local metadata and adds no upstream request.
+
 Only `credential` settings may set `encrypted: true`; `ProviderDSL` rejects
 `encrypted` in `connection` or `request` scopes at compile/declaration time.
 `select` settings restrict values to a closed option list, whereas `string`
@@ -241,10 +264,13 @@ Language-model capabilities can also declare `supports_parallel_tool_calls` and
 support depends on how an endpoint is configured rather than on the provider
 kind as a whole, the provider row itself declares that capability:
 
-- On an `openai_compatible` row, `endpoint_kind` determines hosted web search:
-  connections using the Responses wire advertise `web_search`, whereas Chat
-  Completions connections do not. `TurnPolicy` reads `endpoint_kind` so Main
-  Turns and Background Agent Jobs expose identical hosted tools. Across all
+- On every row, `endpoint_kind` determines native hosted tools: connections
+  using the Responses wire advertise `web_search`, and also `image_generation`
+  when the kind declares `supports_native_image_generation`. Chat Completions
+  connections, including an `openai` row set to `chat_completions`, advertise
+  neither, because Chat Completions accepts only function and custom tools.
+  `TurnPolicy` reads `endpoint_kind` so Main Turns and Background Agent Jobs
+  expose identical hosted tools. Across all
   boundaries, Ankole accepts only `image_generation`, `web_search`, and `brain`
   as turn hosted-tool types (`brain` depends solely on the site's
   `brain.enabled` flag because AIGateway executes it locally across every
@@ -1422,7 +1448,8 @@ caller, validating up front that `output_compression` is set only when
 
 - **Native execution**: When the main LLM provider's Responses capability
   declares `supports_native_image_generation` (such as OpenAI and
-  `chatgpt_subscription`), that provider executes image generation natively
+  `chatgpt_subscription`) and its row uses the Responses wire, that provider
+  executes image generation natively
   without resolving or validating any fallback `image_generate` profile—so a
   stale fallback configuration never blocks ordinary chats.
 - **Hosted fallback**: When the main provider lacks native support, AIGateway

@@ -194,7 +194,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:gateway_request, upstream_request}
     assert upstream_request.body["model"] == "openai/gpt-5.6-sol"
     assert upstream_request.body["reasoning"] == %{"effort" => "xhigh"}
-    assert upstream_request.body["textVerbosity"] == "low"
+    assert upstream_request.body["verbosity"] == "low"
+    refute Map.has_key?(upstream_request.body, "textVerbosity")
     assert upstream_request.body["parallel_tool_calls"] == true
   end
 

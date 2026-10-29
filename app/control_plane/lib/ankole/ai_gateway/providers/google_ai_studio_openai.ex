@@ -30,13 +30,10 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
 
     setting(:reasoningEffort,
       type: :select,
-      default: ReasoningEffort.default(),
-      options: ReasoningEffort.values(@reasoning_effort_map),
+      options: ReasoningEffort.Levels.values(@reasoning_effort_map),
       scope: :request
     )
 
-    setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
     setting(:taskType, scope: :request, advanced: true)
     setting(:title, scope: :request, advanced: true)
     setting(:outputDimensionality, type: :integer, scope: :request, advanced: true)
