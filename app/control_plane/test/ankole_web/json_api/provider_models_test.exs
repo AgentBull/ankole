@@ -8,13 +8,11 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     ModelMetadataCache.clear_for_test()
 
     {:ok, false} =

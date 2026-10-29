@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.BrainObjectControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Object
@@ -11,7 +10,6 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     {:ok, false} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
     :ok

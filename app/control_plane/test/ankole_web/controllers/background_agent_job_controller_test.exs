@@ -3,7 +3,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
@@ -13,7 +12,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

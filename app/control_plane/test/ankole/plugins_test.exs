@@ -31,14 +31,12 @@ defmodule Ankole.PluginsTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    Cache.clear_for_test()
 
     # A fixture Registry replaces the global AppConfigure plugin declarations.
     # Reset them after each test, so that later test modules find the live
     # plugin keys.
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()
-      Cache.clear_for_test()
     end)
 
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)

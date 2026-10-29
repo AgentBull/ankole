@@ -20,7 +20,6 @@ defmodule Ankole.IdentityProviders.ObservationTest do
     on_exit(fn -> Req.default_options(previous) end)
     assert {:ok, _} = Ankole.Plugins.put_configured_enabled("wecom-adapter", true)
     Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.1.0-alpha.5 (2026-10-29)
+
+- Internal changes only.
+
 ## Version 2.1.0-alpha.4 (2026-10-28)
 
 - Internal changes only.

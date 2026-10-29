@@ -16,7 +16,6 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
     Req.Test.set_req_test_to_shared()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     previous = Req.default_options()
     Req.default_options(plug: {Req.Test, __MODULE__})

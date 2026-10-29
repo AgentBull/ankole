@@ -14,7 +14,6 @@ defmodule Ankole.AppConfigureTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, prefix: "__test.app_configure.#{System.unique_integer([:positive])}"}
   end

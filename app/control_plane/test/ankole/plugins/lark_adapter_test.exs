@@ -4,7 +4,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   import Ankole.SignalsFixtures, only: [start_connection_owner: 3, owner_serves?: 4]
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.AuthZ
   alias Ankole.AuthZ.ExternalBinding
@@ -52,7 +51,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   setup do
     Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
     previous = Req.default_options()
     Req.Test.stub(__MODULE__, &default_lark_request/1)
     Req.default_options(plug: {Req.Test, __MODULE__})

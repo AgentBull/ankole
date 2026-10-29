@@ -4,7 +4,6 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Conversations
   alias Ankole.Repo
@@ -14,7 +13,6 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

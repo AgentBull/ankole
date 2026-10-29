@@ -6,7 +6,6 @@ defmodule AnkoleWeb.JSONAPI.AutomationJobsTest do
   import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
@@ -18,7 +17,6 @@ defmodule AnkoleWeb.JSONAPI.AutomationJobsTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

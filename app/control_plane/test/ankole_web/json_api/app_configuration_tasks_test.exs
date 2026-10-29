@@ -6,7 +6,6 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTasksTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     :ok
   end
 

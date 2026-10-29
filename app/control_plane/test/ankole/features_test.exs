@@ -84,7 +84,6 @@ defmodule Ankole.FeaturesTest do
     ])
 
     AppConfigure.Registry.clear_for_test()
-    AppConfigure.Cache.clear_for_test()
 
     on_exit(fn ->
       Registry.update_for_test(fn _ -> snapshot end)
@@ -94,7 +93,6 @@ defmodule Ankole.FeaturesTest do
         else: Application.put_env(:ankole, :feature_flags, flags)
 
       AppConfigure.Registry.clear_for_test()
-      AppConfigure.Cache.clear_for_test()
     end)
 
     :ok

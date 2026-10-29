@@ -9,8 +9,6 @@ defmodule AnkoleWeb.PodModelControllerTest do
   alias Ankole.Signals.Signal
 
   setup %{conn: conn, tenant: tenant} do
-    Ankole.AppConfigure.Cache.clear_for_test()
-
     {conn, human} =
       console_conn_with_principal(pod_conn(conn, tenant))
 

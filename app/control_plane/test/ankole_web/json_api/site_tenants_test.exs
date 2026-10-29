@@ -4,14 +4,12 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.Repo
   alias Ankole.Tenants.Tenant
 
   @media_type "application/vnd.api+json"
 
   setup do
-    Cache.clear_for_test()
     :ok
   end
 

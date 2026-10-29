@@ -4,7 +4,6 @@ defmodule Ankole.Pod.AppletAITest do
   alias Ankole.AIGateway.Schemas.UsageRecord
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 

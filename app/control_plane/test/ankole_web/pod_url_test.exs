@@ -9,7 +9,6 @@ defmodule AnkoleWeb.PodURLTest do
   @host_policy Application.compile_env(:ankole, :host_policy)
 
   setup %{tenant: tenant} do
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok

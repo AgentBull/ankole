@@ -9,7 +9,6 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
 
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    AppConfigure.Cache.clear_for_test()
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
     Ankole.Authn.RateLimiter.reset_for_test()
     previous = Application.get_env(:ankole, Ankole.Authn.Mailer)

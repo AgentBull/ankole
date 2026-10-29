@@ -1,7 +1,6 @@
 defmodule Ankole.IdentityProviders.LoginTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Login
@@ -10,7 +9,7 @@ defmodule Ankole.IdentityProviders.LoginTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    Cache.clear_for_test()
+    :ok
   end
 
   test "login list carries only enabled providers that can sign an admin in" do

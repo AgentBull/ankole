@@ -4,7 +4,6 @@ defmodule Ankole.Pod.BasesReviewTest do
   alias Ankole.Pod.{Config, Bases, BaseField, BaseRecord, BaseTable, Pages}
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     uid = human_fixture().principal.uid
 
     {:ok, page} =

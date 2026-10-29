@@ -8,7 +8,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

@@ -5,7 +5,6 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
@@ -22,7 +21,6 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     {:ok, false} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
     :ok

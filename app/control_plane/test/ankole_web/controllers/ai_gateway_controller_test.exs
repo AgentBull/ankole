@@ -19,7 +19,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Security.SSRFFilter
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.Repo
   alias Ankole.AIGateway.Tokens
 
@@ -782,8 +781,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert {:ok, _value} =
              AppConfigure.put_global(SSRFFilter.definition(), true)
-
-    on_exit(fn -> AppConfigureCache.clear_for_test() end)
 
     assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 

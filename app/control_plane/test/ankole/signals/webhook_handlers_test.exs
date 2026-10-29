@@ -3,7 +3,6 @@ defmodule Ankole.Signals.WebhookHandlersTest do
 
   import ExUnit.CaptureLog
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
@@ -96,11 +95,9 @@ defmodule Ankole.Signals.WebhookHandlersTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    Cache.clear_for_test()
 
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()
-      Cache.clear_for_test()
     end)
 
     :ok

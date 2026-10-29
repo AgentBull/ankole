@@ -8,7 +8,6 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
   import Ecto.Query, only: [from: 2]
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.Principals
@@ -18,7 +17,6 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
 
   setup %{conn: conn} do
     Registry.clear_for_test()
-    Cache.clear_for_test()
     {:ok, true} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 

@@ -2,7 +2,6 @@ defmodule AnkoleWeb.AuthControllerTest do
   use AnkoleWeb.ConnCase, async: false
   import AnkoleWeb.PodAPI
 
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.IdentityProviders
   alias Ankole.Setup.Config, as: SetupConfig
@@ -13,7 +12,6 @@ defmodule AnkoleWeb.AuthControllerTest do
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

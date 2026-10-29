@@ -25,8 +25,6 @@ defmodule Ankole.IdentityProvidersTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    Cache.clear_for_test()
-    on_exit(fn -> Cache.clear_for_test() end)
   end
 
   test "adapter catalog hides active plugins removed from the next-start enable list" do

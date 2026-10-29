@@ -6,7 +6,6 @@ defmodule AnkoleWeb.PodPageControllerTest do
   alias Ankole.Repo
 
   setup do
-    Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
 

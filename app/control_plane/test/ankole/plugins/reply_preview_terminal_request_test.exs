@@ -12,7 +12,6 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
 
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DiscordAdapter
@@ -46,7 +45,6 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
     )
 
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
     :ok
   end
 

@@ -5,7 +5,6 @@ defmodule Ankole.OIDC.RefreshStoreTest do
 
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
     human = human_fixture()
 
     {:ok, %{client: client}} =

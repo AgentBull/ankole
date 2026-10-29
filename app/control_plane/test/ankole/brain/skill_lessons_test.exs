@@ -13,9 +13,6 @@ defmodule Ankole.Brain.SkillLessonsTest do
   alias Ankole.Repo
 
   setup do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
-
     agent = background_agent_fixture().principal
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 

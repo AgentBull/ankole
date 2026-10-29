@@ -4,7 +4,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
   alias Ankole.Security.SSRFFilter
@@ -14,7 +13,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   setup do
     Req.Test.set_req_test_to_shared()
     Registry.clear_for_test()
-    Cache.clear_for_test()
     :ok = AppConfigure.delete_global(SSRFFilter.definition())
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)

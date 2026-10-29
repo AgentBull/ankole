@@ -3,14 +3,13 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AppConfigure.{Cache, Registry}
+  alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.Signals.{Binding, Signal, Webhooks}
   alias Ankole.Repo
 
   setup do
     Registry.clear_for_test()
-    Cache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)

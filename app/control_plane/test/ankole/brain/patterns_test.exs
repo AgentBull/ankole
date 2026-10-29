@@ -1,7 +1,6 @@
 defmodule Ankole.Brain.PatternsTest do
   use Ankole.AIGatewayCase
 
-  alias Ankole.AppConfigure
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Patterns
   alias Ankole.Brain.Recall
@@ -11,8 +10,6 @@ defmodule Ankole.Brain.PatternsTest do
   alias Ankole.Brain.Schemas.ObjectVersion
 
   setup context do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     {:ok, _result} = SchemaPacks.install_packs([])
     state = start_supervised!({Agent, fn -> %{output: %{"patterns" => []}, requests: []} end})
 

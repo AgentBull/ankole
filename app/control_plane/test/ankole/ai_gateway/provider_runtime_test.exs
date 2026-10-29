@@ -753,7 +753,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     # The hosted brain declaration follows `brain.enabled`, not the provider.
     # The configuration cache outlives the sandbox transaction, so clear it.
     assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
-    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
@@ -852,7 +851,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "turn start specs declare no native tools for an OpenAI Chat Completions endpoint" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
-    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -879,7 +877,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "turn start specs declare hosted web search for a Responses endpoint the Agent leaves to it" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
-    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
@@ -925,8 +922,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   end
 
   test "turn start specs declare the hosted brain tool while Brain is enabled" do
-    Ankole.AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -1096,9 +1091,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   end
 
   test "stored Brain model settings prevent disabling their Provider" do
-    AppConfigure.Cache.clear_for_test()
-    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
-
     assert {:ok, _} =
              ProviderConfigs.create_provider(%{
                provider_id: "brain-reference",

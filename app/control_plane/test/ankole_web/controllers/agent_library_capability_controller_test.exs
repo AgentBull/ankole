@@ -7,7 +7,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
@@ -16,7 +15,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
   setup do
     AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
 
     {:ok, false} =
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
@@ -25,7 +23,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()
-      AppConfigureCache.clear_for_test()
     end)
 
     :ok
